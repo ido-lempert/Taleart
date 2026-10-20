@@ -56,7 +56,7 @@ R6 (architecture Quality Targets, NFR-006): **Throughput**
 
 ## Done when
 
-- A real Storyly test account imports end to end from the dashboard, and the report's counts match the source for zones, tale groups, tales, tags, and interactive components (epic 4), user lists (epic 5) and statuses (epic 3) once those epics are done.
+- A real Storyly test account imports end to end from the dashboard (a check the user runs, not a story), and the report's counts match the source for zones, tale groups, tales, tags, and interactive components (epic 4), user lists (epic 5) and statuses (epic 3) once those epics are done.
 - Every difference between source and target is listed in the report.
 - Re-running the import creates no duplicates.
 - The throughput test imports 1,000 tales in under 30 minutes.
@@ -87,18 +87,20 @@ R6 (architecture Quality Targets, NFR-006): **Throughput**
 - Waits on epic-web-zones because: story 11 needs status and schedule fields on tales and tale groups.
 - Waits on epic-interactive-components because: story 13 needs the components to write into.
 - Waits on epic-targeting because: story 12 needs user lists.
-- Assumption: Storyly stats history is not imported, by the same reason as conversion records.
-- Assumption: there is no placement endpoint, so zones come from instances (digest api-recipes-r1-3; PRD addendum "Placement / instance → Zone"). Story 3 confirms.
-- Assumption: labels reach the API only as the story group `segments` JSON and the segments endpoint (digest entities-content-r1-1); those values become tags. Story 3 confirms.
-- Assumption: only an admin starts an import (PRD FR-026 "an administrator"); one Storyly app imports into the existing TaleArt project the import is started from.
-- Assumption: an unknown Storyly status code imports as `paused` and is listed as a difference.
-- Open question: can audience members be read through the External API, or only audience names? If only names, user lists import empty and each is a difference. Story 3 answers it; story 12 waits on it.
-- Open question: auth is documented both as a `token` query parameter and as a bearer JWT. Pick: bearer, falling back to the query parameter; story 3 settles it.
-- Open question: is the Storyly token kept after the import? Pick: stored encrypted with the job while it runs, deleted when it ends; a re-import asks again.
-- Open question: imported zones get no frame, since the API names no widget type. Pick: no frame; the report lists "frame type unknown" per zone.
+- Decision (2026-10-20, user): Storyly stats history is not imported, for the same reason as conversion records: analytics history, not content.
+- Decision (2026-10-20, user): zones come from Storyly instances, since the API has no placement endpoint (digest api-recipes-r1-3; PRD addendum "Placement / instance → Zone"). Story 3 confirms.
+- Decision (2026-10-20, user): the values of Storyly's story group `segments` field and segments endpoint (where labels reach the API, digest entities-content-r1-1) become TaleArt tags, not TaleArt segments. Story 3 confirms.
+- Decision (2026-10-20, user): only an admin can start an import (PRD FR-026 "an administrator"); one Storyly app imports into the existing TaleArt project the import is started from.
+- Decision (2026-10-20, user): an unknown Storyly status code imports as `paused` and is listed as a difference.
+- Decision (2026-10-20, user): story 3 settles whether audience members can be read through the External API; if only names are readable, user lists import empty and each is listed as a difference. Story 12 waits on story 3.
+- Decision (2026-10-20, user): the client authenticates with a bearer token and falls back to the `token` query parameter; story 3 settles which form the live API takes.
+- Decision (2026-10-20, user): the Storyly token is stored encrypted with the job only while it runs and deleted when it ends; a re-import asks for it again.
+- Decision (2026-10-20, user): imported zones get no frame, since the API names no widget type; the report lists "frame type unknown" per zone.
 - Decision (2026-10-20): the epic-level gate on the whole foundation epic is dropped; each story keeps its own `after` on the foundation stories it needs (user, with the web zones decisions).
-- Open question: may recorded responses from the user's real account be committed as fixtures? Pick: only an anonymized, shape-only copy; the raw recording stays outside the repo.
-- Source conflict: status scheme — initiative Notes (open question) vs PRD addendum, Status scheme, and initiative memlog (approved).
+- Decision (2026-10-20, user): only an anonymized, shape-preserving copy of the recorded responses is committed as fixtures; the raw recording stays outside the repo.
+- Decision (2026-10-20, user): the initiative's stale "status scheme open" note is closed as approved, which resolves the source conflict between the initiative Notes and the PRD addendum and initiative memlog.
 - Decision (2026-10-20): story 2 comes before the real run (story 3), against the least-sure-next rule, so the real run compares zone, tale group and tale counts and exercises the story endpoints, not zones alone.
 - Decision (2026-10-20): story 6 owns the report's differences section, and stories 5, 8, 11, 12 and 13 wait on it; 7 waits on 5 and 8, and 9 on 4, so stories sharing the worker pipeline or the import page build in order rather than colliding.
-- Open question: the refactor sweep (14) waits on 11, 12 and 13, so it cannot run until epics 3, 4 and 5 are done. Pick: keep it; the alternative is a sweep after 1 to 10 and a second one later.
+- Decision (2026-10-20, user): the refactor sweep (14) keeps waiting on stories 11, 12 and 13, so it runs after epics 3, 4 and 5 are done; there is no earlier sweep.
+- Decision (2026-10-20, user): the epic's closing real run (first Done when line) is a check the user runs, not a story.
+- Note (2026-10-20): tale groups now belong to the project and zones place them (architecture AD-14; foundation stories 1.15 and 1.16). Story 2 creates each imported tale group in the project with one placement in its instance's zone, at the source position.

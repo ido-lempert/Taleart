@@ -53,7 +53,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** R9, R10, FR-002, FR-003, FR-009
 - **Prevents:** SDK credentials reaching content writes, and web and native clients using different data paths.
-- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts zone keys only, reads published content, and writes events. Its zone response carries the links to the zone's published media, which are public and need no key (AD-11). No client reads the database or a module directly.
+- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts zone keys only, reads published content, and writes events. Its zone response lists the tale groups placed in the zone, in that zone's placement order (AD-14), and carries the links to their published media, which are public and need no key (AD-11). No client reads the database or a module directly.
 
 ### AD-3 — Contract first `[ADOPTED]`
 
@@ -63,9 +63,9 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 ### AD-4 — Project-scoped shared schema
 
-- **Binds:** R8, FR-001, FR-004, FR-030
+- **Binds:** R8, FR-001, FR-004, FR-030, AD-14
 - **Prevents:** data leaking across projects, and a backfill when usage metering arrives.
-- **Rule:** One shared schema. Every content, zone, frame, targeting (tag, segment, user list), campaign, product set and event table has `project_id uuid NOT NULL` referencing `projects`. A module checks every project it acts on against the caller's credential. It never trusts a `project_id` it has not authorized.
+- **Rule:** One shared schema. Every content (tale group, tale, zone placement of a tale group), zone, frame, targeting (tag, segment, user list), campaign, product set and event table has `project_id uuid NOT NULL` referencing `projects`. A placement's zone and tale group belong to the same project. A module checks every project it acts on against the caller's credential. It never trusts a `project_id` it has not authorized.
 
 ### AD-5 — Frame types are data `[ADOPTED]`
 
@@ -107,7 +107,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** FR-010, FR-012
 - **Prevents:** modules writing to disk paths directly, which would block a later move to object storage, and media of unpublished content leaking.
-- **Rule:** Media goes through a storage port (put, get and delete by key). The default adapter writes to local disk. Content stores the storage key, never a path or URL. Media of published content is served from public, unguessable URLs that need no key, so an `<img>` or `<video>` loads it directly; the Delivery API returns these URLs with the zone's data. Media of unpublished content is not public: its public URL answers 404 and only the Management API, with a session, serves it. The server does not transcode media.
+- **Rule:** Media goes through a storage port (put, get and delete by key). The default adapter writes to local disk. Content stores the storage key, never a path or URL. Media of published content is served from public, unguessable URLs that need no key, so an `<img>` or `<video>` loads it directly; the Delivery API returns these URLs with the zone's data. Media of unpublished content is not public: its public URL answers 404 and only the Management API, with a session, serves it. A copied tale group shares its media's storage keys (AD-14): a shared key is public while any published tale references it and is deleted only when nothing references it. The server does not transcode media.
 
 ### AD-12 — Names `[ADOPTED]`
 
@@ -120,6 +120,12 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 - **Binds:** R5, R7, R9, R12, FR-015, FR-017 to FR-020, FR-023
 - **Prevents:** TaleArt becoming a store of the host's end-user data, and targeting that needs that data on the server.
 - **Rule:** TaleArt stores no sensitive end-user data. Sensitive user data, such as user attributes (`setUserAttributes`), stays on the client side of the host and is never sent to TaleArt. Targeting that uses user data is evaluated in the SDK on the client: the Delivery API returns the rules and candidate content, and the SDK decides. Events carry content and frame ids, never user attributes. The external user ID is the host's opaque identifier and is not treated as sensitive `[ASSUMPTION]`.
+
+### AD-14 — Tale groups belong to the project; zones place them
+
+- **Binds:** R3, R8, R9, FR-010, AD-2, AD-4, AD-11
+- **Prevents:** duplicating a tale group to show it in a second zone, edits that reach only one of the copies, and a zone's order that moves another zone's order.
+- **Rule:** A tale group, with its tales, tags, cover and media, belongs to a project. A zone shows an ordered list of placements (`zone_tale_groups`: zone, tale group, position, project), owned by the `tales` module; zones reach them only through its public interface. The same group can be placed in several zones of its project; an edit to the group shows in every zone, and each zone keeps its own order. Removing a group from a zone deletes only that placement; a group placed in no zone still exists in the project. A zone's groups, in the dashboard and the Delivery API, are read through its placements. **Copy to zone** creates an independent tale group, with copies of its tales and tag links and the same media storage keys (files are not duplicated), placed in a zone of the same project or of another project the user can access; the caller must be authorized for both projects (AD-4). In another project, tags are matched by name and created when missing. A storage key referenced by several tales is public while any published tale references it, and its file is deleted only when no tale or cover references it `[ASSUMPTION]` (AD-11). Migration: every existing tale group, from foundation stories 1.3, 1.4 and 1.5 and web-zones story 3.1, becomes a project group with one placement in its current zone, keeping its position.
 
 ## Consistency Conventions
 
@@ -183,7 +189,9 @@ erDiagram
   ZONE ||--o{ FRAME : shows
   ZONE ||--o{ STAGE : renders-in
   STAGE }o--|| FRAME : shows
-  ZONE ||--o{ TALE_GROUP : holds
+  PROJECT ||--o{ TALE_GROUP : owns
+  ZONE ||--o{ ZONE_TALE_GROUP : places
+  TALE_GROUP ||--o{ ZONE_TALE_GROUP : placed-in
   TALE_GROUP ||--o{ TALE : contains
   TALE ||--o{ INTERACTIVE_COMPONENT : carries
   TALE_GROUP }o--o{ TAG : tagged
@@ -197,7 +205,7 @@ erDiagram
   PROJECT ||--o{ EVENT : records
 ```
 
-Every frame in a zone shows all of the zone's published tale groups; a frame does not pick groups. A zone has several stages, each showing one of its frames. A playbook is not a table: it is registry data in `libs/contract`, like the frame-type registry, and the zone records the key of the playbook applied to it. The theme is set per project (validated by a theme schema in `libs/contract`); the Web SDK configuration may override it per zone. A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
+A tale group belongs to its project, not to a zone. `ZONE_TALE_GROUP` (table `zone_tale_groups`: zone, tale group, position, project) places a group in a zone; a zone shows its placed groups in its own order, and the same group can be placed in several zones of its project (AD-14). Every frame in a zone shows all of the published tale groups placed in the zone; a frame does not pick groups. A zone has several stages, each showing one of its frames. A playbook is not a table: it is registry data in `libs/contract`, like the frame-type registry, and the zone records the key of the playbook applied to it. The theme is set per project (validated by a theme schema in `libs/contract`); the Web SDK configuration may override it per zone. A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
 
 ```text
 apps/
@@ -209,7 +217,7 @@ libs/
   server/
     access/       # projects, users, sessions, zone keys
     zones/        # zones, frames, stages, applied playbook key, journeys (post-MVP); registries live in contract
-    tales/        # tale groups, tales, schedules, status
+    tales/        # tale groups (owned by the project), zone placements of tale groups (zone, group, position), tales, schedules, status, copy to zone
     interactive/  # interactive components and responses
     targeting/    # tags, segments, user lists, user attributes, external user IDs
     campaigns/    # campaigns and their schedules (post-MVP)
@@ -236,7 +244,7 @@ libs/
 | Capability | Lives in | Governed by |
 | --- | --- | --- |
 | R1, R2 Storyly import | `libs/server/importer`, worker | AD-7, AD-8, AD-12 |
-| R3 foundation entities | `access`, `zones`, `tales` (product sets moved out of the foundation to `product-sets`, later) | AD-1, AD-4 |
+| R3 foundation entities | `access`, `zones`, `tales` (product sets moved out of the foundation to `product-sets`, later) | AD-1, AD-4, AD-14 |
 | R4 interactive components | `libs/server/interactive`, `libs/web-sdk` | AD-3, AD-10 |
 | R5, R12 targeting | `libs/server/targeting`, rules evaluated in `libs/web-sdk` | AD-2, AD-4, AD-13 |
 | R6 scheduling | `libs/server/tales`, computed when read | AD-6 |
