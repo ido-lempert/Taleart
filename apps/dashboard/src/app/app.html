@@ -1,110 +1,62 @@
-<main>
-  <h1>TaleArt dashboard</h1>
+<a class="skip-link" href="#main" (click)="skipToMain($event)">Skip to content</a>
 
-  <section>
-    <h2>Projects</h2>
-    <form (ngSubmit)="addProject()">
-      <input name="projectName" [(ngModel)]="projectName" placeholder="Project name" required />
-      <button type="submit">Add project</button>
-    </form>
-    <ul>
-      @for (project of projects(); track project.id) {
-        <li>{{ project.name }}</li>
-      } @empty {
-        <li>No projects yet.</li>
-      }
-    </ul>
-  </section>
+<div class="shell">
+  <nav class="rail" aria-label="Main">
+    <a class="rail__brand" routerLink="/zones" aria-label="TaleArt home">
+      <app-mark />
+    </a>
+    <a class="rail__item" routerLink="/zones" routerLinkActive="rail__item--active" ariaCurrentWhenActive="page">
+      <app-icon name="zones" />
+      <span>Zones</span>
+    </a>
+    <a class="rail__item" routerLink="/projects" routerLinkActive="rail__item--active" ariaCurrentWhenActive="page">
+      <app-icon name="projects" />
+      <span>Projects</span>
+    </a>
+  </nav>
 
-  <section>
-    <h2>Zones</h2>
-    <form (ngSubmit)="addZone()">
-      <select name="zoneProjectId" [(ngModel)]="zoneProjectId" required>
-        <option value="">Choose a project</option>
-        @for (project of projects(); track project.id) {
-          <option [value]="project.id">{{ project.name }}</option>
+  <div class="main-column">
+    <header class="topbar">
+      <div class="topbar__brand">
+        <span class="wordmark">TaleArt</span>
+        <h1 class="topbar__title">{{ shell().heading ?? 'Zones' }}</h1>
+      </div>
+      <div class="topbar__actions">
+        @if (store.projects().length > 0) {
+          <div class="switcher">
+            <span class="avatar" aria-hidden="true">{{ store.selectedProject()?.name?.charAt(0) }}</span>
+            <label class="visually-hidden" for="project-switcher">Project</label>
+            <select id="project-switcher" class="switcher__select" (change)="onProjectChange($event)">
+              @for (project of store.projects(); track project.id) {
+                <option [value]="project.id" [selected]="project.id === store.selectedProjectId()">
+                  {{ project.name }}
+                </option>
+              }
+            </select>
+          </div>
         }
-      </select>
-      <input name="zoneName" [(ngModel)]="zoneName" placeholder="Zone name" required />
-      <button type="submit">Add zone</button>
-    </form>
-    <ul>
-      @for (zone of zones(); track zone.id) {
-        <li>
-          {{ zone.name }} <small>in {{ projectNameOf(zone.projectId) }}</small>
-          <form (ngSubmit)="addFrame(zone.id)">
-            <label>
-              Frame type
-              <select [name]="'frameType-' + zone.id" [(ngModel)]="frameTypeChoice[zone.id]">
-                <option value="">Choose a frame type</option>
-                @for (type of frameTypes(); track type.key) {
-                  <option [value]="type.key">{{ type.label }}</option>
-                }
-              </select>
-            </label>
-            <button type="submit">Add frame</button>
-          </form>
-          <ul [attr.aria-label]="'Frames in ' + zone.name">
-            @for (frame of framesOf(zone.id); track frame.id) {
-              <li>{{ frameTypeLabel(frame.type) }}</li>
-            } @empty {
-              <li>No frames yet.</li>
-            }
-          </ul>
-          <form (ngSubmit)="addTaleGroup(zone.id)">
-            <label>
-              Tale group name
-              <input
-                [name]="'taleGroupName-' + zone.id"
-                [attr.name]="'taleGroupName-' + zone.id"
-                [(ngModel)]="taleGroupName[zone.id]"
-                [attr.aria-describedby]="taleGroupErrors()[zone.id] ? 'taleGroupError-' + zone.id : null"
-              />
-            </label>
-            <button type="submit">Add tale group</button>
-            @if (taleGroupErrors()[zone.id]) {
-              <p role="alert" [id]="'taleGroupError-' + zone.id">{{ taleGroupErrors()[zone.id] }}</p>
-            }
-          </form>
-          <ul [attr.aria-label]="'Tale groups in ' + zone.name">
-            @for (group of taleGroupsOf(zone.id); track group.id) {
-              <li>
-                {{ group.name }}
-                <ol [attr.aria-label]="'Tales in ' + group.name">
-                  @for (tale of group.tales; track tale.id) {
-                    <li>{{ tale.title }}</li>
-                  } @empty {
-                    <li>No tales yet.</li>
-                  }
-                </ol>
-                <form (ngSubmit)="addTale(group.id)">
-                  <label>
-                    Tale title
-                    <input
-                      [name]="'taleTitle-' + group.id"
-                      [attr.name]="'taleTitle-' + group.id"
-                      [(ngModel)]="taleTitle[group.id]"
-                      [attr.aria-describedby]="taleErrors()[group.id] ? 'taleError-' + group.id : null"
-                    />
-                  </label>
-                  <button type="submit">Add tale</button>
-                  @if (taleErrors()[group.id]) {
-                    <p role="alert" [id]="'taleError-' + group.id">{{ taleErrors()[group.id] }}</p>
-                  }
-                </form>
-              </li>
-            } @empty {
-              <li>No tale groups yet.</li>
-            }
-          </ul>
-        </li>
-      } @empty {
-        <li>No zones yet.</li>
-      }
-    </ul>
-  </section>
+        @if (createRequest(); as request) {
+          <button type="button" class="btn btn--primary" (click)="store.openDrawer(request, $event)">
+            <app-icon name="plus" />
+            <span class="btn__label">{{ shell().createLabel }}</span>
+          </button>
+        }
+      </div>
+    </header>
 
-  @if (error()) {
-    <p role="alert">{{ error() }}</p>
-  }
-</main>
+    @if (store.apiDown()) {
+      <div class="banner" role="alert">
+        <app-icon name="alert" />
+        <span>Could not reach the API. Is it running on port 3333?</span>
+      </div>
+    }
+
+    <main id="main" class="content" tabindex="-1">
+      <router-outlet />
+    </main>
+  </div>
+</div>
+
+@if (store.drawer(); as request) {
+  <app-create-drawer [request]="request" />
+}

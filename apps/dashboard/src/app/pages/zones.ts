@@ -1,0 +1,120 @@
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { DashboardStore } from '../dashboard.store';
+import { Icon } from '../icon';
+
+/** The selected project's zones as cards. */
+@Component({
+  selector: 'app-zones-page',
+  imports: [RouterLink, Icon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: `
+    .zone-card {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      height: 100%;
+      padding: var(--space-5);
+      color: inherit;
+      text-decoration: none;
+      transition:
+        border-color 120ms ease,
+        box-shadow 120ms ease;
+    }
+    .zone-card:hover {
+      border-color: var(--border-strong);
+      box-shadow: 0 4px 12px rgb(16 24 40 / 8%);
+    }
+    .zone-card__name {
+      font-size: var(--text-lg);
+      font-weight: 600;
+    }
+    .zone-card__meta {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-top: auto;
+      color: var(--text-muted);
+    }
+  `,
+  template: `
+    <div class="page">
+      @if (store.loaded()) {
+        @if (store.projects().length === 0) {
+          @if (!store.apiDown()) {
+            <section class="card empty" aria-labelledby="empty-projects">
+              <span class="empty__icon"><app-icon name="projects" /></span>
+              <h2 class="empty__title" id="empty-projects">
+                Create your first project
+              </h2>
+              <p class="empty__text">
+                A project holds your zones, tale groups and tales. Start with
+                one for your app or site.
+              </p>
+              <button
+                type="button"
+                class="btn btn--primary"
+                (click)="store.openDrawer({ kind: 'project' }, $event)"
+              >
+                <app-icon name="plus" /> New project
+              </button>
+            </section>
+          }
+        } @else if (store.projectZones().length === 0) {
+          @if (!store.apiDown()) {
+            <section class="card empty" aria-labelledby="empty-zones">
+              <span class="empty__icon"><app-icon name="zones" /></span>
+              <h2 class="empty__title" id="empty-zones">
+                No zones in {{ store.selectedProject()?.name }} yet
+              </h2>
+              <p class="empty__text">
+                A zone is a place in your app or site where tales show. Create
+                one to add frames and tale groups.
+              </p>
+              <button
+                type="button"
+                class="btn btn--primary"
+                (click)="store.openDrawer({ kind: 'zone' }, $event)"
+              >
+                <app-icon name="plus" /> New zone
+              </button>
+            </section>
+          }
+        } @else {
+          <ul class="card-grid" aria-label="Zones">
+            @for (zone of store.projectZones(); track zone.id) {
+              <li>
+                <a class="card zone-card" [routerLink]="['/zones', zone.id]">
+                  <span class="zone-card__name">{{ zone.name }}</span>
+                  @if (store.framesOf(zone.id).length > 0) {
+                    <ul class="pill-list" aria-label="Frame types">
+                      @for (frame of store.framesOf(zone.id); track frame.id) {
+                        <li class="pill">
+                          {{ store.frameTypeLabel(frame.type) }}
+                        </li>
+                      }
+                    </ul>
+                  } @else {
+                    <span class="muted">No frames yet</span>
+                  }
+                  <span class="zone-card__meta">
+                    <app-icon name="tales" />
+                    {{ groupCountLabel(zone.id) }}
+                  </span>
+                </a>
+              </li>
+            }
+          </ul>
+        }
+      }
+    </div>
+  `,
+})
+export class ZonesPage {
+  protected readonly store = inject(DashboardStore);
+
+  protected groupCountLabel(zoneId: string): string {
+    const count = this.store.taleGroupsOf(zoneId).length;
+    return `${count} tale ${count === 1 ? 'group' : 'groups'}`;
+  }
+}

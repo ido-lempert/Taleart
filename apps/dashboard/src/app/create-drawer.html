@@ -1,0 +1,106 @@
+<app-drawer [heading]="heading()" [returnFocus]="store.drawerOpener" [busy]="saving()" (closed)="close()">
+  <form class="drawer__form" (ngSubmit)="submit()" novalidate>
+    <div class="drawer__body">
+      @if (context()) {
+        <p class="muted">{{ context() }}</p>
+      }
+
+      @switch (request().kind) {
+        @case ('project') {
+          <div class="field">
+            <label class="field__label" for="create-text">Project name</label>
+            <input
+              id="create-text"
+              class="input"
+              name="text"
+              autocomplete="off"
+              [(ngModel)]="text"
+              [attr.aria-invalid]="error() ? 'true' : null"
+              [attr.aria-describedby]="error() ? 'create-error' : null"
+            />
+          </div>
+        }
+        @case ('zone') {
+          <div class="field">
+            <label class="field__label" for="create-text">Zone name</label>
+            <input
+              id="create-text"
+              class="input"
+              name="text"
+              autocomplete="off"
+              [(ngModel)]="text"
+              [attr.aria-invalid]="error() ? 'true' : null"
+              [attr.aria-describedby]="error() ? 'create-error' : null"
+            />
+            <p class="field__hint">Where the frames and tale groups show in your app or site.</p>
+          </div>
+          <div class="field">
+            <label class="field__label" for="create-project">Project</label>
+            <select id="create-project" class="select" name="projectId" [(ngModel)]="projectId">
+              <option value="">Choose a project</option>
+              @for (project of store.projects(); track project.id) {
+                <option [value]="project.id">{{ project.name }}</option>
+              }
+            </select>
+          </div>
+        }
+        @case ('frame') {
+          <div class="field">
+            <label class="field__label" for="create-frame-type">Frame type</label>
+            <select
+              id="create-frame-type"
+              class="select"
+              name="frameType"
+              [(ngModel)]="frameType"
+              [attr.aria-describedby]="error() ? 'create-error' : null"
+            >
+              <option value="">Choose a frame type</option>
+              @for (type of store.frameTypes(); track type.key) {
+                <option [value]="type.key">{{ type.label }}</option>
+              }
+            </select>
+          </div>
+        }
+        @case ('taleGroup') {
+          <div class="field">
+            <label class="field__label" for="create-text">Tale group name</label>
+            <input
+              id="create-text"
+              class="input"
+              name="text"
+              autocomplete="off"
+              [(ngModel)]="text"
+              [attr.aria-invalid]="error() ? 'true' : null"
+              [attr.aria-describedby]="error() ? 'create-error' : null"
+            />
+            <p class="field__hint">A group holds up to {{ maxTales }} tales.</p>
+          </div>
+        }
+        @case ('tale') {
+          <div class="field">
+            <label class="field__label" for="create-text">Tale title</label>
+            <input
+              id="create-text"
+              class="input"
+              name="text"
+              autocomplete="off"
+              [(ngModel)]="text"
+              [attr.aria-invalid]="error() ? 'true' : null"
+              [attr.aria-describedby]="error() ? 'create-error' : null"
+            />
+          </div>
+        }
+      }
+
+      @if (error()) {
+        <p class="form-error" role="alert" id="create-error">{{ error() }}</p>
+      }
+    </div>
+    <div class="drawer__footer">
+      <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="close()">Cancel</button>
+      <button type="submit" class="btn btn--primary" [disabled]="saving()">
+        {{ request().kind === 'frame' || request().kind === 'tale' ? 'Add' : 'Create' }}
+      </button>
+    </div>
+  </form>
+</app-drawer>
