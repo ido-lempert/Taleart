@@ -1,0 +1,48 @@
+# The initiative's agreed epics, in build order. Table order is build order; id is permanent.
+
+[[epic]]
+id = 1
+slug = "epic-platform-foundation"
+title = "Platform foundation"
+description = "Data model, API and project tag run in CI and deploy, with a dashboard shell, ready for the other epics."
+covers = ["R3", "R8", "R10"]
+
+[[epic]]
+id = 2
+slug = "epic-another tool-importer"
+title = "another tool importer"
+description = "A another tool account's groups, stories and zones import through the live API with a per-entity count report; later entries add components and audiences."
+covers = ["R1", "R2"]
+after = [{ epic = 1, needs = "the data model and API" }]
+
+[[epic]]
+id = 3
+slug = "epic-web-zones"
+title = "Web zones"
+description = "A visitor on a Web page sees a zone's bar or banner with its published tales, respecting schedules."
+covers = ["R6", "R9"]
+after = [{ epic = 1, needs = "the data model and API" }]
+
+[[epic]]
+id = 4
+slug = "epic-interactive-components"
+title = "Interactive components"
+description = "Authors add poll, quiz, emoji reaction, countdown, product pins, promo code and Rating to a tale, and viewers respond on the Web SDK."
+covers = ["R4"]
+after = [{ epic = 1, needs = "the data model and API" }]
+
+[[epic]]
+id = 5
+slug = "epic-targeting"
+title = "Tag and audience targeting"
+description = "Tags combine with AND or OR, and audiences import from CSV and match the external user key, deciding which groups a viewer sees."
+covers = ["R5"]
+after = [{ epic = 3, needs = "zones to demonstrate targeting" }]
+
+[[epic]]
+id = 6
+slug = "epic-analytics"
+title = "Analytics"
+description = "Per-widget and per-content metrics (Reach, Impression, Click, Engagement Rate, CTR) are recorded and shown, with published definitions."
+covers = ["R7"]
+after = [{ epic = 3, needs = "widgets emitting events" }, { epic = 4, needs = "interactive events" }]
