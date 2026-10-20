@@ -70,3 +70,11 @@ The run ended after about 30 minutes, not overnight: three of the remaining stor
 - **Why:** sessions are decided (AD-9), but the account model isn't.
 - **What you decide:** how accounts are created (first-run admin, sign-up, or invite); how people sign in (password or email link); what administrators can do that content managers can't; and whether a user belongs to one project or several.
 - **Knock-on effect:** story 1.8 (zone keys) waits on this one.
+
+## Story 1.3 — Create a tale group in a zone and add tales to it
+
+- **Status:** built
+- **Commits:** `cf0bbc9` re-slice of the foundation stories with the user's decisions; `30f6d10` story 3.
+- **Assumptions:** a tale group belongs to one zone (the frame-to-tale-group display link comes later); a tale has a title only (media is story 1.12); a group holds at most 100 tales (FR-010), answered with 409 `tale_group_full`; group creation is serialized with a Postgres advisory lock, because the tales module may not lock the zones table (AD-1); deep imports such as `@taleart/server-zones/src/lib/frames` now fail lint everywhere.
+- **Review in the dashboard:** under a zone, enter a tale group name and press "Add tale group"; in the group, add two tales; reload: both are listed in the order added.
+- **Blocking condition:** none.
