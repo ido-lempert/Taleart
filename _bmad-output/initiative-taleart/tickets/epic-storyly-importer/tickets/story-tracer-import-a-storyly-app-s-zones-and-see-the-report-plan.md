@@ -3,22 +3,29 @@ title: 'Tracer: import a Storyly app''s zones and see the report'
 type: 'feature'
 ticket: '1'
 created: '2026-10-20'
-status: 'in-progress'
+status: 'built'
 baseline_revision: 'be909804f298c3c5692c0035cfc0e10b72384f41'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md'
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-storyly-importer/epic-storyly-importer.md'
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-storyly-importer/import-mapping.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Re-import does not rename an already linked zone to the source's current title.
+    evidence: |-
+      importZones returns early for a linked instance; AD-7 and epic R4 say re-runs update linked records. Importer story 7 (re-import updates) owns it.
+    location: >-
+      libs/server/importer/src/lib/worker.ts
+    severity: low
 ---
 
 <intent-contract>
@@ -112,6 +119,18 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-20 — Review pass
+- verdicts: 8 findings — high 0, medium 3, low 5, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` Start-up requeue reset live jobs and finish/fail matched by id only, so a job could run twice and a stale runner overwrite the result — fixed: `locked_by`, `heartbeat_at`, `attempts`; stale-heartbeat recovery on every poll; writes require id, running and owner; tests.
+  - `[medium]` `[patch]` Two concurrent jobs could both create a zone and `ON CONFLICT DO UPDATE` re-pointed the link — fixed: advisory lock per source key, `ON CONFLICT DO NOTHING`; concurrency test.
+  - `[low]` `[patch]` A throwing failure write left the job running with its token — fixed: guarded write; recovered by the stale-heartbeat path, failed with token cleared after 3 claims.
+  - `[low]` `[patch]` Unknown errors were logged without their cause — fixed: original error logged with the token redacted from message and stack.
+  - `[low]` `[reject]` Against the instant fake server the page shows Queued then Done, never Running — correct behaviour for a job that finishes before the first poll; real imports run long enough to show Running.
+  - `[medium]` `[defer]` A re-import does not rename a linked zone to the source title (AD-7, R4) — the plan only required no duplicates; importer story 7 ("Re-import updates instead of duplicating") owns updates.
+  - `[low]` `[patch]` Shutdown kept serving HTTP while the worker drained with no deadline — fixed: close the server first, 20 s deadline.
+  - `[low]` `[reject]` Import tables have no `ON DELETE` action on `project_id` — projects cannot be deleted; revisit with project deletion.
+
 ## Verification
 
 **Commands:**
@@ -119,3 +138,24 @@ deferred: []
 
 **Manual checks (if no CLI):**
 - The parent session runs an import against the fake server on the dev servers and screenshots the import page with the report.
+
+## Auto Run Result
+
+**Summary:** A new `importer` module runs Storyly imports as Postgres-backed jobs (AD-8): an admin pastes a token, picks an app and starts; an in-process worker claims the job with an owner and heartbeat, reads the app's instances through a read-only Storyly client, creates zones through the zones module (no frame), writes import links (AD-7) and a report. The token is AES-256-GCM encrypted only while the job runs. A fake Storyly server (`apps/fake-storyly`, port 4400) serves fixtures for tests and reviews. The dashboard has "Import from Storyly" per project for admins, with live status and the report.
+
+**Files changed:**
+- `libs/server/importer/` — jobs, links, crypto, Storyly client, worker; tests.
+- `apps/fake-storyly/` — fake server and fixtures; tests.
+- `libs/contract/` — import paths and schemas, three error codes; regenerated.
+- `apps/api/src/` — `imports.router.ts`, worker wiring and shutdown, env config; tests.
+- `apps/dashboard/src/app/` — import page and project card entry; tests.
+- `.env.example`, `tsconfig.base.json`.
+
+**Review:** 5 patches applied (2 medium, 3 low), 1 deferred (medium: rename on re-import, story 7), 2 rejected (low).
+
+**Follow-up review recommended:** true. Two medium concurrency fixes changed the job claiming and locking; a second look is worthwhile.
+
+**Verification:** `nx run-many -t lint test build` for ten projects passed in the worktree against `taleart_w1_test` (api 161, server-importer 17, fake-storyly 5 tests). A built API started with the worker, answered health, and stopped cleanly on SIGTERM.
+
+**Residual risks:**
+- Storyly paths `/app` and `/instance?app_id=` are assumptions until story 3's real run.
