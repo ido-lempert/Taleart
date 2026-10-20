@@ -2007,6 +2007,8 @@ describe('App', () => {
     const importsUrl = `${API_BASE}/projects/p1/imports`;
     const report = {
       zones: { source: 3, imported: 3, skipped: 0 },
+      taleGroups: { source: 6, imported: 6, skipped: 0 },
+      tales: { source: 15, imported: 14, skipped: 1 },
       notes: [
         'Zone "Home page": frame type unknown',
         'Zone "Product page": frame type unknown',
@@ -2110,9 +2112,13 @@ describe('App', () => {
 
       await answerPoll(fixture, job('done', { report, finishedAt: '2026-10-20T12:00:05.000Z' }));
       expect(root.querySelector('[role=status]')?.textContent).toContain('Done');
-      expect(root.querySelector('[aria-label=Report]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      expect(
+        [...root.querySelectorAll('[aria-label=Report] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim()),
+      ).toEqual([
         'Zones: 3 source / 3 imported',
-      );
+        'Tale groups: 6 source / 6 imported',
+        'Tales: 15 source / 14 imported / 1 skipped',
+      ]);
       expect([...root.querySelectorAll('[aria-label=Notes] li')].map((li) => li.textContent?.trim())).toEqual(
         report.notes,
       );
@@ -2123,6 +2129,17 @@ describe('App', () => {
       await settle(fixture);
       expect(TestBed.inject(Router).url).toBe('/zones');
       for (const z of imported) expect(root.textContent).toContain(z.name);
+    });
+
+    it('shows only the zones row for a report stored before tale groups were imported', async () => {
+      const { fixture, root } = await open('/projects/p1/import', oneZone);
+      await startImport(fixture, root);
+      const zonesOnly = { zones: report.zones, notes: report.notes };
+      await answerPoll(fixture, job('done', { report: zonesOnly, finishedAt: '2026-10-20T12:00:05.000Z' }));
+      expect(
+        [...root.querySelectorAll('[aria-label=Report] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim()),
+      ).toEqual(['Zones: 3 source / 3 imported']);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
     it("shows the API's message for a refused token and starts nothing", async () => {
