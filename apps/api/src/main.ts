@@ -67,15 +67,23 @@ async function start(): Promise<void> {
   });
   server.on('error', (err) => log('error', 'server error', err));
 
-  // On shutdown the worker finishes the job in progress; a job cut off anyway
-  // is re-queued at the next start.
+  // On shutdown the API stops taking requests first, then the worker gets up
+  // to SHUTDOWN_DEADLINE_MS to finish the job in progress. A job cut off by the
+  // deadline stops sending heartbeats, so a later worker recovers it.
+  const SHUTDOWN_DEADLINE_MS = 20_000;
   let stopping = false;
   const shutdown = async (signal: string) => {
     if (stopping) return;
     stopping = true;
     log('info', `Stopping on ${signal}`);
-    await worker?.stop();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+    server.closeIdleConnections();
+    const deadline = new Promise<'deadline'>((resolve) => setTimeout(() => resolve('deadline'), SHUTDOWN_DEADLINE_MS).unref());
+    const outcome = await Promise.race([Promise.all([closed, worker?.stop()]).then(() => 'stopped' as const), deadline]);
+    if (outcome === 'deadline') {
+      log('error', `Shutdown deadline of ${SHUTDOWN_DEADLINE_MS} ms passed; exiting with work in progress`);
+      process.exit(1);
+    }
     await pool.end();
     process.exit(0);
   };
