@@ -10,6 +10,8 @@ import {
   normalizeTagName,
   taleMediaUrl,
   USER_ROLES,
+  ZONE_KEY_PREFIX,
+  zoneKeyPrefix,
 } from '../index';
 
 describe('contract', () => {
@@ -67,5 +69,12 @@ describe('tags', () => {
     expect(normalizeTagName('a'.repeat(40))).toBe('a'.repeat(40));
     expect(normalizeTagName('a'.repeat(41))).toBeNull();
     expect(normalizeTagName('\u{1F31E}'.repeat(40))).toBe('\u{1F31E}'.repeat(40));
+  });
+});
+
+describe('zone keys', () => {
+  it('shows tak_ and the next 6 characters as the prefix', () => {
+    expect(ZONE_KEY_PREFIX).toBe('tak_');
+    expect(zoneKeyPrefix('tak_abcdefghijklmnop')).toBe('tak_abcdef');
   });
 });

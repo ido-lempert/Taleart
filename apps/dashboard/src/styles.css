@@ -936,3 +936,24 @@ select {
 .invite-actions .btn {
   flex: 1 1 160px;
 }
+
+/* Destructive confirm, such as "Revoke key". --danger-text keeps white text above 4.5:1. */
+.btn--danger {
+  background: var(--danger-text);
+  color: #fff;
+}
+.btn--danger:hover:not(:disabled) {
+  background: #912018;
+}
+
+/* A zone key or its prefix: monospace, so similar characters stay distinct. */
+.input--mono,
+.key-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.key-prefix {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-size: var(--text-sm);
+}

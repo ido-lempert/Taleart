@@ -39,3 +39,13 @@ export class EmailTakenError extends Error {
     this.name = 'EmailTakenError';
   }
 }
+
+/** Thrown when a zone has no active key to revoke. */
+export class ZoneKeyNotFoundError extends Error {
+  readonly code = ErrorCodes.zoneKeyNotFound;
+
+  constructor() {
+    super('This zone has no active key');
+    this.name = 'ZoneKeyNotFoundError';
+  }
+}

@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAX_TALES_PER_GROUP, MEDIA_CONTENT_TYPES, type Invitation } from '@taleart/contract';
+import { MAX_TALES_PER_GROUP, MEDIA_CONTENT_TYPES, type Invitation, type IssuedZoneKey } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 
 /**
  * The form for whatever the store's drawer request asks for: a create form, a
- * tale's media upload, a tale group's tags, or an invitation link. The API's
- * message shows inside it.
+ * tale's media upload, a tale group's tags, an invitation link, or issuing,
+ * rotating or revoking a zone key. The API's message shows inside it.
  */
 @Component({
   selector: 'app-create-drawer',
@@ -30,7 +30,9 @@ export class CreateDrawer implements OnInit {
   protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
   /** The invitation an invite drawer created; its link is shown only now. */
   protected readonly invitation = signal<Invitation | null>(null);
-  /** '' or the outcome of the last "Copy link", announced to screen readers. */
+  /** The zone key an issue or rotate drawer created; shown only now. */
+  protected readonly issuedKey = signal<IssuedZoneKey | null>(null);
+  /** '' or the outcome of the last "Copy link" or "Copy key", announced to screen readers. */
   protected readonly copyStatus = signal('');
   /** The tags checked in a tags drawer. */
   protected readonly selectedTagIds = signal<string[]>([]);
@@ -71,10 +73,37 @@ export class CreateDrawer implements OnInit {
         return 'Create link';
       case 'tags':
         return 'Save';
+      case 'zoneKey':
+        return this.zoneKeyRequest()?.action === 'rotate'
+          ? 'Rotate key'
+          : this.zoneKeyRequest()?.action === 'revoke'
+            ? 'Revoke key'
+            : 'Issue key';
       default:
         return 'Create';
     }
   });
+
+  /** The request of a zone key drawer, else undefined. */
+  protected readonly zoneKeyRequest = computed(() => {
+    const request = this.request();
+    return request.kind === 'zoneKey' ? request : undefined;
+  });
+
+  /** The zone a zone key drawer is for. */
+  protected readonly keyZone = computed(() => {
+    const request = this.zoneKeyRequest();
+    return request ? this.store.zone(request.zoneId) : undefined;
+  });
+
+  /** The zone's active key, which a rotate or revoke drawer names. */
+  protected readonly activeKey = computed(() => {
+    const request = this.zoneKeyRequest();
+    return request ? this.store.zoneKey(request.zoneId) : null;
+  });
+
+  /** True when the drawer's work is done and it shows only the result (a link or a key) and "Done". */
+  protected readonly showsResult = computed(() => this.invitation() !== null || this.issuedKey() !== null);
 
   protected readonly heading = computed(() => {
     switch (this.request().kind) {
@@ -94,6 +123,13 @@ export class CreateDrawer implements OnInit {
         return 'Invite to project';
       case 'tags':
         return 'Tags';
+      case 'zoneKey':
+        if (this.issuedKey()) return 'Zone key';
+        return this.zoneKeyRequest()?.action === 'rotate'
+          ? 'Rotate zone key'
+          : this.zoneKeyRequest()?.action === 'revoke'
+            ? 'Revoke zone key'
+            : 'Issue zone key';
     }
   });
 
@@ -114,6 +150,10 @@ export class CreateDrawer implements OnInit {
     }
     if (request.kind === 'invite') {
       return `To project ${this.store.projectName(request.projectId)}`;
+    }
+    if (request.kind === 'zoneKey') {
+      const zone = this.keyZone();
+      return zone ? `For zone ${zone.name}` : '';
     }
     if (request.kind === 'taleMedia') {
       const tale = this.tale();
@@ -202,14 +242,23 @@ export class CreateDrawer implements OnInit {
     }
   }
 
+  protected async copyKey(key: IssuedZoneKey): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(key.key);
+      this.copyStatus.set('Key copied');
+    } catch {
+      this.copyStatus.set('Could not copy. Select the key and copy it.');
+    }
+  }
+
   protected close(): void {
     this.store.closeDrawer();
   }
 
   protected async submit(): Promise<void> {
     const request = this.request();
-    // Once the link is shown, Enter must not create another invitation.
-    if (this.saving() || (request.kind === 'invite' && this.invitation())) return;
+    // Once the link or key is shown, Enter must not create another one.
+    if (this.saving() || this.showsResult()) return;
     this.saving.set(true);
     let message: string;
     switch (request.kind) {
@@ -243,6 +292,19 @@ export class CreateDrawer implements OnInit {
       case 'tags':
         message = await this.store.setTaleGroupTags(request.taleGroupId, this.selectedTagIds());
         break;
+      case 'zoneKey': {
+        if (request.action === 'revoke') {
+          message = await this.store.revokeZoneKey(request.zoneId);
+          break;
+        }
+        // Issue and rotate are one call: issuing while a key is active rotates it.
+        const issued = await this.store.issueZoneKey(request.zoneId);
+        this.issuedKey.set(issued.key);
+        this.saving.set(false);
+        this.error.set(issued.message);
+        // The drawer stays open to show the key once.
+        return;
+      }
       case 'taleMedia':
         message = this.file
           ? await this.store.uploadTaleMedia(request.taleId, this.file)

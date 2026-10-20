@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
-  title: TaleArt Management API
+  title: TaleArt API
   version: 1.0.0
   description: >-
-    Source of truth for TaleArt request and response shapes (AD-3).
+    Source of truth for TaleArt request and response shapes (AD-3): the
+    Management API under `/api/v1` and the Delivery API under `/delivery/v1`.
     A shape change starts here; regenerate the TypeScript types with
     `npm exec nx -- run contract:generate`.
 servers:
@@ -471,6 +472,95 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /zones/{zoneId}/key:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getZoneKey
+      summary: Whether the zone has an active key, with its prefix and issue date.
+      description: >-
+        Answers `null` when the zone has no active key. Never returns the key
+        or its hash. Anyone who can access the zone's project may read it.
+      responses:
+        '200':
+          description: The active key's info, or null.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ZoneKeyInfo'
+                  - type: 'null'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: issueZoneKey
+      summary: Issue a zone key, or rotate it (admins only).
+      description: >-
+        Creates a new key for the zone. When the zone already has an active key,
+        that key is revoked in the same transaction (rotation). `key` appears
+        only in this response; only its SHA-256 hash is stored. A content
+        manager gets 403 `forbidden`; an unknown zone 404 `zone_not_found`.
+      responses:
+        '201':
+          description: The new key, shown only once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedZoneKey'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: revokeZoneKey
+      summary: Revoke the zone's active key (admins only).
+      description: >-
+        The key stops working on the Delivery API at once. A zone without an
+        active key answers 404 `zone_key_not_found`.
+      responses:
+        '204':
+          description: The key is revoked.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /zone:
+    servers:
+      - url: /delivery/v1
+        description: Delivery API (AD-2), for SDKs. Accepts zone keys only.
+    get:
+      operationId: getDeliveryZone
+      summary: The zone of the zone key, with its frames (Delivery API).
+      description: >-
+        Served under `/delivery/v1`. Accepts only a zone key in
+        `Authorization: Bearer <key>`, never a session. A missing, unknown or
+        revoked key answers 401 `invalid_zone_key`. CORS is open to any origin,
+        without credentials.
+      security:
+        - zoneKey: []
+      responses:
+        '200':
+          description: The zone and its frames, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryZone'
+        '401':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /zones/{zoneId}/tale-groups:
     parameters:
       - name: zoneId
@@ -761,6 +851,12 @@ components:
         session every route except `/health` and `/auth/*` answers 401 `unauthenticated`.
         A signed-in user who cannot access the project of a resource gets 403
         `forbidden`; a resource that does not exist still answers 404.
+    zoneKey:
+      type: http
+      scheme: bearer
+      description: >-
+        A zone key (`tak_...`) issued in the dashboard (AD-9), sent as
+        `Authorization: Bearer <key>`. Only the Delivery API accepts it.
   parameters:
     InvitationToken:
       name: token
@@ -1012,6 +1108,54 @@ components:
           description: Every tale id of the group, once each, in the new order.
           items:
             type: string
+    ZoneKeyInfo:
+      type: object
+      required: [prefix, createdAt]
+      properties:
+        prefix:
+          type: string
+          description: The start of the key, `tak_` and the next 6 characters, to recognise it.
+        createdAt:
+          type: string
+          format: date-time
+    IssuedZoneKey:
+      type: object
+      required: [key, prefix, createdAt]
+      properties:
+        key:
+          type: string
+          description: The secret zone key, `tak_` and 32 random bytes in base64url. Shown only once.
+        prefix:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    DeliveryFrame:
+      type: object
+      required: [id, type, settings]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: A frame type key; clients skip types they don't know (AD-5).
+        settings:
+          type: object
+          additionalProperties: true
+    DeliveryZone:
+      type: object
+      required: [id, name, frames]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        frames:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryFrame'
     UserRole:
       type: string
       enum: [admin, content_manager]
@@ -1142,6 +1286,8 @@ components:
         - email_taken
         - tag_exists
         - tag_not_found
+        - zone_key_not_found
+        - invalid_zone_key
         - internal_error
     ErrorBody:
       type: object

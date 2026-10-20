@@ -124,7 +124,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_tags, tags, tales, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE zone_keys, tale_group_tags, tags, tales, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -1363,6 +1363,217 @@ describe('Management API v1: projects and zones', () => {
       expect((await send('GET', `/zones/${b.zone.id}/tale-groups`)).status).toBe(200);
     });
   });
+  describe('zone keys and the Delivery API', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    function send(method: string, path: string, cookie = sessionCookie): Promise<Response> {
+      return globalThis.fetch(`${base}${path}`, { method, headers: { Cookie: cookie } });
+    }
+
+    function deliver(key?: string, headers: Record<string, string> = {}): Promise<Response> {
+      const all: Record<string, string> = { ...headers };
+      if (key !== undefined) all['Authorization'] = `Bearer ${key}`;
+      return globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: all });
+    }
+
+    async function issue(zoneId: string): Promise<{ key: string; prefix: string; createdAt: string }> {
+      const res = await send('POST', `/zones/${zoneId}/key`);
+      expect(res.status).toBe(201);
+      return res.json();
+    }
+
+    async function signInAsContentManager(projectId: string): Promise<void> {
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, projectId, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+    }
+
+    async function expectInvalidKey(res: Response): Promise<string> {
+      expect(res.status).toBe(401);
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      const body = await res.json();
+      expect(body.error.code).toBe('invalid_zone_key');
+      return body.error.message;
+    }
+
+    it('answers null while a zone has no key, and 404 for an unknown zone', async () => {
+      const zone = await createZone();
+      const res = await send('GET', `/zones/${zone.id}/key`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toBeNull();
+
+      for (const method of ['GET', 'POST', 'DELETE']) {
+        const unknown = await send(method, `/zones/${unknownId}/key`);
+        expect(unknown.status).toBe(404);
+        expect((await unknown.json()).error.code).toBe('zone_not_found');
+      }
+    });
+
+    it('issues a key shown once, and then reports only its prefix and date', async () => {
+      const zone = await createZone();
+      const issued = await issue(zone.id);
+      expect(issued.key).toMatch(/^tak_[A-Za-z0-9_-]{43}$/);
+      expect(issued.prefix).toBe(issued.key.slice(0, 10));
+      expect(Number.isNaN(Date.parse(issued.createdAt))).toBe(false);
+
+      const info = await send('GET', `/zones/${zone.id}/key`);
+      expect(info.status).toBe(200);
+      const text = await info.text();
+      expect(JSON.parse(text)).toEqual({ prefix: issued.prefix, createdAt: issued.createdAt });
+      expect(text).not.toContain(issued.key);
+      expect(text).not.toContain(createHash('sha256').update(issued.key).digest('hex'));
+    });
+
+    it('stores hashes and prefixes, never keys', async () => {
+      const zone = await createZone();
+      const issued = await issue(zone.id);
+      const { rows } = await pool.query('SELECT * FROM zone_keys');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].key_hash).toBe(createHash('sha256').update(issued.key).digest('hex'));
+      expect(rows[0].prefix).toBe(issued.prefix);
+      expect(rows[0].zone_id).toBe(zone.id);
+      expect(rows[0].project_id).toBe(zone.projectId);
+      expect(JSON.stringify(rows)).not.toContain(issued.key);
+    });
+
+    it('serves the zone and its frames to a valid key', async () => {
+      const zone = await createZone();
+      const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: {} })).json();
+      const { key } = await issue(zone.id);
+
+      const res = await deliver(key);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect(res.headers.get('access-control-allow-credentials')).toBeNull();
+      expect(await res.json()).toEqual({
+        id: zone.id,
+        name: zone.name,
+        frames: [{ id: frame.id, type: 'bar', settings: {} }],
+      });
+    });
+
+    it('rotates: the old key is revoked at once and the new key works', async () => {
+      const zone = await createZone();
+      const first = await issue(zone.id);
+      const second = await issue(zone.id);
+      expect(second.key).not.toBe(first.key);
+
+      await expectInvalidKey(await deliver(first.key));
+      expect((await deliver(second.key)).status).toBe(200);
+      expect(await (await send('GET', `/zones/${zone.id}/key`)).json()).toEqual({
+        prefix: second.prefix,
+        createdAt: second.createdAt,
+      });
+      const { rows } = await pool.query('SELECT revoked_at FROM zone_keys WHERE zone_id = $1 ORDER BY created_at', [
+        zone.id,
+      ]);
+      expect(rows).toHaveLength(2);
+      expect(rows[0].revoked_at).not.toBeNull();
+      expect(rows[1].revoked_at).toBeNull();
+    });
+
+    it('keeps at most one active key under concurrent rotations', async () => {
+      const zone = await createZone();
+      const results = await Promise.all([1, 2, 3, 4].map(() => send('POST', `/zones/${zone.id}/key`)));
+      expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201]);
+      const { rows } = await pool.query('SELECT 1 FROM zone_keys WHERE zone_id = $1 AND revoked_at IS NULL', [zone.id]);
+      expect(rows).toHaveLength(1);
+    });
+
+    it('revokes: 204, info answers null, the key stops working, and nothing is deleted', async () => {
+      const zone = await createZone();
+      const { key } = await issue(zone.id);
+      const res = await send('DELETE', `/zones/${zone.id}/key`);
+      expect(res.status).toBe(204);
+      expect(await (await send('GET', `/zones/${zone.id}/key`)).json()).toBeNull();
+      await expectInvalidKey(await deliver(key));
+      expect((await pool.query('SELECT 1 FROM zone_keys WHERE revoked_at IS NOT NULL')).rowCount).toBe(1);
+
+      const again = await send('DELETE', `/zones/${zone.id}/key`);
+      expect(again.status).toBe(404);
+      expect((await again.json()).error.code).toBe('zone_key_not_found');
+    });
+
+    it('revokes the new key after a rotation, also when the two race', async () => {
+      const zone = await createZone();
+      await issue(zone.id);
+      const rotated = await issue(zone.id);
+      expect((await send('DELETE', `/zones/${zone.id}/key`)).status).toBe(204);
+      await expectInvalidKey(await deliver(rotated.key));
+
+      await issue(zone.id);
+      const [rotate, revoke] = await Promise.all([
+        send('POST', `/zones/${zone.id}/key`),
+        send('DELETE', `/zones/${zone.id}/key`),
+      ]);
+      expect(rotate.status).toBe(201);
+      expect(revoke.status).toBe(204);
+      const active = await pool.query('SELECT 1 FROM zone_keys WHERE zone_id = $1 AND revoked_at IS NULL', [zone.id]);
+      expect(active.rowCount).toBeLessThanOrEqual(1);
+    });
+
+    it('answers 401 invalid_zone_key with one message for a missing, unknown, malformed or session-only caller', async () => {
+      const zone = await createZone();
+      await issue(zone.id);
+      const messages = new Set([
+        await expectInvalidKey(await deliver()),
+        await expectInvalidKey(await deliver('tak_unknownkeyunknownkeyunknownkeyunknownkey0')),
+        await expectInvalidKey(await deliver('not-a-key')),
+        await expectInvalidKey(await deliver(undefined, { Authorization: 'Basic abc' })),
+        await expectInvalidKey(await deliver(undefined, { Cookie: sessionCookie })),
+      ]);
+      expect(messages.size).toBe(1);
+    });
+
+    it('does not accept a zone key on the Management API', async () => {
+      const zone = await createZone();
+      const { key } = await issue(zone.id);
+      const res = await globalThis.fetch(`${base}/zones`, { headers: { Authorization: `Bearer ${key}` } });
+      expect(res.status).toBe(401);
+      expect((await res.json()).error.code).toBe('unauthenticated');
+    });
+
+    it('answers CORS preflight from any origin with Authorization allowed', async () => {
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://shop.example.com',
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': 'authorization',
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect(res.headers.get('access-control-allow-headers')).toMatch(/Authorization/);
+      expect(res.headers.get('access-control-allow-credentials')).toBeNull();
+    });
+
+    it('lets a content manager see the key info but not issue, rotate or revoke', async () => {
+      const zone = await createZone();
+      const issued = await issue(zone.id);
+      await signInAsContentManager(zone.projectId);
+
+      const info = await send('GET', `/zones/${zone.id}/key`);
+      expect(info.status).toBe(200);
+      expect(await info.json()).toEqual({ prefix: issued.prefix, createdAt: issued.createdAt });
+      for (const method of ['POST', 'DELETE']) {
+        const res = await send(method, `/zones/${zone.id}/key`);
+        expect(res.status).toBe(403);
+        expect((await res.json()).error.code).toBe('forbidden');
+      }
+      expect((await deliver(issued.key)).status).toBe(200);
+    });
+
+    it("refuses a zone key route in a project the caller cannot access", async () => {
+      const zone = await createZone();
+      const other = await createProject('Beta');
+      await signInAsContentManager(other.id);
+      const res = await send('GET', `/zones/${zone.id}/key`);
+      expect(res.status).toBe(403);
+      expect((await res.json()).error.code).toBe('forbidden');
+    });
+  });
+
   describe('auth', () => {
     // A minimal cookie jar: the cookies the API set, sent back as the browser would.
     let jar: Record<string, string>;
@@ -1423,7 +1634,7 @@ describe('Management API v1: projects and zones', () => {
     beforeEach(async () => {
       jar = {};
       // Auth tests start from an empty install.
-      await pool.query('TRUNCATE invitations, project_members, auth_challenges, sessions, passkeys, users');
+      await pool.query('TRUNCATE zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users');
     });
 
     it('reports that setup is required on an empty install', async () => {

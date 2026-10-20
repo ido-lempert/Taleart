@@ -1,6 +1,6 @@
 // Public interface of the access module (AD-1). It owns the `projects`,
-// `users`, `passkeys`, `sessions`, `auth_challenges`, `project_members` and
-// `invitations` tables; other modules reach them only through these exports.
+// `users`, `passkeys`, `sessions`, `auth_challenges`, `project_members`,
+// `invitations` and `zone_keys` tables; other modules reach them only through these exports.
 export type { Db, TransactionalDb } from './lib/db';
 export { migrateAccess } from './lib/migration';
 export { listProjects, createProject, projectExists } from './lib/projects';
@@ -19,7 +19,14 @@ export {
   type NewInvitation,
   type JoinedProject,
 } from './lib/invitations';
-export { SetupClosedError, PasskeyFailedError, InvitationInvalidError, EmailTakenError } from './lib/errors';
+export {
+  SetupClosedError,
+  PasskeyFailedError,
+  InvitationInvalidError,
+  EmailTakenError,
+  ZoneKeyNotFoundError,
+} from './lib/errors';
+export { migrateZoneKeys, issueZoneKey, revokeZoneKey, zoneKeyInfo, zoneForKey, type KeyZone } from './lib/zoneKeys';
 export {
   SimpleWebAuthnVerifier,
   type PasskeyVerifier,

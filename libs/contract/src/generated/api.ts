@@ -343,6 +343,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/zones/{zoneId}/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Whether the zone has an active key, with its prefix and issue date.
+         * @description Answers `null` when the zone has no active key. Never returns the key or its hash. Anyone who can access the zone's project may read it.
+         */
+        get: operations["getZoneKey"];
+        put?: never;
+        /**
+         * Issue a zone key, or rotate it (admins only).
+         * @description Creates a new key for the zone. When the zone already has an active key, that key is revoked in the same transaction (rotation). `key` appears only in this response; only its SHA-256 hash is stored. A content manager gets 403 `forbidden`; an unknown zone 404 `zone_not_found`.
+         */
+        post: operations["issueZoneKey"];
+        /**
+         * Revoke the zone's active key (admins only).
+         * @description The key stops working on the Delivery API at once. A zone without an active key answers 404 `zone_key_not_found`.
+         */
+        delete: operations["revokeZoneKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/zone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The zone of the zone key, with its frames (Delivery API).
+         * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials.
+         */
+        get: operations["getDeliveryZone"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zones/{zoneId}/tale-groups": {
         parameters: {
             query?: never;
@@ -606,6 +656,34 @@ export interface components {
             /** @description Every tale id of the group, once each, in the new order. */
             taleIds: string[];
         };
+        ZoneKeyInfo: {
+            /** @description The start of the key, `tak_` and the next 6 characters, to recognise it. */
+            prefix: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        IssuedZoneKey: {
+            /** @description The secret zone key, `tak_` and 32 random bytes in base64url. Shown only once. */
+            key: string;
+            prefix: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DeliveryFrame: {
+            /** Format: uuid */
+            id: string;
+            /** @description A frame type key; clients skip types they don't know (AD-5). */
+            type: string;
+            settings: {
+                [key: string]: unknown;
+            };
+        };
+        DeliveryZone: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            frames: components["schemas"]["DeliveryFrame"][];
+        };
         /** @enum {string} */
         UserRole: "admin" | "content_manager";
         User: {
@@ -669,7 +747,7 @@ export interface components {
             [key: string]: unknown;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -1199,6 +1277,101 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getZoneKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active key's info, or null. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ZoneKeyInfo"] | null;
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    issueZoneKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new key, shown only once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IssuedZoneKey"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    revokeZoneKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The key is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getDeliveryZone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The zone and its frames, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryZone"];
+                };
+            };
+            401: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     listZoneTaleGroups: {
         parameters: {
             query?: never;
@@ -1456,4 +1629,4 @@ type ReadonlyArray<T> = [
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "internal_error"];

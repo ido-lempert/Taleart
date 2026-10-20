@@ -34,6 +34,8 @@ interface Data {
   groups?: Record<string, unknown[]>;
   /** Each project's tags, keyed by project id. */
   tags?: Record<string, unknown[]>;
+  /** Each zone's active key info, keyed by zone id; null when missing. */
+  keys?: Record<string, unknown>;
 }
 
 const oneZone: Data = { projects: [acme], zones: [zone] };
@@ -102,7 +104,8 @@ describe('App', () => {
 
   afterEach(() => http.verify());
 
-  // Answers one full refresh: projects, zones, frame types, each zone's frames and tale groups, then each project's tags.
+  // Answers one full refresh: projects, zones, frame types, each zone's frames and tale groups, each project's
+  // tags, then each zone's key info.
   async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data): Promise<void> {
     const zones = data.zones ?? [];
     http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
@@ -118,6 +121,8 @@ describe('App', () => {
     }
     await settle(fixture);
     for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
+    await settle(fixture);
+    for (const z of zones) http.expectOne(`${API_BASE}/zones/${z.id}/key`).flush(data.keys?.[z.id] ?? null);
     await settle(fixture);
   }
 
@@ -406,6 +411,150 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/tale-groups/g1/tales`, 'tale_group_full', 'A tale group holds at most 100 tales');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('A tale group holds at most 100 tales');
+    });
+  });
+
+  describe('zone key', () => {
+    const activeKey = { prefix: 'tak_AbCdEf', createdAt: '2026-10-20T10:00:00.000Z' };
+    const issued = { key: 'tak_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcd', ...activeKey };
+    const rotated = {
+      key: 'tak_ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210_-zyxw',
+      prefix: 'tak_ZyXwVu',
+      createdAt: '2026-10-21T09:00:00.000Z',
+    };
+
+    function keySection(root: HTMLElement): HTMLElement {
+      const section = root.querySelector<HTMLElement>('section[aria-labelledby="key-title"]');
+      if (!section) throw new Error('No Zone key section');
+      return section;
+    }
+
+    it('issues a key and shows it once in a drawer with "Copy key", then only its prefix and date', async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      const { fixture, root } = await open('/zones/z1', oneZone);
+      expect(keySection(root).textContent).toContain('No key yet');
+
+      buttonNamed(keySection(root), 'Issue key').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Issue zone key');
+      expect(drawer()?.textContent).toContain('For zone Home bar');
+      buttonNamed(drawer() as HTMLElement, 'Issue key').click();
+      const req = http.expectOne(`${API_BASE}/zones/z1/key`);
+      expect(req.request.method).toBe('POST');
+      req.flush(issued, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector<HTMLInputElement>('#zone-key')?.value).toBe(issued.key);
+      expect(drawer()?.textContent).toContain('Shown only now');
+      buttonNamed(drawer() as HTMLElement, 'Copy key').click();
+      await settle(fixture);
+      expect(writeText).toHaveBeenCalledWith(issued.key);
+      expect(drawer()?.querySelector('[role=status]')?.textContent).toContain('Key copied');
+
+      buttonNamed(drawer() as HTMLElement, 'Done').click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      const section = keySection(root);
+      expect(section.textContent).toContain('tak_AbCdEf');
+      expect(section.textContent).toContain('Issued');
+      expect(section.textContent).not.toContain(issued.key);
+      expect(buttonNamed(section, 'Rotate')).toBeTruthy();
+      expect(buttonNamed(section, 'Revoke')).toBeTruthy();
+    });
+
+    it('rotates after confirming in a drawer and shows the new key once', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, keys: { z1: activeKey } });
+      buttonNamed(keySection(root), 'Rotate').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Rotate zone key');
+      expect(drawer()?.textContent).toContain('tak_AbCdEf');
+      expect(drawer()?.textContent).toContain('stops working at once');
+
+      buttonNamed(drawer() as HTMLElement, 'Rotate key').click();
+      const req = http.expectOne(`${API_BASE}/zones/z1/key`);
+      expect(req.request.method).toBe('POST');
+      req.flush(rotated, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      expect(drawer()?.querySelector<HTMLInputElement>('#zone-key')?.value).toBe(rotated.key);
+
+      buttonNamed(drawer() as HTMLElement, 'Done').click();
+      await settle(fixture);
+      expect(keySection(root).textContent).toContain('tak_ZyXwVu');
+      expect(keySection(root).textContent).not.toContain('tak_AbCdEf');
+    });
+
+    it('revokes after confirming in a drawer, and Cancel changes nothing', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, keys: { z1: activeKey } });
+      buttonNamed(keySection(root), 'Revoke').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Revoke zone key');
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(keySection(root).textContent).toContain('tak_AbCdEf');
+
+      buttonNamed(keySection(root), 'Revoke').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Revoke key').click();
+      const req = http.expectOne(`${API_BASE}/zones/z1/key`);
+      expect(req.request.method).toBe('DELETE');
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(keySection(root).textContent).toContain('No key yet');
+      expect(buttonNamed(keySection(root), 'Issue key')).toBeTruthy();
+    });
+
+    it("shows the API's message in the zone key drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, keys: { z1: activeKey } });
+      buttonNamed(keySection(root), 'Revoke').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Revoke key').click();
+      http
+        .expectOne(`${API_BASE}/zones/z1/key`)
+        .flush(
+          { error: { code: 'zone_key_not_found', message: 'This zone has no active key' } },
+          { status: 404, statusText: 'Not Found' },
+        );
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('This zone has no active key');
+
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+      buttonNamed(keySection(root), 'Rotate').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Rotate key').click();
+      http
+        .expectOne(`${API_BASE}/zones/z1/key`)
+        .flush({ error: { code: 'forbidden', message: 'Only admins can do this' } }, { status: 403, statusText: 'Forbidden' });
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Only admins can do this');
+      expect(drawer()?.querySelector('#zone-key')).toBeNull();
+    });
+
+    it('shows a content manager the key info only, without Issue, Rotate or Revoke', async () => {
+      const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager });
+      await flushRefresh(fixture, { ...oneZone, keys: { z1: activeKey } });
+      const section = keySection(fixture.nativeElement as HTMLElement);
+      expect(section.textContent).toContain('tak_AbCdEf');
+      expect(section.textContent).toContain('Issued');
+      expect(section.querySelector('button')).toBeNull();
+    });
+
+    it('tells a content manager to ask an admin when the zone has no key', async () => {
+      const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager });
+      await flushRefresh(fixture, oneZone);
+      const section = keySection(fixture.nativeElement as HTMLElement);
+      expect(section.textContent).toContain('Ask an admin');
+      expect(section.querySelector('button')).toBeNull();
     });
   });
 

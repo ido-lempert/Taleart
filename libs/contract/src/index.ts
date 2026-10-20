@@ -40,6 +40,10 @@ export type InvitationPreview = Schemas['InvitationPreview'];
 export type PasskeyCreationOptions = Schemas['PasskeyCreationOptions'];
 export type PasskeyRequestOptions = Schemas['PasskeyRequestOptions'];
 export type PasskeyResponse = Schemas['PasskeyResponse'];
+export type ZoneKeyInfo = Schemas['ZoneKeyInfo'];
+export type IssuedZoneKey = Schemas['IssuedZoneKey'];
+export type DeliveryFrame = Schemas['DeliveryFrame'];
+export type DeliveryZone = Schemas['DeliveryZone'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
@@ -61,6 +65,20 @@ export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** The dashboard path an invitation link opens: `/invite/<token>`. */
 export function invitationPath(token: string): string {
   return `/invite/${encodeURIComponent(token)}`;
+}
+
+/** Delivery API base path (AD-2): SDKs only, zone keys only. */
+export const DELIVERY_API_BASE = '/delivery/v1';
+
+/** Every zone key starts with this (AD-9). */
+export const ZONE_KEY_PREFIX = 'tak_';
+
+/** How many characters of a key, after {@link ZONE_KEY_PREFIX}, its display prefix shows. */
+export const ZONE_KEY_PREFIX_CHARS = 6;
+
+/** The display prefix of a zone key: `tak_` and the next 6 characters. */
+export function zoneKeyPrefix(key: string): string {
+  return key.slice(0, ZONE_KEY_PREFIX.length + ZONE_KEY_PREFIX_CHARS);
 }
 
 /** The most characters a tag name holds, after trimming. */
@@ -132,6 +150,8 @@ export const ErrorCodes = {
   emailTaken: 'email_taken',
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',
+  zoneKeyNotFound: 'zone_key_not_found',
+  invalidZoneKey: 'invalid_zone_key',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

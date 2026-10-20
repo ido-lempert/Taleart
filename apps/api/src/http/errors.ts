@@ -17,6 +17,7 @@ import {
   InvitationInvalidError,
   PasskeyFailedError,
   SetupClosedError,
+  ZoneKeyNotFoundError,
 } from '@taleart/server-access';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError } from '@taleart/server-targeting';
 import type express from 'express';
@@ -50,7 +51,12 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     res.status(err.status).json(errorBody(err.code, err.message));
     return;
   }
-  if (err instanceof ZoneNotFoundError || err instanceof TaleGroupNotFoundError || err instanceof TaleNotFoundError) {
+  if (
+    err instanceof ZoneNotFoundError ||
+    err instanceof TaleGroupNotFoundError ||
+    err instanceof TaleNotFoundError ||
+    err instanceof ZoneKeyNotFoundError
+  ) {
     res.status(404).json(errorBody(err.code, err.message));
     return;
   }

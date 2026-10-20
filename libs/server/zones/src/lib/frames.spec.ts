@@ -6,7 +6,7 @@ import {
   loadFrameTypeRegistry,
   UnknownFrameTypeError,
 } from './frame-types';
-import { createFrame, listFrames, ZoneNotFoundError } from './frames';
+import { createFrame, findZone, listFrames, ZoneNotFoundError } from './frames';
 
 const shippedDir = join(__dirname, '../../../../contract/frame-types');
 const zoneId = '00000000-0000-4000-8000-000000000001';
@@ -94,5 +94,14 @@ describe('frames', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'f1' }] });
     await createFrame({ query } as unknown as Db, registry, { zoneId, type: 'bar' });
     expect(query.mock.calls[1][1]).toEqual([zoneId, projectId, 'bar', '{}']);
+  });
+
+  it('finds a zone by id, and null for an unknown or malformed id', async () => {
+    const zone = { id: zoneId, name: 'Bar', projectId };
+    expect(await findZone({ query: vi.fn().mockResolvedValue({ rows: [zone] }) } as unknown as Db, zoneId)).toEqual(zone);
+    expect(await findZone({ query: vi.fn().mockResolvedValue({ rows: [] }) } as unknown as Db, zoneId)).toBeNull();
+    const query = vi.fn();
+    expect(await findZone({ query } as unknown as Db, 'nope')).toBeNull();
+    expect(query).not.toHaveBeenCalled();
   });
 });
