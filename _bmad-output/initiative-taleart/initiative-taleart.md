@@ -106,14 +106,14 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
 - brief — _bmad-output/initiative-taleart/brief-taleart/brief-taleart.md, sections MVP scope, Goals, Risks, Open decisions
 - research — _bmad-output/initiative-taleart/research-storyly-competitive-teardown/research-storyly-competitive-teardown.md, sections 3 to 11
 - prd — _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md
-- architecture — _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, AD-1 to AD-12
+- architecture — _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, AD-1 to AD-14
 
 ## Notes
 
 - Assumption: the MVP frame subset is bar and banner. Canvas, Swipe Card and Video Feed come after. Confirm before slicing.
 - Open question: the brief lists six interactive components and omits Rating, which Storyly documents. Include or drop Rating?
-- Open question: the status scheme (research section 11.3) is a proposal. Approve or change it before the importer's status mapping is built.
-- Source conflict: status scheme — this Notes line (open question) vs PRD addendum, Status scheme, and the initiative memlog (approved by the user). Raised while slicing epic-storyly-importer, 2026-10-20.
+- Decision (2026-10-20): the status scheme (research section 11.3) is approved, as the PRD addendum and the initiative memlog record; this closes the earlier open question and the source conflict raised while slicing epic-storyly-importer (user).
+- Decision (2026-10-20): a tale group belongs to a project, not to one zone; zones place groups in their own order, and a group can be copied to a zone in the same or another accessible project (user; architecture AD-14; foundation stories 1.15 and 1.16).
 - Decision: conversion tracking is not part of Storyly compatibility. TaleArt designs its own conversion tracking later, and the importer does not migrate conversion records (user). Storyly's endpoint is no longer an open question.
 - Open question: names (terminology map) and license need decisions and counsel review before publication.
 - Decision (2026-10-20): targeting and campaign names approved by the user: tag (on tale groups; UI "Targeting tags"), segment, user list, user attributes, external user ID, journey (common noun, never branded; counsel sign-off pending, fallback "Sequence"), playbook, campaign with a schedule, product set (replaces collection). "Audience" is only a dashboard heading. Source: research-storyly-competitive-teardown/naming-targeting-and-campaigns.md.
