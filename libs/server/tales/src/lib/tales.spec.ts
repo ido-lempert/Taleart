@@ -2,6 +2,7 @@ import {
   copyTaleGroup,
   createTale,
   createTaleGroup,
+  InvalidStatusTransitionError,
   isMediaKeyInUse,
   findPublishedMedia,
   listDeliveryTaleGroups,
@@ -15,7 +16,9 @@ import {
   renameTaleGroup,
   orderTaleGroups,
   orderTales,
+  setTaleGroupStatus,
   setTaleMedia,
+  setTaleStatus,
   taleExists,
   taleGroupProjectId,
   taleProjectId,
@@ -214,6 +217,12 @@ describe('migration', () => {
     expect(sql).toMatch(/FOREIGN KEY \(tale_group_id, project_id\) REFERENCES tale_groups \(id, project_id\)/);
     expect(sql).toMatch(/SELECT zone_id, id, project_id, position, created_at FROM tale_groups/);
     expect(sql).toMatch(/DROP COLUMN IF EXISTS zone_id, DROP COLUMN IF EXISTS position/);
+    // Statuses (AD-6): existing rows are filled with live, then new rows default to draft, once.
+    expect(sql).toMatch(/table_name = 'tale_groups' AND column_name = 'status'/);
+    expect(sql).toMatch(/table_name = 'tales' AND column_name = 'status'/);
+    expect(sql).toMatch(/ALTER TABLE tales ADD COLUMN status text NOT NULL DEFAULT 'live'/);
+    expect(sql).toMatch(/ALTER TABLE tale_groups ALTER COLUMN status SET DEFAULT 'draft'/);
+    expect(sql).toMatch(/CHECK \(status IN \('draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'\)\)/);
     // The unique index the placement key references comes before the placements table.
     expect(sql.indexOf('tale_groups_id_project_id_key')).toBeLessThan(sql.indexOf('CREATE TABLE IF NOT EXISTS zone_tale_groups'));
   });
@@ -404,7 +413,7 @@ describe('order', () => {
     ]);
     await expect(orderTaleGroups(db, zoneId, ids)).rejects.toBeInstanceOf(OrderMismatchError);
     expect(statements()).toContain('ROLLBACK');
-    expect(statements().some((s) => /UPDATE/.test(s))).toBe(false);
+    expect(statements().some((s) => /^UPDATE/.test(s))).toBe(false);
   });
 
   it('reorders tales with the group row locked', async () => {
@@ -468,10 +477,12 @@ describe('delivery', () => {
           { id: t2, title: 'Two', media: null },
         ],
       },
-      { id: g2, name: 'B', tales: [] },
+      // B has no live tale, so it is left out.
     ]);
     expect(statements()[0]).toMatch(/FROM zone_tale_groups[\s\S]*ORDER BY zone_tale_groups\.position, tale_groups\.id/);
-    expect(statements()[1]).toMatch(/ORDER BY position, id/);
+    // Only live groups and their live tales are delivered (AD-6).
+    expect(statements()[0]).toMatch(/tale_groups\.status = 'live'/);
+    expect(statements()[1]).toMatch(/status = 'live' ORDER BY position, id/);
   });
 
   it('answers an empty list for a zone without groups, and does not query for a non-UUID zone', async () => {
@@ -487,6 +498,8 @@ describe('delivery', () => {
     const found = fakeDb([{ rows: [{ contentType: 'video/mp4' }] }]);
     expect(await findPublishedMedia(found.db, 'tales/x.mp4')).toEqual({ key: 'tales/x.mp4', contentType: 'video/mp4' });
     expect(found.query.mock.calls[0][1]).toEqual(['tales/x.mp4']);
+    // Published: a live tale of a live group (AD-6, AD-11).
+    expect(found.query.mock.calls[0][0]).toMatch(/tales\.status = 'live' AND tale_groups\.status = 'live'/);
     const missing = fakeDb([{ rows: [] }]);
     expect(await findPublishedMedia(missing.db, 'tales/old.png')).toBeNull();
   });
@@ -546,7 +559,7 @@ describe('copy to zone', () => {
     const insertGroup = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
     expect(insertGroup?.[1]).toEqual([otherProject, 'Summer']);
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
-    expect(insertTales?.[0]).toMatch(/media_key, media_content_type FROM tales/);
+    expect(insertTales?.[0]).toMatch(/media_key, media_content_type, status FROM tales/);
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
     expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);
     const order = statements();
@@ -576,5 +589,96 @@ describe('copy to zone', () => {
     expect(used.query.mock.calls[0][1]).toEqual(['tales/a.png']);
     const unused = fakeDb([{ rows: [] }]);
     expect(await isMediaKeyInUse(unused.db, 'tales/a.png')).toBe(false);
+  });
+});
+
+describe('status', () => {
+  const taleId = '00000000-0000-4000-8000-000000000007';
+  const row = { id: groupId, projectId, name: 'A', status: 'live' };
+
+  it('publishes a draft group under a row lock and returns it with its tales and zones', async () => {
+    const { db, query, statements, release } = fakeDb([
+      { rows: [{ status: 'draft' }] },
+      { rows: [row] },
+      { rows: [] },
+      { rows: [] },
+    ]);
+    expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, zoneIds: [], tales: [] });
+    expect(statements()).toContain('SELECT status FROM tale_groups WHERE id = $1 FOR UPDATE');
+    const update = query.mock.calls.find((c) => /UPDATE tale_groups SET status/.test(c[0] as string));
+    expect(update?.[1]).toEqual([groupId, 'live']);
+    expect(statements()).toContain('COMMIT');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('changes nothing when the group already has the status', async () => {
+    const { db, statements } = fakeDb([{ rows: [{ status: 'paused' }] }, { rows: [{ ...row, status: 'paused' }] }]);
+    expect((await setTaleGroupStatus(db, groupId, 'paused')).status).toBe('paused');
+    expect(statements().some((s) => /^UPDATE/.test(s))).toBe(false);
+  });
+
+  it('refuses a change the transitions do not allow, and rolls back', async () => {
+    for (const [from, to] of [
+      ['draft', 'paused'],
+      ['archived', 'live'],
+      ['processing', 'paused'],
+    ] as const) {
+      const { db, statements } = fakeDb([{ rows: [{ status: from }] }]);
+      const err = await setTaleGroupStatus(db, groupId, to).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(InvalidStatusTransitionError);
+      expect(err).toMatchObject({ code: 'invalid_status_transition', from, to });
+      expect(statements().some((s) => /^UPDATE/.test(s))).toBe(false);
+      expect(statements()).toContain('ROLLBACK');
+    }
+  });
+
+  it('refuses an unknown group, and does not query for an id that is not a UUID', async () => {
+    const missing = fakeDb([{ rows: [] }]);
+    await expect(setTaleGroupStatus(missing.db, groupId, 'live')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    const bad = fakeDb([]);
+    await expect(setTaleGroupStatus(bad.db, 'nope', 'live')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(bad.query).not.toHaveBeenCalled();
+  });
+
+  it("pauses a tale and reads a live tale of a paused group as blocked-by-group", async () => {
+    const taleRow = {
+      id: taleId,
+      taleGroupId: groupId,
+      projectId,
+      title: 'T',
+      position: 0,
+      mediaContentType: null,
+      storedStatus: 'paused',
+      groupStatus: 'live',
+    };
+    const paused = fakeDb([{ rows: [{ status: 'live' }] }, { rows: [taleRow] }]);
+    expect(await setTaleStatus(paused.db, taleId, 'paused')).toEqual({
+      id: taleId,
+      taleGroupId: groupId,
+      projectId,
+      title: 'T',
+      position: 0,
+      storedStatus: 'paused',
+      status: 'paused',
+      media: null,
+    });
+    const update = paused.query.mock.calls.find((c) => /UPDATE tales SET status/.test(c[0] as string));
+    expect(update?.[1]).toEqual([taleId, 'paused']);
+
+    const blocked = fakeDb([
+      { rows: [{ status: 'paused' }] },
+      { rows: [{ ...taleRow, storedStatus: 'live', groupStatus: 'paused' }] },
+    ]);
+    expect(await setTaleStatus(blocked.db, taleId, 'live')).toMatchObject({ storedStatus: 'live', status: 'blocked-by-group' });
+  });
+
+  it('refuses an unknown tale and a transition the rules do not allow', async () => {
+    const missing = fakeDb([{ rows: [] }]);
+    await expect(setTaleStatus(missing.db, taleId, 'live')).rejects.toBeInstanceOf(TaleNotFoundError);
+    const bad = fakeDb([]);
+    await expect(setTaleStatus(bad.db, 'nope', 'live')).rejects.toBeInstanceOf(TaleNotFoundError);
+    expect(bad.query).not.toHaveBeenCalled();
+    const refused = fakeDb([{ rows: [{ status: 'draft' }] }]);
+    await expect(setTaleStatus(refused.db, taleId, 'paused')).rejects.toBeInstanceOf(InvalidStatusTransitionError);
   });
 });

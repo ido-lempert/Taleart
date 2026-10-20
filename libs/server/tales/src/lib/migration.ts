@@ -1,5 +1,8 @@
 import type { Db } from '@taleart/server-access';
 
+/** The status keys that are stored (AD-6); the others are computed when content is read. */
+const STORED_STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'] as const;
+
 /**
  * Forward-only migration for the tables the tales module owns. Runs after the
  * zones migration, because every zone placement references a zone (AD-4).
@@ -85,4 +88,28 @@ export async function migrateTales(db: Db): Promise<void> {
 
   // Public media URLs are looked up by key (AD-11).
   await db.query('CREATE INDEX IF NOT EXISTS tales_media_key_idx ON tales (media_key)');
+
+  // The status key a person or process sets (AD-6). Rows that existed before
+  // statuses were live, so the column is added with default 'live', which
+  // fills them, and the default then becomes 'draft' for new rows. One
+  // statement per table, guarded by the column's absence, so a second run
+  // changes nothing. Computed keys (scheduled, expired, blocked-by-group) are
+  // never stored.
+  for (const table of ['tale_groups', 'tales']) {
+    await db.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema() AND table_name = '${table}' AND column_name = 'status'
+        ) THEN
+          ALTER TABLE ${table} ADD COLUMN status text NOT NULL DEFAULT 'live'
+            CONSTRAINT ${table}_status_check
+            CHECK (status IN (${STORED_STATUSES.map((s) => `'${s}'`).join(', ')}));
+          ALTER TABLE ${table} ALTER COLUMN status SET DEFAULT 'draft';
+        END IF;
+      END
+      $$;
+    `);
+  }
 }

@@ -18,9 +18,9 @@ const acme = { id: 'p1', name: 'Acme' };
 const globex = { id: 'p2', name: 'Globex' };
 const zone = { id: 'z1', name: 'Home bar', projectId: 'p1' };
 const otherZone = { id: 'z2', name: 'Checkout', projectId: 'p2' };
-const group = { id: 'g1', zoneIds: ['z1'], projectId: 'p1', name: 'Summer', position: 0, tags: [] as unknown[] };
-const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, media: null };
-const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, media: null };
+const group = { id: 'g1', zoneIds: ['z1'], projectId: 'p1', name: 'Summer', status: 'live', position: 0, tags: [] as unknown[] };
+const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, status: 'live', storedStatus: 'live', media: null };
+const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, status: 'live', storedStatus: 'live', media: null };
 const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
 const mp4Media = { kind: 'video', contentType: 'video/mp4', url: '/api/v1/tales/t2/media' };
 const MEDIA_ORIGIN = API_ORIGIN;
@@ -1059,6 +1059,215 @@ describe('App', () => {
       expect(await saving).toBe('');
       await settle(fixture);
       expect(store.taleGroupsOf('z3')[0].tales.map((t) => t.id)).toEqual(['t2', 't1']);
+    });
+  });
+
+  describe('statuses', () => {
+    const draft = { ...group, id: 'g2', name: 'Draft one', status: 'draft', position: 1, tales: [] };
+    const paused = { ...group, id: 'g3', name: 'Paused one', status: 'paused', position: 2, tales: [] };
+    const archived = { ...group, id: 'g4', name: 'Archived one', status: 'archived', position: 3, tales: [] };
+    const pausedTale = { ...taleB, status: 'paused', storedStatus: 'paused' };
+    const live = { ...group, tales: [taleA, pausedTale] };
+
+    function groupRow(root: HTMLElement, name: string): HTMLElement {
+      const row = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => li.querySelector('h4')?.textContent?.trim() === name);
+      if (!row) throw new Error(`No ${name} row`);
+      return row;
+    }
+
+    function badge(root: Element): string {
+      return root.querySelector('.status-badge')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    }
+
+    // The status buttons of a group row: those before Tags.
+    function statusButtons(row: HTMLElement): string[] {
+      const names = [...row.querySelectorAll<HTMLButtonElement>('.group__actions button')].map((b) => b.textContent?.trim() ?? '');
+      return names.slice(0, names.indexOf('Tags'));
+    }
+
+    it('shows each group its status badge and only the buttons its status allows, and tale cards that are not live', async () => {
+      const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live, draft, paused, archived] } });
+
+      expect(badge(groupRow(root, 'Summer'))).toBe('Status: Live');
+      expect(statusButtons(groupRow(root, 'Summer'))).toEqual(['Pause', 'Archive']);
+      expect(badge(groupRow(root, 'Draft one'))).toBe('Status: Draft');
+      expect(statusButtons(groupRow(root, 'Draft one'))).toEqual(['Publish', 'Archive']);
+      expect(badge(groupRow(root, 'Paused one'))).toBe('Status: Paused');
+      expect(statusButtons(groupRow(root, 'Paused one'))).toEqual(['Publish', 'Archive']);
+      expect(badge(groupRow(root, 'Archived one'))).toBe('Status: Archived');
+      expect(statusButtons(groupRow(root, 'Archived one'))).toEqual(['Restore']);
+      expect(buttonNamed(groupRow(root, 'Draft one'), 'Publish').getAttribute('aria-describedby')).toBe('group-name-g2');
+
+      const cards = [...groupRow(root, 'Summer').querySelectorAll('.tale-card')];
+      expect(cards[0].querySelector('.status-badge')).toBeNull();
+      expect(badge(cards[1])).toBe('Status: Paused');
+    });
+
+    it('shows the tales of a paused group as blocked by group', async () => {
+      const blocked = { ...live, status: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }, pausedTale] };
+      const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
+
+      const cards = [...groupRow(root, 'Summer').querySelectorAll('.tale-card')];
+      expect(cards.map((c) => badge(c))).toEqual(['Status: Blocked by group', 'Status: Paused']);
+    });
+
+    it('publishes a draft group, shows its new badge and announces it', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [draft] } });
+
+      buttonNamed(groupRow(root, 'Draft one'), 'Publish').click();
+      await settle(fixture);
+      expect(buttonNamed(groupRow(root, 'Draft one'), 'Publish').disabled).toBe(true);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g2/status`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ status: 'live' });
+      req.flush({ ...draft, status: 'live' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...draft, status: 'live' }] } });
+      await settle(fixture);
+
+      expect(badge(groupRow(root, 'Draft one'))).toBe('Status: Live');
+      expect(statusButtons(groupRow(root, 'Draft one'))).toEqual(['Pause', 'Archive']);
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Draft one is now live');
+    });
+
+    it('restores an archived group as paused', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [archived] } });
+
+      buttonNamed(groupRow(root, 'Archived one'), 'Restore').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g4/status`);
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush({ ...archived, status: 'paused' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...archived, status: 'paused' }] } });
+      await settle(fixture);
+
+      expect(badge(groupRow(root, 'Archived one'))).toBe('Status: Paused');
+      expect(statusButtons(groupRow(root, 'Archived one'))).toEqual(['Publish', 'Archive']);
+    });
+
+    it("shows the API's message when a status change is refused, and keeps the status", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Pause').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1/status`)
+        .flush(
+          { error: { code: 'invalid_status_transition', message: 'The status cannot change from archived to paused' } },
+          { status: 409, statusText: 'Conflict' },
+        );
+      await settle(fixture);
+
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('The status cannot change from archived to paused');
+      expect(badge(groupRow(root, 'Summer'))).toBe('Status: Live');
+      expect(buttonNamed(groupRow(root, 'Summer'), 'Pause').disabled).toBe(false);
+    });
+
+    it('pauses a tale from its drawer, which stays open and shows the new status', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live] } });
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      expect(badge(drawer() as HTMLElement)).toBe('Status: Live');
+      expect(['Pause', 'Archive'].map((name) => buttonNamed(drawer() as HTMLElement, name).type)).toEqual(['button', 'button']);
+      buttonNamed(drawer() as HTMLElement, 'Pause').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tales/t1/status`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush({ ...taleA, status: 'paused', storedStatus: 'paused' });
+      await settle(fixture);
+      const after = { ...live, tales: [{ ...taleA, status: 'paused', storedStatus: 'paused' }, pausedTale] };
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [after] } });
+      await settle(fixture);
+
+      expect(drawer()).not.toBeNull();
+      expect(badge(drawer() as HTMLElement)).toBe('Status: Paused');
+      expect(buttonNamed(drawer() as HTMLElement, 'Publish')).toBeTruthy();
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Status: Paused');
+      expect(badge(groupRow(root, 'Summer').querySelector('.tale-card') as HTMLElement)).toBe('Status: Paused');
+    });
+
+    it("offers the stored status's buttons for a tale blocked by its group, and shows a refusal in the drawer", async () => {
+      const blocked = { ...live, status: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }] };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      expect(badge(drawer() as HTMLElement)).toBe('Status: Blocked by group');
+      expect(drawer()?.textContent).toContain('its tale group is paused');
+      buttonNamed(drawer() as HTMLElement, 'Archive').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t1/status`)
+        .flush({ error: { code: 'tale_not_found', message: 'taleId does not match a tale' } }, { status: 404, statusText: 'Not Found' });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('taleId does not match a tale');
+    });
+
+    it('keeps overlapping status changes on two groups apart: each waits for its own answer and shows its own message', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live, draft] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Pause').click();
+      buttonNamed(groupRow(root, 'Draft one'), 'Publish').click();
+      await settle(fixture);
+      const [pause, publish] = [`${API_BASE}/tale-groups/g1/status`, `${API_BASE}/tale-groups/g2/status`].map((url) =>
+        http.expectOne(url),
+      );
+      pause.flush(
+        { error: { code: 'invalid_status_transition', message: 'Summer cannot be paused' } },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle(fixture);
+
+      expect(buttonNamed(groupRow(root, 'Summer'), 'Pause').disabled).toBe(false);
+      expect(buttonNamed(groupRow(root, 'Draft one'), 'Publish').disabled).toBe(true);
+      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain('Summer cannot be paused');
+      expect(groupRow(root, 'Draft one').querySelector('[role=alert]')).toBeNull();
+
+      publish.flush(
+        { error: { code: 'invalid_status_transition', message: 'Draft one cannot be published' } },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle(fixture);
+      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain('Summer cannot be paused');
+      expect(groupRow(root, 'Draft one').querySelector('[role=alert]')?.textContent).toContain('Draft one cannot be published');
+      expect(buttonNamed(groupRow(root, 'Draft one'), 'Publish').disabled).toBe(false);
+    });
+
+    it("announces the tale's status from the API's answer, not the list", async () => {
+      const blockedGroup = { ...live, status: 'paused', tales: [pausedTale] };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blockedGroup] } });
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale B"]')?.click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Publish').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tales/t2/status`).flush({ ...taleB, status: 'blocked-by-group', storedStatus: 'live' });
+      await settle(fixture);
+      // The refresh still lists the old status.
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [blockedGroup] } });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Status: Blocked by group');
+    });
+
+    it('shows each group status on the Tale groups page', async () => {
+      const { fixture, root } = await open('/zones', {
+        ...oneZone,
+        projectGroups: {
+          p1: [
+            { id: 'g9', projectId: 'p1', name: 'Autumn', status: 'draft', taleCount: 0, zoneIds: [] },
+            { id: 'g1', projectId: 'p1', name: 'Summer', status: 'live', taleCount: 2, zoneIds: ['z1'] },
+          ],
+        },
+      });
+      await navigate(fixture, '/tale-groups');
+
+      const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] li')];
+      expect(rows.map((r) => badge(r))).toEqual(['Status: Draft', 'Status: Live']);
     });
   });
 

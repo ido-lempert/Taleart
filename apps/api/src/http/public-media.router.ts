@@ -11,9 +11,10 @@ const MAX_KEY_LENGTH = 200;
 
 /**
  * Public media (AD-11), mounted at `/media`: `GET /media/<key>` serves the file
- * a published tale currently references, with no session and no zone key, so
- * an `<img>` or `<video>` on any origin loads it. Any other key, including the
- * key of replaced media, answers 404 `media_not_found`.
+ * a published tale (a live tale of a live group, AD-6) currently references,
+ * with no session and no zone key, so an `<img>` or `<video>` on any origin
+ * loads it. Any other key, including the key of replaced media or of draft,
+ * paused or archived content, answers 404 `media_not_found`.
  */
 export function publicMediaRouter(pool: Pool, storage: MediaStorage): Router {
   const router = Router();
@@ -42,13 +43,25 @@ export function publicMediaRouter(pool: Pool, storage: MediaStorage): Router {
         // An undecodable key names no media.
       }
       const media = key.length > 0 && key.length <= MAX_KEY_LENGTH ? await findPublishedMedia(pool, key) : null;
-      const data = media && (await storage.get(media.key));
-      if (!media || !data) throw new HttpError(404, ErrorCodes.mediaNotFound, 'No published media at this URL');
-      res.setHeader('Content-Type', media.contentType);
-      // Replaced media gets a new key, so a URL's bytes never change.
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      if (!media) throw new HttpError(404, ErrorCodes.mediaNotFound, 'No published media at this URL');
+      // A URL's bytes never change (replaced media gets a new key), but it stops
+      // being public when its content is unpublished, so clients revalidate on
+      // every use: 304 while published, 404 at once after (AD-11).
+      res.setHeader('Cache-Control', 'public, no-cache');
       // The key never changes its bytes, so it is the ETag; Express then does not hash the body.
       res.setHeader('ETag', `"${media.key}"`);
+      // A current copy needs no read of the file.
+      if (req.headers['if-none-match'] === `"${media.key}"`) {
+        res.status(304).end();
+        return;
+      }
+      const data = await storage.get(media.key);
+      if (!data) {
+        res.removeHeader('ETag');
+        res.removeHeader('Cache-Control');
+        throw new HttpError(404, ErrorCodes.mediaNotFound, 'No published media at this URL');
+      }
+      res.setHeader('Content-Type', media.contentType);
       sendMediaBytes(req, res, data);
     } catch (err) {
       next(err);

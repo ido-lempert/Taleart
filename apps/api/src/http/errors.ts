@@ -7,6 +7,7 @@ import {
   ZoneNotFoundError,
 } from '@taleart/server-zones';
 import {
+  InvalidStatusTransitionError,
   OrderMismatchError,
   TaleGroupFullError,
   TaleGroupNotFoundError,
@@ -71,7 +72,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof OrderMismatchError ||
     err instanceof SetupClosedError ||
     err instanceof EmailTakenError ||
-    err instanceof TagExistsError
+    err instanceof TagExistsError ||
+    err instanceof InvalidStatusTransitionError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;

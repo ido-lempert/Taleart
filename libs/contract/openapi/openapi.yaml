@@ -725,11 +725,14 @@ paths:
       operationId: getPublicMedia
       summary: Read a published tale's media file, with no credentials.
       description: >-
-        Serves only keys that a published tale currently references; any other
-        key, including the key of replaced media, answers 404
-        `media_not_found`. The response carries the stored `Content-Type`,
-        supports one byte range (206, or 416 when unsatisfiable), is cached as
-        immutable (replaced media gets a new key) and is open to any origin.
+        Serves only keys that a published tale (a `live` tale of a `live`
+        group, AD-6) currently references; any other key, including the key
+        of replaced media or of draft, paused or archived content, answers
+        404 `media_not_found` (AD-11). The response carries the stored
+        `Content-Type`, supports one byte range (206, or 416 when
+        unsatisfiable) and is open to any origin. It is cached as `public,
+        no-cache` with the key as ETag, so a client revalidates (304 while
+        published) and sees the 404 as soon as the content is unpublished.
       security: []
       responses:
         '200':
@@ -749,6 +752,8 @@ paths:
               schema: { type: string, contentMediaType: video/webm }
         '206':
           description: The requested byte range of the media file.
+        '304':
+          description: The client's copy, named by `If-None-Match`, is still current.
         '404':
           $ref: '#/components/responses/Error'
         '416':
@@ -983,6 +988,49 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/status:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setTaleGroupStatus
+      summary: Publish, pause, archive or restore a tale group.
+      description: >-
+        Sets the group's stored status key (AD-6). Allowed: `live` from
+        `draft` or `paused` (publish); `paused` from `live` (pause) or from
+        `archived` (restore); `archived` from `draft`, `live` or `paused`
+        (archive). Setting the current status again changes nothing. Any
+        other change: 409 `invalid_status_transition`. A status other than
+        `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale
+        group: 404 `tale_group_not_found`. Only `live` groups reach the
+        Delivery API; the `live` tales of a `paused` group read
+        `blocked-by-group`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetStatusRequest'
+      responses:
+        '200':
+          description: The tale group with its new status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tale-groups/{taleGroupId}/tales:
     parameters:
       - name: taleGroupId
@@ -1092,6 +1140,46 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tales/{taleId}/status:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setTaleStatus
+      summary: Publish, pause, archive or restore a tale.
+      description: >-
+        Sets the tale's stored status key (AD-6), with the same allowed
+        changes as a tale group's: 409 `invalid_status_transition` for any
+        other, 400 `validation_failed` for a status other than `live`,
+        `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only
+        `live` tales of `live` groups reach the Delivery API, and only their
+        media is public (AD-11).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetStatusRequest'
+      responses:
+        '200':
+          description: The tale with its new status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1295,7 +1383,7 @@ components:
       description: >-
         A tale group belongs to its project (AD-14). Zones place it, each in
         its own order; its tales, tags and media are the same in every zone.
-      required: [id, projectId, name, zoneIds, tales, tags]
+      required: [id, projectId, name, status, zoneIds, tales, tags]
       properties:
         id:
           type: string
@@ -1305,6 +1393,11 @@ components:
           format: uuid
         name:
           type: string
+        status:
+          $ref: '#/components/schemas/ContentStatus'
+          description: >-
+            The status key a person set (AD-6): `draft` for a new group, then
+            `live`, `paused` or `archived`.
         zoneIds:
           type: array
           description: Every zone the group is placed in, in the order it was placed; empty when none.
@@ -1336,7 +1429,7 @@ components:
     ProjectTaleGroup:
       type: object
       description: A tale group as the project's list shows it.
-      required: [id, projectId, name, taleCount, zoneIds]
+      required: [id, projectId, name, status, taleCount, zoneIds]
       properties:
         id:
           type: string
@@ -1346,6 +1439,9 @@ components:
           format: uuid
         name:
           type: string
+        status:
+          $ref: '#/components/schemas/ContentStatus'
+          description: The status key a person set (AD-6).
         taleCount:
           type: integer
           minimum: 0
@@ -1422,7 +1518,7 @@ components:
           description: The zone to place the copy in; its project may differ from the source's.
     Tale:
       type: object
-      required: [id, taleGroupId, projectId, title, position, media]
+      required: [id, taleGroupId, projectId, title, position, status, storedStatus, media]
       properties:
         id:
           type: string
@@ -1439,6 +1535,16 @@ components:
           type: integer
           minimum: 0
           description: Order within the tale group; lists are sorted by it.
+        status:
+          $ref: '#/components/schemas/ContentStatus'
+          description: >-
+            The tale's status as read (AD-6): `blocked-by-group` when the tale
+            is `live` and its group is `paused`, else `storedStatus`.
+        storedStatus:
+          $ref: '#/components/schemas/ContentStatus'
+          description: >-
+            The status key a person set: `draft` for a new tale, then `live`,
+            `paused` or `archived`.
         media:
           description: The tale's image, GIF or video, or null when it has none.
           oneOf:
@@ -1455,6 +1561,36 @@ components:
         url:
           type: string
           description: Where the Management API serves the file, such as `/api/v1/tales/{taleId}/media`.
+    ContentStatus:
+      type: string
+      description: >-
+        A status key of the AD-6 scheme. Each key has one HTTP code, defined
+        in `libs/contract` (`CONTENT_STATUS_HTTP_CODES`): draft 204, live 200,
+        scheduled 202, processing 102, invalid-media 422, paused 403,
+        blocked-by-group 423, expired 410, quota-reached 429, archived 404.
+        `scheduled`, `expired` and `blocked-by-group` are computed when
+        content is read and never stored.
+      enum:
+        - draft
+        - live
+        - scheduled
+        - processing
+        - invalid-media
+        - paused
+        - blocked-by-group
+        - expired
+        - quota-reached
+        - archived
+    SetStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [live, paused, archived]
+          description: >-
+            `live` publishes, `paused` pauses (or restores an archived item),
+            `archived` archives.
     MediaKind:
       type: string
       enum: [image, video]
@@ -1812,6 +1948,7 @@ components:
         - another tool_token_invalid
         - another tool_unavailable
         - importer_not_configured
+        - invalid_status_transition
         - internal_error
     ErrorBody:
       type: object

@@ -9,12 +9,14 @@ import {
   Injector,
   input,
   linkedSignal,
+  signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MAX_TALES_PER_GROUP, type TaleGroup, type TaleGroupTag, type Zone } from '@taleart/contract';
+import { MAX_TALES_PER_GROUP, type SettableStatus, type TaleGroup, type TaleGroupTag, type Zone } from '@taleart/contract';
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
+import { STATUS_LABELS, StatusBadge, statusActions } from '../status';
 
 const TONES = 6;
 
@@ -24,14 +26,16 @@ type Direction = 'earlier' | 'later';
 /**
  * One zone: its frames, its zone key and its tale groups, each a row of 9:16 tale cards with
  * the group's tags. A group can be placed in several zones (AD-14): its row says
- * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Groups and tales reorder by drag, or by their move earlier
+ * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Each group
+ * shows its status (AD-6) with the Publish, Pause, Archive or Restore buttons it
+ * allows, and each tale card that is not live shows its status. Groups and tales reorder by drag, or by their move earlier
  * and later buttons (the single-pointer and keyboard alternative, WCAG 2.2 SC
  * 2.5.7). Tag chips above the groups filter them; groups do not reorder while
  * a filter is on, since the order covers every group of the zone.
  */
 @Component({
   selector: 'app-zone-detail-page',
-  imports: [RouterLink, Icon, CdkDropList, CdkDrag, CdkDragHandle],
+  imports: [RouterLink, Icon, StatusBadge, CdkDropList, CdkDrag, CdkDragHandle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './zone-detail.html',
   styles: `
@@ -162,6 +166,37 @@ export class ZoneDetailPage {
   protected readonly announcement = linkedSignal({ source: this.zoneId, computation: () => '' });
   /** The API's message when it refused an order; shown in a banner, cleared when the zone changes. */
   protected readonly orderError = linkedSignal({ source: this.zoneId, computation: () => '' });
+
+  /** Per group id, the API's message when it refused a status change; cleared when the zone changes. */
+  protected readonly statusErrors = linkedSignal<string, Record<string, string>>({
+    source: this.zoneId,
+    computation: () => ({}),
+  });
+  /** The ids of the groups whose status change is being saved, so their buttons wait for it. */
+  protected readonly statusSaving = signal<ReadonlySet<string>>(new Set());
+  protected readonly statusActions = statusActions;
+
+  /** Publishes, pauses, archives or restores a group, then announces its new status. */
+  protected async changeStatus(group: TaleGroup, status: SettableStatus): Promise<void> {
+    const id = group.id;
+    this.statusErrors.update((errors) => {
+      const next = { ...errors };
+      delete next[id];
+      return next;
+    });
+    this.statusSaving.update((ids) => new Set(ids).add(id));
+    const message = await this.store.setTaleGroupStatus(id, status);
+    this.statusSaving.update((ids) => {
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
+    if (message) {
+      this.statusErrors.update((errors) => ({ ...errors, [id]: message }));
+      return;
+    }
+    this.announce(`${group.name} is now ${STATUS_LABELS[status].toLowerCase()}`);
+  }
 
   /** Shows only the groups carrying `tagId`, or every group for ''. */
   protected filterBy(tagId: string): void {

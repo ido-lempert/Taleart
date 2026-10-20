@@ -136,6 +136,7 @@
                   <div class="group__name">
                     <div class="group__title">
                       <h4 [id]="'group-name-' + group.id">{{ group.name }}</h4>
+                      <app-status-badge [status]="group.status" />
                       @if (group.tags.length > 0) {
                         <ul class="pill-list" [attr.aria-label]="'Tags of ' + group.name">
                           @for (tag of group.tags; track tag.id) {
@@ -159,6 +160,19 @@
                     }
                   </div>
                   <div class="group__actions">
+                    @for (action of statusActions(group.status); track action.status) {
+                      <button
+                        type="button"
+                        class="btn btn--sm"
+                        [class.btn--primary]="action.status === 'live'"
+                        [class.btn--secondary]="action.status !== 'live'"
+                        [attr.aria-describedby]="'group-name-' + group.id"
+                        [disabled]="statusSaving().has(group.id)"
+                        (click)="changeStatus(group, action.status)"
+                      >
+                        {{ action.label }}
+                      </button>
+                    }
                     <button
                       type="button"
                       class="btn btn--secondary btn--sm"
@@ -229,6 +243,12 @@
                     </div>
                   }
                 </div>
+                @if (statusErrors()[group.id]; as statusError) {
+                  <div class="banner banner--inline" role="alert">
+                    <app-icon name="alert" />
+                    <span>{{ statusError }}</span>
+                  </div>
+                }
                 <div class="tale-scroller">
                   <ol
                     class="tale-list"
@@ -256,6 +276,9 @@
                           }
                         }
                         <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
+                        @if (tale.status !== 'live') {
+                          <app-status-badge class="tale-card__status" [status]="tale.status" />
+                        }
                         <span class="tale-card__title">{{ tale.title }}</span>
                         <button
                           type="button"
