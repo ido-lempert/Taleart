@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { isImportActive, type ImportJob, type ImportStatus, type StorylyApp } from '@taleart/contract';
+import { isImportActive, type ImportCount, type ImportJob, type ImportStatus, type StorylyApp } from '@taleart/contract';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
@@ -98,11 +98,13 @@ const STATUS_LABELS: Record<ImportStatus, string> = {
           }
           @if (job.report; as report) {
             <ul class="import-report" aria-label="Report">
-              <li class="import-report__row">
-                Zones: {{ report.zones.source }} source / {{ report.zones.imported }} imported{{
-                  report.zones.skipped > 0 ? ' / ' + report.zones.skipped + ' skipped' : ''
-                }}
-              </li>
+              <li class="import-report__row">Zones: {{ countText(report.zones) }}</li>
+              @if (report.taleGroups; as taleGroups) {
+                <li class="import-report__row">Tale groups: {{ countText(taleGroups) }}</li>
+              }
+              @if (report.tales; as tales) {
+                <li class="import-report__row">Tales: {{ countText(tales) }}</li>
+              }
             </ul>
             @if (report.notes.length > 0) {
               <ul class="import-notes" aria-label="Notes">
@@ -215,6 +217,12 @@ export class ImportPage implements OnInit {
   ngOnInit(): void {
     // The imported zones show on the Zones page of this project.
     this.store.selectProject(this.projectId());
+  }
+
+  // One report row's counts: "3 source / 3 imported", with the skipped ones when there are any.
+  protected countText(count: ImportCount): string {
+    const text = `${count.source} source / ${count.imported} imported`;
+    return count.skipped > 0 ? `${text} / ${count.skipped} skipped` : text;
   }
 
   protected statusLabel(status: ImportStatus): string {

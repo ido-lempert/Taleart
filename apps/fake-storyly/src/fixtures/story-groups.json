@@ -1,0 +1,116 @@
+{
+  "2001": {
+    "data": [
+      {
+        "id": 3001,
+        "app_id": 1001,
+        "instance_id": 2001,
+        "account_id": 501,
+        "title": "Summer sale",
+        "status": 1,
+        "sort_order": 2,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "media": "https://media.example/fake/group-3001.png",
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 3002,
+        "app_id": 1001,
+        "instance_id": 2001,
+        "account_id": 501,
+        "title": "New arrivals",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "media": "https://media.example/fake/group-3002.png",
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 3003,
+        "app_id": 1001,
+        "instance_id": 2001,
+        "account_id": 501,
+        "title": "Gift ideas",
+        "status": 1,
+        "sort_order": 1,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "media": "https://media.example/fake/group-3003.png",
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
+  },
+  "2002": {
+    "data": [
+      {
+        "id": 3004,
+        "app_id": 1001,
+        "instance_id": 2002,
+        "account_id": 501,
+        "title": "How to wear it",
+        "status": 1,
+        "sort_order": 1,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "media": "https://media.example/fake/group-3004.png",
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 3005,
+        "app_id": 1001,
+        "instance_id": 2002,
+        "account_id": 501,
+        "title": "Reviews",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "media": "https://media.example/fake/group-3005.png",
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
+  },
+  "2003": {
+    "data": [
+      {
+        "id": 3006,
+        "app_id": 1001,
+        "instance_id": 2003,
+        "account_id": 501,
+        "title": "Free shipping",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "media": "https://media.example/fake/group-3006.png",
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
+  }
+}

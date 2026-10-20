@@ -86,6 +86,34 @@ describe('tale groups', () => {
     expect(statements()).toContain('COMMIT');
     expect(release).toHaveBeenCalledTimes(1);
   });
+
+  it('runs the callback in the same transaction once the group is placed, and rolls back when it throws', async () => {
+    const answers = () => [
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ id: groupId, projectId, name: 'A' }] },
+      { rows: [{ position: 0 }] },
+    ];
+    const ok = fakeDb(answers());
+    const withGroup = vi.fn(async (tx: unknown, ids: unknown) => {
+      await (tx as TransactionalDb).query('SELECT link', []);
+      expect(ids).toEqual({ taleGroupId: groupId, projectId });
+    });
+    await createTaleGroup(ok.db, { zoneId, name: 'A' }, withGroup);
+    expect(withGroup).toHaveBeenCalledTimes(1);
+    const order = ok.statements();
+    expect(order.findIndex((s) => /INSERT INTO zone_tale_groups/.test(s))).toBeLessThan(order.indexOf('SELECT link'));
+    expect(order.indexOf('SELECT link')).toBeLessThan(order.indexOf('COMMIT'));
+
+    const failing = fakeDb(answers());
+    await expect(
+      createTaleGroup(failing.db, { zoneId, name: 'A' }, async () => {
+        throw new Error('link failed');
+      }),
+    ).rejects.toThrow('link failed');
+    expect(failing.statements()).toContain('ROLLBACK');
+    expect(failing.statements()).not.toContain('COMMIT');
+  });
 });
 
 describe('placements', () => {
@@ -291,6 +319,31 @@ describe('tales', () => {
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
     expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2]);
     expect(tale).toEqual({ id: 't1', media: null });
+  });
+
+  it('runs the callback in the same transaction once the tale exists, and rolls back when it throws', async () => {
+    const answers = () => [
+      { rows: [{ project_id: projectId }] },
+      { rows: [{ count: 0, next: 0 }] },
+      { rows: [{ id: 't1', mediaContentType: null }] },
+    ];
+    const ok = fakeDb(answers());
+    const withTale = vi.fn(async (tx: unknown, ids: unknown) => {
+      await (tx as TransactionalDb).query('SELECT link', []);
+      expect(ids).toEqual({ taleId: 't1', projectId });
+    });
+    await createTale(ok.db, { taleGroupId: groupId, title: 'T' }, withTale);
+    expect(withTale).toHaveBeenCalledTimes(1);
+    expect(ok.statements().indexOf('SELECT link')).toBeLessThan(ok.statements().indexOf('COMMIT'));
+
+    const failing = fakeDb(answers());
+    await expect(
+      createTale(failing.db, { taleGroupId: groupId, title: 'T' }, async () => {
+        throw new Error('link failed');
+      }),
+    ).rejects.toThrow('link failed');
+    expect(failing.statements()).toContain('ROLLBACK');
+    expect(failing.statements()).not.toContain('COMMIT');
   });
 });
 

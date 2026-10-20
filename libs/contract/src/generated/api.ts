@@ -1071,7 +1071,11 @@ export interface components {
         };
         ImportReport: {
             zones: components["schemas"]["ImportCount"];
-            /** @description What did not come across, such as "frame type unknown" for each zone. */
+            /** @description Story groups as tale groups. Absent in reports of imports made before tale groups were imported. */
+            taleGroups?: components["schemas"]["ImportCount"];
+            /** @description Stories as tales. Absent in reports of imports made before tales were imported. */
+            tales?: components["schemas"]["ImportCount"];
+            /** @description What did not come across, such as "frame type unknown" for each zone or a skipped tale. */
             notes: string[];
         };
         ImportJob: {
