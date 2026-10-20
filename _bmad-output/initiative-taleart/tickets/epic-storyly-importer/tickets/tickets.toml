@@ -1,0 +1,163 @@
+# Breakdown for epic-storyly-importer, vertical slices in build order.
+# Each entry is a flow an admin can review in the dashboard: paste a token, pick what to import, watch progress, read the report.
+# Automated tests and local review use the fake Storyly server (recorded fixtures, base URL from configuration); only story 3 calls the real API.
+# Table order is build order; id is permanent.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: import a Storyly app's zones and see the report"
+description = "An admin opens Import from Storyly in a project (the import target), pastes an API token, picks one of the apps the token reaches, and starts. The API stores a job row and returns at once (AD-8); the worker reads the app's instances through the Storyly client, creates a zone per instance through the zones module's public interface, writes import_links with UUID targets (AD-7), and stores a report. The token is stored encrypted with the job while it runs and deleted when the job ends; only an admin can start an import. The page shows the job state and the report row Zones: source and imported counts. Ships the fake Storyly server with hand-made fixtures, selected by configuration, so tests and reviewers never call the real API."
+verify = "With the dashboard pointed at the fake Storyly server, paste its test token, pick the test app and start: the page shows the job running, then done, the report reads Zones 3 source / 3 imported, and the three zones appear on the Zones page. A wrong token shows an error and starts no job; a content manager sees no Import from Storyly entry and the API refuses them with 403; after the job ends its stored token is gone."
+covers = ["R1", "R5"]
+after = ["1.7", "1.11", "1.13", "1.14"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-7", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-8"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Import tale groups and tales in source order"
+description = "The import adds each instance's story groups as tale groups and their stories as tales (title only, media in story 5), through the tales module's public interface, keeping Storyly's sort_order as position. The report gains Tale groups and Tales rows."
+verify = "Import the fake account: the report shows tale groups and tales with equal source and imported counts, and each zone page shows its groups and tales in the source order."
+covers = ["R1"]
+after = [1, "1.3", "1.4"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Run a real import with your Storyly token and record the responses"
+description = "The user pastes their own Storyly token in the dashboard and imports a test account against the live External API. The client records every response to a folder outside the repository; an anonymized, shape-only copy replaces the hand-made fixtures of the fake server. The run settles the epic's open points: the auth form (bearer or query token), instances versus placements, where labels appear, whether audience members are readable, whether stories carry interactive component data, and the documented field-name errors. Findings go to the epic's Notes."
+verify = "With your token, import your test account: the report's zone, tale group and tale counts match your Storyly dashboard; the anonymized fixtures are committed with no token or end-user identifier in them, and every importer test passes on them."
+covers = ["R1", "R3"]
+after = [2]
+hitl = true # the user provides a real Storyly API token and a test account, and compares counts with the Storyly dashboard
+risk = "high"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Watch an import's progress and see past imports"
+description = "While a job runs the page shows per-entity progress (read so far, written so far) without a manual reload, and survives a reload. The project's Import from Storyly page lists past runs with their state, start and end time, and the failure reason of a failed run, each opening its report."
+verify = "Start an import of the fake account with slow responses: progress rises on screen without reloading; reload mid-run and it continues; after a run the history lists it, and a run against a fake server that fails shows as failed with its reason."
+covers = ["R5"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Check each record and list every difference in the report"
+description = "Each Storyly record is checked against the expected live shape before mapping (FR-029). Missing, renamed and unexpected fields, and fields TaleArt does not hold (links, button text, pinned, group cover, settings), are listed per entity and record in the report, with conversion records and stats shown once as not imported by design. The job never fails on a shape difference. This story owns the report's differences section; stories 5, 8, 11, 12 and 13 add their differences to it."
+verify = "Import a fixture with a renamed field, an unexpected field and a story with a deep link and button text: the job completes and the report lists each difference against its record; a clean fixture shows no differences."
+covers = ["R2", "R3"]
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Copy tale media through the storage port"
+description = "For each story the worker downloads its media (image, GIF or video) and stores it through the media storage port (AD-11), setting the tale's media key and content type through the tales module. A failed or unsupported download leaves the tale without media and lists it as a difference."
+verify = "Import the fake account: every imported tale shows its image or video preview after a reload; a story whose media URL fails is imported without media and listed in the report."
+covers = ["R1", "R2"]
+after = [6, "1.12"]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-11"]
+
+[[entry]]
+id = 8
+type = "story"
+title = "Import labels as tags on tale groups"
+description = "Label values found on story groups (Storyly's story group segments field and its segments list endpoint) become tags in the project, reusing a tag of the same name, and are added to the matching tale groups through the targeting module."
+verify = "Import the fake account: the report shows tags with equal source and imported counts; each imported tale group carries its source group's tags; a tag that already existed with the same name is reused, not duplicated."
+covers = ["R1"]
+after = [6, "1.5"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Re-import updates instead of duplicating"
+description = "A second import of the same app into the same project finds each record through import_links (AD-7) and updates it through the owning module's public interface instead of creating it again, media and tags included. The report shows created, updated and unchanged counts per entity."
+verify = "Import the fake account twice: zone, tale group and tale counts in the dashboard do not change; change a story title on the fake server and re-import: the tale title updates and the report counts it as updated."
+covers = ["R4"]
+after = [5, 8]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Pick what to import before starting"
+description = "After the token is checked, the admin sees the app's instances with their group and story counts and ticks which zones and which entity types (tale groups and tales, media, tags) to import."
+verify = "Untick one zone and tags, then start: only the ticked zones arrive, and the report shows the unticked zone and tags as skipped, not as missing."
+covers = ["R1"]
+after = [2, 4]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Import 1,000 tales within 30 minutes"
+description = "The worker reads and copies media with bounded concurrency, retries 429 and 5xx replies with backoff (Storyly publishes no rate limits), and resumes a job after a worker restart without duplicating (AD-7). A throughput test runs against the fake server with recorded latency."
+verify = "Run the throughput test: the fake server with recorded latency serves 1,000 tales with media and occasional 429 and 500 replies; the import finishes in under 30 minutes with all 1,000 tales imported, and the report shows the elapsed time."
+covers = ["R6"]
+after = [5, 7]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Map statuses and schedules"
+description = "Story and story group status codes map to TaleArt status keys by the approved table (AD-6, PRD addendum), and ts_start and ts_end map to the schedule. An unknown code imports as paused and is a difference."
+verify = "Import a fixture with one story per Storyly status and with start and end times: each tale and tale group shows the mapped status and schedule in the dashboard; an unknown code shows as paused and is listed in the report."
+covers = ["R1", "R2"]
+after = [6, "epic-web-zones"]
+hitl = false
+risk = "medium"
+notes = ["Needs status and schedule fields on tales and tale groups (R6, AD-6), from the web zones epic."]
+
+[[entry]]
+id = 12
+type = "story"
+title = "Import audiences as user lists"
+description = "Each Storyly audience becomes a user list in the project through the targeting module, with its members as external user IDs when the API returns them; an audience whose members cannot be read is imported empty and listed as a difference."
+verify = "Import the fake account: the report shows user lists with equal source and imported counts, each list shows its member count in the dashboard, and a list without readable members appears as a difference."
+covers = ["R1", "R2"]
+after = [3, 6, "epic-targeting"]
+hitl = false
+risk = "medium"
+notes = ["Needs user lists from the targeting epic; story 3 answers whether members are readable."]
+
+[[entry]]
+id = 13
+type = "story"
+title = "Import interactive components"
+description = "Interactive components found on stories become the TaleArt component of the same type on the tale; a type TaleArt lacks, or component data the API does not return, is a difference."
+verify = "Import a fixture with a poll, a quiz and an unsupported component: the tale shows the poll and quiz in the dashboard, and the report lists the unsupported one."
+covers = ["R1", "R2"]
+after = [3, 6, "epic-interactive-components"]
+hitl = false
+risk = "high"
+notes = ["Needs components from the interactive components epic; story 3 answers whether the External API returns component data at all."]
+
+[[entry]]
+id = 14
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
+verify = "The full test suite passes after the sweep, with no behavior change."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+hitl = false
+risk = "low"
