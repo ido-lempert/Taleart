@@ -109,5 +109,5 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
 - Assumption: the MVP frame subset is bar and banner. Canvas, Swipe Card and Video Feed come after. Confirm before slicing.
 - Open question: the brief lists six interactive components and omits Rating, which Storyly documents. Include or drop Rating?
 - Open question: the status scheme (research section 11.3) is a proposal. Approve or change it before the importer's status mapping is built.
-- Decision: the conversion endpoint stays metric.storyly.io for now (user, approved). Live check still pending; trk.storyly.io is a possible future host. Conversion attribution is out of MVP.
+- Decision: conversion tracking is not part of Storyly compatibility. TaleArt designs its own conversion tracking later, and the importer does not migrate conversion records (user). Storyly's endpoint is no longer an open question.
 - Open question: names (terminology map) and license need decisions and counsel review before publication.
