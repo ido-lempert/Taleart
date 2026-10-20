@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { DELIVERY_API_BASE } from '@taleart/contract';
+import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
@@ -38,7 +38,10 @@ async function start(): Promise<void> {
   };
 
   const port = process.env['PORT'] || 3333;
-  const server = createApp(pool, frameTypes, storage, auth).listen(port, () => {
+  // Delivery media URLs are absolute and start with the API's public origin.
+  const publicApiUrl = process.env['PUBLIC_API_URL'] || 'http://localhost:3333';
+  log('info', `Public media at ${publicApiUrl}${PUBLIC_MEDIA_BASE}`);
+  const server = createApp(pool, frameTypes, storage, auth, { publicApiUrl }).listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
     log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
   });

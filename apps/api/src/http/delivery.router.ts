@@ -1,5 +1,6 @@
-import { ErrorCodes, type DeliveryZone } from '@taleart/contract';
+import { ErrorCodes, mediaKind, publicMediaUrl, type DeliveryZone } from '@taleart/contract';
 import { zoneForKey, type KeyZone } from '@taleart/server-access';
+import { listDeliveryTaleGroups } from '@taleart/server-tales';
 import { findZone, listFrames } from '@taleart/server-zones';
 import { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
@@ -40,11 +41,17 @@ function requireZoneKey(pool: Pool): RequestHandler {
   };
 }
 
+/** How the Delivery API builds its responses. */
+export interface DeliveryOptions {
+  /** The API's public origin (PUBLIC_API_URL), which media URLs start with. */
+  publicApiUrl: string;
+}
+
 /**
  * The Delivery API (AD-2), mounted at `/delivery/v1`: serves SDKs on any
  * origin, without credentials, and reads only the zone of the caller's key.
  */
-export function deliveryRouter(pool: Pool): Router {
+export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
   const router = Router();
 
   router.use((req, res, next) => {
@@ -69,11 +76,25 @@ export function deliveryRouter(pool: Pool): Router {
         res.status(401).json(errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE));
         return;
       }
-      const frames = await listFrames(pool, zoneId);
+      const [frames, taleGroups] = await Promise.all([listFrames(pool, zoneId), listDeliveryTaleGroups(pool, zoneId)]);
+      // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).
       const body: DeliveryZone = {
         id: zone.id,
         name: zone.name,
         frames: frames.map(({ id, type, settings }) => ({ id, type, settings })),
+        taleGroups: taleGroups.map((group) => ({
+          id: group.id,
+          name: group.name,
+          tales: group.tales.map((tale) => ({
+            id: tale.id,
+            title: tale.title,
+            media: tale.media && {
+              kind: mediaKind(tale.media.contentType),
+              contentType: tale.media.contentType,
+              url: publicMediaUrl(options.publicApiUrl, tale.media.key),
+            },
+          })),
+        })),
       };
       res.json(body);
     } catch (err) {

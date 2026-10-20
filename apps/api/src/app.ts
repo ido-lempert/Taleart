@@ -1,4 +1,4 @@
-import { DELIVERY_API_BASE, type Health } from '@taleart/contract';
+import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, type Health } from '@taleart/contract';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
@@ -9,6 +9,7 @@ import { deliveryRouter } from './http/delivery.router';
 import { frameTypesRouter } from './http/frame-types.router';
 import { errorHandler, notFoundHandler } from './http/errors';
 import { projectsRouter } from './http/projects.router';
+import { publicMediaRouter } from './http/public-media.router';
 import { taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
 import { projectTagsRouter } from './http/tags.router';
 import { talesRouter } from './http/tales.router';
@@ -28,6 +29,12 @@ export interface AppAuth {
   dashboardOrigin?: string;
 }
 
+/** Where the API is reached from outside. */
+export interface AppUrls {
+  /** The API's public origin (PUBLIC_API_URL); Delivery media URLs start with it. Defaults to http://localhost:3333. */
+  publicApiUrl?: string;
+}
+
 // Builds the API. Takes its pool, frame-type registry, media storage and passkey
 // verifier so tests can point it at a real database, their own frame types, a
 // temporary folder and a fake authenticator.
@@ -36,6 +43,7 @@ export function createApp(
   frameTypes: FrameTypeRegistry,
   storage: MediaStorage,
   auth: AppAuth,
+  urls: AppUrls = {},
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -71,7 +79,10 @@ export function createApp(
 
   // The Delivery API serves SDKs with zone keys only (AD-2): its own open CORS
   // and key middleware, never the session middleware.
-  app.use(DELIVERY_API_BASE, deliveryRouter(pool));
+  app.use(DELIVERY_API_BASE, deliveryRouter(pool, { publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333' }));
+
+  // Published media is public at unguessable URLs (AD-11): no session, no zone key.
+  app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

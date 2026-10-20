@@ -6,7 +6,7 @@ import express, { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorizeParam } from './authorize';
 import { HttpError } from './errors';
-import { declaredMediaType, matchesMagicNumber, mediaExtension } from './media';
+import { declaredMediaType, matchesMagicNumber, mediaExtension, sendMediaBytes } from './media';
 
 function logError(msg: string, err: unknown): void {
   console.log(
@@ -100,22 +100,7 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
         res.status(304).end();
         return;
       }
-      // Byte ranges let browsers (Safari and iOS in particular) play and seek videos.
-      res.setHeader('Accept-Ranges', 'bytes');
-      const ranges = req.headers.range ? req.range(data.length) : undefined;
-      if (ranges === -1) {
-        res.setHeader('Content-Range', `bytes */${data.length}`);
-        res.status(416).end();
-        return;
-      }
-      // One satisfiable bytes range answers 206; none, a malformed one or several answer 200 with the whole file.
-      if (Array.isArray(ranges) && ranges.type === 'bytes' && ranges.length === 1) {
-        const { start, end } = ranges[0];
-        res.setHeader('Content-Range', `bytes ${start}-${end}/${data.length}`);
-        res.status(206).send(data.subarray(start, end + 1));
-        return;
-      }
-      res.send(data);
+      sendMediaBytes(req, res, data);
     } catch (err) {
       next(err);
     }

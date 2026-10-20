@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TaleArt Web SDK sample</title>
+    <style>
+      body {
+        margin: 0 auto;
+        max-width: 960px;
+        padding: 16px;
+        font-family: system-ui, sans-serif;
+        color: #111827;
+        background: #fff;
+      }
+      code { background: #f3f4f6; padding: 0 4px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>TaleArt Web SDK sample</h1>
+    <p>
+      A host page for trying the SDK. Open it as
+      <code>?key=&lt;zone key&gt;&amp;api=&lt;API URL&gt;</code>; the API URL defaults to
+      <code>http://localhost:3333</code>.
+    </p>
+
+    <taleart-view id="zone"></taleart-view>
+
+    <!-- The built SDK, served from dist/libs/web-sdk. Loading it registers <taleart-view>. -->
+    <script type="module">
+      import '/sdk/index.js';
+
+      const params = new URLSearchParams(location.search);
+      const view = document.getElementById('zone');
+      view.apiUrl = params.get('api') || 'http://localhost:3333';
+      const key = params.get('key');
+      if (key) view.zoneKey = key;
+    </script>
+  </body>
+</html>
