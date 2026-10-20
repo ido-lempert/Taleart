@@ -2,7 +2,7 @@
 // openapi/openapi.yaml through the generated types; change the document, then
 // run `npm exec nx -- run contract:generate`.
 import type { components } from './generated/api';
-import { errorCodeValues, mediaContentTypeValues, userRoleValues } from './generated/api';
+import { errorCodeValues, importStatusValues, mediaContentTypeValues, userRoleValues } from './generated/api';
 
 export type { paths, operations, components } from './generated/api';
 
@@ -51,6 +51,14 @@ export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
 export type DeliveryTale = Schemas['DeliveryTale'];
 export type DeliveryMedia = Schemas['DeliveryMedia'];
+export type Findanother toolAppsRequest = Schemas['Findanother toolAppsRequest'];
+export type another toolApp = Schemas['another toolApp'];
+export type StartImportRequest = Schemas['StartImportRequest'];
+export type ImportStatus = Schemas['ImportStatus'];
+export type ImportStarted = Schemas['ImportStarted'];
+export type ImportCount = Schemas['ImportCount'];
+export type ImportReport = Schemas['ImportReport'];
+export type ImportJob = Schemas['ImportJob'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
@@ -59,6 +67,14 @@ export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
 
 /** Every role a user can have. */
 export const USER_ROLES: readonly UserRole[] = userRoleValues;
+
+/** Every state an import job can be in. */
+export const IMPORT_STATUSES: readonly ImportStatus[] = importStatusValues;
+
+/** True while an import job still has work ahead: queued or running. */
+export function isImportActive(status: ImportStatus): boolean {
+  return status === 'queued' || status === 'running';
+}
 
 /** The http-only cookie holding the session token (AD-9). */
 export const SESSION_COOKIE = 'taleart_session';
@@ -171,6 +187,9 @@ export const ErrorCodes = {
   tagNotFound: 'tag_not_found',
   zoneKeyNotFound: 'zone_key_not_found',
   invalidZoneKey: 'invalid_zone_key',
+  another toolTokenInvalid: 'another tool_token_invalid',
+  another toolUnavailable: 'another tool_unavailable',
+  importerNotConfigured: 'importer_not_configured',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

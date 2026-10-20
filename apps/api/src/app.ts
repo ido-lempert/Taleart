@@ -1,4 +1,5 @@
 import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, type Health } from '@taleart/contract';
+import { DEFAULT_another tool_API_URL } from '@taleart/server-importer';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
@@ -7,6 +8,7 @@ import type { Pool } from 'pg';
 import { authRouter, requireSession } from './http/auth.router';
 import { deliveryRouter } from './http/delivery.router';
 import { frameTypesRouter } from './http/frame-types.router';
+import { importsRouter, type ImporterConfig } from './http/imports.router';
 import { errorHandler, notFoundHandler } from './http/errors';
 import { projectsRouter } from './http/projects.router';
 import { publicMediaRouter } from './http/public-media.router';
@@ -35,15 +37,19 @@ export interface AppUrls {
   publicApiUrl?: string;
 }
 
-// Builds the API. Takes its pool, frame-type registry, media storage and passkey
-// verifier so tests can point it at a real database, their own frame types, a
-// temporary folder and a fake authenticator.
+export type { ImporterConfig } from './http/imports.router';
+
+// Builds the API. Takes its pool, frame-type registry, media storage, passkey
+// verifier and importer settings so tests can point it at a real database,
+// their own frame types, a temporary folder, a fake authenticator and a fake
+// import source. Without an importer token key the import routes answer 503.
 export function createApp(
   pool: Pool,
   frameTypes: FrameTypeRegistry,
   storage: MediaStorage,
   auth: AppAuth,
   urls: AppUrls = {},
+  importer: ImporterConfig = { tokenKey: null, another toolApiUrl: DEFAULT_another tool_API_URL },
 ): express.Express {
   const app = express();
   app.use(express.json());
@@ -70,6 +76,7 @@ export function createApp(
   v1.use('/projects', projectsRouter(pool, { dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200' }));
   v1.use('/projects', projectTagsRouter(pool));
   v1.use('/projects', projectTaleGroupsRouter(pool));
+  v1.use('/projects', importsRouter(pool, importer));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));
