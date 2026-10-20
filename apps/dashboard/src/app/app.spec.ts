@@ -905,4 +905,156 @@ describe('App', () => {
       expect(root.querySelector('h1')?.textContent).toContain('Sign in');
     });
   });
+
+  describe('invitations and roles', () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve));
+    const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
+    const invitation = {
+      id: 'i1',
+      projectId: 'p1',
+      url: 'http://localhost:4200/invite/tok123',
+      expiresAt: '2026-10-27T12:00:00.000Z',
+    };
+
+    // Opens the invite page for `token`, answering its invitation request with `answer`.
+    async function openInvite(
+      answer: (req: ReturnType<HttpTestingController['expectOne']>) => void,
+    ): Promise<{ fixture: ComponentFixture<App>; root: HTMLElement }> {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      const navigation = TestBed.inject(Router).navigateByUrl('/invite/tok123');
+      await tick();
+      await navigation;
+      await tick();
+      answer(http.expectOne(`${API_BASE}/auth/invitations/tok123`));
+      await settle(fixture);
+      return { fixture, root: fixture.nativeElement as HTMLElement };
+    }
+
+    const gone = { error: { code: 'invitation_invalid', message: 'This invitation is no longer valid.' } };
+
+    it('gives each project card "Invite"; the drawer creates the link and copies it', async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      const { fixture, root } = await open('/projects', { projects: [acme, globex], zones: [zone] });
+      expect(root.querySelectorAll('[aria-label^="Invite to"]')).toHaveLength(2);
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Invite to project');
+      expect(drawer()?.textContent).toContain('To project Acme');
+      buttonNamed(drawer() as HTMLElement, 'Create link').click();
+      const req = http.expectOne(`${API_BASE}/projects/p1/invitations`);
+      expect(req.request.method).toBe('POST');
+      req.flush(invitation, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector<HTMLInputElement>('#invite-url')?.value).toBe(invitation.url);
+      expect(drawer()?.textContent).toContain('2026');
+      buttonNamed(drawer() as HTMLElement, 'Copy link').click();
+      await settle(fixture);
+      expect(writeText).toHaveBeenCalledWith(invitation.url);
+      expect(drawer()?.querySelector('[role=status]')?.textContent).toContain('Link copied');
+
+      buttonNamed(drawer() as HTMLElement, 'Done').click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+    });
+
+    it("shows the API's message in the invite drawer", async () => {
+      const { fixture, root } = await open('/projects', { projects: [acme] });
+      root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Create link').click();
+      http
+        .expectOne(`${API_BASE}/projects/p1/invitations`)
+        .flush({ error: { code: 'forbidden', message: 'Only admins can do this' } }, { status: 403, statusText: 'Forbidden' });
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Only admins can do this');
+    });
+
+    it('hides "New project" and "Invite" from a content manager and lists only their projects', async () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/projects', { setupRequired: false, user: manager });
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+      const root = fixture.nativeElement as HTMLElement;
+
+      expect(root.textContent).not.toContain('New project');
+      expect(root.querySelector('[aria-label^="Invite to"]')).toBeNull();
+      const options = [...(root.querySelector<HTMLSelectElement>('#project-switcher')?.options ?? [])];
+      expect(options.map((o) => o.textContent?.trim())).toEqual(['Acme']);
+    });
+
+    it('tells a content manager without projects to ask for an invitation', async () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones', { setupRequired: false, user: manager });
+      await flushRefresh(fixture, {});
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.textContent).toContain('Ask an admin to invite you');
+      expect(root.textContent).not.toContain('New project');
+    });
+
+    it('joins through an invitation link with a passkey and lands on Zones of that project', async () => {
+      const { fixture, root } = await openInvite((req) => req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }));
+      expect(root.querySelector('h1')?.textContent).toContain('Join Acme on TaleArt');
+      expect(root.querySelector('nav[aria-label=Main]')).toBeNull();
+
+      type(root.querySelector<HTMLInputElement>('#invite-name'), 'Cy Content');
+      type(root.querySelector<HTMLInputElement>('#invite-email'), 'cy@example.com');
+      buttonNamed(root, 'Create passkey').click();
+      const options = http.expectOne(`${API_BASE}/auth/invitations/tok123/options`);
+      expect(options.request.body).toEqual({ name: 'Cy Content', email: 'cy@example.com' });
+      options.flush({ challenge: 'c1' });
+      await tick();
+      expect(passkeys.register).toHaveBeenCalledWith({ challenge: 'c1' });
+      const verify = http.expectOne(`${API_BASE}/auth/invitations/tok123/verify`);
+      expect(verify.request.body).toEqual({ id: 'cred-1', type: 'public-key' });
+      verify.flush({ user: manager }, { status: 201, statusText: 'Created' });
+      await tick();
+      fixture.detectChanges();
+      await tick();
+      await flushRefresh(fixture, oneZone);
+
+      expect(TestBed.inject(Router).url).toBe('/zones');
+      expect(root.querySelector('h1')?.textContent).toContain('Zones');
+      expect(root.textContent).toContain('Home bar');
+      expect(root.querySelector('.user-menu')?.textContent).toContain('Cy Content');
+    });
+
+    it('says a used or expired link is no longer valid', async () => {
+      const { root } = await openInvite((req) => req.flush(gone, { status: 410, statusText: 'Gone' }));
+      expect(root.querySelector('h1')?.textContent).toContain('This invitation is no longer valid');
+      expect(root.querySelector('form')).toBeNull();
+    });
+
+    it('says the link is no longer valid when it was used while the passkey was being created', async () => {
+      const { fixture, root } = await openInvite((req) => req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }));
+      type(root.querySelector<HTMLInputElement>('#invite-name'), 'Cy');
+      type(root.querySelector<HTMLInputElement>('#invite-email'), 'cy@example.com');
+      buttonNamed(root, 'Create passkey').click();
+      http.expectOne(`${API_BASE}/auth/invitations/tok123/options`).flush({ challenge: 'c1' });
+      await tick();
+      http.expectOne(`${API_BASE}/auth/invitations/tok123/verify`).flush(gone, { status: 410, statusText: 'Gone' });
+      await settle(fixture);
+      expect(root.querySelector('h1')?.textContent).toContain('This invitation is no longer valid');
+    });
+
+    it("shows the API's message when the email is taken", async () => {
+      const { fixture, root } = await openInvite((req) => req.flush({ projectName: 'Acme', expiresAt: invitation.expiresAt }));
+      type(root.querySelector<HTMLInputElement>('#invite-name'), 'Ada');
+      type(root.querySelector<HTMLInputElement>('#invite-email'), 'ada@example.com');
+      buttonNamed(root, 'Create passkey').click();
+      http
+        .expectOne(`${API_BASE}/auth/invitations/tok123/options`)
+        .flush(
+          { error: { code: 'email_taken', message: 'A user with this email already exists. Sign in instead.' } },
+          { status: 409, statusText: 'Conflict' },
+        );
+      await settle(fixture);
+      expect(root.querySelector('.form-error')?.textContent).toContain('already exists');
+      expect(root.querySelector('h1')?.textContent).toContain('Join Acme');
+    });
+  });
 });

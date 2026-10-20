@@ -1,5 +1,6 @@
 import { Route } from '@angular/router';
 import { authGuard, setupGuard, signInGuard } from './auth';
+import { InvitePage } from './pages/invite';
 import { SetupPage } from './pages/setup';
 import { SignInPage } from './pages/sign-in';
 import { ProjectsPage } from './pages/projects';
@@ -13,7 +14,7 @@ export interface ShellData {
   createLabel: string;
 }
 
-/** Route data of the pages shown without the shell: setup and sign-in. */
+/** Route data of the pages shown without the shell: setup, sign-in and invitations. */
 export interface BareData {
   bare: true;
 }
@@ -31,6 +32,13 @@ export const appRoutes: Route[] = [
     component: SignInPage,
     title: 'Sign in · TaleArt',
     canActivate: [signInGuard],
+    data: { bare: true } satisfies BareData,
+  },
+  {
+    // An invitation link; works without a session (AD-9).
+    path: 'invite/:token',
+    component: InvitePage,
+    title: 'Join · TaleArt',
     data: { bare: true } satisfies BareData,
   },
   {

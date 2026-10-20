@@ -8,6 +8,8 @@ import {
   orderTales,
   setTaleMedia,
   taleExists,
+  taleGroupProjectId,
+  taleProjectId,
   TaleGroupFullError,
   TaleGroupNotFoundError,
   TaleNotFoundError,
@@ -251,5 +253,19 @@ describe('order', () => {
     const mismatch = fakeDb([{ rows: [{}] }, { rows: [{ id: a }, { id: b }] }]);
     await expect(orderTales(mismatch.db, groupId, [b])).rejects.toBeInstanceOf(OrderMismatchError);
     expect(mismatch.statements()).toContain('ROLLBACK');
+  });
+});
+
+describe('project lookups', () => {
+  it('finds the project of a tale group and of a tale, and nothing for ids that are not UUIDs', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ project_id: projectId }] });
+    const db = { query } as unknown as TransactionalDb;
+    expect(await taleGroupProjectId(db, groupId)).toBe(projectId);
+    expect(await taleProjectId(db, groupId)).toBe(projectId);
+    expect(await taleGroupProjectId(db, 'nope')).toBeNull();
+    expect(await taleProjectId(db, 'nope')).toBeNull();
+    expect(query).toHaveBeenCalledTimes(2);
+    query.mockResolvedValue({ rows: [] });
+    expect(await taleProjectId(db, groupId)).toBeNull();
   });
 });

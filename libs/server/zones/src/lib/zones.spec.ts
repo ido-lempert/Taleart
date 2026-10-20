@@ -1,5 +1,5 @@
 import type { Db } from '@taleart/server-access';
-import { createZone, ProjectNotFoundError } from './zones';
+import { createZone, listZones, ProjectNotFoundError } from './zones';
 
 describe('createZone', () => {
   it('refuses a project that does not exist without inserting', async () => {
@@ -10,5 +10,14 @@ describe('createZone', () => {
     await expect(createZone(db, { name: 'Home', projectId })).rejects.toBeInstanceOf(ProjectNotFoundError);
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).not.toMatch(/INSERT/);
+  });
+});
+
+describe('listZones', () => {
+  it('lists only the zones of the projects in scope', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    await listZones({ query } as unknown as Db, ['p1']);
+    expect(query.mock.calls[0][0]).toMatch(/project_id = ANY/);
+    expect(query.mock.calls[0][1]).toEqual([['p1']]);
   });
 });

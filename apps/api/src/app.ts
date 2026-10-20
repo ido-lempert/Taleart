@@ -21,6 +21,8 @@ export interface AppAuth {
   verifier: PasskeyVerifier;
   /** Adds `Secure` to the cookies; true when the dashboard origin (RP_ORIGIN) is https. */
   secureCookies?: boolean;
+  /** The dashboard's origin (RP_ORIGIN), where invitation links point. Defaults to http://localhost:4200. */
+  dashboardOrigin?: string;
 }
 
 // Builds the API. Takes its pool, frame-type registry, media storage and passkey
@@ -51,9 +53,10 @@ export function createApp(
     res.json(body);
   });
   v1.use('/auth', authRouter(pool, { verifier: auth.verifier, secureCookies: auth.secureCookies ?? false }));
-  // Every other route, media included, needs a signed-in session (AD-9).
+  // Every other route, media included, needs a signed-in session (AD-9), and
+  // each checks the caller's access to the project it touches (AD-4).
   v1.use(requireSession(pool));
-  v1.use('/projects', projectsRouter(pool));
+  v1.use('/projects', projectsRouter(pool, { dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200' }));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));

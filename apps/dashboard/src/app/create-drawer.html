@@ -103,6 +103,30 @@
             <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB.</p>
           </div>
         }
+        @case ('invite') {
+          @if (invitation(); as invitation) {
+            <div class="field">
+              <label class="field__label" for="invite-url">Invitation link</label>
+              <input
+                id="invite-url"
+                class="input"
+                name="url"
+                readonly
+                [value]="invitation.url"
+                aria-describedby="invite-url-hint"
+                (focus)="selectAll($event)"
+              />
+              <p class="field__hint" id="invite-url-hint">Works once, until {{ expiryDate(invitation) }}. This link is shown only now.</p>
+            </div>
+            <button type="button" class="btn btn--secondary" (click)="copyLink(invitation)">Copy link</button>
+            <p class="muted" role="status">{{ copyStatus() }}</p>
+          } @else {
+            <p>
+              Create a one-time link and send it to the person you invite. They create a passkey and join this project
+              as a content manager. The link works for 7 days.
+            </p>
+          }
+        }
         @case ('taleMedia') {
           @if (tale(); as tale) {
             <p class="tale-drawer__title">{{ tale.title }}</p>
@@ -150,10 +174,14 @@
       }
     </div>
     <div class="drawer__footer">
-      <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="close()">Cancel</button>
-      <button type="submit" class="btn btn--primary" [disabled]="saving()">
-        {{ submitLabel() }}
-      </button>
+      @if (invitation()) {
+        <button type="button" class="btn btn--primary" (click)="close()">Done</button>
+      } @else {
+        <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="close()">Cancel</button>
+        <button type="submit" class="btn btn--primary" [disabled]="saving()">
+          {{ submitLabel() }}
+        </button>
+      }
     </div>
   </form>
 </app-drawer>

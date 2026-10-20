@@ -1,9 +1,13 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 
-/** Every project as a card; opening one makes it the selected project. */
+/**
+ * The caller's projects as cards; opening one makes it the selected project.
+ * Admins also get "Invite" on each card and can create projects.
+ */
 @Component({
   selector: 'app-projects-page',
   imports: [Icon],
@@ -13,16 +17,28 @@ import { Icon } from '../icon';
       display: flex;
       align-items: center;
       gap: var(--space-3);
-      width: 100%;
-      padding: var(--space-5);
+      padding: var(--space-3) var(--space-4) var(--space-3) var(--space-2);
+      transition: border-color 120ms ease;
+    }
+    .project-card__open {
+      display: flex;
+      flex: 1;
+      align-items: center;
+      gap: var(--space-3);
+      min-width: 0;
+      padding: var(--space-2) var(--space-3);
+      border: 0;
+      border-radius: var(--radius-control);
+      background: none;
+      color: inherit;
+      font: inherit;
       text-align: left;
       cursor: pointer;
-      transition: border-color 120ms ease;
     }
     .project-card:hover {
       border-color: var(--border-strong);
     }
-    .project-card[aria-current='true'] {
+    .project-card:has([aria-current='true']) {
       border-color: var(--ember);
     }
     .project-card__name {
@@ -37,10 +53,10 @@ import { Icon } from '../icon';
         @if (store.projects().length > 0) {
           <ul class="card-grid" aria-label="Projects">
             @for (project of store.projects(); track project.id) {
-              <li>
+              <li class="card project-card">
                 <button
                   type="button"
-                  class="card project-card"
+                  class="project-card__open"
                   [attr.aria-current]="project.id === store.selectedProjectId() ? 'true' : null"
                   (click)="open(project.id)"
                 >
@@ -50,9 +66,25 @@ import { Icon } from '../icon';
                     <span class="muted">{{ zoneCountLabel(project.id) }}</span>
                   </span>
                 </button>
+                @if (auth.isAdmin()) {
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    [attr.aria-label]="'Invite to ' + project.name"
+                    (click)="store.openDrawer({ kind: 'invite', projectId: project.id }, $event)"
+                  >
+                    Invite
+                  </button>
+                }
               </li>
             }
           </ul>
+        } @else if (!store.apiDown() && !auth.isAdmin()) {
+          <section class="card empty" aria-labelledby="empty-projects">
+            <span class="empty__icon"><app-icon name="projects" /></span>
+            <h2 class="empty__title" id="empty-projects">No projects yet</h2>
+            <p class="empty__text">You are not a member of any project. Ask an admin to invite you.</p>
+          </section>
         } @else if (!store.apiDown()) {
           <section class="card empty" aria-labelledby="empty-projects">
             <span class="empty__icon"><app-icon name="projects" /></span>
@@ -69,6 +101,7 @@ import { Icon } from '../icon';
 })
 export class ProjectsPage {
   protected readonly store = inject(DashboardStore);
+  protected readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
 
   protected zoneCountLabel(projectId: string): string {

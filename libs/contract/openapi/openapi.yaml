@@ -153,13 +153,102 @@ paths:
           description: Signed out.
         default:
           $ref: '#/components/responses/Error'
+  /auth/invitations/{token}:
+    parameters:
+      - $ref: '#/components/parameters/InvitationToken'
+    get:
+      operationId: getInvitation
+      summary: Read an invitation before joining.
+      description: >-
+        Works without a session. An unknown, used or expired invitation answers
+        410 `invitation_invalid`.
+      security: []
+      responses:
+        '200':
+          description: The project the invitation is for, and when it expires.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationPreview'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/invitations/{token}/options:
+    parameters:
+      - $ref: '#/components/parameters/InvitationToken'
+    post:
+      operationId: startInvitation
+      summary: Start registering an invitee's passkey.
+      description: >-
+        Answers WebAuthn creation options and sets the http-only
+        `taleart_challenge` cookie (single-use, 5 minutes). Unknown, used or
+        expired invitation: 410 `invitation_invalid`. An email that already
+        belongs to a user: 409 `email_taken`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemInvitationRequest'
+      responses:
+        '200':
+          description: WebAuthn creation options for the browser.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCreationOptions'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/invitations/{token}/verify:
+    parameters:
+      - $ref: '#/components/parameters/InvitationToken'
+    post:
+      operationId: finishInvitation
+      summary: Register the invitee's passkey, use the invitation and sign them in.
+      description: >-
+        Creates the user as a `content_manager`, their passkey and their
+        membership of the invitation's project, marks the invitation used and
+        sets the `taleart_session` cookie, all in one transaction. Bad or
+        expired challenge, or failed verification: 400 `passkey_failed`. The
+        invitation was used meanwhile or expired: 410 `invitation_invalid`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyResponse'
+      responses:
+        '201':
+          description: The new content manager, now signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedIn'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects:
     get:
       operationId: listProjects
-      summary: List projects, oldest first.
+      summary: List the projects the caller can access, oldest first.
+      description: Admins see every project; content managers see the projects they are members of.
       responses:
         '200':
-          description: All projects.
+          description: The accessible projects.
           content:
             application/json:
               schema:
@@ -170,7 +259,8 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createProject
-      summary: Create a project.
+      summary: Create a project (admins only).
+      description: A content manager gets 403 `forbidden`.
       requestBody:
         required: true
         content:
@@ -186,15 +276,46 @@ paths:
                 $ref: '#/components/schemas/Project'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /projects/{projectId}/invitations:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: createInvitation
+      summary: Invite someone to a project (admins only).
+      description: >-
+        Creates a one-time invitation, valid for 7 days. The invitee opens `url`,
+        registers a passkey and becomes a content manager of the project. The
+        token in `url` is shown only in this response; only its SHA-256 hash is
+        stored. A content manager gets 403 `forbidden`; an unknown project 404
+        `project_not_found`.
+      responses:
+        '201':
+          description: The invitation, with its one-time link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
   /zones:
     get:
       operationId: listZones
-      summary: List zones, oldest first.
+      summary: List the zones of the projects the caller can access, oldest first.
       responses:
         '200':
-          description: All zones.
+          description: The accessible zones.
           content:
             application/json:
               schema:
@@ -206,6 +327,7 @@ paths:
     post:
       operationId: createZone
       summary: Create a zone in a project.
+      description: A project the caller cannot access answers 403 `forbidden`.
       requestBody:
         required: true
         content:
@@ -220,6 +342,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Zone'
         '400':
+          $ref: '#/components/responses/Error'
+        '403':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -257,6 +381,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Frame'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         default:
@@ -282,6 +408,8 @@ paths:
                 $ref: '#/components/schemas/Frame'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         default:
@@ -305,6 +433,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TaleGroup'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         default:
@@ -327,6 +457,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/TaleGroup'
         '400':
+          $ref: '#/components/responses/Error'
+        '403':
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
@@ -363,6 +495,8 @@ paths:
                   $ref: '#/components/schemas/TaleGroup'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         '409':
@@ -396,6 +530,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Tale'
         '400':
+          $ref: '#/components/responses/Error'
+        '403':
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
@@ -435,6 +571,8 @@ paths:
                   $ref: '#/components/schemas/Tale'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         '409':
@@ -468,6 +606,8 @@ paths:
               schema: { type: string, contentMediaType: video/mp4 }
             video/webm:
               schema: { type: string, contentMediaType: video/webm }
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         default:
@@ -507,6 +647,8 @@ paths:
                 $ref: '#/components/schemas/Tale'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         '413':
@@ -524,6 +666,16 @@ components:
       description: >-
         Server-side session started by a passkey sign-in (AD-9). Without a valid
         session every route except `/health` and `/auth/*` answers 401 `unauthenticated`.
+        A signed-in user who cannot access the project of a resource gets 403
+        `forbidden`; a resource that does not exist still answers 404.
+  parameters:
+    InvitationToken:
+      name: token
+      in: path
+      required: true
+      description: The one-time token from the invitation link.
+      schema:
+        type: string
   responses:
     Error:
       description: The request failed.
@@ -759,6 +911,41 @@ components:
         email:
           type: string
           format: email
+    RedeemInvitationRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+    Invitation:
+      type: object
+      required: [id, projectId, url, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        url:
+          type: string
+          description: The one-time link to share, `<dashboard origin>/invite/<token>`. Shown only once.
+        expiresAt:
+          type: string
+          format: date-time
+    InvitationPreview:
+      type: object
+      required: [projectName, expiresAt]
+      properties:
+        projectName:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
     SignedIn:
       type: object
       required: [user]
@@ -810,6 +997,9 @@ components:
         - unauthenticated
         - setup_closed
         - passkey_failed
+        - forbidden
+        - invitation_invalid
+        - email_taken
         - internal_error
     ErrorBody:
       type: object

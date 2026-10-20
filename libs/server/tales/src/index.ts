@@ -7,6 +7,8 @@ export {
   createTale,
   taleGroupExists,
   taleExists,
+  taleGroupProjectId,
+  taleProjectId,
   getTaleMedia,
   setTaleMedia,
   orderTaleGroups,

@@ -30,7 +30,11 @@ async function start(): Promise<void> {
   // Passkeys are bound to RP_ID and RP_ORIGIN, the dashboard's domain and origin (AD-9).
   const rp = relyingPartyFromEnv();
   log('info', `Passkeys for ${rp.origin} (RP ID ${rp.id})`);
-  const auth = { verifier: new SimpleWebAuthnVerifier(rp), secureCookies: secureCookiesFor(rp) };
+  const auth = {
+    verifier: new SimpleWebAuthnVerifier(rp),
+    secureCookies: secureCookiesFor(rp),
+    dashboardOrigin: rp.origin,
+  };
 
   const port = process.env['PORT'] || 3333;
   const server = createApp(pool, frameTypes, storage, auth).listen(port, () => {

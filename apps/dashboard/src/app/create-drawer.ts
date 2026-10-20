@@ -1,12 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAX_TALES_PER_GROUP, MEDIA_CONTENT_TYPES } from '@taleart/contract';
+import { MAX_TALES_PER_GROUP, MEDIA_CONTENT_TYPES, type Invitation } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 
 /**
- * The form for whatever the store's drawer request asks for: a create form, or
- * a tale's media upload. The API's message shows inside it.
+ * The form for whatever the store's drawer request asks for: a create form, a
+ * tale's media upload, or an invitation link. The API's message shows inside it.
  */
 @Component({
   selector: 'app-create-drawer',
@@ -27,6 +27,10 @@ export class CreateDrawer implements OnInit {
   /** The image or video picked in the file input, if any. */
   protected file: File | null = null;
   protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
+  /** The invitation an invite drawer created; its link is shown only now. */
+  protected readonly invitation = signal<Invitation | null>(null);
+  /** '' or the outcome of the last "Copy link", announced to screen readers. */
+  protected readonly copyStatus = signal('');
 
   /** The tale a media drawer is for. */
   protected readonly tale = computed(() => {
@@ -46,6 +50,8 @@ export class CreateDrawer implements OnInit {
         return 'Add';
       case 'taleMedia':
         return 'Upload';
+      case 'invite':
+        return 'Create link';
       default:
         return 'Create';
     }
@@ -65,6 +71,8 @@ export class CreateDrawer implements OnInit {
         return 'Add tale';
       case 'taleMedia':
         return 'Tale';
+      case 'invite':
+        return 'Invite to project';
     }
   });
 
@@ -78,6 +86,9 @@ export class CreateDrawer implements OnInit {
     if (request.kind === 'tale') {
       const group = this.store.taleGroup(request.taleGroupId);
       return group ? `In tale group ${group.name}` : '';
+    }
+    if (request.kind === 'invite') {
+      return `To project ${this.store.projectName(request.projectId)}`;
     }
     if (request.kind === 'taleMedia') {
       const tale = this.tale();
@@ -96,14 +107,37 @@ export class CreateDrawer implements OnInit {
     this.error.set('');
   }
 
+  /** The invitation's expiry as a date, such as "27 Oct 2026". */
+  protected expiryDate(invitation: Invitation): string {
+    return new Date(invitation.expiresAt).toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
+
+  protected selectAll(event: Event): void {
+    (event.target as HTMLInputElement).select();
+  }
+
+  protected async copyLink(invitation: Invitation): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(invitation.url);
+      this.copyStatus.set('Link copied');
+    } catch {
+      this.copyStatus.set('Could not copy. Select the link and copy it.');
+    }
+  }
+
   protected close(): void {
     this.store.closeDrawer();
   }
 
   protected async submit(): Promise<void> {
-    if (this.saving()) return;
-    this.saving.set(true);
     const request = this.request();
+    // Once the link is shown, Enter must not create another invitation.
+    if (this.saving() || (request.kind === 'invite' && this.invitation())) return;
+    this.saving.set(true);
     let message: string;
     switch (request.kind) {
       case 'project':
@@ -125,6 +159,14 @@ export class CreateDrawer implements OnInit {
         // tale with an empty file input, so forget the refused file.
         if (message && this.store.drawer()?.kind === 'taleMedia') this.file = null;
         break;
+      case 'invite': {
+        const created = await this.store.createInvitation(request.projectId);
+        this.invitation.set(created.invitation);
+        this.saving.set(false);
+        this.error.set(created.message);
+        // The drawer stays open to show the link.
+        return;
+      }
       case 'taleMedia':
         message = this.file
           ? await this.store.uploadTaleMedia(request.taleId, this.file)
