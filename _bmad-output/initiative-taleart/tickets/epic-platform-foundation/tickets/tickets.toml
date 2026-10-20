@@ -29,7 +29,7 @@ references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture
 id = 2
 type = "story"
 title = "CI runs tests and blocks merges that fail"
-description = "Lint, test and build run for the API and dashboard on each pull request on Node 24, with PostgreSQL 18 from a Docker Compose file shared with local development; a failing check blocks the merge."
+description = "Dropped on 2026-10-20 by the user: the project only commits locally, with no remote repository or hosted CI for now. Revisit when a remote repository exists."
 verify = "A pull request with a failing test shows a red check and cannot be merged."
 covers = []
 after = []
@@ -39,20 +39,32 @@ risk = "low"
 [[entry]]
 id = 3
 type = "story"
-title = "Add a tale to a zone, with a project required"
-description = "In the dashboard a user adds a tale to a zone through /api/v1. The form requires a project, and the tale is stored with it, in the tales module."
-verify = "Submitting a tale without a project shows an error; with a project, the tale appears in the zone."
+title = "Create a tale group in a zone and add tales to it"
+description = "In the dashboard a user creates a tale group in a zone, then adds tales to it through /api/v1. A tale exists only inside a tale group (PRD FR-010), never directly in a zone. Tale groups and tales carry the zone's project, in the tales module. A tale has a title only in this slice; media comes in story 12."
+verify = "Create a tale group in a zone and add two tales; after a reload both are listed under the group in the order added. Adding a tale to an unknown group shows an error."
 covers = ["R1", "R2"]
 after = [1, 11]
 hitl = false
 risk = "medium"
 
 [[entry]]
+id = 12
+type = "story"
+title = "Upload an image or video to a tale"
+description = "A user uploads an image, GIF or video to a tale in the dashboard. The file goes through the media storage port with the local-disk adapter (AD-11); the tale stores the storage key, and the dashboard shows a preview."
+verify = "Upload an image to a tale, reload, and the preview is shown; a file of an unsupported type is refused with an error."
+covers = ["R1"]
+after = [3]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-11"]
+
+[[entry]]
 id = 4
 type = "story"
-title = "Organize tales into tale groups"
-description = "A user groups tales into a tale group and reorders groups and tales in the dashboard."
-verify = "Drag a tale into a group and reorder it; after a reload the group and order are kept."
+title = "Reorder tale groups and tales"
+description = "A user reorders the tale groups in a zone and the tales in a group in the dashboard."
+verify = "Reorder a tale within its group and a group within its zone; after a reload the order is kept."
 covers = ["R1"]
 after = [3]
 hitl = false
@@ -83,11 +95,22 @@ risk = "medium"
 [[entry]]
 id = 7
 type = "story"
-title = "Sign in to the dashboard"
-description = "A user signs in to the dashboard with a server-side session in an http-only cookie and sees only the zones of their own project; every Management API call checks the project against the session."
-verify = "A user from another project does not see the zone, and a request naming that project is refused."
+title = "Set up the first admin and sign in with a passkey"
+description = "On a fresh install with no users, the dashboard asks for a name and email and registers a passkey (WebAuthn); that first user is the admin. Afterwards anyone signs in with their passkey only; there are no passwords and no open sign-up. A session lives server-side behind an http-only cookie, and every /api/v1 call except health and sign-in needs it."
+verify = "On an empty database, register the first admin with a passkey and see the dashboard; sign out and sign in again with the passkey; once an admin exists the setup screen is gone; a call without a session gets 401."
 covers = ["R2"]
 after = [1, 11]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 13
+type = "story"
+title = "Invite a user to a project"
+description = "An admin creates an invitation for a project, shown as a one-time link in the dashboard (no mail server needed). The invitee opens it, registers a passkey and becomes a content manager of that project. A content manager sees only the projects they belong to; a request naming another project is refused. Only an admin creates projects and invitations."
+verify = "An admin invites a user to project A; the user registers a passkey and sees project A but not project B; a request for project B returns 403; a used or expired link is refused."
+covers = ["R2"]
+after = [7]
 hitl = false
 risk = "medium"
 
@@ -98,7 +121,7 @@ title = "Issue, rotate and revoke a zone key"
 description = "In the dashboard a user issues a zone key, shown once and stored hashed, then rotates or revokes it. The Delivery API at /delivery/v1 accepts or refuses the key accordingly."
 verify = "A revoked key is refused with 401; a rotated key replaces the old one."
 covers = []
-after = [7]
+after = [13]
 hitl = false
 risk = "medium"
 
@@ -107,9 +130,9 @@ id = 9
 type = "story"
 title = "Staging demo of the full flow"
 description = "On the staging host a user signs in, creates a zone and a tale in a group, and issues a zone key that works."
-verify = "On staging: sign in, create a zone and a tale, issue a key, and the key is accepted by the API."
+verify = "On staging: sign in with a passkey, create a zone and a tale, issue a key, and the key is accepted by the API."
 covers = []
-after = [2, 8]
+after = [8]
 hitl = true # a person provides the staging host and its credentials
 risk = "medium"
 
@@ -120,6 +143,6 @@ title = "Refactor sweep"
 description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
 verify = "The full test suite passes after the sweep, with no behavior change."
 covers = []
-after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]
+after = [1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13]
 hitl = false
 risk = "low"

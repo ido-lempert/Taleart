@@ -41,7 +41,7 @@ R3 (parent R10): **Platform-neutral, extensible model**
 
 ## Done when
 
-- The API runs in CI and deploys, with the data model and project tag live.
+- The API deploys, with the data model and project tag live.
 - A widget type can be added to the registry without a schema change.
 
 ## Boundaries
@@ -64,3 +64,7 @@ R3 (parent R10): **Platform-neutral, extensible model**
 - Decision: collections are added to the MVP data model, since R8 requires a project tag on them (user, approved).
 - Decision: the dashboard uses user sessions, and the SDK uses a per-zone key, similar to another tool's zone token (user, approved).
 - Decision: PostgreSQL holds the model, with JSON columns for widget settings so new widget types need no migration (user, approved).
+- Decision (2026-10-20): no remote repository or hosted CI for now; work is committed locally only, so story 2 is dropped (user, approved).
+- Decision (2026-10-20): a tale exists only inside a tale group, never directly in a zone (user, approved).
+- Decision (2026-10-20): the first user is the admin; every other user needs an admin's invitation; everyone signs in with a passkey, passwordless (user, approved).
+- Assumption (2026-10-20): media upload is its own story (12) after tale groups and tales; invitations are one-time links shown in the dashboard, with no mail server; invited users are content managers of the projects they are invited to, and only admins create projects and invitations. Not yet confirmed by the user.

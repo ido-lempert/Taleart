@@ -1,9 +1,7 @@
 ---
 title: "CI runs tests and blocks merges that fail"
 ticket: 2
-status: blocked
-blocked_at: "2026-10-20"
-blocked_reason: "Needs a CI host and a remote: the repo has no git remote, and blocking merges needs a hosted CI (likely GitHub Actions) plus branch protection. The autopilot may not create a remote or push. User to decide the CI host and create the repository."
+status: dropped
 ---
 
 ## Auto Run Result
