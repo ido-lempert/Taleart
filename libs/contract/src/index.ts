@@ -16,11 +16,18 @@ export type CreateZoneRequest = Schemas['CreateZoneRequest'];
 export type FrameType = Schemas['FrameType'];
 export type Frame = Schemas['Frame'];
 export type CreateFrameRequest = Schemas['CreateFrameRequest'];
+export type TaleGroup = Schemas['TaleGroup'];
+export type CreateTaleGroupRequest = Schemas['CreateTaleGroupRequest'];
+export type Tale = Schemas['Tale'];
+export type CreateTaleRequest = Schemas['CreateTaleRequest'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
+
+/** The most tales one tale group holds (FR-010). */
+export const MAX_TALES_PER_GROUP = 100;
 
 /** Named error codes, so callers don't repeat string literals. */
 export const ErrorCodes = {
@@ -30,6 +37,8 @@ export const ErrorCodes = {
   zoneNotFound: 'zone_not_found',
   unknownFrameType: 'unknown_frame_type',
   invalidFrameSettings: 'invalid_frame_settings',
+  taleGroupNotFound: 'tale_group_not_found',
+  taleGroupFull: 'tale_group_full',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

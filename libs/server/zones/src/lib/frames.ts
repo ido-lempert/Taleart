@@ -17,9 +17,11 @@ export class ZoneNotFoundError extends Error {
   }
 }
 
-// The zone's project, or null when the zone does not exist. Ids that are not
-// UUIDs never match.
-async function zoneProjectId(db: Db, zoneId: string): Promise<string | null> {
+/**
+ * The zone's project, or null when the zone does not exist. Ids that are not
+ * UUIDs never match. Other modules read a zone's project only through this.
+ */
+export async function zoneProjectId(db: Db, zoneId: string): Promise<string | null> {
   if (!UUID.test(zoneId)) return null;
   const { rows } = await db.query<{ project_id: string }>('SELECT project_id FROM zones WHERE id = $1', [zoneId]);
   return rows[0]?.project_id ?? null;

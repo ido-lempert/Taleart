@@ -1,6 +1,6 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { isErrorBody, type Frame, type FrameType } from '@taleart/contract';
+import { isErrorBody, type Frame, type FrameType, type Tale, type TaleGroup } from '@taleart/contract';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 
@@ -37,13 +37,23 @@ export class App implements OnInit {
   protected readonly frameTypes = signal<FrameType[]>([]);
   /** Each zone's frames, keyed by zone id. */
   protected readonly frames = signal<Record<string, Frame[]>>({});
+  /** Each zone's tale groups, each with its tales, keyed by zone id. */
+  protected readonly taleGroups = signal<Record<string, TaleGroup[]>>({});
   protected readonly error = signal('');
+  /** The API's message for a refused tale group, shown next to that zone's form. */
+  protected readonly taleGroupErrors = signal<Record<string, string>>({});
+  /** The API's message for a refused tale, shown next to that group's form. */
+  protected readonly taleErrors = signal<Record<string, string>>({});
 
   protected projectName = '';
   protected zoneName = '';
   protected zoneProjectId = '';
   /** The frame type picked for each zone, keyed by zone id. */
   protected frameTypeChoice: Record<string, string> = {};
+  /** The new tale group name typed for each zone, keyed by zone id. */
+  protected taleGroupName: Record<string, string> = {};
+  /** The new tale title typed for each tale group, keyed by tale group id. */
+  protected taleTitle: Record<string, string> = {};
 
   ngOnInit(): void {
     void this.refresh();
@@ -62,6 +72,10 @@ export class App implements OnInit {
     return this.frames()[zoneId] ?? [];
   }
 
+  protected taleGroupsOf(zoneId: string): TaleGroup[] {
+    return this.taleGroups()[zoneId] ?? [];
+  }
+
   protected async refresh(): Promise<void> {
     try {
       this.projects.set(await firstValueFrom(this.http.get<Project[]>(`${API_BASE}/projects`)));
@@ -72,7 +86,17 @@ export class App implements OnInit {
         zones.map((zone) => firstValueFrom(this.http.get<Frame[]>(`${API_BASE}/zones/${zone.id}/frames`))),
       );
       this.frames.set(Object.fromEntries(zones.map((zone, i) => [zone.id, lists[i]])));
-      for (const zone of zones) this.frameTypeChoice[zone.id] ??= '';
+      const groups = await Promise.all(
+        zones.map((zone) =>
+          firstValueFrom(this.http.get<TaleGroup[]>(`${API_BASE}/zones/${zone.id}/tale-groups`)),
+        ),
+      );
+      this.taleGroups.set(Object.fromEntries(zones.map((zone, i) => [zone.id, groups[i]])));
+      for (const zone of zones) {
+        this.frameTypeChoice[zone.id] ??= '';
+        this.taleGroupName[zone.id] ??= '';
+        for (const group of this.taleGroupsOf(zone.id)) this.taleTitle[group.id] ??= '';
+      }
       this.error.set('');
     } catch {
       this.error.set('Could not reach the API. Is it running on port 3333?');
@@ -113,6 +137,38 @@ export class App implements OnInit {
       await this.refresh();
     } catch (err) {
       this.error.set(apiErrorMessage(err, 'Frame was not saved. Choose a frame type.'));
+    }
+  }
+
+  protected async addTaleGroup(zoneId: string): Promise<void> {
+    try {
+      await firstValueFrom(
+        this.http.post<TaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, {
+          name: this.taleGroupName[zoneId] ?? '',
+        }),
+      );
+      this.taleGroupName[zoneId] = '';
+      this.taleGroupErrors.update((errors) => ({ ...errors, [zoneId]: '' }));
+      await this.refresh();
+    } catch (err) {
+      const message = apiErrorMessage(err, 'Tale group was not saved. Try again.');
+      this.taleGroupErrors.update((errors) => ({ ...errors, [zoneId]: message }));
+    }
+  }
+
+  protected async addTale(taleGroupId: string): Promise<void> {
+    try {
+      await firstValueFrom(
+        this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, {
+          title: this.taleTitle[taleGroupId] ?? '',
+        }),
+      );
+      this.taleTitle[taleGroupId] = '';
+      this.taleErrors.update((errors) => ({ ...errors, [taleGroupId]: '' }));
+      await this.refresh();
+    } catch (err) {
+      const message = apiErrorMessage(err, 'Tale was not saved. Try again.');
+      this.taleErrors.update((errors) => ({ ...errors, [taleGroupId]: message }));
     }
   }
 }

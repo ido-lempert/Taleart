@@ -1,0 +1,19 @@
+{
+  "name": "server-tales",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/server/tales/src",
+  "projectType": "library",
+  "tags": ["type:server-module"],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/server/tales",
+        "main": "libs/server/tales/src/index.ts",
+        "tsConfig": "libs/server/tales/tsconfig.lib.json",
+        "assets": []
+      }
+    }
+  }
+}

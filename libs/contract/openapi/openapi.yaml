@@ -153,6 +153,86 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /zones/{zoneId}/tale-groups:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listZoneTaleGroups
+      summary: List a zone's tale groups by position, each with its tales by position.
+      responses:
+        '200':
+          description: The zone's tale groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaleGroup'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createZoneTaleGroup
+      summary: Create a tale group in a zone, after its existing groups.
+      description: The tale group takes its project from the zone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaleGroupRequest'
+      responses:
+        '201':
+          description: The created tale group, with no tales.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/tales:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: createTale
+      summary: Add a tale to a tale group, after its existing tales.
+      description: >-
+        The tale takes its project from the tale group. A tale group holds at
+        most 100 tales; adding to a full group answers 409 `tale_group_full`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaleRequest'
+      responses:
+        '201':
+          description: The created tale.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   responses:
     Error:
@@ -246,6 +326,64 @@ components:
         settings:
           type: object
           additionalProperties: true
+    TaleGroup:
+      type: object
+      required: [id, zoneId, projectId, name, position, tales]
+      properties:
+        id:
+          type: string
+          format: uuid
+        zoneId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        position:
+          type: integer
+          minimum: 0
+          description: Order within the zone; lists are sorted by it.
+        tales:
+          type: array
+          maxItems: 100
+          description: The group's tales, by position.
+          items:
+            $ref: '#/components/schemas/Tale'
+    CreateTaleGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    Tale:
+      type: object
+      required: [id, taleGroupId, projectId, title, position]
+      properties:
+        id:
+          type: string
+          format: uuid
+        taleGroupId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+          minimum: 0
+          description: Order within the tale group; lists are sorted by it.
+    CreateTaleRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
     ErrorCode:
       type: string
       enum:
@@ -255,6 +393,8 @@ components:
         - zone_not_found
         - unknown_frame_type
         - invalid_frame_settings
+        - tale_group_not_found
+        - tale_group_full
         - internal_error
     ErrorBody:
       type: object
