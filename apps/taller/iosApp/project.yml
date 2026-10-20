@@ -1,0 +1,28 @@
+# Generate the Xcode project with: xcodegen generate --spec apps/taller/iosApp/project.yml
+name: Taller
+options:
+  bundleIdPrefix: com.taleart
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Taller:
+    type: application
+    platform: iOS
+    sources: [Taller]
+    info:
+      path: Taller/Info.plist
+      properties:
+        CADisableMinimumFrameDurationOnPhone: true
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.taleart.taller
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS: ["-framework", "TallerKit"]
+    preBuildScripts:
+      - name: Compile Kotlin Framework
+        basedOnDependencyAnalysis: false
+        script: |
+          cd "$SRCROOT/../../.."
+          ./gradlew :taller:embedAndSignAppleFrameworkForXcode

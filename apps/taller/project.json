@@ -1,0 +1,21 @@
+{
+  "name": "taller",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "tags": ["type:app", "scope:taller"],
+  "targets": {
+    "ios-xcodeproj": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "xcodegen generate --spec apps/taller/iosApp/project.yml"
+      }
+    },
+    "build-ios": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["ios-xcodeproj"],
+      "options": {
+        "command": "xcodebuild -project apps/taller/iosApp/Taller.xcodeproj -scheme Taller -sdk iphonesimulator -configuration Debug -derivedDataPath apps/taller/iosApp/build build"
+      }
+    }
+  }
+}
