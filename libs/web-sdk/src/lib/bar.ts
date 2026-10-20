@@ -44,6 +44,7 @@ export const BAR_STYLES = `
   padding: 2px;
   background: linear-gradient(45deg, #f59e0b, #db2777, #7c3aed);
 }
+.item[data-seen] .ring { background: #6b7280; }
 .cover {
   display: block;
   box-sizing: border-box;
@@ -93,8 +94,20 @@ function cover(group: DeliveryTaleGroup): HTMLElement {
   return el;
 }
 
-/** One bar item per tale group, in order, as buttons named by the group. */
-export function renderBar(groups: readonly DeliveryTaleGroup[]): HTMLElement {
+/**
+ * Marks a bar item seen or unseen: the seen ring, and the name says so for
+ * screen readers, since the ring's colour alone does not.
+ */
+export function setItemSeen(button: HTMLElement, name: string, seen: boolean): void {
+  button.toggleAttribute('data-seen', seen);
+  button.setAttribute('aria-label', seen ? `${name}, seen` : name);
+}
+
+/**
+ * One bar item per tale group, in order, as buttons named by the group; the
+ * groups in `seen` show the seen ring.
+ */
+export function renderBar(groups: readonly DeliveryTaleGroup[], seen: ReadonlySet<string> = new Set()): HTMLElement {
   const list = document.createElement('ul');
   list.className = 'bar';
   for (const group of groups) {
@@ -102,8 +115,8 @@ export function renderBar(groups: readonly DeliveryTaleGroup[]): HTMLElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'item';
-    button.setAttribute('aria-label', group.name);
     button.dataset['taleGroupId'] = group.id;
+    setItemSeen(button, group.name, seen.has(group.id));
     const ring = document.createElement('span');
     ring.className = 'ring';
     ring.appendChild(cover(group));
