@@ -124,3 +124,11 @@ The run ended after about 30 minutes, not overnight: three of the remaining stor
 - **Assumptions:** invitations are one-time links shown once in the dashboard, valid 7 days; invitees become content managers of the invited project; admins see every project; a content manager gets 403 on other projects; inviting existing users, removing members and revoking links are later stories.
 - **Review in the dashboard:** as admin, Projects → Invite on a project → Copy link; open the link in a private window, create a passkey; that user sees only the invited project.
 - **Blocking condition:** none.
+
+## Story 1.5 — Tag tale groups
+
+- **Status:** built (re-scoped by the user: tags go on tale groups; collections wait for an answer)
+- **Commits:** `3e1c267` story 5.
+- **Assumptions:** tags belong to a project, 1 to 40 characters, unique ignoring case; setting a group's tags replaces the whole set; reordering is off while a tag filter is on; no renaming or deleting tags yet.
+- **Review in the dashboard:** open a zone, press "Tags" on a tale group, create "summer", check it, Save; use the filter chips above the groups.
+- **Blocking condition:** none.
