@@ -36,7 +36,7 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
    Verify: compare a migrated tale on the Web SDK with its Storyly original.
 
 3. **MVP data model** (R3)
-   The MVP data model holds app, zone, stage, tale group, tale, frame, playbook, tag, audience, member and external user key.
+   The foundation data model holds app, project, zone, tale group, tale, frame, tag and collection.
    Verify: the schema includes each entity and a test creates one of each.
 
 4. **MVP interactive components** (R4)
@@ -68,6 +68,14 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
     **When** a native iOS or Android client, or a new widget type, is added
     **Then** it consumes the same dashboard-defined data without a schema migration
     Verify: a test adds a new widget type to the registry and renders it without changing the schema.
+
+11. **Stage and playbook for zones** (R11)
+    The web zones epic holds stage and playbook, so a zone's rendering context and its preset frames are stored.
+    Verify: a zone with a stage and a playbook renders on the Web SDK.
+
+12. **Audience, member and external user key** (R12)
+    The targeting epic holds audience, member and external user key, so viewers are matched to groups.
+    Verify: an audience CSV matches a viewer by external user key.
 
 ## Constraints
 

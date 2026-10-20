@@ -1,0 +1,113 @@
+# Draft breakdown for epic-platform-foundation, vertical slices in build order.
+# Each entry is one flow a user can click through in the dashboard, from UI to API to database.
+# Table order is build order; id is permanent.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: create and list a zone in the dashboard"
+description = "A user creates a project, then a zone in it, in the dashboard; both are stored in PostgreSQL through the API and are still listed after a restart."
+verify = "Create a project and a zone in the dashboard, restart the API, reload: both are listed and the zone belongs to the project."
+covers = ["R1", "R2"]
+after = []
+hitl = true # a person provisions the local PostgreSQL database
+risk = "high"
+
+[[entry]]
+id = 2
+type = "story"
+title = "CI runs tests and blocks merges that fail"
+description = "Lint, test and build run for the API and dashboard on each pull request, and a failing check blocks the merge."
+verify = "A pull request with a failing test shows a red check and cannot be merged."
+covers = []
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Add a tale to a zone, with a project required"
+description = "In the dashboard a user adds a tale to a zone. The form requires a project, and the tale is stored with it."
+verify = "Submitting a tale without a project shows an error; with a project, the tale appears in the zone."
+covers = ["R1", "R2"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Organize tales into tale groups"
+description = "A user groups tales into a tale group and reorders groups and tales in the dashboard."
+verify = "Drag a tale into a group and reorder it; after a reload the group and order are kept."
+covers = ["R1"]
+after = [3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Tag tales and build a collection"
+description = "A user adds tags to tales and builds a collection from tagged tales in the dashboard."
+verify = "Filter tales by a tag, save a collection, reload: the collection lists the same tales."
+covers = ["R1", "R2"]
+after = [4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Pick a frame type for a zone"
+description = "A user assigns a bar or banner frame to a zone. A frame type added by configuration appears in the picker and saves with no migration."
+verify = "Assign bar; add a test frame type by configuration; it appears in the picker and saves."
+covers = ["R3"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Sign in to the dashboard"
+description = "A user signs in to the dashboard and sees only the zones of their own project."
+verify = "A user from another project does not see the zone."
+covers = []
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Issue, rotate and revoke a zone key"
+description = "In the dashboard a user issues a zone key, shown once, then rotates or revokes it. The API accepts or refuses the key accordingly."
+verify = "A revoked key is refused with 401; a rotated key replaces the old one."
+covers = []
+after = [7]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Staging demo of the full flow"
+description = "On the staging host a user signs in, creates a zone and a tale in a group, and issues a zone key that works."
+verify = "On staging: sign in, create a zone and a tale, issue a key, and the key is accepted by the API."
+covers = []
+after = [2, 8]
+hitl = true # a person provides the staging host and its credentials
+risk = "medium"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
+verify = "The full test suite passes after the sweep, with no behavior change."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+hitl = false
+risk = "low"

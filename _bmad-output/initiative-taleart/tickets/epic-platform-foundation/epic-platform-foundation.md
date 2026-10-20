@@ -21,15 +21,15 @@ Content can be created and read through the API with a project tag, deployed, an
 
 ## Requirements
 
-1. **Data model entities** (parent R3)
-   The data model holds app, zone, stage, tale group, tale, frame, playbook, tag, audience, member and external user key.
+R1 (parent R3): **Data model entities**
+   The data model holds app, project, zone, tale group, tale, frame, tag and collection.
    Verify: a schema test creates one of each entity and reads it back through the API.
 
-2. **Project tag on content** (parent R8)
+R2 (parent R8): **Project tag on content**
    Every tale, tale group, zone and collection carries a project identifier.
    Verify: a schema test fails when any of these entities is created without a project identifier.
 
-3. **Platform-neutral, extensible model** (parent R10)
+R3 (parent R10): **Platform-neutral, extensible model**
    The data model and API are platform-neutral and widget-type-extensible, so native clients and new widget types are added without a schema migration.
    Verify: a test registers a new widget type and renders it through the API without a schema change.
 
@@ -58,6 +58,8 @@ Content can be created and read through the API with a project tag, deployed, an
 ## Notes
 
 - Decision: the approved entity names from the terminology map are used in the data model (user, approved).
+- Decision: a project entity is added, so apps belong to projects and every content item has a project (user, approved).
+- Decision: stage and playbook move to the web zones epic (R11), and audience, member and external user key move to the targeting epic (R12) (user, approved).
 - Decision: collections are added to the MVP data model, since R8 requires a project tag on them (user, approved).
 - Decision: the dashboard uses user sessions, and the SDK uses a per-zone key, similar to Storyly's zone token (user, approved).
 - Decision: PostgreSQL holds the model, with JSON columns for widget settings so new widget types need no migration (user, approved).

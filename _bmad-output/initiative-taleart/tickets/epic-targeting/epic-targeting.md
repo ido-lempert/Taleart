@@ -3,7 +3,7 @@ type: epic
 title: Tag and audience targeting
 parent: initiative-taleart
 id: 5
-covers: [R5]
+covers: [R5, R12]
 after: [epic-web-zones]
 refined: false
 risk: medium
