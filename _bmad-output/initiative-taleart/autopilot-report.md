@@ -102,3 +102,9 @@ The run ended after about 30 minutes, not overnight: three of the remaining stor
 - **Assumptions:** reorder within the same parent only (no moving a tale to another group); an order request must list every child once (409 otherwise); drag uses `@angular/cdk`, with "Move earlier/later" buttons as the keyboard and single-tap alternative; order requests are sent one at a time per zone.
 - **Review in the dashboard:** open a zone, drag a tale card by its grip, or use its arrow buttons; reload and the order is kept.
 - **Blocking condition:** none.
+
+## Story 1.5 — Tag tales and build a collection
+
+- **Status:** blocked
+- **Commits:** `e6bba66` blocked marker.
+- **Blocking condition:** intent gap. The story tags tales and collects tagged tales; the PRD puts tags on tale groups (FR-017) and defines a collection as a filtered list of product-feed items (FR-021). Waiting for the user to choose.
