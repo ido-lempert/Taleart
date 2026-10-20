@@ -39,3 +39,10 @@ Branch: `autopilot/foundation` (nothing pushed; `main` untouched). Started 2026-
 - **Assumptions made:** bar and banner have no settings fields yet, and refuse any extra field; their fields come with the web zones epic. A type sent with surrounding spaces is accepted.
 - **How to review:** start the API and dashboard, add a project and a zone, pick "Bar" for the zone and add it; it's listed under the zone after a reload. To see a new type: add an entry to `libs/contract/frame-types/registry.json` with a schema file, restart `npm exec nx serve api`, and it appears in the picker.
 - **Blocking condition:** none.
+
+### 1.7 — Sign in to the dashboard
+
+- **Status:** blocked — waiting for you
+- **Why:** sessions are decided (AD-9), but the account model isn't.
+- **What you decide:** how accounts are created (first-run admin, sign-up, or invite); how people sign in (password or email link); what administrators can do that content managers can't; and whether a user belongs to one project or several.
+- **Knock-on effect:** story 1.8 (zone keys) waits on this one.
