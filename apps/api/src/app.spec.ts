@@ -36,7 +36,13 @@ const fakeanother toolModule = join(__dirname, '../../fake-another tool/src/fake
 const FAKE_another tool_TOKEN = 'fake-another tool-token';
 interface Fakeanother tool {
   url: string;
-  control: { failInstances: 'status' | 'shape' | null };
+  control: {
+    failInstances: 'status' | 'shape' | null;
+    failStoryGroups: 'status' | 'shape' | null;
+    failStories: 'status' | 'shape' | null;
+    data: { stories: Record<string, { data: Record<string, unknown>[] }> };
+    reset(): void;
+  };
   close(): Promise<void>;
 }
 interface Fakeanother toolModule {
@@ -2327,6 +2333,13 @@ describe('Management API v1: projects and zones', () => {
       }
     }
 
+    // Every value in a response, as text: a source id must not be one of them. A
+    // substring check would match the same digits inside a UUID.
+    function leafValues(body: unknown): string[] {
+      if (body === null || typeof body !== 'object') return [String(body)];
+      return Object.values(body).flatMap(leafValues);
+    }
+
     async function storedJob(importId: string): Promise<{ token_ciphertext: string | null; source_app_id: string }> {
       const { rows } = await pool.query('SELECT token_ciphertext, source_app_id FROM import_jobs WHERE id = $1', [importId]);
       return rows[0];
@@ -2354,7 +2367,7 @@ describe('Management API v1: projects and zones', () => {
     });
 
     beforeEach(() => {
-      fake.control.failInstances = null;
+      fake.control.reset();
     });
 
     afterEach(async () => {
@@ -2396,6 +2409,8 @@ describe('Management API v1: projects and zones', () => {
         sourceAppName: 'Demo shop',
         report: {
           zones: { source: 3, imported: 3, skipped: 0 },
+          taleGroups: { source: 6, imported: 6, skipped: 0 },
+          tales: { source: 15, imported: 15, skipped: 0 },
           notes: [
             'Zone "Home page": frame type unknown',
             'Zone "Product page": frame type unknown',
@@ -2413,7 +2428,7 @@ describe('Management API v1: projects and zones', () => {
         'SELECT source_system, source_type, source_id, target_type, target_id FROM import_links WHERE project_id = $1 ORDER BY source_id',
         [project.id],
       );
-      expect(links.rows).toEqual(
+      expect(links.rows.filter((l) => l.source_type === 'instance')).toEqual(
         ['2001', '2002', '2003'].map((sourceId, i) => ({
           source_system: 'another tool',
           source_type: 'instance',
@@ -2424,7 +2439,7 @@ describe('Management API v1: projects and zones', () => {
       );
       expect((await storedJob(started.id)).token_ciphertext).toBeNull();
       // Source ids live only in import_links (AD-7), never on the zones.
-      expect(JSON.stringify(zones)).not.toContain('2001');
+      expect(leafValues(zones)).not.toContain('2001');
     });
 
     it('creates no duplicate zones when the same app is imported again', async () => {
@@ -2435,8 +2450,128 @@ describe('Management API v1: projects and zones', () => {
       expect(again['status']).toBe('done');
       expect((again['report'] as { zones: unknown }).zones).toEqual({ source: 3, imported: 3, skipped: 0 });
       expect(await projectZones(project.id)).toHaveLength(3);
-      expect((await pool.query('SELECT 1 FROM import_links WHERE project_id = $1', [project.id])).rowCount).toBe(3);
+      expect((await pool.query('SELECT 1 FROM import_links WHERE project_id = $1', [project.id])).rowCount).toBe(24);
     });
+
+    // How many tale groups, placements, tales and import links the project holds.
+    async function contentCounts(projectId: string): Promise<Record<string, number>> {
+      const count = async (table: string) =>
+        Number((await pool.query(`SELECT count(*) FROM ${table} WHERE project_id = $1`, [projectId])).rows[0].count);
+      return {
+        groups: await count('tale_groups'),
+        placements: await count('zone_tale_groups'),
+        tales: await count('tales'),
+        links: await count('import_links'),
+      };
+    }
+
+    // Each zone of the project, as its page lists it: group names, each with its tale titles.
+    async function zonePages(projectId: string): Promise<Record<string, { name: string; tales: string[] }[]>> {
+      const pages: Record<string, { name: string; tales: string[] }[]> = {};
+      for (const zone of await projectZones(projectId)) {
+        const groups: { name: string; position: number; tales: { title: string; position: number }[] }[] = await (
+          await fetch(`${base}/zones/${zone.id}/tale-groups`)
+        ).json();
+        pages[zone.name] = groups.map((g) => ({ name: g.name, tales: g.tales.map((t) => t.title) }));
+      }
+      return pages;
+    }
+
+    const demoShopPages = {
+      'Home page': [
+        { name: 'New arrivals', tales: ['This week', 'Back in stock', 'Staff picks'] },
+        { name: 'Gift ideas', tales: ['For him', 'For her'] },
+        { name: 'Summer sale', tales: ['Beach picks', 'Up to 50% off', 'Last call'] },
+      ],
+      'Product page': [
+        { name: 'Reviews', tales: ['Customer photos', 'Sizing tips', 'Top rated'] },
+        { name: 'How to wear it', tales: ['Day look', 'Night look'] },
+      ],
+      Checkout: [{ name: 'Free shipping', tales: ['Express', 'Over 50'] }],
+    };
+
+    it("imports each instance's story groups as tale groups of its zone and their stories as tales, in source order", async () => {
+      const project = await createProject();
+      startWorker();
+      const job = await waitForEnd(project.id, (await start(project.id)).id);
+      expect(job['status']).toBe('done');
+      expect(await zonePages(project.id)).toEqual(demoShopPages);
+      // Each group belongs to the project with one placement, in its instance's zone (AD-14).
+      const placements = await pool.query(
+        `SELECT p.position, l.source_id FROM zone_tale_groups p
+         JOIN import_links l ON l.target_id = p.tale_group_id AND l.source_type = 'story_group'
+         JOIN import_links z ON z.target_id = p.zone_id AND z.source_type = 'instance'
+         WHERE p.project_id = $1 AND z.source_id = '2001' ORDER BY p.position`,
+        [project.id],
+      );
+      expect(placements.rows).toEqual([
+        { position: 0, source_id: '3002' },
+        { position: 1, source_id: '3003' },
+        { position: 2, source_id: '3001' },
+      ]);
+      const links = await pool.query(
+        'SELECT source_type, target_type, count(*)::int AS n FROM import_links WHERE project_id = $1 GROUP BY 1, 2 ORDER BY 1',
+        [project.id],
+      );
+      expect(links.rows).toEqual([
+        { source_type: 'instance', target_type: 'zone', n: 3 },
+        { source_type: 'story', target_type: 'tale', n: 15 },
+        { source_type: 'story_group', target_type: 'tale_group', n: 6 },
+      ]);
+      // Tales are created without media (a later story); source ids live only in import_links.
+      const tales = await pool.query('SELECT media_key FROM tales WHERE project_id = $1', [project.id]);
+      expect(tales.rows.every((t) => t.media_key === null)).toBe(true);
+      const home = (await projectZones(project.id)).find((z) => z.name === 'Home page');
+      const values = leafValues(await (await fetch(`${base}/zones/${home?.id}/tale-groups`)).json());
+      for (const sourceId of ['3001', '3002', '3003', '4001', '4005', '4008']) expect(values).not.toContain(sourceId);
+    });
+
+    it('creates no tale group, placement, tale or link twice when the app is imported again', async () => {
+      const project = await createProject();
+      startWorker();
+      await waitForEnd(project.id, (await start(project.id)).id);
+      const before = await contentCounts(project.id);
+      expect(before).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
+      const again = await waitForEnd(project.id, (await start(project.id)).id);
+      expect(again['report']).toMatchObject({
+        taleGroups: { source: 6, imported: 6, skipped: 0 },
+        tales: { source: 15, imported: 15, skipped: 0 },
+      });
+      expect(await contentCounts(project.id)).toEqual(before);
+      expect(await zonePages(project.id)).toEqual(demoShopPages);
+    });
+
+    it('adds a story new at the source after the tales already imported', async () => {
+      const project = await createProject();
+      startWorker();
+      await waitForEnd(project.id, (await start(project.id)).id);
+      // Story group 3002 is "New arrivals" on the Home page.
+      fake.control.data.stories['3002'].data.push({ id: 4999, story_group_id: 3002, title: 'Just in', sort_order: -1 });
+      const again = await waitForEnd(project.id, (await start(project.id)).id);
+      expect((again['report'] as { tales: unknown }).tales).toEqual({ source: 16, imported: 16, skipped: 0 });
+      expect((await zonePages(project.id))['Home page'][0]).toEqual({
+        name: 'New arrivals',
+        tales: ['This week', 'Back in stock', 'Staff picks', 'Just in'],
+      });
+      expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 16, links: 25 });
+    });
+
+    for (const [list, mode, message] of [
+      ['failStoryGroups', 'status', /answered 500 when listing story groups/],
+      ['failStories', 'shape', /stories response has an unexpected shape/],
+    ] as const) {
+      it(`fails the job when the ${list === 'failStories' ? 'story' : 'story group'} list fails`, async () => {
+        const project = await createProject();
+        fake.control[list] = mode;
+        startWorker();
+        const started = await start(project.id);
+        const job = await waitForEnd(project.id, started.id);
+        expect(job['status']).toBe('failed');
+        expect(job['error']).toMatch(message);
+        expect(job['error']).not.toContain(FAKE_another tool_TOKEN);
+        expect((await storedJob(started.id)).token_ciphertext).toBeNull();
+      });
+    }
 
     it('stores the token only encrypted while the job waits', async () => {
       const project = await createProject();
@@ -2538,7 +2673,7 @@ describe('Management API v1: projects and zones', () => {
       startWorker('worker-b');
       for (const id of [first.id, second.id]) expect((await waitForEnd(project.id, id))['status']).toBe('done');
       expect(await projectZones(project.id)).toHaveLength(3);
-      expect((await pool.query('SELECT 1 FROM import_links WHERE project_id = $1', [project.id])).rowCount).toBe(3);
+      expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
     });
 
     it('re-queues a job left running by a stopped process and finishes it', async () => {

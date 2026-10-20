@@ -269,11 +269,14 @@ export async function listProjectTaleGroups(db: Db, projectId: string): Promise<
 /**
  * Creates a tale group in the zone's project and places it at the end of the
  * zone (AD-4, AD-14). Changes to one zone's placements are serialized, so
- * concurrent creates get distinct positions.
+ * concurrent creates get distinct positions. `withGroup` runs in the same
+ * transaction once the group is placed, so a caller can record what it owns
+ * about the group (the importer's link, AD-7); if it throws, nothing is created.
  */
 export async function createTaleGroup(
   db: TransactionalDb,
   input: { zoneId: string; name: string },
+  withGroup?: (tx: Db, group: { taleGroupId: string; projectId: string }) => Promise<void>,
 ): Promise<StoredZoneTaleGroup> {
   // Reads the project through the zones module's public interface (AD-1).
   const projectId = await zoneProjectId(db, input.zoneId);
@@ -292,6 +295,7 @@ export async function createTaleGroup(
        RETURNING position`,
       [input.zoneId, group.id, projectId],
     );
+    if (withGroup) await withGroup(tx, { taleGroupId: group.id, projectId });
     return { ...group, position: placed.rows[0].position, zoneIds: [input.zoneId], tales: [] };
   });
 }
@@ -499,11 +503,14 @@ export async function taleGroupExists(db: Db, taleGroupId: string): Promise<bool
 /**
  * Adds a tale at the end of a tale group. The tale takes its project from the
  * group (AD-4). The group row is locked, so the position and the
- * {@link MAX_TALES_PER_GROUP} check hold under concurrent adds.
+ * {@link MAX_TALES_PER_GROUP} check hold under concurrent adds. `withTale`
+ * runs in the same transaction once the tale exists, as `withGroup` does for
+ * {@link createTaleGroup}; if it throws, the tale is not created.
  */
 export async function createTale(
   db: TransactionalDb,
   input: { taleGroupId: string; title: string },
+  withTale?: (tx: Db, tale: { taleId: string; projectId: string }) => Promise<void>,
 ): Promise<Tale> {
   if (!UUID.test(input.taleGroupId)) throw new TaleGroupNotFoundError(input.taleGroupId);
 
@@ -528,6 +535,7 @@ export async function createTale(
        RETURNING ${TALE_COLUMNS}`,
       [input.taleGroupId, projectId, input.title, next],
     );
+    if (withTale) await withTale(tx, { taleId: rows[0].id, projectId });
     return toTale(rows[0]);
   });
 }
