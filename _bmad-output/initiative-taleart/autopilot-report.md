@@ -23,3 +23,10 @@ Branch: `autopilot/foundation` (nothing pushed; `main` untouched). Started 2026-
 - **Why:** blocking a merge needs a hosted CI and branch protection on a remote repository. This repo has no remote, and the autopilot may not create one or push.
 - **What you decide:** the CI host (GitHub Actions is the likely choice; `gh` is logged in as `ido-lempert`), and whether to create the GitHub repository with branch protection on `main`.
 - **Knock-on effect:** story 1.8 (deploy to staging from CI) waits on this one.
+
+### 1.3 — Add a tale to a zone, with a project required
+
+- **Status:** blocked — waiting for you
+- **Why:** the story conflicts with the PRD and the architecture. It adds a tale straight to a zone, but both documents say a tale belongs to a tale group (story 1.4). It also doesn't say whether uploading the tale's media is part of it.
+- **What you decide:** whether tales live only in tale groups (then stories 1.3 and 1.4 merge or swap), and whether the first tale slice includes media upload.
+- **Knock-on effect:** story 1.4 (organize tales into groups) and 1.5 (tags and collections) wait on this one.
