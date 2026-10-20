@@ -1,5 +1,6 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { isErrorBody } from '@taleart/contract';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 
@@ -14,8 +15,13 @@ export interface Zone {
   projectId: string;
 }
 
-// The API base URL for local development.
-export const API_BASE = 'http://localhost:3333/api';
+// The Management API base URL for local development.
+export const API_BASE = 'http://localhost:3333/api/v1';
+
+// The API's own message when it sent the standard error body, else the fallback.
+function apiErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
+}
 
 @Component({
   imports: [FormsModule],
@@ -57,8 +63,8 @@ export class App implements OnInit {
       await firstValueFrom(this.http.post<Project>(`${API_BASE}/projects`, { name: this.projectName }));
       this.projectName = '';
       await this.refresh();
-    } catch {
-      this.error.set('Project was not saved.');
+    } catch (err) {
+      this.error.set(apiErrorMessage(err, 'Project was not saved.'));
     }
   }
 
@@ -69,8 +75,8 @@ export class App implements OnInit {
       );
       this.zoneName = '';
       await this.refresh();
-    } catch {
-      this.error.set('Zone was not saved. Choose a project and enter a name.');
+    } catch (err) {
+      this.error.set(apiErrorMessage(err, 'Zone was not saved. Choose a project and enter a name.'));
     }
   }
 }

@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: TaleArt Management API
+  version: 1.0.0
+  description: >-
+    Source of truth for TaleArt request and response shapes (AD-3).
+    A shape change starts here; regenerate the TypeScript types with
+    `npm exec nx -- run contract:generate`.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Report that the API is up.
+      responses:
+        '200':
+          description: The API is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /projects:
+    get:
+      operationId: listProjects
+      summary: List projects, oldest first.
+      responses:
+        '200':
+          description: All projects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createProject
+      summary: Create a project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: The created project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /zones:
+    get:
+      operationId: listZones
+      summary: List zones, oldest first.
+      responses:
+        '200':
+          description: All zones.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Zone'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createZone
+      summary: Create a zone in a project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateZoneRequest'
+      responses:
+        '201':
+          description: The created zone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  responses:
+    Error:
+      description: The request failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+    Project:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    CreateProjectRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    Zone:
+      type: object
+      required: [id, name, projectId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        projectId:
+          type: string
+          format: uuid
+    CreateZoneRequest:
+      type: object
+      required: [name, projectId]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        projectId:
+          type: string
+          format: uuid
+    ErrorCode:
+      type: string
+      enum:
+        - validation_failed
+        - project_not_found
+        - not_found
+        - internal_error
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string

@@ -1,3 +1,5 @@
+import { migrateAccess } from '@taleart/server-access';
+import { migrateZones } from '@taleart/server-zones';
 import { Pool } from 'pg';
 
 export const defaultDatabaseUrl =
@@ -9,19 +11,16 @@ export function createPool(connectionString?: string): Pool {
   });
 }
 
-// Creates the tables the foundation needs. Safe to run on every start.
+// Each module owns its migrations. They run in dependency order:
+// access (projects) first, then zones, which references projects.
+const migrations: ReadonlyArray<{ module: string; run: (pool: Pool) => Promise<void> }> = [
+  { module: 'access', run: migrateAccess },
+  { module: 'zones', run: migrateZones },
+];
+
+// Runs every module's migration. Safe to run on every start.
 export async function migrate(pool: Pool): Promise<void> {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      name text NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS zones (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      project_id uuid NOT NULL REFERENCES projects(id),
-      name text NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-  `);
+  for (const migration of migrations) {
+    await migration.run(pool);
+  }
 }

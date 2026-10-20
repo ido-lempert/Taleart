@@ -31,4 +31,28 @@ describe('App', () => {
     expect(text).toContain('Home bar');
     expect(text).toContain('in Acme');
   });
+
+  it('shows the message from the API error body when a save fails', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    http.expectOne(`${API_BASE}/projects`).flush([]);
+    await fixture.whenStable();
+    http.expectOne(`${API_BASE}/zones`).flush([]);
+    await fixture.whenStable();
+
+    const button = (fixture.nativeElement as HTMLElement).querySelectorAll('button')[1];
+    button.click();
+    http
+      .expectOne(`${API_BASE}/zones`)
+      .flush(
+        { error: { code: 'project_not_found', message: 'projectId does not match a project' } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role=alert]')?.textContent).toContain(
+      'projectId does not match a project',
+    );
+  });
 });

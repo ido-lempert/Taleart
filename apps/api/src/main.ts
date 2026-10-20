@@ -1,5 +1,14 @@
-import { createApp } from './app';
+import { createApp, MANAGEMENT_API_BASE } from './app';
 import { createPool, migrate } from './db';
+
+// Structured JSON to stdout, one line per entry (spine logging convention).
+function log(level: 'info' | 'error', msg: string, err?: unknown): void {
+  const entry: Record<string, unknown> = { level, msg };
+  if (err !== undefined) {
+    entry['error'] = err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err);
+  }
+  console.log(JSON.stringify(entry));
+}
 
 async function start(): Promise<void> {
   const pool = createPool();
@@ -7,12 +16,12 @@ async function start(): Promise<void> {
 
   const port = process.env['PORT'] || 3333;
   const server = createApp(pool).listen(port, () => {
-    console.log(`Listening at http://localhost:${port}/api`);
+    log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
   });
-  server.on('error', console.error);
+  server.on('error', (err) => log('error', 'server error', err));
 }
 
 start().catch((err) => {
-  console.error(err);
+  log('error', 'startup failed', err);
   process.exit(1);
 });
