@@ -176,3 +176,27 @@
     max-width: 150px;
   }
 }
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--border);
+}
+
+.user-menu__name {
+  max-width: 160px;
+  overflow: hidden;
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 639.98px) {
+  .user-menu__name {
+    display: none;
+  }
+}

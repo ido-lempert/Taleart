@@ -1,12 +1,13 @@
 import { CdkDropList, type CdkDragDrop } from '@angular/cdk/drag-drop';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
-import { App, API_BASE } from './app';
+import { App, API_BASE, API_ORIGIN } from './app';
 import { appRoutes } from './app.routes';
-import { SELECTED_PROJECT_KEY } from './dashboard.store';
+import { PasskeyClient, unauthorizedInterceptor } from './auth';
+import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
 
 const frameTypes = [
   { key: 'bar', label: 'Bar' },
@@ -21,7 +22,9 @@ const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', positi
 const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, media: null };
 const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
 const mp4Media = { kind: 'video', contentType: 'video/mp4', url: '/api/v1/tales/t2/media' };
-const MEDIA_ORIGIN = new URL(API_BASE).origin;
+const MEDIA_ORIGIN = API_ORIGIN;
+const admin = { id: 'u1', name: 'Ada Admin', email: 'ada@example.com', role: 'admin' };
+const signedIn = { setupRequired: false, user: admin };
 const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', settings: {} };
 
 interface Data {
@@ -70,16 +73,25 @@ function drawer(): HTMLElement | null {
   return document.querySelector('[role=dialog]');
 }
 
+// Stands in for the browser's WebAuthn calls.
+const passkeys = {
+  supported: vi.fn(() => true),
+  register: vi.fn(async () => ({ id: 'cred-1', type: 'public-key' })),
+  authenticate: vi.fn(async () => ({ id: 'cred-1', type: 'public-key' })),
+};
+
 describe('App', () => {
   let http: HttpTestingController;
 
   beforeEach(async () => {
     localStorage.clear();
+    passkeys.supported.mockReturnValue(true);
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
-        provideHttpClient(),
+        provideHttpClient(withInterceptors([unauthorizedInterceptor])),
         provideHttpClientTesting(),
+        { provide: PasskeyClient, useValue: passkeys },
         provideRouter(appRoutes, withComponentInputBinding()),
       ],
     }).compileComponents();
@@ -105,10 +117,20 @@ describe('App', () => {
     await settle(fixture);
   }
 
+  // Navigates to `url`, answering the auth state request when the app asks for it.
+  async function navigate(fixture: ComponentFixture<unknown>, url: string, state: object = signedIn): Promise<void> {
+    const navigation = TestBed.inject(Router).navigateByUrl(url);
+    // Not settle(): whenStable() would wait for the pending auth state request.
+    await new Promise((resolve) => setTimeout(resolve));
+    for (const req of http.match(`${API_BASE}/auth/state`)) req.flush(state);
+    await navigation;
+    await settle(fixture);
+  }
+
   async function open(url: string, data: Data): Promise<{ fixture: ComponentFixture<App>; root: HTMLElement }> {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
-    await TestBed.inject(Router).navigateByUrl(url);
+    await navigate(fixture, url);
     await flushRefresh(fixture, data);
     await settle(fixture);
     return { fixture, root: fixture.nativeElement as HTMLElement };
@@ -151,7 +173,10 @@ describe('App', () => {
     it('shows a non-blocking banner when the API cannot be reached', async () => {
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
-      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      const navigation = TestBed.inject(Router).navigateByUrl('/');
+      await new Promise((resolve) => setTimeout(resolve));
+      http.expectOne(`${API_BASE}/auth/state`).error(new ProgressEvent('error'));
+      await navigation;
       await settle(fixture);
 
       const root = fixture.nativeElement as HTMLElement;
@@ -163,7 +188,7 @@ describe('App', () => {
       it(`shows only the banner, not an empty or not-found state, on ${url} when the API is down`, async () => {
         const fixture = TestBed.createComponent(App);
         fixture.detectChanges();
-        await TestBed.inject(Router).navigateByUrl(url);
+        await navigate(fixture, url);
         http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
         await settle(fixture);
 
@@ -710,6 +735,174 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/projects`, 'validation_failed', 'name is required');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('name is required');
+    });
+  });
+  describe('auth', () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve));
+    const setupState = { setupRequired: true, user: null };
+    const signedOut = { setupRequired: false, user: null };
+    const creationOptions = { challenge: 'c1', rp: { name: 'TaleArt', id: 'localhost' } };
+    const requestOptions = { challenge: 'c2', rpId: 'localhost' };
+
+    // Lets the sign-in finish and the effect that loads data run. Not settle():
+    // whenStable() would wait for the pending data requests.
+    async function signedInTick(fixture: ComponentFixture<unknown>): Promise<void> {
+      await tick();
+      fixture.detectChanges();
+      await tick();
+    }
+
+    async function visit(url: string, state: object): Promise<{ fixture: ComponentFixture<App>; root: HTMLElement }> {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, url, state);
+      return { fixture, root: fixture.nativeElement as HTMLElement };
+    }
+
+    it('shows the setup screen on an empty install, registers a passkey and lands on Zones as admin', async () => {
+      const { fixture, root } = await visit('/', setupState);
+      const router = TestBed.inject(Router);
+      expect(router.url).toBe('/setup?returnUrl=%2Fzones');
+      expect(root.querySelector('h1')?.textContent).toContain('Set up TaleArt');
+      expect(root.querySelector('nav[aria-label=Main]')).toBeNull();
+
+      type(root.querySelector<HTMLInputElement>('#setup-name'), 'Ada Admin');
+      type(root.querySelector<HTMLInputElement>('#setup-email'), 'ada@example.com');
+      buttonNamed(root, 'Create passkey').click();
+      const options = http.expectOne(`${API_BASE}/auth/setup/options`);
+      expect(options.request.body).toEqual({ name: 'Ada Admin', email: 'ada@example.com' });
+      options.flush(creationOptions);
+      await tick();
+      expect(passkeys.register).toHaveBeenCalledWith(creationOptions);
+      const verify = http.expectOne(`${API_BASE}/auth/setup/verify`);
+      expect(verify.request.body).toEqual({ id: 'cred-1', type: 'public-key' });
+      verify.flush({ user: admin }, { status: 201, statusText: 'Created' });
+      await signedInTick(fixture);
+      await flushRefresh(fixture, oneZone);
+
+      expect(router.url).toBe('/zones');
+      expect(root.querySelector('h1')?.textContent).toContain('Zones');
+      expect(root.querySelector('.user-menu')?.textContent).toContain('Ada Admin');
+    });
+
+    it("shows the API's message in the setup card", async () => {
+      const { fixture, root } = await visit('/setup', setupState);
+      type(root.querySelector<HTMLInputElement>('#setup-name'), 'Ada');
+      type(root.querySelector<HTMLInputElement>('#setup-email'), 'nope');
+      buttonNamed(root, 'Create passkey').click();
+      await refuse(fixture, `${API_BASE}/auth/setup/options`, 'validation_failed', 'email is not valid');
+      expect(root.querySelector('.form-error')?.textContent).toContain('email is not valid');
+    });
+
+    it('sends to sign-in when an admin exists, and setup is no longer reachable', async () => {
+      const { fixture, root } = await visit('/zones', signedOut);
+      const router = TestBed.inject(Router);
+      expect(router.url).toBe('/sign-in?returnUrl=%2Fzones');
+      expect(root.querySelector('h1')?.textContent).toContain('Sign in');
+      expect(buttonNamed(root, 'Sign in with a passkey')).toBeTruthy();
+
+      await navigate(fixture, '/setup');
+      expect(router.url).toBe('/sign-in');
+    });
+
+    it('signs in with a passkey and goes back to the page asked for', async () => {
+      const { fixture, root } = await visit('/projects', signedOut);
+      buttonNamed(root, 'Sign in with a passkey').click();
+      http.expectOne(`${API_BASE}/auth/sign-in/options`).flush(requestOptions);
+      await tick();
+      expect(passkeys.authenticate).toHaveBeenCalledWith(requestOptions);
+      const verify = http.expectOne(`${API_BASE}/auth/sign-in/verify`);
+      expect(verify.request.body).toEqual({ id: 'cred-1', type: 'public-key' });
+      verify.flush({ user: admin });
+      await signedInTick(fixture);
+      await flushRefresh(fixture, oneZone);
+
+      expect(TestBed.inject(Router).url).toBe('/projects');
+      expect(root.querySelector('h1')?.textContent).toContain('Projects');
+    });
+
+    it("shows the API's message when the passkey is refused", async () => {
+      const { fixture, root } = await visit('/sign-in', signedOut);
+      buttonNamed(root, 'Sign in with a passkey').click();
+      http.expectOne(`${API_BASE}/auth/sign-in/options`).flush(requestOptions);
+      await tick();
+      http
+        .expectOne(`${API_BASE}/auth/sign-in/verify`)
+        .flush(
+          { error: { code: 'passkey_failed', message: 'This passkey is not registered with TaleArt' } },
+          { status: 401, statusText: 'Unauthorized' },
+        );
+      await settle(fixture);
+      expect(root.querySelector('.form-error')?.textContent).toContain('This passkey is not registered with TaleArt');
+      expect(TestBed.inject(Router).url).toBe('/sign-in');
+    });
+
+    it('explains when the browser has no passkey support', async () => {
+      passkeys.supported.mockReturnValue(false);
+      const { root } = await visit('/sign-in', signedOut);
+      expect(root.querySelector('.form-error')?.textContent).toContain('does not support passkeys');
+      expect(root.querySelector('button')).toBeNull();
+    });
+
+    it('signs out from the top bar', async () => {
+      const { fixture, root } = await open('/zones', oneZone);
+      buttonNamed(root, 'Sign out').click();
+      const req = http.expectOne(`${API_BASE}/auth/sign-out`);
+      expect(req.request.method).toBe('POST');
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      expect(TestBed.inject(Router).url).toBe('/sign-in');
+      expect(root.querySelector('h1')?.textContent).toContain('Sign in');
+      expect(root.querySelector('nav[aria-label=Main]')).toBeNull();
+    });
+
+    it('drops a refresh cut short by a 401 and loads cleanly after the next sign-in', async () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones');
+      const store = TestBed.inject(DashboardStore);
+      http.expectOne(`${API_BASE}/projects`).flush([acme]);
+      await tick();
+      http
+        .expectOne(`${API_BASE}/zones`)
+        .flush({ error: { code: 'unauthenticated', message: 'Sign in to continue' } }, { status: 401, statusText: 'Unauthorized' });
+      await settle(fixture);
+
+      const root = fixture.nativeElement as HTMLElement;
+      expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fzones');
+      expect(store.projects()).toEqual([]);
+      expect(store.loaded()).toBe(false);
+      expect(store.apiDown()).toBe(false);
+
+      buttonNamed(root, 'Sign in with a passkey').click();
+      http.expectOne(`${API_BASE}/auth/sign-in/options`).flush(requestOptions);
+      await tick();
+      http.expectOne(`${API_BASE}/auth/sign-in/verify`).flush({ user: admin });
+      await signedInTick(fixture);
+      // The new refresh has not answered yet: no empty state flashes.
+      expect(store.loaded()).toBe(false);
+      expect(root.textContent).not.toContain('Create your first project');
+      await flushRefresh(fixture, oneZone);
+
+      expect(TestBed.inject(Router).url).toBe('/zones');
+      expect(root.textContent).toContain('Home bar');
+      expect(root.querySelector('.banner')).toBeNull();
+    });
+
+    it('goes to sign-in when the API answers 401, then back to the page', async () => {
+      const { fixture, root } = await open('/projects', { projects: [acme] });
+      buttonNamed(root, 'New project').click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Globex');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      http
+        .expectOne(`${API_BASE}/projects`)
+        .flush({ error: { code: 'unauthenticated', message: 'Sign in to continue' } }, { status: 401, statusText: 'Unauthorized' });
+      await settle(fixture);
+
+      expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fprojects');
+      expect(root.querySelector('h1')?.textContent).toContain('Sign in');
     });
   });
 });

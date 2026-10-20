@@ -12,11 +12,12 @@ import {
 } from '@taleart/contract';
 import { firstValueFrom } from 'rxjs';
 
-// The Management API base URL for local development.
-export const API_BASE = 'http://localhost:3333/api/v1';
+// The Management API, on the dashboard's own origin: the dev server proxies
+// /api to the API (proxy.conf.json), so the session cookie is same-origin.
+export const API_BASE = '/api/v1';
 
-// Media URLs from the API are paths on the API's origin.
-const API_ORIGIN = new URL(API_BASE).origin;
+/** Media URLs from the API are paths on the API's origin, which is the dashboard's own. */
+export const API_ORIGIN = '';
 
 /** The localStorage key holding the project picked in the top bar. */
 export const SELECTED_PROJECT_KEY = 'taleart.selectedProjectId';
@@ -145,27 +146,53 @@ export class DashboardStore {
     return `${API_ORIGIN}${tale.media.url}${version ? `?v=${version}` : ''}`;
   }
 
+  /** Bumped by reset(), so a refresh that started before it writes nothing. */
+  private generation = 0;
+
+  /** Forgets all loaded data, for example after sign-out. */
+  reset(): void {
+    this.generation++;
+    this.projects.set([]);
+    this.zones.set([]);
+    this.frameTypes.set([]);
+    this.frames.set({});
+    this.taleGroups.set({});
+    this.loaded.set(false);
+    this.apiDown.set(false);
+    this.drawer.set(null);
+  }
+
   async refresh(): Promise<void> {
+    const generation = this.generation;
+    const current = () => generation === this.generation;
     try {
-      this.projects.set(await firstValueFrom(this.http.get<Project[]>(`${API_BASE}/projects`)));
+      const projects = await firstValueFrom(this.http.get<Project[]>(`${API_BASE}/projects`));
+      if (!current()) return;
+      this.projects.set(projects);
       const zones = await firstValueFrom(this.http.get<Zone[]>(`${API_BASE}/zones`));
+      if (!current()) return;
       this.zones.set(zones);
-      this.frameTypes.set(await firstValueFrom(this.http.get<FrameType[]>(`${API_BASE}/frame-types`)));
+      const frameTypes = await firstValueFrom(this.http.get<FrameType[]>(`${API_BASE}/frame-types`));
+      if (!current()) return;
+      this.frameTypes.set(frameTypes);
       const lists = await Promise.all(
         zones.map((zone) => firstValueFrom(this.http.get<Frame[]>(`${API_BASE}/zones/${zone.id}/frames`))),
       );
+      if (!current()) return;
       this.frames.set(Object.fromEntries(zones.map((zone, i) => [zone.id, lists[i]])));
       const groups = await Promise.all(
         zones.map((zone) =>
           firstValueFrom(this.http.get<TaleGroup[]>(`${API_BASE}/zones/${zone.id}/tale-groups`)),
         ),
       );
+      if (!current()) return;
       this.taleGroups.set(Object.fromEntries(zones.map((zone, i) => [zone.id, groups[i]])));
       this.apiDown.set(false);
-    } catch {
-      this.apiDown.set(true);
+    } catch (err) {
+      // A 401 means the session ended; the auth interceptor sends the user to sign-in.
+      if (current() && !(err instanceof HttpErrorResponse && err.status === 401)) this.apiDown.set(true);
     } finally {
-      this.loaded.set(true);
+      if (current()) this.loaded.set(true);
     }
   }
 
