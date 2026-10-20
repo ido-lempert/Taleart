@@ -2,7 +2,31 @@
 
 Branch: `autopilot/foundation` (nothing pushed; `main` untouched). Started 2026-10-20.
 
-<!-- The final summary is written here when the run ends. -->
+## Summary
+
+The run ended after about 30 minutes, not overnight: three of the remaining stories need your decisions, and every other story waits on one of those three.
+
+**Built (ready for you to try):**
+- **1.11 Align the prototype with the architecture** — `/api/v1`, `access` and `zones` modules, the OpenAPI contract, module-boundary lint, the standard error body.
+- **1.6 Pick a frame type for a zone** — frames with schema-checked settings; bar and banner; new types by configuration only.
+- **1.1 Tracer** (built before tonight) — still waiting for your review.
+
+**Blocked, waiting for your decisions:**
+- **1.2 CI** — which CI host to use, and whether to create the GitHub repository with branch protection. The autopilot may not create a remote or push.
+- **1.3 Add a tale** — whether tales live only in tale groups (PRD and architecture) or directly in zones (the story), and whether the first tale slice includes media upload.
+- **1.7 Sign in** — how accounts are created, how people sign in, what administrators and content managers can each do, and whether a user belongs to one project or several.
+
+**Waiting on those:** 1.4 and 1.5 (on 1.3), 1.8 zone keys (on 1.7), 1.9 staging (on 1.2 and 1.8, and needs your host and credentials), 1.10 refactor sweep (on all of them).
+
+**Assumptions made tonight:**
+- A `projectId` that isn't a UUID is treated as an unknown project.
+- A malformed JSON body returns 400 `validation_failed`.
+- Bar and banner have no settings fields yet and refuse any extra field; their fields come with the web zones epic.
+- A frame type sent with surrounding spaces is accepted.
+
+**Not fixed, by the review rules:** request bodies that are too large or wrongly encoded return 500 instead of a 4xx.
+
+**How to review:** run `npm exec nx serve api` and `npm exec nx serve dashboard`, open `http://localhost:4200`, add a project and a zone, then pick a frame type for the zone. Each story's section below has its own steps. All of it is on `autopilot/foundation`; merge into `main` when you're happy.
 
 ## Stories
 
