@@ -141,3 +141,11 @@ Updated 2026-10-20 evening, after the second run. Every foundation story that ne
 - **Assumptions:** one active key per zone; key format `tak_…`, shown once, stored hashed; admin-only issue, rotate and revoke; Delivery API accepts only `Authorization: Bearer <key>`; `GET /delivery/v1/zone` returns the zone and its frames until the web zones epic adds published content.
 - **Review in the dashboard:** open a zone as admin, "Issue key", copy it, then `curl -H "Authorization: Bearer <key>" http://localhost:3333/delivery/v1/zone`; rotate or revoke and call again (401).
 - **Blocking condition:** none. Deferred: one failed per-zone request marks the dashboard as API-down (refactor sweep).
+
+## Evening, part 3 — web zones, sharing and the importer (parallel agents)
+
+- **Web zones 3.1 — sample web page shows a zone's bar:** built (`42ecf20`). Public media at `/media/{key}`, Delivery API returns tale groups and tales, `<taleart-view>` renders a bar; SDK 1.95 KB gzipped. Review: 5 patches, 1 deferred (SDK type declarations reference the unpublished contract package).
+- **Foundation 1.15 — one tale group in several zones:** built (`13bf18a`). Zone placements, migration, place, remove, rename, "Also in", Tale groups page.
+- **Foundation 1.16 — copy a tale group to another zone:** built (`6e3fd08`). Same or other accessible project; media shared; tags matched by name; replaced media is deleted only when unused.
+- **Importer 2.1 — import a Storyly app's zones and see the report:** built in a parallel worktree and merged. Jobs with owner and heartbeat, fake Storyly server on port 4400, encrypted token deleted after the job. Deferred: re-import does not rename linked zones (importer story 7).
+- **Merge:** four conflicts (app.ts, errors.ts, routes, test setup), resolved by keeping both sides; the merged tree passes lint, test and build for 12 projects (api 180 tests).
