@@ -30,3 +30,12 @@ Branch: `autopilot/foundation` (nothing pushed; `main` untouched). Started 2026-
 - **Why:** the story conflicts with the PRD and the architecture. It adds a tale straight to a zone, but both documents say a tale belongs to a tale group (story 1.4). It also doesn't say whether uploading the tale's media is part of it.
 - **What you decide:** whether tales live only in tale groups (then stories 1.3 and 1.4 merge or swap), and whether the first tale slice includes media upload.
 - **Knock-on effect:** story 1.4 (organize tales into groups) and 1.5 (tags and collections) wait on this one.
+
+### 1.6 — Pick a frame type for a zone
+
+- **Status:** built
+- **Commits:** `a869ddf` Story 6: pick a frame type for a zone
+- **What changed:** each zone can hold frames; a frame's settings are checked against its type's schema; bar and banner are the two types; a new type is added with a registry entry and a schema file only.
+- **Assumptions made:** bar and banner have no settings fields yet, and refuse any extra field; their fields come with the web zones epic. A type sent with surrounding spaces is accepted.
+- **How to review:** start the API and dashboard, add a project and a zone, pick "Bar" for the zone and add it; it's listed under the zone after a reload. To see a new type: add an entry to `libs/contract/frame-types/registry.json` with a schema file, restart `npm exec nx serve api`, and it appears in the picker.
+- **Blocking condition:** none.
