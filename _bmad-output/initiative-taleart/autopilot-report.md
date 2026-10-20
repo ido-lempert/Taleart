@@ -78,3 +78,11 @@ The run ended after about 30 minutes, not overnight: three of the remaining stor
 - **Assumptions:** a tale group belongs to one zone (the frame-to-tale-group display link comes later); a tale has a title only (media is story 1.12); a group holds at most 100 tales (FR-010), answered with 409 `tale_group_full`; group creation is serialized with a Postgres advisory lock, because the tales module may not lock the zones table (AD-1); deep imports such as `@taleart/server-zones/src/lib/frames` now fail lint everywhere.
 - **Review in the dashboard:** under a zone, enter a tale group name and press "Add tale group"; in the group, add two tales; reload: both are listed in the order added.
 - **Blocking condition:** none.
+
+## Story 1.14 — Modern dashboard: app shell and design system
+
+- **Status:** built (added on the user's request: "It needs to look like Storyly not website from 90s")
+- **Commits:** `8a48e94` new story; the story 14 commit after it.
+- **Assumptions:** TaleArt's own identity (ember orange, Inter, own mark), Storyly-like patterns only, no Storyly assets or colors; filled buttons use a darker ember `#C73E1D` for WCAG AA contrast (awaiting the user's confirmation); no UI component library.
+- **Review in the dashboard:** open http://localhost:4200, switch projects in the top bar, open a zone card, and create a zone, frame, tale group and tale from the drawers; try a phone-width window.
+- **Blocking condition:** none. A follow-up review is recommended for three untested accessibility fixes.
