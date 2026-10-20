@@ -61,3 +61,8 @@ local.properties
 xcuserdata/
 apps/taller/iosApp/Taller.xcodeproj
 apps/taller/iosApp/build
+
+# Local agent tooling and generated BMad renders (machine-specific paths)
+.agents/
+.claude/
+_bmad/render/
