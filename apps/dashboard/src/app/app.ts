@@ -1,174 +1,78 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { isErrorBody, type Frame, type FrameType, type Tale, type TaleGroup } from '@taleart/contract';
-import { FormsModule } from '@angular/forms';
-import { firstValueFrom } from 'rxjs';
+import { ChangeDetectionStrategy, Component, computed, DOCUMENT, inject, OnInit } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRouteSnapshot, NavigationEnd, NavigationStart, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter, map } from 'rxjs';
+import { CreateDrawer } from './create-drawer';
+import { DashboardStore, type DrawerRequest } from './dashboard.store';
+import { Icon, Mark } from './icon';
+import type { ShellData } from './app.routes';
 
-export interface Project {
-  id: string;
-  name: string;
+export { API_BASE } from './dashboard.store';
+
+function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
+  return snapshot.firstChild ? deepest(snapshot.firstChild) : snapshot;
 }
 
-export interface Zone {
-  id: string;
-  name: string;
-  projectId: string;
-}
-
-// The Management API base URL for local development.
-export const API_BASE = 'http://localhost:3333/api/v1';
-
-// The API's own message when it sent the standard error body, else the fallback.
-function apiErrorMessage(err: unknown, fallback: string): string {
-  return err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
-}
-
+/** The app shell: navigation rail, top bar with the project switcher, the routed page and the create drawer. */
 @Component({
-  imports: [FormsModule],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, Mark, CreateDrawer],
   selector: 'app-root',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App implements OnInit {
-  private readonly http = inject(HttpClient);
+  protected readonly store = inject(DashboardStore);
+  private readonly router = inject(Router);
+  private readonly document = inject(DOCUMENT);
 
-  protected readonly projects = signal<Project[]>([]);
-  protected readonly zones = signal<Zone[]>([]);
-  protected readonly frameTypes = signal<FrameType[]>([]);
-  /** Each zone's frames, keyed by zone id. */
-  protected readonly frames = signal<Record<string, Frame[]>>({});
-  /** Each zone's tale groups, each with its tales, keyed by zone id. */
-  protected readonly taleGroups = signal<Record<string, TaleGroup[]>>({});
-  protected readonly error = signal('');
-  /** The API's message for a refused tale group, shown next to that zone's form. */
-  protected readonly taleGroupErrors = signal<Record<string, string>>({});
-  /** The API's message for a refused tale, shown next to that group's form. */
-  protected readonly taleErrors = signal<Record<string, string>>({});
+  private readonly route = toSignal(
+    this.router.events.pipe(
+      filter((event) => event instanceof NavigationEnd),
+      map(() => deepest(this.router.routerState.snapshot.root)),
+    ),
+    { initialValue: null },
+  );
 
-  protected projectName = '';
-  protected zoneName = '';
-  protected zoneProjectId = '';
-  /** The frame type picked for each zone, keyed by zone id. */
-  protected frameTypeChoice: Record<string, string> = {};
-  /** The new tale group name typed for each zone, keyed by zone id. */
-  protected taleGroupName: Record<string, string> = {};
-  /** The new tale title typed for each tale group, keyed by tale group id. */
-  protected taleTitle: Record<string, string> = {};
+  protected readonly shell = computed(() => (this.route()?.data as Partial<ShellData> | undefined) ?? {});
+
+  /** What the top bar's "New …" button opens on this page, or null when it can't be used here. */
+  protected readonly createRequest = computed<DrawerRequest | null>(() => {
+    switch (this.shell().create) {
+      case 'project':
+        return { kind: 'project' };
+      case 'zone':
+        return this.store.projects().length > 0 ? { kind: 'zone' } : null;
+      case 'taleGroup': {
+        const zoneId = this.route()?.paramMap.get('zoneId') ?? '';
+        return this.store.zone(zoneId) ? { kind: 'taleGroup', zoneId } : null;
+      }
+      default:
+        return null;
+    }
+  });
+
+  constructor() {
+    // A drawer belongs to the page that opened it; leaving the page closes it.
+    this.router.events
+      .pipe(
+        filter((event) => event instanceof NavigationStart),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.store.closeDrawer());
+  }
 
   ngOnInit(): void {
-    void this.refresh();
+    void this.store.refresh();
   }
 
-  protected projectNameOf(projectId: string): string {
-    return this.projects().find((p) => p.id === projectId)?.name ?? 'Unknown project';
+  // Handled in code: with <base href="/">, "#main" would resolve to "/#main" and leave the page.
+  protected skipToMain(event: Event): void {
+    event.preventDefault();
+    this.document.getElementById('main')?.focus();
   }
 
-  // A type missing from the registry is shown by its raw key; the dashboard does not fail on it (AD-5).
-  protected frameTypeLabel(type: string): string {
-    return this.frameTypes().find((t) => t.key === type)?.label ?? type;
-  }
-
-  protected framesOf(zoneId: string): Frame[] {
-    return this.frames()[zoneId] ?? [];
-  }
-
-  protected taleGroupsOf(zoneId: string): TaleGroup[] {
-    return this.taleGroups()[zoneId] ?? [];
-  }
-
-  protected async refresh(): Promise<void> {
-    try {
-      this.projects.set(await firstValueFrom(this.http.get<Project[]>(`${API_BASE}/projects`)));
-      const zones = await firstValueFrom(this.http.get<Zone[]>(`${API_BASE}/zones`));
-      this.zones.set(zones);
-      this.frameTypes.set(await firstValueFrom(this.http.get<FrameType[]>(`${API_BASE}/frame-types`)));
-      const lists = await Promise.all(
-        zones.map((zone) => firstValueFrom(this.http.get<Frame[]>(`${API_BASE}/zones/${zone.id}/frames`))),
-      );
-      this.frames.set(Object.fromEntries(zones.map((zone, i) => [zone.id, lists[i]])));
-      const groups = await Promise.all(
-        zones.map((zone) =>
-          firstValueFrom(this.http.get<TaleGroup[]>(`${API_BASE}/zones/${zone.id}/tale-groups`)),
-        ),
-      );
-      this.taleGroups.set(Object.fromEntries(zones.map((zone, i) => [zone.id, groups[i]])));
-      for (const zone of zones) {
-        this.frameTypeChoice[zone.id] ??= '';
-        this.taleGroupName[zone.id] ??= '';
-        for (const group of this.taleGroupsOf(zone.id)) this.taleTitle[group.id] ??= '';
-      }
-      this.error.set('');
-    } catch {
-      this.error.set('Could not reach the API. Is it running on port 3333?');
-    }
-  }
-
-  protected async addProject(): Promise<void> {
-    try {
-      await firstValueFrom(this.http.post<Project>(`${API_BASE}/projects`, { name: this.projectName }));
-      this.projectName = '';
-      await this.refresh();
-    } catch (err) {
-      this.error.set(apiErrorMessage(err, 'Project was not saved.'));
-    }
-  }
-
-  protected async addZone(): Promise<void> {
-    try {
-      await firstValueFrom(
-        this.http.post<Zone>(`${API_BASE}/zones`, { name: this.zoneName, projectId: this.zoneProjectId }),
-      );
-      this.zoneName = '';
-      await this.refresh();
-    } catch (err) {
-      this.error.set(apiErrorMessage(err, 'Zone was not saved. Choose a project and enter a name.'));
-    }
-  }
-
-  protected async addFrame(zoneId: string): Promise<void> {
-    try {
-      await firstValueFrom(
-        this.http.post<Frame>(`${API_BASE}/zones/${zoneId}/frames`, {
-          type: this.frameTypeChoice[zoneId] ?? '',
-          settings: {},
-        }),
-      );
-      this.frameTypeChoice[zoneId] = '';
-      await this.refresh();
-    } catch (err) {
-      this.error.set(apiErrorMessage(err, 'Frame was not saved. Choose a frame type.'));
-    }
-  }
-
-  protected async addTaleGroup(zoneId: string): Promise<void> {
-    try {
-      await firstValueFrom(
-        this.http.post<TaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, {
-          name: this.taleGroupName[zoneId] ?? '',
-        }),
-      );
-      this.taleGroupName[zoneId] = '';
-      this.taleGroupErrors.update((errors) => ({ ...errors, [zoneId]: '' }));
-      await this.refresh();
-    } catch (err) {
-      const message = apiErrorMessage(err, 'Tale group was not saved. Try again.');
-      this.taleGroupErrors.update((errors) => ({ ...errors, [zoneId]: message }));
-    }
-  }
-
-  protected async addTale(taleGroupId: string): Promise<void> {
-    try {
-      await firstValueFrom(
-        this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, {
-          title: this.taleTitle[taleGroupId] ?? '',
-        }),
-      );
-      this.taleTitle[taleGroupId] = '';
-      this.taleErrors.update((errors) => ({ ...errors, [taleGroupId]: '' }));
-      await this.refresh();
-    } catch (err) {
-      const message = apiErrorMessage(err, 'Tale was not saved. Try again.');
-      this.taleErrors.update((errors) => ({ ...errors, [taleGroupId]: message }));
-    }
+  protected onProjectChange(event: Event): void {
+    this.store.selectProject((event.target as HTMLSelectElement).value);
   }
 }
