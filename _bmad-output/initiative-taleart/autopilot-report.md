@@ -149,3 +149,10 @@ Updated 2026-10-20 evening, after the second run. Every foundation story that ne
 - **Foundation 1.16 — copy a tale group to another zone:** built (`6e3fd08`). Same or other accessible project; media shared; tags matched by name; replaced media is deleted only when unused.
 - **Importer 2.1 — import a another tool app's zones and see the report:** built in a parallel worktree and merged. Jobs with owner and heartbeat, fake another tool server on port 4400, encrypted token deleted after the job. Deferred: re-import does not rename linked zones (importer story 7).
 - **Merge:** four conflicts (app.ts, errors.ts, routes, test setup), resolved by keeping both sides; the merged tree passes lint, test and build for 12 projects (api 180 tests).
+
+## Second parallel batch (2026-10-21)
+
+- **Web zones 3.2 — full-screen viewer:** built and merged. Tap, keys, swipe, hold to pause; seen ring kept only in the visitor's browser; reduced motion respected (no autoplay or auto-advance); keys never leak to the host page. SDK 5.99 KB gzipped. Review: 12 patches. Follow-up: add axe-core as a devDependency so `sdk-sample:a11y` runs offline.
+- **Web zones 3.3 — publish, pause and archive:** built and merged. Statuses on groups and tales (new content `draft`, existing rows `live`); Delivery and public media serve only live tales of live groups; media now revalidates (`no-cache`, 304 without reading storage); all migrations run under one advisory lock. Review: 5 patches, 1 rejected.
+- **Importer 2.2 — tale groups and tales:** built and merged. Groups placed in their instance's zone at the source position; tales without media; no duplicates on re-run (lock-ordered link protocol, deterministic race test). Imported content arrives as `draft` until importer story 11. Review: 5 patches.
+- **Merged tree:** lint, test and build pass for 12 projects (api 203, web-sdk 59).
