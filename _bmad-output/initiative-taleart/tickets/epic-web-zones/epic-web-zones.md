@@ -3,7 +3,7 @@ type: epic
 title: Web zones
 parent: initiative-taleart
 id: 3
-covers: [R6, R9]
+covers: [R6, R9, R11]
 after: [epic-platform-foundation]
 refined: false
 risk: medium

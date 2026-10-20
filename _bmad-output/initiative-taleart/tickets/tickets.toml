@@ -20,7 +20,7 @@ id = 3
 slug = "epic-web-zones"
 title = "Web zones"
 description = "A visitor on a Web page sees a zone's bar or banner with its published tales, respecting schedules."
-covers = ["R6", "R9"]
+covers = ["R6", "R9", "R11"]
 after = [{ epic = 1, needs = "the data model and API" }]
 
 [[epic]]
@@ -36,7 +36,7 @@ id = 5
 slug = "epic-targeting"
 title = "Tag and audience targeting"
 description = "Tags combine with AND or OR, and audiences import from CSV and match the external user key, deciding which groups a viewer sees."
-covers = ["R5"]
+covers = ["R5", "R12"]
 after = [{ epic = 3, needs = "zones to demonstrate targeting" }]
 
 [[epic]]
