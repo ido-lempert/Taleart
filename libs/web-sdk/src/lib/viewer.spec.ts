@@ -27,7 +27,16 @@ let pauseMock: ReturnType<typeof vi.fn>;
 const dialog = () => host.querySelector('dialog') as HTMLDialogElement | null;
 const q = <T extends Element>(selector: string) => dialog()?.querySelector<T>(selector) as T;
 const mediaSrc = () => q<HTMLImageElement | HTMLVideoElement>('.media').getAttribute('src');
-const position = () => q('.sr-only').textContent;
+// Where the viewer is, read synchronously from its name and segments (the live region, filled a
+// task later, says the same; see its own test).
+const position = () => {
+  const d = dialog();
+  const segments = d?.querySelectorAll('.segment') ?? [];
+  const done = d?.querySelectorAll('.segment.done').length ?? 0;
+  return `${d?.getAttribute('aria-label')}, tale ${done + 1} of ${segments.length}`;
+};
+// A pointer click (detail 1); `click()` is a keyboard-like activation (detail 0).
+const tap = (selector: string) => q(selector).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
 const key = (k: string, init: KeyboardEventInit = {}) => {
   const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init });
   (dialog()?.ownerDocument.activeElement ?? dialog())?.dispatchEvent(e);
@@ -98,7 +107,7 @@ describe('TaleViewer', () => {
 
   it('steps by the tap zones and the arrow keys, across groups, skipping groups without tales', () => {
     viewer.open('ga');
-    q<HTMLButtonElement>('.zone.next').click();
+    tap('.zone.next');
     expect(position()).toBe('B, tale 1 of 2');
     key('ArrowRight');
     expect(position()).toBe('B, tale 2 of 2');
@@ -107,7 +116,7 @@ describe('TaleViewer', () => {
     expect(dialog()?.getAttribute('aria-label')).toBe('C');
     key('ArrowLeft');
     expect(position()).toBe('B, tale 2 of 2');
-    q<HTMLButtonElement>('.zone.prev').click();
+    tap('.zone.prev');
     expect(position()).toBe('B, tale 1 of 2');
     key('ArrowLeft');
     expect(position()).toBe('A, tale 1 of 1');
@@ -130,7 +139,7 @@ describe('TaleViewer', () => {
     key('ArrowRight');
     expect(q('.media').getAttribute('aria-label')).toBe('Tale 2');
     vi.advanceTimersByTime(IMAGE_DURATION_MS);
-    expect(dialog()).toBeNull();
+    expect(dialog()?.hasAttribute('open')).toBe(false);
     expect(viewer.isOpen).toBe(false);
     expect(closed).toEqual(['gc']);
   });
@@ -139,7 +148,7 @@ describe('TaleViewer', () => {
     viewer.open('gb');
     pointer('pointerdown', 300);
     pointer('pointerup', 200);
-    q<HTMLButtonElement>('.zone.next').click(); // the click a browser fires after the gesture
+    tap('.zone.next'); // the click a browser fires after the gesture
     expect(position()).toBe('C, tale 1 of 2');
     pointer('pointerdown', 100);
     pointer('pointerup', 200);
@@ -147,7 +156,7 @@ describe('TaleViewer', () => {
     // A tap after a swipe steps again.
     pointer('pointerdown', 300);
     pointer('pointerup', 300);
-    q<HTMLButtonElement>('.zone.next').click();
+    tap('.zone.next');
     expect(position()).toBe('B, tale 2 of 2');
   });
 
@@ -161,7 +170,7 @@ describe('TaleViewer', () => {
     viewer.open('gc');
     pointer('pointerdown', 300);
     pointer('pointerup', 100);
-    expect(dialog()).toBeNull();
+    expect(dialog()?.hasAttribute('open')).toBe(false);
     expect(closed).toEqual(['ga', 'gc']);
   });
 
@@ -180,7 +189,7 @@ describe('TaleViewer', () => {
     vi.advanceTimersByTime(HOLD_MIN_MS + 10000);
     expect(position()).toBe('B, tale 1 of 2');
     pointer('pointerup', 300);
-    q<HTMLButtonElement>('.zone.next').click();
+    tap('.zone.next');
     expect(position()).toBe('B, tale 1 of 2');
     expect(dialog()?.hasAttribute('data-paused')).toBe(false);
     vi.advanceTimersByTime(IMAGE_DURATION_MS - 1000 - 1);
@@ -236,10 +245,111 @@ describe('TaleViewer', () => {
     key('ArrowRight');
     key('ArrowRight');
     act();
-    expect(dialog()).toBeNull();
+    expect(dialog()?.hasAttribute('open')).toBe(false);
     expect(closed).toEqual(['gc']);
     vi.advanceTimersByTime(IMAGE_DURATION_MS * 5);
     expect(closed).toEqual(['gc']);
+  });
+
+  it('leaves modified keys to the browser and keeps handled keys from the host page', () => {
+    const hostKeys = vi.fn();
+    document.addEventListener('keydown', hostKeys);
+    try {
+      viewer.open('gb');
+      for (const mod of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey']) {
+        const e = key('ArrowRight', { [mod]: true });
+        expect(e.defaultPrevented).toBe(false);
+      }
+      expect(position()).toBe('B, tale 1 of 2');
+      expect(hostKeys).toHaveBeenCalledTimes(4);
+      for (const k of ['ArrowRight', 'ArrowLeft', ' ', 'Escape']) {
+        if (!viewer.isOpen) viewer.open('gb');
+        expect(key(k).defaultPrevented).toBe(true);
+      }
+      expect(hostKeys).toHaveBeenCalledTimes(4);
+      key('a');
+      expect(hostKeys).toHaveBeenCalledTimes(5);
+    } finally {
+      document.removeEventListener('keydown', hostKeys);
+    }
+  });
+
+  it('swallows only the pointer click right after a swipe, never a later one or a keyboard activation', () => {
+    viewer.open('gb');
+    pointer('pointerdown', 300);
+    pointer('pointerup', 200);
+    expect(position()).toBe('C, tale 1 of 2');
+    // No click came with the swipe: a pointer click in a later task steps.
+    vi.advanceTimersByTime(1);
+    tap('.zone.next');
+    expect(position()).toBe('C, tale 2 of 2');
+    tap('.zone.prev');
+    pointer('pointerdown', 300);
+    vi.advanceTimersByTime(HOLD_MIN_MS);
+    pointer('pointerup', 300);
+    // A keyboard activation in the same task still steps.
+    q<HTMLButtonElement>('.zone.next').click();
+    expect(position()).toBe('C, tale 2 of 2');
+  });
+
+  it.each([
+    ['pointercancel', () => dialog()?.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }))],
+    ['lostpointercapture', () => q('.stage').dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true }))],
+    ['a window blur', () => window.dispatchEvent(new Event('blur'))],
+  ])('ends a press on %s and resumes', (_label, release) => {
+    viewer.open('gb');
+    pointer('pointerdown', 300);
+    expect(dialog()?.hasAttribute('data-paused')).toBe(true);
+    release();
+    expect(dialog()?.hasAttribute('data-paused')).toBe(false);
+    vi.advanceTimersByTime(IMAGE_DURATION_MS);
+    expect(position()).toBe('B, tale 2 of 2');
+  });
+
+  it('captures the pointer on press, so a release outside the window still arrives', () => {
+    const capture = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', { value: capture, configurable: true });
+    try {
+      viewer.open('gb');
+      pointer('pointerdown', 300);
+      expect(capture).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (HTMLElement.prototype as { setPointerCapture?: unknown }).setPointerCapture;
+    }
+  });
+
+  it('keeps wheel and one-finger touch scrolling from reaching the host page, but not pinch', () => {
+    viewer.open('gb');
+    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
+    q('.stage').dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    const touch = (n: number) => {
+      const e = new Event('touchmove', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'touches', { value: { length: n } });
+      q('.stage').dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(touch(1)).toBe(true);
+    expect(touch(2)).toBe(false);
+  });
+
+  it('keeps one live region and fills it a task after the change', () => {
+    viewer.open('gb');
+    const region = q('.sr-only');
+    expect(region.getAttribute('aria-live')).toBe('polite');
+    expect(region.textContent).toBe('');
+    vi.advanceTimersByTime(1);
+    expect(region.textContent).toBe('B, tale 1 of 2');
+    key('ArrowRight');
+    expect(region.textContent).toBe('B, tale 1 of 2');
+    vi.advanceTimersByTime(1);
+    expect(region.textContent).toBe('B, tale 2 of 2');
+    viewer.close();
+    expect(region.textContent).toBe('');
+    viewer.open('ga');
+    expect(q('.sr-only')).toBe(region);
+    vi.advanceTimersByTime(1);
+    expect(region.textContent).toBe('A, tale 1 of 1');
   });
 
   describe('video', () => {
@@ -282,6 +392,17 @@ describe('TaleViewer', () => {
       expect(playMock).toHaveBeenCalledTimes(2);
     });
 
+    it('ignores an AbortError from a superseded play() and keeps playing the video', async () => {
+      playMock.mockImplementationOnce(() => Promise.reject(new DOMException('interrupted', 'AbortError')));
+      setup(vgroups);
+      viewer.open('gv');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vid()).not.toBeNull();
+      expect(vid().muted).toBe(false);
+      await vi.advanceTimersByTimeAsync(IMAGE_DURATION_MS * 2);
+      expect(position()).toBe('V, tale 1 of 2');
+    });
+
     it('falls back to the fixed duration when the video fails', () => {
       setup(vgroups);
       viewer.open('gv');
@@ -296,6 +417,47 @@ describe('TaleViewer', () => {
       pauseMock.mockClear();
       viewer.close();
       expect(pauseMock).toHaveBeenCalled();
+    });
+  });
+  describe('reduced motion', () => {
+    const vgroups: DeliveryTaleGroup[] = [{ id: 'gv', name: 'V', tales: [video('v1'), image('v2')] }];
+    beforeEach(() => {
+      vi.stubGlobal(
+        'matchMedia',
+        vi.fn((query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', media: query })),
+      );
+    });
+
+    it('never autoplays or advances: a video waits for Play and stays at its end, an image stays', () => {
+      setup(vgroups);
+      viewer.open('gv');
+      const pause = q<HTMLButtonElement>('.control.pause');
+      expect(playMock).not.toHaveBeenCalled();
+      expect(pause.getAttribute('aria-label')).toBe('Play');
+      expect(pause.hidden).toBe(false);
+      expect(q('video.media').getAttribute('src')).toBe(`${API}/media/tales/v1.mp4#t=0.001`);
+      pause.click();
+      expect(playMock).toHaveBeenCalledTimes(1);
+      q('video.media').dispatchEvent(new Event('ended'));
+      expect(position()).toBe('V, tale 1 of 2');
+      expect(pause.getAttribute('aria-label')).toBe('Play');
+      key('ArrowRight');
+      expect(position()).toBe('V, tale 2 of 2');
+      expect(pause.hidden).toBe(true);
+      vi.advanceTimersByTime(IMAGE_DURATION_MS * 5);
+      expect(position()).toBe('V, tale 2 of 2');
+      expect(viewer.isOpen).toBe(true);
+    });
+
+    it('autoplays again once reduced motion is off', () => {
+      setup(vgroups);
+      viewer.open('gv');
+      viewer.close();
+      vi.unstubAllGlobals();
+      viewer.open('gv');
+      expect(playMock).toHaveBeenCalledTimes(1);
+      expect(q('.control.pause').getAttribute('aria-label')).toBe('Pause');
+      expect(q<HTMLButtonElement>('.control.pause').hidden).toBe(false);
     });
   });
 });

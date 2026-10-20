@@ -106,6 +106,22 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Coordinator review
+- verdicts: 12 findings, all patched.
+- findings:
+  - `[patch]` Handled keys reached host listeners and modified Arrow keys were swallowed — modifiers ignored; handled keys `preventDefault` + `stopPropagation`; tested.
+  - `[patch]` Group name over a light tale failed 4.5:1 — name on a 0.8-opaque dark pill.
+  - `[patch]` White-only focus ring on controls — white outline plus dark box-shadow.
+  - `[patch]` `suppressClick` could outlive its gesture — reset a task after the release; keyboard activations (`detail 0`) never suppressed; tested.
+  - `[patch]` Release outside the window left the viewer paused — pointer capture on the stage; `pointercancel`, `lostpointercapture` and window `blur` release; zone clicks handled on the stage (capture may retarget the click); tested.
+  - `[patch]` AbortError from a superseded `play()` downgraded the video — ignored; tested.
+  - `[patch]` Reduced motion was not honoured — under `prefers-reduced-motion: reduce` each tale starts paused, videos show their first frame and play only from Play, nothing advances by itself (video end stays, images have no timer, Pause hidden for images), progress fill static; tested with a `matchMedia` stub. This supersedes the earlier note that the fill keeps animating.
+  - `[patch]` `touch-action: none` blocked pinch-zoom — `touch-action: pinch-zoom`.
+  - `[patch]` Wheel/one-finger touch could scroll the host — `wheel` and single-touch `touchmove` prevented inside the viewer; unit test and a scan check (wheel over the viewer leaves `scrollY` 0; closed, it scrolls).
+  - `[patch]` Live region created and filled in one task — the dialog (and its region) is built once per viewer and kept; text is set a task after each change and cleared on close; tested.
+  - `[patch]` A reload with the viewer open focused a removed item — focus moves to the matching item of the new bar, else the first; tested.
+  - `[patch]` Scan checks raced the 5 s advance — the scan pauses with Space right after opening and waits on the live region.
+
 ## Verification
 
 **Commands:**
@@ -127,7 +143,7 @@ deferred: []
 
 **Verification:**
 - `nx run-many -t lint test build -p api dashboard contract web-sdk sdk-sample` -- passed (web-sdk 46 tests, api 180, dashboard and contract green).
-- `nx run web-sdk:size` -- passed, 5.37 KB gzipped (was 1.95 KB).
+- `nx run web-sdk:size` -- passed, 5.99 KB gzipped after review fixes (was 1.95 KB).
 - `nx run sdk-sample:a11y` -- 0 violations in 4 scans (bar, viewer, viewer paused, bar with seen ring); keyboard, tap, swipe, focus-return and seen-ring checks passed; no console errors.
 
 **Residual risks:**
