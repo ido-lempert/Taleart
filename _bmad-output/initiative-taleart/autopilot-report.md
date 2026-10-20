@@ -4,29 +4,30 @@ Branch: `autopilot/foundation` (nothing pushed; `main` untouched). Started 2026-
 
 ## Summary
 
-The run ended after about 30 minutes, not overnight: three of the remaining stories need your decisions, and every other story waits on one of those three.
+Updated 2026-10-20 evening, after the second run. Every foundation story that needs no outside input is built; the run stops here.
 
 **Built (ready for you to try):**
-- **1.11 Align the prototype with the architecture** — `/api/v1`, `access` and `zones` modules, the OpenAPI contract, module-boundary lint, the standard error body.
-- **1.6 Pick a frame type for a zone** — frames with schema-checked settings; bar and banner; new types by configuration only.
-- **1.1 Tracer** (built before tonight) — still waiting for your review.
+- **1.1 Tracer**, **1.11 Align with the architecture**, **1.6 Frame types** — from the first run.
+- **1.3 Tale groups and tales** — tales live only in tale groups; order kept.
+- **1.14 Modern dashboard** (added on your request) — TaleArt's own design system, rail, project switcher, drawers, 9:16 tale cards.
+- **1.12 Image and video upload** — local media storage behind a port; type sniffing; byte ranges for video.
+- **1.4 Reorder** — drag and drop plus move buttons; one order request at a time per zone.
+- **1.7 Passkey sign-in** — first user is admin; passkeys only; hashed session tokens.
+- **1.13 Invitations** — one-time links (with Share and Copy); content managers see only their projects (403 otherwise).
+- **1.5 Tag tale groups** — re-scoped by you: tags on tale groups; filter chips.
+- **1.8 Zone keys** — issue, rotate, revoke; first Delivery API route `GET /delivery/v1/zone`.
 
-**Blocked, waiting for your decisions:**
-- **1.2 CI** — which CI host to use, and whether to create the GitHub repository with branch protection. The autopilot may not create a remote or push.
-- **1.3 Add a tale** — whether tales live only in tale groups (PRD and architecture) or directly in zones (the story), and whether the first tale slice includes media upload.
-- **1.7 Sign in** — how accounts are created, how people sign in, what administrators and content managers can each do, and whether a user belongs to one project or several.
+**Dropped or moved:** 1.2 CI (local commits only, your decision). Collections became **product sets** and moved to the interactive components epic.
 
-**Waiting on those:** 1.4 and 1.5 (on 1.3), 1.8 zone keys (on 1.7), 1.9 staging (on 1.2 and 1.8, and needs your host and credentials), 1.10 refactor sweep (on all of them).
+**Waiting for you:**
+- **1.9 Staging demo** — needs a staging host, credentials and a way to deploy (CI was dropped). Or tell me to skip it.
+- **1.10 Refactor sweep** — waits on 1.9. Deferred so far: a failed per-zone request marks the dashboard as API-down; body-parser 413/415 handling.
 
-**Assumptions made tonight:**
-- A `projectId` that isn't a UUID is treated as an unknown project.
-- A malformed JSON body returns 400 `validation_failed`.
-- Bar and banner have no settings fields yet and refuse any extra field; their fields come with the web zones epic.
-- A frame type sent with surrounding spaces is accepted.
+**Decisions you made this evening:** tales only in tale groups; first user admin, others by invitation, passkeys only; tags on tale groups; darker ember `#C73E1D` for filled buttons; names: Tag, Segment, User list, User attributes, External user ID, Journey, Campaign (with Schedule), Product set; SDK and dashboard theming is a web-zones requirement; parallel agents allowed.
 
-**Not fixed, by the review rules:** request bodies that are too large or wrongly encoded return 500 instead of a 4xx.
+**Assumptions to check:** invitations are 7-day one-time links with no mail server; invitees become content managers; one active zone key per zone; media limits 10 MB images and 100 MB videos; sessions last 7 days; reordering is off while a tag filter is on.
 
-**How to review:** run `npm exec nx serve api` and `npm exec nx serve dashboard`, open `http://localhost:4200`, add a project and a zone, then pick a frame type for the zone. Each story's section below has its own steps. All of it is on `autopilot/foundation`; merge into `main` when you're happy.
+**How to review:** start `npm exec nx serve api` and `npm exec nx serve dashboard`, open http://localhost:4200, set yourself up as admin with a passkey, then follow each story's steps below. Everything is on `autopilot/foundation`; nothing is pushed and `main` is untouched.
 
 ## Stories
 
