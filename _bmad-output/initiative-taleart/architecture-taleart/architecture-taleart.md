@@ -53,7 +53,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** R9, R10, FR-002, FR-003, FR-009
 - **Prevents:** SDK credentials reaching content writes, and web and native clients using different data paths.
-- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts zone keys only, reads published content, and writes events. No client reads the database or a module directly.
+- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts zone keys only, reads published content, and writes events. Its zone response carries the links to the zone's published media, which are public and need no key (AD-11). No client reads the database or a module directly.
 
 ### AD-3 — Contract first `[ADOPTED]`
 
@@ -77,7 +77,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** tales, tale groups, importer
 - **Prevents:** modules storing different representations of the same status.
-- **Rule:** The status key (`live`, `scheduled`, `processing`, `invalid-media`, `paused`, `blocked-by-group`, `expired`, `quota-reached`, `archived`) is stored. The HTTP code for each key is defined once in `libs/contract`. The Delivery API returns only `live` content whose schedule window contains the current time.
+- **Rule:** The status keys and their HTTP codes are `draft` 204 `[ASSUMPTION]`, `live` 200, `scheduled` 202, `processing` 102, `invalid-media` 422, `paused` 403, `blocked-by-group` 423, `expired` 410, `quota-reached` 429, `archived` 404, defined once in `libs/contract`. New tale groups and tales start `draft`; rows that existed before `draft` was added migrate to `live`. The key a person or process sets is stored. `scheduled` and `expired` are never stored: they are computed when content is read, from the stored `live` key and the start and end times, so no job moves them. The Delivery API returns only `live` content whose schedule window, and its group's, contains the current time.
 
 ### AD-7 — Identity and import links
 
@@ -106,14 +106,20 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 ### AD-11 — Media storage port `[ADOPTED]`
 
 - **Binds:** FR-010, FR-012
-- **Prevents:** modules writing to disk paths directly, which would block a later move to object storage.
-- **Rule:** Media goes through a storage port (put, get and delete by key). The default adapter writes to local disk. Content stores the storage key, never a path or URL.
+- **Prevents:** modules writing to disk paths directly, which would block a later move to object storage, and media of unpublished content leaking.
+- **Rule:** Media goes through a storage port (put, get and delete by key). The default adapter writes to local disk. Content stores the storage key, never a path or URL. Media of published content is served from public, unguessable URLs that need no key, so an `<img>` or `<video>` loads it directly; the Delivery API returns these URLs with the zone's data. Media of unpublished content is not public: its public URL answers 404 and only the Management API, with a session, serves it. The server does not transcode media.
 
 ### AD-12 — Names `[ADOPTED]`
 
 - **Binds:** all
 - **Prevents:** another tool terms entering the product, and two names for one entity.
 - **Rule:** The terminology map binds code, schema and API names. "another tool" appears only inside the importer module, as the source system. Targeting and campaign names approved 2026-10-20: `tags` (on tale groups), `segments`, `userLists`, user attributes (`setUserAttributes`), `externalUserId`, `campaigns` with a schedule (`startsAt`, `endsAt`), `productSets`, and journey (a common noun, never branded). "Audience", "member", "external user key" and "collection" are not entity names.
+
+### AD-13 — No sensitive end-user data
+
+- **Binds:** R5, R7, R9, R12, FR-015, FR-017 to FR-020, FR-023
+- **Prevents:** TaleArt becoming a store of the host's end-user data, and targeting that needs that data on the server.
+- **Rule:** TaleArt stores no sensitive end-user data. Sensitive user data, such as user attributes (`setUserAttributes`), stays on the client side of the host and is never sent to TaleArt. Targeting that uses user data is evaluated in the SDK on the client: the Delivery API returns the rules and candidate content, and the SDK decides. Events carry content and frame ids, never user attributes. The external user ID is the host's opaque identifier and is not treated as sensitive `[ASSUMPTION]`.
 
 ## Consistency Conventions
 
@@ -175,9 +181,9 @@ erDiagram
   PROJECT ||--o{ APP : has
   PROJECT ||--o{ ZONE : has
   ZONE ||--o{ FRAME : shows
-  ZONE ||--o| STAGE : renders-in
-  ZONE ||--o{ PLAYBOOK : uses
-  FRAME }o--o{ TALE_GROUP : displays
+  ZONE ||--o{ STAGE : renders-in
+  STAGE }o--|| FRAME : shows
+  ZONE ||--o{ TALE_GROUP : holds
   TALE_GROUP ||--o{ TALE : contains
   TALE ||--o{ INTERACTIVE_COMPONENT : carries
   TALE_GROUP }o--o{ TAG : tagged
@@ -191,7 +197,7 @@ erDiagram
   PROJECT ||--o{ EVENT : records
 ```
 
-A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
+Every frame in a zone shows all of the zone's published tale groups; a frame does not pick groups. A zone has several stages, each showing one of its frames. A playbook is not a table: it is registry data in `libs/contract`, like the frame-type registry, and the zone records the key of the playbook applied to it. The theme is set per project (validated by a theme schema in `libs/contract`); the Web SDK configuration may override it per zone. A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
 
 ```text
 apps/
@@ -199,10 +205,10 @@ apps/
   dashboard/      # Angular, Management API client
   docs/           # published docs, including metric definitions
 libs/
-  contract/       # OpenAPI 3.1, generated types, frame schemas, event names, status map
+  contract/       # OpenAPI 3.1, generated types, frame and theme schemas, playbook registry, event names, status map
   server/
     access/       # projects, users, sessions, zone keys
-    zones/        # zones, frames, stages, playbooks, journeys (post-MVP), frame registry
+    zones/        # zones, frames, stages, applied playbook key, journeys (post-MVP); registries live in contract
     tales/        # tale groups, tales, schedules, status
     interactive/  # interactive components and responses
     targeting/    # tags, segments, user lists, user attributes, external user IDs
@@ -232,13 +238,13 @@ libs/
 | R1, R2 another tool import | `libs/server/importer`, worker | AD-7, AD-8, AD-12 |
 | R3 foundation entities | `access`, `zones`, `tales` (product sets moved out of the foundation to `product-sets`, later) | AD-1, AD-4 |
 | R4 interactive components | `libs/server/interactive`, `libs/web-sdk` | AD-3, AD-10 |
-| R5, R12 targeting | `libs/server/targeting` | AD-2, AD-4 |
-| R6 scheduling | `libs/server/tales` | AD-6 |
-| R7 analytics | `libs/server/analytics` | AD-10 |
+| R5, R12 targeting | `libs/server/targeting`, rules evaluated in `libs/web-sdk` | AD-2, AD-4, AD-13 |
+| R6 scheduling | `libs/server/tales`, computed when read | AD-6 |
+| R7 analytics | `libs/server/analytics` | AD-10, AD-13 |
 | R8 project tag | every module | AD-4 |
-| R9 Web zones | `libs/web-sdk`, Delivery API | AD-2, AD-3 |
+| R9 Web zones | `libs/web-sdk`, Delivery API, public media URLs | AD-2, AD-3, AD-11 |
 | R10 native-ready, extensible | `libs/contract`, frame registry | AD-3, AD-5 |
-| R11 stage and playbook | `libs/server/zones` | AD-5 |
+| R11 stage and playbook | `libs/server/zones`, playbook registry in `libs/contract` | AD-5 |
 | NFR-006, NFR-007 | all clients and APIs | Quality Targets |
 
 ## Deferred
