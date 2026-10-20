@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { MAX_TALES_PER_GROUP, type ProjectTaleGroup, type Zone } from '@taleart/contract';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
+import { StatusBadge } from '../status';
 
 /**
  * The selected project's tale groups by name, with the zones each is placed
@@ -12,7 +13,7 @@ import { Icon } from '../icon';
  */
 @Component({
   selector: 'app-tale-groups-page',
-  imports: [RouterLink, Icon],
+  imports: [RouterLink, Icon, StatusBadge],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .group-list {
@@ -63,6 +64,7 @@ import { Icon } from '../icon';
                     <div class="group-row__name">
                       <h3 [id]="'project-group-' + group.id">{{ group.name }}</h3>
                       <p class="muted">
+                        <app-status-badge [status]="group.status" />
                         <span class="visually-hidden">Tales: </span>{{ group.taleCount }} / {{ maxTales }}
                       </p>
                       <p class="group-row__zones muted">

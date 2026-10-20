@@ -9,6 +9,7 @@ import {
   type IssuedZoneKey,
   type Project,
   type ProjectTaleGroup,
+  type SettableStatus,
   type Tag,
   type Tale,
   type TaleGroup,
@@ -425,6 +426,36 @@ export class DashboardStore {
     }
     await this.refresh();
     return '';
+  }
+
+  /**
+   * Publishes, pauses, archives or restores a tale group (AD-6); every zone it
+   * is placed in shows the new status, and its tales' status as read follows.
+   */
+  async setTaleGroupStatus(taleGroupId: string, status: SettableStatus): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/status`, { status }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The status was not changed. Try again.');
+    }
+    await this.refresh();
+    return '';
+  }
+
+  /** Publishes, pauses, archives or restores a tale (AD-6). Returns the saved tale, or the message to show. */
+  async setTaleStatus(taleId: string, status: SettableStatus): Promise<{ tale: Tale | null; message: string }> {
+    let tale: Tale;
+    try {
+      tale = await firstValueFrom(
+        this.http.put<Tale>(`${API_BASE}/tales/${encodeURIComponent(taleId)}/status`, { status }),
+      );
+    } catch (err) {
+      return { tale: null, message: apiErrorMessage(err, 'The status was not changed. Try again.') };
+    }
+    await this.refresh();
+    return { tale, message: '' };
   }
 
   /** Creates a tag in a project and adds it to the project's tags. */

@@ -494,7 +494,7 @@ export interface paths {
         };
         /**
          * Read a published tale's media file, with no credentials.
-         * @description Serves only keys that a published tale currently references; any other key, including the key of replaced media, answers 404 `media_not_found`. The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable), is cached as immutable (replaced media gets a new key) and is open to any origin.
+         * @description Serves only keys that a published tale (a `live` tale of a `live` group, AD-6) currently references; any other key, including the key of replaced media or of draft, paused or archived content, answers 404 `media_not_found` (AD-11). The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
          */
         get: operations["getPublicMedia"];
         put?: never;
@@ -621,6 +621,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tale-groups/{taleGroupId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Publish, pause, archive or restore a tale group.
+         * @description Sets the group's stored status key (AD-6). Allowed: `live` from `draft` or `paused` (publish); `paused` from `live` (pause) or from `archived` (restore); `archived` from `draft`, `live` or `paused` (archive). Setting the current status again changes nothing. Any other change: 409 `invalid_status_transition`. A status other than `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`. Only `live` groups reach the Delivery API; the `live` tales of a `paused` group read `blocked-by-group`.
+         */
+        put: operations["setTaleGroupStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tale-groups/{taleGroupId}/tales": {
         parameters: {
             query?: never;
@@ -680,6 +702,28 @@ export interface paths {
          * @description The list becomes the group's full set of tags; an empty list clears them, and repeated ids count once. Every id must name a tag of the group's own project; otherwise nothing changes and the answer is 400 `tag_not_found`. Unknown tale group: 404 `tale_group_not_found`.
          */
         put: operations["setTaleGroupTags"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Publish, pause, archive or restore a tale.
+         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11).
+         */
+        put: operations["setTaleStatus"];
         post?: never;
         delete?: never;
         options?: never;
@@ -773,6 +817,8 @@ export interface components {
             /** Format: uuid */
             projectId: string;
             name: string;
+            /** @description The status key a person set (AD-6): `draft` for a new group, then `live`, `paused` or `archived`. */
+            status: components["schemas"]["ContentStatus"];
             /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
             zoneIds: string[];
             /** @description The group's tales, by position. */
@@ -792,6 +838,8 @@ export interface components {
             /** Format: uuid */
             projectId: string;
             name: string;
+            /** @description The status key a person set (AD-6). */
+            status: components["schemas"]["ContentStatus"];
             taleCount: number;
             /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
             zoneIds: string[];
@@ -838,6 +886,10 @@ export interface components {
             title: string;
             /** @description Order within the tale group; lists are sorted by it. */
             position: number;
+            /** @description The tale's status as read (AD-6): `blocked-by-group` when the tale is `live` and its group is `paused`, else `storedStatus`. */
+            status: components["schemas"]["ContentStatus"];
+            /** @description The status key a person set: `draft` for a new tale, then `live`, `paused` or `archived`. */
+            storedStatus: components["schemas"]["ContentStatus"];
             /** @description The tale's image, GIF or video, or null when it has none. */
             media: components["schemas"]["TaleMedia"] | null;
         };
@@ -846,6 +898,18 @@ export interface components {
             contentType: components["schemas"]["MediaContentType"];
             /** @description Where the Management API serves the file, such as `/api/v1/tales/{taleId}/media`. */
             url: string;
+        };
+        /**
+         * @description A status key of the AD-6 scheme. Each key has one HTTP code, defined in `libs/contract` (`CONTENT_STATUS_HTTP_CODES`): draft 204, live 200, scheduled 202, processing 102, invalid-media 422, paused 403, blocked-by-group 423, expired 410, quota-reached 429, archived 404. `scheduled`, `expired` and `blocked-by-group` are computed when content is read and never stored.
+         * @enum {string}
+         */
+        ContentStatus: "draft" | "live" | "scheduled" | "processing" | "invalid-media" | "paused" | "blocked-by-group" | "expired" | "quota-reached" | "archived";
+        SetStatusRequest: {
+            /**
+             * @description `live` publishes, `paused` pauses (or restores an archived item), `archived` archives.
+             * @enum {string}
+             */
+            status: "live" | "paused" | "archived";
         };
         /** @enum {string} */
         MediaKind: "image" | "video";
@@ -1025,7 +1089,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "invalid_status_transition" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -1798,6 +1862,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The client's copy, named by `If-None-Match`, is still current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             404: components["responses"]["Error"];
             /** @description The requested range lies outside the file. */
             416: {
@@ -2015,6 +2086,37 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    setTaleGroupStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The tale group with its new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     createTale: {
         parameters: {
             query?: never;
@@ -2107,6 +2209,37 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    setTaleStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The tale with its new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getTaleMedia: {
         parameters: {
             query?: never;
@@ -2183,8 +2316,10 @@ type ReadonlyArray<T> = [
 ] extends [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
+export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ContentStatus"]> = ["draft", "live", "scheduled", "processing", "invalid-media", "paused", "blocked-by-group", "expired", "quota-reached", "archived"];
+export const setStatusRequestStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SetStatusRequest"]["status"]> = ["live", "paused", "archived"];
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "internal_error"];

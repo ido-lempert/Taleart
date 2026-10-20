@@ -333,6 +333,23 @@
         @case ('taleMedia') {
           @if (tale(); as tale) {
             <p class="tale-drawer__title">{{ tale.title }}</p>
+            <div class="status-actions">
+              <app-status-badge [status]="tale.status" />
+              @for (action of statusActions(tale.storedStatus); track action.status) {
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  [disabled]="saving()"
+                  (click)="changeTaleStatus(tale.id, action.status)"
+                >
+                  {{ action.label }}
+                </button>
+              }
+            </div>
+            @if (tale.status === 'blocked-by-group') {
+              <p class="field__hint">This tale is live, but its tale group is paused, so it does not show.</p>
+            }
+            <p class="visually-hidden" aria-live="polite">{{ statusAnnouncement() }}</p>
             <div class="media-preview">
               @if (tale.media; as media) {
                 @if (media.kind === 'video') {

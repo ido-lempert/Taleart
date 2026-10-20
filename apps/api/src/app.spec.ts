@@ -115,6 +115,20 @@ describe('Management API v1: projects and zones', () => {
     });
   }
 
+  // Sets the stored status of a tale group or tale (AD-6), as the dashboard's Publish, Pause, Archive and Restore do.
+  function setStatus(kind: 'tale-groups' | 'tales', id: string, status: unknown): Promise<Response> {
+    return fetch(`${base}/${kind}/${id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  // Publishes tale groups and tales: only live content is delivered (AD-6).
+  async function publish(kind: 'tale-groups' | 'tales', ...ids: string[]): Promise<void> {
+    for (const id of ids) expect((await setStatus(kind, id, 'live')).status).toBe(200);
+  }
+
   async function createProject(name = 'Acme'): Promise<{ id: string; name: string }> {
     return (await post('/projects', { name })).json();
   }
@@ -425,6 +439,7 @@ describe('Management API v1: projects and zones', () => {
         id: expect.any(String),
         projectId: zone.projectId,
         name: 'Summer',
+        status: 'draft',
         position: 0,
         zoneIds: [zone.id],
         tales: [],
@@ -465,6 +480,8 @@ describe('Management API v1: projects and zones', () => {
         projectId: zone.projectId,
         title: 'Beach day',
         position: 0,
+        status: 'draft',
+        storedStatus: 'draft',
         media: null,
       });
       const { rows } = await pool.query('SELECT project_id FROM tales');
@@ -798,6 +815,7 @@ describe('Management API v1: projects and zones', () => {
         id: first.id,
         projectId: zone.projectId,
         name: 'First',
+        status: 'draft',
         zoneIds: [zone.id],
         tales: [],
         tags: [
@@ -988,7 +1006,7 @@ describe('Management API v1: projects and zones', () => {
     });
 
     it('shows a shared edit in every zone and in the Delivery API of each', async () => {
-      const { z, z2, a } = await setup();
+      const { z, z2, a, c } = await setup();
       await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`);
       const tale = await (await post(`/tale-groups/${a.id}/tales`, { title: 'Beach' })).json();
       const tag = await (await post(`/projects/${a.projectId}/tags`, { name: 'summer' })).json();
@@ -999,16 +1017,22 @@ describe('Management API v1: projects and zones', () => {
         expect(shared?.tales).toEqual([tale]);
         expect(shared?.tags.map((t) => t.name)).toEqual(['summer']);
       }
+      await publish('tale-groups', a.id, c.id);
+      await publish('tales', tale.id);
       const { key } = await (await post(`/zones/${z2.id}/key`, {})).json();
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      // C has no live tale, so only A is delivered.
       expect((await delivered.json()).taleGroups).toEqual([
-        { id: expect.any(String), name: 'C', tales: [] },
         { id: a.id, name: 'A', tales: [{ id: tale.id, title: 'Beach', media: null }] },
       ]);
     });
 
     it('renames a group in one zone and shows the new name in both zones and in the Delivery API', async () => {
-      const { z, z2, a } = await setup();
+      const { z, z2, a, c } = await setup();
+      await publish('tale-groups', a.id, c.id);
+      for (const group of [a, c]) {
+        await publish('tales', (await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json()).id);
+      }
       await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`);
       const res = await send('PATCH', `/tale-groups/${a.id}`, { name: '  Summer sale  ' });
       expect(res.status).toBe(200);
@@ -1016,8 +1040,9 @@ describe('Management API v1: projects and zones', () => {
         id: a.id,
         projectId: a.projectId,
         name: 'Summer sale',
+        status: 'live',
         zoneIds: [z.id, z2.id],
-        tales: [],
+        tales: [expect.objectContaining({ title: 'T', status: 'live' })],
         tags: [],
       });
       for (const zoneId of [z.id, z2.id]) {
@@ -1108,10 +1133,10 @@ describe('Management API v1: projects and zones', () => {
       expect(res.status).toBe(200);
       const groups = await res.json();
       expect(groups).toEqual([
-        { id: a.id, projectId: project.id, name: 'A', taleCount: 1, zoneIds: [] },
-        { id: expect.any(String), projectId: project.id, name: 'apple', taleCount: 0, zoneIds: [z2.id] },
-        { id: expect.any(String), projectId: project.id, name: 'B', taleCount: 0, zoneIds: [z.id] },
-        { id: c.id, projectId: project.id, name: 'C', taleCount: 0, zoneIds: [z2.id] },
+        { id: a.id, projectId: project.id, name: 'A', status: 'draft', taleCount: 1, zoneIds: [] },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', taleCount: 0, zoneIds: [z2.id] },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', taleCount: 0, zoneIds: [z.id] },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', taleCount: 0, zoneIds: [z2.id] },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
@@ -1181,7 +1206,7 @@ describe('Management API v1: projects and zones', () => {
         { zone_id: z2.id, tale_group_id: c, project_id: project.id, position: 0 },
       ].sort((x, y) => (x.zone_id < y.zone_id ? -1 : x.zone_id > y.zone_id ? 1 : x.position - y.position));
       expect(await placements()).toEqual(expected);
-      expect(await columns()).toEqual(['created_at', 'id', 'name', 'project_id']);
+      expect(await columns()).toEqual(['created_at', 'id', 'name', 'project_id', 'status']);
       expect((await pool.query("SELECT 1 FROM pg_indexes WHERE indexname = 'tale_groups_zone_id_idx'")).rowCount).toBe(0);
       expect((await listed(z.id)).map((g) => [g.name, g.position, g.tales.map((t) => t.title)])).toEqual([
         ['A', 0, ['Beach']],
@@ -1192,7 +1217,48 @@ describe('Management API v1: projects and zones', () => {
       // Runs twice without change.
       await restart();
       expect(await placements()).toEqual(expected);
-      expect(await columns()).toEqual(['created_at', 'id', 'name', 'project_id']);
+      expect(await columns()).toEqual(['created_at', 'id', 'name', 'project_id', 'status']);
+    });
+
+    it('makes groups and tales made before statuses live, new ones draft, once (AD-6)', async () => {
+      // Builds the tables as they were before statuses, with a group and a tale in them.
+      const { z, a } = await setup();
+      const tale = await (await post(`/tale-groups/${a.id}/tales`, { title: 'Beach' })).json();
+      await pool.query('ALTER TABLE tales DROP COLUMN status');
+      await pool.query('ALTER TABLE tale_groups DROP COLUMN status');
+
+      const statuses = async () =>
+        (
+          await pool.query(
+            `SELECT 'group' AS kind, name, status FROM tale_groups
+             UNION ALL SELECT 'tale', title, status FROM tales ORDER BY kind, name`,
+          )
+        ).rows;
+
+      // Two API processes starting at once: the migration lock runs them one after the other.
+      await Promise.all([migrate(pool), migrate(pool), migrate(pool)]);
+      await restart();
+      const migrated = [
+        { kind: 'group', name: 'A', status: 'live' },
+        { kind: 'group', name: 'B', status: 'live' },
+        { kind: 'group', name: 'C', status: 'live' },
+        { kind: 'tale', name: 'Beach', status: 'live' },
+      ];
+      expect(await statuses()).toEqual(migrated);
+      expect((await listed(z.id))[0]).toMatchObject({ id: a.id, status: 'live', tales: [{ id: tale.id, status: 'live', storedStatus: 'live' }] });
+
+      // New rows start draft; a second run changes nothing.
+      const d = await createGroup(z.id, 'D');
+      await post(`/tale-groups/${d.id}/tales`, { title: 'Dune' });
+      await restart();
+      expect(await statuses()).toEqual([
+        ...migrated.slice(0, 3),
+        { kind: 'group', name: 'D', status: 'draft' },
+        { kind: 'tale', name: 'Beach', status: 'live' },
+        { kind: 'tale', name: 'Dune', status: 'draft' },
+      ]);
+      await expect(pool.query("UPDATE tales SET status = 'expired'")).rejects.toThrow(/tales_status_check/);
+      await expect(pool.query("UPDATE tale_groups SET status = 'blocked-by-group'")).rejects.toThrow(/tale_groups_status_check/);
     });
   });
 
@@ -1275,6 +1341,7 @@ describe('Management API v1: projects and zones', () => {
         id: expect.any(String),
         projectId: project.id,
         name: 'Summer sale',
+        status: 'draft',
         position: 1,
         zoneIds: [production.id],
         tales: [
@@ -1338,6 +1405,8 @@ describe('Management API v1: projects and zones', () => {
 
     it("replacing a shared file on the copy keeps it for the source; the last tale's replace deletes it", async () => {
       const { staging, production, g, one } = await setup();
+      await publish('tale-groups', g.id);
+      await publish('tales', one.id);
       const c: Listed = await (await copy(g.id, production.id)).json();
       const shared = await mediaKey(one.id);
 
@@ -1867,6 +1936,8 @@ describe('Management API v1: projects and zones', () => {
         ['DELETE', `/zones/${b.zone.id}/tale-groups/${b.group.id}`],
         ['GET', `/projects/${b.project.id}/tale-groups`],
         ['PATCH', `/tale-groups/${b.group.id}`, { name: 'Mine' }],
+        ['PUT', `/tale-groups/${b.group.id}/status`, { status: 'live' }],
+        ['PUT', `/tales/${b.tale.id}/status`, { status: 'live' }],
         ['GET', `/projects/${b.project.id}/tags`],
         ['POST', `/projects/${b.project.id}/tags`, { name: 'Mine' }],
         ['GET', `/tales/${b.tale.id}/media`],
@@ -1885,6 +1956,8 @@ describe('Management API v1: projects and zones', () => {
       expect((await pool.query('SELECT 1 FROM zones WHERE name = $1', ['Mine'])).rowCount).toBe(0);
       expect((await pool.query('SELECT 1 FROM tags')).rowCount).toBe(0);
       expect((await pool.query('SELECT 1 FROM zone_tale_groups')).rowCount).toBe(2);
+      expect((await pool.query("SELECT 1 FROM tale_groups WHERE status <> 'draft'")).rowCount).toBe(0);
+      expect((await pool.query("SELECT 1 FROM tales WHERE status <> 'draft'")).rowCount).toBe(0);
       // A zone of their own project cannot place a group of a project they cannot see.
       const across = await send('PUT', `/zones/${a.zone.id}/tale-groups/${b.group.id}`);
       expect(across.status).toBe(400);
@@ -1910,6 +1983,8 @@ describe('Management API v1: projects and zones', () => {
       expect((await send('DELETE', `/zones/${second.id}/tale-groups/${a.group.id}`)).status).toBe(204);
       expect((await send('GET', `/projects/${a.project.id}/tale-groups`)).status).toBe(200);
       expect((await send('PATCH', `/tale-groups/${a.group.id}`, { name: 'Renamed' })).status).toBe(200);
+      expect((await send('PUT', `/tale-groups/${a.group.id}/status`, { status: 'live' })).status).toBe(200);
+      expect((await send('PUT', `/tales/${a.tale.id}/status`, { status: 'live' })).status).toBe(200);
 
       expect((await send('GET', `/zones/${unknownId}/frames`)).status).toBe(404);
       expect((await send('POST', `/tale-groups/${unknownId}/tales`, { title: 'X' })).status).toBe(404);
@@ -2024,12 +2099,16 @@ describe('Management API v1: projects and zones', () => {
       const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom-tiny-mp4-with-some-bytes')]);
       const mediaUrl = /^https:\/\/api\.example\.com\/media\/tales\/[0-9a-f-]{36}\.(png|gif|mp4)$/;
 
+      // Groups and tales here are published unless a test sets another status (AD-6).
       async function addGroup(zoneId: string, name: string): Promise<{ id: string }> {
-        return (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+        const group = await (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+        await publish('tale-groups', group.id);
+        return group;
       }
 
       async function addTale(groupId: string, title: string, media?: [string, Buffer]): Promise<{ id: string }> {
         const tale = await (await post(`/tale-groups/${groupId}/tales`, { title })).json();
+        await publish('tales', tale.id);
         if (media) {
           const res = await fetch(`${base}/tales/${tale.id}/media`, {
             method: 'PUT',
@@ -2092,7 +2171,7 @@ describe('Management API v1: projects and zones', () => {
         expect((await (await deliver(key)).json()).taleGroups).toEqual([]);
       });
 
-      it('serves referenced media publicly: stored type, immutable cache, CORS, nosniff, no key or session', async () => {
+      it('serves published media publicly: stored type, revalidated cache, CORS, nosniff, no key or session', async () => {
         const zone = await createZone();
         const group = await addGroup(zone.id, 'A');
         await addTale(group.id, 'A1', ['image/png', png]);
@@ -2102,7 +2181,7 @@ describe('Management API v1: projects and zones', () => {
         const res = await getPublic(url);
         expect(res.status).toBe(200);
         expect(res.headers.get('content-type')).toBe('image/png');
-        expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+        expect(res.headers.get('cache-control')).toBe('public, no-cache');
         expect(res.headers.get('access-control-allow-origin')).toBe('*');
         expect(res.headers.get('x-content-type-options')).toBe('nosniff');
         expect(res.headers.get('etag')).toBe(`"${new URL(url).pathname.slice('/media/'.length)}"`);
@@ -2158,6 +2237,214 @@ describe('Management API v1: projects and zones', () => {
           expect(res.status).toBe(404);
           expect(await res.json()).toEqual({ error: { code: 'media_not_found', message: expect.any(String) } });
         }
+      });
+
+      describe('statuses (AD-6)', () => {
+        // A tale group as the Management API returns it, with the status fields this story adds.
+        interface Group {
+          id: string;
+          status: string;
+          tales: { id: string; title: string; status: string; storedStatus: string }[];
+        }
+
+        async function zoneGroups(zoneId: string): Promise<Group[]> {
+          const res = await fetch(`${base}/zones/${zoneId}/tale-groups`);
+          expect(res.status).toBe(200);
+          return res.json();
+        }
+
+        async function delivered(key: string): Promise<{ name: string; tales: { title: string; media: { url: string } | null }[] }[]> {
+          const res = await deliver(key);
+          expect(res.status).toBe(200);
+          return (await res.json()).taleGroups;
+        }
+
+        async function expectStatus(kind: 'tale-groups' | 'tales', id: string, status: unknown, expected: number, code?: string) {
+          const res = await setStatus(kind, id, status);
+          expect({ kind, status, code: res.status }).toEqual({ kind, status, code: expected });
+          const body = await res.json();
+          if (code) expect(body).toEqual({ error: { code, message: expect.any(String) } });
+          return body;
+        }
+
+        // A zone with a key and a live group "Live" holding live tales L1 (PNG) and L2 (GIF).
+        async function liveZone() {
+          const zone = await createZone();
+          const group = await addGroup(zone.id, 'Live');
+          const l1 = await addTale(group.id, 'L1', ['image/png', png]);
+          const l2 = await addTale(group.id, 'L2', ['image/gif', gif]);
+          const { key } = await issue(zone.id);
+          const urls = (await delivered(key))[0].tales.map((t) => t.media?.url ?? '');
+          return { zone, group, l1, l2, key, urls };
+        }
+
+        it('starts new groups and tales as draft, delivers neither, and delivers them once published', async () => {
+          const zone = await createZone();
+          const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'New' })).json();
+          expect(group.status).toBe('draft');
+          const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'T1' })).json();
+          expect(tale).toMatchObject({ status: 'draft', storedStatus: 'draft' });
+          const { key } = await issue(zone.id);
+          expect(await delivered(key)).toEqual([]);
+
+          expect(await expectStatus('tale-groups', group.id, 'live', 200)).toMatchObject({ id: group.id, status: 'live', tags: [] });
+          // A live group with no live tale has nothing to play and is left out.
+          expect(await delivered(key)).toEqual([]);
+          expect(await expectStatus('tales', tale.id, 'live', 200)).toMatchObject({ id: tale.id, status: 'live', storedStatus: 'live' });
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['T1']);
+        });
+
+        it('pauses a group: it leaves the Delivery API, its live tales read blocked-by-group; publishing brings it back', async () => {
+          const { zone, group, l1, key } = await liveZone();
+          const paused: Group = await expectStatus('tale-groups', group.id, 'paused', 200);
+          expect(paused.status).toBe('paused');
+          expect(paused.tales.map((t) => [t.title, t.status, t.storedStatus])).toEqual([
+            ['L1', 'blocked-by-group', 'live'],
+            ['L2', 'blocked-by-group', 'live'],
+          ]);
+          expect((await zoneGroups(zone.id))[0].tales[0]).toMatchObject({ id: l1.id, status: 'blocked-by-group' });
+          expect(await delivered(key)).toEqual([]);
+
+          await expectStatus('tale-groups', group.id, 'live', 200);
+          expect((await delivered(key)).map((g) => g.name)).toEqual(['Live']);
+          expect((await zoneGroups(zone.id))[0].tales[0]).toMatchObject({ status: 'live', storedStatus: 'live' });
+        });
+
+        it("pauses a tale: the group's tales start with its next live tale, and the paused tale's media answers 404", async () => {
+          const { zone, group, l1, key, urls } = await liveZone();
+          await expectStatus('tales', l1.id, 'paused', 200);
+          const [live] = await delivered(key);
+          expect(live.tales.map((t) => t.title)).toEqual(['L2']);
+          expect((await getPublic(urls[0])).status).toBe(404);
+          expect((await getPublic(urls[1])).status).toBe(200);
+          // A paused tale of a paused group keeps reading paused.
+          await expectStatus('tale-groups', group.id, 'paused', 200);
+          expect((await zoneGroups(zone.id))[0].tales.map((t) => t.status)).toEqual(['paused', 'blocked-by-group']);
+        });
+
+        it('archives and restores: an archived group returns paused; setting the same status again changes nothing', async () => {
+          const { group, l1, key } = await liveZone();
+          expect((await expectStatus('tale-groups', group.id, 'archived', 200)).status).toBe('archived');
+          expect(await delivered(key)).toEqual([]);
+          expect((await expectStatus('tale-groups', group.id, 'paused', 200)).status).toBe('paused');
+          expect((await expectStatus('tale-groups', group.id, 'paused', 200)).status).toBe('paused');
+          expect((await expectStatus('tales', l1.id, 'archived', 200)).status).toBe('archived');
+          expect((await expectStatus('tales', l1.id, 'paused', 200)).status).toBe('paused');
+          expect((await expectStatus('tales', l1.id, 'live', 200)).status).toBe('blocked-by-group');
+          expect((await expectStatus('tales', l1.id, 'live', 200)).storedStatus).toBe('live');
+        });
+
+        it('refuses both status routes with 403 forbidden to a caller without the project, changing nothing', async () => {
+          const zone = await createZone();
+          const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Theirs' })).json();
+          const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json();
+          const mine = await createProject('Mine');
+          await signInAsContentManager(mine.id);
+          await expectStatus('tale-groups', group.id, 'live', 403, 'forbidden');
+          await expectStatus('tales', tale.id, 'live', 403, 'forbidden');
+          const { rows } = await pool.query('SELECT status FROM tale_groups UNION ALL SELECT status FROM tales');
+          expect(rows).toEqual([{ status: 'draft' }, { status: 'draft' }]);
+        });
+
+        it('refuses a change the transitions do not allow with 409, changing nothing', async () => {
+          const zone = await createZone();
+          const draft = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Draft' })).json();
+          const tale = await (await post(`/tale-groups/${draft.id}/tales`, { title: 'T' })).json();
+          await expectStatus('tale-groups', draft.id, 'paused', 409, 'invalid_status_transition');
+          await expectStatus('tales', tale.id, 'paused', 409, 'invalid_status_transition');
+          await expectStatus('tale-groups', draft.id, 'archived', 200);
+          await expectStatus('tale-groups', draft.id, 'live', 409, 'invalid_status_transition');
+          await expectStatus('tales', tale.id, 'archived', 200);
+          await expectStatus('tales', tale.id, 'live', 409, 'invalid_status_transition');
+          const [group] = await zoneGroups(zone.id);
+          expect([group.status, group.tales[0].storedStatus]).toEqual(['archived', 'archived']);
+        });
+
+        it('refuses a status other than live, paused or archived with 400, and an unknown group or tale with 404', async () => {
+          const zone = await createZone();
+          const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'G' })).json();
+          const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json();
+          for (const status of ['draft', 'expired', 'blocked-by-group', 'LIVE', 1, null, undefined]) {
+            await expectStatus('tale-groups', group.id, status, 400, 'validation_failed');
+            await expectStatus('tales', tale.id, status, 400, 'validation_failed');
+          }
+          const noBody = await fetch(`${base}/tale-groups/${group.id}/status`, { method: 'PUT' });
+          expect(noBody.status).toBe(400);
+          for (const id of [unknownId, 'not-a-uuid']) {
+            await expectStatus('tale-groups', id, 'live', 404, 'tale_group_not_found');
+            await expectStatus('tales', id, 'live', 404, 'tale_not_found');
+          }
+          // An unknown id answers 404 before the body is read.
+          await expectStatus('tale-groups', unknownId, 'nope', 404, 'tale_group_not_found');
+          expect((await zoneGroups(zone.id))[0].status).toBe('draft');
+        });
+
+        it('keeps media of unpublished content off the public URL: draft, paused and archived tales, and non-live groups', async () => {
+          const { group, l1, urls } = await liveZone();
+          const draftTale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'D' })).json();
+          const uploaded = await fetch(`${base}/tales/${draftTale.id}/media`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'video/mp4' },
+            body: mp4,
+          });
+          expect(uploaded.status).toBe(200);
+          const draftKey = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [draftTale.id])).rows[0].media_key;
+          const draftUrl = `${origin}/media/${draftKey}`;
+          const status = async (url: string) => (await getPublic(url)).status;
+
+          expect([await status(urls[0]), await status(urls[1]), await status(draftUrl)]).toEqual([200, 200, 404]);
+          await expectStatus('tale-groups', group.id, 'paused', 200);
+          expect([await status(urls[0]), await status(urls[1])]).toEqual([404, 404]);
+          await expectStatus('tale-groups', group.id, 'archived', 200);
+          expect(await status(urls[0])).toBe(404);
+          await expectStatus('tale-groups', group.id, 'paused', 200);
+          await expectStatus('tale-groups', group.id, 'live', 200);
+          expect(await status(urls[0])).toBe(200);
+          await expectStatus('tales', l1.id, 'archived', 200);
+          const archived = await getPublic(urls[0]);
+          expect(archived.status).toBe(404);
+          expect(await archived.json()).toEqual({ error: { code: 'media_not_found', message: expect.any(String) } });
+          await expectStatus('tales', l1.id, 'paused', 200);
+          await expectStatus('tales', l1.id, 'live', 200);
+          expect(await status(urls[0])).toBe(200);
+          // The Management API still serves unpublished media to a signed-in user.
+          expect((await fetch(`${base}/tales/${draftTale.id}/media`)).status).toBe(200);
+        });
+
+        it('answers 304 to a revalidation of published media, and 404 once it is unpublished', async () => {
+          const { l1, urls } = await liveZone();
+          const etag = (await getPublic(urls[0])).headers.get('etag') ?? '';
+          const read = vi.spyOn(LocalDiskStorage.prototype, 'get');
+          const again = await getPublic(urls[0], { 'If-None-Match': etag });
+          expect(again.status).toBe(304);
+          // A current copy is answered without reading the file.
+          expect(read).not.toHaveBeenCalled();
+          read.mockRestore();
+          expect(again.headers.get('cache-control')).toBe('public, no-cache');
+          await expectStatus('tales', l1.id, 'paused', 200);
+          expect((await getPublic(urls[0], { 'If-None-Match': etag })).status).toBe(404);
+        });
+
+        it('copies a group as a draft with its tales keeping their statuses; a shared key is public while a published tale uses it', async () => {
+          const { zone, group, l1, l2, urls } = await liveZone();
+          await expectStatus('tales', l2.id, 'paused', 200);
+          const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
+          const res = await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id });
+          expect(res.status).toBe(201);
+          const copy: Group = await res.json();
+          expect(copy.status).toBe('draft');
+          expect(copy.tales.map((t) => [t.title, t.storedStatus, t.status])).toEqual([
+            ['L1', 'live', 'live'],
+            ['L2', 'paused', 'paused'],
+          ]);
+
+          // L1's file is shared by the source (live) and the copy (a draft group).
+          expect((await getPublic(urls[0])).status).toBe(200);
+          await expectStatus('tales', l1.id, 'paused', 200);
+          expect((await getPublic(urls[0])).status).toBe(404);
+          await expectStatus('tale-groups', copy.id, 'live', 200);
+          expect((await getPublic(urls[0])).status).toBe(200);
+        });
       });
     });
 
