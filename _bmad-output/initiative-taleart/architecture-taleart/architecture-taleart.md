@@ -95,7 +95,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** FR-002, FR-003, NFR-003
 - **Prevents:** credentials stored in plain text, and one credential type working on both surfaces.
-- **Rule:** Dashboard users authenticate with server-side sessions in an http-only cookie. Zone keys are random secrets, shown once and stored hashed. Rotating issues a new key and revokes the old one.
+- **Rule:** Dashboard users sign in with passkeys (WebAuthn) only; there are no passwords. The first user on an empty install becomes the admin; every later user joins through a one-time invitation an admin creates for a project. After sign-in, sessions are server-side behind an http-only cookie. Zone keys are random secrets, shown once and stored hashed. Rotating issues a new key and revokes the old one.
 
 ### AD-10 — Events `[ADOPTED]`
 
