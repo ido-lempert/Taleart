@@ -1,4 +1,5 @@
 import { migrateAccess } from '@taleart/server-access';
+import { migrateTales } from '@taleart/server-tales';
 import { migrateZones } from '@taleart/server-zones';
 import { Pool } from 'pg';
 
@@ -12,10 +13,12 @@ export function createPool(connectionString?: string): Pool {
 }
 
 // Each module owns its migrations. They run in dependency order:
-// access (projects) first, then zones, which references projects.
+// access (projects) first, then zones, which references projects, then
+// tales, which references zones.
 const migrations: ReadonlyArray<{ module: string; run: (pool: Pool) => Promise<void> }> = [
   { module: 'access', run: migrateAccess },
   { module: 'zones', run: migrateZones },
+  { module: 'tales', run: migrateTales },
 ];
 
 // Runs every module's migration. Safe to run on every start.

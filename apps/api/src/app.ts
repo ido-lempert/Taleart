@@ -5,6 +5,7 @@ import type { Pool } from 'pg';
 import { frameTypesRouter } from './http/frame-types.router';
 import { errorHandler, notFoundHandler } from './http/errors';
 import { projectsRouter } from './http/projects.router';
+import { taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
 import { zonesRouter } from './http/zones.router';
 
 /** Management API base path (AD-2, versioned per the spine conventions). */
@@ -33,6 +34,8 @@ export function createApp(pool: Pool, frameTypes: FrameTypeRegistry): express.Ex
   v1.use('/projects', projectsRouter(pool));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
+  v1.use('/zones', zoneTaleGroupsRouter(pool));
+  v1.use('/tale-groups', taleGroupsRouter(pool));
   app.use(MANAGEMENT_API_BASE, v1);
 
   app.use(notFoundHandler);

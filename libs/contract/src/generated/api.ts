@@ -97,6 +97,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/zones/{zoneId}/tale-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        /** List a zone's tale groups by position, each with its tales by position. */
+        get: operations["listZoneTaleGroups"];
+        put?: never;
+        /**
+         * Create a tale group in a zone, after its existing groups.
+         * @description The tale group takes its project from the zone.
+         */
+        post: operations["createZoneTaleGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tale-groups/{taleGroupId}/tales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a tale to a tale group, after its existing tales.
+         * @description The tale takes its project from the tale group. A tale group holds at most 100 tales; adding to a full group answers 409 `tale_group_full`.
+         */
+        post: operations["createTale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -150,8 +195,38 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        TaleGroup: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            zoneId: string;
+            /** Format: uuid */
+            projectId: string;
+            name: string;
+            /** @description Order within the zone; lists are sorted by it. */
+            position: number;
+            /** @description The group's tales, by position. */
+            tales: components["schemas"]["Tale"][];
+        };
+        CreateTaleGroupRequest: {
+            name: string;
+        };
+        Tale: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            taleGroupId: string;
+            /** Format: uuid */
+            projectId: string;
+            title: string;
+            /** @description Order within the tale group; lists are sorted by it. */
+            position: number;
+        };
+        CreateTaleRequest: {
+            title: string;
+        };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -365,6 +440,89 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    listZoneTaleGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The zone's tale groups. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"][];
+                };
+            };
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createZoneTaleGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaleGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The created tale group, with no tales. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createTale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaleRequest"];
+            };
+        };
+        responses: {
+            /** @description The created tale. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
 }
 type FlattenedDeepRequired<T> = {
     [K in keyof T]-?: FlattenedDeepRequired<T[K] extends unknown[] | undefined | null ? Extract<T[K], unknown[]>[number] : T[K]>;
@@ -374,4 +532,4 @@ type ReadonlyArray<T> = [
 ] extends [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "internal_error"];

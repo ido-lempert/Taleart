@@ -51,6 +51,52 @@
               <li>No frames yet.</li>
             }
           </ul>
+          <form (ngSubmit)="addTaleGroup(zone.id)">
+            <label>
+              Tale group name
+              <input
+                [name]="'taleGroupName-' + zone.id"
+                [attr.name]="'taleGroupName-' + zone.id"
+                [(ngModel)]="taleGroupName[zone.id]"
+                [attr.aria-describedby]="taleGroupErrors()[zone.id] ? 'taleGroupError-' + zone.id : null"
+              />
+            </label>
+            <button type="submit">Add tale group</button>
+            @if (taleGroupErrors()[zone.id]) {
+              <p role="alert" [id]="'taleGroupError-' + zone.id">{{ taleGroupErrors()[zone.id] }}</p>
+            }
+          </form>
+          <ul [attr.aria-label]="'Tale groups in ' + zone.name">
+            @for (group of taleGroupsOf(zone.id); track group.id) {
+              <li>
+                {{ group.name }}
+                <ol [attr.aria-label]="'Tales in ' + group.name">
+                  @for (tale of group.tales; track tale.id) {
+                    <li>{{ tale.title }}</li>
+                  } @empty {
+                    <li>No tales yet.</li>
+                  }
+                </ol>
+                <form (ngSubmit)="addTale(group.id)">
+                  <label>
+                    Tale title
+                    <input
+                      [name]="'taleTitle-' + group.id"
+                      [attr.name]="'taleTitle-' + group.id"
+                      [(ngModel)]="taleTitle[group.id]"
+                      [attr.aria-describedby]="taleErrors()[group.id] ? 'taleError-' + group.id : null"
+                    />
+                  </label>
+                  <button type="submit">Add tale</button>
+                  @if (taleErrors()[group.id]) {
+                    <p role="alert" [id]="'taleError-' + group.id">{{ taleErrors()[group.id] }}</p>
+                  }
+                </form>
+              </li>
+            } @empty {
+              <li>No tale groups yet.</li>
+            }
+          </ul>
         </li>
       } @empty {
         <li>No zones yet.</li>

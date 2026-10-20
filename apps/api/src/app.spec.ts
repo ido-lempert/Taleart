@@ -67,7 +67,7 @@ describe('Management API v1: projects and zones', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE frames, zones, projects');
+    await pool.query('TRUNCATE tales, tale_groups, frames, zones, projects');
   });
 
   afterAll(async () => {
@@ -326,6 +326,167 @@ describe('Management API v1: projects and zones', () => {
       const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
       await restart();
       expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([frame]);
+    });
+  });
+
+  describe('tale groups and tales', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    async function createGroup(zoneId: string, name = 'Summer'): Promise<{ id: string; projectId: string }> {
+      return (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+    }
+
+    it('creates a tale group in a zone, copying the zone project', async () => {
+      const zone = await createZone();
+      const res = await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({
+        id: expect.any(String),
+        zoneId: zone.id,
+        projectId: zone.projectId,
+        name: 'Summer',
+        position: 0,
+        tales: [],
+      });
+      const { rows } = await pool.query('SELECT project_id FROM tale_groups');
+      expect(rows).toEqual([{ project_id: zone.projectId }]);
+    });
+
+    it("lists a zone's groups by position, each with its tales by position, and only that zone's", async () => {
+      const zone = await createZone();
+      const other = await createZone();
+      const first = await createGroup(zone.id, 'First');
+      const second = await createGroup(zone.id, 'Second');
+      await createGroup(other.id, 'Elsewhere');
+      const tale = await (await post(`/tale-groups/${second.id}/tales`, { title: 'A' })).json();
+
+      const res = await fetch(`${base}/zones/${zone.id}/tale-groups`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual([
+        { ...first, position: 0, tales: [] },
+        { ...second, position: 1, tales: [tale] },
+      ]);
+    });
+
+    it('adds a tale to a tale group, copying the group project', async () => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id);
+      const res = await post(`/tale-groups/${group.id}/tales`, { title: 'Beach day' });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({
+        id: expect.any(String),
+        taleGroupId: group.id,
+        projectId: zone.projectId,
+        title: 'Beach day',
+        position: 0,
+      });
+      const { rows } = await pool.query('SELECT project_id FROM tales');
+      expect(rows).toEqual([{ project_id: zone.projectId }]);
+    });
+
+    it('keeps tales in the order they were added, also after the API restarts', async () => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id);
+      await post(`/tale-groups/${group.id}/tales`, { title: 'A' });
+      await post(`/tale-groups/${group.id}/tales`, { title: 'B' });
+
+      const titles = async () =>
+        ((await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json())[0].tales as { title: string }[]).map(
+          (t) => t.title,
+        );
+      expect(await titles()).toEqual(['A', 'B']);
+      await restart();
+      expect(await titles()).toEqual(['A', 'B']);
+    });
+
+    it.each([unknownId, 'not-a-uuid'])('answers 404 zone_not_found for zone %s', async (zoneId) => {
+      for (const res of [
+        await fetch(`${base}/zones/${zoneId}/tale-groups`),
+        await post(`/zones/${zoneId}/tale-groups`, { name: 'Summer' }),
+        await post(`/zones/${zoneId}/tale-groups`, {}),
+      ]) {
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual({ error: { code: 'zone_not_found', message: expect.any(String) } });
+      }
+    });
+
+    it.each([unknownId, 'not-a-uuid'])('answers 404 tale_group_not_found for tale group %s', async (id) => {
+      for (const res of [
+        await post(`/tale-groups/${id}/tales`, { title: 'A' }),
+        await post(`/tale-groups/${id}/tales`, {}),
+      ]) {
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual({
+          error: { code: 'tale_group_not_found', message: expect.any(String) },
+        });
+      }
+    });
+
+    it.each([{}, { name: '   ' }])('refuses a tale group with a blank name: %j', async (body) => {
+      const zone = await createZone();
+      const res = await post(`/zones/${zone.id}/tale-groups`, body);
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
+      expect(json.error.message).toContain('name');
+      expect(await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json()).toEqual([]);
+    });
+
+    it.each([{}, { title: '   ' }])('refuses a tale with a blank title: %j', async (body) => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id);
+      const res = await post(`/tale-groups/${group.id}/tales`, body);
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
+      expect(json.error.message).toContain('title');
+    });
+
+    it('refuses a 101st tale with 409 tale_group_full', async () => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id);
+      await pool.query(
+        `INSERT INTO tales (tale_group_id, project_id, title, position)
+         SELECT $1, $2, 'Tale ' || n, n FROM generate_series(0, 99) AS n`,
+        [group.id, group.projectId],
+      );
+      const res = await post(`/tale-groups/${group.id}/tales`, { title: 'One too many' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: { code: 'tale_group_full', message: expect.any(String) } });
+      const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales');
+      expect(rows).toEqual([{ n: 100 }]);
+    });
+
+    it('gives concurrent adds distinct positions and never exceeds 100 tales', async () => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id);
+      await pool.query(
+        `INSERT INTO tales (tale_group_id, project_id, title, position)
+         SELECT $1, $2, 'Tale ' || n, n FROM generate_series(0, 94) AS n`,
+        [group.id, group.projectId],
+      );
+      const results = await Promise.all(
+        Array.from({ length: 10 }, (_, i) => post(`/tale-groups/${group.id}/tales`, { title: `C${i}` })),
+      );
+      expect(results.filter((r) => r.status === 201)).toHaveLength(5);
+      expect(results.filter((r) => r.status === 409)).toHaveLength(5);
+      const { rows } = await pool.query(
+        'SELECT count(*)::int AS n, count(DISTINCT position)::int AS d FROM tales WHERE tale_group_id = $1',
+        [group.id],
+      );
+      expect(rows).toEqual([{ n: 100, d: 100 }]);
+    });
+
+    it('rejects a tale whose project differs from its group project at the database', async () => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id);
+      const otherProject = await createProject('Other');
+      await expect(
+        pool.query(`INSERT INTO tales (tale_group_id, project_id, title, position) VALUES ($1, $2, 'X', 0)`, [
+          group.id,
+          otherProject.id,
+        ]),
+      ).rejects.toThrow(/foreign key/);
     });
   });
 });

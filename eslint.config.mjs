@@ -47,6 +47,20 @@ export default [
           ],
         },
       ],
+      // AD-1: another lib is reached only through its index.ts. Relative
+      // paths into another project are caught above; this catches deep paths
+      // under a workspace alias, such as @taleart/server-zones/src/lib/frames.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@taleart/*/**'],
+              message: "Import another lib only through its public interface (its package name), never a file inside it.",
+            },
+          ],
+        },
+      ],
     },
   },
   {
