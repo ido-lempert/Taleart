@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { ImportReport } from '@taleart/contract';
+import { MAX_TALES_PER_GROUP, type ImportCount, type ImportReport } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
+import { createTale, createTaleGroup, taleExists, taleGroupExists, TaleGroupFullError } from '@taleart/server-tales';
 import { createZone, zoneExists } from '@taleart/server-zones';
 import { decryptToken } from './crypto';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
@@ -13,8 +14,14 @@ import {
   setSourceAppName,
   type ClaimedJob,
 } from './jobs';
-import { findLinkTarget, lockLinkSource, saveLink } from './links';
-import { StorylyClient, type SourceInstance } from './storyly-client';
+import { findLinkTarget, lockLinkSource, saveLink, type LinkSource } from './links';
+import {
+  StorylyClient,
+  type SourceInstance,
+  type SourceOrderedRecord,
+  type SourceStory,
+  type SourceStoryGroup,
+} from './storyly-client';
 
 /** How often an idle worker looks for queued jobs (AD-8). */
 export const IMPORT_POLL_INTERVAL_MS = 2000;
@@ -69,48 +76,216 @@ async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T
   }
 }
 
+/** Reads an instance's story groups and a group's stories; the Storyly client in the worker. */
+export interface ContentSource {
+  listStoryGroups(instanceId: string): Promise<SourceStoryGroup[]>;
+  listStories(storyGroupId: string): Promise<SourceStory[]>;
+}
+
+/** A link appeared while this import was creating the record: roll the creation back. */
+class AlreadyLinkedError extends Error {}
+
+const emptyCount = () => ({ source: 0, imported: 0, skipped: 0 });
+
 /**
- * Imports each instance as a zone of the project, without a frame (epic
- * decision), through the zones module (AD-8), and links it (AD-7). Each
+ * The records in source order: ascending `sort_order`, ties in response
+ * order, then the records without a usable `sort_order` in response order,
+ * each passed to `unordered` so it can be noted.
+ */
+function inSourceOrder<T extends SourceOrderedRecord>(records: readonly T[], unordered: (record: T) => void): T[] {
+  const ordered = records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => record.sortOrder !== null)
+    .sort((a, b) => (a.record.sortOrder as number) - (b.record.sortOrder as number) || a.index - b.index)
+    .map(({ record }) => record);
+  const rest = records.filter((record) => record.sortOrder === null);
+  rest.forEach(unordered);
+  return [...ordered, ...rest];
+}
+
+// A blank source title gets a neutral name; the source id never becomes one (AD-7).
+const groupName = (group: SourceStoryGroup): string => group.name.trim() || 'Untitled tale group';
+// A story without a title shows its group's title at the source.
+const taleTitle = (story: SourceStory, group: string): string => story.name.trim() || group;
+
+/**
+ * Imports one instance as a zone of the project, without a frame (epic
+ * decision), through the zones module (AD-8), and links it (AD-7). The
  * instance is locked by its source key first, so concurrent imports of the
  * same app cannot both create it. An instance already linked is not created
- * again: it counts as imported while its zone exists, else as skipped (a link
- * is never re-pointed). A repeated id is skipped. `beforeEach` runs before
- * each instance; the worker refreshes its heartbeat there.
+ * again. Returns the zone's id, or null when its earlier zone is gone (a link
+ * is never re-pointed).
  */
-export async function importZones(
+async function importZone(
+  db: TransactionalDb,
+  projectId: string,
+  instance: SourceInstance,
+  name: string,
+): Promise<string | null> {
+  const source = { projectId, sourceType: 'instance', sourceId: instance.id };
+  return inTransaction(db, async (tx) => {
+    await lockLinkSource(tx, source);
+    const linked = await findLinkTarget(tx, source);
+    if (linked !== null) return (await zoneExists(tx, linked)) ? linked : null;
+    const zone = await createZone(tx, { name, projectId });
+    await saveLink(tx, { ...source, targetType: 'zone', targetId: zone.id });
+    return zone.id;
+  });
+}
+
+/**
+ * Creates a record through another module and links it (AD-7), unless it is
+ * linked already. `create` runs the module's create call with `link` as its
+ * in-transaction callback: the link is saved in the creation's transaction,
+ * after locking the source key and checking again, so a record and its link
+ * commit together and concurrent imports create it once. Returns the linked
+ * record's id, or null when the linked record no longer exists.
+ */
+async function importLinked(
+  db: TransactionalDb,
+  source: LinkSource,
+  targetType: string,
+  exists: (id: string) => Promise<boolean>,
+  create: (link: (tx: Db, targetId: string) => Promise<void>) => Promise<unknown>,
+): Promise<string | null> {
+  for (;;) {
+    const linked = await findLinkTarget(db, source);
+    if (linked !== null) return (await exists(linked)) ? linked : null;
+    let created: string | null = null;
+    try {
+      await create(async (tx, targetId) => {
+        await lockLinkSource(tx, source);
+        if ((await findLinkTarget(tx, source)) !== null) throw new AlreadyLinkedError();
+        await saveLink(tx, { ...source, targetType, targetId });
+        created = targetId;
+      });
+    } catch (err) {
+      // Another import linked it meanwhile: its record stands, so read the link again.
+      if (err instanceof AlreadyLinkedError) continue;
+      throw err;
+    }
+    return created;
+  }
+}
+
+/**
+ * Imports the app's content into the project: each instance as a zone, its
+ * story groups as tale groups placed in that zone, and their stories as tales
+ * (title only; media is a later story), in source order, through the zones and
+ * tales modules (AD-8, AD-14). Every record is linked (AD-7), so a re-run
+ * creates nothing twice: a linked record counts as imported while it exists,
+ * else as skipped. A repeated source id is skipped. `beforeEach` runs before
+ * each record is written; the worker refreshes its heartbeat there.
+ */
+export async function importContent(
   db: TransactionalDb,
   projectId: string,
   instances: readonly SourceInstance[],
+  source: ContentSource,
   beforeEach: () => Promise<void> = async () => undefined,
 ): Promise<ImportReport> {
-  const report: ImportReport = { zones: { source: instances.length, imported: 0, skipped: 0 }, notes: [] };
-  const seen = new Set<string>();
+  const report: Required<ImportReport> = {
+    zones: { ...emptyCount(), source: instances.length },
+    taleGroups: emptyCount(),
+    tales: emptyCount(),
+    notes: [],
+  };
+  const seenInstances = new Set<string>();
+  const seenGroups = new Set<string>();
+  const seenStories = new Set<string>();
   for (const instance of instances) {
-    if (seen.has(instance.id)) {
+    if (seenInstances.has(instance.id)) {
       report.zones.skipped++;
       continue;
     }
-    seen.add(instance.id);
+    seenInstances.add(instance.id);
     await beforeEach();
-    const name = instance.name.trim() || `Instance ${instance.id}`;
-    const source = { projectId, sourceType: 'instance', sourceId: instance.id };
-    const outcome = await inTransaction(db, async (tx) => {
-      await lockLinkSource(tx, source);
-      const linked = await findLinkTarget(tx, source);
-      if (linked !== null) return (await zoneExists(tx, linked)) ? 'imported' : 'gone';
-      const zone = await createZone(tx, { name, projectId });
-      await saveLink(tx, { ...source, targetType: 'zone', targetId: zone.id });
-      return 'imported';
-    });
-    if (outcome === 'gone') {
+    const zoneName = instance.name.trim() || `Instance ${instance.id}`;
+    const zoneId = await importZone(db, projectId, instance, zoneName);
+    if (zoneId === null) {
       report.zones.skipped++;
-      report.notes.push(`Zone "${name}": its earlier import was deleted, so it was not imported again`);
-      continue;
+      report.notes.push(`Zone "${zoneName}": its earlier import was deleted, so it was not imported again`);
+    } else {
+      report.zones.imported++;
+      // The source names no widget type, so the zone has no frame yet (epic decision).
+      report.notes.push(`Zone "${zoneName}": frame type unknown`);
     }
-    report.zones.imported++;
-    // The source names no widget type, so the zone has no frame yet (epic decision).
-    report.notes.push(`Zone "${name}": frame type unknown`);
+
+    const groups = inSourceOrder(await source.listStoryGroups(instance.id), (group) =>
+      report.notes.push(`Tale group "${groupName(group)}": no source position, placed after the others`),
+    );
+    report.taleGroups.source += groups.length;
+    let groupsWithoutZone = 0;
+    for (const group of groups) {
+      if (seenGroups.has(group.id)) {
+        report.taleGroups.skipped++;
+        continue;
+      }
+      seenGroups.add(group.id);
+      const name = groupName(group);
+      const stories = await source.listStories(group.id);
+      report.tales.source += stories.length;
+      if (zoneId === null) {
+        groupsWithoutZone++;
+        report.taleGroups.skipped++;
+        report.tales.skipped += stories.length;
+        continue;
+      }
+      await beforeEach();
+      const taleGroupId = await importLinked(
+        db,
+        { projectId, sourceType: 'story_group', sourceId: group.id },
+        'tale_group',
+        (id) => taleGroupExists(db, id),
+        (link) => createTaleGroup(db, { zoneId, name }, (tx, created) => link(tx, created.taleGroupId)),
+      );
+      if (taleGroupId === null) {
+        report.taleGroups.skipped++;
+        report.tales.skipped += stories.length;
+        report.notes.push(`Tale group "${name}": its earlier import was deleted, so it was not imported again`);
+        continue;
+      }
+      report.taleGroups.imported++;
+
+      const ordered = inSourceOrder(stories, (story) =>
+        report.notes.push(`Tale "${taleTitle(story, name)}" in "${name}": no source position, placed after the others`),
+      );
+      for (const story of ordered) {
+        if (seenStories.has(story.id)) {
+          report.tales.skipped++;
+          continue;
+        }
+        seenStories.add(story.id);
+        const title = taleTitle(story, name);
+        await beforeEach();
+        let taleId: string | null;
+        try {
+          taleId = await importLinked(
+            db,
+            { projectId, sourceType: 'story', sourceId: story.id },
+            'tale',
+            (id) => taleExists(db, id),
+            (link) => createTale(db, { taleGroupId, title }, (tx, created) => link(tx, created.taleId)),
+          );
+        } catch (err) {
+          if (!(err instanceof TaleGroupFullError)) throw err;
+          report.tales.skipped++;
+          report.notes.push(`Tale "${title}" in "${name}": the tale group already holds ${MAX_TALES_PER_GROUP} tales`);
+          continue;
+        }
+        if (taleId === null) {
+          report.tales.skipped++;
+          report.notes.push(`Tale "${title}" in "${name}": its earlier import was deleted, so it was not imported again`);
+          continue;
+        }
+        report.tales.imported++;
+      }
+    }
+    if (groupsWithoutZone > 0) {
+      report.notes.push(
+        `Zone "${zoneName}": its ${groupsWithoutZone} tale group(s) were not imported, since the zone was not`,
+      );
+    }
   }
   return report;
 }
@@ -164,9 +339,14 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     if (!app) throw new ImportFailure('This Storyly token cannot read the chosen app.');
     if (!(await setSourceAppName(db, job, app.name))) throw new ClaimLostError();
     const instances = await client.listInstances(app.id);
-    const report = await importZones(db, job.projectId, instances, beat);
+    const report = await importContent(db, job.projectId, instances, client, beat);
     if (!(await finishImportJob(db, job, report))) throw new ClaimLostError();
-    log('info', `Import ${job.id} done: ${report.zones.imported} of ${report.zones.source} zones`);
+    const count = (name: string, c: ImportCount | undefined) => `${c?.imported ?? 0} of ${c?.source ?? 0} ${name}`;
+    log(
+      'info',
+      `Import ${job.id} done: ${count('zones', report.zones)}, ${count('tale groups', report.taleGroups)}, ` +
+        count('tales', report.tales),
+    );
   } catch (err) {
     if (err instanceof ClaimLostError) {
       log('info', `Import ${job.id} was taken over by another worker; this run stopped`);

@@ -1753,9 +1753,15 @@ components:
       properties:
         zones:
           $ref: '#/components/schemas/ImportCount'
+        taleGroups:
+          $ref: '#/components/schemas/ImportCount'
+          description: Story groups as tale groups. Absent in reports of imports made before tale groups were imported.
+        tales:
+          $ref: '#/components/schemas/ImportCount'
+          description: Stories as tales. Absent in reports of imports made before tales were imported.
         notes:
           type: array
-          description: What did not come across, such as "frame type unknown" for each zone.
+          description: What did not come across, such as "frame type unknown" for each zone or a skipped tale.
           items:
             type: string
     ImportJob:

@@ -7,7 +7,7 @@ describe('fake Storyly server', () => {
   });
   afterAll(() => fake.close());
   beforeEach(() => {
-    fake.control.failInstances = null;
+    fake.control.reset();
   });
 
   const get = (path, init) => fetch(`${fake.url}${path}`, init);
@@ -35,7 +35,45 @@ describe('fake Storyly server', () => {
     fake.control.failInstances = 'status';
     expect((await get('/instance?app_id=1001', bearer)).status).toBe(500);
     fake.control.failInstances = 'shape';
-    expect(await (await get('/instance?app_id=1001', bearer)).json()).toEqual({ instances: 'unexpected' });
+    expect(await (await get('/instance?app_id=1001', bearer)).json()).toEqual({ unexpected: true });
+  });
+
+  it("lists each instance's story groups, six in all, out of sort order", async () => {
+    const counts = [];
+    for (const instanceId of ['2001', '2002', '2003']) {
+      const body = await (await get(`/story-group?instance_id=${instanceId}`, bearer)).json();
+      expect(body.data.every((g) => g.instance_id === Number(instanceId))).toBe(true);
+      counts.push(body.data.length);
+    }
+    expect(counts).toEqual([3, 2, 1]);
+    const home = await (await get('/story-group?instance_id=2001', bearer)).json();
+    expect(home.data.map((g) => g.sort_order)).toEqual([2, 0, 1]);
+    expect(await (await get('/story-group?instance_id=9999', bearer)).json()).toEqual({ data: [] });
+  });
+
+  it("lists a story group's stories, fifteen in all", async () => {
+    let total = 0;
+    for (const instanceId of ['2001', '2002', '2003']) {
+      const groups = await (await get(`/story-group?instance_id=${instanceId}`, bearer)).json();
+      for (const group of groups.data) {
+        const stories = await (await get(`/story?story_group_id=${group.id}`, bearer)).json();
+        expect(stories.data.every((s) => s.story_group_id === group.id && typeof s.sort_order === 'number')).toBe(true);
+        total += stories.data.length;
+      }
+    }
+    expect(total).toBe(15);
+  });
+
+  it('fails the story group and story lists on request, and serves changed data until reset', async () => {
+    fake.control.failStoryGroups = 'status';
+    expect((await get('/story-group?instance_id=2001', bearer)).status).toBe(500);
+    fake.control.failStories = 'shape';
+    expect(await (await get('/story?story_group_id=3001', bearer)).json()).toEqual({ unexpected: true });
+    fake.control.reset();
+    fake.control.data.stories['3001'].data.pop();
+    expect((await (await get('/story?story_group_id=3001', bearer)).json()).data).toHaveLength(2);
+    fake.control.reset();
+    expect((await (await get('/story?story_group_id=3001', bearer)).json()).data).toHaveLength(3);
   });
 
   it('never accepts a write', async () => {

@@ -23,16 +23,47 @@ function tokenOf(req, url) {
   return match ? match[1].trim() : (url.searchParams.get('token') ?? '');
 }
 
+// Answers a list as the fixtures hold it, or fails it as `mode` asks:
+// 'status' answers 500, 'shape' answers an unexpected shape.
+function sendList(res, mode, body) {
+  if (mode === 'status') {
+    send(res, 500, { message: 'Internal server error' });
+    return;
+  }
+  if (mode === 'shape') {
+    send(res, 200, { unexpected: true });
+    return;
+  }
+  send(res, 200, body ?? { data: [] });
+}
+
 /**
  * Starts the fake on `port` (0 picks a free one). Resolves to its base URL,
- * the port, `close()`, and `control`: set `control.failInstances` to 'status'
- * to answer the instances list with a 500, or to 'shape' to answer it with an
- * unexpected shape. `control.requests` records each request's method and path.
+ * the port, `close()`, and `control`:
+ * - `failInstances`, `failStoryGroups`, `failStories`: 'status' answers that
+ *   list with a 500, 'shape' with an unexpected shape; null serves it.
+ * - `data.storyGroups` (by instance id) and `data.stories` (by story group
+ *   id): the served lists, which tests may change; `reset()` restores the
+ *   fixtures and clears the failure switches.
+ * - `requests`: each request's method and path.
  */
 export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
   const apps = readFixture('apps.json');
   const instances = readFixture('instances.json');
-  const control = { failInstances: null, requests: [] };
+  const control = {
+    failInstances: null,
+    failStoryGroups: null,
+    failStories: null,
+    data: {},
+    requests: [],
+    reset() {
+      control.failInstances = null;
+      control.failStoryGroups = null;
+      control.failStories = null;
+      control.data = { storyGroups: readFixture('story-groups.json'), stories: readFixture('stories.json') };
+    },
+  };
+  control.reset();
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -52,16 +83,15 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       return;
     }
     if (path === '/instance') {
-      if (control.failInstances === 'status') {
-        send(res, 500, { message: 'Internal server error' });
-        return;
-      }
-      if (control.failInstances === 'shape') {
-        send(res, 200, { instances: 'unexpected' });
-        return;
-      }
-      const appId = url.searchParams.get('app_id') ?? '';
-      send(res, 200, instances[appId] ?? { data: [] });
+      sendList(res, control.failInstances, instances[url.searchParams.get('app_id') ?? '']);
+      return;
+    }
+    if (path === '/story-group') {
+      sendList(res, control.failStoryGroups, control.data.storyGroups[url.searchParams.get('instance_id') ?? '']);
+      return;
+    }
+    if (path === '/story') {
+      sendList(res, control.failStories, control.data.stories[url.searchParams.get('story_group_id') ?? '']);
       return;
     }
     send(res, 404, { message: 'Not found' });

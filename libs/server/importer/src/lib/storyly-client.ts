@@ -15,6 +15,23 @@ export interface SourceInstance {
   name: string;
 }
 
+/**
+ * A record with a source position: a story group (it becomes a tale group) or
+ * a story (it becomes a tale). `sortOrder` is null when the record carries no
+ * usable `sort_order`.
+ */
+export interface SourceOrderedRecord {
+  id: string;
+  name: string;
+  sortOrder: number | null;
+}
+
+/** A Storyly story group: it becomes a tale group placed in its instance's zone. */
+export type SourceStoryGroup = SourceOrderedRecord;
+
+/** A Storyly story: it becomes a tale of its group's tale group. */
+export type SourceStory = SourceOrderedRecord;
+
 export interface StorylyClientOptions {
   /** Base URL of the External API, without a trailing slash. */
   baseUrl: string;
@@ -33,6 +50,22 @@ function recordsOf(body: unknown, what: string): unknown[] {
   const data = (body as { data?: unknown } | null)?.data;
   if (typeof body === 'object' && body !== null && Array.isArray(data)) return data;
   throw new StorylyUnavailableError(`Storyly's ${what} response has an unexpected shape: no list of records`);
+}
+
+// A `sort_order` as a number; the API types numbers as strings in places.
+function sortOrderOf(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+// Records with an id, a title and their source position.
+function orderedRecords(body: unknown, what: string): SourceOrderedRecord[] {
+  const records = recordsOf(body, what);
+  return namedRecords(records, what).map((record, index) => ({
+    ...record,
+    sortOrder: sortOrderOf((records[index] as { sort_order?: unknown }).sort_order),
+  }));
 }
 
 // An id and a title from each record; anything else is an unexpected shape.
@@ -78,6 +111,16 @@ export class StorylyClient {
   /** The instances of one app. */
   async listInstances(appId: string): Promise<SourceInstance[]> {
     return namedRecords(await this.get('/instance', { app_id: appId }, 'instances'), 'instances');
+  }
+
+  /** The story groups of one instance, in response order. */
+  async listStoryGroups(instanceId: string): Promise<SourceStoryGroup[]> {
+    return orderedRecords(await this.get('/story-group', { instance_id: instanceId }, 'story groups'), 'story groups');
+  }
+
+  /** The stories of one story group, in response order. */
+  async listStories(storyGroupId: string): Promise<SourceStory[]> {
+    return orderedRecords(await this.get('/story', { story_group_id: storyGroupId }, 'stories'), 'stories');
   }
 
   // GETs `path` and returns its JSON body. 401 and 403 count as a refused token.
