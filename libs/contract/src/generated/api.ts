@@ -142,6 +142,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tales/{taleId}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a tale's media file.
+         * @description The stored bytes, with the `Content-Type` they were uploaded with.
+         */
+        get: operations["getTaleMedia"];
+        /**
+         * Upload or replace a tale's image, GIF or video.
+         * @description The body is the file's bytes and `Content-Type` its type. Images (`image/jpeg`, `image/png`, `image/webp`, `image/gif`) may be up to 10 MB and videos (`video/mp4`, `video/webm`) up to 100 MB. The declared type must match the file's leading bytes. Unknown tale: 404 `tale_not_found`; other or mismatched type: 415 `unsupported_media_type`; too large: 413 `media_too_large`; empty body: 400 `validation_failed`. Replacing media removes the previous file.
+         */
+        put: operations["putTaleMedia"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -221,12 +247,24 @@ export interface components {
             title: string;
             /** @description Order within the tale group; lists are sorted by it. */
             position: number;
+            /** @description The tale's image, GIF or video, or null when it has none. */
+            media: components["schemas"]["TaleMedia"] | null;
         };
+        TaleMedia: {
+            kind: components["schemas"]["MediaKind"];
+            contentType: components["schemas"]["MediaContentType"];
+            /** @description Where the Management API serves the file, such as `/api/v1/tales/{taleId}/media`. */
+            url: string;
+        };
+        /** @enum {string} */
+        MediaKind: "image" | "video";
+        /** @enum {string} */
+        MediaContentType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" | "video/mp4" | "video/webm";
         CreateTaleRequest: {
             title: string;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -523,6 +561,71 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getTaleMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The media file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "image/gif": string;
+                    "video/mp4": string;
+                    "video/webm": string;
+                };
+            };
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    putTaleMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/jpeg": string;
+                "image/png": string;
+                "image/webp": string;
+                "image/gif": string;
+                "video/mp4": string;
+                "video/webm": string;
+            };
+        };
+        responses: {
+            /** @description The tale, with its new media. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
 }
 type FlattenedDeepRequired<T> = {
     [K in keyof T]-?: FlattenedDeepRequired<T[K] extends unknown[] | undefined | null ? Extract<T[K], unknown[]>[number] : T[K]>;
@@ -532,4 +635,6 @@ type ReadonlyArray<T> = [
 ] extends [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "internal_error"];
+export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
+export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "media_not_found", "unsupported_media_type", "media_too_large", "internal_error"];

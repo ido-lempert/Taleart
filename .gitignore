@@ -66,3 +66,6 @@ apps/taller/iosApp/build
 .agents/
 .claude/
 _bmad/render/
+
+# Local media storage (MEDIA_DIR default)
+.data/

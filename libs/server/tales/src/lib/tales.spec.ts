@@ -1,9 +1,13 @@
 import {
   createTale,
   createTaleGroup,
+  getTaleMedia,
   listTaleGroups,
+  setTaleMedia,
+  taleExists,
   TaleGroupFullError,
   TaleGroupNotFoundError,
+  TaleNotFoundError,
   type TransactionalDb,
 } from './tales';
 import { ZoneNotFoundError } from '@taleart/server-zones';
@@ -96,10 +100,73 @@ describe('tales', () => {
     const { db, query } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{ count: 2, next: 2 }] },
-      { rows: [{ id: 't1' }] },
+      { rows: [{ id: 't1', mediaContentType: null }] },
     ]);
-    await createTale(db, { taleGroupId: groupId, title: 'T' });
+    const tale = await createTale(db, { taleGroupId: groupId, title: 'T' });
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
     expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2]);
+    expect(tale).toEqual({ id: 't1', media: null });
+  });
+});
+
+describe('tale media', () => {
+  const taleId = '00000000-0000-4000-8000-000000000004';
+  const row = { id: taleId, taleGroupId: groupId, projectId, title: 'T', position: 0 };
+
+  it('lists tales with media derived from the content type, never exposing the key', async () => {
+    const { db } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{ id: groupId, zoneId, projectId, name: 'A', position: 0 }] },
+      {
+        rows: [
+          { ...row, mediaContentType: 'video/mp4' },
+          { ...row, id: 't2', mediaContentType: null },
+        ],
+      },
+    ]);
+    const [group] = await listTaleGroups(db, zoneId);
+    expect(group.tales).toEqual([
+      { ...row, media: { kind: 'video', contentType: 'video/mp4', url: `/api/v1/tales/${taleId}/media` } },
+      { ...row, id: 't2', media: null },
+    ]);
+    expect(JSON.stringify(group)).not.toMatch(/key/i);
+  });
+
+  it('treats ids that are not UUIDs as unknown tales without querying', async () => {
+    const { db, query } = fakeDb([]);
+    expect(await taleExists(db, 'nope')).toBe(false);
+    await expect(getTaleMedia(db, 'nope')).rejects.toBeInstanceOf(TaleNotFoundError);
+    await expect(setTaleMedia(db, 'nope', { key: 'k', contentType: 'image/png' })).rejects.toBeInstanceOf(
+      TaleNotFoundError,
+    );
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('reads the stored key and type, null when the tale has none, and refuses an unknown tale', async () => {
+    const { db } = fakeDb([
+      { rows: [{ key: 'tales/a.png', contentType: 'image/png' }] },
+      { rows: [{ key: null, contentType: null }] },
+      { rows: [] },
+    ]);
+    expect(await getTaleMedia(db, taleId)).toEqual({ key: 'tales/a.png', contentType: 'image/png' });
+    expect(await getTaleMedia(db, taleId)).toBeNull();
+    await expect(getTaleMedia(db, taleId)).rejects.toBeInstanceOf(TaleNotFoundError);
+  });
+
+  it('stores only the key and type and returns the previous key', async () => {
+    const { db, query } = fakeDb([{ rows: [{ ...row, mediaContentType: 'image/gif', previousKey: 'tales/old.png' }] }]);
+    const result = await setTaleMedia(db, taleId, { key: 'tales/new.gif', contentType: 'image/gif' });
+    expect(query.mock.calls[0][1]).toEqual([taleId, 'tales/new.gif', 'image/gif']);
+    expect(result).toEqual({
+      previousKey: 'tales/old.png',
+      tale: { ...row, media: { kind: 'image', contentType: 'image/gif', url: `/api/v1/tales/${taleId}/media` } },
+    });
+  });
+
+  it('refuses to set media on an unknown tale', async () => {
+    const { db } = fakeDb([{ rows: [] }]);
+    await expect(setTaleMedia(db, taleId, { key: 'k', contentType: 'image/png' })).rejects.toBeInstanceOf(
+      TaleNotFoundError,
+    );
   });
 });

@@ -89,6 +89,59 @@
               [attr.aria-describedby]="error() ? 'create-error' : null"
             />
           </div>
+          <div class="field">
+            <label class="field__label" for="create-file">{{ fileLabel() }}</label>
+            <input
+              id="create-file"
+              class="input input--file"
+              type="file"
+              name="file"
+              [accept]="acceptedTypes"
+              (change)="pickFile($event)"
+              [attr.aria-describedby]="error() ? 'create-file-hint create-error' : 'create-file-hint'"
+            />
+            <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB.</p>
+          </div>
+        }
+        @case ('taleMedia') {
+          @if (tale(); as tale) {
+            <p class="tale-drawer__title">{{ tale.title }}</p>
+            <div class="media-preview">
+              @if (tale.media; as media) {
+                @if (media.kind === 'video') {
+                  <video
+                    class="media-preview__media"
+                    [src]="store.mediaSrc(tale)"
+                    [muted]="true"
+                    autoplay
+                    loop
+                    playsinline
+                    controls
+                    [attr.aria-label]="'Video of ' + tale.title"
+                  ></video>
+                } @else {
+                  <img class="media-preview__media" [src]="store.mediaSrc(tale)" [alt]="'Media of ' + tale.title" />
+                }
+              } @else {
+                <p class="media-preview__empty">No media yet</p>
+              }
+            </div>
+            <div class="field">
+              <label class="field__label" for="create-file">{{ fileLabel() }}</label>
+              <input
+                id="create-file"
+                class="input input--file"
+                type="file"
+                name="file"
+                [accept]="acceptedTypes"
+                (change)="pickFile($event)"
+                [attr.aria-describedby]="error() ? 'create-file-hint create-error' : 'create-file-hint'"
+              />
+              <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB.</p>
+            </div>
+          } @else {
+            <p class="muted">This tale no longer exists.</p>
+          }
         }
       }
 
@@ -99,7 +152,7 @@
     <div class="drawer__footer">
       <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="close()">Cancel</button>
       <button type="submit" class="btn btn--primary" [disabled]="saving()">
-        {{ request().kind === 'frame' || request().kind === 'tale' ? 'Add' : 'Create' }}
+        {{ submitLabel() }}
       </button>
     </div>
   </form>

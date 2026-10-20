@@ -233,6 +233,80 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tales/{taleId}/media:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getTaleMedia
+      summary: Read a tale's media file.
+      description: The stored bytes, with the `Content-Type` they were uploaded with.
+      responses:
+        '200':
+          description: The media file.
+          content:
+            image/jpeg:
+              schema: { type: string, contentMediaType: image/jpeg }
+            image/png:
+              schema: { type: string, contentMediaType: image/png }
+            image/webp:
+              schema: { type: string, contentMediaType: image/webp }
+            image/gif:
+              schema: { type: string, contentMediaType: image/gif }
+            video/mp4:
+              schema: { type: string, contentMediaType: video/mp4 }
+            video/webm:
+              schema: { type: string, contentMediaType: video/webm }
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: putTaleMedia
+      summary: Upload or replace a tale's image, GIF or video.
+      description: >-
+        The body is the file's bytes and `Content-Type` its type. Images
+        (`image/jpeg`, `image/png`, `image/webp`, `image/gif`) may be up to
+        10 MB and videos (`video/mp4`, `video/webm`) up to 100 MB. The declared
+        type must match the file's leading bytes. Unknown tale: 404
+        `tale_not_found`; other or mismatched type: 415 `unsupported_media_type`;
+        too large: 413 `media_too_large`; empty body: 400 `validation_failed`.
+        Replacing media removes the previous file.
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema: { type: string, contentMediaType: image/jpeg }
+          image/png:
+            schema: { type: string, contentMediaType: image/png }
+          image/webp:
+            schema: { type: string, contentMediaType: image/webp }
+          image/gif:
+            schema: { type: string, contentMediaType: image/gif }
+          video/mp4:
+            schema: { type: string, contentMediaType: video/mp4 }
+          video/webm:
+            schema: { type: string, contentMediaType: video/webm }
+      responses:
+        '200':
+          description: The tale, with its new media.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '415':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   responses:
     Error:
@@ -360,7 +434,7 @@ components:
           minLength: 1
     Tale:
       type: object
-      required: [id, taleGroupId, projectId, title, position]
+      required: [id, taleGroupId, projectId, title, position, media]
       properties:
         id:
           type: string
@@ -377,6 +451,34 @@ components:
           type: integer
           minimum: 0
           description: Order within the tale group; lists are sorted by it.
+        media:
+          description: The tale's image, GIF or video, or null when it has none.
+          oneOf:
+            - $ref: '#/components/schemas/TaleMedia'
+            - type: 'null'
+    TaleMedia:
+      type: object
+      required: [kind, contentType, url]
+      properties:
+        kind:
+          $ref: '#/components/schemas/MediaKind'
+        contentType:
+          $ref: '#/components/schemas/MediaContentType'
+        url:
+          type: string
+          description: Where the Management API serves the file, such as `/api/v1/tales/{taleId}/media`.
+    MediaKind:
+      type: string
+      enum: [image, video]
+    MediaContentType:
+      type: string
+      enum:
+        - image/jpeg
+        - image/png
+        - image/webp
+        - image/gif
+        - video/mp4
+        - video/webm
     CreateTaleRequest:
       type: object
       required: [title]
@@ -395,6 +497,10 @@ components:
         - invalid_frame_settings
         - tale_group_not_found
         - tale_group_full
+        - tale_not_found
+        - media_not_found
+        - unsupported_media_type
+        - media_too_large
         - internal_error
     ErrorBody:
       type: object

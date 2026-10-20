@@ -39,4 +39,9 @@ export async function migrateTales(db: Db): Promise<void> {
     );
   `);
   await db.query('CREATE INDEX IF NOT EXISTS tales_tale_group_id_idx ON tales (tale_group_id, position)');
+
+  // A tale's media: the storage key and the uploaded content type, never a
+  // path or URL (AD-11). Both are null when the tale has no media.
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS media_key text');
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS media_content_type text');
 }

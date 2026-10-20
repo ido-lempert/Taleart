@@ -15,6 +15,9 @@ import { firstValueFrom } from 'rxjs';
 // The Management API base URL for local development.
 export const API_BASE = 'http://localhost:3333/api/v1';
 
+// Media URLs from the API are paths on the API's origin.
+const API_ORIGIN = new URL(API_BASE).origin;
+
 /** The localStorage key holding the project picked in the top bar. */
 export const SELECTED_PROJECT_KEY = 'taleart.selectedProjectId';
 
@@ -24,7 +27,8 @@ export type DrawerRequest =
   | { kind: 'zone' }
   | { kind: 'frame'; zoneId: string }
   | { kind: 'taleGroup'; zoneId: string }
-  | { kind: 'tale'; taleGroupId: string };
+  | { kind: 'tale'; taleGroupId: string }
+  | { kind: 'taleMedia'; taleId: string };
 
 // The API's own message when it sent the standard error body, else the fallback.
 function apiErrorMessage(err: unknown, fallback: string): string {
@@ -49,6 +53,8 @@ export class DashboardStore {
   readonly apiDown = signal(false);
 
   readonly drawer = signal<DrawerRequest | null>(null);
+  /** Bumped per tale on each upload, so a replaced file at the same URL is fetched again. */
+  private readonly mediaVersions = signal<Record<string, number>>({});
   /** The element that opened the drawer; focus returns to it on close. */
   drawerOpener: HTMLElement | null = null;
 
@@ -108,6 +114,20 @@ export class DashboardStore {
     return Object.values(this.taleGroups())
       .flat()
       .find((g) => g.id === taleGroupId);
+  }
+
+  tale(taleId: string): Tale | undefined {
+    return Object.values(this.taleGroups())
+      .flat()
+      .flatMap((g) => g.tales)
+      .find((t) => t.id === taleId);
+  }
+
+  /** The absolute URL of a tale's media, or '' when it has none. */
+  mediaSrc(tale: Tale): string {
+    if (!tale.media) return '';
+    const version = this.mediaVersions()[tale.id];
+    return `${API_ORIGIN}${tale.media.url}${version ? `?v=${version}` : ''}`;
   }
 
   async refresh(): Promise<void> {
@@ -175,13 +195,46 @@ export class DashboardStore {
     return '';
   }
 
-  async createTale(taleGroupId: string, title: string): Promise<string> {
+  /**
+   * Adds a tale, then uploads `file` as its media when one is given. When the
+   * tale is saved but its media is not, the drawer switches to that tale so the
+   * upload can be retried, and the API's message is returned.
+   */
+  async createTale(taleGroupId: string, title: string, file: File | null = null): Promise<string> {
+    let tale: Tale;
     try {
-      await firstValueFrom(this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, { title }));
+      tale = await firstValueFrom(this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, { title }));
     } catch (err) {
       return apiErrorMessage(err, 'Tale was not saved. Try again.');
     }
+    const message = file ? await this.putMedia(tale.id, file) : '';
     await this.refresh();
+    if (message) {
+      this.drawer.set({ kind: 'taleMedia', taleId: tale.id });
+      return `The tale was added, but its media was not saved. ${message}`;
+    }
+    return '';
+  }
+
+  /** Uploads or replaces a tale's image, GIF or video. */
+  async uploadTaleMedia(taleId: string, file: File): Promise<string> {
+    const message = await this.putMedia(taleId, file);
+    if (!message) await this.refresh();
+    return message;
+  }
+
+  // Sends the file's bytes with its own type; the API checks type and size.
+  private async putMedia(taleId: string, file: File): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.put<Tale>(`${API_BASE}/tales/${taleId}/media`, file, {
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'Media was not saved. Try again.');
+    }
+    this.mediaVersions.update((versions) => ({ ...versions, [taleId]: (versions[taleId] ?? 0) + 1 }));
     return '';
   }
 

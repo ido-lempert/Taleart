@@ -1,10 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MAX_TALES_PER_GROUP } from '@taleart/contract';
+import { MAX_TALES_PER_GROUP, MEDIA_CONTENT_TYPES } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 
-/** The create form for whatever the store's drawer request asks for. The API's message shows inside it. */
+/**
+ * The form for whatever the store's drawer request asks for: a create form, or
+ * a tale's media upload. The API's message shows inside it.
+ */
 @Component({
   selector: 'app-create-drawer',
   imports: [FormsModule, Drawer],
@@ -21,6 +24,32 @@ export class CreateDrawer implements OnInit {
   protected text = '';
   protected projectId = '';
   protected frameType = '';
+  /** The image or video picked in the file input, if any. */
+  protected file: File | null = null;
+  protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
+
+  /** The tale a media drawer is for. */
+  protected readonly tale = computed(() => {
+    const request = this.request();
+    return request.kind === 'taleMedia' ? this.store.tale(request.taleId) : undefined;
+  });
+
+  protected readonly fileLabel = computed(() => {
+    if (this.request().kind === 'tale') return 'Image or video (optional)';
+    return this.tale()?.media ? 'Replace image or video' : 'Image or video';
+  });
+
+  protected readonly submitLabel = computed(() => {
+    switch (this.request().kind) {
+      case 'frame':
+      case 'tale':
+        return 'Add';
+      case 'taleMedia':
+        return 'Upload';
+      default:
+        return 'Create';
+    }
+  });
 
   protected readonly heading = computed(() => {
     switch (this.request().kind) {
@@ -34,6 +63,8 @@ export class CreateDrawer implements OnInit {
         return 'New tale group';
       case 'tale':
         return 'Add tale';
+      case 'taleMedia':
+        return 'Tale';
     }
   });
 
@@ -48,11 +79,21 @@ export class CreateDrawer implements OnInit {
       const group = this.store.taleGroup(request.taleGroupId);
       return group ? `In tale group ${group.name}` : '';
     }
+    if (request.kind === 'taleMedia') {
+      const tale = this.tale();
+      const group = tale && this.store.taleGroup(tale.taleGroupId);
+      return group ? `In tale group ${group.name}` : '';
+    }
     return '';
   });
 
   ngOnInit(): void {
     this.projectId = this.store.selectedProjectId();
+  }
+
+  protected pickFile(event: Event): void {
+    this.file = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.error.set('');
   }
 
   protected close(): void {
@@ -79,7 +120,15 @@ export class CreateDrawer implements OnInit {
         message = await this.store.createTaleGroup(request.zoneId, this.text);
         break;
       case 'tale':
-        message = await this.store.createTale(request.taleGroupId, this.text);
+        message = await this.store.createTale(request.taleGroupId, this.text, this.file);
+        // The tale was saved but its media was not: the drawer now shows that
+        // tale with an empty file input, so forget the refused file.
+        if (message && this.store.drawer()?.kind === 'taleMedia') this.file = null;
+        break;
+      case 'taleMedia':
+        message = this.file
+          ? await this.store.uploadTaleMedia(request.taleId, this.file)
+          : 'Choose an image or video to upload.';
         break;
     }
     this.saving.set(false);
