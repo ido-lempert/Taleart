@@ -40,7 +40,10 @@ interface Fakeanother tool {
     failInstances: 'status' | 'shape' | null;
     failStoryGroups: 'status' | 'shape' | null;
     failStories: 'status' | 'shape' | null;
-    data: { stories: Record<string, { data: Record<string, unknown>[] }> };
+    data: {
+      storyGroups: Record<string, { data: Record<string, unknown>[] }>;
+      stories: Record<string, { data: Record<string, unknown>[] }>;
+    };
     reset(): void;
   };
   close(): Promise<void>;
@@ -2572,6 +2575,182 @@ describe('Management API v1: projects and zones', () => {
         expect((await storedJob(started.id)).token_ciphertext).toBeNull();
       });
     }
+
+    // Runs one import of Demo shop into the project to its end.
+    async function importOnce(projectId: string): Promise<Record<string, unknown>> {
+      return waitForEnd(projectId, (await start(projectId)).id);
+    }
+
+    // The fixture record with this id, in a list the fake serves.
+    function fixture(list: { data: Record<string, unknown>[] }, id: number): Record<string, unknown> {
+      const record = list.data.find((r) => r['id'] === id);
+      if (!record) throw new Error(`No fixture ${id}`);
+      return record;
+    }
+
+    it('places a story group without a usable sort_order after the others, noting it only when created', async () => {
+      const project = await createProject();
+      // 3002 is "New arrivals", first on the Home page.
+      fixture(fake.control.data.storyGroups['2001'], 3002)['sort_order'] = null;
+      startWorker();
+      const first = await importOnce(project.id);
+      const note = 'Tale group "New arrivals": no source position, placed after the others';
+      expect(first['report']).toMatchObject({ taleGroups: { source: 6, imported: 6, skipped: 0 } });
+      expect((first['report'] as { notes: string[] }).notes).toContain(note);
+      expect((await zonePages(project.id))['Home page'].map((g) => g.name)).toEqual([
+        'Gift ideas',
+        'Summer sale',
+        'New arrivals',
+      ]);
+      const again = await importOnce(project.id);
+      expect((again['report'] as { notes: string[] }).notes).not.toContain(note);
+    });
+
+    it('names a blank story group "Untitled tale group" and a blank story after its group', async () => {
+      const project = await createProject();
+      fixture(fake.control.data.storyGroups['2003'], 3006)['title'] = '  ';
+      fixture(fake.control.data.stories['3006'], 4014)['title'] = '';
+      startWorker();
+      expect((await importOnce(project.id))['status']).toBe('done');
+      expect((await zonePages(project.id))['Checkout']).toEqual([
+        { name: 'Untitled tale group', tales: ['Express', 'Untitled tale group'] },
+      ]);
+    });
+
+    it('imports a repeated story group or story id once and counts the repeat as skipped', async () => {
+      const project = await createProject();
+      const checkoutGroup = fixture(fake.control.data.storyGroups['2003'], 3006);
+      fake.control.data.storyGroups['2002'].data.push({ ...checkoutGroup, instance_id: 2002, sort_order: 9 });
+      fake.control.data.stories['3006'].data.push({ ...fixture(fake.control.data.stories['3006'], 4015) });
+      startWorker();
+      const job = await importOnce(project.id);
+      expect(job['report']).toMatchObject({
+        taleGroups: { source: 7, imported: 6, skipped: 1 },
+        tales: { source: 16, imported: 15, skipped: 1 },
+      });
+      expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
+      // The group is first listed under the Product page, so it is placed there only.
+      const pages = await zonePages(project.id);
+      expect(pages['Product page']).toEqual([...demoShopPages['Product page'], ...demoShopPages['Checkout']]);
+      expect(pages['Checkout']).toEqual([]);
+    });
+
+    it('skips with a note the stories a full tale group cannot take', async () => {
+      const project = await createProject();
+      fake.control.data.stories['3006'].data = Array.from({ length: 101 }, (_, i) => ({
+        id: 5000 + i,
+        story_group_id: 3006,
+        title: `Story ${i}`,
+        sort_order: i,
+      }));
+      startWorker();
+      const job = await importOnce(project.id);
+      expect(job['report']).toMatchObject({ tales: { source: 114, imported: 113, skipped: 1 } });
+      expect((job['report'] as { notes: string[] }).notes).toContain(
+        'Tale "Story 100" in "Free shipping": the tale group already holds 100 tales',
+      );
+      expect((await zonePages(project.id))['Checkout'][0].tales).toHaveLength(100);
+    });
+
+    it("skips an instance's story groups and stories when its zone is not imported", async () => {
+      const project = await createProject();
+      // Checkout (2003) was imported before, and that zone is gone.
+      await pool.query(
+        `INSERT INTO import_links (project_id, source_system, source_type, source_id, target_type, target_id)
+         VALUES ($1, 'another tool', 'instance', '2003', 'zone', gen_random_uuid())`,
+        [project.id],
+      );
+      startWorker();
+      const job = await importOnce(project.id);
+      expect(job['report']).toMatchObject({
+        zones: { source: 3, imported: 2, skipped: 1 },
+        taleGroups: { source: 6, imported: 5, skipped: 1 },
+        tales: { source: 15, imported: 13, skipped: 2 },
+      });
+      expect((job['report'] as { notes: string[] }).notes).toContain(
+        'Zone "Checkout": its 1 tale group(s) were not imported, since the zone was not',
+      );
+      expect(await contentCounts(project.id)).toEqual({ groups: 5, placements: 5, tales: 13, links: 21 });
+    });
+
+    it('skips with a note a tale group or tale whose earlier import was deleted, keeping its link', async () => {
+      const project = await createProject();
+      startWorker();
+      await importOnce(project.id);
+      const target = async (type: string, id: string) =>
+        (
+          await pool.query(
+            'SELECT target_id FROM import_links WHERE project_id = $1 AND source_type = $2 AND source_id = $3',
+            [project.id, type, id],
+          )
+        ).rows[0].target_id as string;
+      const groupId = await target('story_group', '3006');
+      const taleId = await target('story', '4001');
+      await pool.query('DELETE FROM tales WHERE id = $1 OR tale_group_id = $2', [taleId, groupId]);
+      await pool.query('DELETE FROM zone_tale_groups WHERE tale_group_id = $1', [groupId]);
+      await pool.query('DELETE FROM tale_groups WHERE id = $1', [groupId]);
+
+      const job = await importOnce(project.id);
+      expect(job['report']).toMatchObject({
+        taleGroups: { source: 6, imported: 5, skipped: 1 },
+        tales: { source: 15, imported: 12, skipped: 3 },
+      });
+      expect((job['report'] as { notes: string[] }).notes).toEqual(
+        expect.arrayContaining([
+          'Tale group "Free shipping": its earlier import was deleted, so it was not imported again',
+          'Tale "Up to 50% off" in "Summer sale": its earlier import was deleted, so it was not imported again',
+        ]),
+      );
+      expect(await contentCounts(project.id)).toEqual({ groups: 5, placements: 5, tales: 12, links: 24 });
+      expect(await target('story_group', '3006')).toBe(groupId);
+    });
+
+    it('rolls back a tale group another import linked first, and imports its tales into that one', async () => {
+      const project = await createProject();
+      const otherZone: { id: string } = await (
+        await post('/zones', { name: 'Elsewhere', projectId: project.id })
+      ).json();
+      const linkKey = `${project.id}:another tool:story_group:3002`;
+      // This test plays the other import: it holds the link lock of story group 3002 ("New arrivals").
+      const other = await pool.connect();
+      try {
+        await other.query('BEGIN');
+        await other.query("SELECT pg_advisory_xact_lock(hashtextextended('import_links:' || $1, 0))", [linkKey]);
+        startWorker();
+        const started = await start(project.id);
+        // Wait until the worker has created its group and waits on the lock to link it.
+        const until = Date.now() + 10_000;
+        while (
+          (await pool.query("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")).rowCount === 0
+        ) {
+          if (Date.now() > until) throw new Error('The worker never waited on the link lock');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const winner: { id: string } = await (
+          await send('POST', `/zones/${otherZone.id}/tale-groups`, { name: 'New arrivals' })
+        ).json();
+        await other.query(
+          `INSERT INTO import_links (project_id, source_system, source_type, source_id, target_type, target_id)
+           VALUES ($1, 'another tool', 'story_group', '3002', 'tale_group', $2)`,
+          [project.id, winner.id],
+        );
+        await other.query('COMMIT');
+
+        const job = await waitForEnd(project.id, started.id);
+        expect(job['report']).toMatchObject({
+          taleGroups: { source: 6, imported: 6, skipped: 0 },
+          tales: { source: 15, imported: 15, skipped: 0 },
+        });
+        // The worker's own group rolled back: no duplicate group, placement or tale.
+        expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
+        const pages = await zonePages(project.id);
+        expect(pages['Home page'].map((g) => g.name)).toEqual(['Gift ideas', 'Summer sale']);
+        expect(pages['Elsewhere']).toEqual([demoShopPages['Home page'][0]]);
+      } finally {
+        await other.query('ROLLBACK').catch(() => undefined);
+        other.release();
+      }
+    });
 
     it('stores the token only encrypted while the job waits', async () => {
       const project = await createProject();
