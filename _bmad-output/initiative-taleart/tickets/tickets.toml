@@ -6,6 +6,7 @@ slug = "epic-platform-foundation"
 title = "Platform foundation"
 description = "Data model, API and project tag run in CI and deploy, with a dashboard shell, ready for the other epics."
 covers = ["R3", "R8", "R10"]
+after = [{ epic = 3, needs = "web-zones story 3.1, whose Delivery API zone query story 15 changes to read placements (story 15 only)" }]
 
 [[epic]]
 id = 2
