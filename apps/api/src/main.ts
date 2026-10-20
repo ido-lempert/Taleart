@@ -1,7 +1,9 @@
 import { join, resolve } from 'node:path';
+import { SimpleWebAuthnVerifier } from '@taleart/server-access';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
+import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, migrate } from './db';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
@@ -25,8 +27,13 @@ async function start(): Promise<void> {
   const storage = new LocalDiskStorage(resolve(process.env['MEDIA_DIR'] || '.data/media'));
   log('info', `Storing media in ${storage.root}`);
 
+  // Passkeys are bound to RP_ID and RP_ORIGIN, the dashboard's domain and origin (AD-9).
+  const rp = relyingPartyFromEnv();
+  log('info', `Passkeys for ${rp.origin} (RP ID ${rp.id})`);
+  const auth = { verifier: new SimpleWebAuthnVerifier(rp), secureCookies: secureCookiesFor(rp) };
+
   const port = process.env['PORT'] || 3333;
-  const server = createApp(pool, frameTypes, storage).listen(port, () => {
+  const server = createApp(pool, frameTypes, storage, auth).listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
   });
   server.on('error', (err) => log('error', 'server error', err));

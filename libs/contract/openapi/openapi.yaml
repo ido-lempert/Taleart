@@ -8,11 +8,14 @@ info:
     `npm exec nx -- run contract:generate`.
 servers:
   - url: /api/v1
+security:
+  - session: []
 paths:
   /health:
     get:
       operationId: getHealth
       summary: Report that the API is up.
+      security: []
       responses:
         '200':
           description: The API is up.
@@ -20,6 +23,136 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Health'
+  /auth/state:
+    get:
+      operationId: getAuthState
+      summary: Whether setup is still needed, and who is signed in.
+      description: >-
+        Works with or without a session. `user` is null when the request has
+        no valid session.
+      security: []
+      responses:
+        '200':
+          description: The auth state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthState'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/setup/options:
+    post:
+      operationId: startSetup
+      summary: Start registering the first admin's passkey.
+      description: >-
+        Only while no user exists; afterwards 409 `setup_closed`. Answers WebAuthn
+        creation options (user verification and a resident key required) and sets
+        the http-only `taleart_challenge` cookie. The challenge is single-use and
+        expires after 5 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '200':
+          description: WebAuthn creation options for the browser.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCreationOptions'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/setup/verify:
+    post:
+      operationId: finishSetup
+      summary: Register the first admin's passkey and sign them in.
+      description: >-
+        Checks the authenticator response against the challenge found through
+        the `taleart_challenge` cookie, creates the admin and their passkey, and
+        sets the `taleart_session` cookie. Bad or expired challenge, or failed
+        verification: 400 `passkey_failed`. A user already exists: 409 `setup_closed`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyResponse'
+      responses:
+        '201':
+          description: The admin, now signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedIn'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/sign-in/options:
+    post:
+      operationId: startSignIn
+      summary: Start signing in with a passkey.
+      description: >-
+        Answers WebAuthn request options without `allowCredentials` (the passkey
+        is discoverable, so no email is needed) and sets the http-only
+        `taleart_challenge` cookie. The challenge is single-use and expires after 5 minutes.
+      security: []
+      responses:
+        '200':
+          description: WebAuthn request options for the browser.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyRequestOptions'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/sign-in/verify:
+    post:
+      operationId: finishSignIn
+      summary: Sign in with a stored passkey.
+      description: >-
+        Checks the authenticator response and the signature counter, then sets
+        the `taleart_session` cookie (7 days). Unknown passkey, bad or expired
+        challenge, or failed verification: 401 `passkey_failed`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyResponse'
+      responses:
+        '200':
+          description: The signed-in user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedIn'
+        '401':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/sign-out:
+    post:
+      operationId: signOut
+      summary: End the current session.
+      description: Deletes the session and clears the `taleart_session` cookie. Works without a session too.
+      security: []
+      responses:
+        '204':
+          description: Signed out.
+        default:
+          $ref: '#/components/responses/Error'
   /projects:
     get:
       operationId: listProjects
@@ -383,6 +516,14 @@ paths:
         default:
           $ref: '#/components/responses/Error'
 components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: taleart_session
+      description: >-
+        Server-side session started by a passkey sign-in (AD-9). Without a valid
+        session every route except `/health` and `/auth/*` answers 401 `unauthenticated`.
   responses:
     Error:
       description: The request failed.
@@ -579,6 +720,77 @@ components:
           description: Every tale id of the group, once each, in the new order.
           items:
             type: string
+    UserRole:
+      type: string
+      enum: [admin, content_manager]
+    User:
+      type: object
+      required: [id, name, email, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+    AuthState:
+      type: object
+      required: [setupRequired, user]
+      properties:
+        setupRequired:
+          type: boolean
+          description: True while no user exists; the dashboard then shows the setup screen.
+        user:
+          description: The signed-in user, or null without a valid session.
+          oneOf:
+            - $ref: '#/components/schemas/User'
+            - type: 'null'
+    SetupRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+    SignedIn:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+    PasskeyCreationOptions:
+      type: object
+      required: [challenge]
+      additionalProperties: true
+      description: WebAuthn `PublicKeyCredentialCreationOptionsJSON`, passed to the browser as is.
+      properties:
+        challenge:
+          type: string
+    PasskeyRequestOptions:
+      type: object
+      required: [challenge]
+      additionalProperties: true
+      description: WebAuthn `PublicKeyCredentialRequestOptionsJSON`, passed to the browser as is.
+      properties:
+        challenge:
+          type: string
+    PasskeyResponse:
+      type: object
+      required: [id]
+      additionalProperties: true
+      description: >-
+        The authenticator's answer as WebAuthn JSON (`RegistrationResponseJSON`
+        or `AuthenticationResponseJSON`), sent as the browser produced it.
+      properties:
+        id:
+          type: string
     ErrorCode:
       type: string
       enum:
@@ -595,6 +807,9 @@ components:
         - media_not_found
         - unsupported_media_type
         - media_too_large
+        - unauthenticated
+        - setup_closed
+        - passkey_failed
         - internal_error
     ErrorBody:
       type: object

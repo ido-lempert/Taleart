@@ -2,7 +2,7 @@
 // openapi/openapi.yaml through the generated types; change the document, then
 // run `npm exec nx -- run contract:generate`.
 import type { components } from './generated/api';
-import { errorCodeValues, mediaContentTypeValues } from './generated/api';
+import { errorCodeValues, mediaContentTypeValues, userRoleValues } from './generated/api';
 
 export type { paths, operations, components } from './generated/api';
 
@@ -25,11 +25,28 @@ export type OrderTalesRequest = Schemas['OrderTalesRequest'];
 export type TaleMedia = Schemas['TaleMedia'];
 export type MediaKind = Schemas['MediaKind'];
 export type MediaContentType = Schemas['MediaContentType'];
+export type UserRole = Schemas['UserRole'];
+export type User = Schemas['User'];
+export type AuthState = Schemas['AuthState'];
+export type SetupRequest = Schemas['SetupRequest'];
+export type SignedIn = Schemas['SignedIn'];
+export type PasskeyCreationOptions = Schemas['PasskeyCreationOptions'];
+export type PasskeyRequestOptions = Schemas['PasskeyRequestOptions'];
+export type PasskeyResponse = Schemas['PasskeyResponse'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
+
+/** Every role a user can have. */
+export const USER_ROLES: readonly UserRole[] = userRoleValues;
+
+/** The http-only cookie holding the session token (AD-9). */
+export const SESSION_COOKIE = 'taleart_session';
+
+/** The http-only cookie that finds a pending passkey challenge on the server. */
+export const CHALLENGE_COOKIE = 'taleart_challenge';
 
 /** The most tales one tale group holds (FR-010). */
 export const MAX_TALES_PER_GROUP = 100;
@@ -78,6 +95,9 @@ export const ErrorCodes = {
   mediaNotFound: 'media_not_found',
   unsupportedMediaType: 'unsupported_media_type',
   mediaTooLarge: 'media_too_large',
+  unauthenticated: 'unauthenticated',
+  setupClosed: 'setup_closed',
+  passkeyFailed: 'passkey_failed',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

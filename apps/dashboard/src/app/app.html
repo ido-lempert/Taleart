@@ -1,62 +1,72 @@
-<a class="skip-link" href="#main" (click)="skipToMain($event)">Skip to content</a>
+@if (showShell()) {
+  <a class="skip-link" href="#main" (click)="skipToMain($event)">Skip to content</a>
 
-<div class="shell">
-  <nav class="rail" aria-label="Main">
-    <a class="rail__brand" routerLink="/zones" aria-label="TaleArt home">
-      <app-mark />
-    </a>
-    <a class="rail__item" routerLink="/zones" routerLinkActive="rail__item--active" ariaCurrentWhenActive="page">
-      <app-icon name="zones" />
-      <span>Zones</span>
-    </a>
-    <a class="rail__item" routerLink="/projects" routerLinkActive="rail__item--active" ariaCurrentWhenActive="page">
-      <app-icon name="projects" />
-      <span>Projects</span>
-    </a>
-  </nav>
+  <div class="shell">
+    <nav class="rail" aria-label="Main">
+      <a class="rail__brand" routerLink="/zones" aria-label="TaleArt home">
+        <app-mark />
+      </a>
+      <a class="rail__item" routerLink="/zones" routerLinkActive="rail__item--active" ariaCurrentWhenActive="page">
+        <app-icon name="zones" />
+        <span>Zones</span>
+      </a>
+      <a class="rail__item" routerLink="/projects" routerLinkActive="rail__item--active" ariaCurrentWhenActive="page">
+        <app-icon name="projects" />
+        <span>Projects</span>
+      </a>
+    </nav>
 
-  <div class="main-column">
-    <header class="topbar">
-      <div class="topbar__brand">
-        <span class="wordmark">TaleArt</span>
-        <h1 class="topbar__title">{{ shell().heading ?? 'Zones' }}</h1>
-      </div>
-      <div class="topbar__actions">
-        @if (store.projects().length > 0) {
-          <div class="switcher">
-            <span class="avatar" aria-hidden="true">{{ store.selectedProject()?.name?.charAt(0) }}</span>
-            <label class="visually-hidden" for="project-switcher">Project</label>
-            <select id="project-switcher" class="switcher__select" (change)="onProjectChange($event)">
-              @for (project of store.projects(); track project.id) {
-                <option [value]="project.id" [selected]="project.id === store.selectedProjectId()">
-                  {{ project.name }}
-                </option>
-              }
-            </select>
-          </div>
-        }
-        @if (createRequest(); as request) {
-          <button type="button" class="btn btn--primary" (click)="store.openDrawer(request, $event)">
-            <app-icon name="plus" />
-            <span class="btn__label">{{ shell().createLabel }}</span>
-          </button>
-        }
-      </div>
-    </header>
+    <div class="main-column">
+      <header class="topbar">
+        <div class="topbar__brand">
+          <span class="wordmark">TaleArt</span>
+          <h1 class="topbar__title">{{ shell().heading ?? 'Zones' }}</h1>
+        </div>
+        <div class="topbar__actions">
+          @if (store.projects().length > 0) {
+            <div class="switcher">
+              <span class="avatar" aria-hidden="true">{{ store.selectedProject()?.name?.charAt(0) }}</span>
+              <label class="visually-hidden" for="project-switcher">Project</label>
+              <select id="project-switcher" class="switcher__select" (change)="onProjectChange($event)">
+                @for (project of store.projects(); track project.id) {
+                  <option [value]="project.id" [selected]="project.id === store.selectedProjectId()">
+                    {{ project.name }}
+                  </option>
+                }
+              </select>
+            </div>
+          }
+          @if (createRequest(); as request) {
+            <button type="button" class="btn btn--primary" (click)="store.openDrawer(request, $event)">
+              <app-icon name="plus" />
+              <span class="btn__label">{{ shell().createLabel }}</span>
+            </button>
+          }
+          @if (auth.user(); as user) {
+            <div class="user-menu">
+              <span class="user-menu__name" [title]="user.email">{{ user.name }}</span>
+              <button type="button" class="btn btn--ghost btn--sm" (click)="signOut()">Sign out</button>
+            </div>
+          }
+        </div>
+      </header>
 
-    @if (store.apiDown()) {
-      <div class="banner" role="alert">
-        <app-icon name="alert" />
-        <span>Could not reach the API. Is it running on port 3333?</span>
-      </div>
-    }
+      @if (store.apiDown()) {
+        <div class="banner" role="alert">
+          <app-icon name="alert" />
+          <span>Could not reach the API. Is it running on port 3333?</span>
+        </div>
+      }
 
-    <main id="main" class="content" tabindex="-1">
-      <router-outlet />
-    </main>
+      <main id="main" class="content" tabindex="-1">
+        <router-outlet />
+      </main>
+    </div>
   </div>
-</div>
 
-@if (store.drawer(); as request) {
-  <app-create-drawer [request]="request" />
+  @if (store.drawer(); as request) {
+    <app-create-drawer [request]="request" />
+  }
+} @else {
+  <router-outlet />
 }

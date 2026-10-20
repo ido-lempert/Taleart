@@ -7,6 +7,7 @@ import {
   MEDIA_CONTENT_TYPES,
   mediaKind,
   taleMediaUrl,
+  USER_ROLES,
 } from '../index';
 
 describe('contract', () => {
@@ -41,5 +42,11 @@ describe('tale media', () => {
 
   it('derives the media URL from the tale id', () => {
     expect(taleMediaUrl('t1')).toBe('/api/v1/tales/t1/media');
+  });
+});
+
+describe('auth', () => {
+  it('has the admin and content manager roles', () => {
+    expect([...USER_ROLES]).toEqual(['admin', 'content_manager']);
   });
 });

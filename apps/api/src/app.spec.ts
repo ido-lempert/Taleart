@@ -1,8 +1,15 @@
+import { createHash, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  createSession,
+  createUser,
+  PasskeyFailedError,
+  type PasskeyVerifier,
+} from '@taleart/server-access';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
@@ -24,6 +31,49 @@ const frameTypesDir = join(__dirname, '../../../libs/contract/frame-types');
 const mediaDir = mkdtempSync(join(tmpdir(), 'taleart-media-'));
 afterAll(() => rmSync(mediaDir, { recursive: true, force: true }));
 
+// Stands in for the authenticator and @simplewebauthn/server. A fake response
+// is `{ id, challenge, counter?, fail? }`: it passes when it names the expected
+// challenge and does not ask to fail.
+interface FakeResponse {
+  id: string;
+  challenge: string;
+  counter?: number;
+  fail?: boolean;
+}
+const fakeVerifier: PasskeyVerifier = {
+  async creationOptions(user) {
+    return {
+      challenge: randomUUID(),
+      rp: { name: 'TaleArt', id: 'localhost' },
+      user: { id: user.userHandle, name: user.email, displayName: user.name },
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+    };
+  },
+  async verifyRegistration(response, expectedChallenge) {
+    const r = response as FakeResponse;
+    if (r.fail || r.challenge !== expectedChallenge) throw new PasskeyFailedError();
+    return { credentialId: r.id, publicKey: new Uint8Array([1, 2, 3]), counter: r.counter ?? 0, transports: ['internal'] };
+  },
+  async requestOptions() {
+    return { challenge: randomUUID(), rpId: 'localhost', userVerification: 'required' };
+  },
+  async verifyAuthentication(response, expectedChallenge) {
+    const r = response as FakeResponse;
+    if (r.fail || r.challenge !== expectedChallenge) throw new PasskeyFailedError();
+    return r.counter ?? 0;
+  },
+};
+
+// The session cookie the content tests send; set before each test.
+let sessionCookie = '';
+
+// Every request of these tests carries the signed-in session unless it sets its own Cookie header.
+function fetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (sessionCookie && !headers.has('cookie')) headers.set('Cookie', sessionCookie);
+  return globalThis.fetch(input, { ...init, headers });
+}
+
 describe('Management API v1: projects and zones', () => {
   let pool: Pool;
   let server: Server;
@@ -31,7 +81,7 @@ describe('Management API v1: projects and zones', () => {
   let base: string;
 
   async function listen(p: Pool, frameTypes: FrameTypeRegistry = loadFrameTypeRegistry(frameTypesDir)): Promise<Server> {
-    const s = createApp(p, frameTypes, new LocalDiskStorage(mediaDir)).listen(0);
+    const s = createApp(p, frameTypes, new LocalDiskStorage(mediaDir), { verifier: fakeVerifier }).listen(0);
     await new Promise<void>((resolve) => s.once('listening', () => resolve()));
     origin = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
     base = `${origin}/api/v1`;
@@ -72,7 +122,11 @@ describe('Management API v1: projects and zones', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE tales, tale_groups, frames, zones, projects');
+    await pool.query('TRUNCATE tales, tale_groups, frames, zones, projects, auth_challenges, sessions, passkeys, users');
+    // Content routes need a session: sign a user in directly through the access module.
+    const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
+    const { token } = await createSession(pool, user.id);
+    sessionCookie = `taleart_session=${token}`;
   });
 
   afterAll(async () => {
@@ -846,6 +900,284 @@ describe('Management API v1: projects and zones', () => {
       const res = await fetch(`${base}/tales/${tale.id}/media`);
       expect(res.status).toBe(200);
       expect(Buffer.from(await res.arrayBuffer())).toEqual(png);
+    });
+  });
+  describe('auth', () => {
+    // A minimal cookie jar: the cookies the API set, sent back as the browser would.
+    let jar: Record<string, string>;
+
+    function keep(res: Response): Response {
+      for (const line of res.headers.getSetCookie()) {
+        const [pair] = line.split(';');
+        const eq = pair.indexOf('=');
+        const name = pair.slice(0, eq);
+        const value = pair.slice(eq + 1);
+        if (/Max-Age=0/i.test(line)) delete jar[name];
+        else jar[name] = value;
+      }
+      return res;
+    }
+
+    function cookieHeader(): string {
+      return Object.entries(jar)
+        .map(([name, value]) => `${name}=${value}`)
+        .join('; ');
+    }
+
+    async function send(method: string, path: string, body?: unknown): Promise<Response> {
+      const headers: Record<string, string> = { Cookie: cookieHeader() };
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      return keep(
+        await globalThis.fetch(`${base}${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        }),
+      );
+    }
+
+    function setCookieLine(res: Response, name: string): string {
+      return res.headers.getSetCookie().find((line) => line.startsWith(`${name}=`)) ?? '';
+    }
+
+    async function setupOptions(name = 'Ada Admin', email = 'ada@example.com'): Promise<{ challenge: string }> {
+      const res = await send('POST', '/auth/setup/options', { name, email });
+      expect(res.status).toBe(200);
+      return res.json();
+    }
+
+    // Runs setup with credential `cred-1`; the admin ends up signed in.
+    async function setUp(): Promise<{ id: string }> {
+      const { challenge } = await setupOptions();
+      const res = await send('POST', '/auth/setup/verify', { id: 'cred-1', challenge });
+      expect(res.status).toBe(201);
+      return (await res.json()).user;
+    }
+
+    async function signIn(response: Partial<FakeResponse>): Promise<Response> {
+      const { challenge } = await (await send('POST', '/auth/sign-in/options')).json();
+      return send('POST', '/auth/sign-in/verify', { id: 'cred-1', challenge, ...response });
+    }
+
+    beforeEach(async () => {
+      jar = {};
+      // Auth tests start from an empty install.
+      await pool.query('TRUNCATE auth_challenges, sessions, passkeys, users');
+    });
+
+    it('reports that setup is required on an empty install', async () => {
+      const res = await send('GET', '/auth/state');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ setupRequired: true, user: null });
+    });
+
+    it('answers setup options with creation options and an http-only challenge cookie', async () => {
+      const res = await send('POST', '/auth/setup/options', { name: 'Ada Admin', email: 'ada@example.com' });
+      expect(res.status).toBe(200);
+      const options = await res.json();
+      expect(options).toMatchObject({
+        challenge: expect.any(String),
+        user: { name: 'ada@example.com', displayName: 'Ada Admin' },
+        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+      });
+      const cookie = setCookieLine(res, 'taleart_challenge');
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('SameSite=Strict');
+      expect(cookie).toContain('Max-Age=300');
+      expect(cookie).not.toContain('Secure');
+      expect(cookie).not.toContain(options.challenge);
+    });
+
+    it.each([
+      { name: '  ', email: 'ada@example.com' },
+      { name: 'Ada', email: 'not-an-email' },
+      { name: 'Ada' },
+    ])('refuses setup options %o with 400 validation_failed', async (body) => {
+      const res = await send('POST', '/auth/setup/options', body);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
+    });
+
+    it('creates the admin, signs them in and stores only the token hash', async () => {
+      const { challenge } = await setupOptions();
+      const res = await send('POST', '/auth/setup/verify', { id: 'cred-1', challenge });
+      expect(res.status).toBe(201);
+      const { user } = await res.json();
+      expect(user).toEqual({ id: expect.any(String), name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+
+      const cookie = setCookieLine(res, 'taleart_session');
+      expect(cookie).toMatch(/HttpOnly/);
+      expect(cookie).toMatch(/SameSite=Strict/);
+      expect(cookie).toMatch(/Path=\//);
+      expect(cookie).toMatch(/Max-Age=60479\d/);
+      const token = decodeURIComponent(jar['taleart_session']);
+      expect(Buffer.from(token, 'base64url')).toHaveLength(32);
+
+      const { rows } = await pool.query('SELECT token_hash, expires_at - created_at AS ttl FROM sessions');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].token_hash).toBe(createHash('sha256').update(token).digest('hex'));
+      expect(JSON.stringify(rows)).not.toContain(token);
+      expect(rows[0].ttl).toMatchObject({ days: 7 });
+
+      const passkeys = await pool.query('SELECT credential_id, counter FROM passkeys');
+      expect(passkeys.rows).toEqual([{ credential_id: 'cred-1', counter: '0' }]);
+
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user });
+      expect((await send('GET', '/projects')).status).toBe(200);
+    });
+
+    it('refuses a setup response to another challenge with 400 passkey_failed', async () => {
+      await setupOptions();
+      const res = await send('POST', '/auth/setup/verify', { id: 'cred-1', challenge: 'other' });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: { code: 'passkey_failed', message: expect.any(String) } });
+      expect((await pool.query('SELECT 1 FROM users')).rowCount).toBe(0);
+    });
+
+    it('refuses setup without a challenge cookie, with a used one and with an expired one', async () => {
+      const first = await setupOptions();
+      const challengeCookie = jar['taleart_challenge'];
+      delete jar['taleart_challenge'];
+      expect((await send('POST', '/auth/setup/verify', { id: 'cred-1', challenge: first.challenge })).status).toBe(400);
+
+      // The challenge travels only in the cookie; a used one does not work twice.
+      jar['taleart_challenge'] = challengeCookie;
+      await send('POST', '/auth/setup/verify', { id: 'cred-1', challenge: 'wrong' });
+      jar['taleart_challenge'] = challengeCookie;
+      const reused = await send('POST', '/auth/setup/verify', { id: 'cred-1', challenge: first.challenge });
+      expect(reused.status).toBe(400);
+      expect((await reused.json()).error.code).toBe('passkey_failed');
+
+      const second = await setupOptions();
+      await pool.query("UPDATE auth_challenges SET expires_at = now() - interval '1 second'");
+      const expired = await send('POST', '/auth/setup/verify', { id: 'cred-1', challenge: second.challenge });
+      expect(expired.status).toBe(400);
+      expect((await expired.json()).error.code).toBe('passkey_failed');
+    });
+
+    it('closes setup with 409 setup_closed once an admin exists', async () => {
+      const { challenge } = await setupOptions();
+      await setUp();
+      const options = await send('POST', '/auth/setup/options', { name: 'Eve', email: 'eve@example.com' });
+      expect(options.status).toBe(409);
+      expect(await options.json()).toEqual({ error: { code: 'setup_closed', message: expect.any(String) } });
+      const verify = await send('POST', '/auth/setup/verify', { id: 'cred-2', challenge });
+      expect(verify.status).toBe(409);
+      expect((await verify.json()).error.code).toBe('setup_closed');
+      expect(await (await send('GET', '/auth/state')).json()).toMatchObject({ setupRequired: false });
+    });
+
+    it('lets only one of two racing setups become admin', async () => {
+      const a = await setupOptions('Ada', 'ada@example.com');
+      const cookieA = jar['taleart_challenge'];
+      const b = await setupOptions('Bob', 'bob@example.com');
+      const cookieB = jar['taleart_challenge'];
+      const verify = (cookie: string, id: string, challenge: string) =>
+        globalThis.fetch(`${base}/auth/setup/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: `taleart_challenge=${cookie}` },
+          body: JSON.stringify({ id, challenge }),
+        });
+      const results = await Promise.all([verify(cookieA, 'cred-a', a.challenge), verify(cookieB, 'cred-b', b.challenge)]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      expect((await pool.query('SELECT 1 FROM users')).rowCount).toBe(1);
+    });
+
+    it('answers sign-in options without allowCredentials and with a challenge cookie', async () => {
+      await setUp();
+      jar = {};
+      const res = await send('POST', '/auth/sign-in/options');
+      expect(res.status).toBe(200);
+      const options = await res.json();
+      expect(options.challenge).toEqual(expect.any(String));
+      expect(options.allowCredentials).toBeUndefined();
+      expect(setCookieLine(res, 'taleart_challenge')).toContain('HttpOnly');
+    });
+
+    it('signs in with the stored passkey, updates its counter and starts a session', async () => {
+      const admin = await setUp();
+      jar = {};
+      const res = await signIn({ counter: 3 });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ user: { ...admin, name: 'Ada Admin', email: 'ada@example.com', role: 'admin' } });
+      expect(setCookieLine(res, 'taleart_session')).toContain('HttpOnly');
+      expect((await pool.query('SELECT counter FROM passkeys')).rows).toEqual([{ counter: '3' }]);
+      expect((await send('GET', '/zones')).status).toBe(200);
+    });
+
+    it.each([
+      ['an unknown passkey', { id: 'cred-unknown' }],
+      ['a failed verification', { fail: true }],
+      ['a response to another challenge', { challenge: 'other' }],
+    ])('refuses %s with 401 passkey_failed', async (_label, response) => {
+      await setUp();
+      jar = {};
+      const res = await signIn(response);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: { code: 'passkey_failed', message: expect.any(String) } });
+      expect(jar['taleart_session']).toBeUndefined();
+    });
+
+    it('refuses a signature counter that did not increase', async () => {
+      await setUp();
+      jar = {};
+      expect((await signIn({ counter: 5 })).status).toBe(200);
+      jar = {};
+      expect((await signIn({ counter: 5 })).status).toBe(401);
+    });
+
+    it.each(['/projects', '/zones', '/frame-types', `/tales/${randomUUID()}/media`, '/no-such-route'])(
+      'answers %s with 401 unauthenticated without a session',
+      async (path) => {
+        await setUp();
+        jar = {};
+        const res = await send('GET', path);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: { code: 'unauthenticated', message: expect.any(String) } });
+      },
+    );
+
+    it('keeps health and auth state open without a session', async () => {
+      expect((await send('GET', '/health')).status).toBe(200);
+      expect((await send('GET', '/auth/state')).status).toBe(200);
+    });
+
+    it('refuses an expired session', async () => {
+      await setUp();
+      await pool.query("UPDATE sessions SET expires_at = now() - interval '1 second'");
+      const res = await send('GET', '/projects');
+      expect(res.status).toBe(401);
+      expect((await res.json()).error.code).toBe('unauthenticated');
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user: null });
+    });
+
+    it('signs out: deletes the session, clears the cookie and refuses the old cookie', async () => {
+      await setUp();
+      const oldCookie = jar['taleart_session'];
+      const res = await send('POST', '/auth/sign-out');
+      expect(res.status).toBe(204);
+      expect(setCookieLine(res, 'taleart_session')).toMatch(/^taleart_session=;.*Max-Age=0/);
+      expect((await pool.query('SELECT 1 FROM sessions')).rowCount).toBe(0);
+
+      jar['taleart_session'] = oldCookie;
+      const after = await send('GET', '/projects');
+      expect(after.status).toBe(401);
+      expect((await after.json()).error.code).toBe('unauthenticated');
+    });
+
+    it('marks cookies Secure when the dashboard origin is https', async () => {
+      const secure = createApp(pool, loadFrameTypeRegistry(frameTypesDir), new LocalDiskStorage(mediaDir), {
+        verifier: fakeVerifier,
+        secureCookies: true,
+      }).listen(0);
+      await new Promise<void>((resolve) => secure.once('listening', () => resolve()));
+      try {
+        const port = (secure.address() as AddressInfo).port;
+        const res = await globalThis.fetch(`http://127.0.0.1:${port}/api/v1/auth/sign-in/options`, { method: 'POST' });
+        expect(setCookieLine(res, 'taleart_challenge')).toContain('Secure');
+      } finally {
+        await new Promise<void>((resolve) => secure.close(() => resolve()));
+      }
     });
   });
 });

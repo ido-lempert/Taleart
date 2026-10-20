@@ -786,3 +786,64 @@ select {
     padding: 0;
   }
 }
+
+/* ---------- Setup and sign-in ---------- */
+.auth-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--space-6) var(--space-4);
+  background: var(--canvas);
+}
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.auth-card__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.auth-card__wordmark {
+  color: var(--ink);
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+.auth-card__title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.auth-card__help {
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.auth-card__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.auth-card__submit {
+  width: 100%;
+}
+
+@media (max-width: 639.98px) {
+  .auth-card {
+    padding: var(--space-6) var(--space-4);
+  }
+}

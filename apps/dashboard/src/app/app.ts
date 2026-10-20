@@ -1,19 +1,24 @@
-import { ChangeDetectionStrategy, Component, computed, DOCUMENT, inject, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DOCUMENT, effect, inject, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRouteSnapshot, NavigationEnd, NavigationStart, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
+import { AuthStore } from './auth';
 import { CreateDrawer } from './create-drawer';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Icon, Mark } from './icon';
-import type { ShellData } from './app.routes';
+import type { BareData, ShellData } from './app.routes';
 
-export { API_BASE } from './dashboard.store';
+export { API_BASE, API_ORIGIN } from './dashboard.store';
 
 function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
   return snapshot.firstChild ? deepest(snapshot.firstChild) : snapshot;
 }
 
-/** The app shell: navigation rail, top bar with the project switcher, the routed page and the create drawer. */
+/**
+ * The app shell: navigation rail, top bar with the project switcher and the
+ * signed-in user, the routed page and the create drawer. Setup and sign-in show
+ * without the shell.
+ */
 @Component({
   imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, Mark, CreateDrawer],
   selector: 'app-root',
@@ -21,8 +26,9 @@ function deepest(snapshot: ActivatedRouteSnapshot): ActivatedRouteSnapshot {
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
-export class App implements OnInit {
+export class App {
   protected readonly store = inject(DashboardStore);
+  protected readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
 
@@ -33,6 +39,12 @@ export class App implements OnInit {
     ),
     { initialValue: null },
   );
+
+  /** True once a shell page is shown; setup, sign-in and the first navigation show only the page. */
+  protected readonly showShell = computed(() => {
+    const route = this.route();
+    return route !== null && !(route.data as Partial<BareData>).bare;
+  });
 
   protected readonly shell = computed(() => (this.route()?.data as Partial<ShellData> | undefined) ?? {});
 
@@ -60,10 +72,16 @@ export class App implements OnInit {
         takeUntilDestroyed(),
       )
       .subscribe(() => this.store.closeDrawer());
+
+    // Data loads once someone is signed in; signing out clears it (AuthStore resets the store).
+    effect(() => {
+      if (this.auth.user()) untracked(() => void this.store.refresh());
+    });
   }
 
-  ngOnInit(): void {
-    void this.store.refresh();
+  protected async signOut(): Promise<void> {
+    await this.auth.signOut();
+    await this.router.navigate(['/sign-in']);
   }
 
   // Handled in code: with <base href="/">, "#main" would resolve to "/#main" and leave the page.
