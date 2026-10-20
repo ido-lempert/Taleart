@@ -1,5 +1,12 @@
+import type { Health } from '@taleart/contract';
 import express from 'express';
 import type { Pool } from 'pg';
+import { errorHandler, notFoundHandler } from './http/errors';
+import { projectsRouter } from './http/projects.router';
+import { zonesRouter } from './http/zones.router';
+
+/** Management API base path (AD-2, versioned per the spine conventions). */
+export const MANAGEMENT_API_BASE = '/api/v1';
 
 // Builds the API. Takes its pool so tests can point it at a real database.
 export function createApp(pool: Pool): express.Express {
@@ -13,80 +20,19 @@ export function createApp(pool: Pool): express.Express {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     next();
   });
-  app.options('/api/*', (_req, res) => res.sendStatus(204));
+  app.options(`${MANAGEMENT_API_BASE}/*`, (_req, res) => res.sendStatus(204));
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok' });
+  const v1 = express.Router();
+  v1.get('/health', (_req, res) => {
+    const body: Health = { status: 'ok' };
+    res.json(body);
   });
+  v1.use('/projects', projectsRouter(pool));
+  v1.use('/zones', zonesRouter(pool));
+  app.use(MANAGEMENT_API_BASE, v1);
 
-  app.get('/api/projects', async (_req, res, next) => {
-    try {
-      const { rows } = await pool.query('SELECT id, name FROM projects ORDER BY created_at');
-      res.json(rows);
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  app.post('/api/projects', async (req, res, next) => {
-    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-    if (!name) {
-      res.status(400).json({ error: 'name is required' });
-      return;
-    }
-    try {
-      const { rows } = await pool.query(
-        'INSERT INTO projects (name) VALUES ($1) RETURNING id, name',
-        [name],
-      );
-      res.status(201).json(rows[0]);
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  app.get('/api/zones', async (_req, res, next) => {
-    try {
-      const { rows } = await pool.query(
-        'SELECT id, name, project_id AS "projectId" FROM zones ORDER BY created_at',
-      );
-      res.json(rows);
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  app.post('/api/zones', async (req, res, next) => {
-    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-    const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId : '';
-    if (!name) {
-      res.status(400).json({ error: 'name is required' });
-      return;
-    }
-    if (!projectId) {
-      res.status(400).json({ error: 'projectId is required' });
-      return;
-    }
-    try {
-      const { rows: projects } = await pool.query('SELECT id FROM projects WHERE id = $1', [projectId]);
-      if (projects.length === 0) {
-        res.status(400).json({ error: 'projectId does not match a project' });
-        return;
-      }
-      const { rows } = await pool.query(
-        'INSERT INTO zones (name, project_id) VALUES ($1, $2) RETURNING id, name, project_id AS "projectId"',
-        [name, projectId],
-      );
-      res.status(201).json(rows[0]);
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error(err);
-    res.status(500).json({ error: 'internal error' });
-  });
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 
   return app;
 }

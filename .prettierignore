@@ -5,3 +5,4 @@
 /.nx/workspace-data
 package-lock.json
 .angular
+libs/contract/src/generated/

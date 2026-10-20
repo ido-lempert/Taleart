@@ -1,0 +1,44 @@
+{
+  "name": "contract",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/contract/src",
+  "projectType": "library",
+  "tags": [
+    "type:contract"
+  ],
+  "targets": {
+    "generate": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "{projectRoot}/openapi/openapi.yaml"
+      ],
+      "outputs": [
+        "{projectRoot}/src/generated/api.ts"
+      ],
+      "options": {
+        "command": "openapi-typescript libs/contract/openapi/openapi.yaml --enum-values -o libs/contract/src/generated/api.ts"
+      }
+    },
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "options": {
+        "outputPath": "dist/libs/contract",
+        "main": "libs/contract/src/index.ts",
+        "tsConfig": "libs/contract/tsconfig.lib.json",
+        "assets": []
+      },
+      "dependsOn": [
+        "generate"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "generate"
+      ]
+    }
+  }
+}

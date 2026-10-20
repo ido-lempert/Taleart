@@ -4,7 +4,7 @@
   "projectType": "application",
   "prefix": "app",
   "sourceRoot": "apps/dashboard/src",
-  "tags": [],
+  "tags": ["type:app", "scope:dashboard"],
   "targets": {
     "build": {
       "executor": "@angular/build:application",

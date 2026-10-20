@@ -20,10 +20,29 @@ export default [
         {
           enforceBuildableLibDependency: true,
           allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$'],
+          // AD-1: clients depend only on the contract; the API and domain
+          // modules depend on modules' public interfaces and the contract;
+          // the contract depends on nothing.
           depConstraints: [
             {
-              sourceTag: '*',
-              onlyDependOnLibsWithTags: ['*'],
+              sourceTag: 'scope:api',
+              onlyDependOnLibsWithTags: ['type:server-module', 'type:contract'],
+            },
+            {
+              sourceTag: 'type:server-module',
+              onlyDependOnLibsWithTags: ['type:server-module', 'type:contract'],
+            },
+            {
+              sourceTag: 'scope:dashboard',
+              onlyDependOnLibsWithTags: ['type:contract'],
+            },
+            {
+              sourceTag: 'type:sdk',
+              onlyDependOnLibsWithTags: ['type:contract'],
+            },
+            {
+              sourceTag: 'type:contract',
+              onlyDependOnLibsWithTags: [],
             },
           ],
         },
