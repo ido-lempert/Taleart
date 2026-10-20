@@ -381,10 +381,33 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The zone of the zone key, with its frames (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials.
+         * The zone of the zone key, with its frames and tale groups (Delivery API).
+         * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials. Tale groups and their tales come in dashboard order; each tale's media URL is absolute and public (AD-11).
          */
         get: operations["getDeliveryZone"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The storage key of a published tale's media, such as `tales/<uuid>.png`. It contains a slash, sent as is. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a published tale's media file, with no credentials.
+         * @description Serves only keys that a published tale currently references; any other key, including the key of replaced media, answers 404 `media_not_found`. The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable), is cached as immutable (replaced media gets a new key) and is open to any origin.
+         */
+        get: operations["getPublicMedia"];
         put?: never;
         post?: never;
         delete?: never;
@@ -683,6 +706,31 @@ export interface components {
             id: string;
             name: string;
             frames: components["schemas"]["DeliveryFrame"][];
+            /** @description The zone's published tale groups by position; every frame shows all of them. */
+            taleGroups: components["schemas"]["DeliveryTaleGroup"][];
+        };
+        DeliveryTaleGroup: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description The group's published tales by position. */
+            tales: components["schemas"]["DeliveryTale"][];
+        };
+        DeliveryTale: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** @description The tale's image, GIF or video, or null when it has none. */
+            media: components["schemas"]["DeliveryMedia"] | null;
+        };
+        DeliveryMedia: {
+            kind: components["schemas"]["MediaKind"];
+            contentType: components["schemas"]["MediaContentType"];
+            /**
+             * Format: uri
+             * @description Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/tales/<uuid>.png`. Needs no key (AD-11).
+             */
+            url: string;
         };
         /** @enum {string} */
         UserRole: "admin" | "content_manager";
@@ -1359,7 +1407,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The zone and its frames, oldest first. */
+            /** @description The zone, its frames oldest first, and its tale groups by position. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1369,6 +1417,50 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getPublicMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The storage key of a published tale's media, such as `tales/<uuid>.png`. It contains a slash, sent as is. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The media file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "image/gif": string;
+                    "video/mp4": string;
+                    "video/webm": string;
+                };
+            };
+            /** @description The requested byte range of the media file. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+            /** @description The requested range lies outside the file. */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             default: components["responses"]["Error"];
         };
     };

@@ -5,16 +5,31 @@
   "projectType": "library",
   "release": {
     "version": {
-      "manifestRootsToUpdate": ["dist/{projectRoot}"],
+      "manifestRootsToUpdate": [
+        "dist/{projectRoot}"
+      ],
       "currentVersionResolver": "git-tag",
       "fallbackCurrentVersionResolver": "disk"
     }
   },
-  "tags": ["type:sdk", "platform:web"],
+  "tags": [
+    "type:sdk",
+    "platform:web"
+  ],
   "targets": {
     "nx-release-publish": {
       "options": {
         "packageRoot": "dist/{projectRoot}"
+      }
+    },
+    "size": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node libs/web-sdk/scripts/check-size.mjs dist/libs/web-sdk/index.js"
       }
     }
   }

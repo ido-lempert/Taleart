@@ -44,6 +44,9 @@ export type ZoneKeyInfo = Schemas['ZoneKeyInfo'];
 export type IssuedZoneKey = Schemas['IssuedZoneKey'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
 export type DeliveryZone = Schemas['DeliveryZone'];
+export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
+export type DeliveryTale = Schemas['DeliveryTale'];
+export type DeliveryMedia = Schemas['DeliveryMedia'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
@@ -69,6 +72,18 @@ export function invitationPath(token: string): string {
 
 /** Delivery API base path (AD-2): SDKs only, zone keys only. */
 export const DELIVERY_API_BASE = '/delivery/v1';
+
+/** Base path of public media (AD-11): no session and no zone key. */
+export const PUBLIC_MEDIA_BASE = '/media';
+
+/**
+ * The absolute public URL of a published tale's media (AD-11):
+ * `<apiUrl>/media/<key>`. The key's slashes stay as they are; each segment is encoded.
+ */
+export function publicMediaUrl(apiUrl: string, key: string): string {
+  const path = key.split('/').map(encodeURIComponent).join('/');
+  return `${apiUrl.replace(/\/+$/, '')}${PUBLIC_MEDIA_BASE}/${path}`;
+}
 
 /** Every zone key starts with this (AD-9). */
 export const ZONE_KEY_PREFIX = 'tak_';

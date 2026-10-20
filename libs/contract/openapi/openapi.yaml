@@ -542,23 +542,72 @@ paths:
         description: Delivery API (AD-2), for SDKs. Accepts zone keys only.
     get:
       operationId: getDeliveryZone
-      summary: The zone of the zone key, with its frames (Delivery API).
+      summary: The zone of the zone key, with its frames and tale groups (Delivery API).
       description: >-
         Served under `/delivery/v1`. Accepts only a zone key in
         `Authorization: Bearer <key>`, never a session. A missing, unknown or
         revoked key answers 401 `invalid_zone_key`. CORS is open to any origin,
-        without credentials.
+        without credentials. Tale groups and their tales come in dashboard
+        order; each tale's media URL is absolute and public (AD-11).
       security:
         - zoneKey: []
       responses:
         '200':
-          description: The zone and its frames, oldest first.
+          description: The zone, its frames oldest first, and its tale groups by position.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeliveryZone'
         '401':
           $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /media/{key}:
+    servers:
+      - url: /
+        description: Public media (AD-11). No session and no zone key.
+    parameters:
+      - name: key
+        in: path
+        required: true
+        description: >-
+          The storage key of a published tale's media, such as
+          `tales/<uuid>.png`. It contains a slash, sent as is.
+        schema:
+          type: string
+        allowReserved: true
+    get:
+      operationId: getPublicMedia
+      summary: Read a published tale's media file, with no credentials.
+      description: >-
+        Serves only keys that a published tale currently references; any other
+        key, including the key of replaced media, answers 404
+        `media_not_found`. The response carries the stored `Content-Type`,
+        supports one byte range (206, or 416 when unsatisfiable), is cached as
+        immutable (replaced media gets a new key) and is open to any origin.
+      security: []
+      responses:
+        '200':
+          description: The media file.
+          content:
+            image/jpeg:
+              schema: { type: string, contentMediaType: image/jpeg }
+            image/png:
+              schema: { type: string, contentMediaType: image/png }
+            image/webp:
+              schema: { type: string, contentMediaType: image/webp }
+            image/gif:
+              schema: { type: string, contentMediaType: image/gif }
+            video/mp4:
+              schema: { type: string, contentMediaType: video/mp4 }
+            video/webm:
+              schema: { type: string, contentMediaType: video/webm }
+        '206':
+          description: The requested byte range of the media file.
+        '404':
+          $ref: '#/components/responses/Error'
+        '416':
+          description: The requested range lies outside the file.
         default:
           $ref: '#/components/responses/Error'
   /zones/{zoneId}/tale-groups:
@@ -1145,7 +1194,7 @@ components:
           additionalProperties: true
     DeliveryZone:
       type: object
-      required: [id, name, frames]
+      required: [id, name, frames, taleGroups]
       properties:
         id:
           type: string
@@ -1156,6 +1205,53 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeliveryFrame'
+        taleGroups:
+          type: array
+          description: The zone's published tale groups by position; every frame shows all of them.
+          items:
+            $ref: '#/components/schemas/DeliveryTaleGroup'
+    DeliveryTaleGroup:
+      type: object
+      required: [id, name, tales]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        tales:
+          type: array
+          description: The group's published tales by position.
+          items:
+            $ref: '#/components/schemas/DeliveryTale'
+    DeliveryTale:
+      type: object
+      required: [id, title, media]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        media:
+          description: The tale's image, GIF or video, or null when it has none.
+          oneOf:
+            - $ref: '#/components/schemas/DeliveryMedia'
+            - type: 'null'
+    DeliveryMedia:
+      type: object
+      required: [kind, contentType, url]
+      properties:
+        kind:
+          $ref: '#/components/schemas/MediaKind'
+        contentType:
+          $ref: '#/components/schemas/MediaContentType'
+        url:
+          type: string
+          format: uri
+          description: >-
+            Absolute, public and unguessable URL of the file, such as
+            `https://api.example.com/media/tales/<uuid>.png`. Needs no key (AD-11).
     UserRole:
       type: string
       enum: [admin, content_manager]

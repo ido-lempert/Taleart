@@ -1,4 +1,5 @@
 import { isMediaContentType, type MediaContentType } from '@taleart/contract';
+import type { Request, Response } from 'express';
 
 /** The declared `Content-Type` without parameters, lower-cased; null when it is not a tale media type. */
 export function declaredMediaType(header: string | undefined): MediaContentType | null {
@@ -39,4 +40,27 @@ const EXTENSIONS: Record<MediaContentType, string> = {
 /** The file extension a storage key gets for this type. */
 export function mediaExtension(contentType: MediaContentType): string {
   return EXTENSIONS[contentType];
+}
+
+/**
+ * Sends media bytes, honouring one byte range: browsers (Safari and iOS in
+ * particular) need ranges to play and seek videos. One satisfiable bytes range
+ * answers 206; an unsatisfiable one 416 with the size; none, a malformed one or
+ * several answer 200 with the whole file. Headers other than ranges are the caller's.
+ */
+export function sendMediaBytes(req: Request, res: Response, data: Buffer): void {
+  res.setHeader('Accept-Ranges', 'bytes');
+  const ranges = req.headers.range ? req.range(data.length) : undefined;
+  if (ranges === -1) {
+    res.setHeader('Content-Range', `bytes */${data.length}`);
+    res.status(416).end();
+    return;
+  }
+  if (Array.isArray(ranges) && ranges.type === 'bytes' && ranges.length === 1) {
+    const { start, end } = ranges[0];
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${data.length}`);
+    res.status(206).send(data.subarray(start, end + 1));
+    return;
+  }
+  res.send(data);
 }

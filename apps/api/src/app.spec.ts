@@ -65,6 +65,9 @@ const fakeVerifier: PasskeyVerifier = {
   },
 };
 
+// The public origin Delivery media URLs start with (PUBLIC_API_URL).
+const publicApiUrl = 'https://api.example.com';
+
 // The session cookie the content tests send; set before each test.
 let sessionCookie = '';
 
@@ -82,7 +85,7 @@ describe('Management API v1: projects and zones', () => {
   let base: string;
 
   async function listen(p: Pool, frameTypes: FrameTypeRegistry = loadFrameTypeRegistry(frameTypesDir)): Promise<Server> {
-    const s = createApp(p, frameTypes, new LocalDiskStorage(mediaDir), { verifier: fakeVerifier }).listen(0);
+    const s = createApp(p, frameTypes, new LocalDiskStorage(mediaDir), { verifier: fakeVerifier }, { publicApiUrl }).listen(0);
     await new Promise<void>((resolve) => s.once('listening', () => resolve()));
     origin = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
     base = `${origin}/api/v1`;
@@ -1449,6 +1452,150 @@ describe('Management API v1: projects and zones', () => {
         id: zone.id,
         name: zone.name,
         frames: [{ id: frame.id, type: 'bar', settings: {} }],
+        taleGroups: [],
+      });
+    });
+
+    describe('tale groups and public media', () => {
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]);
+      const gif = Buffer.from('GIF89a-tiny-gif');
+      const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom-tiny-mp4-with-some-bytes')]);
+      const mediaUrl = /^https:\/\/api\.example\.com\/media\/tales\/[0-9a-f-]{36}\.(png|gif|mp4)$/;
+
+      async function addGroup(zoneId: string, name: string): Promise<{ id: string }> {
+        return (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+      }
+
+      async function addTale(groupId: string, title: string, media?: [string, Buffer]): Promise<{ id: string }> {
+        const tale = await (await post(`/tale-groups/${groupId}/tales`, { title })).json();
+        if (media) {
+          const res = await fetch(`${base}/tales/${tale.id}/media`, {
+            method: 'PUT',
+            headers: { 'Content-Type': media[0] },
+            body: media[1],
+          });
+          expect(res.status).toBe(200);
+        }
+        return tale;
+      }
+
+      // Fetches a public media URL on the test server, with no cookie and no key.
+      function getPublic(url: string, headers: Record<string, string> = {}): Promise<Response> {
+        return globalThis.fetch(`${origin}${new URL(url).pathname}`, { headers });
+      }
+
+      it('serves the tale groups and tales in dashboard order with absolute public media URLs', async () => {
+        const zone = await createZone();
+        await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: {} });
+        const b = await addGroup(zone.id, 'B');
+        const a = await addGroup(zone.id, 'A');
+        const ordered = await fetch(`${base}/zones/${zone.id}/tale-groups/order`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taleGroupIds: [a.id, b.id] }),
+        });
+        expect(ordered.status).toBe(200);
+        const a1 = await addTale(a.id, 'A1', ['image/png', png]);
+        const a2 = await addTale(a.id, 'A2');
+        const b1 = await addTale(b.id, 'B1', ['video/mp4', mp4]);
+        const { key } = await issue(zone.id);
+
+        const res = await deliver(key);
+        expect(res.status).toBe(200);
+        const text = await res.text();
+        const body = JSON.parse(text);
+        expect(body.taleGroups).toEqual([
+          {
+            id: a.id,
+            name: 'A',
+            tales: [
+              { id: a1.id, title: 'A1', media: { kind: 'image', contentType: 'image/png', url: expect.stringMatching(mediaUrl) } },
+              { id: a2.id, title: 'A2', media: null },
+            ],
+          },
+          {
+            id: b.id,
+            name: 'B',
+            tales: [{ id: b1.id, title: 'B1', media: { kind: 'video', contentType: 'video/mp4', url: expect.stringMatching(mediaUrl) } }],
+          },
+        ]);
+        // No project id or Management API media path in the Delivery response (AD-13).
+        expect(text).not.toContain(zone.projectId);
+        expect(text).not.toContain('/api/v1');
+      });
+
+      it('answers an empty taleGroups list for a zone without tale groups', async () => {
+        const zone = await createZone();
+        const { key } = await issue(zone.id);
+        expect((await (await deliver(key)).json()).taleGroups).toEqual([]);
+      });
+
+      it('serves referenced media publicly: stored type, immutable cache, CORS, nosniff, no key or session', async () => {
+        const zone = await createZone();
+        const group = await addGroup(zone.id, 'A');
+        await addTale(group.id, 'A1', ['image/png', png]);
+        const { key } = await issue(zone.id);
+        const url = (await (await deliver(key)).json()).taleGroups[0].tales[0].media.url;
+
+        const res = await getPublic(url);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('image/png');
+        expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+        expect(res.headers.get('access-control-allow-origin')).toBe('*');
+        expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(res.headers.get('etag')).toBe(`"${new URL(url).pathname.slice('/media/'.length)}"`);
+        expect(Buffer.from(await res.arrayBuffer())).toEqual(png);
+
+        // Still public after the zone key is revoked: media never needs the key.
+        await send('DELETE', `/zones/${zone.id}/key`);
+        expect((await getPublic(url)).status).toBe(200);
+      });
+
+      it('serves a byte range with 206 and an unsatisfiable one with 416', async () => {
+        const zone = await createZone();
+        const group = await addGroup(zone.id, 'A');
+        await addTale(group.id, 'A1', ['video/mp4', mp4]);
+        const { key } = await issue(zone.id);
+        const url = (await (await deliver(key)).json()).taleGroups[0].tales[0].media.url;
+
+        const res = await getPublic(url, { Range: 'bytes=0-9' });
+        expect(res.status).toBe(206);
+        expect(res.headers.get('content-range')).toBe(`bytes 0-9/${mp4.length}`);
+        expect(res.headers.get('content-type')).toBe('video/mp4');
+        expect(Buffer.from(await res.arrayBuffer())).toEqual(mp4.subarray(0, 10));
+
+        const outside = await getPublic(url, { Range: `bytes=${mp4.length}-` });
+        expect(outside.status).toBe(416);
+        expect(outside.headers.get('content-range')).toBe(`bytes */${mp4.length}`);
+      });
+
+      it('answers 404 media_not_found for an unknown key and for the key of replaced media', async () => {
+        const zone = await createZone();
+        const group = await addGroup(zone.id, 'A');
+        const tale = await addTale(group.id, 'A1', ['image/png', png]);
+        const { key } = await issue(zone.id);
+        const oldUrl = (await (await deliver(key)).json()).taleGroups[0].tales[0].media.url;
+
+        const replaced = await fetch(`${base}/tales/${tale.id}/media`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/gif' },
+          body: gif,
+        });
+        expect(replaced.status).toBe(200);
+        const newUrl = (await (await deliver(key)).json()).taleGroups[0].tales[0].media.url;
+        expect(newUrl).not.toBe(oldUrl);
+        expect((await getPublic(newUrl)).status).toBe(200);
+
+        for (const res of [
+          await getPublic(oldUrl),
+          await globalThis.fetch(`${origin}/media/tales/${randomUUID()}.png`),
+          await globalThis.fetch(`${origin}/media/tales%2F..%2F..%2Fpackage.json`),
+          await globalThis.fetch(`${origin}/media/`),
+          await globalThis.fetch(`${origin}/media/tales/%E0%A4%A`),
+        ]) {
+          expect(res.status).toBe(404);
+          expect(await res.json()).toEqual({ error: { code: 'media_not_found', message: expect.any(String) } });
+        }
       });
     });
 

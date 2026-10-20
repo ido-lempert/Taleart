@@ -8,6 +8,7 @@ import {
   MEDIA_CONTENT_TYPES,
   mediaKind,
   normalizeTagName,
+  publicMediaUrl,
   taleMediaUrl,
   USER_ROLES,
   ZONE_KEY_PREFIX,
@@ -46,6 +47,13 @@ describe('tale media', () => {
 
   it('derives the media URL from the tale id', () => {
     expect(taleMediaUrl('t1')).toBe('/api/v1/tales/t1/media');
+  });
+
+  it('builds the absolute public media URL from the API URL and the key', () => {
+    expect(publicMediaUrl('http://localhost:3333', 'tales/abc.png')).toBe('http://localhost:3333/media/tales/abc.png');
+    expect(publicMediaUrl('https://api.example.com/', 'tales/abc.mp4')).toBe(
+      'https://api.example.com/media/tales/abc.mp4',
+    );
   });
 });
 

@@ -350,3 +350,68 @@ export async function setTaleMedia(
   const { previousKey, ...row } = rows[0];
   return { tale: toTale(row), previousKey };
 }
+
+/** A tale as the Delivery API needs it: its stored media key stays for the API to build the public URL. */
+export interface DeliveryStoredTale {
+  id: string;
+  title: string;
+  media: StoredTaleMedia | null;
+}
+
+/** A tale group as the Delivery API needs it, with its tales by position. */
+export interface DeliveryStoredTaleGroup {
+  id: string;
+  name: string;
+  tales: DeliveryStoredTale[];
+}
+
+/**
+ * The zone's published tale groups by position, each with its published tales
+ * by position, for the Delivery API. Until statuses exist every tale group and
+ * tale counts as published. Each tale carries its storage key, which the API
+ * turns into a public URL (AD-11) and never returns on its own.
+ */
+export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<DeliveryStoredTaleGroup[]> {
+  if (!UUID.test(zoneId)) return [];
+  const groups = await db.query<{ id: string; name: string }>(
+    'SELECT id, name FROM tale_groups WHERE zone_id = $1 ORDER BY position, id',
+    [zoneId],
+  );
+  if (groups.rows.length === 0) return [];
+  const tales = await db.query<{
+    id: string;
+    taleGroupId: string;
+    title: string;
+    key: string | null;
+    contentType: string | null;
+  }>(
+    `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType"
+     FROM tales WHERE tale_group_id = ANY($1::uuid[]) ORDER BY position, id`,
+    [groups.rows.map((g) => g.id)],
+  );
+  return groups.rows.map((group) => ({
+    id: group.id,
+    name: group.name,
+    tales: tales.rows
+      .filter((tale) => tale.taleGroupId === group.id)
+      .map(({ id, title, key, contentType }) => ({
+        id,
+        title,
+        media: key !== null && isMediaContentType(contentType) ? { key, contentType } : null,
+      })),
+  }));
+}
+
+/**
+ * The stored media a published tale currently references under `key`, or null
+ * when no tale does (an unknown key, or the key of replaced media). Until
+ * statuses exist every tale counts as published.
+ */
+export async function findPublishedMedia(db: Db, key: string): Promise<StoredTaleMedia | null> {
+  const { rows } = await db.query<{ contentType: string | null }>(
+    'SELECT media_content_type AS "contentType" FROM tales WHERE media_key = $1 LIMIT 1',
+    [key],
+  );
+  const contentType = rows[0]?.contentType;
+  return isMediaContentType(contentType) ? { key, contentType } : null;
+}

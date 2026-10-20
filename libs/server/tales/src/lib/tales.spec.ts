@@ -1,6 +1,8 @@
 import {
   createTale,
   createTaleGroup,
+  findPublishedMedia,
+  listDeliveryTaleGroups,
   getTaleGroup,
   getTaleMedia,
   listTaleGroups,
@@ -286,5 +288,52 @@ describe('project lookups', () => {
     expect(query).toHaveBeenCalledTimes(2);
     query.mockResolvedValue({ rows: [] });
     expect(await taleProjectId(db, groupId)).toBeNull();
+  });
+});
+
+describe('delivery', () => {
+  const t1 = '00000000-0000-4000-8000-000000000011';
+  const t2 = '00000000-0000-4000-8000-000000000012';
+  const g2 = '00000000-0000-4000-8000-000000000013';
+
+  it('lists groups by position with their tales and stored media keys', async () => {
+    const { db, statements } = fakeDb([
+      { rows: [{ id: groupId, name: 'A' }, { id: g2, name: 'B' }] },
+      {
+        rows: [
+          { id: t1, taleGroupId: groupId, title: 'One', key: 'tales/x.png', contentType: 'image/png' },
+          { id: t2, taleGroupId: groupId, title: 'Two', key: null, contentType: null },
+        ],
+      },
+    ]);
+    expect(await listDeliveryTaleGroups(db, zoneId)).toEqual([
+      {
+        id: groupId,
+        name: 'A',
+        tales: [
+          { id: t1, title: 'One', media: { key: 'tales/x.png', contentType: 'image/png' } },
+          { id: t2, title: 'Two', media: null },
+        ],
+      },
+      { id: g2, name: 'B', tales: [] },
+    ]);
+    expect(statements().every((s) => /ORDER BY position, id/.test(s))).toBe(true);
+  });
+
+  it('answers an empty list for a zone without groups, and does not query for a non-UUID zone', async () => {
+    const empty = fakeDb([{ rows: [] }]);
+    expect(await listDeliveryTaleGroups(empty.db, zoneId)).toEqual([]);
+    expect(empty.query).toHaveBeenCalledTimes(1);
+    const bad = fakeDb([]);
+    expect(await listDeliveryTaleGroups(bad.db, 'nope')).toEqual([]);
+    expect(bad.query).not.toHaveBeenCalled();
+  });
+
+  it('finds the media a tale references by key, and null for any other key', async () => {
+    const found = fakeDb([{ rows: [{ contentType: 'video/mp4' }] }]);
+    expect(await findPublishedMedia(found.db, 'tales/x.mp4')).toEqual({ key: 'tales/x.mp4', contentType: 'video/mp4' });
+    expect(found.query.mock.calls[0][1]).toEqual(['tales/x.mp4']);
+    const missing = fakeDb([{ rows: [] }]);
+    expect(await findPublishedMedia(missing.db, 'tales/old.png')).toBeNull();
   });
 });

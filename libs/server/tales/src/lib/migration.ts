@@ -44,4 +44,7 @@ export async function migrateTales(db: Db): Promise<void> {
   // path or URL (AD-11). Both are null when the tale has no media.
   await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS media_key text');
   await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS media_content_type text');
+
+  // Public media URLs are looked up by key (AD-11).
+  await db.query('CREATE INDEX IF NOT EXISTS tales_media_key_idx ON tales (media_key)');
 }
