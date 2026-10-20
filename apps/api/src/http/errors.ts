@@ -1,6 +1,11 @@
 import type { ErrorBody, ErrorCode } from '@taleart/contract';
 import { ErrorCodes } from '@taleart/contract';
-import { ProjectNotFoundError } from '@taleart/server-zones';
+import {
+  InvalidFrameSettingsError,
+  ProjectNotFoundError,
+  UnknownFrameTypeError,
+  ZoneNotFoundError,
+} from '@taleart/server-zones';
 import type express from 'express';
 
 /** An error that maps directly to an HTTP status and the standard error body. */
@@ -32,7 +37,15 @@ export const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next)
     res.status(err.status).json(errorBody(err.code, err.message));
     return;
   }
-  if (err instanceof ProjectNotFoundError) {
+  if (err instanceof ZoneNotFoundError) {
+    res.status(404).json(errorBody(err.code, err.message));
+    return;
+  }
+  if (
+    err instanceof ProjectNotFoundError ||
+    err instanceof UnknownFrameTypeError ||
+    err instanceof InvalidFrameSettingsError
+  ) {
     res.status(400).json(errorBody(err.code, err.message));
     return;
   }

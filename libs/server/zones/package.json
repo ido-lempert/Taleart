@@ -8,6 +8,7 @@
   "dependencies": {
     "tslib": "^2.3.0",
     "@taleart/server-access": "0.0.1",
-    "@taleart/contract": "0.0.1"
+    "@taleart/contract": "0.0.1",
+    "ajv": "^8.0.0"
   }
 }
