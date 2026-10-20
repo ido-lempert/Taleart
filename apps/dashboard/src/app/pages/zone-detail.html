@@ -1,4 +1,5 @@
 <div class="page">
+  <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</p>
   @if (store.loaded()) {
     @if (zone(); as zone) {
       <header class="page-header">
@@ -33,23 +34,67 @@
         <div class="section__header">
           <h3 class="section__title" id="groups-title">Tale groups</h3>
         </div>
+        @if (orderError()) {
+          <div class="banner banner--inline" role="alert">
+            <app-icon name="alert" />
+            <span>{{ orderError() }}</span>
+          </div>
+        }
         @if (groups().length > 0) {
-          <ul class="groups" [attr.aria-label]="'Tale groups in ' + zone.name">
-            @for (group of groups(); track group.id) {
-              <li class="group">
+          <ul
+            class="groups"
+            [attr.aria-label]="'Tale groups in ' + zone.name"
+            cdkDropList
+            cdkDropListLockAxis="y"
+            (cdkDropListDropped)="dropGroup($event)"
+          >
+            @for (group of groups(); track group.id; let gi = $index, gFirst = $first, gLast = $last) {
+              <li class="group" cdkDrag cdkDragPreviewContainer="parent">
                 <div class="group__header">
+                  <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
+                    <app-icon name="grip" />
+                  </span>
                   <span class="ring" aria-hidden="true">{{ group.name.charAt(0) }}</span>
-                  <div>
-                    <h4 class="group__name">{{ group.name }}</h4>
+                  <div class="group__name">
+                    <h4>{{ group.name }}</h4>
                     <p class="muted">
                       <span class="visually-hidden">Tales: </span>{{ group.tales.length }} / {{ maxTales }}
                     </p>
                   </div>
+                  <div class="move-controls">
+                    <button
+                      type="button"
+                      class="move-btn"
+                      [attr.data-move]="'group:' + group.id + ':earlier'"
+                      [attr.aria-label]="'Move ' + group.name + ' earlier'"
+                      [disabled]="gFirst"
+                      (click)="stepGroup(gi, 'earlier')"
+                    >
+                      <app-icon name="up" />
+                    </button>
+                    <button
+                      type="button"
+                      class="move-btn"
+                      [attr.data-move]="'group:' + group.id + ':later'"
+                      [attr.aria-label]="'Move ' + group.name + ' later'"
+                      [disabled]="gLast"
+                      (click)="stepGroup(gi, 'later')"
+                    >
+                      <app-icon name="down" />
+                    </button>
+                  </div>
                 </div>
                 <div class="tale-scroller">
-                  <ol class="tale-list" [attr.aria-label]="'Tales in ' + group.name">
-                    @for (tale of group.tales; track tale.id) {
-                      <li class="tale-card" [attr.data-tone]="tone(tale.id)">
+                  <ol
+                    class="tale-list"
+                    [attr.aria-label]="'Tales in ' + group.name"
+                    cdkDropList
+                    cdkDropListOrientation="horizontal"
+                    cdkDropListLockAxis="x"
+                    (cdkDropListDropped)="dropTale(group, $event)"
+                  >
+                    @for (tale of group.tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
+                      <li class="tale-card" [attr.data-tone]="tone(tale.id)" cdkDrag cdkDragPreviewContainer="parent">
                         @if (tale.media; as media) {
                           @if (media.kind === 'video') {
                             <video
@@ -73,6 +118,36 @@
                           [attr.aria-label]="'Open tale ' + tale.title"
                           (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
                         ></button>
+                        <span
+                          class="drag-handle tale-card__handle"
+                          cdkDragHandle
+                          title="Drag to reorder"
+                          aria-hidden="true"
+                        >
+                          <app-icon name="grip" />
+                        </span>
+                        <div class="move-controls tale-card__moves">
+                          <button
+                            type="button"
+                            class="move-btn"
+                            [attr.data-move]="'tale:' + tale.id + ':earlier'"
+                            [attr.aria-label]="'Move ' + tale.title + ' earlier'"
+                            [disabled]="tFirst"
+                            (click)="stepTale(group, ti, 'earlier')"
+                          >
+                            <app-icon name="left" />
+                          </button>
+                          <button
+                            type="button"
+                            class="move-btn"
+                            [attr.data-move]="'tale:' + tale.id + ':later'"
+                            [attr.aria-label]="'Move ' + tale.title + ' later'"
+                            [disabled]="tLast"
+                            (click)="stepTale(group, ti, 'later')"
+                          >
+                            <app-icon name="right" />
+                          </button>
+                        </div>
                       </li>
                     }
                   </ol>

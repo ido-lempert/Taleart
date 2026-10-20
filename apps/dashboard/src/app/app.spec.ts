@@ -1,4 +1,6 @@
+import { CdkDropList, type CdkDragDrop } from '@angular/cdk/drag-drop';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
@@ -375,6 +377,174 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/tale-groups/g1/tales`, 'tale_group_full', 'A tale group holds at most 100 tales');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('A tale group holds at most 100 tales');
+    });
+  });
+
+  describe('reordering', () => {
+    const groupB = { id: 'g2', zoneId: 'z1', projectId: 'p1', name: 'Winter', position: 1 };
+    const twoTales: Data = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } };
+
+    function titles(root: HTMLElement): (string | undefined)[] {
+      return [...root.querySelectorAll('[aria-label="Tales in Summer"] .tale-card__title')].map((c) =>
+        c.textContent?.trim(),
+      );
+    }
+
+    function badges(root: HTMLElement): (string | undefined)[] {
+      return [...root.querySelectorAll('[aria-label="Tales in Summer"] .tale-card__badge')].map((c) =>
+        c.textContent?.trim(),
+      );
+    }
+
+    function groupNames(root: HTMLElement): (string | undefined)[] {
+      return [...root.querySelectorAll('.group h4')].map((h) => h.textContent?.trim());
+    }
+
+    function liveRegion(root: HTMLElement): string | undefined {
+      return root.querySelector('[aria-live=polite]')?.textContent?.trim();
+    }
+
+    function moveButton(root: HTMLElement, label: string): HTMLButtonElement {
+      const button = root.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+      if (!button) throw new Error(`No ${label} button`);
+      return button;
+    }
+
+    // Emits a drop on the drop list with this aria-label, as the CDK does at the end of a drag.
+    function drop(fixture: ComponentFixture<unknown>, label: string, previousIndex: number, currentIndex: number) {
+      const list = fixture.debugElement
+        .queryAll(By.directive(CdkDropList))
+        .find((de) => (de.nativeElement as HTMLElement).getAttribute('aria-label') === label);
+      if (!list) throw new Error(`No ${label} drop list`);
+      list.injector.get(CdkDropList).dropped.emit({ previousIndex, currentIndex } as CdkDragDrop<unknown>);
+    }
+
+    it('swaps tales at once when one is dragged before another and saves the order', async () => {
+      const { fixture, root } = await open('/zones/z1', twoTales);
+
+      drop(fixture, 'Tales in Summer', 1, 0);
+      await settle(fixture);
+      expect(titles(root)).toEqual(['B', 'A']);
+      expect(badges(root)).toEqual(['1', '2']);
+
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ taleIds: ['t2', 't1'] });
+      req.flush([
+        { ...taleB, position: 0 },
+        { ...taleA, position: 1 },
+      ]);
+      await settle(fixture);
+      expect(titles(root)).toEqual(['B', 'A']);
+      expect(root.querySelector('.banner')).toBeNull();
+    });
+
+    it("restores the previous order and shows the API's message when the order is refused", async () => {
+      const { fixture, root } = await open('/zones/z1', twoTales);
+
+      drop(fixture, 'Tales in Summer', 1, 0);
+      await settle(fixture);
+      expect(titles(root)).toEqual(['B', 'A']);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1/tales/order`)
+        .flush(
+          { error: { code: 'order_mismatch', message: 'taleIds must list every tale of the tale group exactly once' } },
+          { status: 409, statusText: 'Conflict' },
+        );
+      await settle(fixture);
+
+      expect(titles(root)).toEqual(['A', 'B']);
+      expect(badges(root)).toEqual(['1', '2']);
+      expect(root.querySelector('.banner[role=alert]')?.textContent).toContain(
+        'taleIds must list every tale of the tale group exactly once',
+      );
+    });
+
+    it('moves a tale with its keyboard buttons, keeps focus on it and announces the move', async () => {
+      const { fixture, root } = await open('/zones/z1', twoTales);
+      expect(moveButton(root, 'Move A earlier').disabled).toBe(true);
+      expect(moveButton(root, 'Move B later').disabled).toBe(true);
+
+      const later = moveButton(root, 'Move A later');
+      later.focus();
+      later.click();
+      await settle(fixture);
+
+      expect(titles(root)).toEqual(['B', 'A']);
+      expect(liveRegion(root)).toBe('A moved to position 2 of 2');
+      // A is now last, so focus moves to its other button.
+      expect(document.activeElement).toBe(moveButton(root, 'Move A earlier'));
+      const first = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
+      expect(first.request.body).toEqual({ taleIds: ['t2', 't1'] });
+      first.flush([
+        { ...taleB, position: 0 },
+        { ...taleA, position: 1 },
+      ]);
+      await settle(fixture);
+
+      moveButton(root, 'Move A earlier').click();
+      await settle(fixture);
+      expect(titles(root)).toEqual(['A', 'B']);
+      expect(liveRegion(root)).toBe('A moved to position 1 of 2');
+      expect(document.activeElement).toBe(moveButton(root, 'Move A later'));
+      http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`).flush([taleA, taleB]);
+      await settle(fixture);
+    });
+
+    it('sends quick moves one at a time and, when the first is refused, shows the confirmed order and drops the rest', async () => {
+      const taleC = { id: 't3', taleGroupId: 'g1', projectId: 'p1', title: 'C', position: 2, media: null };
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [taleA, taleB, taleC] }] },
+      });
+
+      drop(fixture, 'Tales in Summer', 2, 0);
+      await settle(fixture);
+      moveButton(root, 'Move B earlier').click();
+      await settle(fixture);
+      expect(titles(root)).toEqual(['C', 'B', 'A']);
+
+      // Only the first move is sent while it is pending.
+      const first = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
+      expect(first.request.body).toEqual({ taleIds: ['t3', 't1', 't2'] });
+      first.flush(
+        { error: { code: 'order_mismatch', message: 'Refused first move' } },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle(fixture);
+      await settle(fixture);
+
+      expect(titles(root)).toEqual(['A', 'B', 'C']);
+      expect(root.querySelector('.banner[role=alert]')?.textContent).toContain('Refused first move');
+      http.expectNone(`${API_BASE}/tale-groups/g1/tales/order`);
+    });
+
+    it('reorders tale groups by drag and by their move buttons', async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [] }, { ...groupB, tales: [] }] },
+      });
+      expect(groupNames(root)).toEqual(['Summer', 'Winter']);
+
+      drop(fixture, 'Tale groups in Home bar', 1, 0);
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Winter', 'Summer']);
+      const req = http.expectOne(`${API_BASE}/zones/z1/tale-groups/order`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ taleGroupIds: ['g2', 'g1'] });
+      req.flush([
+        { ...groupB, position: 0, tales: [] },
+        { ...group, position: 1, tales: [] },
+      ]);
+      await settle(fixture);
+
+      moveButton(root, 'Move Winter later').click();
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Summer', 'Winter']);
+      expect(liveRegion(root)).toBe('Winter moved to position 2 of 2');
+      expect(http.expectOne(`${API_BASE}/zones/z1/tale-groups/order`).request.body).toEqual({
+        taleGroupIds: ['g1', 'g2'],
+      });
     });
   });
 

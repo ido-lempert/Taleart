@@ -3,6 +3,9 @@ import {
   createTaleGroup,
   getTaleMedia,
   listTaleGroups,
+  OrderMismatchError,
+  orderTaleGroups,
+  orderTales,
   setTaleMedia,
   taleExists,
   TaleGroupFullError,
@@ -168,5 +171,85 @@ describe('tale media', () => {
     await expect(setTaleMedia(db, taleId, { key: 'k', contentType: 'image/png' })).rejects.toBeInstanceOf(
       TaleNotFoundError,
     );
+  });
+});
+
+describe('order', () => {
+  const a = '00000000-0000-4000-8000-00000000000a';
+  const b = '00000000-0000-4000-8000-00000000000b';
+  const c = '00000000-0000-4000-8000-00000000000c';
+
+  it('does not query for a parent id that is not a UUID', async () => {
+    const { db, query } = fakeDb([]);
+    await expect(orderTaleGroups(db, 'nope', [])).rejects.toBeInstanceOf(ZoneNotFoundError);
+    await expect(orderTales(db, 'nope', [])).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('reorders groups under the zone lock and returns the new list', async () => {
+    const { db, query, statements, release } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ id: a }, { id: b }] },
+      { rows: [] },
+      { rows: [{ project_id: projectId }] },
+      {
+        rows: [
+          { id: b, zoneId, projectId, name: 'B', position: 0 },
+          { id: a, zoneId, projectId, name: 'A', position: 1 },
+        ],
+      },
+      { rows: [] },
+    ]);
+    const groups = await orderTaleGroups(db, zoneId, [b, a]);
+    expect(groups.map((g) => [g.id, g.position])).toEqual([
+      [b, 0],
+      [a, 1],
+    ]);
+    const lock = query.mock.calls.find((call) => /pg_advisory_xact_lock/.test(call[0] as string));
+    expect(lock?.[0]).toMatch(/'tale_groups:' \|\| \$1/);
+    expect(lock?.[1]).toEqual([zoneId]);
+    const update = query.mock.calls.find((call) => /UPDATE tale_groups/.test(call[0] as string));
+    expect(update?.[1]).toEqual([zoneId, [b, a]]);
+    expect(statements()).toContain('COMMIT');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['omits a group', [a]],
+    ['repeats a group', [a, a]],
+    ['names another parent\'s group', [a, c]],
+    ['adds a group', [a, b, c]],
+  ])('refuses a group list that %s and rolls back', async (_, ids) => {
+    const { db, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ id: a }, { id: b }] },
+    ]);
+    await expect(orderTaleGroups(db, zoneId, ids)).rejects.toBeInstanceOf(OrderMismatchError);
+    expect(statements()).toContain('ROLLBACK');
+    expect(statements().some((s) => /UPDATE/.test(s))).toBe(false);
+  });
+
+  it('reorders tales with the group row locked', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{}] },
+      { rows: [{ id: a }, { id: b }] },
+      { rows: [] },
+      { rows: [{ id: b, mediaContentType: null }, { id: a, mediaContentType: null }] },
+    ]);
+    const tales = await orderTales(db, groupId, [b, a]);
+    expect(statements().some((s) => /FROM tale_groups/.test(s) && /FOR UPDATE/.test(s))).toBe(true);
+    const update = query.mock.calls.find((call) => /UPDATE tales/.test(call[0] as string));
+    expect(update?.[1]).toEqual([groupId, [b, a]]);
+    expect(tales.map((t) => t.id)).toEqual([b, a]);
+  });
+
+  it('refuses an unknown tale group and a mismatched tale list', async () => {
+    const unknown = fakeDb([{ rows: [] }]);
+    await expect(orderTales(unknown.db, groupId, [])).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    const mismatch = fakeDb([{ rows: [{}] }, { rows: [{ id: a }, { id: b }] }]);
+    await expect(orderTales(mismatch.db, groupId, [b])).rejects.toBeInstanceOf(OrderMismatchError);
+    expect(mismatch.statements()).toContain('ROLLBACK');
   });
 });

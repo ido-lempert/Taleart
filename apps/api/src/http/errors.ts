@@ -6,7 +6,12 @@ import {
   UnknownFrameTypeError,
   ZoneNotFoundError,
 } from '@taleart/server-zones';
-import { TaleGroupFullError, TaleGroupNotFoundError, TaleNotFoundError } from '@taleart/server-tales';
+import {
+  OrderMismatchError,
+  TaleGroupFullError,
+  TaleGroupNotFoundError,
+  TaleNotFoundError,
+} from '@taleart/server-tales';
 import type express from 'express';
 
 /** An error that maps directly to an HTTP status and the standard error body. */
@@ -42,7 +47,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     res.status(404).json(errorBody(err.code, err.message));
     return;
   }
-  if (err instanceof TaleGroupFullError) {
+  if (err instanceof TaleGroupFullError || err instanceof OrderMismatchError) {
     res.status(409).json(errorBody(err.code, err.message));
     return;
   }

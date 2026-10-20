@@ -1,6 +1,19 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
-export type IconName = 'zones' | 'projects' | 'plus' | 'close' | 'back' | 'alert' | 'frame' | 'tales';
+export type IconName =
+  | 'zones'
+  | 'projects'
+  | 'plus'
+  | 'close'
+  | 'back'
+  | 'alert'
+  | 'frame'
+  | 'tales'
+  | 'left'
+  | 'right'
+  | 'up'
+  | 'down'
+  | 'grip';
 
 /** Inline SVG icons (24px grid, 2px stroke). Decorative: the control around an icon carries the label. */
 @Component({
@@ -45,6 +58,26 @@ export type IconName = 'zones' | 'projects' | 'plus' | 'close' | 'back' | 'alert
         @case ('frame') {
           <rect x="3" y="5" width="18" height="14" rx="2" />
           <path d="M3 10h18" />
+        }
+        @case ('left') {
+          <path d="M15 18l-6-6 6-6" />
+        }
+        @case ('right') {
+          <path d="M9 18l6-6-6-6" />
+        }
+        @case ('up') {
+          <path d="M18 15l-6-6-6 6" />
+        }
+        @case ('down') {
+          <path d="M6 9l6 6 6-6" />
+        }
+        @case ('grip') {
+          <circle cx="9" cy="6" r="1" />
+          <circle cx="15" cy="6" r="1" />
+          <circle cx="9" cy="12" r="1" />
+          <circle cx="15" cy="12" r="1" />
+          <circle cx="9" cy="18" r="1" />
+          <circle cx="15" cy="18" r="1" />
         }
         @case ('tales') {
           <rect x="7" y="3" width="10" height="18" rx="2" />

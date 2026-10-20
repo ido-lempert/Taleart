@@ -30,6 +30,11 @@ export type DrawerRequest =
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'taleMedia'; taleId: string };
 
+// The groups with one group's tales replaced.
+function withTales(groups: TaleGroup[], taleGroupId: string, tales: Tale[]): TaleGroup[] {
+  return groups.map((g) => (g.id === taleGroupId ? { ...g, tales } : g));
+}
+
 // The API's own message when it sent the standard error body, else the fallback.
 function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
@@ -53,6 +58,16 @@ export class DashboardStore {
   readonly apiDown = signal(false);
 
   readonly drawer = signal<DrawerRequest | null>(null);
+  /**
+   * Order requests run one at a time per zone, across groups and tales, so the
+   * database applies them in the order they were made. Per zone: the tail of
+   * that queue, the last order the API confirmed, how many requests are not
+   * settled, and an epoch bumped by a refusal so moves queued behind it are dropped.
+   */
+  private readonly orderQueues = new Map<string, Promise<unknown>>();
+  private readonly confirmedGroups = new Map<string, TaleGroup[]>();
+  private readonly pendingOrders = new Map<string, number>();
+  private readonly orderEpochs = new Map<string, number>();
   /** Bumped per tale on each upload, so a replaced file at the same URL is fetched again. */
   private readonly mediaVersions = signal<Record<string, number>>({});
   /** The element that opened the drawer; focus returns to it on close. */
@@ -193,6 +208,90 @@ export class DashboardStore {
     }
     await this.refresh();
     return '';
+  }
+
+  /**
+   * Sets the order of a zone's tale groups. The new order shows at once; when
+   * the API refuses it, the last confirmed order comes back and the API's
+   * message is returned.
+   */
+  orderTaleGroups(zoneId: string, taleGroupIds: string[]): Promise<string> {
+    const byId = new Map(this.taleGroupsOf(zoneId).map((g) => [g.id, g]));
+    const next = taleGroupIds.flatMap((id, position) => {
+      const group = byId.get(id);
+      return group ? [{ ...group, position }] : [];
+    });
+    return this.enqueueOrder(
+      zoneId,
+      next,
+      () => firstValueFrom(this.http.put<TaleGroup[]>(`${API_BASE}/zones/${zoneId}/tale-groups/order`, { taleGroupIds })),
+      (_confirmed, saved) => saved,
+    );
+  }
+
+  /**
+   * Sets the order of a tale group's tales. The new order shows at once; when
+   * the API refuses it, the last confirmed order comes back and the API's
+   * message is returned.
+   */
+  orderTales(taleGroupId: string, taleIds: string[]): Promise<string> {
+    const group = this.taleGroup(taleGroupId);
+    if (!group) return Promise.resolve('This tale group no longer exists.');
+    const { zoneId } = group;
+    const byId = new Map(group.tales.map((t) => [t.id, t]));
+    const tales = taleIds.flatMap((id, position) => {
+      const tale = byId.get(id);
+      return tale ? [{ ...tale, position }] : [];
+    });
+    return this.enqueueOrder(
+      zoneId,
+      withTales(this.taleGroupsOf(zoneId), taleGroupId, tales),
+      () => firstValueFrom(this.http.put<Tale[]>(`${API_BASE}/tale-groups/${taleGroupId}/tales/order`, { taleIds })),
+      (confirmed, saved) => withTales(confirmed, taleGroupId, saved),
+    );
+  }
+
+  // Shows `optimistic` at once, then sends the request after the zone's earlier
+  // order requests settle. A success updates the confirmed order (shown when
+  // nothing else is pending); a refusal shows the confirmed order again and
+  // drops the moves queued behind it, which were built on the refused order.
+  private enqueueOrder<T>(
+    zoneId: string,
+    optimistic: TaleGroup[],
+    send: () => Promise<T>,
+    confirm: (confirmed: TaleGroup[], saved: T) => TaleGroup[],
+  ): Promise<string> {
+    const pending = this.pendingOrders.get(zoneId) ?? 0;
+    if (pending === 0) this.confirmedGroups.set(zoneId, this.taleGroupsOf(zoneId));
+    this.pendingOrders.set(zoneId, pending + 1);
+    this.setZoneGroups(zoneId, optimistic);
+    const epoch = this.orderEpochs.get(zoneId) ?? 0;
+
+    const run = async (): Promise<string> => {
+      try {
+        if ((this.orderEpochs.get(zoneId) ?? 0) !== epoch) return '';
+        try {
+          const saved = await send();
+          const confirmed = confirm(this.confirmedGroups.get(zoneId) ?? [], saved);
+          this.confirmedGroups.set(zoneId, confirmed);
+          if (this.pendingOrders.get(zoneId) === 1) this.setZoneGroups(zoneId, confirmed);
+          return '';
+        } catch (err) {
+          this.orderEpochs.set(zoneId, epoch + 1);
+          this.setZoneGroups(zoneId, this.confirmedGroups.get(zoneId) ?? []);
+          return apiErrorMessage(err, 'The new order was not saved. Try again.');
+        }
+      } finally {
+        this.pendingOrders.set(zoneId, (this.pendingOrders.get(zoneId) ?? 1) - 1);
+      }
+    };
+    const result = (this.orderQueues.get(zoneId) ?? Promise.resolve()).then(run);
+    this.orderQueues.set(zoneId, result);
+    return result;
+  }
+
+  private setZoneGroups(zoneId: string, groups: TaleGroup[]): void {
+    this.taleGroups.update((all) => ({ ...all, [zoneId]: groups }));
   }
 
   /**

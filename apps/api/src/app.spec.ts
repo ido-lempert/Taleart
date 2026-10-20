@@ -483,6 +483,139 @@ describe('Management API v1: projects and zones', () => {
       expect(rows).toEqual([{ n: 100, d: 100 }]);
     });
 
+    describe('order', () => {
+      function put(path: string, body: unknown): Promise<Response> {
+        return fetch(`${base}${path}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }
+
+      async function addTale(groupId: string, title: string): Promise<{ id: string }> {
+        return (await post(`/tale-groups/${groupId}/tales`, { title })).json();
+      }
+
+      async function listed(zoneId: string): Promise<{ id: string; position: number; tales: { id: string; position: number }[] }[]> {
+        return (await fetch(`${base}/zones/${zoneId}/tale-groups`)).json();
+      }
+
+      it('reorders a zone\'s tale groups to positions 0..n-1', async () => {
+        const zone = await createZone();
+        const a = await createGroup(zone.id, 'A');
+        const b = await createGroup(zone.id, 'B');
+        const res = await put(`/zones/${zone.id}/tale-groups/order`, { taleGroupIds: [b.id, a.id] });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.map((g: { id: string; position: number }) => [g.id, g.position])).toEqual([
+          [b.id, 0],
+          [a.id, 1],
+        ]);
+        expect(body[0]).toEqual({ ...b, position: 0, tales: [] });
+      });
+
+      it('reorders a tale group\'s tales', async () => {
+        const zone = await createZone();
+        const group = await createGroup(zone.id);
+        const x = await addTale(group.id, 'X');
+        const y = await addTale(group.id, 'Y');
+        const res = await put(`/tale-groups/${group.id}/tales/order`, { taleIds: [y.id, x.id] });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual([
+          { ...y, position: 0 },
+          { ...x, position: 1 },
+        ]);
+      });
+
+      it('keeps the new order in lists, also after the API restarts', async () => {
+        const zone = await createZone();
+        const a = await createGroup(zone.id, 'A');
+        const b = await createGroup(zone.id, 'B');
+        const x = await addTale(a.id, 'X');
+        const y = await addTale(a.id, 'Y');
+        expect((await put(`/zones/${zone.id}/tale-groups/order`, { taleGroupIds: [b.id, a.id] })).status).toBe(200);
+        expect((await put(`/tale-groups/${a.id}/tales/order`, { taleIds: [y.id, x.id] })).status).toBe(200);
+
+        const order = async () =>
+          (await listed(zone.id)).map((g) => [g.id, g.position, g.tales.map((t) => [t.id, t.position])]);
+        const expected = [
+          [b.id, 0, []],
+          [a.id, 1, [[y.id, 0], [x.id, 1]]],
+        ];
+        expect(await order()).toEqual(expected);
+        await restart();
+        expect(await order()).toEqual(expected);
+      });
+
+      it('refuses group lists that omit, repeat or add a group with 409 order_mismatch and changes nothing', async () => {
+        const zone = await createZone();
+        const other = await createZone();
+        const a = await createGroup(zone.id, 'A');
+        const b = await createGroup(zone.id, 'B');
+        const elsewhere = await createGroup(other.id, 'Elsewhere');
+        for (const ids of [[a.id], [a.id, a.id], [b.id, elsewhere.id], [b.id, a.id, elsewhere.id], [b.id, 'nope']]) {
+          const res = await put(`/zones/${zone.id}/tale-groups/order`, { taleGroupIds: ids });
+          expect(res.status).toBe(409);
+          expect(await res.json()).toEqual({ error: { code: 'order_mismatch', message: expect.any(String) } });
+        }
+        expect((await listed(zone.id)).map((g) => g.id)).toEqual([a.id, b.id]);
+        expect((await listed(other.id)).map((g) => g.position)).toEqual([0]);
+      });
+
+      it('refuses tale lists that omit, repeat or add a tale with 409 order_mismatch', async () => {
+        const zone = await createZone();
+        const group = await createGroup(zone.id);
+        const otherGroup = await createGroup(zone.id, 'Other');
+        const x = await addTale(group.id, 'X');
+        const y = await addTale(group.id, 'Y');
+        const z = await addTale(otherGroup.id, 'Z');
+        for (const ids of [[x.id], [x.id, x.id], [y.id, z.id], [y.id, x.id, z.id], [y.id, 'not-a-uuid']]) {
+          const res = await put(`/tale-groups/${group.id}/tales/order`, { taleIds: ids });
+          expect(res.status).toBe(409);
+          expect(await res.json()).toEqual({ error: { code: 'order_mismatch', message: expect.any(String) } });
+        }
+        expect((await listed(zone.id))[0].tales.map((t) => t.id)).toEqual([x.id, y.id]);
+      });
+
+      it.each([{}, { taleGroupIds: 'a' }, { taleGroupIds: [1] }, { taleGroupIds: [null] }])(
+        'refuses a group order body that is not a list of ids: %j',
+        async (body) => {
+          const zone = await createZone();
+          const res = await put(`/zones/${zone.id}/tale-groups/order`, body);
+          expect(res.status).toBe(400);
+          expect(await res.json()).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
+        },
+      );
+
+      it.each([{}, { taleIds: {} }, { taleIds: [42] }])('refuses a tale order body that is not a list of ids: %j', async (body) => {
+        const zone = await createZone();
+        const group = await createGroup(zone.id);
+        const res = await put(`/tale-groups/${group.id}/tales/order`, body);
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
+      });
+
+      it.each([unknownId, 'not-a-uuid'])('answers 404 for an unknown parent %s, before reading the body', async (id) => {
+        for (const body of [{ taleGroupIds: [] }, {}]) {
+          const res = await put(`/zones/${id}/tale-groups/order`, body);
+          expect(res.status).toBe(404);
+          expect(await res.json()).toEqual({ error: { code: 'zone_not_found', message: expect.any(String) } });
+        }
+        for (const body of [{ taleIds: [] }, {}]) {
+          const res = await put(`/tale-groups/${id}/tales/order`, body);
+          expect(res.status).toBe(404);
+          expect(await res.json()).toEqual({ error: { code: 'tale_group_not_found', message: expect.any(String) } });
+        }
+      });
+
+      it('accepts an empty list for a parent with no children', async () => {
+        const zone = await createZone();
+        const res = await put(`/zones/${zone.id}/tale-groups/order`, { taleGroupIds: [] });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual([]);
+      });
+    });
+
     it('rejects a tale whose project differs from its group project at the database', async () => {
       const zone = await createZone();
       const group = await createGroup(zone.id);
