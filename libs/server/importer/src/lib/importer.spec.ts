@@ -13,13 +13,13 @@ const jobId = '00000000-0000-4000-8000-00000000000b';
 const TOKEN = 'secret-token-value';
 
 // A fake pool: each query is answered by `answer(sql, params)`; transactions are no-ops.
-function fakeDb(answer: (sql: string, params: unknown[]) => unknown = () => ({ rows: [] })) {
+function fakeDb(answer: (sql: string, params: unknown[]) => unknown = () => ({ rows: [], rowCount: 1 })) {
   const release = vi.fn();
   const query = vi.fn(async (sql: string, params: unknown[] = []) => {
     if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql)) return { rows: [] };
     const result = answer(sql, params);
     if (result instanceof Error) throw result;
-    return result ?? { rows: [] };
+    return result ?? { rows: [], rowCount: 1 };
   });
   const db = { query, connect: vi.fn(async () => ({ query, release })) } as unknown as TransactionalDb;
   const statements = () => query.mock.calls.map((c) => c[0] as string);
@@ -72,7 +72,7 @@ describe('migration', () => {
 describe('claimNextJob', () => {
   it('claims with FOR UPDATE SKIP LOCKED and marks the job running', async () => {
     const { db, statements } = fakeDb(() => ({ rows: [{ id: jobId }] }));
-    expect(await claimNextJob(db)).toEqual({ id: jobId });
+    expect(await claimNextJob(db, 'w1')).toEqual({ id: jobId });
     const sql = statements().join('\n');
     expect(sql).toMatch(/FOR UPDATE SKIP LOCKED/);
     expect(sql).toMatch(/SET status = 'running'/);
@@ -162,22 +162,78 @@ describe('runImportJob', () => {
     const fetch = vi.fn(async () => json(500, {}));
     await runImportJob(
       db,
-      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, key) },
+      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, key), lockedBy: 'w1' },
       { tokenKey: key, storylyApiUrl: 'http://fake', fetch },
     );
     const fail = query.mock.calls.find((c) => /SET status = 'failed'/.test(c[0] as string));
     expect(fail?.[0]).toMatch(/token_ciphertext = NULL/);
-    expect(fail?.[1]).toEqual([jobId, 'Storyly answered 500 when listing apps']);
+    expect(fail?.[0]).toMatch(/locked_by = \$2/);
+    expect(fail?.[1]).toEqual([jobId, 'w1', 'Storyly answered 500 when listing apps']);
   });
 
   it('fails a job whose token cannot be decrypted', async () => {
     const { db, query } = fakeDb();
     await runImportJob(
       db,
-      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, randomBytes(32)) },
+      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, randomBytes(32)), lockedBy: 'w1' },
       { tokenKey: key, storylyApiUrl: 'http://fake', fetch: vi.fn() },
     );
     const fail = query.mock.calls.find((c) => /SET status = 'failed'/.test(c[0] as string));
-    expect((fail?.[1] as string[])[1]).toMatch(/could not be read/);
+    expect((fail?.[1] as string[])[2]).toMatch(/could not be read/);
+  });
+
+  const claimed = () => ({
+    id: jobId,
+    projectId,
+    sourceAppId: '1001',
+    tokenCiphertext: encryptToken(TOKEN, key),
+    lockedBy: 'w1',
+  });
+  const apps = () => json(200, { data: [{ id: 1001, title: 'Demo shop' }] });
+
+  it('stops without writing when another worker took the job over', async () => {
+    const { db, statements } = fakeDb((sql) => (/SET heartbeat_at/.test(sql) ? { rows: [], rowCount: 0 } : undefined));
+    const fetch = vi.fn(apps);
+    await runImportJob(db, claimed(), { tokenKey: key, storylyApiUrl: 'http://fake', fetch });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(statements().filter((s) => /status = 'failed'|status = 'done'/.test(s))).toEqual([]);
+  });
+
+  it('logs an unknown error with the token removed, and keeps the generic message for the user', async () => {
+    const log = vi.fn();
+    const { db, query } = fakeDb((sql) =>
+      /SET source_app_name/.test(sql) ? new Error(`database refused ${TOKEN}`) : undefined,
+    );
+    await runImportJob(db, claimed(), { tokenKey: key, storylyApiUrl: 'http://fake', fetch: vi.fn(apps), log });
+    const logged = log.mock.calls.find((c) => c[0] === 'error')?.[2] as Error;
+    expect(logged.message).toBe('database refused [token]');
+    expect(logged.stack).not.toContain(TOKEN);
+    const fail = query.mock.calls.find((c) => /SET status = 'failed'/.test(c[0] as string));
+    expect((fail?.[1] as string[])[2]).toBe('The import stopped on an internal error. Try again.');
+  });
+
+  it('does not throw when the failure cannot be recorded', async () => {
+    const log = vi.fn();
+    const { db } = fakeDb((sql) => (/SET status = 'failed'/.test(sql) ? new Error('connection lost') : undefined));
+    await expect(
+      runImportJob(db, claimed(), { tokenKey: key, storylyApiUrl: 'http://fake', fetch: vi.fn(async () => json(500, {})), log }),
+    ).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith('error', expect.stringMatching(/could not be recorded/), expect.any(Error));
+  });
+});
+
+describe('importZones locking', () => {
+  it('locks the source record before reading its link, and never re-points a link', async () => {
+    const { db, statements } = fakeDb((sql, params) => {
+      if (/FROM import_links/.test(sql)) return { rows: [] };
+      if (/INSERT INTO zones/.test(sql)) return { rows: [{ id: zoneId, name: params[0], projectId }] };
+      return undefined;
+    });
+    await importZones(db, projectId, [{ id: '2001', name: 'Home page' }]);
+    const sql = statements();
+    const lock = sql.findIndex((s) => /pg_advisory_xact_lock/.test(s));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(lock).toBeLessThan(sql.findIndex((s) => /FROM import_links/.test(s)));
+    expect(sql.find((s) => /INSERT INTO import_links/.test(s))).toMatch(/DO NOTHING/);
   });
 });

@@ -12,7 +12,7 @@ import {
   PasskeyFailedError,
   type PasskeyVerifier,
 } from '@taleart/server-access';
-import { encryptToken, startImportWorker, type ImportWorker } from '@taleart/server-importer';
+import { encryptToken, runImportJob, startImportWorker, type ImportWorker } from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
@@ -1741,7 +1741,7 @@ describe('Management API v1: projects and zones', () => {
     let fake: FakeStoryly;
     let importServer: Server;
     let importBase: string;
-    let worker: ImportWorker | null = null;
+    let workers: ImportWorker[] = [];
 
     async function listenImporter(config: ImporterConfig): Promise<{ server: Server; base: string }> {
       const s = createApp(
@@ -1765,8 +1765,8 @@ describe('Management API v1: projects and zones', () => {
     }
 
     // Runs the worker as main.ts does, polling fast.
-    function startWorker(): void {
-      worker = startImportWorker(pool, { tokenKey, storylyApiUrl: fake.url, pollIntervalMs: 50 });
+    function startWorker(workerId?: string): void {
+      workers.push(startImportWorker(pool, { tokenKey, storylyApiUrl: fake.url, pollIntervalMs: 50, workerId }));
     }
 
     // Reads the job until it is done or failed.
@@ -1802,7 +1802,7 @@ describe('Management API v1: projects and zones', () => {
       ({ server: importServer, base: importBase } = await listenImporter({
         tokenKey,
         storylyApiUrl: fake.url,
-        wake: () => worker?.wake(),
+        wake: () => workers.forEach((w) => w.wake()),
       }));
     });
 
@@ -1811,8 +1811,8 @@ describe('Management API v1: projects and zones', () => {
     });
 
     afterEach(async () => {
-      await worker?.stop();
-      worker = null;
+      await Promise.all(workers.map((w) => w.stop()));
+      workers = [];
     });
 
     afterAll(async () => {
@@ -1920,6 +1920,79 @@ describe('Management API v1: projects and zones', () => {
         expect(await projectZones(project.id)).toEqual([]);
       });
     }
+
+    // A job another worker claimed: `heartbeat` is an SQL time expression.
+    async function runningJob(projectId: string, lockedBy: string, heartbeat: string, attempts = 1): Promise<string> {
+      const { rows } = await pool.query(
+        `INSERT INTO import_jobs (project_id, source_app_id, status, token_ciphertext, started_at, locked_by, heartbeat_at, attempts)
+         VALUES ($1, '1001', 'running', $2, now(), $3, ${heartbeat}, $4) RETURNING id`,
+        [projectId, encryptToken(FAKE_STORYLY_TOKEN, tokenKey), lockedBy, attempts],
+      );
+      return rows[0].id;
+    }
+
+    async function jobRow(importId: string) {
+      const { rows } = await pool.query(
+        'SELECT status, locked_by, token_ciphertext, report, error FROM import_jobs WHERE id = $1',
+        [importId],
+      );
+      return rows[0];
+    }
+
+    it('leaves a job whose runner is alive alone', async () => {
+      const project = await createProject();
+      const id = await runningJob(project.id, 'live-worker', 'now()');
+      startWorker();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const row = await jobRow(id);
+      expect(row).toMatchObject({ status: 'running', locked_by: 'live-worker', report: null });
+      expect(row.token_ciphertext).toEqual(expect.any(String));
+      expect(await projectZones(project.id)).toEqual([]);
+    });
+
+    it('re-queues a job whose heartbeat stopped and finishes it', async () => {
+      const project = await createProject();
+      const id = await runningJob(project.id, 'gone-worker', "now() - interval '10 minutes'");
+      startWorker();
+      expect((await waitForEnd(project.id, id))['status']).toBe('done');
+      expect(await projectZones(project.id)).toHaveLength(3);
+    });
+
+    it('fails a job whose runner stopped too many times, deleting its token', async () => {
+      const project = await createProject();
+      const id = await runningJob(project.id, 'gone-worker', "now() - interval '10 minutes'", 3);
+      startWorker();
+      const job = await waitForEnd(project.id, id);
+      expect(job['status']).toBe('failed');
+      expect(job['error']).toMatch(/too many times/);
+      expect((await jobRow(id)).token_ciphertext).toBeNull();
+      expect(await projectZones(project.id)).toEqual([]);
+    });
+
+    it("does not let a stale runner overwrite a job another worker took over", async () => {
+      const project = await createProject();
+      const id = await runningJob(project.id, 'new-worker', 'now()');
+      await runImportJob(
+        pool,
+        { id, projectId: project.id, sourceAppId: '1001', tokenCiphertext: encryptToken(FAKE_STORYLY_TOKEN, tokenKey), lockedBy: 'stale-worker' },
+        { tokenKey, storylyApiUrl: fake.url },
+      );
+      const row = await jobRow(id);
+      expect(row).toMatchObject({ status: 'running', locked_by: 'new-worker', report: null, error: null });
+      expect(row.token_ciphertext).toEqual(expect.any(String));
+      expect(await projectZones(project.id)).toEqual([]);
+    });
+
+    it('creates each zone once when two workers import the same app at the same time', async () => {
+      const project = await createProject();
+      const first = await start(project.id);
+      const second = await start(project.id);
+      startWorker('worker-a');
+      startWorker('worker-b');
+      for (const id of [first.id, second.id]) expect((await waitForEnd(project.id, id))['status']).toBe('done');
+      expect(await projectZones(project.id)).toHaveLength(3);
+      expect((await pool.query('SELECT 1 FROM import_links WHERE project_id = $1', [project.id])).rowCount).toBe(3);
+    });
 
     it('re-queues a job left running by a stopped process and finishes it', async () => {
       const project = await createProject();

@@ -24,6 +24,12 @@ export async function migrateImporter(db: Db): Promise<void> {
       CHECK (status IN ('queued', 'running') OR token_ciphertext IS NULL)
     );
   `);
+  // A running job's owner and liveness: the worker that claimed it, the last
+  // sign of life of its runner, and how many times it was claimed. Only a job
+  // whose heartbeat stopped is recovered; only its owner may write it.
+  await db.query('ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS locked_by text');
+  await db.query('ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS heartbeat_at timestamptz');
+  await db.query('ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0');
   await db.query(
     "CREATE INDEX IF NOT EXISTS import_jobs_queued_idx ON import_jobs (created_at) WHERE status = 'queued'",
   );

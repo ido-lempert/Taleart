@@ -11,7 +11,11 @@ export {
   startImportWorker,
   runImportJob,
   IMPORT_POLL_INTERVAL_MS,
+  IMPORT_HEARTBEAT_MS,
+  IMPORT_STALE_AFTER_MS,
+  IMPORT_MAX_ATTEMPTS,
   type ImportWorker,
+  type ImportWorkerOptions,
   type ImportRunOptions,
   type ImportLog,
 } from './lib/worker';

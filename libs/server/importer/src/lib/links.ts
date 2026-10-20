@@ -20,7 +20,17 @@ export async function findLinkTarget(db: Db, source: LinkSource): Promise<string
   return rows[0]?.target_id ?? null;
 }
 
-/** Links a source record to the TaleArt record it became, replacing an older link. */
+/**
+ * Serializes work on one source record until the transaction ends, so two
+ * imports of the same record cannot both miss its link and both create it.
+ */
+export async function lockLinkSource(tx: Db, source: LinkSource): Promise<void> {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('import_links:' || $1, 0))", [
+    [source.projectId, SOURCE_SYSTEM, source.sourceType, source.sourceId].join(':'),
+  ]);
+}
+
+/** Links a source record to the TaleArt record it became. An existing link is never re-pointed. */
 export async function saveLink(
   db: Db,
   link: LinkSource & { targetType: string; targetId: string },
@@ -28,8 +38,7 @@ export async function saveLink(
   await db.query(
     `INSERT INTO import_links (project_id, source_system, source_type, source_id, target_type, target_id)
      VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (project_id, source_system, source_type, source_id)
-     DO UPDATE SET target_type = EXCLUDED.target_type, target_id = EXCLUDED.target_id`,
+     ON CONFLICT (project_id, source_system, source_type, source_id) DO NOTHING`,
     [link.projectId, SOURCE_SYSTEM, link.sourceType, link.sourceId, link.targetType, link.targetId],
   );
 }

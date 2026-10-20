@@ -101,6 +101,11 @@ deferred: []
 - `POST /imports` wakes the worker, so a job starts at once rather than at the next 2 s poll. The worker polls every 2 s when idle. It stops on SIGINT/SIGTERM after finishing the job in progress.
 - A DB CHECK constraint enforces "token only while queued or running": `status IN ('queued','running') OR token_ciphertext IS NULL`.
 - The API integration tests load the fake server with a runtime `import()` of `apps/fake-storyly/src/fake-storyly.mjs` by path. A static import of another app would break the module-boundary lint. Tests switch failure modes through `control.failInstances`.
+- Review fixes:
+  - **Claim ownership:** jobs carry `locked_by`, `heartbeat_at` and `attempts`. The runner refreshes its heartbeat every 15 s and before each instance. On every poll, running jobs with no heartbeat for 2 min are re-queued; a job that has already been claimed 3 times fails instead and its token is cleared. Writes to a job only apply when its id, `status='running'` and `locked_by` match.
+  - **Duplicate-safe imports:** each instance takes a `pg_advisory_xact_lock` on its source key, and links are inserted with `ON CONFLICT DO NOTHING`. A link whose zone was deleted is not re-pointed; that instance counts as skipped, with a note.
+  - **Failure handling:** if recording a failure itself fails, the error is logged and the stale-job recovery picks the job up later. Unknown errors are logged with the token removed from their message and stack.
+  - **Shutdown:** the HTTP server closes first, then the worker gets a 20 s deadline to finish.
 - `ShellData.create` and `createLabel` are now optional, so the import page shows no "New …" button.
 
 ## Plan Change Log

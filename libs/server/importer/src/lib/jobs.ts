@@ -12,7 +12,12 @@ export interface ClaimedJob {
   projectId: string;
   sourceAppId: string;
   tokenCiphertext: string | null;
+  /** The worker that claimed it; every later write on the job checks it. */
+  lockedBy: string;
 }
+
+// Only the worker holding the claim may write a running job.
+const OWNED = "id = $1 AND status = 'running' AND locked_by = $2";
 
 // Times as ISO 8601 UTC strings (spine convention).
 function toJob(row: Omit<ImportJob, 'createdAt' | 'finishedAt'> & { createdAt: Date; finishedAt: Date | null }): ImportJob {
@@ -47,19 +52,23 @@ export async function getImportJob(db: Db, projectId: string, importId: string):
 }
 
 /**
- * Claims the oldest queued job and marks it running (AD-8). Several workers
- * can poll at once: a job another worker holds is skipped, never run twice.
+ * Claims the oldest queued job for `workerId` and marks it running with a
+ * fresh heartbeat (AD-8). Several workers can poll at once: a job another
+ * worker holds is skipped, never run twice.
  */
-export async function claimNextJob(db: TransactionalDb): Promise<ClaimedJob | null> {
+export async function claimNextJob(db: TransactionalDb, workerId: string): Promise<ClaimedJob | null> {
   const tx = await db.connect();
   try {
     await tx.query('BEGIN');
     const { rows } = await tx.query<ClaimedJob>(
-      `UPDATE import_jobs SET status = 'running', started_at = now()
+      `UPDATE import_jobs
+       SET status = 'running', started_at = now(), locked_by = $1, heartbeat_at = now(), attempts = attempts + 1
        WHERE id = (
          SELECT id FROM import_jobs WHERE status = 'queued' ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, project_id AS "projectId", source_app_id AS "sourceAppId", token_ciphertext AS "tokenCiphertext"`,
+       RETURNING id, project_id AS "projectId", source_app_id AS "sourceAppId",
+         token_ciphertext AS "tokenCiphertext", locked_by AS "lockedBy"`,
+      [workerId],
     );
     await tx.query('COMMIT');
     tx.release();
@@ -75,33 +84,69 @@ export async function claimNextJob(db: TransactionalDb): Promise<ClaimedJob | nu
   }
 }
 
-/** Puts jobs a stopped process left running back in the queue. Returns how many. */
-export async function requeueRunningJobs(db: Db): Promise<number> {
+/**
+ * Recovers running jobs whose runner stopped: no heartbeat for `staleAfterMs`.
+ * A job claimed `maxAttempts` times already fails, with its token deleted; the
+ * others go back to the queue. A job whose runner is alive is left alone.
+ * Returns how many were re-queued and failed.
+ */
+export async function recoverStaleJobs(
+  db: Db,
+  staleAfterMs: number,
+  maxAttempts: number,
+): Promise<{ requeued: number; failed: number }> {
+  const stale = "status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at < now() - $1 * interval '1 millisecond')";
+  const failed = await db.query(
+    `UPDATE import_jobs
+     SET status = 'failed', error = 'The import stopped unexpectedly too many times. Start it again.',
+       token_ciphertext = NULL, locked_by = NULL, finished_at = now()
+     WHERE ${stale} AND attempts >= $2`,
+    [staleAfterMs, maxAttempts],
+  );
+  const requeued = await db.query(
+    `UPDATE import_jobs SET status = 'queued', locked_by = NULL, heartbeat_at = NULL, started_at = NULL
+     WHERE ${stale}`,
+    [staleAfterMs],
+  );
+  return { requeued: requeued.rowCount ?? 0, failed: failed.rowCount ?? 0 };
+}
+
+/** Refreshes the job's heartbeat. False when this worker no longer holds the job. */
+export async function heartbeatImportJob(db: Db, job: ClaimedJob): Promise<boolean> {
+  const { rowCount } = await db.query(`UPDATE import_jobs SET heartbeat_at = now() WHERE ${OWNED}`, [
+    job.id,
+    job.lockedBy,
+  ]);
+  return (rowCount ?? 0) > 0;
+}
+
+/** Records the source app's name, once the worker has read it. False when the claim is lost. */
+export async function setSourceAppName(db: Db, job: ClaimedJob, name: string): Promise<boolean> {
+  const { rowCount } = await db.query(`UPDATE import_jobs SET source_app_name = $3 WHERE ${OWNED}`, [
+    job.id,
+    job.lockedBy,
+    name,
+  ]);
+  return (rowCount ?? 0) > 0;
+}
+
+/** Ends a job as done with its report, and deletes its token. False when the claim is lost. */
+export async function finishImportJob(db: Db, job: ClaimedJob, report: ImportReport): Promise<boolean> {
   const { rowCount } = await db.query(
-    "UPDATE import_jobs SET status = 'queued', started_at = NULL WHERE status = 'running'",
+    `UPDATE import_jobs SET status = 'done', report = $3, error = NULL, token_ciphertext = NULL, locked_by = NULL,
+       finished_at = now()
+     WHERE ${OWNED}`,
+    [job.id, job.lockedBy, JSON.stringify(report)],
   );
-  return rowCount ?? 0;
+  return (rowCount ?? 0) > 0;
 }
 
-/** Records the source app's name, once the worker has read it. */
-export async function setSourceAppName(db: Db, jobId: string, name: string): Promise<void> {
-  await db.query('UPDATE import_jobs SET source_app_name = $2 WHERE id = $1', [jobId, name]);
-}
-
-/** Ends a job as done with its report, and deletes its token. */
-export async function finishImportJob(db: Db, jobId: string, report: ImportReport): Promise<void> {
-  await db.query(
-    `UPDATE import_jobs SET status = 'done', report = $2, error = NULL, token_ciphertext = NULL, finished_at = now()
-     WHERE id = $1`,
-    [jobId, JSON.stringify(report)],
+/** Ends a job as failed with a message, and deletes its token. False when the claim is lost. */
+export async function failImportJob(db: Db, job: ClaimedJob, message: string): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `UPDATE import_jobs SET status = 'failed', error = $3, token_ciphertext = NULL, locked_by = NULL, finished_at = now()
+     WHERE ${OWNED}`,
+    [job.id, job.lockedBy, message],
   );
-}
-
-/** Ends a job as failed with a message, and deletes its token. */
-export async function failImportJob(db: Db, jobId: string, message: string): Promise<void> {
-  await db.query(
-    `UPDATE import_jobs SET status = 'failed', error = $2, token_ciphertext = NULL, finished_at = now()
-     WHERE id = $1`,
-    [jobId, message],
-  );
+  return (rowCount ?? 0) > 0;
 }
