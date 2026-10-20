@@ -6,7 +6,8 @@ import { Drawer } from './drawer';
 
 /**
  * The form for whatever the store's drawer request asks for: a create form, a
- * tale's media upload, or an invitation link. The API's message shows inside it.
+ * tale's media upload, a tale group's tags, or an invitation link. The API's
+ * message shows inside it.
  */
 @Component({
   selector: 'app-create-drawer',
@@ -31,6 +32,22 @@ export class CreateDrawer implements OnInit {
   protected readonly invitation = signal<Invitation | null>(null);
   /** '' or the outcome of the last "Copy link", announced to screen readers. */
   protected readonly copyStatus = signal('');
+  /** The tags checked in a tags drawer. */
+  protected readonly selectedTagIds = signal<string[]>([]);
+  /** The name typed in a tags drawer's "New tag" field. */
+  protected newTag = '';
+
+  /** The tale group a tags drawer is for. */
+  protected readonly tagGroup = computed(() => {
+    const request = this.request();
+    return request.kind === 'tags' ? this.store.taleGroup(request.taleGroupId) : undefined;
+  });
+
+  /** The tags a tags drawer offers: every tag of the group's project. */
+  protected readonly projectTags = computed(() => {
+    const group = this.tagGroup();
+    return group ? this.store.tagsOf(group.projectId) : [];
+  });
 
   /** The tale a media drawer is for. */
   protected readonly tale = computed(() => {
@@ -52,6 +69,8 @@ export class CreateDrawer implements OnInit {
         return 'Upload';
       case 'invite':
         return 'Create link';
+      case 'tags':
+        return 'Save';
       default:
         return 'Create';
     }
@@ -73,6 +92,8 @@ export class CreateDrawer implements OnInit {
         return 'Tale';
       case 'invite':
         return 'Invite to project';
+      case 'tags':
+        return 'Tags';
     }
   });
 
@@ -87,6 +108,10 @@ export class CreateDrawer implements OnInit {
       const group = this.store.taleGroup(request.taleGroupId);
       return group ? `In tale group ${group.name}` : '';
     }
+    if (request.kind === 'tags') {
+      const group = this.tagGroup();
+      return group ? `For tale group ${group.name}` : '';
+    }
     if (request.kind === 'invite') {
       return `To project ${this.store.projectName(request.projectId)}`;
     }
@@ -100,6 +125,34 @@ export class CreateDrawer implements OnInit {
 
   ngOnInit(): void {
     this.projectId = this.store.selectedProjectId();
+    this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
+  }
+
+  protected isTagSelected(tagId: string): boolean {
+    return this.selectedTagIds().includes(tagId);
+  }
+
+  protected toggleTag(tagId: string, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.selectedTagIds.update((ids) => {
+      const others = ids.filter((id) => id !== tagId);
+      return checked ? [...others, tagId] : others;
+    });
+  }
+
+  /** Creates the typed tag in the group's project and checks it. Enter in the field does this, not Save. */
+  protected async addTag(event?: Event): Promise<void> {
+    event?.preventDefault();
+    const group = this.tagGroup();
+    if (!group || this.saving()) return;
+    this.saving.set(true);
+    const { tag, message } = await this.store.createTag(group.projectId, this.newTag);
+    this.saving.set(false);
+    this.error.set(message);
+    if (tag) {
+      this.newTag = '';
+      this.selectedTagIds.update((ids) => [...ids, tag.id]);
+    }
   }
 
   protected pickFile(event: Event): void {
@@ -167,6 +220,9 @@ export class CreateDrawer implements OnInit {
         // The drawer stays open to show the link.
         return;
       }
+      case 'tags':
+        message = await this.store.setTaleGroupTags(request.taleGroupId, this.selectedTagIds());
+        break;
       case 'taleMedia':
         message = this.file
           ? await this.store.uploadTaleMedia(request.taleId, this.file)

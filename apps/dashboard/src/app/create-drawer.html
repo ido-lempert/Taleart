@@ -127,6 +127,46 @@
             </p>
           }
         }
+        @case ('tags') {
+          @if (tagGroup(); as group) {
+            <fieldset class="tag-options">
+              <legend class="field__label">Tags of {{ group.name }}</legend>
+              @for (tag of projectTags(); track tag.id) {
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    [checked]="isTagSelected(tag.id)"
+                    (change)="toggleTag(tag.id, $event)"
+                  />
+                  <span>{{ tag.name }}</span>
+                </label>
+              } @empty {
+                <p class="muted">This project has no tags yet. Create the first one below.</p>
+              }
+            </fieldset>
+            <div class="field">
+              <label class="field__label" for="new-tag">New tag</label>
+              <div class="inline-field">
+                <input
+                  id="new-tag"
+                  class="input"
+                  name="newTag"
+                  autocomplete="off"
+                  [(ngModel)]="newTag"
+                  (keydown.enter)="addTag($event)"
+                  [attr.aria-invalid]="error() ? 'true' : null"
+                  [attr.aria-describedby]="error() ? 'new-tag-hint create-error' : 'new-tag-hint'"
+                />
+                <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="addTag()">
+                  Add tag
+                </button>
+              </div>
+              <p class="field__hint" id="new-tag-hint">Up to 40 characters. A new tag is checked for this group.</p>
+            </div>
+          } @else {
+            <p class="muted">This tale group no longer exists.</p>
+          }
+        }
         @case ('taleMedia') {
           @if (tale(); as tale) {
             <p class="tale-drawer__title">{{ tale.title }}</p>

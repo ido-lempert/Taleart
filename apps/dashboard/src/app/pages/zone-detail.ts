@@ -11,8 +11,8 @@ import {
   linkedSignal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MAX_TALES_PER_GROUP, type TaleGroup } from '@taleart/contract';
-import { DashboardStore } from '../dashboard.store';
+import { MAX_TALES_PER_GROUP, type TaleGroup, type TaleGroupTag } from '@taleart/contract';
+import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 
 const TONES = 6;
@@ -21,9 +21,11 @@ const TONES = 6;
 type Direction = 'earlier' | 'later';
 
 /**
- * One zone: its frames and its tale groups, each a row of 9:16 tale cards.
- * Groups and tales reorder by drag, or by their move earlier and later buttons
- * (the single-pointer and keyboard alternative, WCAG 2.2 SC 2.5.7).
+ * One zone: its frames and its tale groups, each a row of 9:16 tale cards with
+ * the group's tags. Groups and tales reorder by drag, or by their move earlier
+ * and later buttons (the single-pointer and keyboard alternative, WCAG 2.2 SC
+ * 2.5.7). Tag chips above the groups filter them; groups do not reorder while
+ * a filter is on, since the order covers every group of the zone.
  */
 @Component({
   selector: 'app-zone-detail-page',
@@ -57,6 +59,12 @@ type Direction = 'earlier' | 'later';
       font-weight: 600;
       overflow-wrap: anywhere;
     }
+    .group__title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+    }
     .groups {
       margin: 0;
       padding: 0;
@@ -79,13 +87,49 @@ export class ZoneDetailPage {
   protected readonly frames = computed(() => this.store.framesOf(this.zoneId()));
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
 
+  /** Every tag on the zone's groups, once each, by name: the filter chips. */
+  protected readonly zoneTags = computed(() => {
+    const byId = new Map<string, TaleGroupTag>();
+    for (const group of this.groups()) for (const tag of group.tags) byId.set(tag.id, tag);
+    return [...byId.values()].sort(compareTags);
+  });
+  /**
+   * The tag the groups are filtered by, '' for "All". Reset when the zone
+   * changes or no group carries the tag any more, so it never comes back on its own.
+   */
+  protected readonly activeTag = linkedSignal<{ zoneId: string; tags: TaleGroupTag[] }, string>({
+    source: () => ({ zoneId: this.zoneId(), tags: this.zoneTags() }),
+    computation: (source, previous) =>
+      previous && previous.source.zoneId === source.zoneId && source.tags.some((t) => t.id === previous.value)
+        ? previous.value
+        : '',
+  });
+  protected readonly filtering = computed(() => this.activeTag() !== '');
+  /** The groups shown: all of them, or those carrying the active tag. */
+  protected readonly visibleGroups = computed(() => {
+    const tag = this.activeTag();
+    return tag ? this.groups().filter((g) => g.tags.some((t) => t.id === tag)) : this.groups();
+  });
+
   /** What the polite live region last announced; cleared when the zone changes. */
   protected readonly announcement = linkedSignal({ source: this.zoneId, computation: () => '' });
   /** The API's message when it refused an order; shown in a banner, cleared when the zone changes. */
   protected readonly orderError = linkedSignal({ source: this.zoneId, computation: () => '' });
 
+  /** Shows only the groups carrying `tagId`, or every group for ''. */
+  protected filterBy(tagId: string): void {
+    this.activeTag.set(tagId);
+    const total = this.groups().length;
+    const tag = this.zoneTags().find((t) => t.id === tagId);
+    this.announce(
+      tag
+        ? `Showing ${this.visibleGroups().length} of ${total} tale groups, tagged ${tag.name}`
+        : `Showing all ${total} tale groups`,
+    );
+  }
+
   protected dropGroup(event: CdkDragDrop<unknown>): void {
-    if (event.previousIndex === event.currentIndex) return;
+    if (this.filtering() || event.previousIndex === event.currentIndex) return;
     this.moveGroup(event.previousIndex, event.currentIndex);
   }
 
@@ -109,6 +153,7 @@ export class ZoneDetailPage {
   }
 
   private moveGroup(from: number, to: number): void {
+    if (this.filtering()) return;
     const groups = this.groups();
     if (to < 0 || to >= groups.length) return;
     const ids = groups.map((g) => g.id);

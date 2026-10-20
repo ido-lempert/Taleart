@@ -19,6 +19,15 @@ const TALE_COLUMNS =
   'tales.id, tales.tale_group_id AS "taleGroupId", tales.project_id AS "projectId", tales.title, tales.position, ' +
   'tales.media_content_type AS "mediaContentType"';
 
+/**
+ * A tale group as this module stores it: everything but its tags, which the
+ * targeting module owns. The API composes the tags in (AD-1).
+ */
+export type StoredTaleGroup = Omit<TaleGroup, 'tags'>;
+
+// A tale_groups row as GROUP_COLUMNS reads it.
+type GroupRow = Omit<StoredTaleGroup, 'tales'>;
+
 // A tales row as TALE_COLUMNS reads it. The storage key stays inside the module.
 type TaleRow = Omit<Tale, 'media'> & { mediaContentType: string | null };
 
@@ -125,18 +134,32 @@ async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T
 }
 
 /** The zone's tale groups by position, each with its tales by position. */
-export async function listTaleGroups(db: Db, zoneId: string): Promise<TaleGroup[]> {
+export async function listTaleGroups(db: Db, zoneId: string): Promise<StoredTaleGroup[]> {
   if ((await zoneProjectId(db, zoneId)) === null) throw new ZoneNotFoundError(zoneId);
-  const groups = await db.query<Omit<TaleGroup, 'tales'>>(
+  const groups = await db.query<GroupRow>(
     `SELECT ${GROUP_COLUMNS} FROM tale_groups WHERE zone_id = $1 ORDER BY position, id`,
     [zoneId],
   );
-  if (groups.rows.length === 0) return [];
+  return withTales(db, groups.rows);
+}
+
+/** One tale group with its tales by position. Throws {@link TaleGroupNotFoundError}. */
+export async function getTaleGroup(db: Db, taleGroupId: string): Promise<StoredTaleGroup> {
+  if (!UUID.test(taleGroupId)) throw new TaleGroupNotFoundError(taleGroupId);
+  const { rows } = await db.query<GroupRow>(`SELECT ${GROUP_COLUMNS} FROM tale_groups WHERE id = $1`, [taleGroupId]);
+  if (rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+  const [group] = await withTales(db, rows);
+  return group;
+}
+
+// Adds each group's tales, by position.
+async function withTales(db: Db, groups: GroupRow[]): Promise<StoredTaleGroup[]> {
+  if (groups.length === 0) return [];
   const tales = await db.query<TaleRow>(
     `SELECT ${TALE_COLUMNS} FROM tales WHERE tale_group_id = ANY($1::uuid[]) ORDER BY position, id`,
-    [groups.rows.map((g) => g.id)],
+    [groups.map((g) => g.id)],
   );
-  return groups.rows.map((group) => ({
+  return groups.map((group) => ({
     ...group,
     tales: tales.rows.filter((tale) => tale.taleGroupId === group.id).map(toTale),
   }));
@@ -150,7 +173,7 @@ export async function listTaleGroups(db: Db, zoneId: string): Promise<TaleGroup[
 export async function createTaleGroup(
   db: TransactionalDb,
   input: { zoneId: string; name: string },
-): Promise<TaleGroup> {
+): Promise<StoredTaleGroup> {
   // Reads the project through the zones module's public interface (AD-1).
   const projectId = await zoneProjectId(db, input.zoneId);
   if (projectId === null) throw new ZoneNotFoundError(input.zoneId);
@@ -159,7 +182,7 @@ export async function createTaleGroup(
     // The zones table belongs to the zones module, so the zone is locked with
     // a transaction-scoped advisory lock keyed on its id, not a row lock.
     await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_groups:' || $1, 0))", [input.zoneId]);
-    const { rows } = await tx.query<Omit<TaleGroup, 'tales'>>(
+    const { rows } = await tx.query<GroupRow>(
       `INSERT INTO tale_groups (zone_id, project_id, name, position)
        VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), -1) + 1 FROM tale_groups WHERE zone_id = $1))
        RETURNING ${GROUP_COLUMNS}`,
@@ -180,7 +203,7 @@ export async function orderTaleGroups(
   db: TransactionalDb,
   zoneId: string,
   taleGroupIds: readonly string[],
-): Promise<TaleGroup[]> {
+): Promise<StoredTaleGroup[]> {
   if ((await zoneProjectId(db, zoneId)) === null) throw new ZoneNotFoundError(zoneId);
 
   return inTransaction(db, async (tx) => {

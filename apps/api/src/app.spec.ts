@@ -124,7 +124,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tales, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE tale_group_tags, tags, tales, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -409,6 +409,7 @@ describe('Management API v1: projects and zones', () => {
         name: 'Summer',
         position: 0,
         tales: [],
+        tags: [],
       });
       const { rows } = await pool.query('SELECT project_id FROM tale_groups');
       expect(rows).toEqual([{ project_id: zone.projectId }]);
@@ -683,6 +684,177 @@ describe('Management API v1: projects and zones', () => {
           otherProject.id,
         ]),
       ).rejects.toThrow(/foreign key/);
+    });
+  });
+
+  describe('tags', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    function put(path: string, body: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function createTag(projectId: string, name: string): Promise<{ id: string; projectId: string; name: string }> {
+      const res = await post(`/projects/${projectId}/tags`, { name });
+      expect(res.status).toBe(201);
+      return res.json();
+    }
+
+    async function createGroup(zoneId: string, name: string): Promise<{ id: string }> {
+      return (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+    }
+
+    // Each listed group's tag names, keyed by group name.
+    async function groupTags(zoneId: string): Promise<Record<string, string[]>> {
+      const res = await fetch(`${base}/zones/${zoneId}/tale-groups`);
+      const groups: { name: string; tags: { name: string }[] }[] = await res.json();
+      return Object.fromEntries(groups.map((g) => [g.name, g.tags.map((t) => t.name)]));
+    }
+
+    it('creates a trimmed tag and lists the project tags by name, ignoring case', async () => {
+      const project = await createProject();
+      const other = await createProject('Other');
+      const res = await post(`/projects/${project.id}/tags`, { name: '  summer  ' });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ id: expect.any(String), projectId: project.id, name: 'summer' });
+      await createTag(project.id, 'Autumn');
+      await createTag(project.id, 'beach');
+      await createTag(other.id, 'elsewhere');
+
+      const list = await fetch(`${base}/projects/${project.id}/tags`);
+      expect(list.status).toBe(200);
+      expect((await list.json()).map((t: { name: string }) => t.name)).toEqual(['Autumn', 'beach', 'summer']);
+    });
+
+    it('refuses a blank name or one over 40 characters with 400 validation_failed', async () => {
+      const project = await createProject();
+      for (const name of ['', '   ', 'x'.repeat(41), 42]) {
+        const res = await post(`/projects/${project.id}/tags`, { name });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      await createTag(project.id, 'x'.repeat(40));
+      expect((await pool.query('SELECT 1 FROM tags')).rowCount).toBe(1);
+    });
+
+    it('refuses a name the project already has, in any case, with 409 tag_exists', async () => {
+      const project = await createProject();
+      const other = await createProject('Other');
+      await createTag(project.id, 'Summer');
+      const res = await post(`/projects/${project.id}/tags`, { name: ' SUMMER ' });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('tag_exists');
+      await createTag(other.id, 'summer');
+    });
+
+    it('answers 404 project_not_found for an unknown project', async () => {
+      for (const res of [
+        await fetch(`${base}/projects/${unknownId}/tags`),
+        await post(`/projects/${unknownId}/tags`, { name: 'summer' }),
+        await post('/projects/nope/tags', { name: 'summer' }),
+      ]) {
+        expect(res.status).toBe(404);
+        expect((await res.json()).error.code).toBe('project_not_found');
+      }
+    });
+
+    it('sets, replaces and clears the tags of a tale group, and lists them with every group', async () => {
+      const zone = await createZone();
+      const summer = await createTag(zone.projectId, 'summer');
+      const beach = await createTag(zone.projectId, 'Beach');
+      const first = await createGroup(zone.id, 'First');
+      await createGroup(zone.id, 'Second');
+
+      const res = await put(`/tale-groups/${first.id}/tags`, { tagIds: [summer.id, beach.id, summer.id] });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        ...first,
+        position: 0,
+        tales: [],
+        tags: [
+          { id: beach.id, name: 'Beach' },
+          { id: summer.id, name: 'summer' },
+        ],
+      });
+      expect(await groupTags(zone.id)).toEqual({ First: ['Beach', 'summer'], Second: [] });
+
+      const replaced = await put(`/tale-groups/${first.id}/tags`, { tagIds: [beach.id] });
+      expect((await replaced.json()).tags).toEqual([{ id: beach.id, name: 'Beach' }]);
+
+      const cleared = await put(`/tale-groups/${first.id}/tags`, { tagIds: [] });
+      expect(cleared.status).toBe(200);
+      expect((await cleared.json()).tags).toEqual([]);
+      expect(await groupTags(zone.id)).toEqual({ First: [], Second: [] });
+    });
+
+    it('carries tags in the order response too', async () => {
+      const zone = await createZone();
+      const tag = await createTag(zone.projectId, 'summer');
+      const a = await createGroup(zone.id, 'A');
+      const b = await createGroup(zone.id, 'B');
+      await put(`/tale-groups/${a.id}/tags`, { tagIds: [tag.id] });
+      const res = await put(`/zones/${zone.id}/tale-groups/order`, { taleGroupIds: [b.id, a.id] });
+      const groups: { tags: { name: string }[] }[] = await res.json();
+      expect(groups.map((g) => g.tags.map((t) => t.name))).toEqual([[], ['summer']]);
+    });
+
+    it('refuses a tag of another project or an unknown tag with 400 tag_not_found and changes nothing', async () => {
+      const zone = await createZone();
+      const otherZone = await createZone();
+      const mine = await createTag(zone.projectId, 'summer');
+      const theirs = await createTag(otherZone.projectId, 'summer');
+      const group = await createGroup(zone.id, 'First');
+      await put(`/tale-groups/${group.id}/tags`, { tagIds: [mine.id] });
+
+      for (const tagIds of [[theirs.id], [mine.id, theirs.id], [unknownId], ['nope']]) {
+        const res = await put(`/tale-groups/${group.id}/tags`, { tagIds });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('tag_not_found');
+      }
+      expect(await groupTags(zone.id)).toEqual({ First: ['summer'] });
+    });
+
+    it('refuses a body without a tagIds array, and an unknown tale group', async () => {
+      const zone = await createZone();
+      const group = await createGroup(zone.id, 'First');
+      for (const body of [{}, { tagIds: 'x' }, { tagIds: [1] }]) {
+        const res = await put(`/tale-groups/${group.id}/tags`, body);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      const res = await put(`/tale-groups/${unknownId}/tags`, { tagIds: [] });
+      expect(res.status).toBe(404);
+      expect((await res.json()).error.code).toBe('tale_group_not_found');
+    });
+
+    it('keeps tags and group tags after the API restarts', async () => {
+      const zone = await createZone();
+      const tag = await createTag(zone.projectId, 'summer');
+      const group = await createGroup(zone.id, 'First');
+      await put(`/tale-groups/${group.id}/tags`, { tagIds: [tag.id] });
+      await restart();
+      expect(await groupTags(zone.id)).toEqual({ First: ['summer'] });
+      expect(await (await fetch(`${base}/projects/${zone.projectId}/tags`)).json()).toEqual([tag]);
+    });
+
+    it('rejects a link to a tag of another project at the database', async () => {
+      const zone = await createZone();
+      const otherZone = await createZone();
+      const theirs = await createTag(otherZone.projectId, 'summer');
+      const group = await createGroup(zone.id, 'First');
+      for (const projectId of [zone.projectId, otherZone.projectId]) {
+        await expect(
+          pool.query('INSERT INTO tale_group_tags (tale_group_id, tag_id, project_id) VALUES ($1, $2, $3)', [
+            group.id,
+            theirs.id,
+            projectId,
+          ]),
+        ).rejects.toThrow(/foreign key/);
+      }
     });
   });
 
@@ -1139,6 +1311,9 @@ describe('Management API v1: projects and zones', () => {
         ['PUT', `/zones/${b.zone.id}/tale-groups/order`, { taleGroupIds: [b.group.id] }],
         ['POST', `/tale-groups/${b.group.id}/tales`, { title: 'Mine' }],
         ['PUT', `/tale-groups/${b.group.id}/tales/order`, { taleIds: [b.tale.id] }],
+        ['PUT', `/tale-groups/${b.group.id}/tags`, { tagIds: [] }],
+        ['GET', `/projects/${b.project.id}/tags`],
+        ['POST', `/projects/${b.project.id}/tags`, { name: 'Mine' }],
         ['GET', `/tales/${b.tale.id}/media`],
       ];
       for (const [method, path, body] of requests) {
@@ -1153,6 +1328,7 @@ describe('Management API v1: projects and zones', () => {
       });
       expect(upload.status).toBe(403);
       expect((await pool.query('SELECT 1 FROM zones WHERE name = $1', ['Mine'])).rowCount).toBe(0);
+      expect((await pool.query('SELECT 1 FROM tags')).rowCount).toBe(0);
     });
 
     it('allows a content manager every route on their own project and still answers 404 for unknown ones', async () => {
@@ -1164,10 +1340,17 @@ describe('Management API v1: projects and zones', () => {
       expect((await send('POST', `/zones/${a.zone.id}/tale-groups`, { name: 'Mine' })).status).toBe(201);
       expect((await send('POST', `/tale-groups/${a.group.id}/tales`, { title: 'Mine' })).status).toBe(201);
       expect((await send('GET', `/tales/${a.tale.id}/media`)).status).toBe(200);
+      const tag = await send('POST', `/projects/${a.project.id}/tags`, { name: 'Mine' });
+      expect(tag.status).toBe(201);
+      expect((await send('GET', `/projects/${a.project.id}/tags`)).status).toBe(200);
+      const tagged = await send('PUT', `/tale-groups/${a.group.id}/tags`, { tagIds: [(await tag.json()).id] });
+      expect(tagged.status).toBe(200);
 
       expect((await send('GET', `/zones/${unknownId}/frames`)).status).toBe(404);
       expect((await send('POST', `/tale-groups/${unknownId}/tales`, { title: 'X' })).status).toBe(404);
       expect((await send('GET', `/tales/${unknownId}/media`)).status).toBe(404);
+      expect((await send('PUT', `/tale-groups/${unknownId}/tags`, { tagIds: [] })).status).toBe(404);
+      expect((await send('GET', `/projects/${unknownId}/tags`)).status).toBe(404);
       const zone = await send('POST', '/zones', { name: 'X', projectId: unknownId });
       expect(zone.status).toBe(400);
       expect((await zone.json()).error.code).toBe('project_not_found');

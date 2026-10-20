@@ -1,6 +1,7 @@
 import {
   createTale,
   createTaleGroup,
+  getTaleGroup,
   getTaleMedia,
   listTaleGroups,
   OrderMismatchError,
@@ -68,6 +69,24 @@ describe('tale groups', () => {
     expect(insert?.[1]).toEqual([zoneId, projectId, 'A']);
     expect(statements()).toContain('COMMIT');
     expect(release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('one tale group', () => {
+  it('refuses an id that is not a UUID without querying, and an unknown group', async () => {
+    const { db, query } = fakeDb([]);
+    await expect(getTaleGroup(db, 'nope')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(query).not.toHaveBeenCalled();
+    await expect(getTaleGroup(fakeDb([{ rows: [] }]).db, groupId)).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+  });
+
+  it('reads the group with its tales', async () => {
+    const group = { id: groupId, zoneId, projectId, name: 'A', position: 0 };
+    const { db } = fakeDb([{ rows: [group] }, { rows: [{ id: 't1', taleGroupId: groupId, mediaContentType: null }] }]);
+    expect(await getTaleGroup(db, groupId)).toEqual({
+      ...group,
+      tales: [{ id: 't1', taleGroupId: groupId, media: null }],
+    });
   });
 });
 

@@ -20,6 +20,7 @@
       "@taleart/server-access": ["./libs/server/access/src/index.ts"],
       "@taleart/server-storage": ["./libs/server/storage/src/index.ts"],
       "@taleart/server-tales": ["./libs/server/tales/src/index.ts"],
+      "@taleart/server-targeting": ["./libs/server/targeting/src/index.ts"],
       "@taleart/server-zones": ["./libs/server/zones/src/index.ts"]
     }
   },
