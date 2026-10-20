@@ -7,6 +7,7 @@ import {
   type FrameType,
   type Invitation,
   type Project,
+  type Tag,
   type Tale,
   type TaleGroup,
   type Zone,
@@ -31,11 +32,21 @@ export type DrawerRequest =
   | { kind: 'frame'; zoneId: string }
   | { kind: 'taleGroup'; zoneId: string }
   | { kind: 'tale'; taleGroupId: string }
+  | { kind: 'tags'; taleGroupId: string }
   | { kind: 'taleMedia'; taleId: string };
 
 // The groups with one group's tales replaced.
 function withTales(groups: TaleGroup[], taleGroupId: string, tales: Tale[]): TaleGroup[] {
   return groups.map((g) => (g.id === taleGroupId ? { ...g, tales } : g));
+}
+
+/** Orders tags by name ignoring case, then by name, then by id: the one tag order of the dashboard. */
+export function compareTags(a: { id: string; name: string }, b: { id: string; name: string }): number {
+  return (
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase()) ||
+    a.name.localeCompare(b.name) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
 }
 
 // The API's own message when it sent the standard error body, else the fallback.
@@ -56,6 +67,8 @@ export class DashboardStore {
   readonly frames = signal<Record<string, Frame[]>>({});
   /** Each zone's tale groups, each with its tales, keyed by zone id. */
   readonly taleGroups = signal<Record<string, TaleGroup[]>>({});
+  /** Each project's tags by name, keyed by project id. */
+  readonly tags = signal<Record<string, Tag[]>>({});
   /** True once the first refresh finished, successfully or not. */
   readonly loaded = signal(false);
   readonly apiDown = signal(false);
@@ -134,6 +147,10 @@ export class DashboardStore {
       .find((g) => g.id === taleGroupId);
   }
 
+  tagsOf(projectId: string): Tag[] {
+    return this.tags()[projectId] ?? [];
+  }
+
   tale(taleId: string): Tale | undefined {
     return Object.values(this.taleGroups())
       .flat()
@@ -159,6 +176,7 @@ export class DashboardStore {
     this.frameTypes.set([]);
     this.frames.set({});
     this.taleGroups.set({});
+    this.tags.set({});
     this.loaded.set(false);
     this.apiDown.set(false);
     this.drawer.set(null);
@@ -189,6 +207,13 @@ export class DashboardStore {
       );
       if (!current()) return;
       this.taleGroups.set(Object.fromEntries(zones.map((zone, i) => [zone.id, groups[i]])));
+      const tags = await Promise.all(
+        projects.map((project) =>
+          firstValueFrom(this.http.get<Tag[]>(`${API_BASE}/projects/${encodeURIComponent(project.id)}/tags`)),
+        ),
+      );
+      if (!current()) return;
+      this.tags.set(Object.fromEntries(projects.map((project, i) => [project.id, tags[i]])));
       this.apiDown.set(false);
     } catch (err) {
       // A 401 means the session ended; the auth interceptor sends the user to sign-in.
@@ -251,6 +276,46 @@ export class DashboardStore {
     return '';
   }
 
+  /** Creates a tag in a project and adds it to the project's tags. */
+  async createTag(projectId: string, name: string): Promise<{ tag: Tag | null; message: string }> {
+    try {
+      const tag = await firstValueFrom(
+        this.http.post<Tag>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tags`, { name }),
+      );
+      this.tags.update((all) => ({ ...all, [projectId]: [...(all[projectId] ?? []), tag].sort(compareTags) }));
+      return { tag, message: '' };
+    } catch (err) {
+      return { tag: null, message: apiErrorMessage(err, 'The tag was not created. Try again.') };
+    }
+  }
+
+  /** Replaces a tale group's tags; the group shows the saved tags. */
+  async setTaleGroupTags(taleGroupId: string, tagIds: string[]): Promise<string> {
+    let saved: TaleGroup;
+    try {
+      saved = await firstValueFrom(
+        this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/tags`, { tagIds }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The tags were not saved. Try again.');
+    }
+    // Only the tags change: the group's tales and position may have moved meanwhile.
+    this.taleGroups.update((all) => {
+      const groups = all[saved.zoneId];
+      if (!groups) return all;
+      const next = groups.map((g) => (g.id === taleGroupId ? { ...g, tags: saved.tags } : g));
+      return { ...all, [saved.zoneId]: next };
+    });
+    const confirmed = this.confirmedGroups.get(saved.zoneId);
+    if (confirmed) {
+      this.confirmedGroups.set(
+        saved.zoneId,
+        confirmed.map((g) => (g.id === taleGroupId ? { ...g, tags: saved.tags } : g)),
+      );
+    }
+    return '';
+  }
+
   /**
    * Sets the order of a zone's tale groups. The new order shows at once; when
    * the API refuses it, the last confirmed order comes back and the API's
@@ -266,7 +331,13 @@ export class DashboardStore {
       zoneId,
       next,
       () => firstValueFrom(this.http.put<TaleGroup[]>(`${API_BASE}/zones/${zoneId}/tale-groups/order`, { taleGroupIds })),
-      (_confirmed, saved) => saved,
+      // Only the order comes from the response; each group keeps its confirmed tales and tags,
+      // which a tags change or tale order may have updated meanwhile.
+      (confirmed, saved) =>
+        saved.map((group) => {
+          const current = confirmed.find((g) => g.id === group.id);
+          return current ? { ...current, position: group.position } : group;
+        }),
     );
   }
 

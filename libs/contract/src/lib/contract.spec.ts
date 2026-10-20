@@ -7,6 +7,7 @@ import {
   maxMediaBytes,
   MEDIA_CONTENT_TYPES,
   mediaKind,
+  normalizeTagName,
   taleMediaUrl,
   USER_ROLES,
 } from '../index';
@@ -55,5 +56,16 @@ describe('auth', () => {
 describe('invitations', () => {
   it('builds the dashboard path of an invitation link', () => {
     expect(invitationPath('abc_-1')).toBe('/invite/abc_-1');
+  });
+});
+
+describe('tags', () => {
+  it('trims tag names and accepts 1 to 40 characters', () => {
+    expect(normalizeTagName('  summer ')).toBe('summer');
+    expect(normalizeTagName('   ')).toBeNull();
+    expect(normalizeTagName(42)).toBeNull();
+    expect(normalizeTagName('a'.repeat(40))).toBe('a'.repeat(40));
+    expect(normalizeTagName('a'.repeat(41))).toBeNull();
+    expect(normalizeTagName('\u{1F31E}'.repeat(40))).toBe('\u{1F31E}'.repeat(40));
   });
 });

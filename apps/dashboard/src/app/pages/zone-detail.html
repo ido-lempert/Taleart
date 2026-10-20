@@ -40,49 +40,96 @@
             <span>{{ orderError() }}</span>
           </div>
         }
+        @if (zoneTags().length > 0) {
+          <div class="filter-chips" role="group" aria-label="Filter tale groups by tag">
+            <button
+              type="button"
+              class="chip"
+              [attr.aria-pressed]="activeTag() === '' ? 'true' : 'false'"
+              (click)="filterBy('')"
+            >
+              All
+            </button>
+            @for (tag of zoneTags(); track tag.id) {
+              <button
+                type="button"
+                class="chip"
+                [attr.aria-pressed]="activeTag() === tag.id ? 'true' : 'false'"
+                (click)="filterBy(tag.id)"
+              >
+                {{ tag.name }}
+              </button>
+            }
+          </div>
+          @if (filtering()) {
+            <p class="muted">Choose All to reorder tale groups.</p>
+          }
+        }
         @if (groups().length > 0) {
           <ul
             class="groups"
             [attr.aria-label]="'Tale groups in ' + zone.name"
             cdkDropList
             cdkDropListLockAxis="y"
+            [cdkDropListDisabled]="filtering()"
             (cdkDropListDropped)="dropGroup($event)"
           >
-            @for (group of groups(); track group.id; let gi = $index, gFirst = $first, gLast = $last) {
+            @for (group of visibleGroups(); track group.id; let gi = $index, gFirst = $first, gLast = $last) {
               <li class="group" cdkDrag cdkDragPreviewContainer="parent">
                 <div class="group__header">
-                  <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
-                    <app-icon name="grip" />
-                  </span>
+                  @if (!filtering()) {
+                    <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
+                      <app-icon name="grip" />
+                    </span>
+                  }
                   <span class="ring" aria-hidden="true">{{ group.name.charAt(0) }}</span>
                   <div class="group__name">
-                    <h4>{{ group.name }}</h4>
+                    <div class="group__title">
+                      <h4>{{ group.name }}</h4>
+                      @if (group.tags.length > 0) {
+                        <ul class="pill-list" [attr.aria-label]="'Tags of ' + group.name">
+                          @for (tag of group.tags; track tag.id) {
+                            <li class="pill pill--tag">{{ tag.name }}</li>
+                          }
+                        </ul>
+                      }
+                    </div>
                     <p class="muted">
                       <span class="visually-hidden">Tales: </span>{{ group.tales.length }} / {{ maxTales }}
                     </p>
                   </div>
-                  <div class="move-controls">
-                    <button
-                      type="button"
-                      class="move-btn"
-                      [attr.data-move]="'group:' + group.id + ':earlier'"
-                      [attr.aria-label]="'Move ' + group.name + ' earlier'"
-                      [disabled]="gFirst"
-                      (click)="stepGroup(gi, 'earlier')"
-                    >
-                      <app-icon name="up" />
-                    </button>
-                    <button
-                      type="button"
-                      class="move-btn"
-                      [attr.data-move]="'group:' + group.id + ':later'"
-                      [attr.aria-label]="'Move ' + group.name + ' later'"
-                      [disabled]="gLast"
-                      (click)="stepGroup(gi, 'later')"
-                    >
-                      <app-icon name="down" />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    [attr.aria-label]="'Tags of ' + group.name"
+                    (click)="store.openDrawer({ kind: 'tags', taleGroupId: group.id }, $event)"
+                  >
+                    <app-icon name="tag" /> <span class="btn__label">Tags</span>
+                  </button>
+                  @if (!filtering()) {
+                    <div class="move-controls">
+                      <button
+                        type="button"
+                        class="move-btn"
+                        [attr.data-move]="'group:' + group.id + ':earlier'"
+                        [attr.aria-label]="'Move ' + group.name + ' earlier'"
+                        [disabled]="gFirst"
+                        (click)="stepGroup(gi, 'earlier')"
+                      >
+                        <app-icon name="up" />
+                      </button>
+                      <button
+                        type="button"
+                        class="move-btn"
+                        [attr.data-move]="'group:' + group.id + ':later'"
+                        [attr.aria-label]="'Move ' + group.name + ' later'"
+                        [disabled]="gLast"
+                        (click)="stepGroup(gi, 'later')"
+                      >
+                        <app-icon name="down" />
+                      </button>
+                    </div>
+                  }
                 </div>
                 <div class="tale-scroller">
                   <ol

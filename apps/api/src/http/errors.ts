@@ -18,6 +18,7 @@ import {
   PasskeyFailedError,
   SetupClosedError,
 } from '@taleart/server-access';
+import { InvalidTagNameError, TagExistsError, TagNotFoundError } from '@taleart/server-targeting';
 import type express from 'express';
 
 /** An error that maps directly to an HTTP status and the standard error body. */
@@ -61,7 +62,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof TaleGroupFullError ||
     err instanceof OrderMismatchError ||
     err instanceof SetupClosedError ||
-    err instanceof EmailTakenError
+    err instanceof EmailTakenError ||
+    err instanceof TagExistsError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;
@@ -70,7 +72,9 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof PasskeyFailedError ||
     err instanceof ProjectNotFoundError ||
     err instanceof UnknownFrameTypeError ||
-    err instanceof InvalidFrameSettingsError
+    err instanceof InvalidFrameSettingsError ||
+    err instanceof InvalidTagNameError ||
+    err instanceof TagNotFoundError
   ) {
     res.status(400).json(errorBody(err.code, err.message));
     return;

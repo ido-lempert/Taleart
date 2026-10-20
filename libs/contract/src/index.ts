@@ -18,6 +18,10 @@ export type Frame = Schemas['Frame'];
 export type CreateFrameRequest = Schemas['CreateFrameRequest'];
 export type TaleGroup = Schemas['TaleGroup'];
 export type CreateTaleGroupRequest = Schemas['CreateTaleGroupRequest'];
+export type Tag = Schemas['Tag'];
+export type TaleGroupTag = Schemas['TaleGroupTag'];
+export type CreateTagRequest = Schemas['CreateTagRequest'];
+export type SetTaleGroupTagsRequest = Schemas['SetTaleGroupTagsRequest'];
 export type Tale = Schemas['Tale'];
 export type CreateTaleRequest = Schemas['CreateTaleRequest'];
 export type OrderTaleGroupsRequest = Schemas['OrderTaleGroupsRequest'];
@@ -57,6 +61,20 @@ export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** The dashboard path an invitation link opens: `/invite/<token>`. */
 export function invitationPath(token: string): string {
   return `/invite/${encodeURIComponent(token)}`;
+}
+
+/** The most characters a tag name holds, after trimming. */
+export const MAX_TAG_NAME_LENGTH = 40;
+
+/**
+ * A tag name as it is stored: trimmed. Null when it is blank or longer than
+ * {@link MAX_TAG_NAME_LENGTH} characters (counted as code points, as PostgreSQL does).
+ */
+export function normalizeTagName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.trim();
+  const length = [...name].length;
+  return length >= 1 && length <= MAX_TAG_NAME_LENGTH ? name : null;
 }
 
 /** The most tales one tale group holds (FR-010). */
@@ -112,6 +130,8 @@ export const ErrorCodes = {
   forbidden: 'forbidden',
   invitationInvalid: 'invitation_invalid',
   emailTaken: 'email_taken',
+  tagExists: 'tag_exists',
+  tagNotFound: 'tag_not_found',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

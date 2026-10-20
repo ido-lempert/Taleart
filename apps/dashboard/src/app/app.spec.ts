@@ -17,7 +17,7 @@ const acme = { id: 'p1', name: 'Acme' };
 const globex = { id: 'p2', name: 'Globex' };
 const zone = { id: 'z1', name: 'Home bar', projectId: 'p1' };
 const otherZone = { id: 'z2', name: 'Checkout', projectId: 'p2' };
-const group = { id: 'g1', zoneId: 'z1', projectId: 'p1', name: 'Summer', position: 0 };
+const group = { id: 'g1', zoneId: 'z1', projectId: 'p1', name: 'Summer', position: 0, tags: [] as unknown[] };
 const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, media: null };
 const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, media: null };
 const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
@@ -28,10 +28,12 @@ const signedIn = { setupRequired: false, user: admin };
 const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', settings: {} };
 
 interface Data {
-  projects?: unknown[];
+  projects?: { id: string }[];
   zones?: { id: string }[];
   frames?: Record<string, unknown[]>;
   groups?: Record<string, unknown[]>;
+  /** Each project's tags, keyed by project id. */
+  tags?: Record<string, unknown[]>;
 }
 
 const oneZone: Data = { projects: [acme], zones: [zone] };
@@ -100,7 +102,7 @@ describe('App', () => {
 
   afterEach(() => http.verify());
 
-  // Answers one full refresh: projects, zones, frame types, then each zone's frames and tale groups.
+  // Answers one full refresh: projects, zones, frame types, each zone's frames and tale groups, then each project's tags.
   async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data): Promise<void> {
     const zones = data.zones ?? [];
     http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
@@ -114,6 +116,8 @@ describe('App', () => {
     for (const z of zones) {
       http.expectOne(`${API_BASE}/zones/${z.id}/tale-groups`).flush(data.groups?.[z.id] ?? []);
     }
+    await settle(fixture);
+    for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
     await settle(fixture);
   }
 
@@ -406,7 +410,7 @@ describe('App', () => {
   });
 
   describe('reordering', () => {
-    const groupB = { id: 'g2', zoneId: 'z1', projectId: 'p1', name: 'Winter', position: 1 };
+    const groupB = { id: 'g2', zoneId: 'z1', projectId: 'p1', name: 'Winter', position: 1, tags: [] };
     const twoTales: Data = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } };
 
     function titles(root: HTMLElement): (string | undefined)[] {
@@ -570,6 +574,220 @@ describe('App', () => {
       expect(http.expectOne(`${API_BASE}/zones/z1/tale-groups/order`).request.body).toEqual({
         taleGroupIds: ['g1', 'g2'],
       });
+    });
+  });
+
+  describe('tags', () => {
+    const summer = { id: 'tag1', projectId: 'p1', name: 'summer' };
+    const beach = { id: 'tag2', projectId: 'p1', name: 'Beach' };
+    const ref = ({ id, name }: { id: string; name: string }) => ({ id, name });
+    const winter = { id: 'g2', zoneId: 'z1', projectId: 'p1', name: 'Winter', position: 1, tags: [] as unknown[] };
+    const spring = { id: 'g3', zoneId: 'z1', projectId: 'p1', name: 'Spring', position: 2, tags: [] as unknown[] };
+
+    function groupNames(root: HTMLElement): string[] {
+      return [...root.querySelectorAll('[aria-label="Tale groups in Home bar"] h4')].map((h) => h.textContent?.trim() ?? '');
+    }
+
+    function chip(root: HTMLElement, name: string): HTMLButtonElement {
+      const filters = root.querySelector('[aria-label="Filter tale groups by tag"]') as HTMLElement;
+      return buttonNamed(filters, name);
+    }
+
+    it('shows tag chips after the group name and a Tags button on every group', async () => {
+      const { root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [ref(beach), ref(summer)] }, { ...winter, tales: [] }] },
+        tags: { p1: [beach, summer] },
+      });
+
+      const chips = [...root.querySelectorAll('[aria-label="Tags of Summer"] li')].map((li) => li.textContent?.trim());
+      expect(chips).toEqual(['Beach', 'summer']);
+      expect(root.querySelector('[aria-label="Tags of Winter"] li')).toBeNull();
+      expect(root.querySelectorAll('button[aria-label^="Tags of "]').length).toBe(2);
+    });
+
+    it("opens the Tags drawer with the project's tags as checkboxes, creates a tag and saves the set", async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [ref(beach)] }] },
+        tags: { p1: [beach] },
+      });
+
+      (root.querySelector('button[aria-label="Tags of Summer"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      expect(panel.querySelector('h2')?.textContent).toContain('Tags');
+      expect(panel.textContent).toContain('For tale group Summer');
+      const boxes = () =>
+        [...panel.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].map((box) => [
+          box.closest('label')?.textContent?.trim(),
+          box.checked,
+        ]);
+      expect(boxes()).toEqual([['Beach', true]]);
+
+      type(panel.querySelector<HTMLInputElement>('#new-tag'), 'summer');
+      await settle(fixture);
+      buttonNamed(panel, 'Add tag').click();
+      const create = http.expectOne(`${API_BASE}/projects/p1/tags`);
+      expect(create.request.method).toBe('POST');
+      expect(create.request.body).toEqual({ name: 'summer' });
+      create.flush(summer);
+      await settle(fixture);
+      // ngModel writes the cleared field after the change detection that saw it.
+      await settle(fixture);
+      expect(boxes()).toEqual([
+        ['Beach', true],
+        ['summer', true],
+      ]);
+      expect(panel.querySelector<HTMLInputElement>('#new-tag')?.value).toBe('');
+
+      (panel.querySelector('input[type=checkbox]') as HTMLInputElement).click();
+      await settle(fixture);
+      buttonNamed(panel, 'Save').click();
+      const save = http.expectOne(`${API_BASE}/tale-groups/g1/tags`);
+      expect(save.request.method).toBe('PUT');
+      expect(save.request.body).toEqual({ tagIds: ['tag1'] });
+      save.flush({ ...group, tales: [], tags: [ref(summer)] });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(root.querySelector('[aria-label="Tags of Summer"] li')?.textContent?.trim()).toBe('summer');
+    });
+
+    it("shows the API's message in the Tags drawer when a tag or the set is refused", async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [] }] },
+        tags: { p1: [summer] },
+      });
+      (root.querySelector('button[aria-label="Tags of Summer"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      expect(panel.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked).toBe(false);
+
+      type(panel.querySelector<HTMLInputElement>('#new-tag'), 'SUMMER');
+      buttonNamed(panel, 'Add tag').click();
+      http
+        .expectOne(`${API_BASE}/projects/p1/tags`)
+        .flush(
+          { error: { code: 'tag_exists', message: 'This project already has a tag named "SUMMER"' } },
+          { status: 409, statusText: 'Conflict' },
+        );
+      await settle(fixture);
+      expect(panel.querySelector('[role=alert]')?.textContent).toContain('already has a tag named');
+
+      buttonNamed(panel, 'Save').click();
+      await refuse(fixture, `${API_BASE}/tale-groups/g1/tags`, 'tag_not_found', 'A tag id does not match a tag of this project');
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('does not match a tag');
+    });
+
+    it('filters the groups by a tag chip, hides reordering while filtered, and shows all again', async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: {
+          z1: [
+            { ...group, tales: [], tags: [ref(summer)] },
+            { ...winter, tales: [], tags: [ref(beach)] },
+            { ...spring, tales: [], tags: [ref(beach), ref(summer)] },
+          ],
+        },
+        tags: { p1: [beach, summer] },
+      });
+
+      const filters = root.querySelector('[aria-label="Filter tale groups by tag"]') as HTMLElement;
+      expect([...filters.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['All', 'Beach', 'summer']);
+      expect(chip(root, 'All').getAttribute('aria-pressed')).toBe('true');
+
+      chip(root, 'summer').click();
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Summer', 'Spring']);
+      expect(chip(root, 'summer').getAttribute('aria-pressed')).toBe('true');
+      expect(root.querySelector('[data-move^="group:"]')).toBeNull();
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toContain('Showing 2 of 3 tale groups, tagged summer');
+
+      chip(root, 'All').click();
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Summer', 'Winter', 'Spring']);
+      expect(root.querySelector('[data-move^="group:"]')).not.toBeNull();
+    });
+
+    it('drops the filter when no group carries its tag any more, and does not bring it back', async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [ref(summer)] }, { ...winter, tales: [] }] },
+        tags: { p1: [summer] },
+      });
+      chip(root, 'summer').click();
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Summer']);
+
+      const store = TestBed.inject(DashboardStore);
+      const setGroups = (tags: unknown[]) =>
+        store.taleGroups.set({ z1: [{ ...group, tales: [], tags }, { ...winter, tales: [] }] as never });
+      setGroups([]);
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Summer', 'Winter']);
+      setGroups([ref(summer)]);
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Summer', 'Winter']);
+      expect(chip(root, 'All').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('shows no filter chips when no group has tags', async () => {
+      const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }] } });
+      expect(root.querySelector('[aria-label="Filter tale groups by tag"]')).toBeNull();
+    });
+
+    it('tags two groups with a new tag "summer", filters by it, and they still carry it after a reload', async () => {
+      const groups = [
+        { ...group, tales: [] },
+        { ...winter, tales: [] },
+        { ...spring, tales: [] },
+      ];
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: groups } });
+
+      for (const [name, id, created] of [
+        ['Summer', 'g1', true],
+        ['Spring', 'g3', false],
+      ] as const) {
+        (root.querySelector(`button[aria-label="Tags of ${name}"]`) as HTMLButtonElement).click();
+        await settle(fixture);
+        const panel = drawer() as HTMLElement;
+        if (created) {
+          type(panel.querySelector<HTMLInputElement>('#new-tag'), 'summer');
+          buttonNamed(panel, 'Add tag').click();
+          http.expectOne(`${API_BASE}/projects/p1/tags`).flush(summer);
+          await settle(fixture);
+        } else {
+          (panel.querySelector('input[type=checkbox]') as HTMLInputElement).click();
+          await settle(fixture);
+        }
+        buttonNamed(panel, 'Save').click();
+        const save = http.expectOne(`${API_BASE}/tale-groups/${id}/tags`);
+        expect(save.request.body).toEqual({ tagIds: ['tag1'] });
+        save.flush({ ...groups.find((g) => g.id === id), tags: [ref(summer)] });
+        await settle(fixture);
+      }
+
+      chip(root, 'summer').click();
+      await settle(fixture);
+      expect(groupNames(root)).toEqual(['Summer', 'Spring']);
+
+      // A reload loads the same tags from the API.
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, {
+        ...oneZone,
+        groups: {
+          z1: [
+            { ...group, tales: [], tags: [ref(summer)] },
+            { ...winter, tales: [] },
+            { ...spring, tales: [], tags: [ref(summer)] },
+          ],
+        },
+        tags: { p1: [summer] },
+      });
+      expect(groupNames(root)).toEqual(['Summer', 'Spring']);
+      expect(root.querySelector('[aria-label="Tags of Spring"] li')?.textContent?.trim()).toBe('summer');
     });
   });
 

@@ -256,6 +256,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List a project's tags by name.
+         * @description Unknown project 404 `project_not_found`.
+         */
+        get: operations["listTags"];
+        put?: never;
+        /**
+         * Create a tag in a project.
+         * @description The name is trimmed and holds 1 to 40 characters (400 `validation_failed` otherwise). Names are unique per project ignoring case; a taken name answers 409 `tag_exists`. Unknown project 404 `project_not_found`.
+         */
+        post: operations["createTag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zones": {
         parameters: {
             query?: never;
@@ -406,6 +432,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tale-groups/{taleGroupId}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the tags of a tale group.
+         * @description The list becomes the group's full set of tags; an empty list clears them, and repeated ids count once. Every id must name a tag of the group's own project; otherwise nothing changes and the answer is 400 `tag_not_found`. Unknown tale group: 404 `tale_group_not_found`.
+         */
+        put: operations["setTaleGroupTags"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tales/{taleId}/media": {
         parameters: {
             query?: never;
@@ -497,6 +545,29 @@ export interface components {
             position: number;
             /** @description The group's tales, by position. */
             tales: components["schemas"]["Tale"][];
+            /** @description The group's tags, by name ignoring case. */
+            tags: components["schemas"]["TaleGroupTag"][];
+        };
+        Tag: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            name: string;
+        };
+        /** @description A tag as a tale group carries it. */
+        TaleGroupTag: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        CreateTagRequest: {
+            /** @description Trimmed before it is checked and stored; unique in the project ignoring case. */
+            name: string;
+        };
+        SetTaleGroupTagsRequest: {
+            /** @description The ids of the group's new tags, all of the group's project. Repeats count once. */
+            tagIds: string[];
         };
         CreateTaleGroupRequest: {
             name: string;
@@ -598,7 +669,7 @@ export interface components {
             [key: string]: unknown;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -948,6 +1019,62 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    listTags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's tags, by name ignoring case. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTagRequest"];
+            };
+        };
+        responses: {
+            /** @description The created tag. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     listZones: {
         parameters: {
             query?: never;
@@ -1220,6 +1347,36 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    setTaleGroupTags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTaleGroupTagsRequest"];
+            };
+        };
+        responses: {
+            /** @description The tale group with its new tags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getTaleMedia: {
         parameters: {
             query?: never;
@@ -1299,4 +1456,4 @@ type ReadonlyArray<T> = [
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "internal_error"];

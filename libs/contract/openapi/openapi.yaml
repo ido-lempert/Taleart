@@ -309,6 +309,63 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /projects/{projectId}/tags:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listTags
+      summary: List a project's tags by name.
+      description: Unknown project 404 `project_not_found`.
+      responses:
+        '200':
+          description: The project's tags, by name ignoring case.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tag'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createTag
+      summary: Create a tag in a project.
+      description: >-
+        The name is trimmed and holds 1 to 40 characters (400
+        `validation_failed` otherwise). Names are unique per project ignoring
+        case; a taken name answers 409 `tag_exists`. Unknown project 404
+        `project_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTagRequest'
+      responses:
+        '201':
+          description: The created tag.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /zones:
     get:
       operationId: listZones
@@ -579,6 +636,42 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/tags:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setTaleGroupTags
+      summary: Replace the tags of a tale group.
+      description: >-
+        The list becomes the group's full set of tags; an empty list clears
+        them, and repeated ids count once. Every id must name a tag of the
+        group's own project; otherwise nothing changes and the answer is 400
+        `tag_not_found`. Unknown tale group: 404 `tale_group_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTaleGroupTagsRequest'
+      responses:
+        '200':
+          description: The tale group with its new tags.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tales/{taleId}/media:
     parameters:
       - name: taleId
@@ -770,7 +863,7 @@ components:
           additionalProperties: true
     TaleGroup:
       type: object
-      required: [id, zoneId, projectId, name, position, tales]
+      required: [id, zoneId, projectId, name, position, tales, tags]
       properties:
         id:
           type: string
@@ -793,6 +886,53 @@ components:
           description: The group's tales, by position.
           items:
             $ref: '#/components/schemas/Tale'
+        tags:
+          type: array
+          description: The group's tags, by name ignoring case.
+          items:
+            $ref: '#/components/schemas/TaleGroupTag'
+    Tag:
+      type: object
+      required: [id, projectId, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+    TaleGroupTag:
+      type: object
+      required: [id, name]
+      description: A tag as a tale group carries it.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    CreateTagRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: Trimmed before it is checked and stored; unique in the project ignoring case.
+    SetTaleGroupTagsRequest:
+      type: object
+      required: [tagIds]
+      properties:
+        tagIds:
+          type: array
+          description: The ids of the group's new tags, all of the group's project. Repeats count once.
+          items:
+            type: string
     CreateTaleGroupRequest:
       type: object
       required: [name]
@@ -1000,6 +1140,8 @@ components:
         - forbidden
         - invitation_invalid
         - email_taken
+        - tag_exists
+        - tag_not_found
         - internal_error
     ErrorBody:
       type: object
