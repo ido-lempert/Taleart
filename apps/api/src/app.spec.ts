@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  addProjectMember,
   createSession,
   createUser,
   PasskeyFailedError,
@@ -122,7 +123,9 @@ describe('Management API v1: projects and zones', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE tales, tale_groups, frames, zones, projects, auth_challenges, sessions, passkeys, users');
+    await pool.query(
+      'TRUNCATE tales, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+    );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
     const { token } = await createSession(pool, user.id);
@@ -902,6 +905,281 @@ describe('Management API v1: projects and zones', () => {
       expect(Buffer.from(await res.arrayBuffer())).toEqual(png);
     });
   });
+  describe('invitations and project access', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    let adminCookie: string;
+
+    function send(method: string, path: string, body?: unknown, cookie = sessionCookie): Promise<Response> {
+      const headers: Record<string, string> = { Cookie: cookie };
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      return globalThis.fetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    }
+
+    function cookieValue(res: Response, name: string): string {
+      const line = res.headers.getSetCookie().find((l) => l.startsWith(`${name}=`)) ?? '';
+      return line.split(';')[0].slice(name.length + 1);
+    }
+
+    async function invite(projectId: string): Promise<{ id: string; url: string; expiresAt: string; token: string }> {
+      const res = await send('POST', `/projects/${projectId}/invitations`, undefined, adminCookie);
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      return { ...body, token: decodeURIComponent(new URL(body.url).pathname.split('/').pop() ?? '') };
+    }
+
+    // Runs the invitee's side in a fresh browser: options, then verify with the challenge cookie.
+    async function redeem(
+      token: string,
+      { name = 'Cy Content', email = 'cy@example.com', id = 'cred-cy', fail = false } = {},
+    ): Promise<Response> {
+      const options = await send('POST', `/auth/invitations/${token}/options`, { name, email }, '');
+      if (options.status !== 200) return options;
+      const { challenge } = await options.json();
+      const challengeCookie = `taleart_challenge=${cookieValue(options, 'taleart_challenge')}`;
+      return send('POST', `/auth/invitations/${token}/verify`, { id, challenge, fail }, challengeCookie);
+    }
+
+    // Signs in a content manager who is a member of `projectIds`; later requests carry their session.
+    async function signInAsContentManager(projectIds: string[]): Promise<void> {
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      for (const projectId of projectIds) await addProjectMember(pool, projectId, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+    }
+
+    // Project A and B, each with a zone, a tale group and a tale with media, created by the admin.
+    async function twoProjects() {
+      const make = async (name: string) => {
+        const project = await createProject(name);
+        const zone = await (await post('/zones', { name: `${name} bar`, projectId: project.id })).json();
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+        const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+        await fetch(`${base}/tales/${tale.id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+        return { project, zone, group, tale };
+      };
+      return { a: await make('Alpha'), b: await make('Beta') };
+    }
+
+    beforeEach(() => {
+      adminCookie = sessionCookie;
+    });
+
+    it('lets an admin create an invitation link and stores only the token hash', async () => {
+      const project = await createProject();
+      const before = Date.now();
+      const res = await send('POST', `/projects/${project.id}/invitations`, undefined, adminCookie);
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body).toEqual({
+        id: expect.any(String),
+        projectId: project.id,
+        url: expect.stringMatching(/^http:\/\/localhost:4200\/invite\/[A-Za-z0-9_-]{43}$/),
+        expiresAt: expect.any(String),
+      });
+      const token = body.url.split('/').pop();
+      const ttl = new Date(body.expiresAt).getTime() - before;
+      expect(ttl).toBeGreaterThan(7 * 24 * 3600 * 1000 - 5000);
+      expect(ttl).toBeLessThanOrEqual(7 * 24 * 3600 * 1000 + 5000);
+
+      const { rows } = await pool.query('SELECT * FROM invitations');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].token_hash).toBe(createHash('sha256').update(token).digest('hex'));
+      expect(JSON.stringify(rows)).not.toContain(token);
+    });
+
+    it.each([unknownId, 'not-a-uuid'])('answers 404 project_not_found when inviting to project %s', async (id) => {
+      const res = await send('POST', `/projects/${id}/invitations`, undefined, adminCookie);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: { code: 'project_not_found', message: expect.any(String) } });
+    });
+
+    it('shows an invitation without a session, and answers 410 for an unknown or expired one', async () => {
+      const project = await createProject('Acme');
+      const { token, expiresAt } = await invite(project.id);
+      const res = await send('GET', `/auth/invitations/${token}`, undefined, '');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ projectName: 'Acme', expiresAt });
+
+      const unknown = await send('GET', '/auth/invitations/nope', undefined, '');
+      expect(unknown.status).toBe(410);
+      expect(await unknown.json()).toEqual({ error: { code: 'invitation_invalid', message: expect.any(String) } });
+
+      await pool.query("UPDATE invitations SET expires_at = now() - interval '1 second'");
+      expect((await send('GET', `/auth/invitations/${token}`, undefined, '')).status).toBe(410);
+      expect((await redeem(token)).status).toBe(410);
+    });
+
+    it('signs the invitee in as a content manager who sees only the invited project', async () => {
+      const { a, b } = await twoProjects();
+      const { token } = await invite(a.project.id);
+
+      const options = await send('POST', `/auth/invitations/${token}/options`, { name: 'Cy', email: 'cy@example.com' }, '');
+      expect(options.status).toBe(200);
+      expect(await options.json()).toMatchObject({ user: { name: 'cy@example.com', displayName: 'Cy' } });
+      expect(options.headers.getSetCookie().find((l) => l.startsWith('taleart_challenge='))).toContain('HttpOnly');
+
+      const res = await redeem(token);
+      expect(res.status).toBe(201);
+      const { user } = await res.json();
+      expect(user).toEqual({ id: expect.any(String), name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      sessionCookie = `taleart_session=${cookieValue(res, 'taleart_session')}`;
+
+      expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user });
+      expect(await (await send('GET', '/projects')).json()).toEqual([a.project]);
+      expect(await (await send('GET', '/zones')).json()).toEqual([a.zone]);
+      expect((await send('GET', `/zones/${a.zone.id}/tale-groups`)).status).toBe(200);
+      expect((await send('GET', `/zones/${b.zone.id}/tale-groups`)).status).toBe(403);
+
+      const { rows } = await pool.query('SELECT used_at, used_by FROM invitations');
+      expect(rows[0].used_at).not.toBeNull();
+      expect(rows[0].used_by).toBe(user.id);
+      const members = await pool.query('SELECT project_id FROM project_members WHERE user_id = $1', [user.id]);
+      expect(members.rows).toEqual([{ project_id: a.project.id }]);
+    });
+
+    it('answers 410 when the same link is used a second time', async () => {
+      const project = await createProject();
+      const { token } = await invite(project.id);
+      expect((await redeem(token)).status).toBe(201);
+      expect((await send('GET', `/auth/invitations/${token}`, undefined, '')).status).toBe(410);
+      const again = await redeem(token, { email: 'dee@example.com', id: 'cred-dee' });
+      expect(again.status).toBe(410);
+      expect((await again.json()).error.code).toBe('invitation_invalid');
+    });
+
+    it('answers 410 when the link was used between options and verify', async () => {
+      const project = await createProject();
+      const { token } = await invite(project.id);
+      const slow = await send('POST', `/auth/invitations/${token}/options`, { name: 'Dee', email: 'dee@example.com' }, '');
+      const { challenge } = await slow.json();
+      expect((await redeem(token)).status).toBe(201);
+      const res = await send(
+        'POST',
+        `/auth/invitations/${token}/verify`,
+        { id: 'cred-dee', challenge },
+        `taleart_challenge=${cookieValue(slow, 'taleart_challenge')}`,
+      );
+      expect(res.status).toBe(410);
+      expect((await res.json()).error.code).toBe('invitation_invalid');
+      expect((await pool.query("SELECT 1 FROM users WHERE email = 'dee@example.com'")).rowCount).toBe(0);
+    });
+
+    it('lets only one of two racing redeems of one link create a user', async () => {
+      const project = await createProject();
+      const { token } = await invite(project.id);
+      const start = async (email: string) => {
+        const res = await send('POST', `/auth/invitations/${token}/options`, { name: 'X', email }, '');
+        return { challenge: (await res.json()).challenge, cookie: `taleart_challenge=${cookieValue(res, 'taleart_challenge')}` };
+      };
+      const one = await start('one@example.com');
+      const two = await start('two@example.com');
+      const results = await Promise.all([
+        send('POST', `/auth/invitations/${token}/verify`, { id: 'cred-1', challenge: one.challenge }, one.cookie),
+        send('POST', `/auth/invitations/${token}/verify`, { id: 'cred-2', challenge: two.challenge }, two.cookie),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 410]);
+      expect((await pool.query("SELECT 1 FROM users WHERE role = 'content_manager'")).rowCount).toBe(1);
+    });
+
+    it('refuses an email that already belongs to a user with 409 email_taken', async () => {
+      const project = await createProject();
+      const { token } = await invite(project.id);
+      const res = await redeem(token, { email: 'ADMIN@example.com' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: { code: 'email_taken', message: expect.any(String) } });
+    });
+
+    it.each([{ name: ' ', email: 'cy@example.com' }, { name: 'Cy', email: 'nope' }, { name: 'Cy' }])(
+      'refuses invitation options %o with 400 validation_failed',
+      async (body) => {
+        const project = await createProject();
+        const { token } = await invite(project.id);
+        const res = await send('POST', `/auth/invitations/${token}/options`, body, '');
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      },
+    );
+
+    it('refuses a failed passkey with 400 passkey_failed and keeps the link usable', async () => {
+      const project = await createProject();
+      const { token } = await invite(project.id);
+      const res = await redeem(token, { fail: true });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('passkey_failed');
+      expect((await pool.query("SELECT 1 FROM users WHERE role = 'content_manager'")).rowCount).toBe(0);
+      expect((await redeem(token)).status).toBe(201);
+    });
+
+    it('refuses admin-only actions to a content manager with 403 forbidden', async () => {
+      const project = await createProject();
+      await signInAsContentManager([project.id]);
+      for (const res of [
+        await send('POST', '/projects', { name: 'Mine' }),
+        await send('POST', `/projects/${project.id}/invitations`),
+        await send('POST', `/projects/${unknownId}/invitations`),
+      ]) {
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({ error: { code: 'forbidden', message: expect.any(String) } });
+      }
+    });
+
+    it('refuses every route on another project with 403 forbidden', async () => {
+      const { a, b } = await twoProjects();
+      await signInAsContentManager([a.project.id]);
+      const requests: [string, string, unknown?][] = [
+        ['POST', '/zones', { name: 'Mine', projectId: b.project.id }],
+        ['GET', `/zones/${b.zone.id}/frames`],
+        ['POST', `/zones/${b.zone.id}/frames`, { type: 'bar' }],
+        ['GET', `/zones/${b.zone.id}/tale-groups`],
+        ['POST', `/zones/${b.zone.id}/tale-groups`, { name: 'Mine' }],
+        ['PUT', `/zones/${b.zone.id}/tale-groups/order`, { taleGroupIds: [b.group.id] }],
+        ['POST', `/tale-groups/${b.group.id}/tales`, { title: 'Mine' }],
+        ['PUT', `/tale-groups/${b.group.id}/tales/order`, { taleIds: [b.tale.id] }],
+        ['GET', `/tales/${b.tale.id}/media`],
+      ];
+      for (const [method, path, body] of requests) {
+        const res = await send(method, path, body);
+        expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 });
+        expect((await res.json()).error.code).toBe('forbidden');
+      }
+      const upload = await fetch(`${base}/tales/${b.tale.id}/media`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+        body: png,
+      });
+      expect(upload.status).toBe(403);
+      expect((await pool.query('SELECT 1 FROM zones WHERE name = $1', ['Mine'])).rowCount).toBe(0);
+    });
+
+    it('allows a content manager every route on their own project and still answers 404 for unknown ones', async () => {
+      const { a } = await twoProjects();
+      await signInAsContentManager([a.project.id]);
+      expect((await send('POST', '/zones', { name: 'Mine', projectId: a.project.id })).status).toBe(201);
+      expect((await send('GET', `/zones/${a.zone.id}/frames`)).status).toBe(200);
+      expect((await send('POST', `/zones/${a.zone.id}/frames`, { type: 'bar' })).status).toBe(201);
+      expect((await send('POST', `/zones/${a.zone.id}/tale-groups`, { name: 'Mine' })).status).toBe(201);
+      expect((await send('POST', `/tale-groups/${a.group.id}/tales`, { title: 'Mine' })).status).toBe(201);
+      expect((await send('GET', `/tales/${a.tale.id}/media`)).status).toBe(200);
+
+      expect((await send('GET', `/zones/${unknownId}/frames`)).status).toBe(404);
+      expect((await send('POST', `/tale-groups/${unknownId}/tales`, { title: 'X' })).status).toBe(404);
+      expect((await send('GET', `/tales/${unknownId}/media`)).status).toBe(404);
+      const zone = await send('POST', '/zones', { name: 'X', projectId: unknownId });
+      expect(zone.status).toBe(400);
+      expect((await zone.json()).error.code).toBe('project_not_found');
+    });
+
+    it('lets an admin reach every project', async () => {
+      const { a, b } = await twoProjects();
+      expect(await (await send('GET', '/projects')).json()).toEqual([a.project, b.project]);
+      expect(await (await send('GET', '/zones')).json()).toEqual([a.zone, b.zone]);
+      expect((await send('GET', `/zones/${b.zone.id}/tale-groups`)).status).toBe(200);
+    });
+  });
   describe('auth', () => {
     // A minimal cookie jar: the cookies the API set, sent back as the browser would.
     let jar: Record<string, string>;
@@ -962,7 +1240,7 @@ describe('Management API v1: projects and zones', () => {
     beforeEach(async () => {
       jar = {};
       // Auth tests start from an empty install.
-      await pool.query('TRUNCATE auth_challenges, sessions, passkeys, users');
+      await pool.query('TRUNCATE invitations, project_members, auth_challenges, sessions, passkeys, users');
     });
 
     it('reports that setup is required on an empty install', async () => {

@@ -1,4 +1,4 @@
-import { inject, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable, signal } from '@angular/core';
 import {
   HttpClient,
   HttpErrorResponse,
@@ -20,6 +20,7 @@ import {
   ErrorCodes,
   isErrorBody,
   type AuthState,
+  type InvitationPreview,
   type PasskeyCreationOptions,
   type PasskeyRequestOptions,
   type PasskeyResponse,
@@ -63,6 +64,11 @@ function passkeyErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+// True for the API's 410 invitation_invalid.
+function invitationGone(err: unknown): boolean {
+  return err instanceof HttpErrorResponse && isErrorBody(err.error) && err.error.error.code === ErrorCodes.invitationInvalid;
+}
+
 /** Only same-site paths are followed after sign-in. */
 export function safeReturnUrl(url: string | null | undefined): string {
   return url && url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\') ? url : '/zones';
@@ -78,6 +84,8 @@ export class AuthStore {
   /** The auth state, or null until it was read (or when the API could not be reached). */
   readonly state = signal<AuthState | null>(null);
   readonly user = signal<User | null>(null);
+  /** Admins create projects and invitations; content managers do not. */
+  readonly isAdmin = computed(() => this.user()?.role === 'admin');
   private loading: Promise<AuthState | null> | null = null;
 
   /** The auth state, read from the API once; null when the API could not be reached. */
@@ -117,6 +125,34 @@ export class AuthStore {
     }
   }
 
+  /** The project an invitation link is for, or null when the link is no longer valid. Other failures throw. */
+  async invitation(token: string): Promise<InvitationPreview | null> {
+    try {
+      return await firstValueFrom(this.http.get<InvitationPreview>(`${AUTH_BASE}/invitations/${encodeURIComponent(token)}`));
+    } catch (err) {
+      if (invitationGone(err)) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Registers an invitee's passkey through the invitation link and signs them in
+   * as a content manager. Resolves to '' or the message to show; `invalid` is
+   * true when the link stopped working meanwhile.
+   */
+  async join(token: string, name: string, email: string): Promise<{ message: string; invalid: boolean }> {
+    const base = `${AUTH_BASE}/invitations/${encodeURIComponent(token)}`;
+    try {
+      const options = await firstValueFrom(this.http.post<PasskeyCreationOptions>(`${base}/options`, { name, email }));
+      const response = await this.passkeys.register(options);
+      const { user } = await firstValueFrom(this.http.post<SignedIn>(`${base}/verify`, response));
+      this.apply({ setupRequired: false, user });
+      return { message: '', invalid: false };
+    } catch (err) {
+      return { message: passkeyErrorMessage(err, 'Joining did not finish. Try again.'), invalid: invitationGone(err) };
+    }
+  }
+
   /** Signs in with a passkey stored on this device or in a password manager. */
   async signIn(): Promise<string> {
     try {
@@ -140,9 +176,11 @@ export class AuthStore {
   }
 
   private apply(state: AuthState): void {
+    const previous = this.user();
     this.state.set(state);
     this.user.set(state.user);
-    if (!state.user) this.store.reset();
+    // Signed out, or someone else signed in on this browser (joining by invitation): drop the old data.
+    if (!state.user || (previous && previous.id !== state.user.id)) this.store.reset();
   }
 }
 

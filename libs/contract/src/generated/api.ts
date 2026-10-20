@@ -141,6 +141,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/invitations/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read an invitation before joining.
+         * @description Works without a session. An unknown, used or expired invitation answers 410 `invitation_invalid`.
+         */
+        get: operations["getInvitation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/invitations/{token}/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start registering an invitee's passkey.
+         * @description Answers WebAuthn creation options and sets the http-only `taleart_challenge` cookie (single-use, 5 minutes). Unknown, used or expired invitation: 410 `invitation_invalid`. An email that already belongs to a user: 409 `email_taken`.
+         */
+        post: operations["startInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/invitations/{token}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register the invitee's passkey, use the invitation and sign them in.
+         * @description Creates the user as a `content_manager`, their passkey and their membership of the invitation's project, marks the invitation used and sets the `taleart_session` cookie, all in one transaction. Bad or expired challenge, or failed verification: 400 `passkey_failed`. The invitation was used meanwhile or expired: 410 `invitation_invalid`.
+         */
+        post: operations["finishInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects": {
         parameters: {
             query?: never;
@@ -148,11 +217,39 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List projects, oldest first. */
+        /**
+         * List the projects the caller can access, oldest first.
+         * @description Admins see every project; content managers see the projects they are members of.
+         */
         get: operations["listProjects"];
         put?: never;
-        /** Create a project. */
+        /**
+         * Create a project (admins only).
+         * @description A content manager gets 403 `forbidden`.
+         */
         post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite someone to a project (admins only).
+         * @description Creates a one-time invitation, valid for 7 days. The invitee opens `url`, registers a passkey and becomes a content manager of the project. The token in `url` is shown only in this response; only its SHA-256 hash is stored. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`.
+         */
+        post: operations["createInvitation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -166,10 +263,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List zones, oldest first. */
+        /** List the zones of the projects the caller can access, oldest first. */
         get: operations["listZones"];
         put?: never;
-        /** Create a zone in a project. */
+        /**
+         * Create a zone in a project.
+         * @description A project the caller cannot access answers 403 `forbidden`.
+         */
         post: operations["createZone"];
         delete?: never;
         options?: never;
@@ -456,6 +556,26 @@ export interface components {
             /** Format: email */
             email: string;
         };
+        RedeemInvitationRequest: {
+            name: string;
+            /** Format: email */
+            email: string;
+        };
+        Invitation: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            /** @description The one-time link to share, `<dashboard origin>/invite/<token>`. Shown only once. */
+            url: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        InvitationPreview: {
+            projectName: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         SignedIn: {
             user: components["schemas"]["User"];
         };
@@ -478,7 +598,7 @@ export interface components {
             [key: string]: unknown;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -497,7 +617,10 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description The one-time token from the invitation link. */
+        InvitationToken: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -665,6 +788,93 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project the invitation is for, and when it expires. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationPreview"];
+                };
+            };
+            410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    startInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description WebAuthn creation options for the browser. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyCreationOptions"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    finishInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The one-time token from the invitation link. */
+                token: components["parameters"]["InvitationToken"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyResponse"];
+            };
+        };
+        responses: {
+            /** @description The new content manager, now signed in. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignedIn"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            410: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     listProjects: {
         parameters: {
             query?: never;
@@ -674,7 +884,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description All projects. */
+            /** @description The accessible projects. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -709,6 +919,32 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitation, with its one-time link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -721,7 +957,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description All zones. */
+            /** @description The accessible zones. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -756,6 +992,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -800,6 +1037,7 @@ export interface operations {
                     "application/json": components["schemas"]["Frame"][];
                 };
             };
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
@@ -829,6 +1067,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
@@ -853,6 +1092,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaleGroup"][];
                 };
             };
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
@@ -882,6 +1122,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
@@ -911,6 +1152,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -941,6 +1183,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -971,6 +1214,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -1001,6 +1245,7 @@ export interface operations {
                     "video/webm": string;
                 };
             };
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
@@ -1035,6 +1280,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             413: components["responses"]["Error"];
             415: components["responses"]["Error"];
@@ -1053,4 +1299,4 @@ type ReadonlyArray<T> = [
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "internal_error"];

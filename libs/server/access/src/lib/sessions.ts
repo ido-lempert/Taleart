@@ -1,13 +1,13 @@
-import { createHash, randomBytes } from 'node:crypto';
 import type { User } from '@taleart/contract';
 import type { Db } from './db';
+import { hashToken, newToken } from './tokens';
 
 /** How long a session lasts after it is created. */
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** The SHA-256 hash of a session token, hex. Only this is stored (NFR-003). */
 export function hashSessionToken(token: string): string {
-  return createHash('sha256').update(token, 'utf8').digest('hex');
+  return hashToken(token);
 }
 
 /** A new session: the token goes to the browser once, in a cookie. */
@@ -18,7 +18,7 @@ export interface NewSession {
 
 /** Starts a session for the user: 32 random bytes, stored only as their hash. */
 export async function createSession(db: Db, userId: string): Promise<NewSession> {
-  const token = randomBytes(32).toString('base64url');
+  const token = newToken();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   // The user's expired sessions are no longer of use.
   await db.query('DELETE FROM sessions WHERE user_id = $1 AND expires_at <= now()', [userId]);

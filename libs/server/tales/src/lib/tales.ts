@@ -226,6 +226,22 @@ export async function orderTales(
   });
 }
 
+/** The project of a tale group, or null when it does not exist. Ids that are not UUIDs never match. */
+export async function taleGroupProjectId(db: Db, taleGroupId: string): Promise<string | null> {
+  if (!UUID.test(taleGroupId)) return null;
+  const { rows } = await db.query<{ project_id: string }>('SELECT project_id FROM tale_groups WHERE id = $1', [
+    taleGroupId,
+  ]);
+  return rows[0]?.project_id ?? null;
+}
+
+/** The project of a tale, or null when it does not exist. Ids that are not UUIDs never match. */
+export async function taleProjectId(db: Db, taleId: string): Promise<string | null> {
+  if (!UUID.test(taleId)) return null;
+  const { rows } = await db.query<{ project_id: string }>('SELECT project_id FROM tales WHERE id = $1', [taleId]);
+  return rows[0]?.project_id ?? null;
+}
+
 /** True when a tale group with this id exists. Ids that are not UUIDs never match. */
 export async function taleGroupExists(db: Db, taleGroupId: string): Promise<boolean> {
   if (!UUID.test(taleGroupId)) return false;

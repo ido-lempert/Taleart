@@ -30,6 +30,9 @@ export type User = Schemas['User'];
 export type AuthState = Schemas['AuthState'];
 export type SetupRequest = Schemas['SetupRequest'];
 export type SignedIn = Schemas['SignedIn'];
+export type RedeemInvitationRequest = Schemas['RedeemInvitationRequest'];
+export type Invitation = Schemas['Invitation'];
+export type InvitationPreview = Schemas['InvitationPreview'];
 export type PasskeyCreationOptions = Schemas['PasskeyCreationOptions'];
 export type PasskeyRequestOptions = Schemas['PasskeyRequestOptions'];
 export type PasskeyResponse = Schemas['PasskeyResponse'];
@@ -47,6 +50,14 @@ export const SESSION_COOKIE = 'taleart_session';
 
 /** The http-only cookie that finds a pending passkey challenge on the server. */
 export const CHALLENGE_COOKIE = 'taleart_challenge';
+
+/** How long an invitation link can be used. */
+export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The dashboard path an invitation link opens: `/invite/<token>`. */
+export function invitationPath(token: string): string {
+  return `/invite/${encodeURIComponent(token)}`;
+}
 
 /** The most tales one tale group holds (FR-010). */
 export const MAX_TALES_PER_GROUP = 100;
@@ -98,6 +109,9 @@ export const ErrorCodes = {
   unauthenticated: 'unauthenticated',
   setupClosed: 'setup_closed',
   passkeyFailed: 'passkey_failed',
+  forbidden: 'forbidden',
+  invitationInvalid: 'invitation_invalid',
+  emailTaken: 'email_taken',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

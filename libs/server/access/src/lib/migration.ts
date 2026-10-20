@@ -61,4 +61,35 @@ export async function migrateAccess(db: Db): Promise<void> {
       expires_at timestamptz NOT NULL
     );
   `);
+  // Invitations add their own challenge purpose (story 13). Replacing the check is idempotent.
+  await db.query(`
+    ALTER TABLE auth_challenges
+      DROP CONSTRAINT IF EXISTS auth_challenges_purpose_check,
+      ADD CONSTRAINT auth_challenges_purpose_check CHECK (purpose IN ('setup', 'sign-in', 'invitation'))
+  `);
+
+  // Content managers reach only the projects they are members of; admins reach all (AD-4).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS project_members (
+      project_id uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (project_id, user_id)
+    );
+  `);
+  await db.query('CREATE INDEX IF NOT EXISTS project_members_user_id_idx ON project_members (user_id)');
+
+  // One-time invitations to a project (AD-9). Only the SHA-256 hash of the token is stored.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS invitations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      created_by uuid REFERENCES users (id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz,
+      used_by uuid REFERENCES users (id) ON DELETE SET NULL
+    );
+  `);
 }

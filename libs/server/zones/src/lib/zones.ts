@@ -1,5 +1,5 @@
 import { ErrorCodes, type Zone } from '@taleart/contract';
-import { projectExists, type Db } from '@taleart/server-access';
+import { projectExists, type Db, type ProjectScope } from '@taleart/server-access';
 
 /** Thrown when a zone names a project that does not exist. */
 export class ProjectNotFoundError extends Error {
@@ -11,7 +11,15 @@ export class ProjectNotFoundError extends Error {
   }
 }
 
-export async function listZones(db: Db): Promise<Zone[]> {
+/** The zones of the projects in `scope` (every project by default), oldest first. */
+export async function listZones(db: Db, scope: ProjectScope = 'all'): Promise<Zone[]> {
+  if (scope !== 'all') {
+    const { rows } = await db.query<Zone>(
+      'SELECT id, name, project_id AS "projectId" FROM zones WHERE project_id = ANY($1::uuid[]) ORDER BY created_at',
+      [scope],
+    );
+    return rows;
+  }
   const { rows } = await db.query<Zone>(
     'SELECT id, name, project_id AS "projectId" FROM zones ORDER BY created_at',
   );

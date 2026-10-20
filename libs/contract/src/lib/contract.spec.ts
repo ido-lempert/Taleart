@@ -1,6 +1,7 @@
 import {
   ERROR_CODES,
   ErrorCodes,
+  invitationPath,
   isErrorBody,
   isMediaContentType,
   maxMediaBytes,
@@ -48,5 +49,11 @@ describe('tale media', () => {
 describe('auth', () => {
   it('has the admin and content manager roles', () => {
     expect([...USER_ROLES]).toEqual(['admin', 'content_manager']);
+  });
+});
+
+describe('invitations', () => {
+  it('builds the dashboard path of an invitation link', () => {
+    expect(invitationPath('abc_-1')).toBe('/invite/abc_-1');
   });
 });

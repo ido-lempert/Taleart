@@ -3,17 +3,22 @@ import {
   ErrorCodes,
   SESSION_COOKIE,
   type AuthState,
+  type InvitationPreview,
+  type RedeemInvitationRequest,
   type SetupRequest,
   type SignedIn,
 } from '@taleart/contract';
 import {
   CHALLENGE_TTL_MS,
   deleteSession,
+  finishInvitation,
   finishSetup,
   finishSignIn,
   findSessionUser,
   PasskeyFailedError,
+  previewInvitation,
   setupRequired,
+  startInvitation,
   startSetup,
   startSignIn,
   type NewSession,
@@ -26,6 +31,13 @@ import { HttpError } from './errors';
 import { requiredString } from './validation';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// The name and email of a setup or invitation form; 400 validation_failed when either is missing or bad.
+function nameAndEmail(body: unknown): SetupRequest & RedeemInvitationRequest {
+  const input = { name: requiredString(body, 'name'), email: requiredString(body, 'email') };
+  if (!EMAIL.test(input.email)) throw new HttpError(400, ErrorCodes.validationFailed, 'email is not valid');
+  return input;
+}
 
 /** The challenge cookie is only sent to the auth routes. */
 const CHALLENGE_PATH = '/api/v1/auth';
@@ -53,7 +65,7 @@ export function requireSession(pool: Pool): RequestHandler {
   };
 }
 
-/** Setup of the first admin, passkey sign-in and sign-out (AD-9). */
+/** Setup of the first admin, joining by invitation, passkey sign-in and sign-out (AD-9). */
 export function authRouter(pool: Pool, { verifier, secureCookies }: AuthOptions): Router {
   const router = Router();
 
@@ -82,9 +94,7 @@ export function authRouter(pool: Pool, { verifier, secureCookies }: AuthOptions)
 
   router.post('/setup/options', async (req, res, next) => {
     try {
-      const input: SetupRequest = { name: requiredString(req.body, 'name'), email: requiredString(req.body, 'email') };
-      if (!EMAIL.test(input.email)) throw new HttpError(400, ErrorCodes.validationFailed, 'email is not valid');
-      const started = await startSetup(pool, verifier, input);
+      const started = await startSetup(pool, verifier, nameAndEmail(req.body));
       setChallenge(res, started.challengeId);
       res.json(started.options);
     } catch (err) {
@@ -128,6 +138,39 @@ export function authRouter(pool: Pool, { verifier, secureCookies }: AuthOptions)
         next(new HttpError(401, err.code, err.message));
         return;
       }
+      next(err);
+    }
+  });
+
+  // Joining through an invitation link (AD-9): no session needed.
+  router.get('/invitations/:token', async (req, res, next) => {
+    try {
+      const body: InvitationPreview = await previewInvitation(pool, req.params.token);
+      res.json(body);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/invitations/:token/options', async (req, res, next) => {
+    try {
+      const started = await startInvitation(pool, verifier, req.params.token, nameAndEmail(req.body));
+      setChallenge(res, started.challengeId);
+      res.json(started.options);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/invitations/:token/verify', async (req, res, next) => {
+    try {
+      const joined = await finishInvitation(pool, verifier, req.params.token, readCookie(req, CHALLENGE_COOKIE), req.body);
+      clearChallenge(res);
+      setSession(res, joined.session);
+      const body: SignedIn = { user: joined.user };
+      res.status(201).json(body);
+    } catch (err) {
+      if (err instanceof PasskeyFailedError) clearChallenge(res);
       next(err);
     }
   });

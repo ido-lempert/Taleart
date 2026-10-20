@@ -52,7 +52,8 @@ export class App {
   protected readonly createRequest = computed<DrawerRequest | null>(() => {
     switch (this.shell().create) {
       case 'project':
-        return { kind: 'project' };
+        // Only admins create projects.
+        return this.auth.isAdmin() ? { kind: 'project' } : null;
       case 'zone':
         return this.store.projects().length > 0 ? { kind: 'zone' } : null;
       case 'taleGroup': {

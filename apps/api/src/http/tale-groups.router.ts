@@ -16,13 +16,15 @@ import {
 import { zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
+import { authorizeParam } from './authorize';
 import { requiredString, requiredStringArray } from './validation';
 
 /** Tale groups under a zone: mounted at `/zones`. */
 export function zoneTaleGroupsRouter(pool: Pool): Router {
   const router = Router();
+  const zoneAccess = authorizeParam(pool, 'zone', 'zoneId');
 
-  router.get('/:zoneId/tale-groups', async (req, res, next) => {
+  router.get('/:zoneId/tale-groups', zoneAccess, async (req, res, next) => {
     try {
       res.json(await listTaleGroups(pool, req.params.zoneId));
     } catch (err) {
@@ -30,7 +32,7 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
     }
   });
 
-  router.post('/:zoneId/tale-groups', async (req, res, next) => {
+  router.post('/:zoneId/tale-groups', zoneAccess, async (req, res, next) => {
     try {
       // Zone first (404), then the body (400).
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
@@ -41,7 +43,7 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
     }
   });
 
-  router.put('/:zoneId/tale-groups/order', async (req, res, next) => {
+  router.put('/:zoneId/tale-groups/order', zoneAccess, async (req, res, next) => {
     try {
       // Zone first (404), then the body (400), then the id list (409 order_mismatch).
       const { zoneId } = req.params;
@@ -59,8 +61,9 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
 /** Tales in a tale group: mounted at `/tale-groups`. */
 export function taleGroupsRouter(pool: Pool): Router {
   const router = Router();
+  const groupAccess = authorizeParam(pool, 'taleGroup', 'taleGroupId');
 
-  router.post('/:taleGroupId/tales', async (req, res, next) => {
+  router.post('/:taleGroupId/tales', groupAccess, async (req, res, next) => {
     try {
       // Tale group first (404), then the body (400), then the group limit (409).
       const { taleGroupId } = req.params;
@@ -72,7 +75,7 @@ export function taleGroupsRouter(pool: Pool): Router {
     }
   });
 
-  router.put('/:taleGroupId/tales/order', async (req, res, next) => {
+  router.put('/:taleGroupId/tales/order', groupAccess, async (req, res, next) => {
     try {
       // Tale group first (404), then the body (400), then the id list (409 order_mismatch).
       const { taleGroupId } = req.params;

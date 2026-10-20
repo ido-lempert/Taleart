@@ -5,6 +5,7 @@ import {
   isErrorBody,
   type Frame,
   type FrameType,
+  type Invitation,
   type Project,
   type Tale,
   type TaleGroup,
@@ -25,6 +26,7 @@ export const SELECTED_PROJECT_KEY = 'taleart.selectedProjectId';
 /** Which create drawer is open, and for what. */
 export type DrawerRequest =
   | { kind: 'project' }
+  | { kind: 'invite'; projectId: string }
   | { kind: 'zone' }
   | { kind: 'frame'; zoneId: string }
   | { kind: 'taleGroup'; zoneId: string }
@@ -205,6 +207,18 @@ export class DashboardStore {
     }
     await this.refresh();
     return '';
+  }
+
+  /** Creates a one-time invitation link to a project (admins only); the link is shown only now. */
+  async createInvitation(projectId: string): Promise<{ invitation: Invitation | null; message: string }> {
+    try {
+      const invitation = await firstValueFrom(
+        this.http.post<Invitation>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/invitations`, {}),
+      );
+      return { invitation, message: '' };
+    } catch (err) {
+      return { invitation: null, message: apiErrorMessage(err, 'The invitation was not created. Try again.') };
+    }
   }
 
   async createZone(name: string, projectId: string): Promise<string> {

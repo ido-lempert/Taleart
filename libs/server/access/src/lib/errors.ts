@@ -19,3 +19,23 @@ export class PasskeyFailedError extends Error {
     this.name = 'PasskeyFailedError';
   }
 }
+
+/** Thrown when an invitation link is unknown, used or expired. */
+export class InvitationInvalidError extends Error {
+  readonly code = ErrorCodes.invitationInvalid;
+
+  constructor() {
+    super('This invitation is no longer valid. Ask an admin for a new link.');
+    this.name = 'InvitationInvalidError';
+  }
+}
+
+/** Thrown when an invitee names an email that already belongs to a user. */
+export class EmailTakenError extends Error {
+  readonly code = ErrorCodes.emailTaken;
+
+  constructor() {
+    super('A user with this email already exists. Sign in instead.');
+    this.name = 'EmailTakenError';
+  }
+}

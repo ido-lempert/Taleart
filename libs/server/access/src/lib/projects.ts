@@ -1,9 +1,18 @@
 import type { Project } from '@taleart/contract';
 import type { Db } from './db';
+import type { ProjectScope } from './members';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function listProjects(db: Db): Promise<Project[]> {
+/** The projects in `scope` (every project by default), oldest first. */
+export async function listProjects(db: Db, scope: ProjectScope = 'all'): Promise<Project[]> {
+  if (scope !== 'all') {
+    const { rows } = await db.query<Project>(
+      'SELECT id, name FROM projects WHERE id = ANY($1::uuid[]) ORDER BY created_at',
+      [scope],
+    );
+    return rows;
+  }
   const { rows } = await db.query<Project>('SELECT id, name FROM projects ORDER BY created_at');
   return rows;
 }

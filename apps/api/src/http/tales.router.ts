@@ -4,6 +4,7 @@ import type { MediaStorage } from '@taleart/server-storage';
 import { getTaleMedia, setTaleMedia, taleExists, TaleNotFoundError } from '@taleart/server-tales';
 import express, { Router } from 'express';
 import type { Pool } from 'pg';
+import { authorizeParam } from './authorize';
 import { HttpError } from './errors';
 import { declaredMediaType, matchesMagicNumber, mediaExtension } from './media';
 
@@ -24,9 +25,11 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
   // The body is read into memory up to the largest accepted size (videos); the
   // per-kind limit is checked after. Too large a body answers 413 media_too_large.
   const rawBody = express.raw({ type: () => true, limit: MAX_VIDEO_BYTES });
+  const taleAccess = authorizeParam(pool, 'tale', 'taleId');
 
   router.put(
     '/:taleId/media',
+    taleAccess,
     async (req, _res, next) => {
       try {
         // Tale first (404), then the declared type (415) before reading the body.
@@ -83,7 +86,7 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
     },
   );
 
-  router.get('/:taleId/media', async (req, res, next) => {
+  router.get('/:taleId/media', taleAccess, async (req, res, next) => {
     try {
       const media = await getTaleMedia(pool, req.params.taleId);
       const data = media && (await storage.get(media.key));

@@ -12,7 +12,12 @@ import {
   TaleGroupNotFoundError,
   TaleNotFoundError,
 } from '@taleart/server-tales';
-import { PasskeyFailedError, SetupClosedError } from '@taleart/server-access';
+import {
+  EmailTakenError,
+  InvitationInvalidError,
+  PasskeyFailedError,
+  SetupClosedError,
+} from '@taleart/server-access';
 import type express from 'express';
 
 /** An error that maps directly to an HTTP status and the standard error body. */
@@ -48,7 +53,16 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     res.status(404).json(errorBody(err.code, err.message));
     return;
   }
-  if (err instanceof TaleGroupFullError || err instanceof OrderMismatchError || err instanceof SetupClosedError) {
+  if (err instanceof InvitationInvalidError) {
+    res.status(410).json(errorBody(err.code, err.message));
+    return;
+  }
+  if (
+    err instanceof TaleGroupFullError ||
+    err instanceof OrderMismatchError ||
+    err instanceof SetupClosedError ||
+    err instanceof EmailTakenError
+  ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;
   }

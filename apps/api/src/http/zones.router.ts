@@ -10,6 +10,7 @@ import {
 } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
+import { accessibleScope, authorize, authorizeParam } from './authorize';
 import { requiredString } from './validation';
 
 export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
@@ -17,7 +18,7 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
 
   router.get('/', async (_req, res, next) => {
     try {
-      res.json(await listZones(pool));
+      res.json(await listZones(pool, await accessibleScope(pool, res)));
     } catch (err) {
       next(err);
     }
@@ -29,13 +30,14 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
         name: requiredString(req.body, 'name'),
         projectId: requiredString(req.body, 'projectId'),
       };
+      await authorize(pool, res, 'project', input.projectId);
       res.status(201).json(await createZone(pool, input));
     } catch (err) {
       next(err);
     }
   });
 
-  router.get('/:zoneId/frames', async (req, res, next) => {
+  router.get('/:zoneId/frames', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
     try {
       res.json(await listFrames(pool, req.params.zoneId));
     } catch (err) {
@@ -43,7 +45,7 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
     }
   });
 
-  router.post('/:zoneId/frames', async (req, res, next) => {
+  router.post('/:zoneId/frames', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
     try {
       // Zone first (404), then the body (400), then the registry.
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
