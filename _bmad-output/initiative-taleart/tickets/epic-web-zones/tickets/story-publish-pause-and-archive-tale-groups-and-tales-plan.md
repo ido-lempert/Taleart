@@ -3,16 +3,16 @@ title: 'Publish, pause and archive tale groups and tales'
 type: 'feature'
 ticket: '3'
 created: '2026-10-20'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'fbaf5df2e2d0c96612e460bae80428a32edb84bc'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md'
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-web-zones/epic-web-zones.md'
@@ -106,6 +106,17 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Review pass
+- verdicts: 7 findings — high 0, medium 3, low 4, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` Public media read the whole file before answering a 304 — fixed: 304 answered after the published check, before storage is read; test asserts no read.
+  - `[low]` `[reject]` Browsers holding the earlier one-year immutable media cache are not invalidated — that header never shipped beyond local development.
+  - `[medium]` `[patch]` Concurrent API starts could race the status-column migration — fixed: all migrations run under one session advisory lock; three concurrent `migrate()` calls tested.
+  - `[low]` `[patch]` No 403 test for the status routes — added.
+  - `[low]` `[patch]` One shared saving/error slot for all groups — fixed: per group id.
+  - `[medium]` `[patch]` A live group with no live tales was delivered with `tales: []` and drawn as an empty, unplayable bar item — fixed: left out of the Delivery response.
+  - `[low]` `[patch]` The tale status announcement could read the old status — fixed: announced from the PUT response.
+
 ## Verification
 
 **Commands:**
@@ -134,3 +145,5 @@ deferred: []
 - Media URLs are now revalidated on each use (one conditional request per cover, 304), a small cost against the 1.5 s budget (R10) in exchange for AD-11's immediate 404.
 - The importer's later stories will create groups and tales as `draft` unless they publish them.
 - Parallel stories that read the Delivery API or create content in tests must publish their fixtures.
+
+**Review (parent):** 5 patches applied (3 medium, 2 low… see triage log), 0 deferred, 1 rejected. Follow-up review recommended: true — the change decides what content is public on an unauthenticated route. Merged into `autopilot/foundation`; the merged tree passes lint, test and build for 12 projects (api 191).
