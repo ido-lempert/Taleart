@@ -282,6 +282,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/imports/another tool/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * List the another tool apps a another tool API token can read (admins only).
+         * @description Calls the another tool External API with the token and answers its apps. The token is not stored and no job is created. A token another tool refuses answers 400 `another tool_token_invalid`; another tool unreachable or answering an unexpected shape 502 `another tool_unavailable`. Without `IMPORT_TOKEN_KEY` the importer answers 503 `importer_not_configured`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`.
+         */
+        post: operations["findanother toolApps"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start importing a another tool app into the project (admins only).
+         * @description Stores a queued import job and answers at once (AD-8); a background worker runs it. The token is stored encrypted with the job only until the job ends. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         */
+        post: operations["startImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/imports/{importId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                importId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read an import job, its state and its report (admins only).
+         * @description A job of another project, or none, answers 404 `not_found`. A content manager gets 403 `forbidden`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         */
+        get: operations["getImport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zones": {
         parameters: {
             query?: never;
@@ -794,8 +861,55 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        Findanother toolAppsRequest: {
+            /** @description A another tool API token. Used for this call only; never stored. */
+            token: string;
+        };
+        /** @description An app of the another tool account, as the import source. */
+        another toolApp: {
+            id: string;
+            name: string;
+        };
+        StartImportRequest: {
+            /** @description The another tool API token; stored encrypted only while the job is queued or running. */
+            token: string;
+            /** @description The id of the another tool app to import, from the apps list. */
+            appId: string;
+        };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "internal_error";
+        ImportStatus: "queued" | "running" | "done" | "failed";
+        ImportStarted: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["ImportStatus"];
+        };
+        /** @description How many records the source had, how many are in TaleArt now, and how many were skipped. */
+        ImportCount: {
+            source: number;
+            imported: number;
+            skipped: number;
+        };
+        ImportReport: {
+            zones: components["schemas"]["ImportCount"];
+            /** @description What did not come across, such as "frame type unknown" for each zone. */
+            notes: string[];
+        };
+        ImportJob: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["ImportStatus"];
+            /** @description The source app's name, once the worker has read it. */
+            sourceAppName: string | null;
+            report: components["schemas"]["ImportReport"] | null;
+            /** @description Why the job failed; null unless the status is failed. */
+            error: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            finishedAt: string | null;
+        };
+        /** @enum {string} */
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -1198,6 +1312,96 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    findanother toolApps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Findanother toolAppsRequest"];
+            };
+        };
+        responses: {
+            /** @description The token's apps. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["another toolApp"][];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    startImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The queued job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportStarted"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                importId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -1721,4 +1925,5 @@ type ReadonlyArray<T> = [
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "internal_error"];
+export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "internal_error"];

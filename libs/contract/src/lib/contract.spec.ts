@@ -1,7 +1,9 @@
 import {
   ERROR_CODES,
   ErrorCodes,
+  IMPORT_STATUSES,
   invitationPath,
+  isImportActive,
   isErrorBody,
   isMediaContentType,
   maxMediaBytes,
@@ -84,5 +86,12 @@ describe('zone keys', () => {
   it('shows tak_ and the next 6 characters as the prefix', () => {
     expect(ZONE_KEY_PREFIX).toBe('tak_');
     expect(zoneKeyPrefix('tak_abcdefghijklmnop')).toBe('tak_abcdef');
+  });
+});
+
+describe('imports', () => {
+  it('lists the job states and tells the active ones', () => {
+    expect([...IMPORT_STATUSES]).toEqual(['queued', 'running', 'done', 'failed']);
+    expect(IMPORT_STATUSES.filter(isImportActive)).toEqual(['queued', 'running']);
   });
 });
