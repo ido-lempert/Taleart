@@ -11,13 +11,16 @@ updated: 2026-10-20
 
 TaleArt is an open-source, self-hostable platform for in-app and web story content. It offers a content model compatible with another tool, a commercial product, so that teams can move their content over through another tool's External API without rebuilding it. The MVP is Web. Native iOS and Android follow, driven by the same dashboard-defined data.
 
-## Open decisions (pending the user)
+## Decisions
 
-1. **Status scheme:** approve the HTTP-based mapping in §11.3 of the research report, or change it. Weakest point: `quota-reached` uses 429.
-2. **Names:** approve the terminology map, including Playbook for flows. Counsel review required.
-3. **Conversion endpoint:** which host and payload are current. Needs a live check.
-4. **License:** not chosen. It affects contributor terms and whether the another tool reference material can ever be referenced in the repo.
-5. **MVP widget subset:** confirm bar and banner for the first release.
+Approved by the user:
+- Status scheme for tales and tale groups: HTTP-based, §11.3 of the research report.
+- Entity names: the terminology map, including Playbook for flows. Counsel review still required before publication.
+- License: Apache-2.0 for all components.
+- Conversion tracking is not part of another tool compatibility. TaleArt designs its own later.
+
+Still open:
+1. **MVP widget subset:** confirm bar and banner for the first release.
 
 ## Problem
 
@@ -52,7 +55,7 @@ Multi-team organizations also have no documented way to see usage per project. a
 - Native iOS and Android SDKs. Web comes first.
 - Usage metering, storage metering, and audit export for internal chargeback (post-MVP, §11.9 of the research report).
 - Canvas, Swipe Card, and Video Feed widgets, and the flows between them.
-- Conversion attribution. The endpoint is unverified (see open decisions).
+- Conversion tracking. TaleArt designs its own later; another tool's conversion endpoint is not part of compatibility.
 - AI personalization, retail media, and in-story checkout.
 - Pricing and any hosted commercial offer. Out of scope for an open-source project.
 
