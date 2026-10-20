@@ -6,7 +6,6 @@ id: 2
 covers: [R1, R2]
 sources: [_bmad-output/initiative-taleart/initiative-taleart.md, _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md, _bmad-output/initiative-taleart/prd-taleart/addendum.md, _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, _bmad-output/initiative-taleart/research-storyly-competitive-teardown/research-storyly-competitive-teardown.md]
 companions: [_bmad-output/initiative-taleart/tickets/epic-storyly-importer/import-mapping.md]
-after: [epic-platform-foundation]
 refined: true
 risk: high
 ---
@@ -97,7 +96,7 @@ R6 (architecture Quality Targets, NFR-006): **Throughput**
 - Open question: auth is documented both as a `token` query parameter and as a bearer JWT. Pick: bearer, falling back to the query parameter; story 3 settles it.
 - Open question: is the Storyly token kept after the import? Pick: stored encrypted with the job while it runs, deleted when it ends; a re-import asks again.
 - Open question: imported zones get no frame, since the API names no widget type. Pick: no frame; the report lists "frame type unknown" per zone.
-- Open question: the epic file waits on the whole foundation epic, whose staging demo (1.9) and sweep (1.10) the importer does not need. Pick: drop the epic-level `after` and keep the per-entry `after` on foundation stories.
+- Decision (2026-10-20): the epic-level gate on the whole foundation epic is dropped; each story keeps its own `after` on the foundation stories it needs (user, with the web zones decisions).
 - Open question: may recorded responses from the user's real account be committed as fixtures? Pick: only an anonymized, shape-only copy; the raw recording stays outside the repo.
 - Source conflict: status scheme — initiative Notes (open question) vs PRD addendum, Status scheme, and initiative memlog (approved).
 - Decision (2026-10-20): story 2 comes before the real run (story 3), against the least-sure-next rule, so the real run compares zone, tale group and tale counts and exercises the story endpoints, not zones alone.

@@ -13,7 +13,7 @@ slug = "epic-storyly-importer"
 title = "Storyly importer"
 description = "A Storyly account's groups, stories and zones import through the live API with a per-entity count report; later entries add components and user lists (Storyly audiences)."
 covers = ["R1", "R2"]
-after = [{ epic = 1, needs = "the data model and API" }, { epic = 3, needs = "status and schedule fields on tales and tale groups (story 11 only)" }, { epic = 4, needs = "interactive components (story 13 only)" }, { epic = 5, needs = "user lists (story 12 only)" }]
+after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (no gate on the whole epic)" }, { epic = 3, needs = "status and schedule fields on tales and tale groups (story 11 only)" }, { epic = 4, needs = "interactive components (story 13 only)" }, { epic = 5, needs = "user lists (story 12 only)" }]
 
 [[epic]]
 id = 3
@@ -21,7 +21,7 @@ slug = "epic-web-zones"
 title = "Web zones"
 description = "A visitor on a Web page sees a zone's bar or banner with its published tales, respecting schedules."
 covers = ["R6", "R9", "R11"]
-after = [{ epic = 1, needs = "the data model and API" }]
+after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (no gate on the whole epic)" }]
 
 [[epic]]
 id = 4
