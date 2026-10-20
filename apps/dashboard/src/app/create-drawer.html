@@ -118,7 +118,12 @@
               />
               <p class="field__hint" id="invite-url-hint">Works once, until {{ expiryDate(invitation) }}. This link is shown only now.</p>
             </div>
-            <button type="button" class="btn btn--secondary" (click)="copyLink(invitation)">Copy link</button>
+            <div class="invite-actions">
+              @if (canShare) {
+                <button type="button" class="btn btn--primary" (click)="shareLink(invitation)">Share link</button>
+              }
+              <button type="button" class="btn btn--secondary" (click)="copyLink(invitation)">Copy link</button>
+            </div>
             <p class="muted" role="status">{{ copyStatus() }}</p>
           } @else {
             <p>
