@@ -84,9 +84,9 @@ risk = "medium"
 [[entry]]
 id = 5
 type = "story"
-title = "Tag tales and build a collection"
-description = "A user adds tags to tales and builds a collection from tagged tales in the dashboard."
-verify = "Filter tales by a tag, save a collection, reload: the collection lists the same tales."
+title = "Tag tale groups"
+description = "A user creates tags in a project and adds them to tale groups in the dashboard (PRD FR-017; user decision 2026-10-20: tags go on tale groups, not tales). Tags carry the project. Targeting by tags is the targeting epic; collections wait for the user's answer on what a collection holds."
+verify = "Create a tag, add it to two tale groups, filter the zone page by that tag, reload: the same groups carry the tag."
 covers = ["R1", "R2"]
 after = [4]
 hitl = false

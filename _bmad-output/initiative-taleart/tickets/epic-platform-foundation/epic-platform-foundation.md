@@ -68,3 +68,6 @@ R3 (parent R10): **Platform-neutral, extensible model**
 - Decision (2026-10-20): a tale exists only inside a tale group, never directly in a zone (user, approved).
 - Decision (2026-10-20): the first user is the admin; every other user needs an admin's invitation; everyone signs in with a passkey, passwordless (user, approved).
 - Assumption (2026-10-20): media upload is its own story (12) after tale groups and tales; invitations are one-time links shown in the dashboard, with no mail server; invited users are content managers of the projects they are invited to, and only admins create projects and invitations. Not yet confirmed by the user.
+- Decision (2026-10-20): tags go on tale groups, not tales (user, approved). Story 5 is now "Tag tale groups".
+- Open (2026-10-20): what a collection holds, a saved list of tales or a filtered list of product-feed items (PRD FR-021); asked, not yet answered.
+- Decision (2026-10-20): filled buttons use the darker ember `#C73E1D` for contrast; ember `#F2542D` stays the brand accent (user, approved).

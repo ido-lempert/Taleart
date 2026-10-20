@@ -36,3 +36,4 @@ A visitor sees a zone's published tales on a Web page, and content outside its s
 ## Notes
 
 - Assumption: bar and banner are the MVP frame subset (brief open decision 5). Confirm before refinement.
+- Requirement from the user (2026-10-20): customers change the style of rendered tales and frames (colors, fonts, corner radius, ring style and the like) either in the Web SDK configuration or in the dashboard, with the SDK configuration overriding the dashboard. Sofia to slice it into this epic's stories.
