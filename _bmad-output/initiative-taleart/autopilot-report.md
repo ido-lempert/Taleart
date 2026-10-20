@@ -86,3 +86,11 @@ The run ended after about 30 minutes, not overnight: three of the remaining stor
 - **Assumptions:** TaleArt's own identity (ember orange, Inter, own mark), Storyly-like patterns only, no Storyly assets or colors; filled buttons use a darker ember `#C73E1D` for WCAG AA contrast (awaiting the user's confirmation); no UI component library.
 - **Review in the dashboard:** open http://localhost:4200, switch projects in the top bar, open a zone card, and create a zone, frame, tale group and tale from the drawers; try a phone-width window.
 - **Blocking condition:** none. A follow-up review is recommended for three untested accessibility fixes.
+
+## Story 1.12 — Upload an image or video to a tale
+
+- **Status:** built
+- **Commits:** `402aa44` story 12.
+- **Assumptions:** accepted types JPEG, PNG, WebP, GIF (10 MB) and MP4, WebM (100 MB), checked against the file's first bytes; files go to `MEDIA_DIR` (default `.data/media`, gitignored); uploads are held in memory for now; no thumbnails or transcoding.
+- **Review in the dashboard:** open a zone, click a tale card, choose an image and press Upload; reload and the card still shows it; try a PDF and see the error.
+- **Blocking condition:** none.
