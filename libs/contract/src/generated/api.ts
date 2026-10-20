@@ -256,6 +256,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/tale-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List every tale group of a project by name, with its tale count and zones.
+         * @description Tale groups belong to the project (AD-14); a group placed in no zone is listed with an empty `zoneIds`. Unknown project 404 `project_not_found`.
+         */
+        get: operations["listProjectTaleGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/tags": {
         parameters: {
             query?: never;
@@ -425,12 +447,12 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List a zone's tale groups by position, each with its tales by position. */
+        /** List the tale groups placed in a zone by position, each with its tales by position. */
         get: operations["listZoneTaleGroups"];
         put?: never;
         /**
-         * Create a tale group in a zone, after its existing groups.
-         * @description The tale group takes its project from the zone.
+         * Create a tale group and place it in a zone, after the zone's existing groups.
+         * @description The tale group belongs to the zone's project and gets one placement, at the end of this zone.
          */
         post: operations["createZoneTaleGroup"];
         delete?: never;
@@ -450,8 +472,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set the order of a zone's tale groups.
-         * @description The list names every tale group of the zone exactly once; positions are rewritten to 0..n-1 in that order. A list that omits, repeats or adds an id answers 409 `order_mismatch`. Unknown zone: 404 `zone_not_found`.
+         * Set the order of the tale groups placed in a zone.
+         * @description The list names every tale group placed in the zone exactly once; positions in this zone are rewritten to 0..n-1 in that order, and other zones keep their own order. A list that omits, repeats or adds an id answers 409 `order_mismatch`. Unknown zone: 404 `zone_not_found`.
          */
         put: operations["orderZoneTaleGroups"];
         post?: never;
@@ -459,6 +481,55 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/zones/{zoneId}/tale-groups/{taleGroupId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Place an existing tale group of the zone's project in the zone, after its groups.
+         * @description The group keeps its tales, tags and media; edits show in every zone it is placed in (AD-14). A group already placed here answers 200 unchanged. A group that does not exist or belongs to another project answers 400 `tale_group_not_found`. Unknown zone: 404 `zone_not_found`.
+         */
+        put: operations["placeZoneTaleGroup"];
+        post?: never;
+        /**
+         * Remove a tale group from a zone.
+         * @description Deletes only this placement: the group, its tales and its other placements stay. The zone's remaining positions become 0..n-1. A group not placed here answers 404 `tale_group_not_found`; an unknown zone 404 `zone_not_found`.
+         */
+        delete: operations["removeZoneTaleGroup"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tale-groups/{taleGroupId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a tale group.
+         * @description The name is trimmed and must not be blank (400 `validation_failed`). The group is the same in every zone it is placed in, so every zone shows the new name (AD-14). Unknown tale group: 404 `tale_group_not_found`.
+         */
+        patch: operations["renameTaleGroup"];
         trace?: never;
     };
     "/tale-groups/{taleGroupId}/tales": {
@@ -606,20 +677,35 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description A tale group belongs to its project (AD-14). Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
         TaleGroup: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            zoneId: string;
-            /** Format: uuid */
             projectId: string;
             name: string;
-            /** @description Order within the zone; lists are sorted by it. */
-            position: number;
+            /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
+            zoneIds: string[];
             /** @description The group's tales, by position. */
             tales: components["schemas"]["Tale"][];
             /** @description The group's tags, by name ignoring case. */
             tags: components["schemas"]["TaleGroupTag"][];
+        };
+        /** @description A tale group as a zone lists it, with its position in that zone. */
+        ZoneTaleGroup: components["schemas"]["TaleGroup"] & {
+            /** @description Order within this zone; the zone's lists are sorted by it. */
+            position: number;
+        };
+        /** @description A tale group as the project's list shows it. */
+        ProjectTaleGroup: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            name: string;
+            taleCount: number;
+            /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
+            zoneIds: string[];
         };
         Tag: {
             /** Format: uuid */
@@ -643,6 +729,10 @@ export interface components {
             tagIds: string[];
         };
         CreateTaleGroupRequest: {
+            name: string;
+        };
+        RenameTaleGroupRequest: {
+            /** @description Trimmed before it is checked and stored. */
             name: string;
         };
         Tale: {
@@ -672,7 +762,7 @@ export interface components {
             title: string;
         };
         OrderTaleGroupsRequest: {
-            /** @description Every tale group id of the zone, once each, in the new order. */
+            /** @description Every tale group id placed in the zone, once each, in the new order. */
             taleGroupIds: string[];
         };
         OrderTalesRequest: {
@@ -706,7 +796,7 @@ export interface components {
             id: string;
             name: string;
             frames: components["schemas"]["DeliveryFrame"][];
-            /** @description The zone's published tale groups by position; every frame shows all of them. */
+            /** @description The published tale groups placed in the zone, in this zone's order (AD-2, AD-14); every frame shows all of them. */
             taleGroups: components["schemas"]["DeliveryTaleGroup"][];
         };
         DeliveryTaleGroup: {
@@ -1145,6 +1235,31 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    listProjectTaleGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's tale groups, by name ignoring case. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaleGroup"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     listTags: {
         parameters: {
             query?: never;
@@ -1475,13 +1590,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The zone's tale groups. */
+            /** @description The zone's tale groups, each with its position in this zone. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaleGroup"][];
+                    "application/json": components["schemas"]["ZoneTaleGroup"][];
                 };
             };
             403: components["responses"]["Error"];
@@ -1510,7 +1625,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaleGroup"];
+                    "application/json": components["schemas"]["ZoneTaleGroup"];
                 };
             };
             400: components["responses"]["Error"];
@@ -1540,13 +1655,103 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaleGroup"][];
+                    "application/json": components["schemas"]["ZoneTaleGroup"][];
                 };
             };
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    placeZoneTaleGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The group was already placed here; nothing changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ZoneTaleGroup"];
+                };
+            };
+            /** @description The placed tale group, with its position in this zone. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ZoneTaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    removeZoneTaleGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The group is no longer placed in the zone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    renameTaleGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameTaleGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed tale group. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

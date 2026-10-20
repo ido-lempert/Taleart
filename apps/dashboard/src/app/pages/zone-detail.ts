@@ -11,7 +11,7 @@ import {
   linkedSignal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MAX_TALES_PER_GROUP, type TaleGroup, type TaleGroupTag } from '@taleart/contract';
+import { MAX_TALES_PER_GROUP, type TaleGroup, type TaleGroupTag, type Zone } from '@taleart/contract';
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
@@ -23,7 +23,8 @@ type Direction = 'earlier' | 'later';
 
 /**
  * One zone: its frames, its zone key and its tale groups, each a row of 9:16 tale cards with
- * the group's tags. Groups and tales reorder by drag, or by their move earlier
+ * the group's tags. A group can be placed in several zones (AD-14): its row says
+ * where else it shows, and offers "Add to zone…" and "Remove from this zone". Groups and tales reorder by drag, or by their move earlier
  * and later buttons (the single-pointer and keyboard alternative, WCAG 2.2 SC
  * 2.5.7). Tag chips above the groups filter them; groups do not reorder while
  * a filter is on, since the order covers every group of the zone.
@@ -59,6 +60,17 @@ type Direction = 'earlier' | 'later';
       font-size: var(--text-md);
       font-weight: 600;
       overflow-wrap: anywhere;
+    }
+    .group__zones {
+      margin: 0;
+      font-size: var(--text-sm);
+      overflow-wrap: anywhere;
+    }
+    .group__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      justify-content: flex-end;
     }
     .group__title {
       display: flex;
@@ -108,6 +120,14 @@ export class ZoneDetailPage {
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
   /** The zone's active key (prefix and date only), or null. */
   protected readonly zoneKey = computed(() => this.store.zoneKey(this.zoneId()));
+
+  /** The other zones a group is placed in, for its "Also in: …" line (AD-14). */
+  protected otherZones(group: TaleGroup): Zone[] {
+    return group.zoneIds.flatMap((id) => {
+      const zone = id === this.zoneId() ? undefined : this.store.zone(id);
+      return zone ? [zone] : [];
+    });
+  }
 
   /** A key's issue date, such as "20 Oct 2026". */
   protected issuedDate(createdAt: string): string {
@@ -194,7 +214,7 @@ export class ZoneDetailPage {
     const ids = group.tales.map((t) => t.id);
     moveItemInArray(ids, from, to);
     this.announce(`${group.tales[from].title} moved to position ${to + 1} of ${ids.length}`);
-    void this.save(this.store.orderTales(group.id, ids));
+    void this.save(this.store.orderTales(this.zoneId(), group.id, ids));
   }
 
   private async save(request: Promise<string>): Promise<void> {

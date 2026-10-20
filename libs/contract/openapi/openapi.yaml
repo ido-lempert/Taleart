@@ -310,6 +310,34 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /projects/{projectId}/tale-groups:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listProjectTaleGroups
+      summary: List every tale group of a project by name, with its tale count and zones.
+      description: >-
+        Tale groups belong to the project (AD-14); a group placed in no zone is
+        listed with an empty `zoneIds`. Unknown project 404 `project_not_found`.
+      responses:
+        '200':
+          description: The project's tale groups, by name ignoring case.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectTaleGroup'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects/{projectId}/tags:
     parameters:
       - name: projectId
@@ -619,16 +647,16 @@ paths:
           type: string
     get:
       operationId: listZoneTaleGroups
-      summary: List a zone's tale groups by position, each with its tales by position.
+      summary: List the tale groups placed in a zone by position, each with its tales by position.
       responses:
         '200':
-          description: The zone's tale groups.
+          description: The zone's tale groups, each with its position in this zone.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TaleGroup'
+                  $ref: '#/components/schemas/ZoneTaleGroup'
         '403':
           $ref: '#/components/responses/Error'
         '404':
@@ -637,8 +665,10 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createZoneTaleGroup
-      summary: Create a tale group in a zone, after its existing groups.
-      description: The tale group takes its project from the zone.
+      summary: Create a tale group and place it in a zone, after the zone's existing groups.
+      description: >-
+        The tale group belongs to the zone's project and gets one placement, at
+        the end of this zone.
       requestBody:
         required: true
         content:
@@ -651,7 +681,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TaleGroup'
+                $ref: '#/components/schemas/ZoneTaleGroup'
         '400':
           $ref: '#/components/responses/Error'
         '403':
@@ -669,10 +699,11 @@ paths:
           type: string
     put:
       operationId: orderZoneTaleGroups
-      summary: Set the order of a zone's tale groups.
+      summary: Set the order of the tale groups placed in a zone.
       description: >-
-        The list names every tale group of the zone exactly once; positions are
-        rewritten to 0..n-1 in that order. A list that omits, repeats or adds an
+        The list names every tale group placed in the zone exactly once;
+        positions in this zone are rewritten to 0..n-1 in that order, and other
+        zones keep their own order. A list that omits, repeats or adds an
         id answers 409 `order_mismatch`. Unknown zone: 404 `zone_not_found`.
       requestBody:
         required: true
@@ -688,7 +719,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TaleGroup'
+                  $ref: '#/components/schemas/ZoneTaleGroup'
         '400':
           $ref: '#/components/responses/Error'
         '403':
@@ -696,6 +727,100 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /zones/{zoneId}/tale-groups/{taleGroupId}:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: placeZoneTaleGroup
+      summary: Place an existing tale group of the zone's project in the zone, after its groups.
+      description: >-
+        The group keeps its tales, tags and media; edits show in every zone it
+        is placed in (AD-14). A group already placed here answers 200
+        unchanged. A group that does not exist or belongs to another project
+        answers 400 `tale_group_not_found`. Unknown zone: 404 `zone_not_found`.
+      responses:
+        '200':
+          description: The group was already placed here; nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneTaleGroup'
+        '201':
+          description: The placed tale group, with its position in this zone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneTaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: removeZoneTaleGroup
+      summary: Remove a tale group from a zone.
+      description: >-
+        Deletes only this placement: the group, its tales and its other
+        placements stay. The zone's remaining positions become 0..n-1. A group
+        not placed here answers 404 `tale_group_not_found`; an unknown zone 404
+        `zone_not_found`.
+      responses:
+        '204':
+          description: The group is no longer placed in the zone.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: renameTaleGroup
+      summary: Rename a tale group.
+      description: >-
+        The name is trimmed and must not be blank (400 `validation_failed`).
+        The group is the same in every zone it is placed in, so every zone
+        shows the new name (AD-14). Unknown tale group: 404
+        `tale_group_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameTaleGroupRequest'
+      responses:
+        '200':
+          description: The renamed tale group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1008,12 +1133,12 @@ components:
           additionalProperties: true
     TaleGroup:
       type: object
-      required: [id, zoneId, projectId, name, position, tales, tags]
+      description: >-
+        A tale group belongs to its project (AD-14). Zones place it, each in
+        its own order; its tales, tags and media are the same in every zone.
+      required: [id, projectId, name, zoneIds, tales, tags]
       properties:
         id:
-          type: string
-          format: uuid
-        zoneId:
           type: string
           format: uuid
         projectId:
@@ -1021,10 +1146,12 @@ components:
           format: uuid
         name:
           type: string
-        position:
-          type: integer
-          minimum: 0
-          description: Order within the zone; lists are sorted by it.
+        zoneIds:
+          type: array
+          description: Every zone the group is placed in, in the order it was placed; empty when none.
+          items:
+            type: string
+            format: uuid
         tales:
           type: array
           maxItems: 100
@@ -1036,6 +1163,40 @@ components:
           description: The group's tags, by name ignoring case.
           items:
             $ref: '#/components/schemas/TaleGroupTag'
+    ZoneTaleGroup:
+      description: A tale group as a zone lists it, with its position in that zone.
+      allOf:
+        - $ref: '#/components/schemas/TaleGroup'
+        - type: object
+          required: [position]
+          properties:
+            position:
+              type: integer
+              minimum: 0
+              description: Order within this zone; the zone's lists are sorted by it.
+    ProjectTaleGroup:
+      type: object
+      description: A tale group as the project's list shows it.
+      required: [id, projectId, name, taleCount, zoneIds]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        taleCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        zoneIds:
+          type: array
+          description: Every zone the group is placed in, in the order it was placed; empty when none.
+          items:
+            type: string
+            format: uuid
     Tag:
       type: object
       required: [id, projectId, name]
@@ -1085,6 +1246,14 @@ components:
         name:
           type: string
           minLength: 1
+    RenameTaleGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Trimmed before it is checked and stored.
     Tale:
       type: object
       required: [id, taleGroupId, projectId, title, position, media]
@@ -1145,7 +1314,7 @@ components:
       properties:
         taleGroupIds:
           type: array
-          description: Every tale group id of the zone, once each, in the new order.
+          description: Every tale group id placed in the zone, once each, in the new order.
           items:
             type: string
     OrderTalesRequest:
@@ -1207,7 +1376,9 @@ components:
             $ref: '#/components/schemas/DeliveryFrame'
         taleGroups:
           type: array
-          description: The zone's published tale groups by position; every frame shows all of them.
+          description: >-
+            The published tale groups placed in the zone, in this zone's order
+            (AD-2, AD-14); every frame shows all of them.
           items:
             $ref: '#/components/schemas/DeliveryTaleGroup'
     DeliveryTaleGroup:

@@ -8,11 +8,13 @@ import {
   type Invitation,
   type IssuedZoneKey,
   type Project,
+  type ProjectTaleGroup,
   type Tag,
   type Tale,
   type TaleGroup,
   type Zone,
   type ZoneKeyInfo,
+  type ZoneTaleGroup,
 } from '@taleart/contract';
 import { firstValueFrom } from 'rxjs';
 
@@ -35,6 +37,9 @@ export type DrawerRequest =
   | { kind: 'taleGroup'; zoneId: string }
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
+  | { kind: 'renameTaleGroup'; taleGroupId: string }
+  | { kind: 'placeTaleGroup'; taleGroupId: string }
+  | { kind: 'removeTaleGroup'; zoneId: string; taleGroupId: string }
   | { kind: 'taleMedia'; taleId: string }
   | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction };
 
@@ -42,7 +47,7 @@ export type DrawerRequest =
 export type ZoneKeyAction = 'issue' | 'rotate' | 'revoke';
 
 // The groups with one group's tales replaced.
-function withTales(groups: TaleGroup[], taleGroupId: string, tales: Tale[]): TaleGroup[] {
+function withTales(groups: ZoneTaleGroup[], taleGroupId: string, tales: Tale[]): ZoneTaleGroup[] {
   return groups.map((g) => (g.id === taleGroupId ? { ...g, tales } : g));
 }
 
@@ -71,8 +76,13 @@ export class DashboardStore {
   readonly frameTypes = signal<FrameType[]>([]);
   /** Each zone's frames, keyed by zone id. */
   readonly frames = signal<Record<string, Frame[]>>({});
-  /** Each zone's tale groups, each with its tales, keyed by zone id. */
-  readonly taleGroups = signal<Record<string, TaleGroup[]>>({});
+  /**
+   * Each zone's tale groups, each with its tales and its position in that zone,
+   * keyed by zone id. A group placed in several zones shows in each (AD-14).
+   */
+  readonly taleGroups = signal<Record<string, ZoneTaleGroup[]>>({});
+  /** Each project's tale groups by name, placed in a zone or not, keyed by project id. */
+  readonly projectTaleGroups = signal<Record<string, ProjectTaleGroup[]>>({});
   /** Each project's tags by name, keyed by project id. */
   readonly tags = signal<Record<string, Tag[]>>({});
   /** Each zone's active key (prefix and date, never the key), or null; keyed by zone id. */
@@ -89,7 +99,7 @@ export class DashboardStore {
    * settled, and an epoch bumped by a refusal so moves queued behind it are dropped.
    */
   private readonly orderQueues = new Map<string, Promise<unknown>>();
-  private readonly confirmedGroups = new Map<string, TaleGroup[]>();
+  private readonly confirmedGroups = new Map<string, ZoneTaleGroup[]>();
   private readonly pendingOrders = new Map<string, number>();
   private readonly orderEpochs = new Map<string, number>();
   /** Bumped per tale on each upload, so a replaced file at the same URL is fetched again. */
@@ -145,14 +155,34 @@ export class DashboardStore {
     return this.frames()[zoneId] ?? [];
   }
 
-  taleGroupsOf(zoneId: string): TaleGroup[] {
+  taleGroupsOf(zoneId: string): ZoneTaleGroup[] {
     return this.taleGroups()[zoneId] ?? [];
   }
 
-  taleGroup(taleGroupId: string): TaleGroup | undefined {
+  /** A tale group as some zone lists it; its content is the same in every zone (AD-14). */
+  taleGroup(taleGroupId: string): ZoneTaleGroup | undefined {
     return Object.values(this.taleGroups())
       .flat()
       .find((g) => g.id === taleGroupId);
+  }
+
+  /** The project's tale groups by name, including those placed in no zone. */
+  projectTaleGroupsOf(projectId: string): ProjectTaleGroup[] {
+    return this.projectTaleGroups()[projectId] ?? [];
+  }
+
+  /** A tale group as its project's list shows it, placed in a zone or not. */
+  projectTaleGroup(taleGroupId: string): ProjectTaleGroup | undefined {
+    return Object.values(this.projectTaleGroups())
+      .flat()
+      .find((g) => g.id === taleGroupId);
+  }
+
+  /** The zones of the group's project that do not hold the group yet: where "Add to zone…" can place it. */
+  zonesToPlace(taleGroupId: string): Zone[] {
+    const group = this.projectTaleGroup(taleGroupId) ?? this.taleGroup(taleGroupId);
+    if (!group) return [];
+    return this.zones().filter((z) => z.projectId === group.projectId && !group.zoneIds.includes(z.id));
   }
 
   /** The zone's active key info, or null when it has none. */
@@ -189,6 +219,7 @@ export class DashboardStore {
     this.frameTypes.set([]);
     this.frames.set({});
     this.taleGroups.set({});
+    this.projectTaleGroups.set({});
     this.tags.set({});
     this.zoneKeys.set({});
     this.loaded.set(false);
@@ -216,7 +247,7 @@ export class DashboardStore {
       this.frames.set(Object.fromEntries(zones.map((zone, i) => [zone.id, lists[i]])));
       const groups = await Promise.all(
         zones.map((zone) =>
-          firstValueFrom(this.http.get<TaleGroup[]>(`${API_BASE}/zones/${zone.id}/tale-groups`)),
+          firstValueFrom(this.http.get<ZoneTaleGroup[]>(`${API_BASE}/zones/${zone.id}/tale-groups`)),
         ),
       );
       if (!current()) return;
@@ -228,6 +259,15 @@ export class DashboardStore {
       );
       if (!current()) return;
       this.tags.set(Object.fromEntries(projects.map((project, i) => [project.id, tags[i]])));
+      const projectGroups = await Promise.all(
+        projects.map((project) =>
+          firstValueFrom(
+            this.http.get<ProjectTaleGroup[]>(`${API_BASE}/projects/${encodeURIComponent(project.id)}/tale-groups`),
+          ),
+        ),
+      );
+      if (!current()) return;
+      this.projectTaleGroups.set(Object.fromEntries(projects.map((project, i) => [project.id, projectGroups[i]])));
       const keys = await Promise.all(
         zones.map((zone) =>
           firstValueFrom(this.http.get<ZoneKeyInfo | null>(`${API_BASE}/zones/${encodeURIComponent(zone.id)}/key`)),
@@ -316,9 +356,53 @@ export class DashboardStore {
 
   async createTaleGroup(zoneId: string, name: string): Promise<string> {
     try {
-      await firstValueFrom(this.http.post<TaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, { name }));
+      await firstValueFrom(this.http.post<ZoneTaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, { name }));
     } catch (err) {
       return apiErrorMessage(err, 'Tale group was not saved. Try again.');
+    }
+    await this.refresh();
+    return '';
+  }
+
+  /** Renames a tale group; every zone it is placed in shows the new name (AD-14). */
+  async renameTaleGroup(taleGroupId: string, name: string): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.patch<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}`, { name }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The tale group was not renamed. Try again.');
+    }
+    await this.refresh();
+    return '';
+  }
+
+  /** Places an existing tale group at the end of another zone of its project (AD-14). */
+  async placeTaleGroup(zoneId: string, taleGroupId: string): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.put<ZoneTaleGroup>(
+          `${API_BASE}/zones/${encodeURIComponent(zoneId)}/tale-groups/${encodeURIComponent(taleGroupId)}`,
+          {},
+        ),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The tale group was not added to the zone. Try again.');
+    }
+    await this.refresh();
+    return '';
+  }
+
+  /** Removes a tale group from one zone; the group stays in its project and its other zones. */
+  async removeTaleGroup(zoneId: string, taleGroupId: string): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.delete<void>(
+          `${API_BASE}/zones/${encodeURIComponent(zoneId)}/tale-groups/${encodeURIComponent(taleGroupId)}`,
+        ),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The tale group was not removed from the zone. Try again.');
     }
     await this.refresh();
     return '';
@@ -347,19 +431,18 @@ export class DashboardStore {
     } catch (err) {
       return apiErrorMessage(err, 'The tags were not saved. Try again.');
     }
-    // Only the tags change: the group's tales and position may have moved meanwhile.
+    // Only the tags change, in every zone the group is placed in (AD-14): the
+    // group's tales and positions may have moved meanwhile.
+    const withSavedTags = (groups: ZoneTaleGroup[]) =>
+      groups.map((g) => (g.id === taleGroupId ? { ...g, tags: saved.tags } : g));
     this.taleGroups.update((all) => {
-      const groups = all[saved.zoneId];
-      if (!groups) return all;
-      const next = groups.map((g) => (g.id === taleGroupId ? { ...g, tags: saved.tags } : g));
-      return { ...all, [saved.zoneId]: next };
+      const next = { ...all };
+      for (const zoneId of saved.zoneIds) if (next[zoneId]) next[zoneId] = withSavedTags(next[zoneId]);
+      return next;
     });
-    const confirmed = this.confirmedGroups.get(saved.zoneId);
-    if (confirmed) {
-      this.confirmedGroups.set(
-        saved.zoneId,
-        confirmed.map((g) => (g.id === taleGroupId ? { ...g, tags: saved.tags } : g)),
-      );
+    for (const zoneId of saved.zoneIds) {
+      const confirmed = this.confirmedGroups.get(zoneId);
+      if (confirmed) this.confirmedGroups.set(zoneId, withSavedTags(confirmed));
     }
     return '';
   }
@@ -378,7 +461,8 @@ export class DashboardStore {
     return this.enqueueOrder(
       zoneId,
       next,
-      () => firstValueFrom(this.http.put<TaleGroup[]>(`${API_BASE}/zones/${zoneId}/tale-groups/order`, { taleGroupIds })),
+      () =>
+        firstValueFrom(this.http.put<ZoneTaleGroup[]>(`${API_BASE}/zones/${zoneId}/tale-groups/order`, { taleGroupIds })),
       // Only the order comes from the response; each group keeps its confirmed tales and tags,
       // which a tags change or tale order may have updated meanwhile.
       (confirmed, saved) =>
@@ -390,14 +474,14 @@ export class DashboardStore {
   }
 
   /**
-   * Sets the order of a tale group's tales. The new order shows at once; when
-   * the API refuses it, the last confirmed order comes back and the API's
-   * message is returned.
+   * Sets the order of a tale group's tales, from the zone page of `zoneId`.
+   * The new order shows at once; when the API refuses it, the last confirmed
+   * order comes back and the API's message is returned. The group's other
+   * zones show the saved order once the API confirms it.
    */
-  orderTales(taleGroupId: string, taleIds: string[]): Promise<string> {
-    const group = this.taleGroup(taleGroupId);
+  orderTales(zoneId: string, taleGroupId: string, taleIds: string[]): Promise<string> {
+    const group = this.taleGroupsOf(zoneId).find((g) => g.id === taleGroupId);
     if (!group) return Promise.resolve('This tale group no longer exists.');
-    const { zoneId } = group;
     const byId = new Map(group.tales.map((t) => [t.id, t]));
     const tales = taleIds.flatMap((id, position) => {
       const tale = byId.get(id);
@@ -406,9 +490,26 @@ export class DashboardStore {
     return this.enqueueOrder(
       zoneId,
       withTales(this.taleGroupsOf(zoneId), taleGroupId, tales),
-      () => firstValueFrom(this.http.put<Tale[]>(`${API_BASE}/tale-groups/${taleGroupId}/tales/order`, { taleIds })),
+      async () => {
+        const saved = await firstValueFrom(
+          this.http.put<Tale[]>(`${API_BASE}/tale-groups/${taleGroupId}/tales/order`, { taleIds }),
+        );
+        this.shareTales(zoneId, taleGroupId, saved);
+        return saved;
+      },
       (confirmed, saved) => withTales(confirmed, taleGroupId, saved),
     );
+  }
+
+  // Shows a group's saved tales in its other zones, which share them (AD-14).
+  private shareTales(fromZoneId: string, taleGroupId: string, tales: Tale[]): void {
+    const zoneIds = this.taleGroupsOf(fromZoneId).find((g) => g.id === taleGroupId)?.zoneIds ?? [];
+    for (const zoneId of zoneIds) {
+      if (zoneId === fromZoneId || !this.taleGroups()[zoneId]) continue;
+      const confirmed = this.confirmedGroups.get(zoneId);
+      if (confirmed) this.confirmedGroups.set(zoneId, withTales(confirmed, taleGroupId, tales));
+      this.setZoneGroups(zoneId, withTales(this.taleGroupsOf(zoneId), taleGroupId, tales));
+    }
   }
 
   // Shows `optimistic` at once, then sends the request after the zone's earlier
@@ -417,9 +518,9 @@ export class DashboardStore {
   // drops the moves queued behind it, which were built on the refused order.
   private enqueueOrder<T>(
     zoneId: string,
-    optimistic: TaleGroup[],
+    optimistic: ZoneTaleGroup[],
     send: () => Promise<T>,
-    confirm: (confirmed: TaleGroup[], saved: T) => TaleGroup[],
+    confirm: (confirmed: ZoneTaleGroup[], saved: T) => ZoneTaleGroup[],
   ): Promise<string> {
     const pending = this.pendingOrders.get(zoneId) ?? 0;
     if (pending === 0) this.confirmedGroups.set(zoneId, this.taleGroupsOf(zoneId));
@@ -450,7 +551,7 @@ export class DashboardStore {
     return result;
   }
 
-  private setZoneGroups(zoneId: string, groups: TaleGroup[]): void {
+  private setZoneGroups(zoneId: string, groups: ZoneTaleGroup[]): void {
     this.taleGroups.update((all) => ({ ...all, [zoneId]: groups }));
   }
 

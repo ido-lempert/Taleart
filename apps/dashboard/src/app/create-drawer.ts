@@ -6,8 +6,9 @@ import { Drawer } from './drawer';
 
 /**
  * The form for whatever the store's drawer request asks for: a create form, a
- * tale's media upload, a tale group's tags, an invitation link, or issuing,
- * rotating or revoking a zone key. The API's message shows inside it.
+ * tale's media upload, a tale group's tags, adding a tale group to a zone or
+ * removing it from one, an invitation link, or issuing, rotating or revoking a
+ * zone key. The API's message shows inside it.
  */
 @Component({
   selector: 'app-create-drawer',
@@ -38,6 +39,45 @@ export class CreateDrawer implements OnInit {
   protected readonly selectedTagIds = signal<string[]>([]);
   /** The name typed in a tags drawer's "New tag" field. */
   protected newTag = '';
+  /** The zone picked in an "Add to zone…" drawer. */
+  protected readonly placeZoneId = signal('');
+
+  /** The tale group an "Add to zone…" or "Remove from this zone" drawer is for. */
+  protected readonly placementGroup = computed(() => {
+    const request = this.request();
+    if (request.kind !== 'placeTaleGroup' && request.kind !== 'removeTaleGroup' && request.kind !== 'renameTaleGroup') {
+      return undefined;
+    }
+    return this.store.projectTaleGroup(request.taleGroupId) ?? this.store.taleGroup(request.taleGroupId);
+  });
+
+  /** The zones an "Add to zone…" drawer offers: the project's zones that do not hold the group yet. */
+  protected readonly placeZones = computed(() => {
+    const request = this.request();
+    return request.kind === 'placeTaleGroup' ? this.store.zonesToPlace(request.taleGroupId) : [];
+  });
+
+  /** The zone a "Remove from this zone" drawer removes the group from. */
+  protected readonly removeZone = computed(() => {
+    const request = this.request();
+    return request.kind === 'removeTaleGroup' ? this.store.zone(request.zoneId) : undefined;
+  });
+
+  /** The other zones that keep showing the group after it is removed from this one. */
+  protected readonly keptZones = computed(() => {
+    const request = this.request();
+    const group = this.placementGroup();
+    if (request.kind !== 'removeTaleGroup' || !group) return [];
+    return group.zoneIds.flatMap((id) => {
+      const zone = id === request.zoneId ? undefined : this.store.zone(id);
+      return zone ? [zone.name] : [];
+    });
+  });
+
+  /** True for the drawers whose submit removes or revokes something. */
+  protected readonly destructive = computed(
+    () => this.zoneKeyRequest()?.action === 'revoke' || this.request().kind === 'removeTaleGroup',
+  );
 
   /** The tale group a tags drawer is for. */
   protected readonly tagGroup = computed(() => {
@@ -72,7 +112,12 @@ export class CreateDrawer implements OnInit {
       case 'invite':
         return 'Create link';
       case 'tags':
+      case 'renameTaleGroup':
         return 'Save';
+      case 'placeTaleGroup':
+        return 'Add';
+      case 'removeTaleGroup':
+        return 'Remove';
       case 'zoneKey':
         return this.zoneKeyRequest()?.action === 'rotate'
           ? 'Rotate key'
@@ -123,6 +168,12 @@ export class CreateDrawer implements OnInit {
         return 'Invite to project';
       case 'tags':
         return 'Tags';
+      case 'renameTaleGroup':
+        return 'Rename tale group';
+      case 'placeTaleGroup':
+        return 'Add to zone';
+      case 'removeTaleGroup':
+        return 'Remove from this zone';
       case 'zoneKey':
         if (this.issuedKey()) return 'Zone key';
         return this.zoneKeyRequest()?.action === 'rotate'
@@ -148,6 +199,14 @@ export class CreateDrawer implements OnInit {
       const group = this.tagGroup();
       return group ? `For tale group ${group.name}` : '';
     }
+    if (request.kind === 'placeTaleGroup') {
+      const group = this.placementGroup();
+      return group ? `Tale group ${group.name}` : '';
+    }
+    if (request.kind === 'removeTaleGroup') {
+      const zone = this.removeZone();
+      return zone ? `In zone ${zone.name}` : '';
+    }
     if (request.kind === 'invite') {
       return `To project ${this.store.projectName(request.projectId)}`;
     }
@@ -166,6 +225,7 @@ export class CreateDrawer implements OnInit {
   ngOnInit(): void {
     this.projectId = this.store.selectedProjectId();
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
+    if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
   }
 
   protected isTagSelected(tagId: string): boolean {
@@ -291,6 +351,17 @@ export class CreateDrawer implements OnInit {
       }
       case 'tags':
         message = await this.store.setTaleGroupTags(request.taleGroupId, this.selectedTagIds());
+        break;
+      case 'renameTaleGroup':
+        message = await this.store.renameTaleGroup(request.taleGroupId, this.text);
+        break;
+      case 'placeTaleGroup':
+        message = this.placeZoneId()
+          ? await this.store.placeTaleGroup(this.placeZoneId(), request.taleGroupId)
+          : 'Choose a zone.';
+        break;
+      case 'removeTaleGroup':
+        message = await this.store.removeTaleGroup(request.zoneId, request.taleGroupId);
         break;
       case 'zoneKey': {
         if (request.action === 'revoke') {

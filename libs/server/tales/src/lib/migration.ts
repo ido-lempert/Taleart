@@ -2,30 +2,68 @@ import type { Db } from '@taleart/server-access';
 
 /**
  * Forward-only migration for the tables the tales module owns. Runs after the
- * zones migration, because every tale group references a zone (AD-4).
+ * zones migration, because every zone placement references a zone (AD-4).
  */
 export async function migrateTales(db: Db): Promise<void> {
-  // A tale group belongs to one zone and carries that zone's project. The
-  // composite key into zones_id_project_id_key makes a mismatched project
-  // impossible (AD-4).
+  // A tale group belongs to its project, not to a zone (AD-14). Installs made
+  // before AD-14 still have zone_id and position here until the step below.
   await db.query(`
     CREATE TABLE IF NOT EXISTS tale_groups (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      zone_id uuid NOT NULL,
       project_id uuid NOT NULL REFERENCES projects(id),
       name text NOT NULL,
-      position integer NOT NULL CHECK (position >= 0),
-      created_at timestamptz NOT NULL DEFAULT now(),
-      FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id)
+      created_at timestamptz NOT NULL DEFAULT now()
     );
   `);
-  await db.query('CREATE INDEX IF NOT EXISTS tale_groups_zone_id_idx ON tale_groups (zone_id, position)');
 
-  // Lets tales reference (tale group, project) together, so a tale's
-  // project_id can only ever be its group's project (AD-4).
+  // Lets tales and placements reference (tale group, project) together, so
+  // their project_id can only ever be the group's project (AD-4).
   await db.query(
     'CREATE UNIQUE INDEX IF NOT EXISTS tale_groups_id_project_id_key ON tale_groups (id, project_id)',
   );
+
+  // Zones place tale groups, each zone in its own order (AD-14). Both
+  // composite keys carry the placement's project, so a zone can only place a
+  // group of its own project (AD-4).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS zone_tale_groups (
+      zone_id uuid NOT NULL,
+      tale_group_id uuid NOT NULL,
+      project_id uuid NOT NULL REFERENCES projects(id),
+      position integer NOT NULL CHECK (position >= 0),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (zone_id, tale_group_id),
+      FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id),
+      FOREIGN KEY (tale_group_id, project_id) REFERENCES tale_groups (id, project_id)
+    );
+  `);
+  await db.query(
+    'CREATE INDEX IF NOT EXISTS zone_tale_groups_zone_id_idx ON zone_tale_groups (zone_id, position)',
+  );
+  await db.query(
+    'CREATE INDEX IF NOT EXISTS zone_tale_groups_tale_group_id_idx ON zone_tale_groups (tale_group_id)',
+  );
+
+  // Before AD-14 a group sat in one zone (tale_groups.zone_id, position).
+  // Each such group gets one placement in that zone at its old position, then
+  // the old columns go. One statement, so a failure leaves both as they were;
+  // once the columns are gone it does nothing.
+  await db.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'tale_groups' AND column_name = 'zone_id'
+      ) THEN
+        INSERT INTO zone_tale_groups (zone_id, tale_group_id, project_id, position, created_at)
+        SELECT zone_id, id, project_id, position, created_at FROM tale_groups
+        ON CONFLICT (zone_id, tale_group_id) DO NOTHING;
+        DROP INDEX IF EXISTS tale_groups_zone_id_idx;
+        ALTER TABLE tale_groups DROP COLUMN IF EXISTS zone_id, DROP COLUMN IF EXISTS position;
+      END IF;
+    END
+    $$;
+  `);
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS tales (

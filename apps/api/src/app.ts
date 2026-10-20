@@ -10,7 +10,7 @@ import { frameTypesRouter } from './http/frame-types.router';
 import { errorHandler, notFoundHandler } from './http/errors';
 import { projectsRouter } from './http/projects.router';
 import { publicMediaRouter } from './http/public-media.router';
-import { taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
+import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
 import { projectTagsRouter } from './http/tags.router';
 import { talesRouter } from './http/tales.router';
 import { zoneKeysRouter } from './http/zone-keys.router';
@@ -53,7 +53,7 @@ export function createApp(
   app.use((_req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     next();
   });
   app.options(`${MANAGEMENT_API_BASE}/*`, (_req, res) => res.sendStatus(204));
@@ -69,6 +69,7 @@ export function createApp(
   v1.use(requireSession(pool));
   v1.use('/projects', projectsRouter(pool, { dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200' }));
   v1.use('/projects', projectTagsRouter(pool));
+  v1.use('/projects', projectTaleGroupsRouter(pool));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));

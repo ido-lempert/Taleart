@@ -226,6 +226,64 @@
             <p class="muted">This tale group no longer exists.</p>
           }
         }
+        @case ('renameTaleGroup') {
+          @if (placementGroup()) {
+            <div class="field">
+              <label class="field__label" for="create-text">Tale group name</label>
+              <input
+                id="create-text"
+                class="input"
+                name="text"
+                autocomplete="off"
+                [(ngModel)]="text"
+                [attr.aria-invalid]="error() ? 'true' : null"
+                [attr.aria-describedby]="error() ? 'rename-hint create-error' : 'rename-hint'"
+              />
+              <p class="field__hint" id="rename-hint">The new name shows in every zone the group is in.</p>
+            </div>
+          } @else {
+            <p class="muted">This tale group no longer exists.</p>
+          }
+        }
+        @case ('placeTaleGroup') {
+          @if (placementGroup(); as group) {
+            @if (placeZones().length > 0) {
+              <fieldset class="tag-options" [attr.aria-describedby]="error() ? 'place-hint create-error' : 'place-hint'">
+                <legend class="field__label">Zone</legend>
+                @for (zone of placeZones(); track zone.id) {
+                  <label class="checkbox">
+                    <input
+                      type="radio"
+                      name="placeZone"
+                      [value]="zone.id"
+                      [checked]="placeZoneId() === zone.id"
+                      (change)="placeZoneId.set(zone.id)"
+                    />
+                    <span>{{ zone.name }}</span>
+                  </label>
+                }
+              </fieldset>
+              <p class="field__hint" id="place-hint">
+                The zone shows {{ group.name }} last. Its tales and tags are shared: a change shows in every zone.
+              </p>
+            } @else {
+              <p class="muted">{{ group.name }} is already in every zone of its project.</p>
+            }
+          } @else {
+            <p class="muted">This tale group no longer exists.</p>
+          }
+        }
+        @case ('removeTaleGroup') {
+          @if (placementGroup(); as group) {
+            <p>
+              Remove {{ group.name }} from {{ removeZone()?.name ?? 'this zone' }}? The tale group stays in the project
+              with its tales@if (keptZones().length > 0) {<span>, and still shows in {{ keptZones().join(', ') }}</span>}.
+              You can add it to a zone again from the Tale groups page.
+            </p>
+          } @else {
+            <p class="muted">This tale group no longer exists.</p>
+          }
+        }
         @case ('taleMedia') {
           @if (tale(); as tale) {
             <p class="tale-drawer__title">{{ tale.title }}</p>
@@ -280,8 +338,8 @@
         <button
           type="submit"
           class="btn"
-          [class.btn--primary]="zoneKeyRequest()?.action !== 'revoke'"
-          [class.btn--danger]="zoneKeyRequest()?.action === 'revoke'"
+          [class.btn--primary]="!destructive()"
+          [class.btn--danger]="destructive()"
           [disabled]="saving()"
         >
           {{ submitLabel() }}
