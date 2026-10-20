@@ -27,6 +27,8 @@ export class TaleartElement extends HTMLElement {
   private loadId = 0;
   private scheduled = false;
   private viewer: TaleViewer | null = null;
+  // The group whose item takes focus after a reload that closed an open viewer.
+  private pendingFocus: string | null = null;
 
   /** The TaleArt API origin, such as `https://api.example.com`. */
   get apiUrl(): string {
@@ -57,10 +59,13 @@ export class TaleartElement extends HTMLElement {
     this.closeViewer();
   }
 
-  private closeViewer(): void {
+  // Closes the viewer; returns the group it showed, or null when it was not open.
+  private closeViewer(): string | null {
     const viewer = this.viewer;
     this.viewer = null;
+    const groupId = viewer?.groupId ?? null;
     viewer?.close();
+    return groupId;
   }
 
   // Setting both attributes in one task loads once.
@@ -76,13 +81,15 @@ export class TaleartElement extends HTMLElement {
   private async load(): Promise<void> {
     const id = ++this.loadId;
     const { apiUrl, zoneKey } = this;
-    this.closeViewer();
+    // A reload while the viewer is open puts focus back on the new bar once it renders.
+    const focusGroup = this.closeViewer() ?? this.pendingFocus;
+    this.pendingFocus = focusGroup;
     this.root.replaceChildren();
     if (!apiUrl || !zoneKey || !this.isConnected) return;
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
       const zone = await fetchZone(apiUrl, zoneKey);
-      if (id === this.loadId) this.render(zone);
+      if (id === this.loadId) this.render(zone, focusGroup);
     } catch (err) {
       if (id !== this.loadId) return;
       this.root.replaceChildren();
@@ -90,7 +97,8 @@ export class TaleartElement extends HTMLElement {
     }
   }
 
-  private render(zone: DeliveryZone): void {
+  private render(zone: DeliveryZone, focusGroup: string | null): void {
+    this.pendingFocus = null;
     const frame = zone.frames.find((f) => f.type === BAR_FRAME_TYPE);
     if (!frame) return;
     const style = document.createElement('style');
@@ -116,6 +124,7 @@ export class TaleartElement extends HTMLElement {
     });
     this.viewer = viewer;
     this.root.replaceChildren(style, bar);
+    if (focusGroup !== null) (items.get(focusGroup) ?? bar.querySelector<HTMLButtonElement>('button.item'))?.focus();
   }
 }
 

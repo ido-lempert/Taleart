@@ -28,7 +28,7 @@ export const VIEWER_STYLES = `
   font: 14px/1.4 system-ui, sans-serif;
   overflow: hidden;
   overscroll-behavior: contain;
-  touch-action: none;
+  touch-action: pinch-zoom;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -68,8 +68,24 @@ span.media { background: #1f2937; }
 .fill.timed { animation: taleart-fill var(--taleart-duration) linear forwards; }
 .viewer[data-paused] .fill { animation-play-state: paused; }
 @keyframes taleart-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .fill.timed { animation: none; transform: none; }
+}
 .head { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.8);
+  font-weight: 600;
+}
+.pause { margin-left: auto; }
+.pause[hidden] + .close { margin-left: auto; }
+.control[hidden] { display: none; }
 .control {
   display: grid;
   place-items: center;
@@ -84,7 +100,7 @@ span.media { background: #1f2937; }
   cursor: pointer;
   pointer-events: auto;
 }
-.control:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.control:focus-visible { outline: 2px solid #fff; outline-offset: 0; box-shadow: 0 0 0 5px #000; }
 .control svg { width: 24px; height: 24px; fill: currentColor; }
 .sr-only {
   position: absolute;
@@ -111,6 +127,10 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): H
   return node;
 }
 
+function hasModifier(e: KeyboardEvent): boolean {
+  return e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
+}
+
 function setIcon(button: HTMLButtonElement, path: string): void {
   button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
@@ -127,7 +147,9 @@ export interface TaleViewerOptions {
  * zone's tale groups in order. Images show for {@link IMAGE_DURATION_MS},
  * videos to their end. Tap or arrow keys step through tales (and across
  * groups), a swipe moves between groups, a hold or Space pauses, and Escape
- * or Close closes. Groups without tales are skipped.
+ * or Close closes. Groups without tales are skipped. When the visitor
+ * prefers reduced motion nothing plays or advances by itself: each tale
+ * starts paused, videos play from the Play button, and the visitor steps.
  */
 export class TaleViewer {
   private readonly groups: readonly DeliveryTaleGroup[];
@@ -151,6 +173,10 @@ export class TaleViewer {
   private startedAt = 0;
   private press: { x: number; y: number; at: number } | null = null;
   private suppressClick = false;
+  private opened = false;
+  private reduced = false;
+  private statusTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly onBlur = () => this.onPointerCancel();
 
   constructor(
     private readonly root: ShadowRoot | HTMLElement,
@@ -161,26 +187,33 @@ export class TaleViewer {
   }
 
   get isOpen(): boolean {
-    return this.dialog !== null;
+    return this.opened;
   }
 
   /** The id of the group on screen, or null when closed. */
   get groupId(): string | null {
-    return this.dialog ? this.groups[this.group].id : null;
+    return this.opened ? this.groups[this.group].id : null;
   }
 
   /** Opens the group `groupId` at its first tale; false for an unknown group or one without tales. */
   open(groupId: string): boolean {
     const index = this.groups.findIndex((group) => group.id === groupId);
     if (index < 0) return false;
-    if (this.dialog) this.close();
+    if (this.opened) this.close();
     this.paused = false;
     this.held = false;
-    this.build();
-    const dialog = this.dialog as unknown as HTMLDialogElement;
+    this.press = null;
+    this.suppressClick = false;
+    this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Built once and kept, so its live region exists before it is filled.
+    const dialog = this.dialog ?? this.build();
+    this.opened = true;
+    this.syncPauseButton();
+    this.parts.pause.hidden = false;
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
     dialog.focus();
+    addEventListener('blur', this.onBlur);
     this.show(index, 0, true);
     return true;
   }
@@ -188,12 +221,17 @@ export class TaleViewer {
   /** Closes the viewer and stops playback; tells `onClose` the group shown last. */
   close(): void {
     const dialog = this.dialog;
-    if (!dialog) return;
+    if (!dialog || !this.opened) return;
     const groupId = this.groups[this.group].id;
+    this.opened = false;
     this.stop();
-    this.dialog = null;
+    this.press = null;
+    this.held = false;
+    clearTimeout(this.statusTimer);
+    this.parts.status.textContent = '';
+    removeEventListener('blur', this.onBlur);
     if (typeof dialog.close === 'function' && dialog.open) dialog.close();
-    dialog.remove();
+    else dialog.removeAttribute('open');
     this.options.onClose?.(groupId);
   }
 
@@ -220,13 +258,17 @@ export class TaleViewer {
   /** Pauses or resumes, as Space and the Pause button do. */
   togglePause(): void {
     this.paused = !this.paused;
-    const { pause } = this.parts;
-    pause.setAttribute('aria-label', this.paused ? 'Play' : 'Pause');
-    setIcon(pause, this.paused ? ICONS.play : ICONS.pause);
+    this.syncPauseButton();
     this.applyPause();
   }
 
-  private build(): void {
+  private syncPauseButton(): void {
+    const { pause } = this.parts;
+    pause.setAttribute('aria-label', this.paused ? 'Play' : 'Pause');
+    setIcon(pause, this.paused ? ICONS.play : ICONS.pause);
+  }
+
+  private build(): HTMLDialogElement {
     const dialog = el('dialog', 'viewer');
     dialog.tabIndex = -1;
     const frame = el('div', 'frame');
@@ -260,40 +302,67 @@ export class TaleViewer {
     frame.append(stage, top, status);
     dialog.appendChild(frame);
 
-    prev.addEventListener('click', () => this.onZone(() => this.previous()));
-    next.addEventListener('click', () => this.onZone(() => this.next()));
+    // One click handler for both zones: with pointer capture a tap's click may target the stage.
+    stage.addEventListener('click', (e) => this.onStageClick(e));
     pause.addEventListener('click', () => this.togglePause());
     close.addEventListener('click', () => this.close());
     stage.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+    stage.addEventListener('lostpointercapture', () => this.onPointerCancel());
     dialog.addEventListener('pointerup', (e) => this.onPointerUp(e));
     dialog.addEventListener('pointercancel', () => this.onPointerCancel());
     dialog.addEventListener('contextmenu', (e) => e.preventDefault());
+    // The host page never scrolls under the open viewer; two-finger pinch-zoom still works.
+    dialog.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+    dialog.addEventListener(
+      'touchmove',
+      (e) => {
+        if (e.touches.length < 2) e.preventDefault();
+      },
+      { passive: false },
+    );
     dialog.addEventListener('keydown', (e) => this.onKeyDown(e));
     // Firefox activates a focused button on Space's keyup.
     dialog.addEventListener('keyup', (e) => {
-      if (e.key === ' ') e.preventDefault();
+      if (e.key === ' ' && !hasModifier(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
     });
     // Escape asks the modal dialog to close: close through `close()` so focus returns.
     dialog.addEventListener('cancel', (e) => {
       e.preventDefault();
       this.close();
     });
-    dialog.addEventListener('close', () => this.close());
+    dialog.addEventListener('close', () => {
+      if (!dialog.open) this.close();
+    });
 
     this.root.appendChild(dialog);
     this.dialog = dialog;
     this.parts = { segments, name, pause, stage, status };
+    return dialog;
   }
 
-  private onZone(step: () => void): void {
-    if (this.suppressClick) {
+  private onStageClick(e: MouseEvent): void {
+    // A keyboard activation (detail 0) always steps; a pointer click after a hold or swipe does not.
+    if (e.detail !== 0 && this.suppressClick) {
       this.suppressClick = false;
       return;
     }
-    step();
+    const zone = (e.target as Element | null)?.closest?.('.zone');
+    let back: boolean;
+    if (zone) back = zone.classList.contains('prev');
+    else {
+      const rect = this.parts.stage.getBoundingClientRect();
+      back = e.clientX < rect.left + rect.width / 3;
+    }
+    if (back) this.previous();
+    else this.next();
   }
 
   private onKeyDown(e: KeyboardEvent): void {
+    // Modified keys (such as Alt+Arrow for browser history) stay with the browser.
+    if (hasModifier(e)) return;
     if (e.key === 'ArrowRight') this.next();
     else if (e.key === 'ArrowLeft') this.previous();
     else if (e.key === ' ') {
@@ -301,6 +370,7 @@ export class TaleViewer {
     } else if (e.key === 'Escape') this.close();
     else return;
     e.preventDefault();
+    e.stopPropagation();
   }
 
   private onPointerDown(e: PointerEvent): void {
@@ -308,6 +378,12 @@ export class TaleViewer {
     this.suppressClick = false;
     this.press = { x: e.clientX, y: e.clientY, at: Date.now() };
     this.held = true;
+    // A release outside the window still ends the press.
+    try {
+      this.parts.stage.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Synthetic or already released pointers cannot be captured.
+    }
     this.applyPause();
   }
 
@@ -319,7 +395,7 @@ export class TaleViewer {
     const dx = e.clientX - press.x;
     const dy = e.clientY - press.y;
     if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
-      this.suppressClick = true;
+      this.suppressNextClick();
       if (dx < 0) this.nextGroup();
       else {
         this.previousGroup();
@@ -327,11 +403,18 @@ export class TaleViewer {
       }
       return;
     }
-    if (Date.now() - press.at >= HOLD_MIN_MS) this.suppressClick = true;
+    if (Date.now() - press.at >= HOLD_MIN_MS) this.suppressNextClick();
     this.applyPause();
   }
 
+  // Swallows only the click this release may produce: it comes in the same task, if at all.
+  private suppressNextClick(): void {
+    this.suppressClick = true;
+    setTimeout(() => (this.suppressClick = false), 0);
+  }
+
   private onPointerCancel(): void {
+    if (!this.press && !this.held) return;
     this.press = null;
     this.held = false;
     this.applyPause();
@@ -339,7 +422,7 @@ export class TaleViewer {
 
   // Shows tale `tale` of group `group`, rebuilding the group's parts when it changes.
   private show(group: number, tale: number, newGroup = group !== this.group): void {
-    if (!this.dialog) return;
+    if (!this.dialog || !this.opened) return;
     this.stop();
     const g = this.groups[group];
     this.group = group;
@@ -361,11 +444,20 @@ export class TaleViewer {
       // A fresh fill restarts its animation.
       segment.replaceChildren(el('span', 'fill'));
     });
-    status.textContent = `${g.name}, tale ${tale + 1} of ${g.tales.length}`;
+    // Filled in a later task than any insertion, so screen readers announce it.
+    const text = `${g.name}, tale ${tale + 1} of ${g.tales.length}`;
+    clearTimeout(this.statusTimer);
+    this.statusTimer = setTimeout(() => (status.textContent = text), 0);
 
     this.media = this.renderMedia(g.tales[tale]);
     stage.prepend(this.media);
     this.options.onGroupShown?.(g.id);
+    if (this.reduced) {
+      // Reduced motion: every tale starts paused; only a video can be played, from the button.
+      this.paused = true;
+      this.syncPauseButton();
+      this.parts.pause.hidden = !this.video;
+    }
     if (this.video) this.applyPause();
     else this.startTimed();
   }
@@ -384,10 +476,13 @@ export class TaleViewer {
       const video = el('video', 'media');
       video.setAttribute('aria-label', label);
       video.playsInline = true;
-      video.preload = 'auto';
-      video.src = media.url;
+      // Under reduced motion the video waits on its first frame (`#t` paints it in Safari) until Play.
+      video.preload = this.reduced ? 'metadata' : 'auto';
+      video.src = this.reduced ? `${media.url}#t=0.001` : media.url;
       video.addEventListener('ended', () => {
-        if (video === this.video) this.next();
+        if (video !== this.video) return;
+        if (!this.reduced) this.next();
+        else if (!this.paused) this.togglePause();
       });
       video.addEventListener('error', () => {
         if (video === this.video) this.startTimed();
@@ -434,7 +529,7 @@ export class TaleViewer {
         clearTimeout(this.timer);
         this.timer = undefined;
         this.remaining -= Date.now() - this.startedAt;
-      } else if (!stopped && this.timer === undefined) {
+      } else if (!stopped && this.timer === undefined && !this.reduced) {
         this.startedAt = Date.now();
         this.timer = setTimeout(() => {
           this.timer = undefined;
@@ -450,7 +545,8 @@ export class TaleViewer {
   // Plays with sound where the browser allows it, else muted; media that cannot play runs on the timer.
   private play(video: HTMLVideoElement): void {
     const fail = (err: unknown): Promise<void> | void => {
-      if (video !== this.video || this.paused || this.held) return;
+      // A play() superseded by pause() or a new source rejects with AbortError: nothing failed.
+      if (video !== this.video || this.paused || this.held || (err as Error | null)?.name === 'AbortError') return;
       if ((err as Error | null)?.name === 'NotAllowedError' && !video.muted) {
         video.muted = true;
         return Promise.resolve(video.play()).catch(fail);

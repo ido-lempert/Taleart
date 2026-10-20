@@ -110,6 +110,8 @@ try {
   );
 
   await page.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  // A tall page, so a wheel that reached it would scroll it.
+  await page.addStyleTag({ content: 'body { min-height: 300vh; }' });
   const items = page.locator('taleart-view button.item');
   await items.first().waitFor();
   violations += await scan(page, 'bar', axe);
@@ -117,23 +119,34 @@ try {
   await items.first().click();
   const dialog = page.locator('taleart-view dialog.viewer');
   await dialog.waitFor();
-  check((await dialog.getAttribute('aria-label')) === 'Summer sale', 'the viewer opens on the activated group');
-  violations += await scan(page, 'viewer', axe);
-
-  const position = page.locator('taleart-view dialog .sr-only');
-  await page.keyboard.press('ArrowRight');
-  check((await position.textContent()) === 'Summer sale, tale 2 of 2', 'ArrowRight steps to the next tale');
-  await page.keyboard.press('ArrowLeft');
-  check((await position.textContent()) === 'Summer sale, tale 1 of 2', 'ArrowLeft steps back');
+  // Paused first, so no check below races the automatic advance.
   await page.keyboard.press(' ');
   check((await dialog.getAttribute('data-paused')) !== null, 'Space pauses');
+  check((await dialog.getAttribute('aria-label')) === 'Summer sale', 'the viewer opens on the activated group');
+  const position = page.locator('taleart-view dialog .sr-only');
+  const at = async (text, message) => {
+    // The live region is filled a task after each change.
+    await page.waitForFunction(
+      (t) => document.querySelector('taleart-view')?.shadowRoot?.querySelector('dialog .sr-only')?.textContent === t,
+      text,
+      { timeout: 2000 },
+    ).catch(() => undefined);
+    check((await position.textContent()) === text, message);
+  };
+  await at('Summer sale, tale 1 of 2', 'the live region announces the group and tale');
   violations += await scan(page, 'viewer paused', axe);
-  await page.keyboard.press(' ');
-  check((await dialog.getAttribute('data-paused')) === null, 'Space resumes');
+
+  await page.keyboard.press('ArrowRight');
+  await at('Summer sale, tale 2 of 2', 'ArrowRight steps to the next tale');
+  await page.keyboard.press('ArrowLeft');
+  await at('Summer sale, tale 1 of 2', 'ArrowLeft steps back');
+  await page.keyboard.press('Alt+ArrowRight');
+  await at('Summer sale, tale 1 of 2', 'Alt+ArrowRight is left to the browser');
   await page.locator('taleart-view dialog .zone.next').click();
-  check((await position.textContent()) === 'Summer sale, tale 2 of 2', 'a tap on the right steps forward');
+  await at('Summer sale, tale 2 of 2', 'a tap on the right steps forward');
   await page.locator('taleart-view dialog .zone.prev').click();
-  check((await position.textContent()) === 'Summer sale, tale 1 of 2', 'a tap on the left steps back');
+  await at('Summer sale, tale 1 of 2', 'a tap on the left steps back');
+  check((await dialog.getAttribute('data-paused')) !== null, 'stepping keeps the viewer paused');
 
   const box = await page.locator('taleart-view dialog .stage').boundingBox();
   const y = box.y + box.height / 2;
@@ -148,10 +161,20 @@ try {
   await page.mouse.up();
   check((await dialog.getAttribute('aria-label')) === 'Summer sale', 'a swipe right moves back');
 
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(200);
+  check((await page.evaluate(() => scrollY)) === 0, 'a wheel over the open viewer does not scroll the page');
+
+  await page.keyboard.press(' ');
+  check((await dialog.getAttribute('data-paused')) === null, 'Space resumes');
   await page.keyboard.press('Escape');
-  await dialog.waitFor({ state: 'detached' });
+  await dialog.waitFor({ state: 'hidden' });
   const after = await focused(page);
   check(after?.group === 'ga', 'Escape closes and focus returns to the bar item');
+  await page.mouse.wheel(0, 600);
+  await page.waitForFunction(() => scrollY > 0, null, { timeout: 2000 }).catch(() => undefined);
+  check((await page.evaluate(() => scrollY)) > 0, 'with the viewer closed the same wheel scrolls the page');
 
   await page.reload();
   await items.first().waitFor();

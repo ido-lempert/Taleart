@@ -169,7 +169,7 @@ describe('TaleartElement', () => {
     dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     expect(dialog.getAttribute('aria-label')).toBe('Winter');
     dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(el.shadowRoot?.querySelector('dialog')).toBeNull();
+    expect(dialog.hasAttribute('open')).toBe(false);
     expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
   });
 
@@ -203,7 +203,26 @@ describe('TaleartElement', () => {
     const el = await mount();
     items(el)[0].click();
     el.remove();
-    expect(el.shadowRoot?.querySelector('dialog')).toBeNull();
+    expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
+  });
+
+  it('moves focus to the matching item of the new bar when a reload closes the open viewer', async () => {
+    const el = await mount();
+    items(el)[1].click();
+    el.zoneKey = 'tak_other';
+    await settle();
+    expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
+    expect(items(el)).toHaveLength(3);
+    expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
+  });
+
+  it('moves focus to the first item when the reloaded bar no longer has the group', async () => {
+    const el = await mount();
+    items(el)[1].click();
+    fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: [zone.taleGroups[0], zone.taleGroups[2]] }));
+    el.zoneKey = 'tak_other';
+    await settle();
+    expect(el.shadowRoot?.activeElement).toBe(items(el)[0]);
   });
 
   it('renders nothing and logs one error with the API message for a refused key', async () => {
