@@ -167,20 +167,32 @@ export class ZoneDetailPage {
   /** The API's message when it refused an order; shown in a banner, cleared when the zone changes. */
   protected readonly orderError = linkedSignal({ source: this.zoneId, computation: () => '' });
 
-  /** The API's message when it refused a status change; cleared when the zone changes. */
-  protected readonly statusError = linkedSignal({ source: this.zoneId, computation: () => '' });
-  /** The group whose status change is being saved, so its buttons wait for it. */
-  protected readonly statusSaving = signal('');
+  /** Per group id, the API's message when it refused a status change; cleared when the zone changes. */
+  protected readonly statusErrors = linkedSignal<string, Record<string, string>>({
+    source: this.zoneId,
+    computation: () => ({}),
+  });
+  /** The ids of the groups whose status change is being saved, so their buttons wait for it. */
+  protected readonly statusSaving = signal<ReadonlySet<string>>(new Set());
   protected readonly statusActions = statusActions;
 
   /** Publishes, pauses, archives or restores a group, then announces its new status. */
   protected async changeStatus(group: TaleGroup, status: SettableStatus): Promise<void> {
-    this.statusError.set('');
-    this.statusSaving.set(group.id);
-    const message = await this.store.setTaleGroupStatus(group.id, status);
-    this.statusSaving.set('');
+    const id = group.id;
+    this.statusErrors.update((errors) => {
+      const next = { ...errors };
+      delete next[id];
+      return next;
+    });
+    this.statusSaving.update((ids) => new Set(ids).add(id));
+    const message = await this.store.setTaleGroupStatus(id, status);
+    this.statusSaving.update((ids) => {
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
     if (message) {
-      this.statusError.set(message);
+      this.statusErrors.update((errors) => ({ ...errors, [id]: message }));
       return;
     }
     this.announce(`${group.name} is now ${STATUS_LABELS[status].toLowerCase()}`);

@@ -1021,8 +1021,8 @@ describe('Management API v1: projects and zones', () => {
       await publish('tales', tale.id);
       const { key } = await (await post(`/zones/${z2.id}/key`, {})).json();
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      // C has no live tale, so only A is delivered.
       expect((await delivered.json()).taleGroups).toEqual([
-        { id: expect.any(String), name: 'C', tales: [] },
         { id: a.id, name: 'A', tales: [{ id: tale.id, title: 'Beach', media: null }] },
       ]);
     });
@@ -1030,6 +1030,9 @@ describe('Management API v1: projects and zones', () => {
     it('renames a group in one zone and shows the new name in both zones and in the Delivery API', async () => {
       const { z, z2, a, c } = await setup();
       await publish('tale-groups', a.id, c.id);
+      for (const group of [a, c]) {
+        await publish('tales', (await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json()).id);
+      }
       await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`);
       const res = await send('PATCH', `/tale-groups/${a.id}`, { name: '  Summer sale  ' });
       expect(res.status).toBe(200);
@@ -1039,7 +1042,7 @@ describe('Management API v1: projects and zones', () => {
         name: 'Summer sale',
         status: 'live',
         zoneIds: [z.id, z2.id],
-        tales: [],
+        tales: [expect.objectContaining({ title: 'T', status: 'live' })],
         tags: [],
       });
       for (const zoneId of [z.id, z2.id]) {
@@ -1232,6 +1235,8 @@ describe('Management API v1: projects and zones', () => {
           )
         ).rows;
 
+      // Two API processes starting at once: the migration lock runs them one after the other.
+      await Promise.all([migrate(pool), migrate(pool), migrate(pool)]);
       await restart();
       const migrated = [
         { kind: 'group', name: 'A', status: 'live' },
@@ -2283,8 +2288,8 @@ describe('Management API v1: projects and zones', () => {
           expect(await delivered(key)).toEqual([]);
 
           expect(await expectStatus('tale-groups', group.id, 'live', 200)).toMatchObject({ id: group.id, status: 'live', tags: [] });
-          // A live group with no live tale is delivered with none.
-          expect(await delivered(key)).toEqual([{ id: group.id, name: 'New', tales: [] }]);
+          // A live group with no live tale has nothing to play and is left out.
+          expect(await delivered(key)).toEqual([]);
           expect(await expectStatus('tales', tale.id, 'live', 200)).toMatchObject({ id: tale.id, status: 'live', storedStatus: 'live' });
           expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['T1']);
         });
@@ -2327,6 +2332,18 @@ describe('Management API v1: projects and zones', () => {
           expect((await expectStatus('tales', l1.id, 'paused', 200)).status).toBe('paused');
           expect((await expectStatus('tales', l1.id, 'live', 200)).status).toBe('blocked-by-group');
           expect((await expectStatus('tales', l1.id, 'live', 200)).storedStatus).toBe('live');
+        });
+
+        it('refuses both status routes with 403 forbidden to a caller without the project, changing nothing', async () => {
+          const zone = await createZone();
+          const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Theirs' })).json();
+          const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json();
+          const mine = await createProject('Mine');
+          await signInAsContentManager(mine.id);
+          await expectStatus('tale-groups', group.id, 'live', 403, 'forbidden');
+          await expectStatus('tales', tale.id, 'live', 403, 'forbidden');
+          const { rows } = await pool.query('SELECT status FROM tale_groups UNION ALL SELECT status FROM tales');
+          expect(rows).toEqual([{ status: 'draft' }, { status: 'draft' }]);
         });
 
         it('refuses a change the transitions do not allow with 409, changing nothing', async () => {
@@ -2397,8 +2414,12 @@ describe('Management API v1: projects and zones', () => {
         it('answers 304 to a revalidation of published media, and 404 once it is unpublished', async () => {
           const { l1, urls } = await liveZone();
           const etag = (await getPublic(urls[0])).headers.get('etag') ?? '';
+          const read = vi.spyOn(LocalDiskStorage.prototype, 'get');
           const again = await getPublic(urls[0], { 'If-None-Match': etag });
           expect(again.status).toBe(304);
+          // A current copy is answered without reading the file.
+          expect(read).not.toHaveBeenCalled();
+          read.mockRestore();
           expect(again.headers.get('cache-control')).toBe('public, no-cache');
           await expectStatus('tales', l1.id, 'paused', 200);
           expect((await getPublic(urls[0], { 'If-None-Match': etag })).status).toBe(404);

@@ -1207,6 +1207,53 @@ describe('App', () => {
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('taleId does not match a tale');
     });
 
+    it('keeps overlapping status changes on two groups apart: each waits for its own answer and shows its own message', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live, draft] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Pause').click();
+      buttonNamed(groupRow(root, 'Draft one'), 'Publish').click();
+      await settle(fixture);
+      const [pause, publish] = [`${API_BASE}/tale-groups/g1/status`, `${API_BASE}/tale-groups/g2/status`].map((url) =>
+        http.expectOne(url),
+      );
+      pause.flush(
+        { error: { code: 'invalid_status_transition', message: 'Summer cannot be paused' } },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle(fixture);
+
+      expect(buttonNamed(groupRow(root, 'Summer'), 'Pause').disabled).toBe(false);
+      expect(buttonNamed(groupRow(root, 'Draft one'), 'Publish').disabled).toBe(true);
+      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain('Summer cannot be paused');
+      expect(groupRow(root, 'Draft one').querySelector('[role=alert]')).toBeNull();
+
+      publish.flush(
+        { error: { code: 'invalid_status_transition', message: 'Draft one cannot be published' } },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle(fixture);
+      expect(groupRow(root, 'Summer').querySelector('[role=alert]')?.textContent).toContain('Summer cannot be paused');
+      expect(groupRow(root, 'Draft one').querySelector('[role=alert]')?.textContent).toContain('Draft one cannot be published');
+      expect(buttonNamed(groupRow(root, 'Draft one'), 'Publish').disabled).toBe(false);
+    });
+
+    it("announces the tale's status from the API's answer, not the list", async () => {
+      const blockedGroup = { ...live, status: 'paused', tales: [pausedTale] };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blockedGroup] } });
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale B"]')?.click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Publish').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tales/t2/status`).flush({ ...taleB, status: 'blocked-by-group', storedStatus: 'live' });
+      await settle(fixture);
+      // The refresh still lists the old status.
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [blockedGroup] } });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Status: Blocked by group');
+    });
+
     it('shows each group status on the Tale groups page', async () => {
       const { fixture, root } = await open('/zones', {
         ...oneZone,

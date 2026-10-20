@@ -90,12 +90,6 @@
             <span>{{ orderError() }}</span>
           </div>
         }
-        @if (statusError()) {
-          <div class="banner banner--inline" role="alert">
-            <app-icon name="alert" />
-            <span>{{ statusError() }}</span>
-          </div>
-        }
         @if (zoneTags().length > 0) {
           <div class="filter-chips" role="group" aria-label="Filter tale groups by tag">
             <button
@@ -173,7 +167,7 @@
                         [class.btn--primary]="action.status === 'live'"
                         [class.btn--secondary]="action.status !== 'live'"
                         [attr.aria-describedby]="'group-name-' + group.id"
-                        [disabled]="statusSaving() === group.id"
+                        [disabled]="statusSaving().has(group.id)"
                         (click)="changeStatus(group, action.status)"
                       >
                         {{ action.label }}
@@ -249,6 +243,12 @@
                     </div>
                   }
                 </div>
+                @if (statusErrors()[group.id]; as statusError) {
+                  <div class="banner banner--inline" role="alert">
+                    <app-icon name="alert" />
+                    <span>{{ statusError }}</span>
+                  </div>
+                }
                 <div class="tale-scroller">
                   <ol
                     class="tale-list"

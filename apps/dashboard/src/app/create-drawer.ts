@@ -311,11 +311,11 @@ export class CreateDrawer implements OnInit {
     if (this.saving()) return;
     this.saving.set(true);
     this.error.set('');
-    const message = await this.store.setTaleStatus(taleId, status);
+    const { tale, message } = await this.store.setTaleStatus(taleId, status);
     this.saving.set(false);
     this.error.set(message);
-    const tale = this.store.tale(taleId);
-    if (!message && tale) this.statusAnnouncement.set(`Status: ${STATUS_LABELS[tale.status]}`);
+    // The saved tale's status as read, from the API's answer, not the list that may still be loading.
+    if (tale) this.statusAnnouncement.set(`Status: ${STATUS_LABELS[tale.status]}`);
   }
 
   protected pickFile(event: Event): void {

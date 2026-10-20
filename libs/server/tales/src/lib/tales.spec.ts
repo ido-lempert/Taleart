@@ -477,7 +477,7 @@ describe('delivery', () => {
           { id: t2, title: 'Two', media: null },
         ],
       },
-      { id: g2, name: 'B', tales: [] },
+      // B has no live tale, so it is left out.
     ]);
     expect(statements()[0]).toMatch(/FROM zone_tale_groups[\s\S]*ORDER BY zone_tale_groups\.position, tale_groups\.id/);
     // Only live groups and their live tales are delivered (AD-6).

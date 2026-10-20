@@ -444,15 +444,18 @@ export class DashboardStore {
     return '';
   }
 
-  /** Publishes, pauses, archives or restores a tale (AD-6). */
-  async setTaleStatus(taleId: string, status: SettableStatus): Promise<string> {
+  /** Publishes, pauses, archives or restores a tale (AD-6). Returns the saved tale, or the message to show. */
+  async setTaleStatus(taleId: string, status: SettableStatus): Promise<{ tale: Tale | null; message: string }> {
+    let tale: Tale;
     try {
-      await firstValueFrom(this.http.put<Tale>(`${API_BASE}/tales/${encodeURIComponent(taleId)}/status`, { status }));
+      tale = await firstValueFrom(
+        this.http.put<Tale>(`${API_BASE}/tales/${encodeURIComponent(taleId)}/status`, { status }),
+      );
     } catch (err) {
-      return apiErrorMessage(err, 'The status was not changed. Try again.');
+      return { tale: null, message: apiErrorMessage(err, 'The status was not changed. Try again.') };
     }
     await this.refresh();
-    return '';
+    return { tale, message: '' };
   }
 
   /** Creates a tag in a project and adds it to the project's tags. */
