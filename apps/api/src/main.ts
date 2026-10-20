@@ -1,4 +1,5 @@
 import { join, resolve } from 'node:path';
+import { DELIVERY_API_BASE } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
@@ -39,6 +40,7 @@ async function start(): Promise<void> {
   const port = process.env['PORT'] || 3333;
   const server = createApp(pool, frameTypes, storage, auth).listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
+    log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
   });
   server.on('error', (err) => log('error', 'server error', err));
 }

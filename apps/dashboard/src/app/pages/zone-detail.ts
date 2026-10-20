@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MAX_TALES_PER_GROUP, type TaleGroup, type TaleGroupTag } from '@taleart/contract';
+import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 
@@ -21,7 +22,7 @@ const TONES = 6;
 type Direction = 'earlier' | 'later';
 
 /**
- * One zone: its frames and its tale groups, each a row of 9:16 tale cards with
+ * One zone: its frames, its zone key and its tale groups, each a row of 9:16 tale cards with
  * the group's tags. Groups and tales reorder by drag, or by their move earlier
  * and later buttons (the single-pointer and keyboard alternative, WCAG 2.2 SC
  * 2.5.7). Tag chips above the groups filter them; groups do not reorder while
@@ -73,10 +74,29 @@ type Direction = 'earlier' | 'later';
     .zone-section {
       min-width: 0;
     }
+    .key-info {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2) var(--space-4);
+      margin: 0;
+    }
+    .key-info dt {
+      font-weight: 600;
+    }
+    .key-info dd {
+      margin: 0;
+    }
+    .key-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
   `,
 })
 export class ZoneDetailPage {
   protected readonly store = inject(DashboardStore);
+  protected readonly auth = inject(AuthStore);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   /** Bound from the `:zoneId` route parameter. */
@@ -86,6 +106,13 @@ export class ZoneDetailPage {
   protected readonly zone = computed(() => this.store.zone(this.zoneId()));
   protected readonly frames = computed(() => this.store.framesOf(this.zoneId()));
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
+  /** The zone's active key (prefix and date only), or null. */
+  protected readonly zoneKey = computed(() => this.store.zoneKey(this.zoneId()));
+
+  /** A key's issue date, such as "20 Oct 2026". */
+  protected issuedDate(createdAt: string): string {
+    return new Date(createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
 
   /** Every tag on the zone's groups, once each, by name: the filter chips. */
   protected readonly zoneTags = computed(() => {

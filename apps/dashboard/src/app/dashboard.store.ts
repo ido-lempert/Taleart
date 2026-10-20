@@ -6,11 +6,13 @@ import {
   type Frame,
   type FrameType,
   type Invitation,
+  type IssuedZoneKey,
   type Project,
   type Tag,
   type Tale,
   type TaleGroup,
   type Zone,
+  type ZoneKeyInfo,
 } from '@taleart/contract';
 import { firstValueFrom } from 'rxjs';
 
@@ -33,7 +35,11 @@ export type DrawerRequest =
   | { kind: 'taleGroup'; zoneId: string }
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
-  | { kind: 'taleMedia'; taleId: string };
+  | { kind: 'taleMedia'; taleId: string }
+  | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction };
+
+/** What a zone key drawer does: issue the first key, rotate the active one, or revoke it. */
+export type ZoneKeyAction = 'issue' | 'rotate' | 'revoke';
 
 // The groups with one group's tales replaced.
 function withTales(groups: TaleGroup[], taleGroupId: string, tales: Tale[]): TaleGroup[] {
@@ -69,6 +75,8 @@ export class DashboardStore {
   readonly taleGroups = signal<Record<string, TaleGroup[]>>({});
   /** Each project's tags by name, keyed by project id. */
   readonly tags = signal<Record<string, Tag[]>>({});
+  /** Each zone's active key (prefix and date, never the key), or null; keyed by zone id. */
+  readonly zoneKeys = signal<Record<string, ZoneKeyInfo | null>>({});
   /** True once the first refresh finished, successfully or not. */
   readonly loaded = signal(false);
   readonly apiDown = signal(false);
@@ -147,6 +155,11 @@ export class DashboardStore {
       .find((g) => g.id === taleGroupId);
   }
 
+  /** The zone's active key info, or null when it has none. */
+  zoneKey(zoneId: string): ZoneKeyInfo | null {
+    return this.zoneKeys()[zoneId] ?? null;
+  }
+
   tagsOf(projectId: string): Tag[] {
     return this.tags()[projectId] ?? [];
   }
@@ -177,6 +190,7 @@ export class DashboardStore {
     this.frames.set({});
     this.taleGroups.set({});
     this.tags.set({});
+    this.zoneKeys.set({});
     this.loaded.set(false);
     this.apiDown.set(false);
     this.drawer.set(null);
@@ -214,6 +228,13 @@ export class DashboardStore {
       );
       if (!current()) return;
       this.tags.set(Object.fromEntries(projects.map((project, i) => [project.id, tags[i]])));
+      const keys = await Promise.all(
+        zones.map((zone) =>
+          firstValueFrom(this.http.get<ZoneKeyInfo | null>(`${API_BASE}/zones/${encodeURIComponent(zone.id)}/key`)),
+        ),
+      );
+      if (!current()) return;
+      this.zoneKeys.set(Object.fromEntries(zones.map((zone, i) => [zone.id, keys[i] ?? null])));
       this.apiDown.set(false);
     } catch (err) {
       // A 401 means the session ended; the auth interceptor sends the user to sign-in.
@@ -244,6 +265,33 @@ export class DashboardStore {
     } catch (err) {
       return { invitation: null, message: apiErrorMessage(err, 'The invitation was not created. Try again.') };
     }
+  }
+
+  /**
+   * Issues a key for a zone (admins only). When the zone has a key, this
+   * rotates it: the old key stops working at once. The key is shown only now.
+   */
+  async issueZoneKey(zoneId: string): Promise<{ key: IssuedZoneKey | null; message: string }> {
+    try {
+      const key = await firstValueFrom(
+        this.http.post<IssuedZoneKey>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/key`, {}),
+      );
+      this.zoneKeys.update((all) => ({ ...all, [zoneId]: { prefix: key.prefix, createdAt: key.createdAt } }));
+      return { key, message: '' };
+    } catch (err) {
+      return { key: null, message: apiErrorMessage(err, 'The key was not issued. Try again.') };
+    }
+  }
+
+  /** Revokes a zone's key (admins only); it stops working at once. */
+  async revokeZoneKey(zoneId: string): Promise<string> {
+    try {
+      await firstValueFrom(this.http.delete<void>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/key`));
+    } catch (err) {
+      return apiErrorMessage(err, 'The key was not revoked. Try again.');
+    }
+    this.zoneKeys.update((all) => ({ ...all, [zoneId]: null }));
+    return '';
   }
 
   async createZone(name: string, projectId: string): Promise<string> {
