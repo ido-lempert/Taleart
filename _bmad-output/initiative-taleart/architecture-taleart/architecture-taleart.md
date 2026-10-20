@@ -65,7 +65,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** R8, FR-001, FR-004, FR-030
 - **Prevents:** data leaking across projects, and a backfill when usage metering arrives.
-- **Rule:** One shared schema. Every content, zone, collection, frame and event table has `project_id uuid NOT NULL` referencing `projects`. A module checks every project it acts on against the caller's credential. It never trusts a `project_id` it has not authorized.
+- **Rule:** One shared schema. Every content, zone, frame, targeting (tag, segment, user list), campaign, product set and event table has `project_id uuid NOT NULL` referencing `projects`. A module checks every project it acts on against the caller's credential. It never trusts a `project_id` it has not authorized.
 
 ### AD-5 — Frame types are data `[ADOPTED]`
 
@@ -113,7 +113,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** all
 - **Prevents:** Storyly terms entering the product, and two names for one entity.
-- **Rule:** The terminology map binds code, schema and API names. "Storyly" appears only inside the importer module, as the source system.
+- **Rule:** The terminology map binds code, schema and API names. "Storyly" appears only inside the importer module, as the source system. Targeting and campaign names approved 2026-10-20: `tags` (on tale groups), `segments`, `userLists`, user attributes (`setUserAttributes`), `externalUserId`, `campaigns` with a schedule (`startsAt`, `endsAt`), `productSets`, and journey (a common noun, never branded). "Audience", "member", "external user key" and "collection" are not entity names.
 
 ## Consistency Conventions
 
@@ -181,11 +181,17 @@ erDiagram
   TALE_GROUP ||--o{ TALE : contains
   TALE ||--o{ INTERACTIVE_COMPONENT : carries
   TALE_GROUP }o--o{ TAG : tagged
-  TALE_GROUP }o--o{ AUDIENCE : targeted
-  AUDIENCE ||--o{ MEMBER : lists
-  PROJECT ||--o{ COLLECTION : has
+  TALE_GROUP }o--o{ SEGMENT : targeted
+  TALE_GROUP }o--o{ USER_LIST : targeted
+  PROJECT ||--o{ CAMPAIGN : has
+  CAMPAIGN }o--o{ TALE_GROUP : groups
+  ZONE ||--o| JOURNEY : runs
+  JOURNEY }o--o{ TALE_GROUP : sequences
+  PROJECT ||--o{ PRODUCT_SET : has
   PROJECT ||--o{ EVENT : records
 ```
+
+A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
 
 ```text
 apps/
@@ -196,11 +202,12 @@ libs/
   contract/       # OpenAPI 3.1, generated types, frame schemas, event names, status map
   server/
     access/       # projects, users, sessions, zone keys
-    zones/        # zones, frames, stages, playbooks, frame registry
+    zones/        # zones, frames, stages, playbooks, journeys (post-MVP), frame registry
     tales/        # tale groups, tales, schedules, status
     interactive/  # interactive components and responses
-    targeting/    # tags, audiences, members, external user keys
-    collections/  # collections, product feeds
+    targeting/    # tags, segments, user lists, user attributes, external user IDs
+    campaigns/    # campaigns and their schedules (post-MVP)
+    product-sets/ # product sets, product feeds (later, after product feeds)
     analytics/    # events, metrics
     importer/     # Storyly import jobs, import links, reports
     storage/      # media storage port and local adapter
@@ -223,7 +230,7 @@ libs/
 | Capability | Lives in | Governed by |
 | --- | --- | --- |
 | R1, R2 Storyly import | `libs/server/importer`, worker | AD-7, AD-8, AD-12 |
-| R3 foundation entities | `access`, `zones`, `tales`, `collections` | AD-1, AD-4 |
+| R3 foundation entities | `access`, `zones`, `tales` (product sets moved out of the foundation to `product-sets`, later) | AD-1, AD-4 |
 | R4 interactive components | `libs/server/interactive`, `libs/web-sdk` | AD-3, AD-10 |
 | R5, R12 targeting | `libs/server/targeting` | AD-2, AD-4 |
 | R6 scheduling | `libs/server/tales` | AD-6 |
@@ -246,3 +253,6 @@ libs/
 - **Staging host provider:** chosen when the staging story starts; the user provides it.
 - **Backups and restore:** documented with the self-hosting guide, before the first release.
 - **Conversion tracking:** TaleArt's own design, post-MVP.
+- **Campaigns (FR-031):** post-MVP, in a separate `campaigns` module rather than `tales`, so tale groups stay free of campaign logic; a campaign references tale groups through the `tales` public interface and is a reporting unit for `analytics`. A tale group in a campaign is delivered only inside both its own window and the campaign's schedule.
+- **Journeys:** post-MVP, in `zones` (a zone holds a frame or a journey); distinct from playbooks.
+- **Product sets (FR-021, FR-022):** after product feeds exist, in `product-sets`; out of the foundation epic (user, 2026-10-20).

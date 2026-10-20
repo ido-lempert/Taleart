@@ -29,9 +29,10 @@ Starting point, to be verified against the live API before use (FR-029):
 | Story | Tale |
 | Placement / instance | Zone (with a stage) |
 | Widget (Story Bar, Banner) | Frame (bar, banner) |
-| Flow | Playbook |
+| Flow | Playbook (Storyly's "Journeys" sequences map to Journey) |
 | Label | Tag |
-| Audience (CSV, sub user) | Audience; member; external user key |
+| Audience (CSV, sub user) | User list; external user ID |
+| Collections | Product set |
 | Interactive component | Interactive component of the same type |
 | Story status (numeric) | TaleArt status (HTTP-based scheme, §11.3) |
 

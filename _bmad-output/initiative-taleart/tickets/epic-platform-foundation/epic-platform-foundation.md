@@ -22,11 +22,11 @@ Content can be created and read through the API with a project tag, deployed, an
 ## Requirements
 
 R1 (parent R3): **Data model entities**
-   The data model holds app, project, zone, tale group, tale, frame, tag and collection.
+   The data model holds app, project, zone, tale group, tale, frame and tag.
    Verify: a schema test creates one of each entity and reads it back through the API.
 
 R2 (parent R8): **Project tag on content**
-   Every tale, tale group, zone and collection carries a project identifier.
+   Every tale, tale group, zone and tag carries a project identifier.
    Verify: a schema test fails when any of these entities is created without a project identifier.
 
 R3 (parent R10): **Platform-neutral, extensible model**
@@ -60,8 +60,8 @@ R3 (parent R10): **Platform-neutral, extensible model**
 
 - Decision: the approved entity names from the terminology map are used in the data model (user, approved).
 - Decision: a project entity is added, so apps belong to projects and every content item has a project (user, approved).
-- Decision: stage and playbook move to the web zones epic (R11), and audience, member and external user key move to the targeting epic (R12) (user, approved).
-- Decision: collections are added to the MVP data model, since R8 requires a project tag on them (user, approved).
+- Decision: stage and playbook move to the web zones epic (R11), and audience, member and external user key move to the targeting epic (R12) (user, approved). Renamed 2026-10-20: user list, segment, user attributes and external user ID; there is no member entity.
+- Decision: collections are added to the MVP data model, since R8 requires a project tag on them (user, approved). Superseded 2026-10-20, see below.
 - Decision: the dashboard uses user sessions, and the SDK uses a per-zone key, similar to Storyly's zone token (user, approved).
 - Decision: PostgreSQL holds the model, with JSON columns for widget settings so new widget types need no migration (user, approved).
 - Decision (2026-10-20): no remote repository or hosted CI for now; work is committed locally only, so story 2 is dropped (user, approved).
@@ -69,5 +69,5 @@ R3 (parent R10): **Platform-neutral, extensible model**
 - Decision (2026-10-20): the first user is the admin; every other user needs an admin's invitation; everyone signs in with a passkey, passwordless (user, approved).
 - Assumption (2026-10-20): media upload is its own story (12) after tale groups and tales; invitations are one-time links shown in the dashboard, with no mail server; invited users are content managers of the projects they are invited to, and only admins create projects and invitations. Not yet confirmed by the user.
 - Decision (2026-10-20): tags go on tale groups, not tales (user, approved). Story 5 is now "Tag tale groups".
-- Open (2026-10-20): what a collection holds, a saved list of tales or a filtered list of product-feed items (PRD FR-021); asked, not yet answered.
+- Decision (2026-10-20): a collection is renamed **product set**, a saved filter over a product feed (PRD FR-021, FR-022). Product sets depend on product feeds, which are not built, so they move out of this epic (removed from R1, R2 and Done when) and come later; the interactive components epic holds the note (user, approved). Answers the earlier open question on what a collection holds.
 - Decision (2026-10-20): filled buttons use the darker ember `#C73E1D` for contrast; ember `#F2542D` stays the brand accent (user, approved).

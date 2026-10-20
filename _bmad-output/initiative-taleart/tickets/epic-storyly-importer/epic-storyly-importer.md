@@ -26,7 +26,7 @@ A team can move its Storyly groups, stories and zones into TaleArt, and see per 
 
 ## Boundaries
 
-- Entries that need components or audiences wait on epic 4 and epic 5.
+- Entries that need components or audiences wait on epic 4 and epic 5. Storyly audiences import as TaleArt user lists, and Storyly labels as tags on tale groups.
 - The status mapping waits on the status scheme decision.
 
 ## References
