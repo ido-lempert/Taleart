@@ -1,0 +1,162 @@
+# Breakdown for epic-web-zones, vertical slices in build order.
+# Each entry is a flow a person reviews in the dashboard or on the sample host page that loads the Web SDK.
+# Table order is build order; id is permanent.
+#
+# Parallel lanes once story 1 is done:
+#   SDK lane (renderers):        2 -> 5 -> 6 -> 8
+#   Stages:                      7 (after 5, in parallel with 6 and 8)
+#   Tales lane (status, times):  3 -> 4 (in parallel with the whole SDK lane)
+# Then 9 (after 7, 8), 10 (after 6, 7, 8); 11 and 12 run in parallel with each other; 13 closes.
+# Lanes share the Delivery API router and the zone page in the dashboard, so merges there need care.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: a sample web page shows a zone's tale groups in a bar"
+description = "Extends GET /delivery/v1/zone (contract first) with the zone's tale groups and their tales in dashboard order, and lets the zone key read those tales' media from the Delivery API. The Web SDK element <taleart-view> takes the API URL and zone key, fetches the zone and renders a bar frame: one item per tale group with its first tale's media as cover and the group's title, scrollable horizontally, with default bar settings (R2 here is the bar with defaults; its settings come in story 5). Frame types the SDK does not know are skipped (AD-5); a refused key renders nothing and logs one console error. Adds the sample host page that loads the built SDK, and a build check that fails above 50 KB gzipped (R10 here is the bundle check only; first-content time is story 11)."
+verify = "In the dashboard issue a zone key for a zone with a bar frame and two tale groups with media; open the sample host page with that key: both groups show as bar items in dashboard order with covers and titles; revoke the key and reload: nothing renders and the console shows one error."
+covers = ["R1", "R2", "R10"]
+after = ["1.4", "1.6", "1.8", "1.12"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-2", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-5"]
+unknown = "An <img> or <video> tag cannot send the Bearer header: may the Delivery API return short-lived signed media URLs for the zone's media (touches AD-2 and AD-11), or must the SDK fetch media with the key header?"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Open a tale group in the full-screen viewer"
+description = "Activating a bar item opens its tale group in a full-screen viewer: images show for a fixed duration and videos play to their end, with progress segments; tap or arrow keys move to the next or previous tale, past the last or first tale they move to the next or previous group, swipe moves between groups, tap-and-hold or the Space key pauses and resumes, Escape or the close button closes and returns focus to the bar item. Viewed groups are remembered in the browser's local storage and show the seen ring in the bar. Includes an automated WCAG 2.2 AA scan of the viewer (R11 here is the viewer scan; the manual walk is story 12)."
+verify = "On the sample page open a group, step through its tales by tap and arrow keys, pause and resume with Space, swipe to the next group and back, close with Escape and see focus back on the bar item; reload: the viewed group shows the seen ring."
+covers = ["R4", "R11"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Publish, pause and archive tale groups and tales"
+description = "Adds the AD-6 status map to libs/contract (key and HTTP code, defined once) and a stored status on tale groups and tales in the tales module. In the dashboard a content manager publishes, pauses and archives a group or a tale, sees a status badge, and restores an archived item. New items start paused; existing rows migrate to live. The Delivery API returns only live groups and their live tales; the tales of a paused group read as blocked-by-group in the dashboard."
+verify = "Pause a tale group in the dashboard and reload the sample page: it is gone; publish it: it is back; pause the first tale of a live group: the bar item's cover becomes the group's next tale; archive a group and restore it: it returns paused."
+covers = ["R5"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-6"]
+unknown = "The AD-6 scheme has no draft key: should new tale groups and tales start paused, or should a draft key be added to the status map?"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Schedule tale groups and tales with start and end times"
+description = "A content manager sets an optional start and end time on a tale group and on a tale in the dashboard, entered in the browser's time zone and stored in UTC; an end before the start is refused. The dashboard shows scheduled before the start and expired after the end. The Delivery API returns only content whose own window and its group's window contain the current time."
+verify = "Set the end time of a group's first tale one minute ahead, wait, reload the sample page: the bar item's cover becomes the next tale and the dashboard shows expired; give a group a start time one minute ahead: it is hidden, then appears after the start passes; an end before the start is refused."
+covers = ["R6"]
+after = [3]
+hitl = false
+risk = "medium"
+unknown = "AD-6 stores status keys: are scheduled and expired stored (moved by a job at the start and end times) or worked out from the window when read?"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Edit bar settings in the dashboard"
+description = "Defines the bar fields in libs/contract/frame-types/bar.schema.json (shape, size, showTitles, alignment, gap, with defaults per epic R2). The dashboard edits an existing frame's settings through a form built from the frame type's schema, and the API validates on update. Stories 6 and 8 reuse this schema-built settings form. The SDK bar renderer applies each setting."
+verify = "In the dashboard set the bar to rounded-square, large, titles hidden, centered, gap 20; reload the sample page: the bar follows each setting; a gap of 40 is refused with an error."
+covers = ["R2"]
+after = [2]
+hitl = false
+risk = "medium"
+notes = ["The fields are Sofia's proposal (epic Notes); confirm before start."]
+
+[[entry]]
+id = 6
+type = "story"
+title = "Show a banner frame on the sample page"
+description = "Defines the banner fields in libs/contract/frame-types/banner.schema.json (aspectRatio, autoplay, intervalSeconds, showDots, loop, with defaults per epic R3), edited with the schema-built form from story 5. The SDK banner renderer shows one slide per published tale group with its first tale, with previous and next buttons, swipe and dots; autoplay stops on interaction or when the visitor prefers reduced motion. Activating a slide opens the viewer at that group. Includes an automated WCAG 2.2 AA scan of the banner (R11 here is the banner scan; the manual walk is story 12)."
+verify = "Add a banner frame to a zone that has a bar; the sample page shows both; set the banner to 3:1, interval 3 s, no dots: it follows after a reload; with reduced motion turned on in the OS it does not autoplay; clicking a slide opens the viewer at that group."
+covers = ["R3", "R11"]
+after = [2, 5]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Place a zone on a page with stages"
+description = "In the zones module a stage belongs to a zone and its project, has a name and a key unique in the zone, and shows one of the zone's frames. A content manager creates, renames and deletes stages on the zone page in the dashboard. The Delivery API returns the zone's stages; <taleart-view stage=\"<key>\"> renders that stage's frame, an unknown stage key renders nothing with a console warning, and with no stage named the zone's frames render in order."
+verify = "Give a zone two bar frames, one with circle items and one with rounded-square items, and a stage for each; put two <taleart-view> elements naming the two stage keys on the sample page: each shows its own frame's shape; an unknown stage key renders nothing and logs a warning."
+covers = ["R7"]
+after = [5]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Set a theme for a frame in the dashboard"
+description = "Adds a theme schema in libs/contract/frame-types/ (ringStyle, ringColors, seenRingColor, ringWidth, cornerRadius, fontFamily, titleColor, backgroundColor, accentColor per epic R9) used by the bar and banner schemas, and TaleArt's default theme, which passes WCAG 2.2 AA contrast. A content manager edits the frame's theme in the dashboard with color pickers. The SDK applies the theme to the bar, the banner and the viewer opened from that frame."
+verify = "In the dashboard set a solid ring in one color, corner radius 0 and a serif font on the bar frame; reload the sample page: the bar, its seen ring and the viewer follow; an invalid color is refused."
+covers = ["R9"]
+after = [5, 6]
+hitl = false
+risk = "medium"
+notes = ["Open question in the epic Notes: theme per frame (assumed), per zone or per project."]
+
+[[entry]]
+id = 9
+type = "story"
+title = "Override the theme in the Web SDK configuration"
+description = "A developer passes theme fields in the Web SDK configuration (a JavaScript option and the element's theme property). Each field resolves from the SDK configuration, then the dashboard theme, then TaleArt's default; an invalid SDK value is ignored with a console warning naming the field. The SDK's public configuration is documented in the web-sdk README."
+verify = "Set a red ring in the dashboard and a blue ring in the sample page's SDK configuration: the bar shows blue; remove the SDK value: red returns; an SDK ringWidth of 9 is ignored with a warning and the dashboard width applies. Then the epic demo: one zone with a bar stage and a banner stage on the sample page, both styled by the dashboard theme with the SDK override applied."
+covers = ["R9"]
+after = [7, 8]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Apply a playbook to a zone"
+description = "Adds a playbook registry in libs/contract (key, label, goal, preset frames with settings and theme, and a stage per frame), like the frame-type registry. In the dashboard a content manager picks a playbook for a zone; the zone records the playbook and gets its frames and stages, which stay editable. Applying it twice does not duplicate frames."
+verify = "Apply a playbook to an empty zone in the dashboard: its frames and stages appear with their preset settings and theme, and the sample page renders them by stage; editing a preset frame works; applying it again adds nothing."
+covers = ["R8"]
+after = [6, 7, 8]
+hitl = false
+risk = "medium"
+unknown = "Which playbooks ship in the MVP, and what goal, frames, settings and theme does each preset?"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Show first zone content within 1.5 s on Fast 4G"
+description = "Adds a repeatable measurement of the sample page under a mid-tier mobile profile on Fast 4G that reports p75 time to first visible zone content over repeated loads, and makes it meet 1.5 s: changing only what the measurement shows is needed (caching is deferred by the architecture until measured), for example small cover renditions for bar items, loading viewer code only on first open, or cache headers, while the bundle stays within 50 KB gzipped. The measurement runs as one Nx target named in the web-sdk README."
+verify = "Run the measurement target named in the web-sdk README against the sample page: it reports p75 first content at or under 1.5 s and a bundle at or under 50 KB gzipped."
+covers = ["R10"]
+after = [4, 7, 9]
+hitl = false
+risk = "high"
+notes = ["Open question in the epic Notes: a tale group cover image would change how covers are made."]
+
+[[entry]]
+id = 12
+type = "story"
+title = "Accessibility review of bar, banner and viewer"
+description = "Runs the WCAG 2.2 AA scan over the sample page with the default theme, and over the dashboard screens this epic adds (status badges and actions, start and end fields, the settings form, theme color pickers, stages, playbooks), and fixes what it finds; a person then walks the bar, banner and viewer with a keyboard and a screen reader (VoiceOver or NVDA) and records the result, and the issues found are fixed."
+verify = "The automated scan of the sample page and the new dashboard screens reports no WCAG 2.2 AA violations, and the person's walk record shows every bar item, slide, viewer control and close action reachable and announced."
+covers = ["R11"]
+after = [9, 10]
+hitl = true # a person does the screen-reader and keyboard walk
+risk = "medium"
+
+[[entry]]
+id = 13
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
+verify = "The full test suite passes and the sample page renders bar, banner and viewer as before, with no behavior change."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+hitl = false
+risk = "low"
