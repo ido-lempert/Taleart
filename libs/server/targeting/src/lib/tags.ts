@@ -131,3 +131,40 @@ export async function setTaleGroupTags(
     return (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [];
   });
 }
+
+/**
+ * Gives a copied tale group its source's tags, in the copy's project (AD-14):
+ * for each source tag, the project's tag with the same name, ignoring case, is
+ * reused, else created. Runs on the caller's transaction, so the copy and its
+ * tags commit together. Both groups must exist; the caller authorized both
+ * projects. Returns the copy's tags by name.
+ */
+export async function copyTaleGroupTags(
+  tx: Db,
+  input: { sourceTaleGroupId: string; taleGroupId: string; projectId: string },
+): Promise<TaleGroupTag[]> {
+  const taleGroupId = input.taleGroupId.toLowerCase();
+  const source = await tx.query<{ name: string }>(
+    `SELECT tags.name FROM tale_group_tags links JOIN tags ON tags.id = links.tag_id
+     WHERE links.tale_group_id = $1`,
+    [input.sourceTaleGroupId],
+  );
+  if (source.rows.length > 0) {
+    const names = source.rows.map((r) => r.name);
+    // A concurrent create of the same name waits on the unique index, then
+    // this insert skips it and the select below finds it.
+    await tx.query(
+      `INSERT INTO tags (project_id, name) SELECT $1, name FROM unnest($2::text[]) AS name
+       ON CONFLICT (project_id, lower(name)) DO NOTHING`,
+      [input.projectId, names],
+    );
+    await tx.query(
+      `INSERT INTO tale_group_tags (tale_group_id, tag_id, project_id)
+       SELECT $1, tags.id, $2 FROM tags
+       WHERE tags.project_id = $2 AND lower(tags.name) IN (SELECT lower(name) FROM unnest($3::text[]) AS name)
+       ON CONFLICT (tale_group_id, tag_id) DO NOTHING`,
+      [taleGroupId, input.projectId, names],
+    );
+  }
+  return (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [];
+}

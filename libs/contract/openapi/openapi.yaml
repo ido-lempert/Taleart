@@ -824,6 +824,48 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/copy:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: copyTaleGroup
+      summary: Copy a tale group into a zone, as an independent group.
+      description: >-
+        Creates a new tale group in the target zone's project, with the same
+        name, placed after the zone's groups (AD-14). Its tales are new rows
+        with the same titles, positions and media; media files are not
+        duplicated, the copy shares their storage keys (AD-11). For each of
+        the source's tags, a tag of the target project with the same name,
+        ignoring case, is reused, else created. Copy and source are
+        independent afterwards. The caller needs access to the source group's
+        project and to the target zone's project (403 `forbidden`). Unknown
+        tale group: 404 `tale_group_not_found`; missing `zoneId`: 400
+        `validation_failed`; unknown zone: 404 `zone_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopyTaleGroupRequest'
+      responses:
+        '201':
+          description: The copy, as placed in the target zone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneTaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tale-groups/{taleGroupId}/tales:
     parameters:
       - name: taleGroupId
@@ -1254,6 +1296,13 @@ components:
           type: string
           minLength: 1
           description: Trimmed before it is checked and stored.
+    CopyTaleGroupRequest:
+      type: object
+      required: [zoneId]
+      properties:
+        zoneId:
+          type: string
+          description: The zone to place the copy in; its project may differ from the source's.
     Tale:
       type: object
       required: [id, taleGroupId, projectId, title, position, media]

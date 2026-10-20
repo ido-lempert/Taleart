@@ -273,6 +273,52 @@
             <p class="muted">This tale group no longer exists.</p>
           }
         }
+        @case ('copyTaleGroup') {
+          @if (copied(); as done) {
+            <p role="status">
+              Copied {{ done.name }} to
+              <a [routerLink]="['/zones', done.zoneId]" (click)="close()">{{ done.zoneName }}</a>.
+            </p>
+          } @else if (placementGroup(); as group) {
+            <div class="field">
+              <label class="field__label" for="copy-project">Project</label>
+              <select
+                id="copy-project"
+                class="select"
+                name="copyProject"
+                [ngModel]="copyProjectId()"
+                (ngModelChange)="pickCopyProject($event)"
+              >
+                @for (project of copyProjects(); track project.id) {
+                  <option [value]="project.id">{{ project.name }}</option>
+                }
+              </select>
+            </div>
+            <div class="field">
+              <label class="field__label" for="copy-zone">Zone</label>
+              <select
+                id="copy-zone"
+                class="select"
+                name="copyZone"
+                [ngModel]="copyZoneId()"
+                (ngModelChange)="copyZoneId.set($event); error.set('')"
+                [attr.aria-invalid]="error() ? 'true' : null"
+                [attr.aria-describedby]="error() ? 'copy-hint create-error' : 'copy-hint'"
+              >
+                <option value="">{{ copyZones().length > 0 ? 'Choose a zone' : 'This project has no zones' }}</option>
+                @for (zone of copyZones(); track zone.id) {
+                  <option [value]="zone.id">{{ zone.name }}</option>
+                }
+              </select>
+              <p class="field__hint" id="copy-hint">
+                The zone shows a new tale group named {{ group.name }} last, with the same tales, media and tags.
+                Changes to the copy do not change the original, and the other way round.
+              </p>
+            </div>
+          } @else {
+            <p class="muted">This tale group no longer exists.</p>
+          }
+        }
         @case ('removeTaleGroup') {
           @if (placementGroup(); as group) {
             <p>

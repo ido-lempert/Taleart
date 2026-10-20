@@ -1181,6 +1181,218 @@ describe('Management API v1: projects and zones', () => {
     });
   });
 
+  describe('copy to zone', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const gif = Buffer.from('GIF89a-tiny-gif');
+
+    interface Listed {
+      id: string;
+      projectId: string;
+      name: string;
+      position: number;
+      zoneIds: string[];
+      tales: { id: string; title: string; position: number; media: { contentType: string } | null }[];
+      tags: { id: string; name: string }[];
+    }
+
+    function send(method: string, path: string, body?: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method,
+        headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    }
+
+    function upload(taleId: string, contentType: string, body: Uint8Array): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/media`, { method: 'PUT', headers: { 'Content-Type': contentType }, body });
+    }
+
+    async function zoneIn(projectId: string, name: string): Promise<{ id: string; projectId: string }> {
+      return (await post('/zones', { name, projectId })).json();
+    }
+
+    async function listed(zoneId: string): Promise<Listed[]> {
+      const res = await fetch(`${base}/zones/${zoneId}/tale-groups`);
+      expect(res.status).toBe(200);
+      return res.json();
+    }
+
+    async function mediaKey(taleId: string): Promise<string | null> {
+      return (await pool.query('SELECT media_key FROM tales WHERE id = $1', [taleId])).rows[0].media_key;
+    }
+
+    function storedFiles(): string[] {
+      const dir = join(mediaDir, 'tales');
+      return existsSync(dir) ? readdirSync(dir).sort() : [];
+    }
+
+    function copy(groupId: string, zoneId: unknown): Promise<Response> {
+      return send('POST', `/tale-groups/${groupId}/copy`, { zoneId });
+    }
+
+    // Project P with a staging zone holding G (tales "One" with a PNG, then
+    // "Two"; tag "summer") and a production zone Z2 holding H.
+    async function setup() {
+      const project = await createProject('Acme');
+      const staging = await zoneIn(project.id, 'Staging');
+      const production = await zoneIn(project.id, 'Production');
+      const g: Listed = await (await post(`/zones/${staging.id}/tale-groups`, { name: 'Summer sale' })).json();
+      await post(`/zones/${production.id}/tale-groups`, { name: 'H' });
+      const one = await (await post(`/tale-groups/${g.id}/tales`, { title: 'One' })).json();
+      const two = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Two' })).json();
+      expect((await upload(one.id, 'image/png', png)).status).toBe(200);
+      const summer = await (await post(`/projects/${project.id}/tags`, { name: 'summer' })).json();
+      expect((await send('PUT', `/tale-groups/${g.id}/tags`, { tagIds: [summer.id] })).status).toBe(200);
+      return { project, staging, production, g, one, two, summer };
+    }
+
+    beforeEach(() => {
+      rmSync(join(mediaDir, 'tales'), { recursive: true, force: true });
+    });
+
+    it('copies into a zone of the same project: 201, listed last, same tales in order, the same tag row', async () => {
+      const { project, staging, production, g, one, summer } = await setup();
+      const res = await copy(g.id, production.id);
+      expect(res.status).toBe(201);
+      const body: Listed = await res.json();
+      expect(body).toEqual({
+        id: expect.any(String),
+        projectId: project.id,
+        name: 'Summer sale',
+        position: 1,
+        zoneIds: [production.id],
+        tales: [
+          expect.objectContaining({ title: 'One', position: 0, media: expect.objectContaining({ contentType: 'image/png' }) }),
+          expect.objectContaining({ title: 'Two', position: 1, media: null }),
+        ],
+        tags: [{ id: summer.id, name: 'summer' }],
+      });
+      expect(body.id).not.toBe(g.id);
+      expect(body.tales.map((t) => t.id)).not.toContain(one.id);
+      expect((await listed(production.id)).map((x) => x.name)).toEqual(['H', 'Summer sale']);
+      expect((await listed(production.id))[1]).toEqual(body);
+      // The source stays only in staging; the media file is shared, not duplicated.
+      expect((await listed(staging.id)).map((x) => [x.id, x.zoneIds])).toEqual([[g.id, [staging.id]]]);
+      expect(await mediaKey(body.tales[0].id)).toBe(await mediaKey(one.id));
+      expect(storedFiles()).toHaveLength(1);
+      expect((await pool.query('SELECT 1 FROM tags')).rowCount).toBe(1);
+    });
+
+    it('copies into another project: the tag is created there when missing, reused in any case when present', async () => {
+      const { g } = await setup();
+      const b = await createProject('Beta');
+      const bZone = await zoneIn(b.id, 'Beta home');
+      const created: Listed = await (await copy(g.id, bZone.id)).json();
+      expect(created.projectId).toBe(b.id);
+      expect(created.position).toBe(0);
+      expect(created.tales.map((t) => t.title)).toEqual(['One', 'Two']);
+      const bTags = await (await fetch(`${base}/projects/${b.id}/tags`)).json();
+      expect(bTags).toEqual([{ id: created.tags[0].id, projectId: b.id, name: 'summer' }]);
+      expect(created.tags).toEqual([{ id: bTags[0].id, name: 'summer' }]);
+      const { rows } = await pool.query('SELECT project_id FROM tales WHERE tale_group_id = $1', [created.id]);
+      expect(rows.every((r) => r.project_id === b.id)).toBe(true);
+
+      const c = await createProject('Gamma');
+      const cZone = await zoneIn(c.id, 'Gamma home');
+      const existing = await (await post(`/projects/${c.id}/tags`, { name: 'SUMMER' })).json();
+      const reused: Listed = await (await copy(g.id, cZone.id)).json();
+      expect(reused.tags).toEqual([{ id: existing.id, name: 'SUMMER' }]);
+      expect((await pool.query('SELECT 1 FROM tags WHERE project_id = $1', [c.id])).rowCount).toBe(1);
+    });
+
+    it('keeps copy and source independent: renames, tales, order and tags on one leave the other unchanged', async () => {
+      const { staging, production, g } = await setup();
+      const c: Listed = await (await copy(g.id, production.id)).json();
+      const sourceBefore = (await listed(staging.id))[0];
+
+      expect((await send('PATCH', `/tale-groups/${c.id}`, { name: 'Copy' })).status).toBe(200);
+      expect((await post(`/tale-groups/${c.id}/tales`, { title: 'Three' })).status).toBe(201);
+      const copyTales = (await listed(production.id))[1].tales.map((t) => t.id);
+      expect((await send('PUT', `/tale-groups/${c.id}/tales/order`, { taleIds: [...copyTales].reverse() })).status).toBe(200);
+      expect((await send('PUT', `/tale-groups/${c.id}/tags`, { tagIds: [] })).status).toBe(200);
+      expect((await listed(staging.id))[0]).toEqual(sourceBefore);
+
+      const copyBefore = (await listed(production.id))[1];
+      expect((await send('PATCH', `/tale-groups/${g.id}`, { name: 'Source' })).status).toBe(200);
+      expect((await post(`/tale-groups/${g.id}/tales`, { title: 'Four' })).status).toBe(201);
+      const sourceTales = (await listed(staging.id))[0].tales.map((t) => t.id);
+      expect((await send('PUT', `/tale-groups/${g.id}/tales/order`, { taleIds: [...sourceTales].reverse() })).status).toBe(200);
+      expect((await listed(production.id))[1]).toEqual(copyBefore);
+    });
+
+    it("replacing a shared file on the copy keeps it for the source; the last tale's replace deletes it", async () => {
+      const { staging, production, g, one } = await setup();
+      const c: Listed = await (await copy(g.id, production.id)).json();
+      const shared = await mediaKey(one.id);
+
+      expect((await upload(c.tales[0].id, 'image/gif', gif)).status).toBe(200);
+      expect(storedFiles()).toHaveLength(2);
+      expect(storedFiles()).toContain(shared?.slice('tales/'.length));
+      const source = await fetch(`${base}/tales/${one.id}/media`);
+      expect(source.status).toBe(200);
+      expect(Buffer.from(await source.arrayBuffer())).toEqual(png);
+      expect((await globalThis.fetch(`${origin}/media/${shared}`)).status).toBe(200);
+      expect((await listed(staging.id))[0].tales[0].media?.contentType).toBe('image/png');
+
+      // The source was the last tale on the shared key: its replace deletes the file.
+      expect((await upload(one.id, 'image/gif', gif)).status).toBe(200);
+      expect(storedFiles()).not.toContain(shared?.slice('tales/'.length));
+      expect(storedFiles()).toHaveLength(2);
+      expect((await globalThis.fetch(`${origin}/media/${shared}`)).status).toBe(404);
+    });
+
+    it('answers 404 for an unknown group or zone and 400 without a zoneId, copying nothing', async () => {
+      const { production, g } = await setup();
+      for (const id of [unknownId, 'not-a-uuid']) {
+        const res = await copy(id, production.id);
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual({ error: { code: 'tale_group_not_found', message: expect.any(String) } });
+      }
+      for (const zoneId of [unknownId, 'not-a-uuid']) {
+        const res = await copy(g.id, zoneId);
+        expect(res.status).toBe(404);
+        expect((await res.json()).error.code).toBe('zone_not_found');
+      }
+      for (const zoneId of [undefined, '', 42]) {
+        const res = await copy(g.id, zoneId);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      expect((await pool.query('SELECT 1 FROM tale_groups')).rowCount).toBe(2);
+    });
+
+    it('refuses with 403 when the caller cannot access the target zone or the source group, copying nothing', async () => {
+      const { project, g } = await setup();
+      const other = await createProject('Other');
+      const otherZone = await zoneIn(other.id, 'Other home');
+      const theirs = await (await post(`/zones/${otherZone.id}/tale-groups`, { name: 'Theirs' })).json();
+      const myZone = await zoneIn(project.id, 'Mine');
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, project.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+
+      for (const [groupId, zoneId] of [
+        [g.id, otherZone.id],
+        [theirs.id, myZone.id],
+      ]) {
+        const res = await copy(groupId, zoneId);
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({ error: { code: 'forbidden', message: expect.any(String) } });
+      }
+      expect((await pool.query('SELECT 1 FROM tale_groups')).rowCount).toBe(3);
+      // Their own project works.
+      expect((await copy(g.id, myZone.id)).status).toBe(201);
+    });
+
+    it('gives concurrent copies into one zone distinct, dense positions', async () => {
+      const { production, g } = await setup();
+      const results = await Promise.all([0, 1, 2, 3].map(() => copy(g.id, production.id)));
+      expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201]);
+      expect((await listed(production.id)).map((x) => x.position)).toEqual([0, 1, 2, 3, 4]);
+    });
+  });
+
   describe('tale media', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
     const MB = 1024 * 1024;

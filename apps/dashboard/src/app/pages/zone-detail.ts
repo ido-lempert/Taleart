@@ -24,7 +24,7 @@ type Direction = 'earlier' | 'later';
 /**
  * One zone: its frames, its zone key and its tale groups, each a row of 9:16 tale cards with
  * the group's tags. A group can be placed in several zones (AD-14): its row says
- * where else it shows, and offers "Add to zone…" and "Remove from this zone". Groups and tales reorder by drag, or by their move earlier
+ * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Groups and tales reorder by drag, or by their move earlier
  * and later buttons (the single-pointer and keyboard alternative, WCAG 2.2 SC
  * 2.5.7). Tag chips above the groups filter them; groups do not reorder while
  * a filter is on, since the order covers every group of the zone.

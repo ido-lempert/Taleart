@@ -532,6 +532,28 @@ export interface paths {
         patch: operations["renameTaleGroup"];
         trace?: never;
     };
+    "/tale-groups/{taleGroupId}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a tale group into a zone, as an independent group.
+         * @description Creates a new tale group in the target zone's project, with the same name, placed after the zone's groups (AD-14). Its tales are new rows with the same titles, positions and media; media files are not duplicated, the copy shares their storage keys (AD-11). For each of the source's tags, a tag of the target project with the same name, ignoring case, is reused, else created. Copy and source are independent afterwards. The caller needs access to the source group's project and to the target zone's project (403 `forbidden`). Unknown tale group: 404 `tale_group_not_found`; missing `zoneId`: 400 `validation_failed`; unknown zone: 404 `zone_not_found`.
+         */
+        post: operations["copyTaleGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tale-groups/{taleGroupId}/tales": {
         parameters: {
             query?: never;
@@ -734,6 +756,10 @@ export interface components {
         RenameTaleGroupRequest: {
             /** @description Trimmed before it is checked and stored. */
             name: string;
+        };
+        CopyTaleGroupRequest: {
+            /** @description The zone to place the copy in; its project may differ from the source's. */
+            zoneId: string;
         };
         Tale: {
             /** Format: uuid */
@@ -1747,6 +1773,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    copyTaleGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyTaleGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The copy, as placed in the target zone. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ZoneTaleGroup"];
                 };
             };
             400: components["responses"]["Error"];

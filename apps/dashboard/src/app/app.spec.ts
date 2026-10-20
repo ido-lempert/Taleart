@@ -944,6 +944,106 @@ describe('App', () => {
       expect(root.querySelector('[aria-label="Tale groups in Acme"] li')?.textContent).toContain('In: Product page');
     });
 
+    it('copies a group to a zone of another project from the drawer and links to the target zone', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
+
+      const copyButton = buttonNamed(groupRow(root, 'Summer'), 'Copy to zone…');
+      expect(copyButton.getAttribute('aria-describedby')).toBe('group-name-g1');
+      copyButton.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Copy to zone');
+      expect(drawer()?.textContent).toContain('Tale group Summer');
+      const projectSelect = drawer()?.querySelector<HTMLSelectElement>('select[name=copyProject]') ?? null;
+      const zoneOptions = () =>
+        [...(drawer()?.querySelectorAll<HTMLOptionElement>('select[name=copyZone] option') ?? [])].map((o) => o.textContent?.trim());
+      // Every project the user can access, the group's own first, and that project's zones.
+      expect([...(projectSelect?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Acme', 'Globex']);
+      expect(projectSelect?.value).toBe('p1');
+      expect(zoneOptions()).toEqual(['Choose a zone', 'Home bar', 'Product page']);
+
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Choose a zone.');
+
+      choose(projectSelect, 'p2');
+      await settle(fixture);
+      expect(zoneOptions()).toEqual(['Choose a zone', 'Checkout']);
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z2');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      const copy = { id: 'g7', projectId: 'p2', name: 'Summer', position: 0, zoneIds: ['z2'], tales: [], tags: [] };
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/copy`);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ zoneId: 'z2' });
+      req.flush(copy, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z1: [{ ...group, tales: [] }], z2: [copy] } });
+      await settle(fixture);
+
+      const status = drawer()?.querySelector('[role=status]');
+      expect(status?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Copied Summer to Checkout in Globex.');
+      const link = status?.querySelector<HTMLAnchorElement>('a');
+      expect(link?.getAttribute('href')).toBe('/zones/z2');
+      expect(buttonNamed(drawer() as HTMLElement, 'Done')).toBeTruthy();
+      expect(() => buttonNamed(drawer() as HTMLElement, 'Copy')).toThrow();
+
+      link?.click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(TestBed.inject(Router).url).toBe('/zones/z2');
+      expect(groupRow(root, 'Summer')).toBeTruthy();
+    });
+
+    it("shows the API's message in the Copy to zone drawer, with the group's own project first", async () => {
+      const theirs = { id: 'g8', projectId: 'p2', name: 'Elsewhere', position: 0, zoneIds: ['z2'], tales: [], tags: [] };
+      const { fixture, root } = await open('/zones/z2', { ...twoZones, groups: { z2: [theirs] } });
+
+      buttonNamed(groupRow(root, 'Elsewhere'), 'Copy to zone…').click();
+      await settle(fixture);
+      const projectSelect = drawer()?.querySelector<HTMLSelectElement>('select[name=copyProject]') ?? null;
+      expect([...(projectSelect?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Globex', 'Acme']);
+      choose(projectSelect, 'p1');
+      await settle(fixture);
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z3');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g8/copy`)
+        .flush({ error: { code: 'forbidden', message: 'You do not have access to this project' } }, { status: 403, statusText: 'Forbidden' });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('You do not have access to this project');
+      expect(buttonNamed(drawer() as HTMLElement, 'Copy')).toBeTruthy();
+    });
+
+    it('offers "Copy to zone…" on the Tale groups page, also for a group in no zone', async () => {
+      const { fixture, root } = await open('/tale-groups', {
+        ...twoZones,
+        projectGroups: { p1: [{ id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: [] }] },
+      });
+
+      const row = root.querySelector<HTMLElement>('[aria-label="Tale groups in Acme"] li') as HTMLElement;
+      const copyButton = buttonNamed(row, 'Copy to zone…');
+      expect(copyButton.getAttribute('aria-describedby')).toBe('project-group-g9');
+      copyButton.click();
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('Tale group Autumn');
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z1');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g9/copy`);
+      expect(req.request.body).toEqual({ zoneId: 'z1' });
+      req.flush({ id: 'g10', projectId: 'p1', name: 'Autumn', position: 0, zoneIds: ['z1'], tales: [], tags: [] }, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, twoZones);
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=status]')?.textContent).toContain('Copied Autumn to');
+      expect(drawer()?.querySelector('[role=status] a')?.textContent?.trim()).toBe('Home bar');
+    });
+
     it('shows the saved tale order in the group\'s other zone too', async () => {
       const store = TestBed.inject(DashboardStore);
       const withTales = { ...shared, tales: [taleA, taleB] };

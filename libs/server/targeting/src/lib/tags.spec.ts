@@ -2,7 +2,7 @@ import type { TransactionalDb } from '@taleart/server-access';
 import { TaleGroupNotFoundError } from '@taleart/server-tales';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError } from './errors';
 import { migrateTargeting } from './migration';
-import { createTag, listTags, setTaleGroupTags, tagsForTaleGroups } from './tags';
+import { copyTaleGroupTags, createTag, listTags, setTaleGroupTags, tagsForTaleGroups } from './tags';
 
 const projectId = '00000000-0000-4000-8000-000000000002';
 const groupId = '00000000-0000-4000-8000-000000000003';
@@ -144,6 +144,36 @@ describe('setTaleGroupTags', () => {
     const { db, statements } = fakeDb([{ rows: [{ project_id: projectId }] }]);
     expect(await setTaleGroupTags(db, groupId, [])).toEqual([]);
     expect(statements().some((s) => /DELETE FROM tale_group_tags/.test(s))).toBe(true);
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+  });
+});
+
+describe('copyTaleGroupTags', () => {
+  const copyId = '00000000-0000-4000-8000-000000000005';
+  const target = '00000000-0000-4000-8000-000000000006';
+
+  it("finds or creates the source's tags by name in the copy's project and links them", async () => {
+    const { db, query } = fakeDb([
+      { rows: [{ name: 'Summer' }, { name: 'sale' }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ taleGroupId: copyId, id: tagA, name: 'sale' }, { taleGroupId: copyId, id: tagB, name: 'summer' }] },
+    ]);
+    expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual([
+      { id: tagA, name: 'sale' },
+      { id: tagB, name: 'summer' },
+    ]);
+    const [read, create, link] = query.mock.calls;
+    expect(read[1]).toEqual([groupId]);
+    expect(create[0]).toMatch(/ON CONFLICT \(project_id, lower\(name\)\) DO NOTHING/);
+    expect(create[1]).toEqual([target, ['Summer', 'sale']]);
+    expect(link[0]).toMatch(/lower\(tags.name\) IN \(SELECT lower\(name\)/);
+    expect(link[1]).toEqual([copyId, target, ['Summer', 'sale']]);
+  });
+
+  it('writes nothing when the source has no tags', async () => {
+    const { db, statements } = fakeDb([{ rows: [] }, { rows: [] }]);
+    expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual([]);
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
   });
 });
