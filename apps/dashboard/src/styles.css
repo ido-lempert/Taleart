@@ -926,3 +926,13 @@ select {
     padding: var(--space-6) var(--space-4);
   }
 }
+
+/* Invite drawer: Share (where supported) and Copy side by side, stacked on phones. */
+.invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.invite-actions .btn {
+  flex: 1 1 160px;
+}

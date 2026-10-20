@@ -173,6 +173,26 @@ export class CreateDrawer implements OnInit {
     (event.target as HTMLInputElement).select();
   }
 
+  /** True where the Web Share API exists (most phones, Safari, Chrome on Windows and ChromeOS). */
+  protected readonly canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  /** Opens the system share sheet with the invitation link. */
+  protected async shareLink(invitation: Invitation): Promise<void> {
+    const project = this.store.projectName(invitation.projectId);
+    try {
+      await navigator.share({
+        title: `Join ${project} on TaleArt`,
+        text: `You're invited to ${project} on TaleArt. The link works once, until ${this.expiryDate(invitation)}.`,
+        url: invitation.url,
+      });
+      this.copyStatus.set('Link shared');
+    } catch (err) {
+      // Closing the share sheet is not an error.
+      if ((err as DOMException)?.name === 'AbortError') return;
+      this.copyStatus.set('Could not share. Copy the link instead.');
+    }
+  }
+
   protected async copyLink(invitation: Invitation): Promise<void> {
     try {
       await navigator.clipboard.writeText(invitation.url);

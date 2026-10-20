@@ -1179,6 +1179,38 @@ describe('App', () => {
       expect(drawer()).toBeNull();
     });
 
+    it('offers "Share link" through the Web Share API where it exists', async () => {
+      const share = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+      try {
+        const { fixture, root } = await open('/projects', { projects: [acme] });
+        root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
+        await settle(fixture);
+        buttonNamed(drawer() as HTMLElement, 'Create link').click();
+        http.expectOne(`${API_BASE}/projects/p1/invitations`).flush(invitation, { status: 201, statusText: 'Created' });
+        await settle(fixture);
+
+        buttonNamed(drawer() as HTMLElement, 'Share link').click();
+        await settle(fixture);
+        expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: invitation.url, title: 'Join Acme on TaleArt' }));
+        expect(drawer()?.querySelector('[role=status]')?.textContent).toContain('Link shared');
+      } finally {
+        delete (navigator as { share?: unknown }).share;
+      }
+    });
+
+    it('hides "Share link" where the Web Share API is missing', async () => {
+      const { fixture, root } = await open('/projects', { projects: [acme] });
+      root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Create link').click();
+      http.expectOne(`${API_BASE}/projects/p1/invitations`).flush(invitation, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      expect([...(drawer() as HTMLElement).querySelectorAll('button')].map((b) => b.textContent?.trim())).not.toContain(
+        'Share link',
+      );
+    });
+
     it("shows the API's message in the invite drawer", async () => {
       const { fixture, root } = await open('/projects', { projects: [acme] });
       root.querySelector<HTMLButtonElement>('[aria-label="Invite to Acme"]')?.click();
