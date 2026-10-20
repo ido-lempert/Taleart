@@ -26,6 +26,7 @@ A tale can carry poll, quiz, emoji reaction, countdown, product pins, promo code
 ## Boundaries
 
 - Components beyond the seven are a later widget-type decision.
+- Product sets and product feeds are not in this epic's Done when; see Notes.
 
 ## References
 
@@ -34,3 +35,4 @@ A tale can carry poll, quiz, emoji reaction, countdown, product pins, promo code
 ## Notes
 
 - Open question: the brief omits Rating; this epic includes it, as approved in the split review.
+- Decision (2026-10-20): this epic owns **product sets** (PRD FR-021, FR-022; formerly "collections"), a saved filter over a product feed used to auto-build shoppable tale groups, because product pins share the same product data. Product sets moved out of the platform foundation; they wait for product feeds, which no epic builds yet, so no stories are sliced for them now (user, approved).
