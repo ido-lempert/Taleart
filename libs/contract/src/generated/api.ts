@@ -120,6 +120,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/zones/{zoneId}/tale-groups/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the order of a zone's tale groups.
+         * @description The list names every tale group of the zone exactly once; positions are rewritten to 0..n-1 in that order. A list that omits, repeats or adds an id answers 409 `order_mismatch`. Unknown zone: 404 `zone_not_found`.
+         */
+        put: operations["orderZoneTaleGroups"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tale-groups/{taleGroupId}/tales": {
         parameters: {
             query?: never;
@@ -136,6 +158,28 @@ export interface paths {
          * @description The tale takes its project from the tale group. A tale group holds at most 100 tales; adding to a full group answers 409 `tale_group_full`.
          */
         post: operations["createTale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tale-groups/{taleGroupId}/tales/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the order of a tale group's tales.
+         * @description The list names every tale of the group exactly once; positions are rewritten to 0..n-1 in that order. A list that omits, repeats or adds an id answers 409 `order_mismatch`. Unknown tale group: 404 `tale_group_not_found`.
+         */
+        put: operations["orderTales"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -263,8 +307,16 @@ export interface components {
         CreateTaleRequest: {
             title: string;
         };
+        OrderTaleGroupsRequest: {
+            /** @description Every tale group id of the zone, once each, in the new order. */
+            taleGroupIds: string[];
+        };
+        OrderTalesRequest: {
+            /** @description Every tale id of the group, once each, in the new order. */
+            taleIds: string[];
+        };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -531,6 +583,36 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    orderZoneTaleGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderTaleGroupsRequest"];
+            };
+        };
+        responses: {
+            /** @description The zone's tale groups in the new order, each with its tales. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"][];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     createTale: {
         parameters: {
             query?: never;
@@ -553,6 +635,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    orderTales: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderTalesRequest"];
+            };
+        };
+        responses: {
+            /** @description The group's tales in the new order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"][];
                 };
             };
             400: components["responses"]["Error"];
@@ -637,4 +749,4 @@ type ReadonlyArray<T> = [
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "media_not_found", "unsupported_media_type", "media_too_large", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "internal_error"];

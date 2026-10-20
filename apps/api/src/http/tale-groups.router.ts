@@ -1,15 +1,22 @@
-import type { CreateTaleGroupRequest, CreateTaleRequest } from '@taleart/contract';
+import type {
+  CreateTaleGroupRequest,
+  CreateTaleRequest,
+  OrderTaleGroupsRequest,
+  OrderTalesRequest,
+} from '@taleart/contract';
 import {
   createTale,
   createTaleGroup,
   listTaleGroups,
+  orderTaleGroups,
+  orderTales,
   taleGroupExists,
   TaleGroupNotFoundError,
 } from '@taleart/server-tales';
 import { zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
-import { requiredString } from './validation';
+import { requiredString, requiredStringArray } from './validation';
 
 /** Tale groups under a zone: mounted at `/zones`. */
 export function zoneTaleGroupsRouter(pool: Pool): Router {
@@ -34,6 +41,18 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
     }
   });
 
+  router.put('/:zoneId/tale-groups/order', async (req, res, next) => {
+    try {
+      // Zone first (404), then the body (400), then the id list (409 order_mismatch).
+      const { zoneId } = req.params;
+      if (!(await zoneExists(pool, zoneId))) throw new ZoneNotFoundError(zoneId);
+      const input: OrderTaleGroupsRequest = { taleGroupIds: requiredStringArray(req.body, 'taleGroupIds') };
+      res.json(await orderTaleGroups(pool, zoneId, input.taleGroupIds));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }
 
@@ -48,6 +67,18 @@ export function taleGroupsRouter(pool: Pool): Router {
       if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
       const input: CreateTaleRequest = { title: requiredString(req.body, 'title') };
       res.status(201).json(await createTale(pool, { taleGroupId, ...input }));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/:taleGroupId/tales/order', async (req, res, next) => {
+    try {
+      // Tale group first (404), then the body (400), then the id list (409 order_mismatch).
+      const { taleGroupId } = req.params;
+      if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
+      const input: OrderTalesRequest = { taleIds: requiredStringArray(req.body, 'taleIds') };
+      res.json(await orderTales(pool, taleGroupId, input.taleIds));
     } catch (err) {
       next(err);
     }

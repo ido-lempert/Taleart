@@ -20,6 +20,8 @@ export type TaleGroup = Schemas['TaleGroup'];
 export type CreateTaleGroupRequest = Schemas['CreateTaleGroupRequest'];
 export type Tale = Schemas['Tale'];
 export type CreateTaleRequest = Schemas['CreateTaleRequest'];
+export type OrderTaleGroupsRequest = Schemas['OrderTaleGroupsRequest'];
+export type OrderTalesRequest = Schemas['OrderTalesRequest'];
 export type TaleMedia = Schemas['TaleMedia'];
 export type MediaKind = Schemas['MediaKind'];
 export type MediaContentType = Schemas['MediaContentType'];
@@ -72,6 +74,7 @@ export const ErrorCodes = {
   taleGroupNotFound: 'tale_group_not_found',
   taleGroupFull: 'tale_group_full',
   taleNotFound: 'tale_not_found',
+  orderMismatch: 'order_mismatch',
   mediaNotFound: 'media_not_found',
   unsupportedMediaType: 'unsupported_media_type',
   mediaTooLarge: 'media_too_large',

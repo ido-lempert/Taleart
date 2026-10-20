@@ -410,6 +410,11 @@ select {
   color: #912018;
 }
 
+/* A banner inside a page section, not under the top bar. */
+.banner--inline {
+  margin: 0 0 var(--space-4);
+}
+
 /* ---------- Drawer ---------- */
 .drawer-backdrop {
   position: fixed;
@@ -598,6 +603,125 @@ select {
 .tale-add:hover {
   border-color: var(--ember);
   color: var(--ember-strong);
+}
+
+/* ---------- Reordering ---------- */
+/* Pointer-only drag grip; the move buttons are the keyboard and single-pointer alternative. */
+.drag-handle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.move-controls {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.move-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.move-btn:hover:not(:disabled) {
+  border-color: var(--ember);
+  color: var(--ember-strong);
+}
+
+.move-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Move buttons show on hover and focus; always on touch screens, which cannot hover. */
+@media (hover: hover) {
+  .group__header .move-controls,
+  .tale-card__moves,
+  .tale-card__handle {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .group__header:hover .move-controls,
+  .group__header:focus-within .move-controls,
+  .tale-card:hover .tale-card__moves,
+  .tale-card:focus-within .tale-card__moves,
+  .tale-card:hover .tale-card__handle,
+  .tale-card:focus-within .tale-card__handle {
+    opacity: 1;
+  }
+}
+
+.tale-card__handle {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+.tale-card__moves {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  left: var(--space-1);
+  justify-content: space-between;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.tale-card__moves .move-btn {
+  pointer-events: auto;
+  border-color: transparent;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+.tale-card__moves .move-btn:hover:not(:disabled) {
+  border-color: #fff;
+  color: #fff;
+}
+
+.tale-card__moves .move-btn:disabled {
+  visibility: hidden;
+}
+
+.cdk-drag-preview {
+  box-shadow: var(--shadow-raised);
+}
+
+.cdk-drag-placeholder {
+  opacity: 0.35;
+}
+
+.cdk-drag-animating,
+.cdk-drop-list-dragging .cdk-drag:not(.cdk-drag-placeholder) {
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cdk-drag-animating,
+  .cdk-drop-list-dragging .cdk-drag:not(.cdk-drag-placeholder) {
+    transition: none;
+  }
 }
 
 /* ---------- Tale drawer ---------- */

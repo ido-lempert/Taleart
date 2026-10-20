@@ -10,3 +10,15 @@ export function requiredString(body: unknown, field: string): string {
   }
   return text;
 }
+
+/** Reads a required array of strings from a JSON body, such as the ids of an order request. */
+export function requiredStringArray(body: unknown, field: string): string[] {
+  const value = (body as Record<string, unknown> | undefined)?.[field];
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, ErrorCodes.validationFailed, `${field} must be an array of ids`);
+  }
+  if (!value.every((item): item is string => typeof item === 'string')) {
+    throw new HttpError(400, ErrorCodes.validationFailed, `Every item of ${field} must be a string`);
+  }
+  return value;
+}

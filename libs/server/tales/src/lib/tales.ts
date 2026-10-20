@@ -72,6 +72,37 @@ export class TaleGroupFullError extends Error {
   }
 }
 
+/**
+ * Thrown when an order request does not list every child of its parent exactly
+ * once: an id is missing, repeated, or belongs to another parent.
+ */
+export class OrderMismatchError extends Error {
+  readonly code = ErrorCodes.orderMismatch;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'OrderMismatchError';
+  }
+}
+
+// True when `ids` names every id in `current` exactly once and nothing else.
+function isPermutation(ids: readonly string[], current: readonly string[]): boolean {
+  if (ids.length !== current.length) return false;
+  const known = new Set(current);
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (!known.has(id) || seen.has(id)) return false;
+    seen.add(id);
+  }
+  return true;
+}
+
+// Rewrites positions to 0..n-1 in the order of `ids`, within one parent.
+const REORDER_SQL = (table: 'tale_groups' | 'tales', parentColumn: 'zone_id' | 'tale_group_id') =>
+  `UPDATE ${table} SET position = ordered.idx - 1
+   FROM unnest($2::uuid[]) WITH ORDINALITY AS ordered(id, idx)
+   WHERE ${table}.id = ordered.id AND ${table}.${parentColumn} = $1`;
+
 // Runs `work` in one transaction on one connection; rolls back on any error.
 async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
   const tx = await db.connect();
@@ -135,6 +166,63 @@ export async function createTaleGroup(
       [input.zoneId, projectId, input.name],
     );
     return { ...rows[0], tales: [] };
+  });
+}
+
+/**
+ * Sets the order of a zone's tale groups. `taleGroupIds` must list every group
+ * of the zone exactly once ({@link OrderMismatchError} otherwise); positions
+ * become 0..n-1 in that order. Holds the same zone lock as
+ * {@link createTaleGroup}, so an order and a create cannot interleave.
+ * Returns the zone's groups in the new order.
+ */
+export async function orderTaleGroups(
+  db: TransactionalDb,
+  zoneId: string,
+  taleGroupIds: readonly string[],
+): Promise<TaleGroup[]> {
+  if ((await zoneProjectId(db, zoneId)) === null) throw new ZoneNotFoundError(zoneId);
+
+  return inTransaction(db, async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_groups:' || $1, 0))", [zoneId]);
+    const current = await tx.query<{ id: string }>('SELECT id FROM tale_groups WHERE zone_id = $1', [zoneId]);
+    const currentIds = current.rows.map((r) => r.id);
+    if (!isPermutation(taleGroupIds.map((id) => id.toLowerCase()), currentIds)) {
+      throw new OrderMismatchError('taleGroupIds must list every tale group of the zone exactly once');
+    }
+    if (currentIds.length > 0) await tx.query(REORDER_SQL('tale_groups', 'zone_id'), [zoneId, taleGroupIds]);
+    return listTaleGroups(tx, zoneId);
+  });
+}
+
+/**
+ * Sets the order of a tale group's tales. `taleIds` must list every tale of
+ * the group exactly once ({@link OrderMismatchError} otherwise); positions
+ * become 0..n-1 in that order. Locks the group row, as {@link createTale}
+ * does, so an order and an add cannot interleave. Returns the group's tales
+ * in the new order.
+ */
+export async function orderTales(
+  db: TransactionalDb,
+  taleGroupId: string,
+  taleIds: readonly string[],
+): Promise<Tale[]> {
+  if (!UUID.test(taleGroupId)) throw new TaleGroupNotFoundError(taleGroupId);
+
+  return inTransaction(db, async (tx) => {
+    const group = await tx.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [taleGroupId]);
+    if (group.rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+    const current = await tx.query<{ id: string }>('SELECT id FROM tales WHERE tale_group_id = $1', [taleGroupId]);
+    const currentIds = current.rows.map((r) => r.id);
+    if (!isPermutation(taleIds.map((id) => id.toLowerCase()), currentIds)) {
+      throw new OrderMismatchError('taleIds must list every tale of the tale group exactly once');
+    }
+    if (currentIds.length > 0) await tx.query(REORDER_SQL('tales', 'tale_group_id'), [taleGroupId, taleIds]);
+    const { rows } = await tx.query<TaleRow>(
+      `SELECT ${TALE_COLUMNS} FROM tales WHERE tale_group_id = $1 ORDER BY position, id`,
+      [taleGroupId],
+    );
+    return rows.map(toTale);
   });
 }
 
