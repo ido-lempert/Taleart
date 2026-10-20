@@ -676,8 +676,8 @@ export interface DeliveryStoredTaleGroup {
 /**
  * The published tale groups placed in the zone, in this zone's order (AD-2,
  * AD-14), each with its published tales by position, for the Delivery API.
- * Published means `live` (AD-6); a live group with no live tale is listed with
- * none. Each tale carries its storage key, which the API turns into a public
+ * Published means `live` (AD-6); a live group with no live tale is left out,
+ * since it has nothing to play. Each tale carries its storage key, which the API turns into a public
  * URL (AD-11) and never returns on its own.
  */
 export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<DeliveryStoredTaleGroup[]> {
@@ -701,17 +701,20 @@ export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<De
      FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND status = 'live' ORDER BY position, id`,
     [groups.rows.map((g) => g.id)],
   );
-  return groups.rows.map((group) => ({
-    id: group.id,
-    name: group.name,
-    tales: tales.rows
-      .filter((tale) => tale.taleGroupId === group.id)
-      .map(({ id, title, key, contentType }) => ({
-        id,
-        title,
-        media: key !== null && isMediaContentType(contentType) ? { key, contentType } : null,
-      })),
-  }));
+  // A live group with no live tale has nothing to play, so it is left out.
+  return groups.rows
+    .map((group) => ({
+      id: group.id,
+      name: group.name,
+      tales: tales.rows
+        .filter((tale) => tale.taleGroupId === group.id)
+        .map(({ id, title, key, contentType }) => ({
+          id,
+          title,
+          media: key !== null && isMediaContentType(contentType) ? { key, contentType } : null,
+        })),
+    }))
+    .filter((group) => group.tales.length > 0);
 }
 
 /**
