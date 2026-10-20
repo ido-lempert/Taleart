@@ -106,6 +106,15 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Coordinator review
+- verdicts: 5 findings, all patched
+- findings:
+  - `[patch]` Six matrix rows were tested only against the in-memory fake. Fixed: API integration tests on the real database for missing sort_order, blank titles, a repeated id, a full group, a zone not imported, and a linked record that is gone.
+  - `[patch]` The "no source position" note was written for records that were skipped or already linked. Fixed: `importLinked` reports `created`, and the note is written only for records created in this run.
+  - `[patch]` Stories under a skipped group were not marked seen, so a repeated story id counted twice. Fixed: they are added to `seenStories`, so source = imported + skipped; unit test added.
+  - `[patch]` A zone or tale group deleted between the check and the create failed the whole job. Fixed: `ZoneNotFoundError` and `TaleGroupNotFoundError` skip the record with a note; unit tests added.
+  - `[patch]` No real-database race test. Fixed: the test holds the link's advisory lock, waits until the worker blocks on it, commits a competing link, and checks that the worker's group rolls back and its tales go into the winning group.
+
 ## Verification
 
 **Commands:**

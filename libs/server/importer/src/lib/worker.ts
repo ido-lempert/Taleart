@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { MAX_TALES_PER_GROUP, type ImportCount, type ImportReport } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
-import { createTale, createTaleGroup, taleExists, taleGroupExists, TaleGroupFullError } from '@taleart/server-tales';
-import { createZone, zoneExists } from '@taleart/server-zones';
+import {
+  createTale,
+  createTaleGroup,
+  taleExists,
+  taleGroupExists,
+  TaleGroupFullError,
+  TaleGroupNotFoundError,
+} from '@taleart/server-tales';
+import { createZone, zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { decryptToken } from './crypto';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import {
@@ -89,19 +96,18 @@ const emptyCount = () => ({ source: 0, imported: 0, skipped: 0 });
 
 /**
  * The records in source order: ascending `sort_order`, ties in response
- * order, then the records without a usable `sort_order` in response order,
- * each passed to `unordered` so it can be noted.
+ * order, then the records without a usable `sort_order` in response order.
  */
-function inSourceOrder<T extends SourceOrderedRecord>(records: readonly T[], unordered: (record: T) => void): T[] {
+function inSourceOrder<T extends SourceOrderedRecord>(records: readonly T[]): T[] {
   const ordered = records
     .map((record, index) => ({ record, index }))
     .filter(({ record }) => record.sortOrder !== null)
     .sort((a, b) => (a.record.sortOrder as number) - (b.record.sortOrder as number) || a.index - b.index)
     .map(({ record }) => record);
-  const rest = records.filter((record) => record.sortOrder === null);
-  rest.forEach(unordered);
-  return [...ordered, ...rest];
+  return [...ordered, ...records.filter((record) => record.sortOrder === null)];
 }
+
+const NO_POSITION = 'no source position, placed after the others';
 
 // A blank source title gets a neutral name; the source id never becomes one (AD-7).
 const groupName = (group: SourceStoryGroup): string => group.name.trim() || 'Untitled tale group';
@@ -139,7 +145,8 @@ async function importZone(
  * in-transaction callback: the link is saved in the creation's transaction,
  * after locking the source key and checking again, so a record and its link
  * commit together and concurrent imports create it once. Returns the linked
- * record's id, or null when the linked record no longer exists.
+ * record's id and whether this call created it, or null when the linked record
+ * no longer exists.
  */
 async function importLinked(
   db: TransactionalDb,
@@ -147,24 +154,25 @@ async function importLinked(
   targetType: string,
   exists: (id: string) => Promise<boolean>,
   create: (link: (tx: Db, targetId: string) => Promise<void>) => Promise<unknown>,
-): Promise<string | null> {
+): Promise<{ id: string; created: boolean } | null> {
   for (;;) {
     const linked = await findLinkTarget(db, source);
-    if (linked !== null) return (await exists(linked)) ? linked : null;
-    let created: string | null = null;
+    if (linked !== null) return (await exists(linked)) ? { id: linked, created: false } : null;
+    let createdId = '';
     try {
       await create(async (tx, targetId) => {
         await lockLinkSource(tx, source);
         if ((await findLinkTarget(tx, source)) !== null) throw new AlreadyLinkedError();
         await saveLink(tx, { ...source, targetType, targetId });
-        created = targetId;
+        createdId = targetId;
       });
     } catch (err) {
       // Another import linked it meanwhile: its record stands, so read the link again.
       if (err instanceof AlreadyLinkedError) continue;
       throw err;
     }
-    return created;
+    // create resolved, so its callback ran and set the id.
+    return { id: createdId, created: true };
   }
 }
 
@@ -174,8 +182,11 @@ async function importLinked(
  * (title only; media is a later story), in source order, through the zones and
  * tales modules (AD-8, AD-14). Every record is linked (AD-7), so a re-run
  * creates nothing twice: a linked record counts as imported while it exists,
- * else as skipped. A repeated source id is skipped. `beforeEach` runs before
- * each record is written; the worker refreshes its heartbeat there.
+ * else as skipped. A repeated source id is skipped, and so are the stories of
+ * a group that is skipped; each unique story counts once, so source = imported
+ * + skipped. A record without a source position is noted when it is created.
+ * `beforeEach` runs before each record is written; the worker refreshes its
+ * heartbeat there.
  */
 export async function importContent(
   db: TransactionalDb,
@@ -211,9 +222,7 @@ export async function importContent(
       report.notes.push(`Zone "${zoneName}": frame type unknown`);
     }
 
-    const groups = inSourceOrder(await source.listStoryGroups(instance.id), (group) =>
-      report.notes.push(`Tale group "${groupName(group)}": no source position, placed after the others`),
-    );
+    const groups = inSourceOrder(await source.listStoryGroups(instance.id));
     report.taleGroups.source += groups.length;
     let groupsWithoutZone = 0;
     for (const group of groups) {
@@ -225,32 +234,42 @@ export async function importContent(
       const name = groupName(group);
       const stories = await source.listStories(group.id);
       report.tales.source += stories.length;
-      if (zoneId === null) {
-        groupsWithoutZone++;
+      // The group is skipped: so is each of its stories, once.
+      const skipGroup = (note?: string) => {
         report.taleGroups.skipped++;
         report.tales.skipped += stories.length;
+        for (const story of stories) seenStories.add(story.id);
+        if (note) report.notes.push(note);
+      };
+      if (zoneId === null) {
+        groupsWithoutZone++;
+        skipGroup();
         continue;
       }
       await beforeEach();
-      const taleGroupId = await importLinked(
-        db,
-        { projectId, sourceType: 'story_group', sourceId: group.id },
-        'tale_group',
-        (id) => taleGroupExists(db, id),
-        (link) => createTaleGroup(db, { zoneId, name }, (tx, created) => link(tx, created.taleGroupId)),
-      );
-      if (taleGroupId === null) {
-        report.taleGroups.skipped++;
-        report.tales.skipped += stories.length;
-        report.notes.push(`Tale group "${name}": its earlier import was deleted, so it was not imported again`);
+      let taleGroup: { id: string; created: boolean } | null;
+      try {
+        taleGroup = await importLinked(
+          db,
+          { projectId, sourceType: 'story_group', sourceId: group.id },
+          'tale_group',
+          (id) => taleGroupExists(db, id),
+          (link) => createTaleGroup(db, { zoneId, name }, (tx, created) => link(tx, created.taleGroupId)),
+        );
+      } catch (err) {
+        if (!(err instanceof ZoneNotFoundError)) throw err;
+        skipGroup(`Tale group "${name}": its zone was deleted during the import`);
+        continue;
+      }
+      if (taleGroup === null) {
+        skipGroup(`Tale group "${name}": its earlier import was deleted, so it was not imported again`);
         continue;
       }
       report.taleGroups.imported++;
+      if (taleGroup.created && group.sortOrder === null) report.notes.push(`Tale group "${name}": ${NO_POSITION}`);
+      const taleGroupId = taleGroup.id;
 
-      const ordered = inSourceOrder(stories, (story) =>
-        report.notes.push(`Tale "${taleTitle(story, name)}" in "${name}": no source position, placed after the others`),
-      );
-      for (const story of ordered) {
+      for (const story of inSourceOrder(stories)) {
         if (seenStories.has(story.id)) {
           report.tales.skipped++;
           continue;
@@ -258,9 +277,9 @@ export async function importContent(
         seenStories.add(story.id);
         const title = taleTitle(story, name);
         await beforeEach();
-        let taleId: string | null;
+        let tale: { id: string; created: boolean } | null;
         try {
-          taleId = await importLinked(
+          tale = await importLinked(
             db,
             { projectId, sourceType: 'story', sourceId: story.id },
             'tale',
@@ -268,17 +287,25 @@ export async function importContent(
             (link) => createTale(db, { taleGroupId, title }, (tx, created) => link(tx, created.taleId)),
           );
         } catch (err) {
-          if (!(err instanceof TaleGroupFullError)) throw err;
-          report.tales.skipped++;
-          report.notes.push(`Tale "${title}" in "${name}": the tale group already holds ${MAX_TALES_PER_GROUP} tales`);
-          continue;
+          if (err instanceof TaleGroupFullError) {
+            report.tales.skipped++;
+            report.notes.push(`Tale "${title}" in "${name}": the tale group already holds ${MAX_TALES_PER_GROUP} tales`);
+            continue;
+          }
+          if (err instanceof TaleGroupNotFoundError) {
+            report.tales.skipped++;
+            report.notes.push(`Tale "${title}" in "${name}": its tale group was deleted during the import`);
+            continue;
+          }
+          throw err;
         }
-        if (taleId === null) {
+        if (tale === null) {
           report.tales.skipped++;
           report.notes.push(`Tale "${title}" in "${name}": its earlier import was deleted, so it was not imported again`);
           continue;
         }
         report.tales.imported++;
+        if (tale.created && story.sortOrder === null) report.notes.push(`Tale "${title}" in "${name}": ${NO_POSITION}`);
       }
     }
     if (groupsWithoutZone > 0) {

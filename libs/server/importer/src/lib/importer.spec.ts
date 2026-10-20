@@ -321,6 +321,7 @@ function contentDb() {
     db,
     statements,
     links,
+    zones,
     groups,
     tales,
     zoneContent,
@@ -560,5 +561,80 @@ describe('StorylyClient: story groups and stories', () => {
       fetch: vi.fn(async () => json(200, { data: [{ id: 1 }] })),
     });
     await expect(client.listStories('1')).rejects.toThrow(/stories response has an unexpected shape/);
+  });
+});
+
+describe('importContent: review fixes', () => {
+  const home = [{ id: '2001', name: 'Home page' }];
+
+  it('notes a record without a source position only when this run creates it', async () => {
+    const fake = contentDb();
+    const content = source(
+      {
+        '2001': [
+          { id: 'g1', name: 'Late', sortOrder: null },
+          { id: 'g1', name: 'Late', sortOrder: null },
+        ],
+      },
+      { g1: [{ id: 's1', name: 'T', sortOrder: null }] },
+    );
+    const first = await importContent(fake.db, projectId, home, content);
+    expect(first.notes).toEqual([
+      'Zone "Home page": frame type unknown',
+      'Tale group "Late": no source position, placed after the others',
+      'Tale "T" in "Late": no source position, placed after the others',
+    ]);
+    const again = await importContent(fake.db, projectId, home, content);
+    expect(again.notes).toEqual(['Zone "Home page": frame type unknown']);
+  });
+
+  it('counts each story of a skipped group once, so source is imported plus skipped', async () => {
+    const fake = contentDb();
+    fake.links.set('instance:2001', '00000000-0000-4000-8000-0000000000ff');
+    const report = await importContent(
+      fake.db,
+      projectId,
+      [...home, { id: '2002', name: 'Product page' }],
+      source(
+        { '2001': [{ id: 'g1', name: 'A', sortOrder: 0 }], '2002': [{ id: 'g2', name: 'B', sortOrder: 0 }] },
+        { g1: [{ id: 's1', name: 'T', sortOrder: 0 }], g2: [{ id: 's1', name: 'T', sortOrder: 0 }, { id: 's2', name: 'U', sortOrder: 1 }] },
+      ),
+    );
+    expect(report.tales).toEqual({ source: 3, imported: 1, skipped: 2 });
+    expect([...fake.tales.values()].map((t) => t.title)).toEqual(['U']);
+  });
+
+  it('skips with a note a group whose zone or a tale whose group is deleted during the import', async () => {
+    const zoneGone = contentDb();
+    let calls = 0;
+    const report = await importContent(
+      zoneGone.db,
+      projectId,
+      home,
+      source({ '2001': [{ id: 'g1', name: 'A', sortOrder: 0 }] }, { g1: [{ id: 's1', name: 'T', sortOrder: 0 }] }),
+      async () => {
+        // Before the group: its zone goes.
+        if (++calls === 2) zoneGone.zones.clear();
+      },
+    );
+    expect(report.taleGroups).toEqual({ source: 1, imported: 0, skipped: 1 });
+    expect(report.tales).toEqual({ source: 1, imported: 0, skipped: 1 });
+    expect(report.notes).toContain('Tale group "A": its zone was deleted during the import');
+
+    const groupGone = contentDb();
+    calls = 0;
+    const second = await importContent(
+      groupGone.db,
+      projectId,
+      home,
+      source({ '2001': [{ id: 'g1', name: 'A', sortOrder: 0 }] }, { g1: [{ id: 's1', name: 'T', sortOrder: 0 }] }),
+      async () => {
+        // Before the tale: its group goes.
+        if (++calls === 3) groupGone.groups.clear();
+      },
+    );
+    expect(second.taleGroups).toEqual({ source: 1, imported: 1, skipped: 0 });
+    expect(second.tales).toEqual({ source: 1, imported: 0, skipped: 1 });
+    expect(second.notes).toContain('Tale "T" in "A": its tale group was deleted during the import');
   });
 });
