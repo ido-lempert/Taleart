@@ -191,6 +191,14 @@
                       type="button"
                       class="btn btn--secondary btn--sm"
                       [attr.aria-describedby]="'group-name-' + group.id"
+                      (click)="store.openDrawer({ kind: 'copyTaleGroup', taleGroupId: group.id }, $event)"
+                    >
+                      Copy to zone…
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn--secondary btn--sm"
+                      [attr.aria-describedby]="'group-name-' + group.id"
                       (click)="store.openDrawer({ kind: 'removeTaleGroup', zoneId: zone.id, taleGroupId: group.id }, $event)"
                     >
                       Remove from this zone

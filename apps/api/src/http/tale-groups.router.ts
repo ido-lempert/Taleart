@@ -1,5 +1,6 @@
 import {
   ErrorCodes,
+  type CopyTaleGroupRequest,
   type CreateTaleGroupRequest,
   type CreateTaleRequest,
   type OrderTaleGroupsRequest,
@@ -11,6 +12,7 @@ import {
 } from '@taleart/contract';
 import { projectExists } from '@taleart/server-access';
 import {
+  copyTaleGroup,
   createTale,
   createTaleGroup,
   getTaleGroup,
@@ -25,11 +27,11 @@ import {
   TaleGroupNotFoundError,
   type StoredTaleGroup,
 } from '@taleart/server-tales';
-import { setTaleGroupTags, tagsForTaleGroups } from '@taleart/server-targeting';
+import { copyTaleGroupTags, setTaleGroupTags, tagsForTaleGroups } from '@taleart/server-targeting';
 import { zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
-import { authorizeParam } from './authorize';
+import { authorize, authorizeParam } from './authorize';
 import { HttpError } from './errors';
 import { requiredString, requiredStringArray } from './validation';
 
@@ -137,6 +139,26 @@ export function taleGroupsRouter(pool: Pool): Router {
       const input: RenameTaleGroupRequest = { name: requiredString(req.body, 'name') };
       const [body] = await withTags(pool, [await renameTaleGroup(pool, taleGroupId, input.name)]);
       res.json(body satisfies TaleGroup);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/:taleGroupId/copy', groupAccess, async (req, res, next) => {
+    try {
+      // Source group first (404), then the body (400), then the target zone:
+      // its project must be the caller's too (403), and it must exist (404).
+      const { taleGroupId } = req.params;
+      if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
+      const input: CopyTaleGroupRequest = { zoneId: requiredString(req.body, 'zoneId') };
+      await authorize(pool, res, 'zone', input.zoneId);
+      // The tales module copies the group and its tales; the targeting module
+      // its tags, in the same transaction (AD-1, AD-14).
+      let tags: TaleGroup['tags'] = [];
+      const copy = await copyTaleGroup(pool, { taleGroupId, zoneId: input.zoneId }, async (tx, ids) => {
+        tags = await copyTaleGroupTags(tx, ids);
+      });
+      res.status(201).json({ ...copy, tags } satisfies ZoneTaleGroup);
     } catch (err) {
       next(err);
     }

@@ -1,6 +1,8 @@
 import {
+  copyTaleGroup,
   createTale,
   createTaleGroup,
+  isMediaKeyInUse,
   findPublishedMedia,
   listDeliveryTaleGroups,
   getTaleGroup,
@@ -487,5 +489,92 @@ describe('delivery', () => {
     expect(found.query.mock.calls[0][1]).toEqual(['tales/x.mp4']);
     const missing = fakeDb([{ rows: [] }]);
     expect(await findPublishedMedia(missing.db, 'tales/old.png')).toBeNull();
+  });
+});
+
+describe('copy to zone', () => {
+  const copyId = '00000000-0000-4000-8000-000000000005';
+  const otherProject = '00000000-0000-4000-8000-000000000006';
+
+  it('does not query for a group id that is not a UUID, and refuses an unknown zone', async () => {
+    const bad = fakeDb([]);
+    await expect(copyTaleGroup(bad.db, { taleGroupId: 'nope', zoneId })).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(bad.query).not.toHaveBeenCalled();
+    const noZone = fakeDb([{ rows: [] }]);
+    await expect(copyTaleGroup(noZone.db, { taleGroupId: groupId, zoneId })).rejects.toBeInstanceOf(ZoneNotFoundError);
+    expect(noZone.db.connect).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown source group and rolls back without inserting', async () => {
+    const { db, statements, release } = fakeDb([{ rows: [{ project_id: projectId }] }, { rows: [{}] }, { rows: [] }]);
+    await expect(copyTaleGroup(db, { taleGroupId: groupId, zoneId })).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+    expect(statements()).toContain('ROLLBACK');
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies the group, its tales and media keys into the zone's project under the zone lock", async () => {
+    const tale = { id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, mediaContentType: null };
+    const { db, query, statements } = fakeDb([
+      { rows: [{ project_id: otherProject }] },
+      { rows: [{}] },
+      { rows: [{ name: 'Summer' }] },
+      { rows: [{ id: copyId, projectId: otherProject, name: 'Summer' }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ position: 3 }] },
+      { rows: [] },
+      { rows: [tale] },
+      { rows: [{ taleGroupId: copyId, zoneId }] },
+    ]);
+    const withCopy = vi.fn(async (tx: unknown, ids: unknown) => {
+      await (tx as TransactionalDb).query('SELECT tags', []);
+      expect(ids).toEqual({ sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: otherProject });
+    });
+    const copy = await copyTaleGroup(db, { taleGroupId: groupId.toUpperCase(), zoneId }, withCopy);
+    expect(withCopy).toHaveBeenCalledTimes(1);
+    expect(copy).toEqual({
+      id: copyId,
+      projectId: otherProject,
+      name: 'Summer',
+      position: 3,
+      zoneIds: [zoneId],
+      tales: [{ id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, media: null }],
+    });
+    const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
+    expect(lock?.[1]).toEqual([zoneId]);
+    const insertGroup = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
+    expect(insertGroup?.[1]).toEqual([otherProject, 'Summer']);
+    const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
+    expect(insertTales?.[0]).toMatch(/media_key, media_content_type FROM tales/);
+    expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
+    expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);
+    const order = statements();
+    expect(order.findIndex((s) => /FOR SHARE/.test(s))).toBeLessThan(order.findIndex((s) => /INSERT INTO tales/.test(s)));
+    expect(order.indexOf('SELECT tags')).toBeLessThan(order.indexOf('COMMIT'));
+  });
+
+  it('rolls the copy back when the callback fails', async () => {
+    const { db, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ name: 'A' }] },
+      { rows: [{ id: copyId, projectId, name: 'A' }] },
+    ]);
+    await expect(
+      copyTaleGroup(db, { taleGroupId: groupId, zoneId }, async () => {
+        throw new Error('tags failed');
+      }),
+    ).rejects.toThrow('tags failed');
+    expect(statements()).toContain('ROLLBACK');
+    expect(statements()).not.toContain('COMMIT');
+  });
+
+  it('tells whether any tale still references a media key', async () => {
+    const used = fakeDb([{ rows: [{}] }]);
+    expect(await isMediaKeyInUse(used.db, 'tales/a.png')).toBe(true);
+    expect(used.query.mock.calls[0][1]).toEqual(['tales/a.png']);
+    const unused = fakeDb([{ rows: [] }]);
+    expect(await isMediaKeyInUse(unused.db, 'tales/a.png')).toBe(false);
   });
 });

@@ -21,6 +21,7 @@ export type ZoneTaleGroup = Schemas['ZoneTaleGroup'];
 export type ProjectTaleGroup = Schemas['ProjectTaleGroup'];
 export type CreateTaleGroupRequest = Schemas['CreateTaleGroupRequest'];
 export type RenameTaleGroupRequest = Schemas['RenameTaleGroupRequest'];
+export type CopyTaleGroupRequest = Schemas['CopyTaleGroupRequest'];
 export type Tag = Schemas['Tag'];
 export type TaleGroupTag = Schemas['TaleGroupTag'];
 export type CreateTagRequest = Schemas['CreateTagRequest'];

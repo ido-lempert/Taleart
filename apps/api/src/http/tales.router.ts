@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ErrorCodes, maxMediaBytes, MAX_VIDEO_BYTES } from '@taleart/contract';
 import type { MediaStorage } from '@taleart/server-storage';
-import { getTaleMedia, setTaleMedia, taleExists, TaleNotFoundError } from '@taleart/server-tales';
+import { getTaleMedia, isMediaKeyInUse, setTaleMedia, taleExists, TaleNotFoundError } from '@taleart/server-tales';
 import express, { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorizeParam } from './authorize';
@@ -64,7 +64,8 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
           throw new HttpError(415, ErrorCodes.unsupportedMediaType, `The file is not a valid ${contentType} file`);
         }
 
-        // Store the new file, point the tale at it, then delete the old file (AD-11).
+        // Store the new file, point the tale at it, then delete the old file
+        // unless another tale, such as a copy, still references it (AD-11, AD-14).
         const key = `tales/${randomUUID()}.${mediaExtension(contentType)}`;
         await storage.put(key, data);
         let result: Awaited<ReturnType<typeof setTaleMedia>>;
@@ -74,9 +75,10 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
           await storage.delete(key).catch((cleanupErr) => logError('could not delete unused media', cleanupErr));
           throw err;
         }
-        if (result.previousKey !== null && result.previousKey !== key) {
-          await storage
-            .delete(result.previousKey)
+        const { previousKey } = result;
+        if (previousKey !== null && previousKey !== key) {
+          await isMediaKeyInUse(pool, previousKey)
+            .then((inUse) => (inUse ? undefined : storage.delete(previousKey)))
             .catch((cleanupErr) => logError('could not delete replaced media', cleanupErr));
         }
         res.json(result.tale);

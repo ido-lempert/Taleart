@@ -329,6 +329,60 @@ export async function placeTaleGroup(
 }
 
 /**
+ * Copies a tale group into a zone, as a new, independent group of the zone's
+ * project, placed after the zone's groups (AD-14). The copy keeps the name;
+ * its tales are new rows with the same titles, positions and media, sharing
+ * the media's storage keys (files are not duplicated, AD-11). The caller
+ * authorizes both projects. `withCopy` runs in the same transaction once the
+ * copy exists, so a caller can add what other modules own, such as tags (AD-1);
+ * if it throws, nothing is copied. Throws {@link TaleGroupNotFoundError} for an
+ * unknown group and `ZoneNotFoundError` for an unknown zone.
+ */
+export async function copyTaleGroup(
+  db: TransactionalDb,
+  input: { taleGroupId: string; zoneId: string },
+  withCopy?: (tx: Db, copy: { sourceTaleGroupId: string; taleGroupId: string; projectId: string }) => Promise<void>,
+): Promise<StoredZoneTaleGroup> {
+  const { taleGroupId, zoneId } = input;
+  if (!UUID.test(taleGroupId)) throw new TaleGroupNotFoundError(taleGroupId);
+  const projectId = await zoneProjectId(db, zoneId);
+  if (projectId === null) throw new ZoneNotFoundError(zoneId);
+
+  return inTransaction(db, async (tx) => {
+    await lockZone(tx, zoneId);
+    // Shares the source group's row lock, so no tale is added to it mid-copy.
+    const source = await tx.query<{ name: string }>('SELECT name FROM tale_groups WHERE id = $1 FOR SHARE', [
+      taleGroupId,
+    ]);
+    if (source.rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+    const { rows } = await tx.query<GroupRow>(
+      `INSERT INTO tale_groups (project_id, name) VALUES ($1, $2) RETURNING ${GROUP_COLUMNS}`,
+      [projectId, source.rows[0].name],
+    );
+    const group = rows[0];
+    // Locking the source tales means a media replace on one of them waits for
+    // this copy to commit, so its "still referenced" check sees the copy's
+    // tales and never deletes a file the copy now uses (AD-11).
+    await tx.query('SELECT 1 FROM tales WHERE tale_group_id = $1 FOR SHARE', [taleGroupId]);
+    await tx.query(
+      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type)
+       SELECT $2, $3, title, position, media_key, media_content_type FROM tales
+       WHERE tale_group_id = $1 ORDER BY position, id`,
+      [taleGroupId, group.id, projectId],
+    );
+    const placed = await tx.query<{ position: number }>(
+      `INSERT INTO zone_tale_groups (zone_id, tale_group_id, project_id, position)
+       VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), -1) + 1 FROM zone_tale_groups WHERE zone_id = $1))
+       RETURNING position`,
+      [zoneId, group.id, projectId],
+    );
+    if (withCopy) await withCopy(tx, { sourceTaleGroupId: taleGroupId.toLowerCase(), taleGroupId: group.id, projectId });
+    const [copy] = await withTales(tx, [{ ...group, position: placed.rows[0].position }]);
+    return copy;
+  });
+}
+
+/**
  * Removes a tale group from a zone: only that placement goes; the group, its
  * tales and its other placements stay (AD-14). The zone's remaining positions
  * become 0..n-1 again. Throws {@link TaleGroupNotFoundError} when the group is
@@ -499,8 +553,9 @@ export async function getTaleMedia(db: Db, taleId: string): Promise<StoredTaleMe
 
 /**
  * Points the tale at newly stored media. Returns the updated tale and the key
- * it pointed at before (null when none), so the caller can delete that file.
- * Throws {@link TaleNotFoundError}.
+ * it pointed at before (null when none). A copied tale shares its media's key
+ * (AD-14), so the caller deletes that file only when {@link isMediaKeyInUse}
+ * says no tale references it any more. Throws {@link TaleNotFoundError}.
  */
 export async function setTaleMedia(
   db: Db,
@@ -587,4 +642,14 @@ export async function findPublishedMedia(db: Db, key: string): Promise<StoredTal
   );
   const contentType = rows[0]?.contentType;
   return isMediaContentType(contentType) ? { key, contentType } : null;
+}
+
+/**
+ * True when any tale still references the storage key. Copied tales share
+ * their media's keys (AD-14), so a replaced file is deleted only when this is
+ * false (AD-11).
+ */
+export async function isMediaKeyInUse(db: Db, key: string): Promise<boolean> {
+  const { rows } = await db.query('SELECT 1 FROM tales WHERE media_key = $1 LIMIT 1', [key]);
+  return rows.length > 0;
 }

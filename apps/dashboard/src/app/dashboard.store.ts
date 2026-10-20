@@ -40,6 +40,7 @@ export type DrawerRequest =
   | { kind: 'renameTaleGroup'; taleGroupId: string }
   | { kind: 'placeTaleGroup'; taleGroupId: string }
   | { kind: 'removeTaleGroup'; zoneId: string; taleGroupId: string }
+  | { kind: 'copyTaleGroup'; taleGroupId: string }
   | { kind: 'taleMedia'; taleId: string }
   | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction };
 
@@ -391,6 +392,24 @@ export class DashboardStore {
     }
     await this.refresh();
     return '';
+  }
+
+  /**
+   * Copies a tale group into a zone of its own or another accessible project,
+   * as an independent group with the same tales, media and tags (AD-14).
+   * Returns the copy as the target zone lists it, or the message to show.
+   */
+  async copyTaleGroup(taleGroupId: string, zoneId: string): Promise<{ copy: ZoneTaleGroup | null; message: string }> {
+    let copy: ZoneTaleGroup;
+    try {
+      copy = await firstValueFrom(
+        this.http.post<ZoneTaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/copy`, { zoneId }),
+      );
+    } catch (err) {
+      return { copy: null, message: apiErrorMessage(err, 'The tale group was not copied. Try again.') };
+    }
+    await this.refresh();
+    return { copy, message: '' };
   }
 
   /** Removes a tale group from one zone; the group stays in its project and its other zones. */

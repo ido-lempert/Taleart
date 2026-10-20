@@ -7,7 +7,8 @@ import { Icon } from '../icon';
 /**
  * The selected project's tale groups by name, with the zones each is placed
  * in. A group belongs to the project, not to a zone (AD-14), so a group placed
- * in no zone is listed too, and each can be added to another zone from here.
+ * in no zone is listed too, and each can be added to another zone, or copied
+ * to a zone of any project the user can access, from here.
  */
 @Component({
   selector: 'app-tale-groups-page',
@@ -89,6 +90,14 @@ import { Icon } from '../icon';
                     } @else {
                       <span class="muted">In every zone</span>
                     }
+                    <button
+                      type="button"
+                      class="btn btn--secondary btn--sm"
+                      [attr.aria-describedby]="'project-group-' + group.id"
+                      (click)="store.openDrawer({ kind: 'copyTaleGroup', taleGroupId: group.id }, $event)"
+                    >
+                      Copy to zone…
+                    </button>
                   </li>
                 }
               </ul>

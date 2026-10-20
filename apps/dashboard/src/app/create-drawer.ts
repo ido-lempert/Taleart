@@ -1,18 +1,19 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { MAX_TALES_PER_GROUP, MEDIA_CONTENT_TYPES, type Invitation, type IssuedZoneKey } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 
 /**
  * The form for whatever the store's drawer request asks for: a create form, a
- * tale's media upload, a tale group's tags, adding a tale group to a zone or
- * removing it from one, an invitation link, or issuing, rotating or revoking a
+ * tale's media upload, a tale group's tags, adding a tale group to a zone,
+ * removing it from one or copying it to one, an invitation link, or issuing, rotating or revoking a
  * zone key. The API's message shows inside it.
  */
 @Component({
   selector: 'app-create-drawer',
-  imports: [FormsModule, Drawer],
+  imports: [FormsModule, RouterLink, Drawer],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './create-drawer.html',
 })
@@ -42,10 +43,15 @@ export class CreateDrawer implements OnInit {
   /** The zone picked in an "Add to zone…" drawer. */
   protected readonly placeZoneId = signal('');
 
-  /** The tale group an "Add to zone…" or "Remove from this zone" drawer is for. */
+  /** The tale group an "Add to zone…", "Copy to zone…", "Rename" or "Remove from this zone" drawer is for. */
   protected readonly placementGroup = computed(() => {
     const request = this.request();
-    if (request.kind !== 'placeTaleGroup' && request.kind !== 'removeTaleGroup' && request.kind !== 'renameTaleGroup') {
+    if (
+      request.kind !== 'placeTaleGroup' &&
+      request.kind !== 'removeTaleGroup' &&
+      request.kind !== 'renameTaleGroup' &&
+      request.kind !== 'copyTaleGroup'
+    ) {
       return undefined;
     }
     return this.store.projectTaleGroup(request.taleGroupId) ?? this.store.taleGroup(request.taleGroupId);
@@ -55,6 +61,26 @@ export class CreateDrawer implements OnInit {
   protected readonly placeZones = computed(() => {
     const request = this.request();
     return request.kind === 'placeTaleGroup' ? this.store.zonesToPlace(request.taleGroupId) : [];
+  });
+
+  /** The project picked in a "Copy to zone…" drawer. */
+  protected readonly copyProjectId = signal('');
+  /** The zone picked in a "Copy to zone…" drawer. */
+  protected readonly copyZoneId = signal('');
+  /** The copy a "Copy to zone…" drawer made, with its zone; the drawer then shows only the result. */
+  protected readonly copied = signal<{ name: string; zoneId: string; zoneName: string } | null>(null);
+
+  /** The projects a copy can go to: every project the user can access, the group's own first. */
+  protected readonly copyProjects = computed(() => {
+    const own = this.placementGroup()?.projectId;
+    const projects = this.store.projects();
+    return [...projects.filter((p) => p.id === own), ...projects.filter((p) => p.id !== own)];
+  });
+
+  /** The zones of the picked project, where a copy can go. */
+  protected readonly copyZones = computed(() => {
+    const projectId = this.copyProjectId();
+    return projectId ? this.store.zones().filter((z) => z.projectId === projectId) : [];
   });
 
   /** The zone a "Remove from this zone" drawer removes the group from. */
@@ -116,6 +142,8 @@ export class CreateDrawer implements OnInit {
         return 'Save';
       case 'placeTaleGroup':
         return 'Add';
+      case 'copyTaleGroup':
+        return 'Copy';
       case 'removeTaleGroup':
         return 'Remove';
       case 'zoneKey':
@@ -148,7 +176,9 @@ export class CreateDrawer implements OnInit {
   });
 
   /** True when the drawer's work is done and it shows only the result (a link or a key) and "Done". */
-  protected readonly showsResult = computed(() => this.invitation() !== null || this.issuedKey() !== null);
+  protected readonly showsResult = computed(
+    () => this.invitation() !== null || this.issuedKey() !== null || this.copied() !== null,
+  );
 
   protected readonly heading = computed(() => {
     switch (this.request().kind) {
@@ -172,6 +202,8 @@ export class CreateDrawer implements OnInit {
         return 'Rename tale group';
       case 'placeTaleGroup':
         return 'Add to zone';
+      case 'copyTaleGroup':
+        return 'Copy to zone';
       case 'removeTaleGroup':
         return 'Remove from this zone';
       case 'zoneKey':
@@ -199,7 +231,7 @@ export class CreateDrawer implements OnInit {
       const group = this.tagGroup();
       return group ? `For tale group ${group.name}` : '';
     }
-    if (request.kind === 'placeTaleGroup') {
+    if (request.kind === 'placeTaleGroup' || request.kind === 'copyTaleGroup') {
       const group = this.placementGroup();
       return group ? `Tale group ${group.name}` : '';
     }
@@ -226,6 +258,14 @@ export class CreateDrawer implements OnInit {
     this.projectId = this.store.selectedProjectId();
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
+    if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
+  }
+
+  /** Picks the project of a copy; its zone has to be picked again. */
+  protected pickCopyProject(projectId: string): void {
+    this.copyProjectId.set(projectId);
+    this.copyZoneId.set('');
+    this.error.set('');
   }
 
   protected isTagSelected(tagId: string): boolean {
@@ -363,6 +403,28 @@ export class CreateDrawer implements OnInit {
       case 'removeTaleGroup':
         message = await this.store.removeTaleGroup(request.zoneId, request.taleGroupId);
         break;
+      case 'copyTaleGroup': {
+        const zoneId = this.copyZoneId();
+        if (!zoneId) {
+          message = 'Choose a zone.';
+          break;
+        }
+        const { copy, message: refused } = await this.store.copyTaleGroup(request.taleGroupId, zoneId);
+        if (copy) {
+          const zone = this.store.zone(zoneId);
+          // Name the project too when the copy went to another project: zone names repeat across projects.
+          const zoneName = zone?.name ?? 'the zone';
+          this.copied.set({
+            name: copy.name,
+            zoneId,
+            zoneName: zone && zone.projectId !== this.store.selectedProjectId() ? `${zoneName} in ${this.store.projectName(zone.projectId)}` : zoneName,
+          });
+        }
+        this.saving.set(false);
+        this.error.set(refused);
+        // The drawer stays open to say where the copy went, with a link there.
+        return;
+      }
       case 'zoneKey': {
         if (request.action === 'revoke') {
           message = await this.store.revokeZoneKey(request.zoneId);
