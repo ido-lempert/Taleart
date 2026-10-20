@@ -3,14 +3,14 @@ title: 'Import tale groups and tales in source order'
 type: 'feature'
 ticket: '2'
 created: '2026-10-20'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'fbaf5df2e2d0c96612e460bae80428a32edb84bc'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -141,3 +141,5 @@ deferred: []
 **Residual risks:**
 - The Storyly paths `/story-group` and `/story` and the `sort_order` field are assumptions until story 3's real run.
 - A re-run does not re-order, rename or re-place linked records (story 7).
+
+**Review (parent):** 5 findings patched (missing real-database tests for six matrix rows, position notes for skipped records, double-counted stories, mid-import deletes failing the job, no deterministic race test). Merged into `autopilot/foundation` after web zones 3.3: the merged tree passes lint, test and build for 12 projects (api 203). Since 3.3, imported tale groups and tales start as `draft` until importer story 11 maps statuses.
