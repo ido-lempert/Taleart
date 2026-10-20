@@ -2,7 +2,13 @@
 // openapi/openapi.yaml through the generated types; change the document, then
 // run `npm exec nx -- run contract:generate`.
 import type { components } from './generated/api';
-import { errorCodeValues, importStatusValues, mediaContentTypeValues, userRoleValues } from './generated/api';
+import {
+  contentStatusValues,
+  errorCodeValues,
+  importStatusValues,
+  mediaContentTypeValues,
+  userRoleValues,
+} from './generated/api';
 
 export type { paths, operations, components } from './generated/api';
 
@@ -30,6 +36,9 @@ export type Tale = Schemas['Tale'];
 export type CreateTaleRequest = Schemas['CreateTaleRequest'];
 export type OrderTaleGroupsRequest = Schemas['OrderTaleGroupsRequest'];
 export type OrderTalesRequest = Schemas['OrderTalesRequest'];
+export type ContentStatus = Schemas['ContentStatus'];
+export type SetStatusRequest = Schemas['SetStatusRequest'];
+export type SettableStatus = SetStatusRequest['status'];
 export type TaleMedia = Schemas['TaleMedia'];
 export type MediaKind = Schemas['MediaKind'];
 export type MediaContentType = Schemas['MediaContentType'];
@@ -162,6 +171,76 @@ export function taleMediaUrl(taleId: string): string {
   return `/api/v1/tales/${encodeURIComponent(taleId)}/media`;
 }
 
+/** Every status key of the AD-6 scheme. */
+export const CONTENT_STATUSES: readonly ContentStatus[] = contentStatusValues;
+
+/**
+ * The HTTP code of each status key (AD-6), defined here once. `draft` maps to
+ * 204 as an [ASSUMPTION] the user confirms.
+ */
+export const CONTENT_STATUS_HTTP_CODES: Readonly<Record<ContentStatus, number>> = {
+  draft: 204,
+  live: 200,
+  scheduled: 202,
+  processing: 102,
+  'invalid-media': 422,
+  paused: 403,
+  'blocked-by-group': 423,
+  expired: 410,
+  'quota-reached': 429,
+  archived: 404,
+};
+
+/** The HTTP code of a status key (AD-6). */
+export function statusHttpCode(status: ContentStatus): number {
+  return CONTENT_STATUS_HTTP_CODES[status];
+}
+
+/** True when `value` is one of {@link CONTENT_STATUSES}. */
+export function isContentStatus(value: unknown): value is ContentStatus {
+  return (CONTENT_STATUSES as readonly unknown[]).includes(value);
+}
+
+/** The status keys a person sets on a tale group or tale: publish, pause (or restore), archive. */
+export const SETTABLE_STATUSES: readonly SettableStatus[] = ['live', 'paused', 'archived'];
+
+/** True when `value` is one of {@link SETTABLE_STATUSES}. */
+export function isSettableStatus(value: unknown): value is SettableStatus {
+  return (SETTABLE_STATUSES as readonly unknown[]).includes(value);
+}
+
+/**
+ * The stored statuses each settable status may be set from, the same for tale
+ * groups and tales: publish (`live`) from draft or paused; pause (`paused`)
+ * from live, or restore from archived; archive from draft, live or paused.
+ */
+const STATUS_SOURCES: Readonly<Record<SettableStatus, readonly ContentStatus[]>> = {
+  live: ['draft', 'paused'],
+  paused: ['live', 'archived'],
+  archived: ['draft', 'live', 'paused'],
+};
+
+/**
+ * True when content stored as `from` may be set to `to`. Setting the current
+ * status again is allowed and changes nothing.
+ */
+export function canSetStatus(from: ContentStatus, to: SettableStatus): boolean {
+  return from === to || STATUS_SOURCES[to].includes(from);
+}
+
+/** The statuses content stored as `from` can be set to, other than itself, in action order. */
+export function nextStatuses(from: ContentStatus): SettableStatus[] {
+  return SETTABLE_STATUSES.filter((to) => to !== from && STATUS_SOURCES[to].includes(from));
+}
+
+/**
+ * A tale's status as read (AD-6): `blocked-by-group` while the tale is live
+ * and its group is paused, else the tale's stored key.
+ */
+export function readTaleStatus(stored: ContentStatus, groupStatus: ContentStatus): ContentStatus {
+  return stored === 'live' && groupStatus === 'paused' ? 'blocked-by-group' : stored;
+}
+
 /** Named error codes, so callers don't repeat string literals. */
 export const ErrorCodes = {
   validationFailed: 'validation_failed',
@@ -190,6 +269,7 @@ export const ErrorCodes = {
   storylyTokenInvalid: 'storyly_token_invalid',
   storylyUnavailable: 'storyly_unavailable',
   importerNotConfigured: 'importer_not_configured',
+  invalidStatusTransition: 'invalid_status_transition',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

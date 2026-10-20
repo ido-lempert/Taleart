@@ -1,11 +1,15 @@
 import {
+  canSetStatus,
   ErrorCodes,
   isMediaContentType,
   MAX_TALES_PER_GROUP,
   mediaKind,
+  readTaleStatus,
   taleMediaUrl,
+  type ContentStatus,
   type MediaContentType,
   type ProjectTaleGroup,
+  type SettableStatus,
   type Tale,
   type TaleGroup,
   type ZoneTaleGroup,
@@ -15,13 +19,15 @@ import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const GROUP_COLUMNS = 'tale_groups.id, tale_groups.project_id AS "projectId", tale_groups.name';
+const GROUP_COLUMNS = 'tale_groups.id, tale_groups.project_id AS "projectId", tale_groups.name, tale_groups.status';
 // A group as a zone lists it: the group's columns and its placement's position.
 const ZONE_GROUP_COLUMNS = `${GROUP_COLUMNS}, zone_tale_groups.position`;
 // Qualified, so the media update can join the tale's old row without ambiguity.
+// The group's status comes along, since a tale's status as read depends on it (AD-6).
 const TALE_COLUMNS =
   'tales.id, tales.tale_group_id AS "taleGroupId", tales.project_id AS "projectId", tales.title, tales.position, ' +
-  'tales.media_content_type AS "mediaContentType"';
+  'tales.media_content_type AS "mediaContentType", tales.status AS "storedStatus", ' +
+  '(SELECT owner.status FROM tale_groups owner WHERE owner.id = tales.tale_group_id) AS "groupStatus"';
 
 /**
  * A tale group as this module stores it: everything but its tags, which the
@@ -37,15 +43,15 @@ type GroupRow = Omit<StoredTaleGroup, 'tales' | 'zoneIds'>;
 type ZoneGroupRow = GroupRow & { position: number };
 
 // A tales row as TALE_COLUMNS reads it. The storage key stays inside the module.
-type TaleRow = Omit<Tale, 'media'> & { mediaContentType: string | null };
+type TaleRow = Omit<Tale, 'media' | 'status'> & { mediaContentType: string | null; groupStatus: ContentStatus };
 
 // The API derives the media URL from the tale id; the row holds only the key (AD-11).
-function toTale({ mediaContentType, ...tale }: TaleRow): Tale {
+function toTale({ mediaContentType, groupStatus, ...tale }: TaleRow): Tale {
   const media =
     mediaContentType !== null && isMediaContentType(mediaContentType)
       ? { kind: mediaKind(mediaContentType), contentType: mediaContentType, url: taleMediaUrl(tale.id) }
       : null;
-  return { ...tale, media };
+  return { ...tale, status: readTaleStatus(tale.storedStatus, groupStatus), media };
 }
 
 /** A tale's stored media: its storage key and content type. */
@@ -100,6 +106,22 @@ export class TaleGroupFullError extends Error {
   constructor(readonly taleGroupId: string) {
     super(`A tale group holds at most ${MAX_TALES_PER_GROUP} tales`);
     this.name = 'TaleGroupFullError';
+  }
+}
+
+/**
+ * Thrown when a status change is not one of publish, pause, archive or
+ * restore from the stored status (AD-6). The API answers 409.
+ */
+export class InvalidStatusTransitionError extends Error {
+  readonly code = ErrorCodes.invalidStatusTransition;
+
+  constructor(
+    readonly from: ContentStatus,
+    readonly to: SettableStatus,
+  ) {
+    super(`The status cannot change from ${from} to ${to}`);
+    this.name = 'InvalidStatusTransitionError';
   }
 }
 
@@ -330,7 +352,8 @@ export async function placeTaleGroup(
 
 /**
  * Copies a tale group into a zone, as a new, independent group of the zone's
- * project, placed after the zone's groups (AD-14). The copy keeps the name;
+ * project, placed after the zone's groups (AD-14). The copy is new content, so
+ * it starts `draft` (AD-6); its tales keep their stored statuses. It keeps the name;
  * its tales are new rows with the same titles, positions and media, sharing
  * the media's storage keys (files are not duplicated, AD-11). The caller
  * authorizes both projects. `withCopy` runs in the same transaction once the
@@ -365,8 +388,8 @@ export async function copyTaleGroup(
     // tales and never deletes a file the copy now uses (AD-11).
     await tx.query('SELECT 1 FROM tales WHERE tale_group_id = $1 FOR SHARE', [taleGroupId]);
     await tx.query(
-      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type)
-       SELECT $2, $3, title, position, media_key, media_content_type FROM tales
+      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status)
+       SELECT $2, $3, title, position, media_key, media_content_type, status FROM tales
        WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId, group.id, projectId],
     );
@@ -470,6 +493,66 @@ export async function orderTales(
       [taleGroupId],
     );
     return rows.map(toTale);
+  });
+}
+
+/**
+ * Sets a tale group's stored status (AD-6): publish, pause, archive or
+ * restore, as {@link canSetStatus} allows; the current status again changes
+ * nothing. The group row is locked, so concurrent changes apply one after the
+ * other. Returns the group with its tales, whose status as read follows it.
+ * Throws {@link TaleGroupNotFoundError} and {@link InvalidStatusTransitionError}.
+ */
+export async function setTaleGroupStatus(
+  db: TransactionalDb,
+  taleGroupId: string,
+  status: SettableStatus,
+): Promise<StoredTaleGroup> {
+  if (!UUID.test(taleGroupId)) throw new TaleGroupNotFoundError(taleGroupId);
+
+  return inTransaction(db, async (tx) => {
+    const current = await tx.query<{ status: ContentStatus }>(
+      'SELECT status FROM tale_groups WHERE id = $1 FOR UPDATE',
+      [taleGroupId],
+    );
+    if (current.rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+    const from = current.rows[0].status;
+    if (!canSetStatus(from, status)) throw new InvalidStatusTransitionError(from, status);
+    const { rows } =
+      from === status
+        ? await tx.query<GroupRow>(`SELECT ${GROUP_COLUMNS} FROM tale_groups WHERE id = $1`, [taleGroupId])
+        : await tx.query<GroupRow>(`UPDATE tale_groups SET status = $2 WHERE id = $1 RETURNING ${GROUP_COLUMNS}`, [
+            taleGroupId,
+            status,
+          ]);
+    const [group] = await withTales(tx, rows);
+    return group;
+  });
+}
+
+/**
+ * Sets a tale's stored status (AD-6), with the same rules as
+ * {@link setTaleGroupStatus}. Returns the tale with its status as read.
+ * Throws {@link TaleNotFoundError} and {@link InvalidStatusTransitionError}.
+ */
+export async function setTaleStatus(db: TransactionalDb, taleId: string, status: SettableStatus): Promise<Tale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+
+  return inTransaction(db, async (tx) => {
+    const current = await tx.query<{ status: ContentStatus }>('SELECT status FROM tales WHERE id = $1 FOR UPDATE', [
+      taleId,
+    ]);
+    if (current.rows.length === 0) throw new TaleNotFoundError(taleId);
+    const from = current.rows[0].status;
+    if (!canSetStatus(from, status)) throw new InvalidStatusTransitionError(from, status);
+    const { rows } =
+      from === status
+        ? await tx.query<TaleRow>(`SELECT ${TALE_COLUMNS} FROM tales WHERE id = $1`, [taleId])
+        : await tx.query<TaleRow>(`UPDATE tales SET status = $2 WHERE id = $1 RETURNING ${TALE_COLUMNS}`, [
+            taleId,
+            status,
+          ]);
+    return toTale(rows[0]);
   });
 }
 
@@ -592,16 +675,17 @@ export interface DeliveryStoredTaleGroup {
 
 /**
  * The published tale groups placed in the zone, in this zone's order (AD-2,
- * AD-14), each with its published tales by position, for the Delivery API. Until statuses exist every tale group and
- * tale counts as published. Each tale carries its storage key, which the API
- * turns into a public URL (AD-11) and never returns on its own.
+ * AD-14), each with its published tales by position, for the Delivery API.
+ * Published means `live` (AD-6); a live group with no live tale is listed with
+ * none. Each tale carries its storage key, which the API turns into a public
+ * URL (AD-11) and never returns on its own.
  */
 export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<DeliveryStoredTaleGroup[]> {
   if (!UUID.test(zoneId)) return [];
   const groups = await db.query<{ id: string; name: string }>(
     `SELECT tale_groups.id, tale_groups.name FROM zone_tale_groups
      JOIN tale_groups ON tale_groups.id = zone_tale_groups.tale_group_id
-     WHERE zone_tale_groups.zone_id = $1
+     WHERE zone_tale_groups.zone_id = $1 AND tale_groups.status = 'live'
      ORDER BY zone_tale_groups.position, tale_groups.id`,
     [zoneId],
   );
@@ -614,7 +698,7 @@ export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<De
     contentType: string | null;
   }>(
     `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType"
-     FROM tales WHERE tale_group_id = ANY($1::uuid[]) ORDER BY position, id`,
+     FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND status = 'live' ORDER BY position, id`,
     [groups.rows.map((g) => g.id)],
   );
   return groups.rows.map((group) => ({
@@ -631,13 +715,17 @@ export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<De
 }
 
 /**
- * The stored media a published tale currently references under `key`, or null
- * when no tale does (an unknown key, or the key of replaced media). Until
- * statuses exist every tale counts as published.
+ * The stored media a published tale (a `live` tale of a `live` group, AD-6)
+ * currently references under `key`, or null when none does: an unknown key,
+ * the key of replaced media, or media of draft, paused or archived content
+ * (AD-11). A key copies share is public while any published tale references it (AD-14).
  */
 export async function findPublishedMedia(db: Db, key: string): Promise<StoredTaleMedia | null> {
   const { rows } = await db.query<{ contentType: string | null }>(
-    'SELECT media_content_type AS "contentType" FROM tales WHERE media_key = $1 LIMIT 1',
+    `SELECT tales.media_content_type AS "contentType" FROM tales
+     JOIN tale_groups ON tale_groups.id = tales.tale_group_id
+     WHERE tales.media_key = $1 AND tales.status = 'live' AND tale_groups.status = 'live'
+     LIMIT 1`,
     [key],
   );
   const contentType = rows[0]?.contentType;
