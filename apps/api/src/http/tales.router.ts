@@ -1,12 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import { ErrorCodes, maxMediaBytes, MAX_VIDEO_BYTES } from '@taleart/contract';
+import { ErrorCodes, maxMediaBytes, MAX_VIDEO_BYTES, type SetStatusRequest } from '@taleart/contract';
 import type { MediaStorage } from '@taleart/server-storage';
-import { getTaleMedia, isMediaKeyInUse, setTaleMedia, taleExists, TaleNotFoundError } from '@taleart/server-tales';
+import {
+  getTaleMedia,
+  isMediaKeyInUse,
+  setTaleMedia,
+  setTaleStatus,
+  taleExists,
+  TaleNotFoundError,
+} from '@taleart/server-tales';
 import express, { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorizeParam } from './authorize';
 import { HttpError } from './errors';
 import { declaredMediaType, matchesMagicNumber, mediaExtension, sendMediaBytes } from './media';
+import { requiredSettableStatus } from './validation';
 
 function logError(msg: string, err: unknown): void {
   console.log(
@@ -18,7 +26,7 @@ function logError(msg: string, err: unknown): void {
   );
 }
 
-/** A tale's media: mounted at `/tales`. */
+/** A tale's media and status: mounted at `/tales`. */
 export function talesRouter(pool: Pool, storage: MediaStorage): Router {
   const router = Router();
 
@@ -87,6 +95,18 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
       }
     },
   );
+
+  router.put('/:taleId/status', taleAccess, async (req, res, next) => {
+    try {
+      // Tale first (404), then the body (400), then the transition (409).
+      const { taleId } = req.params;
+      if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
+      const input: SetStatusRequest = { status: requiredSettableStatus(req.body) };
+      res.json(await setTaleStatus(pool, taleId, input.status));
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get('/:taleId/media', taleAccess, async (req, res, next) => {
     try {

@@ -1,9 +1,16 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MAX_TALES_PER_GROUP, MEDIA_CONTENT_TYPES, type Invitation, type IssuedZoneKey } from '@taleart/contract';
+import {
+  MAX_TALES_PER_GROUP,
+  MEDIA_CONTENT_TYPES,
+  type Invitation,
+  type IssuedZoneKey,
+  type SettableStatus,
+} from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
+import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 
 /**
  * The form for whatever the store's drawer request asks for: a create form, a
@@ -13,7 +20,7 @@ import { Drawer } from './drawer';
  */
 @Component({
   selector: 'app-create-drawer',
-  imports: [FormsModule, RouterLink, Drawer],
+  imports: [FormsModule, RouterLink, Drawer, StatusBadge],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './create-drawer.html',
 })
@@ -293,6 +300,22 @@ export class CreateDrawer implements OnInit {
       this.newTag = '';
       this.selectedTagIds.update((ids) => [...ids, tag.id]);
     }
+  }
+
+  protected readonly statusActions = statusActions;
+  /** What the polite live region in the tale drawer last announced. */
+  protected readonly statusAnnouncement = signal('');
+
+  /** Publishes, pauses, archives or restores the drawer's tale; the drawer stays open and shows its new status. */
+  protected async changeTaleStatus(taleId: string, status: SettableStatus): Promise<void> {
+    if (this.saving()) return;
+    this.saving.set(true);
+    this.error.set('');
+    const message = await this.store.setTaleStatus(taleId, status);
+    this.saving.set(false);
+    this.error.set(message);
+    const tale = this.store.tale(taleId);
+    if (!message && tale) this.statusAnnouncement.set(`Status: ${STATUS_LABELS[tale.status]}`);
   }
 
   protected pickFile(event: Event): void {
