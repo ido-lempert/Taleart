@@ -1,6 +1,7 @@
 import { join, resolve } from 'node:path';
 import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
+import { DEFAULT_STORYLY_API_URL, parseTokenKey, startImportWorker, type ImportWorker } from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
@@ -37,15 +38,55 @@ async function start(): Promise<void> {
     dashboardOrigin: rp.origin,
   };
 
+  // The importer (AD-8): source tokens are encrypted with IMPORT_TOKEN_KEY while
+  // a job runs. Without a valid key the import routes answer 503 and no worker runs.
+  const storylyApiUrl = process.env['STORYLY_API_URL'] || DEFAULT_STORYLY_API_URL;
+  const tokenKey = parseTokenKey(process.env['IMPORT_TOKEN_KEY']);
+  if (tokenKey === null) {
+    log(
+      'info',
+      process.env['IMPORT_TOKEN_KEY']
+        ? 'Importer off: IMPORT_TOKEN_KEY is not 32 bytes of base64'
+        : 'Importer off: IMPORT_TOKEN_KEY is not set',
+    );
+  }
+  let worker: ImportWorker | null = null;
+  if (tokenKey !== null) {
+    worker = startImportWorker(pool, { tokenKey, storylyApiUrl, log });
+    log('info', `Import worker started; source ${storylyApiUrl}`);
+  }
+  const importer = { tokenKey, storylyApiUrl, wake: () => worker?.wake() };
+
   const port = process.env['PORT'] || 3333;
   // Delivery media URLs are absolute and start with the API's public origin.
   const publicApiUrl = process.env['PUBLIC_API_URL'] || 'http://localhost:3333';
   log('info', `Public media at ${publicApiUrl}${PUBLIC_MEDIA_BASE}`);
-  const server = createApp(pool, frameTypes, storage, auth, { publicApiUrl }).listen(port, () => {
+  const server = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer).listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
     log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
   });
   server.on('error', (err) => log('error', 'server error', err));
+
+  // On shutdown the worker finishes the job in progress; a job cut off anyway
+  // is re-queued at the next start.
+  let stopping = false;
+  const shutdown = async (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    log('info', `Stopping on ${signal}`);
+    await worker?.stop();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await pool.end();
+    process.exit(0);
+  };
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      shutdown(signal).catch((err) => {
+        log('error', 'shutdown failed', err);
+        process.exit(1);
+      });
+    });
+  }
 }
 
 start().catch((err) => {

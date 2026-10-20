@@ -80,12 +80,12 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `libs/server/importer/` -- tables, crypto, client, worker, links, report; unit tests -- AD-1, AD-4, AD-7, AD-8.
-- [ ] `apps/fake-storyly/` -- fake server, fixtures, serve target.
-- [ ] `libs/contract/` -- paths, schemas, codes; regenerate -- AD-3.
-- [ ] `apps/api/src/` -- routes, worker wiring, env config; tests for every matrix row.
-- [ ] `apps/dashboard/src/app/` -- import page and project card entry; component tests.
-- [ ] `.env.example`, `tsconfig.base.json` alias.
+- [x] `libs/server/importer/` -- tables, crypto, client, worker, links, report; unit tests -- AD-1, AD-4, AD-7, AD-8.
+- [x] `apps/fake-storyly/` -- fake server, fixtures, serve target.
+- [x] `libs/contract/` -- paths, schemas, codes; regenerate -- AD-3.
+- [x] `apps/api/src/` -- routes, worker wiring, env config; tests for every matrix row.
+- [x] `apps/dashboard/src/app/` -- import page and project card entry; component tests.
+- [x] `.env.example`, `tsconfig.base.json` alias.
 
 **Acceptance Criteria:**
 - Given the dashboard pointed at the fake Storyly server, when an admin pastes the test token, picks "Demo shop" and starts, then the page shows running, then done, the report reads Zones 3 source / 3 imported, and the three zones appear on the Zones page.
@@ -93,6 +93,15 @@ deferred: []
 - Given a finished job, when its row is read, then the stored token is gone.
 
 ## Implementation Notes
+
+- Storyly paths are assumed from the digests' naming (`GET /app`, `GET /instance?app_id=`), and a list response may be a bare array or `{data: [...]}`. Each record needs an `id` (number or string) and a string `title`. Story 3's real run confirms or corrects these assumptions.
+- Added error code `storyly_unavailable` (502), which the plan did not list. It covers Storyly being unreachable, answering a non-2xx status other than 401/403, or answering an unexpected shape when "Find apps" calls it. The plan's two codes did not cover these cases.
+- `POST /imports` does not call Storyly; this keeps the request instant (AD-8). The worker reads the app list, and `source_app_name` stays nullable until the worker reads it. A token that cannot read the app fails the job with a message.
+- Import routes check in this order: `requireAdmin` (403), project access (403), configured importer (503), project exists (404), body (400). An unknown import id answers 404 `not_found`.
+- `POST /imports` wakes the worker, so a job starts at once rather than at the next 2 s poll. The worker polls every 2 s when idle. It stops on SIGINT/SIGTERM after finishing the job in progress.
+- A DB CHECK constraint enforces "token only while queued or running": `status IN ('queued','running') OR token_ciphertext IS NULL`.
+- The API integration tests load the fake server with a runtime `import()` of `apps/fake-storyly/src/fake-storyly.mjs` by path. A static import of another app would break the module-boundary lint. Tests switch failure modes through `control.failInstances`.
+- `ShellData.create` and `createLabel` are now optional, so the import page shows no "New …" button.
 
 ## Plan Change Log
 

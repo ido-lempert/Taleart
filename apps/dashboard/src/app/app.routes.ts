@@ -1,5 +1,6 @@
 import { Route } from '@angular/router';
 import { authGuard, setupGuard, signInGuard } from './auth';
+import { ImportPage } from './pages/import';
 import { InvitePage } from './pages/invite';
 import { SetupPage } from './pages/setup';
 import { SignInPage } from './pages/sign-in';
@@ -10,8 +11,9 @@ import { ZonesPage } from './pages/zones';
 /** Shell data per route: the top bar title and what its "New …" button creates. */
 export interface ShellData {
   heading: string;
-  create: 'project' | 'zone' | 'taleGroup';
-  createLabel: string;
+  /** What the top bar's "New …" button creates; pages without one leave it out. */
+  create?: 'project' | 'zone' | 'taleGroup';
+  createLabel?: string;
 }
 
 /** Route data of the pages shown without the shell: setup, sign-in and invitations. */
@@ -64,6 +66,13 @@ export const appRoutes: Route[] = [
         component: ProjectsPage,
         title: 'Projects · TaleArt',
         data: { heading: 'Projects', create: 'project', createLabel: 'New project' } satisfies ShellData,
+      },
+      {
+        // Admins import a Storyly app into this project.
+        path: 'projects/:projectId/import',
+        component: ImportPage,
+        title: 'Import from Storyly · TaleArt',
+        data: { heading: 'Projects' } satisfies ShellData,
       },
       { path: '**', redirectTo: 'zones' },
     ],

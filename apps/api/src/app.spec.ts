@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   addProjectMember,
   createSession,
@@ -11,10 +12,11 @@ import {
   PasskeyFailedError,
   type PasskeyVerifier,
 } from '@taleart/server-access';
+import { encryptToken, startImportWorker, type ImportWorker } from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
-import { createApp } from './app';
+import { createApp, type ImporterConfig } from './app';
 import { createPool, migrate } from './db';
 
 // Runs against a separate test database. It clears tables, so it must never
@@ -27,6 +29,19 @@ if (!new URL(testDatabaseUrl).pathname.endsWith('_test')) {
 
 // The shipped registry, read from the contract as the built API reads its copy.
 const frameTypesDir = join(__dirname, '../../../libs/contract/frame-types');
+
+// The fake Storyly server (apps/fake-storyly), started in-process on a free
+// port. Loaded by path at run time: it is a plain Node module of another app.
+const fakeStorylyModule = join(__dirname, '../../fake-storyly/src/fake-storyly.mjs');
+const FAKE_STORYLY_TOKEN = 'fake-storyly-token';
+interface FakeStoryly {
+  url: string;
+  control: { failInstances: 'status' | 'shape' | null };
+  close(): Promise<void>;
+}
+interface FakeStorylyModule {
+  startFakeStoryly(options?: { port?: number }): Promise<FakeStoryly>;
+}
 
 // Media goes to a temporary MEDIA_DIR, never the development folder.
 const mediaDir = mkdtempSync(join(tmpdir(), 'taleart-media-'));
@@ -127,7 +142,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE zone_keys, tale_group_tags, tags, tales, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -1721,6 +1736,258 @@ describe('Management API v1: projects and zones', () => {
     });
   });
 
+  describe('imports from Storyly', () => {
+    const tokenKey = randomBytes(32);
+    let fake: FakeStoryly;
+    let importServer: Server;
+    let importBase: string;
+    let worker: ImportWorker | null = null;
+
+    async function listenImporter(config: ImporterConfig): Promise<{ server: Server; base: string }> {
+      const s = createApp(
+        pool,
+        loadFrameTypeRegistry(frameTypesDir),
+        new LocalDiskStorage(mediaDir),
+        { verifier: fakeVerifier },
+        { publicApiUrl },
+        config,
+      ).listen(0);
+      await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+      return { server: s, base: `http://127.0.0.1:${(s.address() as AddressInfo).port}/api/v1` };
+    }
+
+    function send(method: string, path: string, body?: unknown, at = importBase): Promise<Response> {
+      return fetch(`${at}${path}`, {
+        method,
+        headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    }
+
+    // Runs the worker as main.ts does, polling fast.
+    function startWorker(): void {
+      worker = startImportWorker(pool, { tokenKey, storylyApiUrl: fake.url, pollIntervalMs: 50 });
+    }
+
+    // Reads the job until it is done or failed.
+    async function waitForEnd(projectId: string, importId: string): Promise<Record<string, unknown>> {
+      const until = Date.now() + 10_000;
+      for (;;) {
+        const job = await (await send('GET', `/projects/${projectId}/imports/${importId}`)).json();
+        if (job.status === 'done' || job.status === 'failed') return job;
+        if (Date.now() > until) throw new Error(`Import still ${job.status}`);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+
+    async function storedJob(importId: string): Promise<{ token_ciphertext: string | null; source_app_id: string }> {
+      const { rows } = await pool.query('SELECT token_ciphertext, source_app_id FROM import_jobs WHERE id = $1', [importId]);
+      return rows[0];
+    }
+
+    async function projectZones(projectId: string): Promise<{ id: string; name: string; projectId: string }[]> {
+      const zones: { id: string; name: string; projectId: string }[] = await (await fetch(`${base}/zones`)).json();
+      return zones.filter((z) => z.projectId === projectId);
+    }
+
+    async function start(projectId: string): Promise<{ id: string; status: string }> {
+      const res = await send('POST', `/projects/${projectId}/imports`, { token: FAKE_STORYLY_TOKEN, appId: '1001' });
+      expect(res.status).toBe(202);
+      return res.json();
+    }
+
+    beforeAll(async () => {
+      const { startFakeStoryly } = (await import(pathToFileURL(fakeStorylyModule).href)) as FakeStorylyModule;
+      fake = await startFakeStoryly();
+      ({ server: importServer, base: importBase } = await listenImporter({
+        tokenKey,
+        storylyApiUrl: fake.url,
+        wake: () => worker?.wake(),
+      }));
+    });
+
+    beforeEach(() => {
+      fake.control.failInstances = null;
+    });
+
+    afterEach(async () => {
+      await worker?.stop();
+      worker = null;
+    });
+
+    afterAll(async () => {
+      await new Promise<void>((resolve) => importServer.close(() => resolve()));
+      await fake.close();
+    });
+
+    it('lists the apps a token can read, without storing the token', async () => {
+      const project = await createProject();
+      const res = await send('POST', `/projects/${project.id}/imports/storyly/apps`, { token: FAKE_STORYLY_TOKEN });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual([{ id: '1001', name: 'Demo shop' }]);
+      expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(0);
+    });
+
+    it('refuses a token Storyly refuses with storyly_token_invalid and creates no job', async () => {
+      const project = await createProject();
+      const res = await send('POST', `/projects/${project.id}/imports/storyly/apps`, { token: 'wrong-token' });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: { code: 'storyly_token_invalid', message: expect.any(String) } });
+      expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(0);
+    });
+
+    it('imports the app as zones with links and a report, then deletes the token', async () => {
+      const project = await createProject();
+      startWorker();
+      const started = await start(project.id);
+      expect(started).toEqual({ id: expect.any(String), status: 'queued' });
+
+      const job = await waitForEnd(project.id, started.id);
+      expect(job).toEqual({
+        id: started.id,
+        status: 'done',
+        sourceAppName: 'Demo shop',
+        report: {
+          zones: { source: 3, imported: 3, skipped: 0 },
+          notes: [
+            'Zone "Home page": frame type unknown',
+            'Zone "Product page": frame type unknown',
+            'Zone "Checkout": frame type unknown',
+          ],
+        },
+        error: null,
+        createdAt: expect.any(String),
+        finishedAt: expect.any(String),
+      });
+      const zones = await projectZones(project.id);
+      expect(zones.map((z) => z.name)).toEqual(['Home page', 'Product page', 'Checkout']);
+      for (const zone of zones) expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([]);
+      const links = await pool.query(
+        'SELECT source_system, source_type, source_id, target_type, target_id FROM import_links WHERE project_id = $1 ORDER BY source_id',
+        [project.id],
+      );
+      expect(links.rows).toEqual(
+        ['2001', '2002', '2003'].map((sourceId, i) => ({
+          source_system: 'storyly',
+          source_type: 'instance',
+          source_id: sourceId,
+          target_type: 'zone',
+          target_id: zones[i].id,
+        })),
+      );
+      expect((await storedJob(started.id)).token_ciphertext).toBeNull();
+      // Source ids live only in import_links (AD-7), never on the zones.
+      expect(JSON.stringify(zones)).not.toContain('2001');
+    });
+
+    it('creates no duplicate zones when the same app is imported again', async () => {
+      const project = await createProject();
+      startWorker();
+      await waitForEnd(project.id, (await start(project.id)).id);
+      const again = await waitForEnd(project.id, (await start(project.id)).id);
+      expect(again['status']).toBe('done');
+      expect((again['report'] as { zones: unknown }).zones).toEqual({ source: 3, imported: 3, skipped: 0 });
+      expect(await projectZones(project.id)).toHaveLength(3);
+      expect((await pool.query('SELECT 1 FROM import_links WHERE project_id = $1', [project.id])).rowCount).toBe(3);
+    });
+
+    it('stores the token only encrypted while the job waits', async () => {
+      const project = await createProject();
+      const started = await start(project.id);
+      const stored = await storedJob(started.id);
+      expect(stored.token_ciphertext).toEqual(expect.any(String));
+      expect(stored.token_ciphertext).not.toContain(FAKE_STORYLY_TOKEN);
+      const job = await (await send('GET', `/projects/${project.id}/imports/${started.id}`)).json();
+      expect(job.status).toBe('queued');
+      expect(JSON.stringify(job)).not.toContain('token');
+    });
+
+    for (const [mode, message] of [
+      ['status', /answered 500/],
+      ['shape', /unexpected shape/],
+    ] as const) {
+      it(`fails the job when the source ${mode === 'status' ? 'answers 500' : 'answers an unexpected shape'}`, async () => {
+        const project = await createProject();
+        fake.control.failInstances = mode;
+        startWorker();
+        const started = await start(project.id);
+        const job = await waitForEnd(project.id, started.id);
+        expect(job['status']).toBe('failed');
+        expect(job['error']).toMatch(message);
+        expect(job['error']).not.toContain(FAKE_STORYLY_TOKEN);
+        expect(job['report']).toBeNull();
+        expect((await storedJob(started.id)).token_ciphertext).toBeNull();
+        expect(await projectZones(project.id)).toEqual([]);
+      });
+    }
+
+    it('re-queues a job left running by a stopped process and finishes it', async () => {
+      const project = await createProject();
+      const { rows } = await pool.query(
+        `INSERT INTO import_jobs (project_id, source_app_id, status, token_ciphertext, started_at)
+         VALUES ($1, '1001', 'running', $2, now()) RETURNING id`,
+        [project.id, encryptToken(FAKE_STORYLY_TOKEN, tokenKey)],
+      );
+      startWorker();
+      const job = await waitForEnd(project.id, rows[0].id);
+      expect(job['status']).toBe('done');
+      expect(await projectZones(project.id)).toHaveLength(3);
+      expect((await storedJob(rows[0].id)).token_ciphertext).toBeNull();
+    });
+
+    it('refuses every import route to a content manager with forbidden', async () => {
+      const project = await createProject();
+      const started = await start(project.id);
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, project.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      for (const [method, path, body] of [
+        ['POST', `/projects/${project.id}/imports/storyly/apps`, { token: FAKE_STORYLY_TOKEN }],
+        ['POST', `/projects/${project.id}/imports`, { token: FAKE_STORYLY_TOKEN, appId: '1001' }],
+        ['GET', `/projects/${project.id}/imports/${started.id}`, undefined],
+      ] as const) {
+        const res = await send(method, path, body);
+        expect(res.status).toBe(403);
+        expect((await res.json()).error.code).toBe('forbidden');
+      }
+      expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(1);
+    });
+
+    it('answers importer_not_configured without IMPORT_TOKEN_KEY, while the rest of the API works', async () => {
+      const project = await createProject();
+      for (const [method, path, body] of [
+        ['POST', `/projects/${project.id}/imports/storyly/apps`, { token: FAKE_STORYLY_TOKEN }],
+        ['POST', `/projects/${project.id}/imports`, { token: FAKE_STORYLY_TOKEN, appId: '1001' }],
+        ['GET', `/projects/${project.id}/imports/${randomUUID()}`, undefined],
+      ] as const) {
+        const res = await send(method, path, body, base);
+        expect(res.status).toBe(503);
+        expect((await res.json()).error.code).toBe('importer_not_configured');
+      }
+      expect((await fetch(`${base}/health`)).status).toBe(200);
+    });
+
+    it('validates the body and answers 404 for an unknown project or import', async () => {
+      const project = await createProject();
+      const missing = await send('POST', `/projects/${project.id}/imports`, { appId: '1001' });
+      expect(missing.status).toBe(400);
+      expect((await missing.json()).error.code).toBe('validation_failed');
+      const unknownProject = await send('POST', `/projects/${randomUUID()}/imports/storyly/apps`, { token: 'x' });
+      expect(unknownProject.status).toBe(404);
+      expect((await unknownProject.json()).error.code).toBe('project_not_found');
+      const unknownImport = await send('GET', `/projects/${project.id}/imports/${randomUUID()}`);
+      expect(unknownImport.status).toBe(404);
+      expect((await unknownImport.json()).error.code).toBe('not_found');
+    });
+
+    it("does not show one project's import in another project", async () => {
+      const project = await createProject();
+      const other = await createProject('Beta');
+      const started = await start(project.id);
+      expect((await send('GET', `/projects/${other.id}/imports/${started.id}`)).status).toBe(404);
+    });
+  });
+
   describe('auth', () => {
     // A minimal cookie jar: the cookies the API set, sent back as the browser would.
     let jar: Record<string, string>;
@@ -1781,7 +2048,7 @@ describe('Management API v1: projects and zones', () => {
     beforeEach(async () => {
       jar = {};
       // Auth tests start from an empty install.
-      await pool.query('TRUNCATE zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users');
+      await pool.query('TRUNCATE import_links, import_jobs, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users');
     });
 
     it('reports that setup is required on an empty install', async () => {

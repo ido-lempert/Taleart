@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": 1001,
+      "token": "fake-app-token-1001",
+      "title": "Demo shop",
+      "category": "shopping",
+      "store_type": "web",
+      "store_id": "demo-shop.example",
+      "account_id": 501,
+      "is_inbox_story": false,
+      "settings": {},
+      "detailed_info": {}
+    }
+  ]
+}
