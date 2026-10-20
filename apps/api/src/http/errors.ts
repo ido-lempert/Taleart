@@ -6,7 +6,7 @@ import {
   UnknownFrameTypeError,
   ZoneNotFoundError,
 } from '@taleart/server-zones';
-import { TaleGroupFullError, TaleGroupNotFoundError } from '@taleart/server-tales';
+import { TaleGroupFullError, TaleGroupNotFoundError, TaleNotFoundError } from '@taleart/server-tales';
 import type express from 'express';
 
 /** An error that maps directly to an HTTP status and the standard error body. */
@@ -33,12 +33,12 @@ export const notFoundHandler: express.RequestHandler = (req, res) => {
 /** Turns any thrown error into the standard `{ error: { code, message } }` body. */
 // Express recognises an error handler by its four parameters, so _next stays.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next) => {
+export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof HttpError) {
     res.status(err.status).json(errorBody(err.code, err.message));
     return;
   }
-  if (err instanceof ZoneNotFoundError || err instanceof TaleGroupNotFoundError) {
+  if (err instanceof ZoneNotFoundError || err instanceof TaleGroupNotFoundError || err instanceof TaleNotFoundError) {
     res.status(404).json(errorBody(err.code, err.message));
     return;
   }
@@ -52,6 +52,16 @@ export const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next)
     err instanceof InvalidFrameSettingsError
   ) {
     res.status(400).json(errorBody(err.code, err.message));
+    return;
+  }
+  // A body parser rejects a body over its limit this way: express.raw() on the
+  // media upload (100 MB), express.json() elsewhere.
+  if ((err as { type?: string })?.type === 'entity.too.large') {
+    if (/\/media$/.test(req.path)) {
+      res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 100 MB'));
+    } else {
+      res.status(413).json(errorBody(ErrorCodes.validationFailed, 'Request body is too large'));
+    }
     return;
   }
   // express.json() rejects a malformed body with a 400 and type entity.parse.failed.

@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { createPool, migrate } from './db';
@@ -19,8 +20,13 @@ async function start(): Promise<void> {
   // start, so a new registry entry and schema need only a restart (AD-5).
   const frameTypes = loadFrameTypeRegistry(join(__dirname, 'frame-types'));
 
+  // Media files live under MEDIA_DIR (default .data/media, from the folder the
+  // API starts in: the repo root under nx serve). The database holds only keys (AD-11).
+  const storage = new LocalDiskStorage(resolve(process.env['MEDIA_DIR'] || '.data/media'));
+  log('info', `Storing media in ${storage.root}`);
+
   const port = process.env['PORT'] || 3333;
-  const server = createApp(pool, frameTypes).listen(port, () => {
+  const server = createApp(pool, frameTypes, storage).listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
   });
   server.on('error', (err) => log('error', 'server error', err));

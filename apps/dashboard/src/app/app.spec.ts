@@ -15,8 +15,11 @@ const globex = { id: 'p2', name: 'Globex' };
 const zone = { id: 'z1', name: 'Home bar', projectId: 'p1' };
 const otherZone = { id: 'z2', name: 'Checkout', projectId: 'p2' };
 const group = { id: 'g1', zoneId: 'z1', projectId: 'p1', name: 'Summer', position: 0 };
-const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0 };
-const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1 };
+const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, media: null };
+const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, media: null };
+const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
+const mp4Media = { kind: 'video', contentType: 'video/mp4', url: '/api/v1/tales/t2/media' };
+const MEDIA_ORIGIN = new URL(API_BASE).origin;
 const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', settings: {} };
 
 interface Data {
@@ -52,6 +55,13 @@ function choose(select: HTMLSelectElement | null, value: string): void {
   if (!select) throw new Error('No select');
   select.value = value;
   select.dispatchEvent(new Event('change'));
+}
+
+// Picks `file` in a file input, as the browser does.
+function pick(input: HTMLInputElement | null, file: File): void {
+  if (!input) throw new Error('No file input');
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  input.dispatchEvent(new Event('change'));
 }
 
 function drawer(): HTMLElement | null {
@@ -365,6 +375,139 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/tale-groups/g1/tales`, 'tale_group_full', 'A tale group holds at most 100 tales');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('A tale group holds at most 100 tales');
+    });
+  });
+
+  describe('tale media', () => {
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'beach.png', { type: 'image/png' });
+    const pdf = new File(['%PDF-1.7'], 'menu.pdf', { type: 'application/pdf' });
+
+    it('shows the image or a muted looping video on tale cards that have media', async () => {
+      const { root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }, { ...taleB, media: mp4Media }] }] },
+      });
+
+      const [first, second] = [...root.querySelectorAll('[aria-label="Tales in Summer"] li')];
+      expect(first.querySelector('img.tale-card__media')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+      );
+      const video = second.querySelector<HTMLVideoElement>('video.tale-card__media');
+      expect(video?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t2/media`);
+      expect(video?.muted).toBe(true);
+      expect(video?.loop).toBe(true);
+    });
+
+    it('opens a tale, uploads a PNG and shows it on the card', async () => {
+      const withTale = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } };
+      const { fixture, root } = await open('/zones/z1', withTale);
+      expect(root.querySelector('.tale-card__media')).toBeNull();
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale');
+      expect(drawer()?.textContent).toContain('No media yet');
+      const input = drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null;
+      expect(input?.accept).toBe('image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm');
+      pick(input, png);
+      buttonNamed(drawer() as HTMLElement, 'Upload').click();
+      await settle(fixture);
+
+      const req = http.expectOne(`${API_BASE}/tales/t1/media`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.headers.get('Content-Type')).toBe('image/png');
+      expect(req.request.body).toBe(png);
+      req.flush({ ...taleA, media: pngMedia });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media?v=1`,
+      );
+    });
+
+    it("shows the API's unsupported message for a PDF and keeps the previous media", async () => {
+      const withMedia = { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } };
+      const { fixture, root } = await open('/zones/z1', withMedia);
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('img.media-preview__media')).not.toBeNull();
+      pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, pdf);
+      buttonNamed(drawer() as HTMLElement, 'Upload').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tales/t1/media`);
+      expect(req.request.headers.get('Content-Type')).toBe('application/pdf');
+      req.flush(
+        { error: { code: 'unsupported_media_type', message: 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video' } },
+        { status: 415, statusText: 'Unsupported Media Type' },
+      );
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Upload a JPEG, PNG, WebP or GIF image');
+      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t1/media`);
+    });
+
+    it('asks for a file when Upload is pressed without one', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } });
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Upload').click();
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Choose an image or video');
+    });
+
+    it('uploads the optional file after adding a tale', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }] } });
+
+      (root.querySelector('.tale-add') as HTMLButtonElement).click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'A');
+      pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, png);
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+
+      const create = http.expectOne(`${API_BASE}/tale-groups/g1/tales`);
+      expect(create.request.body).toEqual({ title: 'A' });
+      create.flush(taleA);
+      await settle(fixture);
+      const upload = http.expectOne(`${API_BASE}/tales/t1/media`);
+      expect(upload.request.method).toBe('PUT');
+      expect(upload.request.body).toBe(png);
+      upload.flush({ ...taleA, media: pngMedia });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(root.querySelector('img.tale-card__media')).not.toBeNull();
+    });
+
+    it('switches to the new tale with the message when its file is refused', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }] } });
+
+      (root.querySelector('.tale-add') as HTMLButtonElement).click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'A');
+      pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, pdf);
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tale-groups/g1/tales`).flush(taleA);
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t1/media`)
+        .flush({ error: { code: 'unsupported_media_type', message: 'Unsupported' } }, { status: 415, statusText: 'x' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale');
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Unsupported');
+      expect(root.querySelectorAll('[aria-label="Tales in Summer"] li')).toHaveLength(1);
     });
   });
 

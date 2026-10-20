@@ -527,7 +527,36 @@ select {
 .tale-card[data-tone='4'] { --tone-a: var(--tone-4-a); --tone-b: var(--tone-4-b); }
 .tale-card[data-tone='5'] { --tone-a: var(--tone-5-a); --tone-b: var(--tone-5-b); }
 
+.tale-card__media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Covers the whole card, so the card opens its tale drawer. */
+.tale-card__open {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tale-card__open:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.tale-card__open:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
 .tale-card__title {
+  position: relative;
   width: 100%;
   padding: var(--space-8) var(--space-3) var(--space-3);
   background: linear-gradient(transparent, rgb(0 0 0 / 75%));
@@ -569,6 +598,42 @@ select {
 .tale-add:hover {
   border-color: var(--ember);
   color: var(--ember-strong);
+}
+
+/* ---------- Tale drawer ---------- */
+.tale-drawer__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.media-preview {
+  display: grid;
+  place-items: center;
+  width: 160px;
+  aspect-ratio: 9 / 16;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.media-preview__media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-preview__empty {
+  padding: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.input--file {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
 }
 
 /* ---------- Responsive ---------- */

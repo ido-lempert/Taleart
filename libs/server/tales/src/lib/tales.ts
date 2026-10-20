@@ -1,11 +1,41 @@
-import { ErrorCodes, MAX_TALES_PER_GROUP, type Tale, type TaleGroup } from '@taleart/contract';
+import {
+  ErrorCodes,
+  isMediaContentType,
+  MAX_TALES_PER_GROUP,
+  mediaKind,
+  taleMediaUrl,
+  type MediaContentType,
+  type Tale,
+  type TaleGroup,
+} from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const GROUP_COLUMNS = 'id, zone_id AS "zoneId", project_id AS "projectId", name, position';
-const TALE_COLUMNS = 'id, tale_group_id AS "taleGroupId", project_id AS "projectId", title, position';
+// Qualified, so the media update can join the tale's old row without ambiguity.
+const TALE_COLUMNS =
+  'tales.id, tales.tale_group_id AS "taleGroupId", tales.project_id AS "projectId", tales.title, tales.position, ' +
+  'tales.media_content_type AS "mediaContentType"';
+
+// A tales row as TALE_COLUMNS reads it. The storage key stays inside the module.
+type TaleRow = Omit<Tale, 'media'> & { mediaContentType: string | null };
+
+// The API derives the media URL from the tale id; the row holds only the key (AD-11).
+function toTale({ mediaContentType, ...tale }: TaleRow): Tale {
+  const media =
+    mediaContentType !== null && isMediaContentType(mediaContentType)
+      ? { kind: mediaKind(mediaContentType), contentType: mediaContentType, url: taleMediaUrl(tale.id) }
+      : null;
+  return { ...tale, media };
+}
+
+/** A tale's stored media: its storage key and content type. */
+export interface StoredTaleMedia {
+  key: string;
+  contentType: MediaContentType;
+}
 
 /** A database that can hand out one connection for a transaction, such as a pg Pool. */
 export interface TransactionalDb extends Db {
@@ -19,6 +49,16 @@ export class TaleGroupNotFoundError extends Error {
   constructor(readonly taleGroupId: string) {
     super('taleGroupId does not match a tale group');
     this.name = 'TaleGroupNotFoundError';
+  }
+}
+
+/** Thrown when a request names a tale that does not exist. */
+export class TaleNotFoundError extends Error {
+  readonly code = ErrorCodes.taleNotFound;
+
+  constructor(readonly taleId: string) {
+    super('taleId does not match a tale');
+    this.name = 'TaleNotFoundError';
   }
 }
 
@@ -61,13 +101,13 @@ export async function listTaleGroups(db: Db, zoneId: string): Promise<TaleGroup[
     [zoneId],
   );
   if (groups.rows.length === 0) return [];
-  const tales = await db.query<Tale>(
+  const tales = await db.query<TaleRow>(
     `SELECT ${TALE_COLUMNS} FROM tales WHERE tale_group_id = ANY($1::uuid[]) ORDER BY position, id`,
     [groups.rows.map((g) => g.id)],
   );
   return groups.rows.map((group) => ({
     ...group,
-    tales: tales.rows.filter((tale) => tale.taleGroupId === group.id),
+    tales: tales.rows.filter((tale) => tale.taleGroupId === group.id).map(toTale),
   }));
 }
 
@@ -132,11 +172,54 @@ export async function createTale(
     const { count, next } = stats.rows[0];
     if (count >= MAX_TALES_PER_GROUP) throw new TaleGroupFullError(input.taleGroupId);
 
-    const { rows } = await tx.query<Tale>(
+    const { rows } = await tx.query<TaleRow>(
       `INSERT INTO tales (tale_group_id, project_id, title, position) VALUES ($1, $2, $3, $4)
        RETURNING ${TALE_COLUMNS}`,
       [input.taleGroupId, projectId, input.title, next],
     );
-    return rows[0];
+    return toTale(rows[0]);
   });
+}
+
+/** True when a tale with this id exists. Ids that are not UUIDs never match. */
+export async function taleExists(db: Db, taleId: string): Promise<boolean> {
+  if (!UUID.test(taleId)) return false;
+  const { rows } = await db.query('SELECT 1 FROM tales WHERE id = $1', [taleId]);
+  return rows.length > 0;
+}
+
+/** The tale's stored media, or null when it has none. Throws {@link TaleNotFoundError}. */
+export async function getTaleMedia(db: Db, taleId: string): Promise<StoredTaleMedia | null> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const { rows } = await db.query<{ key: string | null; contentType: string | null }>(
+    'SELECT media_key AS key, media_content_type AS "contentType" FROM tales WHERE id = $1',
+    [taleId],
+  );
+  if (rows.length === 0) throw new TaleNotFoundError(taleId);
+  const { key, contentType } = rows[0];
+  return key !== null && isMediaContentType(contentType) ? { key, contentType } : null;
+}
+
+/**
+ * Points the tale at newly stored media. Returns the updated tale and the key
+ * it pointed at before (null when none), so the caller can delete that file.
+ * Throws {@link TaleNotFoundError}.
+ */
+export async function setTaleMedia(
+  db: Db,
+  taleId: string,
+  media: StoredTaleMedia,
+): Promise<{ tale: Tale; previousKey: string | null }> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  // The subquery locks the row and reads the old key in the same statement.
+  const { rows } = await db.query<TaleRow & { previousKey: string | null }>(
+    `UPDATE tales SET media_key = $2, media_content_type = $3
+     FROM (SELECT id AS old_id, media_key AS old_key FROM tales WHERE id = $1 FOR UPDATE) old
+     WHERE tales.id = old.old_id
+     RETURNING ${TALE_COLUMNS}, old.old_key AS "previousKey"`,
+    [taleId, media.key, media.contentType],
+  );
+  if (rows.length === 0) throw new TaleNotFoundError(taleId);
+  const { previousKey, ...row } = rows[0];
+  return { tale: toTale(row), previousKey };
 }

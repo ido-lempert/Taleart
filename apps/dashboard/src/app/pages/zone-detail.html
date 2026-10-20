@@ -50,8 +50,29 @@
                   <ol class="tale-list" [attr.aria-label]="'Tales in ' + group.name">
                     @for (tale of group.tales; track tale.id) {
                       <li class="tale-card" [attr.data-tone]="tone(tale.id)">
+                        @if (tale.media; as media) {
+                          @if (media.kind === 'video') {
+                            <video
+                              class="tale-card__media"
+                              [src]="store.mediaSrc(tale)"
+                              [muted]="true"
+                              autoplay
+                              loop
+                              playsinline
+                              aria-hidden="true"
+                            ></video>
+                          } @else {
+                            <img class="tale-card__media" [src]="store.mediaSrc(tale)" alt="" />
+                          }
+                        }
                         <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
                         <span class="tale-card__title">{{ tale.title }}</span>
+                        <button
+                          type="button"
+                          class="tale-card__open"
+                          [attr.aria-label]="'Open tale ' + tale.title"
+                          (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
+                        ></button>
                       </li>
                     }
                   </ol>
