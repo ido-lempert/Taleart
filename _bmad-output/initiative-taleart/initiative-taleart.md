@@ -6,6 +6,8 @@ sources:
   - _bmad-output/initiative-taleart/brief-taleart/brief-taleart.md
 companions:
   - _bmad-output/initiative-taleart/research-storyly-competitive-teardown/research-storyly-competitive-teardown.md
+  - _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md
+  - _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md
 risk: high
 ---
 
@@ -103,6 +105,8 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
 - parent — none
 - brief — _bmad-output/initiative-taleart/brief-taleart/brief-taleart.md, sections MVP scope, Goals, Risks, Open decisions
 - research — _bmad-output/initiative-taleart/research-storyly-competitive-teardown/research-storyly-competitive-teardown.md, sections 3 to 11
+- prd — _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md
+- architecture — _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, AD-1 to AD-12
 
 ## Notes
 
