@@ -54,6 +54,7 @@ R3 (parent R10): **Platform-neutral, extensible model**
 
 - parent — `_bmad-output/initiative-taleart/initiative-taleart.md`, section Requirements (R3, R8, R10)
 - terminology — `_bmad-output/initiative-taleart/research-another tool-competitive-teardown/terminology-map.md`
+- architecture — `_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md`, AD-1 to AD-12, Consistency Conventions
 
 ## Notes
 
