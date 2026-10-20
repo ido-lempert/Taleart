@@ -26,6 +26,7 @@ A team can see how each widget and its content perform, using definitions it can
 ## Boundaries
 
 - Usage and storage metering for internal chargeback are post-MVP (R8 keeps the project tag ready).
+- Campaign-level reporting (a campaign as one reporting unit, PRD FR-031) is post-MVP; campaigns are owned by epic 3.
 
 ## References
 

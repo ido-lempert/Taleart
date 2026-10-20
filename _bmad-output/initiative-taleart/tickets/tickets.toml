@@ -11,7 +11,7 @@ covers = ["R3", "R8", "R10"]
 id = 2
 slug = "epic-another tool-importer"
 title = "another tool importer"
-description = "A another tool account's groups, stories and zones import through the live API with a per-entity count report; later entries add components and audiences."
+description = "A another tool account's groups, stories and zones import through the live API with a per-entity count report; later entries add components and user lists (another tool audiences)."
 covers = ["R1", "R2"]
 after = [{ epic = 1, needs = "the data model and API" }]
 
@@ -35,7 +35,7 @@ after = [{ epic = 1, needs = "the data model and API" }]
 id = 5
 slug = "epic-targeting"
 title = "Tag and audience targeting"
-description = "Tags combine with AND or OR, and audiences import from CSV and match the external user key, deciding which groups a viewer sees."
+description = "Tags on tale groups combine with AND or OR, and user lists import from CSV and match the external user ID, deciding which groups a viewer sees; segments are built from user attributes."
 covers = ["R5", "R12"]
 after = [{ epic = 3, needs = "zones to demonstrate targeting" }]
 

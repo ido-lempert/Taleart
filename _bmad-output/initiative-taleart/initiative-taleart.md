@@ -24,7 +24,7 @@ A team that runs another tool content can import its account into TaleArt, serve
 ## Requirements
 
 1. **another tool importer** (R1)
-   **Given** a another tool account with groups, stories, zones, tags, audiences and interactive components
+   **Given** a another tool account with groups, stories, zones, tags, audiences (imported as user lists) and interactive components
    **When** the importer runs against the another tool External API
    **Then** each entity is written to TaleArt
    **And** the import report lists count per entity, source against target
@@ -38,7 +38,7 @@ A team that runs another tool content can import its account into TaleArt, serve
    Verify: compare a migrated tale on the Web SDK with its another tool original.
 
 3. **MVP data model** (R3)
-   The foundation data model holds app, project, zone, tale group, tale, frame, tag and collection.
+   The foundation data model holds app, project, zone, tale group, tale, frame and tag. Product sets (formerly collections) are not in the foundation: they depend on product feeds and come later (user, 2026-10-20).
    Verify: the schema includes each entity and a test creates one of each.
 
 4. **MVP interactive components** (R4)
@@ -46,7 +46,7 @@ A team that runs another tool content can import its account into TaleArt, serve
    Verify: each component renders and records a response on the Web SDK.
 
 5. **Tag and audience targeting** (R5)
-   Tags combine with AND or OR. Audiences import from a single-column CSV matched to the external user key. A group with no tags passed shows when active.
+   Tags on tale groups combine with AND or OR. User lists import from a single-column CSV matched to the external user ID. A group with no tags passed shows when active.
    Verify: a test matrix over AND, OR and no-tag cases returns the expected groups.
 
 6. **Scheduling** (R6)
@@ -58,7 +58,7 @@ A team that runs another tool content can import its account into TaleArt, serve
    Verify: each metric appears in the dashboard and its definition is in the published docs.
 
 8. **Project tag from the first release** (R8)
-   Every tale, tale group, zone and collection carries a project identifier.
+   Every tale, tale group, zone and (once built) product set carries a project identifier.
    Verify: a schema test fails when any of these entities is created without a project identifier.
 
 9. **Web SDK zones** (R9)
@@ -75,9 +75,9 @@ A team that runs another tool content can import its account into TaleArt, serve
     The web zones epic holds stage and playbook, so a zone's rendering context and its preset frames are stored.
     Verify: a zone with a stage and a playbook renders on the Web SDK.
 
-12. **Audience, member and external user key** (R12)
-    The targeting epic holds audience, member and external user key, so viewers are matched to groups.
-    Verify: an audience CSV matches a viewer by external user key.
+12. **User list, segment, user attributes and external user ID** (R12)
+    The targeting epic holds user lists, segments, user attributes and the external user ID, so viewers are matched to groups.
+    Verify: a user list CSV matches a viewer by external user ID.
 
 ## Constraints
 
@@ -93,12 +93,12 @@ A team that runs another tool content can import its account into TaleArt, serve
 - A another tool test account imports end to end, and the report matches the source counts for every MVP entity.
 - A visitor on a Web page sees a zone's bar or banner with imported tales.
 - Every MVP metric has a published definition.
-- Every tale, tale group, zone and collection carries a project identifier.
+- Every tale, tale group, zone and (once built) product set carries a project identifier.
 
 ## Boundaries
 
-- **In:** Web MVP, the importer, the MVP entities, the six interactive components, tag and audience targeting, scheduling, per-widget analytics, the project tag.
-- **Out (post-MVP):** native iOS and Android SDKs; usage metering, storage metering and audit export for internal chargeback; Canvas, Swipe Card and Video Feed widgets; conversion attribution; AI personalization; retail media; pricing and hosted commercial offers.
+- **In:** Web MVP, the importer, the MVP entities, the six interactive components, tag and user list targeting, scheduling, per-widget analytics, the project tag.
+- **Out (post-MVP):** native iOS and Android SDKs; usage metering, storage metering and audit export for internal chargeback; Canvas, Swipe Card and Video Feed widgets; conversion attribution; campaigns; journeys; AI personalization; retail media; pricing and hosted commercial offers.
 
 ## References
 
@@ -115,3 +115,4 @@ A team that runs another tool content can import its account into TaleArt, serve
 - Open question: the status scheme (research section 11.3) is a proposal. Approve or change it before the importer's status mapping is built.
 - Decision: conversion tracking is not part of another tool compatibility. TaleArt designs its own conversion tracking later, and the importer does not migrate conversion records (user). another tool's endpoint is no longer an open question.
 - Open question: names (terminology map) and license need decisions and counsel review before publication.
+- Decision (2026-10-20): targeting and campaign names approved by the user: tag (on tale groups; UI "Targeting tags"), segment, user list, user attributes, external user ID, journey (common noun, never branded; counsel sign-off pending, fallback "Sequence"), playbook, campaign with a schedule, product set (replaces collection). "Audience" is only a dashboard heading. Source: research-another tool-competitive-teardown/naming-targeting-and-campaigns.md.
