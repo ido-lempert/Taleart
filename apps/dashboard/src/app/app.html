@@ -30,7 +30,28 @@
     </form>
     <ul>
       @for (zone of zones(); track zone.id) {
-        <li>{{ zone.name }} <small>in {{ projectNameOf(zone.projectId) }}</small></li>
+        <li>
+          {{ zone.name }} <small>in {{ projectNameOf(zone.projectId) }}</small>
+          <form (ngSubmit)="addFrame(zone.id)">
+            <label>
+              Frame type
+              <select [name]="'frameType-' + zone.id" [(ngModel)]="frameTypeChoice[zone.id]">
+                <option value="">Choose a frame type</option>
+                @for (type of frameTypes(); track type.key) {
+                  <option [value]="type.key">{{ type.label }}</option>
+                }
+              </select>
+            </label>
+            <button type="submit">Add frame</button>
+          </form>
+          <ul [attr.aria-label]="'Frames in ' + zone.name">
+            @for (frame of framesOf(zone.id); track frame.id) {
+              <li>{{ frameTypeLabel(frame.type) }}</li>
+            } @empty {
+              <li>No frames yet.</li>
+            }
+          </ul>
+        </li>
       } @empty {
         <li>No zones yet.</li>
       }

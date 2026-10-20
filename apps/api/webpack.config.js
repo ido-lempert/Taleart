@@ -15,7 +15,11 @@ module.exports = {
       compiler: 'tsc',
       main: './src/main.ts',
       tsConfig: './tsconfig.app.json',
-      assets: ['./src/assets'],
+      assets: [
+        './src/assets',
+        // The frame-type registry is configuration read at start (AD-5).
+        { input: '../../libs/contract/frame-types', glob: '*.json', output: 'frame-types' },
+      ],
       optimization: false,
       outputHashing: 'none',
       generatePackageJson: true,

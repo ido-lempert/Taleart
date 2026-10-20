@@ -90,6 +90,69 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /frame-types:
+    get:
+      operationId: listFrameTypes
+      summary: List the frame types in the registry (AD-5).
+      responses:
+        '200':
+          description: Every registered frame type.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FrameType'
+        default:
+          $ref: '#/components/responses/Error'
+  /zones/{zoneId}/frames:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listZoneFrames
+      summary: List a zone's frames, oldest first.
+      responses:
+        '200':
+          description: The zone's frames.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Frame'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createZoneFrame
+      summary: Add a frame of a registered type to a zone.
+      description: >-
+        `settings` is validated against the JSON Schema of the frame type.
+        A missing `settings` is treated as `{}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFrameRequest'
+      responses:
+        '201':
+          description: The created frame.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Frame'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   responses:
     Error:
@@ -144,12 +207,54 @@ components:
         projectId:
           type: string
           format: uuid
+    FrameType:
+      type: object
+      required: [key, label]
+      properties:
+        key:
+          type: string
+          description: Registry key stored on each frame as `type`.
+        label:
+          type: string
+    Frame:
+      type: object
+      required: [id, zoneId, projectId, type, settings]
+      properties:
+        id:
+          type: string
+          format: uuid
+        zoneId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: A frame type key from the registry.
+        settings:
+          type: object
+          additionalProperties: true
+          description: Settings valid against the frame type's JSON Schema.
+    CreateFrameRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          minLength: 1
+        settings:
+          type: object
+          additionalProperties: true
     ErrorCode:
       type: string
       enum:
         - validation_failed
         - project_not_found
         - not_found
+        - zone_not_found
+        - unknown_frame_type
+        - invalid_frame_settings
         - internal_error
     ErrorBody:
       type: object

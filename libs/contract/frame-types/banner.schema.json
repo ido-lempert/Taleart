@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banner frame settings",
+  "description": "Settings for the banner frame type. No fields yet; they arrive with the web zones epic.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

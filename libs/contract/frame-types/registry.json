@@ -1,0 +1,6 @@
+{
+  "types": [
+    { "key": "bar", "label": "Bar", "schema": "bar.schema.json" },
+    { "key": "banner", "label": "Banner", "schema": "banner.schema.json" }
+  ]
+}
