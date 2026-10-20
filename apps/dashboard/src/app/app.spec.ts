@@ -8,6 +8,7 @@ import { App, API_BASE, API_ORIGIN } from './app';
 import { appRoutes } from './app.routes';
 import { PasskeyClient, unauthorizedInterceptor } from './auth';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
+import { IMPORT_POLL_INTERVAL_MS } from './import.service';
 
 const frameTypes = [
   { key: 'bar', label: 'Bar' },
@@ -1789,6 +1790,163 @@ describe('App', () => {
       await settle(fixture);
       expect(root.querySelector('.form-error')?.textContent).toContain('already exists');
       expect(root.querySelector('h1')?.textContent).toContain('Join Acme');
+    });
+  });
+
+  describe('import from Storyly', () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve));
+    const importsUrl = `${API_BASE}/projects/p1/imports`;
+    const report = {
+      zones: { source: 3, imported: 3, skipped: 0 },
+      notes: [
+        'Zone "Home page": frame type unknown',
+        'Zone "Product page": frame type unknown',
+        'Zone "Checkout": frame type unknown',
+      ],
+    };
+    const job = (status: string, extra: object = {}) => ({
+      id: 'j1',
+      status,
+      sourceAppName: 'Demo shop',
+      report: null,
+      error: null,
+      createdAt: '2026-10-20T12:00:00.000Z',
+      finishedAt: null,
+      ...extra,
+    });
+    const imported = [
+      { id: 'z11', name: 'Home page', projectId: 'p1' },
+      { id: 'z12', name: 'Product page', projectId: 'p1' },
+      { id: 'z13', name: 'Checkout', projectId: 'p1' },
+    ];
+
+    // The status page polls without waiting, so the tests need not wait 2 s.
+    beforeEach(async () => {
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [App],
+        providers: [
+          provideHttpClient(withInterceptors([unauthorizedInterceptor])),
+          provideHttpClientTesting(),
+          { provide: PasskeyClient, useValue: passkeys },
+          provideRouter(appRoutes, withComponentInputBinding()),
+          { provide: IMPORT_POLL_INTERVAL_MS, useValue: 0 },
+        ],
+      }).compileComponents();
+      http = TestBed.inject(HttpTestingController);
+    });
+
+    // Answers the next poll of job j1.
+    async function answerPoll(fixture: ComponentFixture<unknown>, body: object): Promise<void> {
+      await tick();
+      http.expectOne(`${importsUrl}/j1`).flush(body);
+      await tick();
+      fixture.detectChanges();
+    }
+
+    // Pastes the token, finds the apps and starts importing Demo shop.
+    async function startImport(fixture: ComponentFixture<unknown>, root: HTMLElement): Promise<void> {
+      type(root.querySelector<HTMLInputElement>('#import-token'), 'fake-storyly-token');
+      buttonNamed(root, 'Find apps').click();
+      const find = http.expectOne(`${importsUrl}/storyly/apps`);
+      expect(find.request.method).toBe('POST');
+      expect(find.request.body).toEqual({ token: 'fake-storyly-token' });
+      find.flush([{ id: '1001', name: 'Demo shop' }]);
+      await settle(fixture);
+
+      const options = [...(root.querySelector<HTMLSelectElement>('#import-app')?.options ?? [])];
+      expect(options.map((o) => o.textContent?.trim())).toEqual(['Demo shop']);
+      buttonNamed(root, 'Start import').click();
+      const start = http.expectOne(importsUrl);
+      expect(start.request.method).toBe('POST');
+      expect(start.request.body).toEqual({ token: 'fake-storyly-token', appId: '1001' });
+      start.flush({ id: 'j1', status: 'queued' }, { status: 202, statusText: 'Accepted' });
+      await tick();
+      fixture.detectChanges();
+    }
+
+    it('gives admins "Import from Storyly" on each project card, opening the import page', async () => {
+      const { fixture, root } = await open('/projects', { projects: [acme, globex], zones: [zone] });
+      const links = root.querySelectorAll<HTMLAnchorElement>('[aria-label^="Import from Storyly into"]');
+      expect(links).toHaveLength(2);
+      expect(links[0].getAttribute('href')).toBe('/projects/p1/import');
+
+      links[0].click();
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/projects/p1/import');
+      expect(root.querySelector('h2')?.textContent).toContain('Import from Storyly');
+      expect(root.textContent).toContain('into Acme');
+      expect(root.querySelector<HTMLInputElement>('#import-token')?.type).toBe('password');
+    });
+
+    it('hides "Import from Storyly" from a content manager', async () => {
+      const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/projects', { setupRequired: false, user: manager });
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('[aria-label^="Import from Storyly"]')).toBeNull();
+    });
+
+    it('finds the apps, starts the import, follows it to done and shows the report', async () => {
+      const { fixture, root } = await open('/projects/p1/import', oneZone);
+      await startImport(fixture, root);
+      expect(root.querySelector('[role=status]')?.textContent).toContain('Queued');
+      expect(root.querySelector('#import-token')).toBeNull();
+
+      await answerPoll(fixture, job('running'));
+      expect(root.querySelector('[role=status]')?.textContent).toContain('Running');
+      expect(root.textContent).toContain('From the app Demo shop');
+
+      await answerPoll(fixture, job('done', { report, finishedAt: '2026-10-20T12:00:05.000Z' }));
+      expect(root.querySelector('[role=status]')?.textContent).toContain('Done');
+      expect(root.querySelector('[aria-label=Report]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Zones: 3 source / 3 imported',
+      );
+      expect([...root.querySelectorAll('[aria-label=Notes] li')].map((li) => li.textContent?.trim())).toEqual(
+        report.notes,
+      );
+
+      // The new zones load, and the Zones page of the project lists them.
+      await flushRefresh(fixture, { projects: [acme], zones: [zone, ...imported] });
+      [...root.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'See zones')?.click();
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/zones');
+      for (const z of imported) expect(root.textContent).toContain(z.name);
+    });
+
+    it("shows the API's message for a refused token and starts nothing", async () => {
+      const { fixture, root } = await open('/projects/p1/import', oneZone);
+      type(root.querySelector<HTMLInputElement>('#import-token'), 'wrong');
+      buttonNamed(root, 'Find apps').click();
+      http.expectOne(`${importsUrl}/storyly/apps`).flush(
+        { error: { code: 'storyly_token_invalid', message: 'Storyly refused this API token. Check the token and try again.' } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle(fixture);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Storyly refused this API token');
+      expect(root.querySelector('#import-app')).toBeNull();
+      expect(root.textContent).not.toContain('Start import');
+    });
+
+    it("shows a failed job's error", async () => {
+      const { fixture, root } = await open('/projects/p1/import', oneZone);
+      await startImport(fixture, root);
+      await answerPoll(fixture, job('failed', { error: 'Storyly answered 500 when listing instances' }));
+      expect(root.querySelector('[role=status]')?.textContent).toContain('Failed');
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Storyly answered 500 when listing instances');
+
+      buttonNamed(root, 'Start another import').click();
+      await settle(fixture);
+      expect(root.querySelector('#import-token')).not.toBeNull();
+    });
+
+    it('asks for a token before finding apps', async () => {
+      const { fixture, root } = await open('/projects/p1/import', oneZone);
+      buttonNamed(root, 'Find apps').click();
+      await settle(fixture);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Paste a Storyly API token');
     });
   });
 });

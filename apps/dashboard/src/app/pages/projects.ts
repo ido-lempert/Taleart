@@ -1,16 +1,16 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 
 /**
  * The caller's projects as cards; opening one makes it the selected project.
- * Admins also get "Invite" on each card and can create projects.
+ * Admins also get "Invite" and "Import from Storyly" on each card and can create projects.
  */
 @Component({
   selector: 'app-projects-page',
-  imports: [Icon],
+  imports: [Icon, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .project-card {
@@ -41,6 +41,12 @@ import { Icon } from '../icon';
     .project-card:has([aria-current='true']) {
       border-color: var(--ember);
     }
+    .project-card__actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: var(--space-2);
+    }
     .project-card__name {
       display: block;
       font-size: var(--text-lg);
@@ -67,14 +73,23 @@ import { Icon } from '../icon';
                   </span>
                 </button>
                 @if (auth.isAdmin()) {
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    [attr.aria-label]="'Invite to ' + project.name"
-                    (click)="store.openDrawer({ kind: 'invite', projectId: project.id }, $event)"
-                  >
-                    Invite
-                  </button>
+                  <span class="project-card__actions">
+                    <button
+                      type="button"
+                      class="btn btn--secondary btn--sm"
+                      [attr.aria-label]="'Invite to ' + project.name"
+                      (click)="store.openDrawer({ kind: 'invite', projectId: project.id }, $event)"
+                    >
+                      Invite
+                    </button>
+                    <a
+                      class="btn btn--secondary btn--sm"
+                      [routerLink]="['/projects', project.id, 'import']"
+                      [attr.aria-label]="'Import from Storyly into ' + project.name"
+                    >
+                      Import from Storyly
+                    </a>
+                  </span>
                 }
               </li>
             }

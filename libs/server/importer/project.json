@@ -1,0 +1,19 @@
+{
+  "name": "server-importer",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/server/importer/src",
+  "projectType": "library",
+  "tags": ["type:server-module"],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/server/importer",
+        "main": "libs/server/importer/src/index.ts",
+        "tsConfig": "libs/server/importer/tsconfig.lib.json",
+        "assets": []
+      }
+    }
+  }
+}

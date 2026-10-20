@@ -1,0 +1,26 @@
+{
+  "name": "fake-storyly",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/fake-storyly/src",
+  "tags": ["type:app", "scope:fake-storyly"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["{projectRoot}/src/**/*"],
+      "outputs": [],
+      "options": {
+        "command": "node --check apps/fake-storyly/src/fake-storyly.mjs && node --check apps/fake-storyly/src/main.mjs"
+      }
+    },
+    "serve": {
+      "continuous": true,
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node apps/fake-storyly/src/main.mjs",
+        "env": { "PORT": "4400" }
+      }
+    }
+  }
+}
