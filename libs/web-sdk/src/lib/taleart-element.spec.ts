@@ -63,6 +63,9 @@ describe('TaleartElement', () => {
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -143,9 +146,83 @@ describe('TaleartElement', () => {
     }
   });
 
-  it('does nothing and does not throw when an item is clicked', async () => {
+  it('opens the group of an activated bar item in the full-screen viewer', async () => {
     const el = await mount();
-    expect(() => items(el)[0].click()).not.toThrow();
+    items(el)[1].click();
+    const dialog = el.shadowRoot?.querySelector('dialog');
+    expect(dialog?.hasAttribute('open')).toBe(true);
+    expect(dialog?.getAttribute('aria-label')).toBe('Winter');
+    expect(el.shadowRoot?.activeElement).toBe(dialog);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('opens nothing for a group without tales', async () => {
+    const el = await mount();
+    expect(() => items(el)[2].click()).not.toThrow();
+    expect(el.shadowRoot?.querySelector('dialog')).toBeNull();
+  });
+
+  it('returns focus to the bar item of the group shown last when the viewer closes', async () => {
+    const el = await mount();
+    items(el)[0].click();
+    const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(dialog.getAttribute('aria-label')).toBe('Winter');
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(dialog.hasAttribute('open')).toBe(false);
+    expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
+  });
+
+  it('shows the seen ring for viewed groups, now and after a reload', async () => {
+    const el = await mount();
+    expect(items(el).some((b) => b.hasAttribute('data-seen'))).toBe(false);
+    items(el)[0].click();
+    el.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Close"]')?.click();
+    expect(items(el)[0].hasAttribute('data-seen')).toBe(true);
+    el.remove();
+
+    const again = await mount();
+    const [summer, winter] = items(again);
+    expect(summer.hasAttribute('data-seen')).toBe(true);
+    expect(summer.getAttribute('aria-label')).toBe('Summer, seen');
+    expect(winter.hasAttribute('data-seen')).toBe(false);
+    expect(winter.getAttribute('aria-label')).toBe('Winter');
+  });
+
+  it('renders the bar as unseen when local storage is blocked', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    const el = await mount();
+    expect(items(el)).toHaveLength(3);
+    expect(items(el).some((b) => b.hasAttribute('data-seen'))).toBe(false);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('closes an open viewer when the element is removed', async () => {
+    const el = await mount();
+    items(el)[0].click();
+    el.remove();
+    expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
+  });
+
+  it('moves focus to the matching item of the new bar when a reload closes the open viewer', async () => {
+    const el = await mount();
+    items(el)[1].click();
+    el.zoneKey = 'tak_other';
+    await settle();
+    expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
+    expect(items(el)).toHaveLength(3);
+    expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
+  });
+
+  it('moves focus to the first item when the reloaded bar no longer has the group', async () => {
+    const el = await mount();
+    items(el)[1].click();
+    fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: [zone.taleGroups[0], zone.taleGroups[2]] }));
+    el.zoneKey = 'tak_other';
+    await settle();
+    expect(el.shadowRoot?.activeElement).toBe(items(el)[0]);
   });
 
   it('renders nothing and logs one error with the API message for a refused key', async () => {
