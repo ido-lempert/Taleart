@@ -1,0 +1,43 @@
+<main>
+  <h1>TaleArt dashboard</h1>
+
+  <section>
+    <h2>Projects</h2>
+    <form (ngSubmit)="addProject()">
+      <input name="projectName" [(ngModel)]="projectName" placeholder="Project name" required />
+      <button type="submit">Add project</button>
+    </form>
+    <ul>
+      @for (project of projects(); track project.id) {
+        <li>{{ project.name }}</li>
+      } @empty {
+        <li>No projects yet.</li>
+      }
+    </ul>
+  </section>
+
+  <section>
+    <h2>Zones</h2>
+    <form (ngSubmit)="addZone()">
+      <select name="zoneProjectId" [(ngModel)]="zoneProjectId" required>
+        <option value="">Choose a project</option>
+        @for (project of projects(); track project.id) {
+          <option [value]="project.id">{{ project.name }}</option>
+        }
+      </select>
+      <input name="zoneName" [(ngModel)]="zoneName" placeholder="Zone name" required />
+      <button type="submit">Add zone</button>
+    </form>
+    <ul>
+      @for (zone of zones(); track zone.id) {
+        <li>{{ zone.name }} <small>in {{ projectNameOf(zone.projectId) }}</small></li>
+      } @empty {
+        <li>No zones yet.</li>
+      }
+    </ul>
+  </section>
+
+  @if (error()) {
+    <p role="alert">{{ error() }}</p>
+  }
+</main>

@@ -1,0 +1,6 @@
+{
+  "name": "mobile-sdk",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "tags": ["type:sdk", "platform:mobile"]
+}
