@@ -132,3 +132,11 @@ The run ended after about 30 minutes, not overnight: three of the remaining stor
 - **Assumptions:** tags belong to a project, 1 to 40 characters, unique ignoring case; setting a group's tags replaces the whole set; reordering is off while a tag filter is on; no renaming or deleting tags yet.
 - **Review in the dashboard:** open a zone, press "Tags" on a tale group, create "summer", check it, Save; use the filter chips above the groups.
 - **Blocking condition:** none.
+
+## Story 1.8 — Issue, rotate and revoke a zone key
+
+- **Status:** built
+- **Commits:** `3335722` story 8.
+- **Assumptions:** one active key per zone; key format `tak_…`, shown once, stored hashed; admin-only issue, rotate and revoke; Delivery API accepts only `Authorization: Bearer <key>`; `GET /delivery/v1/zone` returns the zone and its frames until the web zones epic adds published content.
+- **Review in the dashboard:** open a zone as admin, "Issue key", copy it, then `curl -H "Authorization: Bearer <key>" http://localhost:3333/delivery/v1/zone`; rotate or revoke and call again (401).
+- **Blocking condition:** none. Deferred: one failed per-zone request marks the dashboard as API-down (refactor sweep).
