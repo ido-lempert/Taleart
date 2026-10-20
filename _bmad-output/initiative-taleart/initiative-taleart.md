@@ -113,6 +113,7 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
 - Assumption: the MVP frame subset is bar and banner. Canvas, Swipe Card and Video Feed come after. Confirm before slicing.
 - Open question: the brief lists six interactive components and omits Rating, which Storyly documents. Include or drop Rating?
 - Open question: the status scheme (research section 11.3) is a proposal. Approve or change it before the importer's status mapping is built.
+- Source conflict: status scheme — this Notes line (open question) vs PRD addendum, Status scheme, and the initiative memlog (approved by the user). Raised while slicing epic-storyly-importer, 2026-10-20.
 - Decision: conversion tracking is not part of Storyly compatibility. TaleArt designs its own conversion tracking later, and the importer does not migrate conversion records (user). Storyly's endpoint is no longer an open question.
 - Open question: names (terminology map) and license need decisions and counsel review before publication.
 - Decision (2026-10-20): targeting and campaign names approved by the user: tag (on tale groups; UI "Targeting tags"), segment, user list, user attributes, external user ID, journey (common noun, never branded; counsel sign-off pending, fallback "Sequence"), playbook, campaign with a schedule, product set (replaces collection). "Audience" is only a dashboard heading. Source: research-storyly-competitive-teardown/naming-targeting-and-campaigns.md.
