@@ -4,14 +4,15 @@ import { InvitePage } from './pages/invite';
 import { SetupPage } from './pages/setup';
 import { SignInPage } from './pages/sign-in';
 import { ProjectsPage } from './pages/projects';
+import { TaleGroupsPage } from './pages/tale-groups';
 import { ZoneDetailPage } from './pages/zone-detail';
 import { ZonesPage } from './pages/zones';
 
-/** Shell data per route: the top bar title and what its "New …" button creates. */
+/** Shell data per route: the top bar title and what its "New …" button creates, if anything. */
 export interface ShellData {
   heading: string;
-  create: 'project' | 'zone' | 'taleGroup';
-  createLabel: string;
+  create?: 'project' | 'zone' | 'taleGroup';
+  createLabel?: string;
 }
 
 /** Route data of the pages shown without the shell: setup, sign-in and invitations. */
@@ -58,6 +59,13 @@ export const appRoutes: Route[] = [
         component: ZoneDetailPage,
         title: 'Zone · TaleArt',
         data: { heading: 'Zone', create: 'taleGroup', createLabel: 'New tale group' } satisfies ShellData,
+      },
+      {
+        // A project's tale groups, placed in zones or not (AD-14).
+        path: 'tale-groups',
+        component: TaleGroupsPage,
+        title: 'Tale groups · TaleArt',
+        data: { heading: 'Tale groups' } satisfies ShellData,
       },
       {
         path: 'projects',

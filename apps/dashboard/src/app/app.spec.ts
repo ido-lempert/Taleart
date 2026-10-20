@@ -17,7 +17,7 @@ const acme = { id: 'p1', name: 'Acme' };
 const globex = { id: 'p2', name: 'Globex' };
 const zone = { id: 'z1', name: 'Home bar', projectId: 'p1' };
 const otherZone = { id: 'z2', name: 'Checkout', projectId: 'p2' };
-const group = { id: 'g1', zoneId: 'z1', projectId: 'p1', name: 'Summer', position: 0, tags: [] as unknown[] };
+const group = { id: 'g1', zoneIds: ['z1'], projectId: 'p1', name: 'Summer', position: 0, tags: [] as unknown[] };
 const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, media: null };
 const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, media: null };
 const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
@@ -36,6 +36,8 @@ interface Data {
   tags?: Record<string, unknown[]>;
   /** Each zone's active key info, keyed by zone id; null when missing. */
   keys?: Record<string, unknown>;
+  /** Each project's tale groups (the Tale groups page), keyed by project id. */
+  projectGroups?: Record<string, unknown[]>;
 }
 
 const oneZone: Data = { projects: [acme], zones: [zone] };
@@ -105,7 +107,7 @@ describe('App', () => {
   afterEach(() => http.verify());
 
   // Answers one full refresh: projects, zones, frame types, each zone's frames and tale groups, each project's
-  // tags, then each zone's key info.
+  // tags and tale groups, then each zone's key info.
   async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data): Promise<void> {
     const zones = data.zones ?? [];
     http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
@@ -121,6 +123,10 @@ describe('App', () => {
     }
     await settle(fixture);
     for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
+    await settle(fixture);
+    for (const p of data.projects ?? []) {
+      http.expectOne(`${API_BASE}/projects/${p.id}/tale-groups`).flush(data.projectGroups?.[p.id] ?? []);
+    }
     await settle(fixture);
     for (const z of zones) http.expectOne(`${API_BASE}/zones/${z.id}/key`).flush(data.keys?.[z.id] ?? null);
     await settle(fixture);
@@ -559,7 +565,7 @@ describe('App', () => {
   });
 
   describe('reordering', () => {
-    const groupB = { id: 'g2', zoneId: 'z1', projectId: 'p1', name: 'Winter', position: 1, tags: [] };
+    const groupB = { id: 'g2', zoneIds: ['z1'], projectId: 'p1', name: 'Winter', position: 1, tags: [] };
     const twoTales: Data = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } };
 
     function titles(root: HTMLElement): (string | undefined)[] {
@@ -726,12 +732,241 @@ describe('App', () => {
     });
   });
 
+  describe('zone placements', () => {
+    const productZone = { id: 'z3', name: 'Product page', projectId: 'p1' };
+    const shared = { ...group, zoneIds: ['z1', 'z3'], tales: [] };
+    const twoZones: Data = { projects: [acme, globex], zones: [zone, productZone, otherZone] };
+
+    function groupRow(root: HTMLElement, name: string): HTMLElement {
+      const row = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => li.querySelector('h4')?.textContent?.trim() === name);
+      if (!row) throw new Error(`No ${name} row`);
+      return row;
+    }
+
+    it('says where else a group shows, with links to those zones', async () => {
+      const winter = { id: 'g2', zoneIds: ['z1'], projectId: 'p1', name: 'Winter', position: 1, tags: [], tales: [] };
+      const { root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared, winter], z3: [{ ...shared, position: 0 }] } });
+
+      const alsoIn = groupRow(root, 'Summer').querySelector('.group__zones');
+      expect(alsoIn?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Also in: Product page');
+      expect(alsoIn?.querySelector('a')?.getAttribute('href')).toBe('/zones/z3');
+      expect(groupRow(root, 'Winter').querySelector('.group__zones')).toBeNull();
+      // Summer is in every zone of its project, so it offers no "Add to zone…".
+      expect(() => buttonNamed(groupRow(root, 'Summer'), 'Add to zone…')).toThrow();
+      expect(groupRow(root, 'Summer').querySelector('.group__actions')?.textContent).toContain('In every zone');
+      const add = buttonNamed(groupRow(root, 'Winter'), 'Add to zone…');
+      expect(add.getAttribute('aria-describedby')).toBe('group-name-g2');
+      expect(groupRow(root, 'Winter').querySelector('.group__actions')?.textContent).not.toContain('In every zone');
+      expect(buttonNamed(groupRow(root, 'Summer'), 'Remove from this zone')).toBeTruthy();
+      expect(buttonNamed(groupRow(root, 'Summer'), 'Rename')).toBeTruthy();
+    });
+
+    it("adds a group to another zone of its project from the drawer, then shows it there and \"Also in\"", async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...twoZones,
+        groups: { z1: [{ ...group, tales: [] }] },
+        projectGroups: { p1: [{ id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 0, zoneIds: ['z1'] }] },
+      });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Add to zone…').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Add to zone');
+      expect(drawer()?.textContent).toContain('Tale group Summer');
+      const options = [...(drawer()?.querySelectorAll<HTMLInputElement>('input[type=radio]') ?? [])];
+      // Only the project's zones that do not hold the group yet.
+      expect(options.map((o) => o.closest('label')?.textContent?.trim())).toEqual(['Product page']);
+
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Choose a zone.');
+
+      options[0].click();
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z3/tale-groups/g1`);
+      expect(req.request.method).toBe('PUT');
+      req.flush({ ...shared, position: 0 }, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z1: [shared], z3: [{ ...shared, position: 0 }] } });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(groupRow(root, 'Summer').querySelector('.group__zones')?.textContent).toContain('Product page');
+    });
+
+    it("shows the API's message in the Add to zone drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Add to zone…').click();
+      await settle(fixture);
+      drawer()?.querySelector<HTMLInputElement>('input[type=radio]')?.click();
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z3/tale-groups/g1`)
+        .flush(
+          { error: { code: 'tale_group_not_found', message: "taleGroupId does not match a tale group of the zone's project" } },
+          { status: 400, statusText: 'Bad Request' },
+        );
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('does not match a tale group');
+    });
+
+    it('removes a group from this zone after confirming that it stays in the project', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared], z3: [{ ...shared, position: 0 }] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Remove from this zone').click();
+      await settle(fixture);
+      const text = drawer()?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(text).toContain('Remove Summer from Home bar?');
+      expect(text).toContain('The tale group stays in the project with its tales, and still shows in Product page.');
+      const remove = buttonNamed(drawer() as HTMLElement, 'Remove');
+      expect(remove.classList).toContain('btn--danger');
+
+      remove.click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z1/tale-groups/g1`);
+      expect(req.request.method).toBe('DELETE');
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z3: [{ ...shared, zoneIds: ['z3'], position: 0 }] } });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(root.textContent).toContain('No tale groups yet');
+    });
+
+    it('renames a group from the drawer; the new name shows in this zone and its other zone', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared], z3: [{ ...shared, position: 0 }] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Rename').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Rename tale group');
+      const input = drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null;
+      expect(input?.value).toBe('Summer');
+      type(input, 'Summer sale');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1`);
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({ name: 'Summer sale' });
+      const renamed = { ...shared, name: 'Summer sale' };
+      req.flush(renamed);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z1: [renamed], z3: [{ ...renamed, position: 0 }] } });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(groupRow(root, 'Summer sale')).toBeTruthy();
+      expect(store.taleGroupsOf('z3')[0].name).toBe('Summer sale');
+    });
+
+    it("shows the API's message in the Rename drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Rename').click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, '  ');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await refuse(fixture, `${API_BASE}/tale-groups/g1`, 'validation_failed', 'name is required');
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('name is required');
+    });
+
+    it("shows the API's message in the Remove drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Remove from this zone').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Remove').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z1/tale-groups/g1`)
+        .flush(
+          { error: { code: 'tale_group_not_found', message: 'taleGroupId does not match a tale group' } },
+          { status: 404, statusText: 'Not Found' },
+        );
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('taleGroupId does not match a tale group');
+    });
+
+    it("shows the tale groups page from the rail: the project's groups with their zones, also those in no zone", async () => {
+      const { fixture, root } = await open('/zones', {
+        ...twoZones,
+        projectGroups: {
+          p1: [
+            { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: [] },
+            { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 0, zoneIds: ['z1', 'z3'] },
+          ],
+          p2: [{ id: 'g8', projectId: 'p2', name: 'Elsewhere', taleCount: 0, zoneIds: ['z2'] }],
+        },
+      });
+
+      const link = root.querySelector<HTMLAnchorElement>('.rail a[href="/tale-groups"]');
+      expect(link?.textContent).toContain('Tale groups');
+      await navigate(fixture, '/tale-groups');
+      expect(root.querySelector('.topbar__title')?.textContent).toBe('Tale groups');
+      expect(link?.getAttribute('aria-current')).toBe('page');
+
+      const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] li')];
+      expect(rows.map((r) => r.querySelector('h3')?.textContent?.trim())).toEqual(['Autumn', 'Summer']);
+      expect(rows[0].textContent).toContain('3 / 100');
+      expect(rows[0].textContent).toContain('Not in any zone');
+      expect(rows[1].querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar, Product page');
+      expect([...rows[1].querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/zones/z1', '/zones/z3']);
+      expect(rows[1].textContent).toContain('In every zone');
+      expect(root.textContent).not.toContain('Elsewhere');
+
+      buttonNamed(rows[0], 'Add to zone…').click();
+      await settle(fixture);
+      const options = [...(drawer()?.querySelectorAll<HTMLInputElement>('input[type=radio]') ?? [])];
+      expect(options.map((o) => o.closest('label')?.textContent?.trim())).toEqual(['Home bar', 'Product page']);
+      options[1].click();
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z3/tale-groups/g9`)
+        .flush({ id: 'g9', projectId: 'p1', name: 'Autumn', position: 1, zoneIds: ['z3'], tales: [], tags: [] }, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, {
+        ...twoZones,
+        projectGroups: {
+          p1: [
+            { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: ['z3'] },
+            { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 0, zoneIds: ['z1', 'z3'] },
+          ],
+        },
+      });
+      await settle(fixture);
+      expect(root.querySelector('[aria-label="Tale groups in Acme"] li')?.textContent).toContain('In: Product page');
+    });
+
+    it('shows the saved tale order in the group\'s other zone too', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const withTales = { ...shared, tales: [taleA, taleB] };
+      const { fixture } = await open('/zones/z1', { ...twoZones, groups: { z1: [withTales], z3: [{ ...withTales, position: 0 }] } });
+
+      const saving = store.orderTales('z1', 'g1', ['t2', 't1']);
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`).flush([
+        { ...taleB, position: 0 },
+        { ...taleA, position: 1 },
+      ]);
+      expect(await saving).toBe('');
+      await settle(fixture);
+      expect(store.taleGroupsOf('z3')[0].tales.map((t) => t.id)).toEqual(['t2', 't1']);
+    });
+  });
+
   describe('tags', () => {
     const summer = { id: 'tag1', projectId: 'p1', name: 'summer' };
     const beach = { id: 'tag2', projectId: 'p1', name: 'Beach' };
     const ref = ({ id, name }: { id: string; name: string }) => ({ id, name });
-    const winter = { id: 'g2', zoneId: 'z1', projectId: 'p1', name: 'Winter', position: 1, tags: [] as unknown[] };
-    const spring = { id: 'g3', zoneId: 'z1', projectId: 'p1', name: 'Spring', position: 2, tags: [] as unknown[] };
+    const winter = { id: 'g2', zoneIds: ['z1'], projectId: 'p1', name: 'Winter', position: 1, tags: [] as unknown[] };
+    const spring = { id: 'g3', zoneIds: ['z1'], projectId: 'p1', name: 'Spring', position: 2, tags: [] as unknown[] };
 
     function groupNames(root: HTMLElement): string[] {
       return [...root.querySelectorAll('[aria-label="Tale groups in Home bar"] h4')].map((h) => h.textContent?.trim() ?? '');

@@ -3,14 +3,14 @@ title: 'Show one tale group in several zones'
 type: 'feature'
 ticket: '15'
 created: '2026-10-20'
-status: 'in-progress'
+status: 'built'
 baseline_revision: 'be909804f298c3c5692c0035cfc0e10b72384f41'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -88,7 +88,16 @@ deferred: []
 
 ## Plan Change Log
 
+- 2026-10-20, review: the ticket's verify and AC 1 rename a group, but no rename existed. Added `PATCH /api/v1/tale-groups/{taleGroupId} {name}` and a "Rename" action on the zone page, so a rename in one zone shows in every zone. KEEP: placements, migration and locking as built.
+
 ## Review Triage Log
+
+### 2026-10-20 — Review pass
+- verdicts: 3 findings — high 0, medium 1, low 2, false 0, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` AC 1 renames a group but no rename existed — fixed: `PATCH /tale-groups/{id}`, tales `renameTaleGroup`, "Rename" drawer; API and component tests (rename shows in both zones and in Delivery).
+  - `[low]` `[patch]` "Add to zone…" showed when the group was already in every zone and could only fail — fixed: hidden, "In every zone" shown, as on the Tale groups page.
+  - `[low]` `[reject]` A picked zone could carry over if a second drawer opened over the first — drawers close before another opens and on navigation; same pattern as the tags drawer.
 
 ## Verification
 
@@ -97,3 +106,22 @@ deferred: []
 
 **Manual checks (if no CLI):**
 - The parent session places one group in two zones on the dev servers and screenshots both zone pages and the Tale groups page.
+
+## Auto Run Result
+
+**Summary:** Tale groups belong to their project; zones place them through `zone_tale_groups` with their own order (AD-14). Existing groups migrated to one placement in their old zone at their old position. Zone lists, create, reorder and the Delivery API read placements. New routes place, remove and rename groups and list a project's groups; the dashboard adds "Add to zone…", "Remove from this zone", "Rename", "Also in: …" and a "Tale groups" page.
+
+**Files changed:**
+- `libs/server/tales/` — placements table and migration, place, remove, rename, project list; zone reads and order on placements; tests.
+- `libs/contract/` — `TaleGroup.zoneIds`, `ZoneTaleGroup`, `ProjectTaleGroup`, new paths; regenerated.
+- `apps/api/src/` — routes, Delivery through placements, CORS PATCH; tests including a migration test.
+- `apps/dashboard/src/app/` — group actions and drawers, "Also in", Tale groups page and rail item; tests.
+
+**Review:** 2 patches applied (1 medium, 1 low), 0 deferred, 1 rejected (low: stale picked zone across drawers).
+
+**Follow-up review recommended:** false. One medium and no high were patched.
+
+**Verification:** `nx run-many -t lint test build` for ten projects passed before and after the patches (api 156, server-tales 35, dashboard 73 tests). The migration was run twice on a copy of the dev database: the existing group stayed in its zone at position 0. In Chromium against `taleart_e2e_test`, "Summer sale" was added to a second zone and showed "Also in: Home page"; screenshots were sent to the user.
+
+**Residual risks:**
+- A saved tale order reaches the group's other zones once the API confirms it; a zone with its own pending order requests shows the new tales in its pending view.

@@ -1,18 +1,26 @@
-import type {
-  CreateTaleGroupRequest,
-  CreateTaleRequest,
-  OrderTaleGroupsRequest,
-  OrderTalesRequest,
-  SetTaleGroupTagsRequest,
-  TaleGroup,
+import {
+  ErrorCodes,
+  type CreateTaleGroupRequest,
+  type CreateTaleRequest,
+  type OrderTaleGroupsRequest,
+  type OrderTalesRequest,
+  type RenameTaleGroupRequest,
+  type SetTaleGroupTagsRequest,
+  type TaleGroup,
+  type ZoneTaleGroup,
 } from '@taleart/contract';
+import { projectExists } from '@taleart/server-access';
 import {
   createTale,
   createTaleGroup,
   getTaleGroup,
+  listProjectTaleGroups,
   listTaleGroups,
   orderTaleGroups,
   orderTales,
+  placeTaleGroup,
+  removeTaleGroup,
+  renameTaleGroup,
   taleGroupExists,
   TaleGroupNotFoundError,
   type StoredTaleGroup,
@@ -22,13 +30,14 @@ import { zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorizeParam } from './authorize';
+import { HttpError } from './errors';
 import { requiredString, requiredStringArray } from './validation';
 
 /**
  * Tale groups with their tags. The tales module stores groups and the
  * targeting module their tags; the API composes the two (AD-1).
  */
-async function withTags(pool: Pool, groups: StoredTaleGroup[]): Promise<TaleGroup[]> {
+async function withTags<G extends StoredTaleGroup>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
   const tags = await tagsForTaleGroups(pool, groups.map((g) => g.id));
   return groups.map((group) => ({ ...group, tags: tags.get(group.id) ?? [] }));
 }
@@ -52,7 +61,7 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
       const input: CreateTaleGroupRequest = { name: requiredString(req.body, 'name') };
       const group = await createTaleGroup(pool, { zoneId: req.params.zoneId, ...input });
-      res.status(201).json({ ...group, tags: [] } satisfies TaleGroup);
+      res.status(201).json({ ...group, tags: [] } satisfies ZoneTaleGroup);
     } catch (err) {
       next(err);
     }
@@ -70,6 +79,48 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
     }
   });
 
+  // Registered after `/order`, so PUT .../tale-groups/order still orders (AD-14).
+  router.put('/:zoneId/tale-groups/:taleGroupId', zoneAccess, async (req, res, next) => {
+    try {
+      // Zone first (404), then the group of the zone's project (400 tale_group_not_found).
+      const { zoneId, taleGroupId } = req.params;
+      const { group, placed } = await placeTaleGroup(pool, zoneId, taleGroupId);
+      const [body] = await withTags(pool, [group]);
+      res.status(placed ? 201 : 200).json(body satisfies ZoneTaleGroup);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/:zoneId/tale-groups/:taleGroupId', zoneAccess, async (req, res, next) => {
+    try {
+      // Zone first (404 zone_not_found), then the placement (404 tale_group_not_found).
+      await removeTaleGroup(pool, req.params.zoneId, req.params.taleGroupId);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return router;
+}
+
+/** A project's tale groups, placed in a zone or not (AD-14): mounted at `/projects`. */
+export function projectTaleGroupsRouter(pool: Pool): Router {
+  const router = Router();
+
+  router.get('/:projectId/tale-groups', authorizeParam(pool, 'project', 'projectId'), async (req, res, next) => {
+    try {
+      const { projectId } = req.params;
+      if (!(await projectExists(pool, projectId))) {
+        throw new HttpError(404, ErrorCodes.projectNotFound, 'No project has this id');
+      }
+      res.json(await listProjectTaleGroups(pool, projectId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }
 
@@ -77,6 +128,19 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
 export function taleGroupsRouter(pool: Pool): Router {
   const router = Router();
   const groupAccess = authorizeParam(pool, 'taleGroup', 'taleGroupId');
+
+  router.patch('/:taleGroupId', groupAccess, async (req, res, next) => {
+    try {
+      // Tale group first (404), then the body (400).
+      const { taleGroupId } = req.params;
+      if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
+      const input: RenameTaleGroupRequest = { name: requiredString(req.body, 'name') };
+      const [body] = await withTags(pool, [await renameTaleGroup(pool, taleGroupId, input.name)]);
+      res.json(body satisfies TaleGroup);
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.post('/:taleGroupId/tales', groupAccess, async (req, res, next) => {
     try {

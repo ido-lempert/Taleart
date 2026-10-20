@@ -5,8 +5,12 @@ import {
   listDeliveryTaleGroups,
   getTaleGroup,
   getTaleMedia,
+  listProjectTaleGroups,
   listTaleGroups,
   OrderMismatchError,
+  placeTaleGroup,
+  removeTaleGroup,
+  renameTaleGroup,
   orderTaleGroups,
   orderTales,
   setTaleMedia,
@@ -15,9 +19,11 @@ import {
   taleProjectId,
   TaleGroupFullError,
   TaleGroupNotFoundError,
+  TaleGroupNotInProjectError,
   TaleNotFoundError,
   type TransactionalDb,
 } from './tales';
+import { migrateTales } from './migration';
 import { ZoneNotFoundError } from '@taleart/server-zones';
 
 const zoneId = '00000000-0000-4000-8000-000000000001';
@@ -55,22 +61,159 @@ describe('tale groups', () => {
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
   });
 
-  it("copies the zone's project, serializes on the zone and appends after the last position", async () => {
+  it("creates the group in the zone's project, serializes on the zone and places it after the last position", async () => {
     const { db, query, statements, release } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
-      { rows: [{ id: groupId, zoneId, projectId, name: 'A', position: 0 }] },
+      { rows: [{ id: groupId, projectId, name: 'A' }] },
+      { rows: [{ position: 2 }] },
     ]);
     const group = await createTaleGroup(db, { zoneId, name: 'A' });
-    expect(group.tales).toEqual([]);
+    expect(group).toEqual({ id: groupId, projectId, name: 'A', position: 2, zoneIds: [zoneId], tales: [] });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
     expect(statements().some((s) => /FROM zones/.test(s) && /FOR UPDATE/.test(s))).toBe(false);
-    const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
-    expect(insert?.[0]).toMatch(/COALESCE\(MAX\(position\), -1\) \+ 1/);
-    expect(insert?.[1]).toEqual([zoneId, projectId, 'A']);
+    const insertGroup = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
+    expect(insertGroup?.[1]).toEqual([projectId, 'A']);
+    const place = query.mock.calls.find((c) => /INSERT INTO zone_tale_groups/.test(c[0] as string));
+    expect(place?.[0]).toMatch(/COALESCE\(MAX\(position\), -1\) \+ 1 FROM zone_tale_groups WHERE zone_id = \$1/);
+    expect(place?.[1]).toEqual([zoneId, groupId, projectId]);
     expect(statements()).toContain('COMMIT');
     expect(release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('placements', () => {
+  const otherProject = '00000000-0000-4000-8000-000000000009';
+  const placedRow = { id: groupId, projectId, name: 'A', position: 1 };
+
+  it('places a group of the zone\'s project at the end of the zone, under the zone lock', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [], rowCount: 1 },
+      { rows: [placedRow] },
+      { rows: [] },
+      { rows: [{ taleGroupId: groupId, zoneId: '00000000-0000-4000-8000-0000000000aa' }, { taleGroupId: groupId, zoneId }] },
+    ]);
+    const result = await placeTaleGroup(db, zoneId, groupId);
+    expect(result).toEqual({
+      placed: true,
+      group: { ...placedRow, tales: [], zoneIds: ['00000000-0000-4000-8000-0000000000aa', zoneId] },
+    });
+    const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
+    expect(lock?.[1]).toEqual([zoneId]);
+    const insert = query.mock.calls.find((c) => /INSERT INTO zone_tale_groups/.test(c[0] as string));
+    expect(insert?.[0]).toMatch(/ON CONFLICT \(zone_id, tale_group_id\) DO NOTHING/);
+    expect(insert?.[1]).toEqual([zoneId, groupId, projectId]);
+    expect(statements()).toContain('COMMIT');
+  });
+
+  it('reports a group already placed in the zone as not placed again', async () => {
+    const { db } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [], rowCount: 0 },
+      { rows: [placedRow] },
+    ]);
+    expect((await placeTaleGroup(db, zoneId, groupId)).placed).toBe(false);
+  });
+
+  it('refuses an unknown zone, and a group of another project or none, without placing', async () => {
+    const zone = fakeDb([{ rows: [] }]);
+    await expect(placeTaleGroup(zone.db, zoneId, groupId)).rejects.toBeInstanceOf(ZoneNotFoundError);
+    for (const answer of [{ rows: [{ project_id: otherProject }] }, { rows: [] }]) {
+      const { db, statements } = fakeDb([{ rows: [{ project_id: projectId }] }, answer]);
+      await expect(placeTaleGroup(db, zoneId, groupId)).rejects.toBeInstanceOf(TaleGroupNotInProjectError);
+      expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+    }
+    const { db, query } = fakeDb([{ rows: [{ project_id: projectId }] }]);
+    await expect(placeTaleGroup(db, zoneId, 'nope')).rejects.toBeInstanceOf(TaleGroupNotInProjectError);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes only the placement and keeps the zone positions dense', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [], rowCount: 1 },
+      { rows: [] },
+    ]);
+    await removeTaleGroup(db, zoneId, groupId);
+    const remove = query.mock.calls.find((c) => /DELETE/.test(c[0] as string));
+    expect(remove?.[0]).toMatch(/DELETE FROM zone_tale_groups WHERE zone_id = \$1 AND tale_group_id = \$2/);
+    expect(remove?.[1]).toEqual([zoneId, groupId]);
+    expect(statements().some((s) => /DELETE FROM tale_groups|DELETE FROM tales/.test(s))).toBe(false);
+    const renumber = query.mock.calls.find((c) => /row_number\(\)/.test(c[0] as string));
+    expect(renumber?.[1]).toEqual([zoneId]);
+    expect(statements()).toContain('COMMIT');
+  });
+
+  it('refuses to remove a group not placed in the zone, and an unknown zone', async () => {
+    const notPlaced = fakeDb([{ rows: [{ project_id: projectId }] }, { rows: [{}] }, { rows: [], rowCount: 0 }]);
+    await expect(removeTaleGroup(notPlaced.db, zoneId, groupId)).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(notPlaced.statements()).toContain('ROLLBACK');
+    const unknown = fakeDb([{ rows: [] }]);
+    await expect(removeTaleGroup(unknown.db, zoneId, groupId)).rejects.toBeInstanceOf(ZoneNotFoundError);
+    const bad = fakeDb([{ rows: [{ project_id: projectId }] }]);
+    await expect(removeTaleGroup(bad.db, zoneId, 'nope')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(bad.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists the project's groups by name with tale counts and zones, including unplaced ones", async () => {
+    const g2 = '00000000-0000-4000-8000-000000000013';
+    const { db, query } = fakeDb([
+      {
+        rows: [
+          { id: groupId, projectId, name: 'Autumn', taleCount: 2 },
+          { id: g2, projectId, name: 'beach', taleCount: 0 },
+        ],
+      },
+      { rows: [{ taleGroupId: groupId, zoneId }] },
+    ]);
+    expect(await listProjectTaleGroups(db, projectId)).toEqual([
+      { id: groupId, projectId, name: 'Autumn', taleCount: 2, zoneIds: [zoneId] },
+      { id: g2, projectId, name: 'beach', taleCount: 0, zoneIds: [] },
+    ]);
+    expect(query.mock.calls[0][0]).toMatch(/ORDER BY lower\(name\), name, id/);
+    expect(query.mock.calls[0][1]).toEqual([projectId]);
+    const none = fakeDb([]);
+    expect(await listProjectTaleGroups(none.db, 'nope')).toEqual([]);
+    expect(none.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('rename', () => {
+  it('renames the group itself and returns it with its tales and zones', async () => {
+    const { db, query } = fakeDb([{ rows: [{ id: groupId, projectId, name: 'B' }] }, { rows: [] }, { rows: [{ taleGroupId: groupId, zoneId }] }]);
+    expect(await renameTaleGroup(db, groupId, 'B')).toEqual({ id: groupId, projectId, name: 'B', tales: [], zoneIds: [zoneId] });
+    expect(query.mock.calls[0][0]).toMatch(/UPDATE tale_groups SET name = \$2 WHERE id = \$1/);
+    expect(query.mock.calls[0][1]).toEqual([groupId, 'B']);
+  });
+
+  it('refuses an unknown group, and does not query for an id that is not a UUID', async () => {
+    await expect(renameTaleGroup(fakeDb([{ rows: [] }]).db, groupId, 'B')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    const bad = fakeDb([]);
+    await expect(renameTaleGroup(bad.db, 'nope', 'B')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(bad.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('migration', () => {
+  it('creates placements keyed to the zone and group projects, and moves old zone columns into them', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    await migrateTales({ query } as unknown as TransactionalDb);
+    const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS zone_tale_groups/);
+    expect(sql).toMatch(/PRIMARY KEY \(zone_id, tale_group_id\)/);
+    expect(sql).toMatch(/FOREIGN KEY \(zone_id, project_id\) REFERENCES zones \(id, project_id\)/);
+    expect(sql).toMatch(/FOREIGN KEY \(tale_group_id, project_id\) REFERENCES tale_groups \(id, project_id\)/);
+    expect(sql).toMatch(/SELECT zone_id, id, project_id, position, created_at FROM tale_groups/);
+    expect(sql).toMatch(/DROP COLUMN IF EXISTS zone_id, DROP COLUMN IF EXISTS position/);
+    // The unique index the placement key references comes before the placements table.
+    expect(sql.indexOf('tale_groups_id_project_id_key')).toBeLessThan(sql.indexOf('CREATE TABLE IF NOT EXISTS zone_tale_groups'));
   });
 });
 
@@ -82,11 +225,16 @@ describe('one tale group', () => {
     await expect(getTaleGroup(fakeDb([{ rows: [] }]).db, groupId)).rejects.toBeInstanceOf(TaleGroupNotFoundError);
   });
 
-  it('reads the group with its tales', async () => {
-    const group = { id: groupId, zoneId, projectId, name: 'A', position: 0 };
-    const { db } = fakeDb([{ rows: [group] }, { rows: [{ id: 't1', taleGroupId: groupId, mediaContentType: null }] }]);
+  it('reads the group with its tales and every zone it is placed in', async () => {
+    const group = { id: groupId, projectId, name: 'A' };
+    const { db } = fakeDb([
+      { rows: [group] },
+      { rows: [{ id: 't1', taleGroupId: groupId, mediaContentType: null }] },
+      { rows: [{ taleGroupId: groupId, zoneId }] },
+    ]);
     expect(await getTaleGroup(db, groupId)).toEqual({
       ...group,
+      zoneIds: [zoneId],
       tales: [{ id: 't1', taleGroupId: groupId, media: null }],
     });
   });
@@ -142,7 +290,7 @@ describe('tale media', () => {
   it('lists tales with media derived from the content type, never exposing the key', async () => {
     const { db } = fakeDb([
       { rows: [{ project_id: projectId }] },
-      { rows: [{ id: groupId, zoneId, projectId, name: 'A', position: 0 }] },
+      { rows: [{ id: groupId, projectId, name: 'A', position: 0 }] },
       {
         rows: [
           { ...row, mediaContentType: 'video/mp4' },
@@ -209,19 +357,19 @@ describe('order', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('reorders groups under the zone lock and returns the new list', async () => {
+  it("reorders the zone's placements under the zone lock and returns the new list", async () => {
     const { db, query, statements, release } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
       { rows: [{ id: a }, { id: b }] },
       { rows: [] },
-      { rows: [{ project_id: projectId }] },
       {
         rows: [
-          { id: b, zoneId, projectId, name: 'B', position: 0 },
-          { id: a, zoneId, projectId, name: 'A', position: 1 },
+          { id: b, projectId, name: 'B', position: 0 },
+          { id: a, projectId, name: 'A', position: 1 },
         ],
       },
+      { rows: [] },
       { rows: [] },
     ]);
     const groups = await orderTaleGroups(db, zoneId, [b, a]);
@@ -232,7 +380,10 @@ describe('order', () => {
     const lock = query.mock.calls.find((call) => /pg_advisory_xact_lock/.test(call[0] as string));
     expect(lock?.[0]).toMatch(/'tale_groups:' \|\| \$1/);
     expect(lock?.[1]).toEqual([zoneId]);
-    const update = query.mock.calls.find((call) => /UPDATE tale_groups/.test(call[0] as string));
+    const current = query.mock.calls.find((call) => /SELECT tale_group_id AS id FROM zone_tale_groups/.test(call[0] as string));
+    expect(current?.[1]).toEqual([zoneId]);
+    const update = query.mock.calls.find((call) => /UPDATE zone_tale_groups/.test(call[0] as string));
+    expect(update?.[0]).toMatch(/zone_tale_groups\.zone_id = \$1/);
     expect(update?.[1]).toEqual([zoneId, [b, a]]);
     expect(statements()).toContain('COMMIT');
     expect(release).toHaveBeenCalledTimes(1);
@@ -296,7 +447,7 @@ describe('delivery', () => {
   const t2 = '00000000-0000-4000-8000-000000000012';
   const g2 = '00000000-0000-4000-8000-000000000013';
 
-  it('lists groups by position with their tales and stored media keys', async () => {
+  it("lists the zone's placed groups in its order with their tales and stored media keys", async () => {
     const { db, statements } = fakeDb([
       { rows: [{ id: groupId, name: 'A' }, { id: g2, name: 'B' }] },
       {
@@ -317,7 +468,8 @@ describe('delivery', () => {
       },
       { id: g2, name: 'B', tales: [] },
     ]);
-    expect(statements().every((s) => /ORDER BY position, id/.test(s))).toBe(true);
+    expect(statements()[0]).toMatch(/FROM zone_tale_groups[\s\S]*ORDER BY zone_tale_groups\.position, tale_groups\.id/);
+    expect(statements()[1]).toMatch(/ORDER BY position, id/);
   });
 
   it('answers an empty list for a zone without groups, and does not query for a non-UUID zone', async () => {

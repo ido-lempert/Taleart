@@ -10,6 +10,7 @@ import {
   OrderMismatchError,
   TaleGroupFullError,
   TaleGroupNotFoundError,
+  TaleGroupNotInProjectError,
   TaleNotFoundError,
 } from '@taleart/server-tales';
 import {
@@ -80,7 +81,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof UnknownFrameTypeError ||
     err instanceof InvalidFrameSettingsError ||
     err instanceof InvalidTagNameError ||
-    err instanceof TagNotFoundError
+    err instanceof TagNotFoundError ||
+    err instanceof TaleGroupNotInProjectError
   ) {
     res.status(400).json(errorBody(err.code, err.message));
     return;
