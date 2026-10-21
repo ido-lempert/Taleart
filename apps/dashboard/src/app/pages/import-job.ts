@@ -23,6 +23,7 @@ import {
   type ImportDifferenceGroupView,
   importCountText,
   importDifferenceGroups,
+  importNotSelectedText,
   importProgressText,
   importStatusClass,
   importStatusLabel,
@@ -204,7 +205,24 @@ import {
                 @if (report.tags; as tags) {
                   <li>Tags: {{ countText(tags) }}</li>
                 }
+                @for (entity of report.notSelected?.entities ?? []; track entity) {
+                  <li>{{ notSelectedText(entity) }}</li>
+                }
               </ul>
+              @if (report.notSelected; as notSelected) {
+                @if (notSelected.zones.length > 0) {
+                  <ul class="import-notes" aria-label="Zones not selected">
+                    @for (zone of notSelected.zones; track $index) {
+                      <li>Zone "{{ zone.name }}": not selected, skipped</li>
+                    }
+                    @if ((report.zones.notSelected ?? 0) > notSelected.zones.length) {
+                      <li>
+                        and {{ (report.zones.notSelected ?? 0) - notSelected.zones.length }} more zones not selected
+                      </li>
+                    }
+                  </ul>
+                }
+              }
               @if (report.notes.length > 0) {
                 <ul class="import-notes" aria-label="Notes">
                   @for (note of report.notes; track $index) {
@@ -270,8 +288,13 @@ import {
             } @else if (job.progress; as progress) {
               <ul class="import-counts" aria-label="Progress" aria-live="polite">
                 <li>Zones: {{ progressText(progress.zones) }}</li>
-                <li>Tale groups: {{ progressText(progress.taleGroups) }}</li>
-                <li>Tales: {{ progressText(progress.tales) }}</li>
+                @if (progress.notSelected?.includes('taleGroups')) {
+                  <li>Tale groups: not selected</li>
+                  <li>Tales: not selected</li>
+                } @else {
+                  <li>Tale groups: {{ progressText(progress.taleGroups) }}</li>
+                  <li>Tales: {{ progressText(progress.tales) }}</li>
+                }
               </ul>
             }
             @if (active()) {
@@ -350,6 +373,7 @@ export class ImportJobPage implements OnInit {
   protected readonly statusLabel = importStatusLabel;
   protected readonly statusClass = importStatusClass;
   protected readonly countText = importCountText;
+  protected readonly notSelectedText = importNotSelectedText;
   protected readonly progressText = importProgressText;
   protected readonly time = importTimeText;
 

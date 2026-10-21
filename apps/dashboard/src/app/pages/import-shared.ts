@@ -4,6 +4,7 @@ import type {
   ImportDifference,
   ImportDifferenceEntity,
   ImportDifferenceRecord,
+  ImportEntityChoice,
   ImportMediaFailure,
   ImportProgressCount,
   ImportStatus,
@@ -29,10 +30,26 @@ export function importStatusClass(status: ImportStatus): string {
   return `pill ${status === 'done' ? 'pill--done' : status === 'failed' ? 'pill--failed' : 'pill--active'}`;
 }
 
-/** One report row's counts: "3 source / 3 imported", with the skipped ones when there are any. */
+/**
+ * One report row's counts: "3 source / 3 imported", with the skipped ones when
+ * there are any, and how many of those were not selected.
+ */
 export function importCountText(count: ImportCount): string {
   const text = `${count.source} source / ${count.imported} imported`;
-  return count.skipped > 0 ? `${text} / ${count.skipped} skipped` : text;
+  if (count.skipped === 0) return text;
+  const notSelected = count.notSelected ? ` (${count.notSelected} not selected)` : '';
+  return `${text} / ${count.skipped} skipped${notSelected}`;
+}
+
+const ENTITY_CHOICE_LABELS: Record<ImportEntityChoice, string> = {
+  taleGroups: 'Tale groups and tales',
+  media: 'Media',
+  tags: 'Tags',
+};
+
+/** A report row for content left out because it was not selected, such as "Tags: not selected, skipped". */
+export function importNotSelectedText(entity: ImportEntityChoice): string {
+  return `${ENTITY_CHOICE_LABELS[entity]}: not selected, skipped`;
 }
 
 /** One progress row's counts: "6 read / 4 written". */

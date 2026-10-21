@@ -17,6 +17,20 @@ export {
 } from './lib/storyly-client';
 export { StorylyTokenInvalidError, StorylyUnavailableError } from './lib/errors';
 export {
+  previewApp,
+  signSelectionKey,
+  verifySelectionKey,
+  PREVIEW_MAX_COUNT_REQUESTS,
+  PREVIEW_COUNT_DEADLINE_MS,
+  PREVIEW_REQUEST_TIMEOUT_MS,
+  SELECTION_KEY_TTL_MS,
+  type AppPreview,
+  type ImportJobSelection,
+  type PreviewLimits,
+  type PreviewSource,
+  type SelectionScope,
+} from './lib/preview';
+export {
   createImportJob,
   getImportJob,
   listImportJobs,
