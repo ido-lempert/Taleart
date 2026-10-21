@@ -17,6 +17,7 @@ import {
   failImportJob,
   finishImportJob,
   heartbeatImportJob,
+  progressOf,
   recoverStaleJobs,
   setSourceAppName,
   type ClaimedJob,
@@ -185,15 +186,15 @@ async function importLinked(
  * else as skipped. A repeated source id is skipped, and so are the stories of
  * a group that is skipped; each unique story counts once, so source = imported
  * + skipped. A record without a source position is noted when it is created.
- * `beforeEach` runs before each record is written; the worker refreshes its
- * heartbeat there.
+ * `beforeEach` runs before each record is written, with the report so far;
+ * the worker refreshes its heartbeat and stores the progress there.
  */
 export async function importContent(
   db: TransactionalDb,
   projectId: string,
   instances: readonly SourceInstance[],
   source: ContentSource,
-  beforeEach: () => Promise<void> = async () => undefined,
+  beforeEach: (sofar: Readonly<ImportReport>) => Promise<void> = async () => undefined,
 ): Promise<ImportReport> {
   const report: Required<ImportReport> = {
     zones: { ...emptyCount(), source: instances.length },
@@ -210,7 +211,7 @@ export async function importContent(
       continue;
     }
     seenInstances.add(instance.id);
-    await beforeEach();
+    await beforeEach(report);
     const zoneName = instance.name.trim() || `Instance ${instance.id}`;
     const zoneId = await importZone(db, projectId, instance, zoneName);
     if (zoneId === null) {
@@ -246,7 +247,7 @@ export async function importContent(
         skipGroup();
         continue;
       }
-      await beforeEach();
+      await beforeEach(report);
       let taleGroup: { id: string; created: boolean } | null;
       try {
         taleGroup = await importLinked(
@@ -276,7 +277,7 @@ export async function importContent(
         }
         seenStories.add(story.id);
         const title = taleTitle(story, name);
-        await beforeEach();
+        await beforeEach(report);
         let tale: { id: string; created: boolean } | null;
         try {
           tale = await importLinked(
@@ -346,8 +347,11 @@ function redactedError(err: unknown, token: string | null): Error {
 export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options: ImportRunOptions): Promise<void> {
   const log = options.log ?? noLog;
   let token: string | null = null;
-  const beat = async () => {
-    if (!(await heartbeatImportJob(db, job))) throw new ClaimLostError();
+  // The running report: importContent keeps adding to it, so at a failure it tells how far the job got.
+  let latest: Readonly<ImportReport> | undefined;
+  const beat = async (sofar?: Readonly<ImportReport>) => {
+    if (sofar) latest = sofar;
+    if (!(await heartbeatImportJob(db, job, sofar && progressOf(sofar)))) throw new ClaimLostError();
   };
   const timer = setInterval(() => {
     beat().catch(() => undefined);
@@ -381,7 +385,7 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     }
     if (!isKnownFailure(err)) log('error', `Import ${job.id} failed`, redactedError(err, token));
     try {
-      await failImportJob(db, job, failureMessage(err, token));
+      await failImportJob(db, job, failureMessage(err, token), latest && progressOf(latest));
     } catch (writeErr) {
       // The job stays running with its token; its heartbeat stops, so a worker recovers it.
       log('error', `Import ${job.id} failed and its failure could not be recorded`, redactedError(writeErr, token));

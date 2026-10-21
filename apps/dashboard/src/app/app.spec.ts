@@ -2015,14 +2015,31 @@ describe('App', () => {
         'Zone "Checkout": frame type unknown',
       ],
     };
+    const progress = (z: [number, number], g: [number, number], t: [number, number]) => ({
+      zones: { read: z[0], written: z[1] },
+      taleGroups: { read: g[0], written: g[1] },
+      tales: { read: t[0], written: t[1] },
+    });
     const job = (status: string, extra: object = {}) => ({
       id: 'j1',
       status,
       sourceAppName: 'Demo shop',
       report: null,
+      progress: null,
       error: null,
       createdAt: '2026-10-20T12:00:00.000Z',
+      startedAt: status === 'queued' ? null : '2026-10-20T12:00:01.000Z',
       finishedAt: null,
+      ...extra,
+    });
+    const run = (id: string, status: string, extra: object = {}) => ({
+      id,
+      status,
+      sourceAppName: 'Demo shop',
+      error: null,
+      createdAt: '2026-10-20T12:00:00.000Z',
+      startedAt: '2026-10-20T12:00:01.000Z',
+      finishedAt: status === 'done' || status === 'failed' ? '2026-10-20T12:00:09.000Z' : null,
       ...extra,
     });
     const imported = [
@@ -2030,6 +2047,8 @@ describe('App', () => {
       { id: 'z12', name: 'Product page', projectId: 'p1' },
       { id: 'z13', name: 'Checkout', projectId: 'p1' },
     ];
+    const rows = (root: HTMLElement, label: string) =>
+      [...root.querySelectorAll(`[aria-label="${label}"] > li`)].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
 
     // The status page polls without waiting, so the tests need not wait 2 s.
     beforeEach(async () => {
@@ -2047,15 +2066,33 @@ describe('App', () => {
       http = TestBed.inject(HttpTestingController);
     });
 
-    // Answers the next poll of job j1.
-    async function answerPoll(fixture: ComponentFixture<unknown>, body: object): Promise<void> {
+    // Answers the past imports list of the form page.
+    async function answerHistory(fixture: ComponentFixture<unknown>, body: object, status = 200): Promise<void> {
       await tick();
-      http.expectOne(`${importsUrl}/j1`).flush(body);
+      const req = http.expectOne((r) => r.method === 'GET' && r.url === importsUrl);
+      if (status === 200) req.flush(body);
+      else req.flush(body, { status, statusText: 'Error' });
+      await settle(fixture);
+    }
+
+    // Opens the form page of p1 and answers its past imports.
+    async function openForm(history: unknown[] = []): Promise<{ fixture: ComponentFixture<App>; root: HTMLElement }> {
+      const opened = await open('/projects/p1/import', oneZone);
+      await answerHistory(opened.fixture, history);
+      return opened;
+    }
+
+    // Answers the next read of job j1.
+    async function answerPoll(fixture: ComponentFixture<unknown>, body: object, status = 200): Promise<void> {
+      await tick();
+      const req = http.expectOne(`${importsUrl}/j1`);
+      if (status === 200) req.flush(body);
+      else req.flush(body, { status, statusText: 'Error' });
       await tick();
       fixture.detectChanges();
     }
 
-    // Pastes the token, finds the apps and starts importing Demo shop.
+    // Pastes the token, finds the apps and starts importing Demo shop, which opens the job's page.
     async function startImport(fixture: ComponentFixture<unknown>, root: HTMLElement): Promise<void> {
       type(root.querySelector<HTMLInputElement>('#import-token'), 'fake-storyly-token');
       buttonNamed(root, 'Find apps').click();
@@ -2068,12 +2105,10 @@ describe('App', () => {
       const options = [...(root.querySelector<HTMLSelectElement>('#import-app')?.options ?? [])];
       expect(options.map((o) => o.textContent?.trim())).toEqual(['Demo shop']);
       buttonNamed(root, 'Start import').click();
-      const start = http.expectOne(importsUrl);
-      expect(start.request.method).toBe('POST');
+      const start = http.expectOne((r) => r.method === 'POST' && r.url === importsUrl);
       expect(start.request.body).toEqual({ token: 'fake-storyly-token', appId: '1001' });
       start.flush({ id: 'j1', status: 'queued' }, { status: 202, statusText: 'Accepted' });
-      await tick();
-      fixture.detectChanges();
+      await settle(fixture);
     }
 
     it('gives admins "Import from Storyly" on each project card, opening the import page', async () => {
@@ -2084,6 +2119,7 @@ describe('App', () => {
 
       links[0].click();
       await settle(fixture);
+      await answerHistory(fixture, []);
       expect(TestBed.inject(Router).url).toBe('/projects/p1/import');
       expect(root.querySelector('h2')?.textContent).toContain('Import from Storyly');
       expect(root.textContent).toContain('into Acme');
@@ -2100,28 +2136,38 @@ describe('App', () => {
       expect(root.querySelector('[aria-label^="Import from Storyly"]')).toBeNull();
     });
 
-    it('finds the apps, starts the import, follows it to done and shows the report', async () => {
-      const { fixture, root } = await open('/projects/p1/import', oneZone);
+    it("starts the import, opens its own page and shows its progress rising, then the report", async () => {
+      const { fixture, root } = await openForm();
       await startImport(fixture, root);
-      expect(root.querySelector('[role=status]')?.textContent).toContain('Queued');
+      expect(TestBed.inject(Router).url).toBe('/projects/p1/import/j1');
       expect(root.querySelector('#import-token')).toBeNull();
 
-      await answerPoll(fixture, job('running'));
+      await answerPoll(fixture, job('queued', { sourceAppName: null }));
+      expect(root.querySelector('[role=status]')?.textContent).toContain('Queued');
+      expect(root.textContent).toContain('Waiting to start.');
+      expect(root.querySelector('[aria-label=Progress]')).toBeNull();
+
+      await answerPoll(fixture, job('running', { progress: progress([3, 1], [3, 0], [0, 0]) }));
       expect(root.querySelector('[role=status]')?.textContent).toContain('Running');
       expect(root.textContent).toContain('From the app Demo shop');
+      expect(root.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-20T12:00:01.000Z');
+      expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 1 written', 'Tale groups: 3 read / 0 written', 'Tales: 0 read / 0 written']);
 
-      await answerPoll(fixture, job('done', { report, finishedAt: '2026-10-20T12:00:05.000Z' }));
+      await answerPoll(fixture, job('running', { progress: progress([3, 2], [5, 4], [11, 9]) }));
+      expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 2 written', 'Tale groups: 5 read / 4 written', 'Tales: 11 read / 9 written']);
+
+      await answerPoll(
+        fixture,
+        job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }),
+      );
       expect(root.querySelector('[role=status]')?.textContent).toContain('Done');
-      expect(
-        [...root.querySelectorAll('[aria-label=Report] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim()),
-      ).toEqual([
+      expect(root.querySelector('[aria-label=Progress]')).toBeNull();
+      expect(rows(root, 'Report')).toEqual([
         'Zones: 3 source / 3 imported',
         'Tale groups: 6 source / 6 imported',
         'Tales: 15 source / 14 imported / 1 skipped',
       ]);
-      expect([...root.querySelectorAll('[aria-label=Notes] li')].map((li) => li.textContent?.trim())).toEqual(
-        report.notes,
-      );
+      expect(rows(root, 'Notes')).toEqual(report.notes);
 
       // The new zones load, and the Zones page of the project lists them.
       await flushRefresh(fixture, { projects: [acme], zones: [zone, ...imported] });
@@ -2131,19 +2177,32 @@ describe('App', () => {
       for (const z of imported) expect(root.textContent).toContain(z.name);
     });
 
+    it("keeps following a running import after a reload of its page", async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(fixture, job('running', { progress: progress([3, 2], [4, 3], [8, 6]) }));
+      expect(root.querySelector('[role=status]')?.textContent).toContain('Running');
+      expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 2 written', 'Tale groups: 4 read / 3 written', 'Tales: 8 read / 6 written']);
+
+      // A failed read while it runs shows the message and tries again at the next poll.
+      await answerPoll(fixture, { error: { code: 'internal', message: 'Something went wrong' } }, 500);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Something went wrong');
+
+      await answerPoll(fixture, job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }));
+      expect(root.querySelector('[role=alert]')).toBeNull();
+      expect(rows(root, 'Report')[0]).toBe('Zones: 3 source / 3 imported');
+      await flushRefresh(fixture, { projects: [acme], zones: [zone, ...imported] });
+    });
+
     it('shows only the zones row for a report stored before tale groups were imported', async () => {
-      const { fixture, root } = await open('/projects/p1/import', oneZone);
-      await startImport(fixture, root);
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       const zonesOnly = { zones: report.zones, notes: report.notes };
       await answerPoll(fixture, job('done', { report: zonesOnly, finishedAt: '2026-10-20T12:00:05.000Z' }));
-      expect(
-        [...root.querySelectorAll('[aria-label=Report] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim()),
-      ).toEqual(['Zones: 3 source / 3 imported']);
+      expect(rows(root, 'Report')).toEqual(['Zones: 3 source / 3 imported']);
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
     it("shows the API's message for a refused token and starts nothing", async () => {
-      const { fixture, root } = await open('/projects/p1/import', oneZone);
+      const { fixture, root } = await openForm();
       type(root.querySelector<HTMLInputElement>('#import-token'), 'wrong');
       buttonNamed(root, 'Find apps').click();
       http.expectOne(`${importsUrl}/storyly/apps`).flush(
@@ -2156,20 +2215,84 @@ describe('App', () => {
       expect(root.textContent).not.toContain('Start import');
     });
 
-    it("shows a failed job's error", async () => {
-      const { fixture, root } = await open('/projects/p1/import', oneZone);
-      await startImport(fixture, root);
-      await answerPoll(fixture, job('failed', { error: 'Storyly answered 500 when listing instances' }));
+    it("shows a failed job's reason and how far it got, and leads back to the form", async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('failed', {
+          error: 'Storyly answered 500 when listing stories',
+          progress: progress([3, 1], [3, 0], [0, 0]),
+          finishedAt: '2026-10-20T12:00:03.000Z',
+        }),
+      );
       expect(root.querySelector('[role=status]')?.textContent).toContain('Failed');
-      expect(root.querySelector('[role=alert]')?.textContent).toContain('Storyly answered 500 when listing instances');
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Storyly answered 500 when listing stories');
+      expect(rows(root, 'Progress')[0]).toBe('Zones: 3 read / 1 written');
+      expect(root.textContent).not.toContain('See zones');
 
-      buttonNamed(root, 'Start another import').click();
+      [...root.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Start another import')?.click();
       await settle(fixture);
+      await answerHistory(fixture, [run('j1', 'failed', { error: 'Storyly answered 500 when listing stories' })]);
+      expect(TestBed.inject(Router).url).toBe('/projects/p1/import');
       expect(root.querySelector('#import-token')).not.toBeNull();
     });
 
-    it('asks for a token before finding apps', async () => {
+    it("lists the project's past imports with state, times and failure reason, each opening its report", async () => {
+      const { fixture, root } = await openForm([
+        run('j3', 'running'),
+        run('j2', 'failed', { error: 'Storyly answered 500 when listing instances', sourceAppName: null }),
+        run('j1', 'done'),
+      ]);
+      const items = [...root.querySelectorAll<HTMLElement>('[aria-label="Past imports"] > li')];
+      expect(items).toHaveLength(3);
+      expect(items.map((li) => li.querySelector('.pill')?.textContent?.trim())).toEqual(['Running', 'Failed', 'Done']);
+      expect(items[0].textContent).toContain('Demo shop');
+      expect(items[1].textContent).toContain('App not read yet');
+      expect(items[1].textContent).toContain('Storyly answered 500 when listing instances');
+      expect(items[0].textContent).not.toContain('Storyly answered');
+      expect([...items[2].querySelectorAll('time')].map((t) => t.getAttribute('datetime'))).toEqual([
+        '2026-10-20T12:00:01.000Z',
+        '2026-10-20T12:00:09.000Z',
+      ]);
+      expect(items[0].textContent?.replace(/\s+/g, ' ')).toContain('Finished not yet');
+      const links = items.map((li) => li.querySelector<HTMLAnchorElement>('a'));
+      expect(links.map((a) => a?.textContent?.trim())).toEqual(['View progress', 'View report', 'View report']);
+      expect(links.map((a) => a?.getAttribute('href'))).toEqual([
+        '/projects/p1/import/j3',
+        '/projects/p1/import/j2',
+        '/projects/p1/import/j1',
+      ]);
+
+      links[2]?.click();
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/projects/p1/import/j1');
+      await answerPoll(fixture, job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }));
+      expect(rows(root, 'Report')).toHaveLength(3);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone, ...imported] });
+    });
+
+    it('says so when the project has no imports yet', async () => {
+      const { root } = await openForm([]);
+      expect(root.textContent).toContain('No imports into this project yet.');
+    });
+
+    it('shows a message when the past imports cannot be read', async () => {
       const { fixture, root } = await open('/projects/p1/import', oneZone);
+      await answerHistory(fixture, { error: { code: 'internal', message: 'Something went wrong' } }, 500);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Something went wrong');
+      expect(root.querySelector('#import-token')).not.toBeNull();
+    });
+
+    it('shows the message of an import it cannot read, without polling again', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(fixture, { error: { code: 'not_found', message: 'This project has no import with this id' } }, 404);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('This project has no import with this id');
+      await tick();
+      http.expectNone(`${importsUrl}/j1`);
+    });
+
+    it('asks for a token before finding apps', async () => {
+      const { fixture, root } = await openForm();
       buttonNamed(root, 'Find apps').click();
       await settle(fixture);
       expect(root.querySelector('[role=alert]')?.textContent).toContain('Paste a Storyly API token');

@@ -14,7 +14,14 @@ export {
   type SourceStory,
 } from './lib/storyly-client';
 export { StorylyTokenInvalidError, StorylyUnavailableError } from './lib/errors';
-export { createImportJob, getImportJob, type ClaimedJob } from './lib/jobs';
+export {
+  createImportJob,
+  getImportJob,
+  listImportJobs,
+  progressOf,
+  IMPORT_LIST_LIMIT,
+  type ClaimedJob,
+} from './lib/jobs';
 export {
   startImportWorker,
   runImportJob,

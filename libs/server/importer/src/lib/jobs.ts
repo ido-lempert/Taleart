@@ -1,10 +1,14 @@
-import type { ImportJob, ImportReport, ImportStarted } from '@taleart/contract';
+import type { ImportJob, ImportJobSummary, ImportProgress, ImportReport, ImportStarted } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const JOB_COLUMNS = `id, status, source_app_name AS "sourceAppName", report, error,
-  created_at AS "createdAt", finished_at AS "finishedAt"`;
+const SUMMARY_COLUMNS = `id, status, source_app_name AS "sourceAppName", error,
+  created_at AS "createdAt", started_at AS "startedAt", finished_at AS "finishedAt"`;
+const JOB_COLUMNS = `${SUMMARY_COLUMNS}, report, progress`;
+
+/** How many of a project's imports its list holds, newest first. */
+export const IMPORT_LIST_LIMIT = 50;
 
 /** A job the worker has claimed: what it needs to run it. */
 export interface ClaimedJob {
@@ -19,13 +23,26 @@ export interface ClaimedJob {
 // Only the worker holding the claim may write a running job.
 const OWNED = "id = $1 AND status = 'running' AND locked_by = $2";
 
+type Timed<T> = Omit<T, 'createdAt' | 'startedAt' | 'finishedAt'> & {
+  createdAt: Date;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+};
+
 // Times as ISO 8601 UTC strings (spine convention).
-function toJob(row: Omit<ImportJob, 'createdAt' | 'finishedAt'> & { createdAt: Date; finishedAt: Date | null }): ImportJob {
+function withTimes<T extends ImportJobSummary>(row: Timed<T>): T {
   return {
     ...row,
     createdAt: row.createdAt.toISOString(),
+    startedAt: row.startedAt ? row.startedAt.toISOString() : null,
     finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
-  };
+  } as T;
+}
+
+/** Progress as the report counts it: read is the source count so far, written the imported count. */
+export function progressOf(report: ImportReport): ImportProgress {
+  const count = (c: ImportReport['zones'] | undefined) => ({ read: c?.source ?? 0, written: c?.imported ?? 0 });
+  return { zones: count(report.zones), taleGroups: count(report.taleGroups), tales: count(report.tales) };
 }
 
 /** Stores a queued import job with its encrypted source token. The caller checks the project. */
@@ -48,7 +65,20 @@ export async function getImportJob(db: Db, projectId: string, importId: string):
     importId,
     projectId,
   ]);
-  return rows[0] ? toJob(rows[0]) : null;
+  return rows[0] ? withTimes<ImportJob>(rows[0]) : null;
+}
+
+/**
+ * The project's import jobs, newest first, at most {@link IMPORT_LIST_LIMIT},
+ * without reports or tokens. The caller checks the project.
+ */
+export async function listImportJobs(db: Db, projectId: string): Promise<ImportJobSummary[]> {
+  if (!UUID.test(projectId)) return [];
+  const { rows } = await db.query(
+    `SELECT ${SUMMARY_COLUMNS} FROM import_jobs WHERE project_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+    [projectId, IMPORT_LIST_LIMIT],
+  );
+  return rows.map((row) => withTimes<ImportJobSummary>(row));
 }
 
 /**
@@ -62,7 +92,8 @@ export async function claimNextJob(db: TransactionalDb, workerId: string): Promi
     await tx.query('BEGIN');
     const { rows } = await tx.query<ClaimedJob>(
       `UPDATE import_jobs
-       SET status = 'running', started_at = now(), locked_by = $1, heartbeat_at = now(), attempts = attempts + 1
+       SET status = 'running', started_at = now(), locked_by = $1, heartbeat_at = now(), attempts = attempts + 1,
+         progress = NULL
        WHERE id = (
          SELECT id FROM import_jobs WHERE status = 'queued' ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED
        )
@@ -111,12 +142,19 @@ export async function recoverStaleJobs(
   return { requeued: requeued.rowCount ?? 0, failed: failed.rowCount ?? 0 };
 }
 
-/** Refreshes the job's heartbeat. False when this worker no longer holds the job. */
-export async function heartbeatImportJob(db: Db, job: ClaimedJob): Promise<boolean> {
-  const { rowCount } = await db.query(`UPDATE import_jobs SET heartbeat_at = now() WHERE ${OWNED}`, [
-    job.id,
-    job.lockedBy,
-  ]);
+/**
+ * Refreshes the job's heartbeat and, when given, its progress. False when this
+ * worker no longer holds the job.
+ */
+export async function heartbeatImportJob(db: Db, job: ClaimedJob, progress?: ImportProgress): Promise<boolean> {
+  const { rowCount } =
+    progress === undefined
+      ? await db.query(`UPDATE import_jobs SET heartbeat_at = now() WHERE ${OWNED}`, [job.id, job.lockedBy])
+      : await db.query(`UPDATE import_jobs SET heartbeat_at = now(), progress = $3 WHERE ${OWNED}`, [
+          job.id,
+          job.lockedBy,
+          JSON.stringify(progress),
+        ]);
   return (rowCount ?? 0) > 0;
 }
 
@@ -130,23 +168,33 @@ export async function setSourceAppName(db: Db, job: ClaimedJob, name: string): P
   return (rowCount ?? 0) > 0;
 }
 
-/** Ends a job as done with its report, and deletes its token. False when the claim is lost. */
+/** Ends a job as done with its report and final progress, and deletes its token. False when the claim is lost. */
 export async function finishImportJob(db: Db, job: ClaimedJob, report: ImportReport): Promise<boolean> {
   const { rowCount } = await db.query(
-    `UPDATE import_jobs SET status = 'done', report = $3, error = NULL, token_ciphertext = NULL, locked_by = NULL,
-       finished_at = now()
+    `UPDATE import_jobs SET status = 'done', report = $3, progress = $4, error = NULL, token_ciphertext = NULL,
+       locked_by = NULL, finished_at = now()
      WHERE ${OWNED}`,
-    [job.id, job.lockedBy, JSON.stringify(report)],
+    [job.id, job.lockedBy, JSON.stringify(report), JSON.stringify(progressOf(report))],
   );
   return (rowCount ?? 0) > 0;
 }
 
-/** Ends a job as failed with a message, and deletes its token. False when the claim is lost. */
-export async function failImportJob(db: Db, job: ClaimedJob, message: string): Promise<boolean> {
+/**
+ * Ends a job as failed with a message, and deletes its token. It keeps how far
+ * the job got: `progress` when given, else the last stored one. False when the
+ * claim is lost.
+ */
+export async function failImportJob(
+  db: Db,
+  job: ClaimedJob,
+  message: string,
+  progress?: ImportProgress,
+): Promise<boolean> {
   const { rowCount } = await db.query(
-    `UPDATE import_jobs SET status = 'failed', error = $3, token_ciphertext = NULL, locked_by = NULL, finished_at = now()
+    `UPDATE import_jobs SET status = 'failed', error = $3, progress = COALESCE($4::jsonb, progress),
+       token_ciphertext = NULL, locked_by = NULL, finished_at = now()
      WHERE ${OWNED}`,
-    [job.id, job.lockedBy, message],
+    [job.id, job.lockedBy, message, progress === undefined ? null : JSON.stringify(progress)],
   );
   return (rowCount ?? 0) > 0;
 }

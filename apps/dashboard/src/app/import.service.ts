@@ -1,6 +1,12 @@
 import { inject, Injectable, InjectionToken } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { isErrorBody, type ImportJob, type ImportStarted, type StorylyApp } from '@taleart/contract';
+import {
+  isErrorBody,
+  type ImportJob,
+  type ImportJobSummary,
+  type ImportStarted,
+  type StorylyApp,
+} from '@taleart/contract';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
 
@@ -47,7 +53,17 @@ export class ImportService {
     }
   }
 
-  /** Reads an import job, its state and its report. */
+  /** The project's imports, newest first, without their reports. */
+  async list(projectId: string): Promise<ImportResult<ImportJobSummary[]>> {
+    try {
+      const jobs = await firstValueFrom(this.http.get<ImportJobSummary[]>(importsUrl(projectId)));
+      return { value: jobs, message: '' };
+    } catch (err) {
+      return failure(err, 'Could not read the past imports. Reload the page to try again.');
+    }
+  }
+
+  /** Reads an import job, its state, progress and report. */
   async job(projectId: string, importId: string): Promise<ImportResult<ImportJob>> {
     try {
       const job = await firstValueFrom(

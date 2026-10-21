@@ -76,6 +76,18 @@ describe('fake Storyly server', () => {
     expect((await (await get('/story?story_group_id=3001', bearer)).json()).data).toHaveLength(3);
   });
 
+  it('answers after delayMs, until reset', async () => {
+    fake.control.delayMs = 120;
+    let began = Date.now();
+    expect((await get('/app', bearer)).status).toBe(200);
+    expect(Date.now() - began).toBeGreaterThanOrEqual(100);
+    fake.control.reset();
+    expect(fake.control.delayMs).toBe(0);
+    began = Date.now();
+    await get('/app', bearer);
+    expect(Date.now() - began).toBeLessThan(100);
+  });
+
   it('never accepts a write', async () => {
     expect((await get('/app', { ...bearer, method: 'POST' })).status).toBe(405);
   });

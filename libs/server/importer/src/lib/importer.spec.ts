@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { TransactionalDb } from '@taleart/server-access';
 import { decryptToken, encryptToken, parseTokenKey } from './crypto';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
-import { claimNextJob } from './jobs';
+import { claimNextJob, IMPORT_LIST_LIMIT, listImportJobs, progressOf } from './jobs';
 import { migrateImporter } from './migration';
 import { StorylyClient } from './storyly-client';
 import { importContent, runImportJob, type ContentSource } from './worker';
@@ -177,7 +177,7 @@ describe('runImportJob', () => {
     const fail = query.mock.calls.find((c) => /SET status = 'failed'/.test(c[0] as string));
     expect(fail?.[0]).toMatch(/token_ciphertext = NULL/);
     expect(fail?.[0]).toMatch(/locked_by = \$2/);
-    expect(fail?.[1]).toEqual([jobId, 'w1', 'Storyly answered 500 when listing apps']);
+    expect(fail?.[1]).toEqual([jobId, 'w1', 'Storyly answered 500 when listing apps', null]);
   });
 
   it('fails a job whose token cannot be decrypted', async () => {
@@ -636,5 +636,153 @@ describe('importContent: review fixes', () => {
     expect(second.taleGroups).toEqual({ source: 1, imported: 1, skipped: 0 });
     expect(second.tales).toEqual({ source: 1, imported: 0, skipped: 1 });
     expect(second.notes).toContain('Tale "T" in "A": its tale group was deleted during the import');
+  });
+});
+
+describe('progress', () => {
+  const key = randomBytes(32);
+  const home = [{ id: '2001', name: 'Home page' }];
+  const groups = { '2001': [{ id: 'g1', name: 'Summer', sortOrder: 0 }] };
+  const stories = {
+    g1: [
+      { id: 's1', name: 'A', sortOrder: 0 },
+      { id: 's2', name: 'B', sortOrder: 1 },
+    ],
+  };
+
+  it('counts read and written records from a report, an older report included', () => {
+    expect(
+      progressOf({
+        zones: { source: 3, imported: 2, skipped: 1 },
+        taleGroups: { source: 6, imported: 6, skipped: 0 },
+        tales: { source: 15, imported: 14, skipped: 1 },
+        notes: [],
+      }),
+    ).toEqual({ zones: { read: 3, written: 2 }, taleGroups: { read: 6, written: 6 }, tales: { read: 15, written: 14 } });
+    expect(progressOf({ zones: { source: 1, imported: 1, skipped: 0 }, notes: [] })).toEqual({
+      zones: { read: 1, written: 1 },
+      taleGroups: { read: 0, written: 0 },
+      tales: { read: 0, written: 0 },
+    });
+  });
+
+  it('hands the report so far to beforeEach before each record, so progress rises as records are read and written', async () => {
+    const fake = contentDb();
+    const seen: unknown[] = [];
+    await importContent(fake.db, projectId, home, source(groups, stories), async (sofar) => {
+      seen.push(progressOf(sofar));
+    });
+    const p = (z: number[], g: number[], t: number[]) => ({
+      zones: { read: z[0], written: z[1] },
+      taleGroups: { read: g[0], written: g[1] },
+      tales: { read: t[0], written: t[1] },
+    });
+    expect(seen).toEqual([
+      p([1, 0], [0, 0], [0, 0]), // before the zone
+      p([1, 1], [1, 0], [2, 0]), // before the group: its stories are read
+      p([1, 1], [1, 1], [2, 0]), // before each tale
+      p([1, 1], [1, 1], [2, 1]),
+    ]);
+  });
+
+  it('stores progress with each heartbeat and the final progress with the report', async () => {
+    const { db, query } = fakeDb((sql, params) => {
+      if (/FROM import_links/.test(sql)) return { rows: [] };
+      if (/FROM projects/.test(sql)) return { rows: [{}], rowCount: 1 };
+      if (/INSERT INTO zones/.test(sql)) return { rows: [{ id: zoneId, name: params[0], projectId }] };
+      return undefined;
+    });
+    const fetch = vi.fn(async (url: string | URL) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith('/app')) return json(200, { data: [{ id: 1001, title: 'Demo shop' }] });
+      if (path.endsWith('/instance')) return json(200, { data: [{ id: 2001, title: 'Home page' }] });
+      return json(200, { data: [] });
+    }) as unknown as typeof globalThis.fetch;
+    await runImportJob(
+      db,
+      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, key), lockedBy: 'w1' },
+      { tokenKey: key, storylyApiUrl: 'http://fake', fetch },
+    );
+    const beats = query.mock.calls.filter((c) => /SET heartbeat_at = now\(\), progress = \$3/.test(c[0] as string));
+    expect(beats.length).toBeGreaterThan(0);
+    expect(beats[0][0]).toMatch(/locked_by = \$2/);
+    expect(JSON.parse((beats[0][1] as string[])[2])).toEqual({
+      zones: { read: 1, written: 0 },
+      taleGroups: { read: 0, written: 0 },
+      tales: { read: 0, written: 0 },
+    });
+    const done = query.mock.calls.find((c) => /SET status = 'done'/.test(c[0] as string));
+    expect(done?.[0]).toMatch(/progress = \$4/);
+    expect(JSON.parse((done?.[1] as string[])[3])).toEqual({
+      zones: { read: 1, written: 1 },
+      taleGroups: { read: 0, written: 0 },
+      tales: { read: 0, written: 0 },
+    });
+    // No progress or job write ever carries the token.
+    for (const call of query.mock.calls) expect(JSON.stringify(call[1] ?? [])).not.toContain(TOKEN);
+  });
+
+  it('keeps the stored progress when a job fails before it reads any content', async () => {
+    const { db, query } = fakeDb();
+    await runImportJob(
+      db,
+      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, key), lockedBy: 'w1' },
+      { tokenKey: key, storylyApiUrl: 'http://fake', fetch: vi.fn(async () => json(500, {})) },
+    );
+    const fail = query.mock.calls.find((c) => /SET status = 'failed'/.test(c[0] as string));
+    expect(fail?.[0]).toMatch(/progress = COALESCE\(\$4::jsonb, progress\)/);
+    expect((fail?.[1] as unknown[])[3]).toBeNull();
+  });
+
+  it('clears progress when a job is claimed, so a recovered job starts counting again', async () => {
+    const { db, statements } = fakeDb(() => ({ rows: [{ id: jobId }] }));
+    await claimNextJob(db, 'w1');
+    expect(statements().join('\n')).toMatch(/progress = NULL/);
+  });
+
+  it('adds the progress column', async () => {
+    const { db, statements } = fakeDb();
+    await migrateImporter(db);
+    expect(statements().join('\n')).toMatch(/ADD COLUMN IF NOT EXISTS progress jsonb/);
+  });
+});
+
+describe('listImportJobs', () => {
+  it("reads the project's jobs newest first, at most the limit, without reports or tokens", async () => {
+    const created = new Date('2026-10-21T10:00:00Z');
+    const { db, query } = fakeDb(() => ({
+      rows: [
+        {
+          id: jobId,
+          status: 'failed',
+          sourceAppName: 'Demo shop',
+          error: 'Storyly answered 500 when listing instances',
+          createdAt: created,
+          startedAt: created,
+          finishedAt: null,
+        },
+      ],
+    }));
+    expect(await listImportJobs(db, projectId)).toEqual([
+      {
+        id: jobId,
+        status: 'failed',
+        sourceAppName: 'Demo shop',
+        error: 'Storyly answered 500 when listing instances',
+        createdAt: '2026-10-21T10:00:00.000Z',
+        startedAt: '2026-10-21T10:00:00.000Z',
+        finishedAt: null,
+      },
+    ]);
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/WHERE project_id = \$1 ORDER BY created_at DESC/);
+    expect(sql).not.toMatch(/token_ciphertext|report/);
+    expect(params).toEqual([projectId, IMPORT_LIST_LIMIT]);
+  });
+
+  it('answers no jobs for an id that is not a UUID, without asking the database', async () => {
+    const { db, query } = fakeDb();
+    expect(await listImportJobs(db, 'nope')).toEqual([]);
+    expect(query).not.toHaveBeenCalled();
   });
 });
