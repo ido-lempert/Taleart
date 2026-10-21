@@ -3,32 +3,78 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/sdk-sample",
-  "tags": ["type:app", "scope:sdk-sample"],
-  "implicitDependencies": ["web-sdk"],
+  "tags": [
+    "type:app",
+    "scope:sdk-sample"
+  ],
+  "implicitDependencies": [
+    "web-sdk"
+  ],
   "targets": {
     "serve": {
       "continuous": true,
       "executor": "nx:run-commands",
-      "dependsOn": [{ "projects": ["web-sdk"], "target": "build" }],
+      "dependsOn": [
+        {
+          "projects": [
+            "web-sdk"
+          ],
+          "target": "build"
+        }
+      ],
       "options": {
         "command": "node apps/sdk-sample/serve.mjs",
-        "env": { "PORT": "4300" }
+        "env": {
+          "PORT": "4300"
+        }
       }
     },
     "a11y": {
       "executor": "nx:run-commands",
       "cache": false,
-      "dependsOn": [{ "projects": ["web-sdk"], "target": "build" }],
+      "dependsOn": [
+        {
+          "projects": [
+            "web-sdk"
+          ],
+          "target": "build"
+        }
+      ],
       "options": {
         "command": "node apps/sdk-sample/a11y-scan.mjs"
+      }
+    },
+    "a11y-review": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        {
+          "projects": [
+            "web-sdk"
+          ],
+          "target": "build"
+        }
+      ],
+      "options": {
+        "command": "node apps/sdk-sample/a11y-review.mjs"
       }
     },
     "perf": {
       "executor": "nx:run-commands",
       "cache": false,
       "dependsOn": [
-        { "projects": ["web-sdk"], "target": "build" },
-        { "projects": ["api"], "target": "build" }
+        {
+          "projects": [
+            "web-sdk"
+          ],
+          "target": "build"
+        },
+        {
+          "projects": [
+            "api"
+          ],
+          "target": "build"
+        }
       ],
       "options": {
         "command": "node apps/sdk-sample/perf.mjs"
