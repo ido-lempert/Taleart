@@ -295,48 +295,27 @@ export class DashboardStore {
       const frameTypes = await firstValueFrom(this.http.get<FrameType[]>(`${API_BASE}/frame-types`));
       if (!current()) return;
       this.frameTypes.set(frameTypes);
-      const lists = await Promise.all(
-        zones.map((zone) => firstValueFrom(this.http.get<Frame[]>(`${API_BASE}/zones/${zone.id}/frames`))),
+      const frames = await this.loadEach<Frame[]>(zones, (id) => `/zones/${id}/frames`);
+      if (!current()) return;
+      this.frames.set(frames);
+      const groups = await this.loadEach<ZoneTaleGroup[]>(zones, (id) => `/zones/${id}/tale-groups`);
+      if (!current()) return;
+      this.taleGroups.set(groups);
+      const tags = await this.loadEach<Tag[]>(projects, (id) => `/projects/${encodeURIComponent(id)}/tags`);
+      if (!current()) return;
+      this.tags.set(tags);
+      const projectGroups = await this.loadEach<ProjectTaleGroup[]>(
+        projects,
+        (id) => `/projects/${encodeURIComponent(id)}/tale-groups`,
       );
       if (!current()) return;
-      this.frames.set(Object.fromEntries(zones.map((zone, i) => [zone.id, lists[i]])));
-      const groups = await Promise.all(
-        zones.map((zone) =>
-          firstValueFrom(this.http.get<ZoneTaleGroup[]>(`${API_BASE}/zones/${zone.id}/tale-groups`)),
-        ),
-      );
+      this.projectTaleGroups.set(projectGroups);
+      const keys = await this.loadEach<ZoneKeyInfo | null>(zones, (id) => `/zones/${encodeURIComponent(id)}/key`);
       if (!current()) return;
-      this.taleGroups.set(Object.fromEntries(zones.map((zone, i) => [zone.id, groups[i]])));
-      const tags = await Promise.all(
-        projects.map((project) =>
-          firstValueFrom(this.http.get<Tag[]>(`${API_BASE}/projects/${encodeURIComponent(project.id)}/tags`)),
-        ),
-      );
+      this.zoneKeys.set(Object.fromEntries(zones.map((zone) => [zone.id, keys[zone.id] ?? null])));
+      const stages = await this.loadEach<Stage[]>(zones, (id) => `/zones/${encodeURIComponent(id)}/stages`);
       if (!current()) return;
-      this.tags.set(Object.fromEntries(projects.map((project, i) => [project.id, tags[i]])));
-      const projectGroups = await Promise.all(
-        projects.map((project) =>
-          firstValueFrom(
-            this.http.get<ProjectTaleGroup[]>(`${API_BASE}/projects/${encodeURIComponent(project.id)}/tale-groups`),
-          ),
-        ),
-      );
-      if (!current()) return;
-      this.projectTaleGroups.set(Object.fromEntries(projects.map((project, i) => [project.id, projectGroups[i]])));
-      const keys = await Promise.all(
-        zones.map((zone) =>
-          firstValueFrom(this.http.get<ZoneKeyInfo | null>(`${API_BASE}/zones/${encodeURIComponent(zone.id)}/key`)),
-        ),
-      );
-      if (!current()) return;
-      this.zoneKeys.set(Object.fromEntries(zones.map((zone, i) => [zone.id, keys[i] ?? null])));
-      const stages = await Promise.all(
-        zones.map((zone) =>
-          firstValueFrom(this.http.get<Stage[]>(`${API_BASE}/zones/${encodeURIComponent(zone.id)}/stages`)),
-        ),
-      );
-      if (!current()) return;
-      this.stages.set(Object.fromEntries(zones.map((zone, i) => [zone.id, stages[i]])));
+      this.stages.set(stages);
       this.apiDown.set(false);
     } catch (err) {
       // A 401 means the session ended; the auth interceptor sends the user to sign-in.
@@ -344,6 +323,17 @@ export class DashboardStore {
     } finally {
       if (current()) this.loaded.set(true);
     }
+  }
+
+  /** GETs one API path per project or zone, in parallel, keyed by its id; any failure rejects the whole load. */
+  private async loadEach<T>(
+    items: readonly { id: string }[],
+    path: (id: string) => string,
+  ): Promise<Record<string, T>> {
+    const results = await Promise.all(
+      items.map((item) => firstValueFrom(this.http.get<T>(`${API_BASE}${path(item.id)}`))),
+    );
+    return Object.fromEntries(items.map((item, i) => [item.id, results[i]]));
   }
 
   async createProject(name: string): Promise<string> {
