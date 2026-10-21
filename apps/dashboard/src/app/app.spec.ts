@@ -3265,6 +3265,37 @@ describe('App', () => {
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
+    it('shows the media row and why a tale has no media', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const big = { sourceId: '4305', name: 'Too big', within: 'Every kind of media', position: 5 };
+      const meta = { sourceId: '4308', name: 'Metadata', within: 'Every kind of media', position: 8 };
+      const differences = [
+        { ...difference('tale', big, 'mediaNotImported', 'media'), reason: 'tooLarge' },
+        { ...difference('tale', meta, 'mediaNotImported', 'media'), reason: 'blockedAddress' },
+      ];
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: { ...report, media: { source: 14, imported: 12, skipped: 2 }, differences },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      expect(rows(root, 'Report')).toEqual([
+        'Zones: 3 source / 3 imported',
+        'Tale groups: 6 source / 6 imported',
+        'Tales: 15 source / 14 imported / 1 skipped',
+        'Media: 14 source / 12 imported / 2 skipped',
+      ]);
+      const lines = [...root.querySelectorAll('[aria-label="Tales differences"] .import-difference-lines > li')].map((li) =>
+        li.textContent?.trim(),
+      );
+      expect(lines).toEqual([
+        'media: not imported (larger than a tale accepts), so the tale has no media',
+        'media: not imported (its link leads to a private address), so the tale has no media',
+      ]);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
     it('says when there are no differences, and keeps a long list closed with the omitted count', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       await answerPoll(

@@ -86,6 +86,10 @@ export interface CheckedRecord {
   name: string;
   /** Its source position, or null when it has none usable. */
   sortOrder: number | null;
+  /** A story's `media` value as the source gave it (the media URL), unchecked; stories only. */
+  media?: unknown;
+  /** A story's `mime_type` value as the source gave it, unchecked; stories only. */
+  mimeType?: unknown;
 }
 
 /**
@@ -253,6 +257,13 @@ export function checkRecord(
     if (!consumed.has(key)) add('unexpected', key);
   }
 
-  const sortOrder = shape.required.includes('sort_order') ? sortOrderOf(values.get('sort_order')) : null;
-  return { record: { id, name, sortOrder }, differences, omitted };
+  const sortOrder = shape.required.includes('sort_order')
+    ? sortOrderOf(values.get('sort_order'))
+    : null;
+  const record: CheckedRecord = { id, name, sortOrder };
+  if (entity === 'tale') {
+    record.media = values.get('media');
+    record.mimeType = values.get('mime_type');
+  }
+  return { record, differences, omitted };
 }

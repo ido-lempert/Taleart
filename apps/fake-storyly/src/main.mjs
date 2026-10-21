@@ -2,8 +2,11 @@
 // (port 4400). Point the API at it with STORYLY_API_URL=http://localhost:4400/external
 // and use the token fake-storyly-token. It serves three apps: Demo shop (the
 // usual account), Odd shop (malformed and unmappable records, whose report
-// lists every difference) and Clean shop (records of the expected shape, no
-// differences).
+// lists every difference), Clean shop (records of the expected shape, no
+// differences) and Media shop (a story per kind of media, and per way a media
+// download fails). The fake also serves the stories' media files: for the
+// importer to fetch them from localhost, start the API with
+// IMPORT_MEDIA_ALLOWED_ADDRESSES=127.0.0.1,::1.
 // FAKE_STORYLY_DELAY_MS slows every answer, so an import's progress can be
 // watched; FAKE_STORYLY_FAIL (instances, story-groups or stories) answers that
 // list with a 500, so a failed import can be seen.

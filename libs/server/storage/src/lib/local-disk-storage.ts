@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { InvalidStorageKeyError, type MediaStorage } from './media-storage';
 
@@ -22,6 +22,28 @@ export class LocalDiskStorage implements MediaStorage {
     const temp = `${path}.${randomUUID()}.tmp`;
     try {
       await writeFile(temp, data);
+      await rename(temp, path);
+    } catch (err) {
+      await rm(temp, { force: true });
+      throw err;
+    }
+  }
+
+  async putStream(
+    key: string,
+    chunks: AsyncIterable<Uint8Array>,
+  ): Promise<void> {
+    const path = this.pathOf(key);
+    await mkdir(dirname(path), { recursive: true });
+    const temp = `${path}.${randomUUID()}.tmp`;
+    // The temp file is open before any chunk is read, so a failure can always remove it.
+    const file = await open(temp, 'wx');
+    try {
+      try {
+        for await (const chunk of chunks) await file.write(chunk);
+      } finally {
+        await file.close();
+      }
       await rename(temp, path);
     } catch (err) {
       await rm(temp, { force: true });

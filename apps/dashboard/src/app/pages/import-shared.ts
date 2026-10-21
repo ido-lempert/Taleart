@@ -3,6 +3,7 @@ import type {
   ImportDifference,
   ImportDifferenceEntity,
   ImportDifferenceRecord,
+  ImportMediaFailure,
   ImportProgressCount,
   ImportStatus,
 } from '@taleart/contract';
@@ -74,6 +75,17 @@ export const IMPORT_DIFFERENCES_OPEN_LIMIT = 20;
 /** How many records an open group shows at a time; "Show more" adds as many again. */
 export const IMPORT_DIFFERENCES_PAGE = 100;
 
+const MEDIA_FAILURE_LABELS: Record<ImportMediaFailure, string> = {
+  invalidUrl: 'not an http or https link',
+  blockedAddress: 'its link leads to a private address',
+  unreachable: 'its host could not be reached',
+  timeout: 'the download took too long',
+  tooManyRedirects: 'too many redirects',
+  httpError: 'its host answered with an error',
+  tooLarge: 'larger than a tale accepts',
+  unsupportedType: 'not an accepted image or video',
+};
+
 /** One difference as a line under its record. */
 export function importDifferenceText(difference: ImportDifference): string {
   const field = difference.field ?? '';
@@ -90,6 +102,12 @@ export function importDifferenceText(difference: ImportDifference): string {
       return `${field}: not held in TaleArt`;
     case 'invalidRecord':
       return 'could not be read, so it was skipped';
+    case 'mediaNotImported': {
+      const reason = difference.reason
+        ? ` (${MEDIA_FAILURE_LABELS[difference.reason]})`
+        : '';
+      return `${field}: not imported${reason}, so the tale has no media`;
+    }
   }
 }
 

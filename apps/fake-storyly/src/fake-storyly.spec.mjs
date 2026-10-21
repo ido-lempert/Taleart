@@ -17,7 +17,12 @@ describe('fake Storyly server', () => {
     const res = await get('/app', bearer);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.map((a) => a.title)).toEqual(['Demo shop', 'Odd shop', 'Clean shop']);
+    expect(body.data.map((a) => a.title)).toEqual([
+      'Demo shop',
+      'Odd shop',
+      'Clean shop',
+      'Media shop',
+    ]);
     expect((await get(`/app?token=${FAKE_STORYLY_TOKEN}`)).status).toBe(200);
   });
 
@@ -108,5 +113,72 @@ describe('fake Storyly server', () => {
     expect(clean.map((i) => i.title)).toEqual(['Clean home']);
     const cleanStories = (await (await get('/story?story_group_id=3201', bearer)).json()).data;
     expect(cleanStories.map((s) => s.title)).toEqual(['Fresh today', 'Weekend menu']);
+  });
+
+  it("points the stories' media URLs at its own media files, which need no token", async () => {
+    const stories = (
+      await (await get('/story?story_group_id=3001', bearer)).json()
+    ).data;
+    expect(stories.map((s) => s.media)).toEqual(
+      [1, 2, 3].map((n) => `${fake.mediaUrl}/story-400${n}.jpg`),
+    );
+    const media = await fetch(stories[0].media);
+    expect(media.status).toBe(200);
+    expect(media.headers.get('content-type')).toBe('image/jpeg');
+    const bytes = new Uint8Array(await media.arrayBuffer());
+    expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  });
+
+  it('serves a file of each type, and the failing media of Media shop', async () => {
+    const types = {};
+    for (const ext of ['png', 'gif', 'webp', 'mp4', 'webm']) {
+      types[ext] = (await fetch(`${fake.mediaUrl}/story-1.${ext}`)).headers.get(
+        'content-type',
+      );
+    }
+    expect(types).toEqual({
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      mp4: 'video/mp4',
+      webm: 'video/webm',
+    });
+
+    const stories = (
+      await (await get('/story?story_group_id=3301', bearer)).json()
+    ).data;
+    expect(stories).toHaveLength(14);
+    expect(stories.find((s) => s.title === 'File').media).toBe(
+      'file:///etc/passwd',
+    );
+
+    const manual = { redirect: 'manual' };
+    expect(
+      (
+        await fetch(`${fake.mediaUrl}/redirect-private.jpg`, manual)
+      ).headers.get('location'),
+    ).toBe('http://169.254.169.254/latest/meta-data/');
+    expect(
+      (
+        await fetch(`${fake.mediaUrl}/redirect-loopback.jpg`, manual)
+      ).headers.get('location'),
+    ).toMatch(/^http:\/\/\[::1\]:/);
+    expect((await fetch(`${fake.mediaUrl}/moved.jpg`)).status).toBe(200);
+    expect((await fetch(`${fake.mediaUrl}/missing.jpg`)).status).toBe(404);
+    expect(
+      (await fetch(`${fake.mediaUrl}/octet.png`)).headers.get('content-type'),
+    ).toBe('application/octet-stream');
+    expect(
+      await (await fetch(`${fake.mediaUrl}/wrong-type.jpg`)).text(),
+    ).toMatch(/<!doctype html>/);
+
+    const large = await fetch(`${fake.mediaUrl}/too-large.jpg`);
+    expect(large.headers.get('content-length')).toBeNull();
+    expect((await large.arrayBuffer()).byteLength).toBe(10 * 1024 * 1024 + 1);
+    const declared = await fetch(`${fake.mediaUrl}/too-large-declared.mp4`);
+    expect(declared.headers.get('content-length')).toBe(
+      String(100 * 1024 * 1024 + 1),
+    );
+    await declared.body.cancel();
   });
 });

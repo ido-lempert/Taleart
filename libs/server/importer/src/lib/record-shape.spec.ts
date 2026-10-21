@@ -49,15 +49,36 @@ const brief = (differences: ImportDifference[]) =>
   differences.map((d) => [d.kind, d.field, d.sourceField].filter((part) => part !== null).join(' '));
 
 describe('checkRecord', () => {
-  it('finds no difference in a clean record and maps id, title and sort_order', () => {
+  it("finds no difference in a clean record and maps id, title and sort_order, and a story's media and mime_type", () => {
     expect(checkRecord('tale', cleanStory(), 1)).toEqual({
-      record: { id: '4001', name: 'Up to 50% off', sortOrder: 0 },
+      record: {
+        id: '4001',
+        name: 'Up to 50% off',
+        sortOrder: 0,
+        media: 'https://media.example/a.jpg',
+        mimeType: 'image/jpeg',
+      },
       differences: [],
       omitted: 0,
     });
     expect(checkRecord('taleGroup', cleanGroup(), 1).differences).toEqual([]);
-    expect(checkRecord('zone', { id: 2001, app_id: 1001, title: 'Home', platform: 'web' }, 1).differences).toEqual([]);
-    expect(checkRecord('app', { id: 1001, title: 'Shop', token: 'app-token', settings: {} }, 1).differences).toEqual([]);
+    expect(checkRecord('taleGroup', cleanGroup(), 1).record).not.toHaveProperty(
+      'media',
+    );
+    expect(
+      checkRecord(
+        'zone',
+        { id: 2001, app_id: 1001, title: 'Home', platform: 'web' },
+        1,
+      ).differences,
+    ).toEqual([]);
+    expect(
+      checkRecord(
+        'app',
+        { id: 1001, title: 'Shop', token: 'app-token', settings: {} },
+        1,
+      ).differences,
+    ).toEqual([]);
   });
 
   it('uses a renamed title and lists the rename', () => {

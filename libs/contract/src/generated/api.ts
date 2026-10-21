@@ -1341,6 +1341,8 @@ export interface components {
             taleGroups?: components["schemas"]["ImportCount"];
             /** @description Stories as tales. Absent in reports of imports made before tales were imported. */
             tales?: components["schemas"]["ImportCount"];
+            /** @description Tale media: the imported tales whose story names media, how many hold it now, and how many do not (each listed as a difference or a note). Absent in reports of imports made before media was copied. */
+            media?: components["schemas"]["ImportCount"];
             /** @description What did not come across, such as "frame type unknown" for each zone or a skipped tale. */
             notes: string[];
             /** @description Each difference between a source record and the shape the import expects, or a field TaleArt does not hold, in reading order, once per record. Holds field names, never field values. Absent in reports of imports made before records were checked. */
@@ -1356,10 +1358,15 @@ export interface components {
          */
         ImportDifferenceEntity: "app" | "zone" | "taleGroup" | "tale";
         /**
-         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped.
+         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported without it (see reason).
          * @enum {string}
          */
-        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord";
+        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported";
+        /**
+         * @description Why media was not copied. invalidUrl: not an http or https URL; blockedAddress: it leads to a private, loopback, link-local or otherwise non-public address; unreachable: no connection or the transfer broke off; timeout: it took too long; tooManyRedirects: more redirects than allowed; httpError: the media host answered an error status; tooLarge: over the size limit of its type; unsupportedType: not an accepted image or video type, or its bytes do not match the type.
+         * @enum {string}
+         */
+        ImportMediaFailure: "invalidUrl" | "blockedAddress" | "unreachable" | "timeout" | "tooManyRedirects" | "httpError" | "tooLarge" | "unsupportedType";
         /** @description The source record a difference belongs to. */
         ImportDifferenceRecord: {
             /** @description The record's id at the source; null when it has none. */
@@ -1381,6 +1388,8 @@ export interface components {
             field: string | null;
             /** @description For a rename, the name the source used; null otherwise. */
             sourceField: string | null;
+            /** @description For mediaNotImported, why the media was not copied; absent otherwise. */
+            reason?: components["schemas"]["ImportMediaFailure"];
         };
         /** @description Records read from the source so far, and records in TaleArt so far (already linked ones included). */
         ImportProgressCount: {
@@ -2988,5 +2997,6 @@ export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<compone
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale"];
-export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord"];
+export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported"];
+export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "internal_error"];

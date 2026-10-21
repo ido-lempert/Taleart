@@ -172,5 +172,25 @@
         "ts_updated": "2026-09-01 10:00:00"
       }
     ]
+  },
+  "2301": {
+    "data": [
+      {
+        "id": 3301,
+        "app_id": 1004,
+        "instance_id": 2301,
+        "account_id": 501,
+        "title": "Every kind of media",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
   }
 }

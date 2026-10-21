@@ -51,4 +51,23 @@ export async function migrateImporter(db: Db): Promise<void> {
       UNIQUE (project_id, source_system, source_type, source_id)
     );
   `);
+
+  // Which stored media file came from which source story (AD-7, AD-11): a
+  // re-import finds the tale still holding it and copies nothing again. The
+  // tale itself holds the key (the tales module); this row only says the
+  // import put it there, and the bytes' SHA-256 for a later update check.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS import_media (
+      project_id uuid NOT NULL REFERENCES projects(id),
+      source_system text NOT NULL CHECK (source_system IN ('storyly')),
+      source_id text NOT NULL,
+      tale_id uuid NOT NULL,
+      media_key text NOT NULL,
+      content_type text NOT NULL,
+      content_sha256 text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (project_id, source_system, source_id)
+    );
+  `);
 }

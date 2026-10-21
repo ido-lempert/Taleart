@@ -29,8 +29,15 @@ export interface SourceOrderedRecord extends SourceRecord {
 /** A Storyly story group: it becomes a tale group placed in its instance's zone. */
 export type SourceStoryGroup = SourceOrderedRecord;
 
-/** A Storyly story: it becomes a tale of its group's tale group. */
-export type SourceStory = SourceOrderedRecord;
+/**
+ * A Storyly story: it becomes a tale of its group's tale group. `media` (the
+ * media URL) and `mimeType` are the source's values, unchecked: the media copy
+ * checks them.
+ */
+export interface SourceStory extends SourceOrderedRecord {
+  media?: unknown;
+  mimeType?: unknown;
+}
 
 /**
  * One entry of a checked list: the record, or null when it cannot be imported
@@ -81,7 +88,7 @@ function checkedList(
   entity: ImportDifferenceEntity,
   token: string,
   budget: DifferenceBudget | undefined,
-): CheckedList<SourceOrderedRecord> {
+): CheckedList<SourceStory> {
   const text = (value: string) => storedText(value, token);
   return { entries: listOf(body, what).map((raw, index) => checkRecord(entity, raw, index + 1, { text, budget })) };
 }
@@ -138,8 +145,14 @@ export class StorylyClient {
     query: Record<string, string>,
     what: string,
     entity: ImportDifferenceEntity,
-  ): Promise<CheckedList<SourceOrderedRecord>> {
-    return checkedList(await this.get(path, query, what), what, entity, this.options.token, this.options.budget);
+  ): Promise<CheckedList<SourceStory>> {
+    return checkedList(
+      await this.get(path, query, what),
+      what,
+      entity,
+      this.options.token,
+      this.options.budget,
+    );
   }
 
   // GETs `path` and returns its JSON body. 401 and 403 count as a refused token.

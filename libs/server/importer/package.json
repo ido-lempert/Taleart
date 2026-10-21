@@ -10,6 +10,7 @@
     "@taleart/server-access": "0.0.1",
     "@taleart/server-zones": "0.0.1",
     "@taleart/server-tales": "0.0.1",
+    "@taleart/server-storage": "0.0.1",
     "@taleart/contract": "0.0.1"
   }
 }

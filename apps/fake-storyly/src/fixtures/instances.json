@@ -50,5 +50,15 @@
         "platform": "web"
       }
     ]
+  },
+  "1004": {
+    "data": [
+      {
+        "id": 2301,
+        "app_id": 1004,
+        "title": "Media wall",
+        "platform": "web"
+      }
+    ]
   }
 }

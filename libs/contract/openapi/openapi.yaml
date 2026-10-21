@@ -2469,6 +2469,11 @@ components:
         tales:
           $ref: '#/components/schemas/ImportCount'
           description: Stories as tales. Absent in reports of imports made before tales were imported.
+        media:
+          $ref: '#/components/schemas/ImportCount'
+          description: >-
+            Tale media: the imported tales whose story names media, how many hold it now, and how many do not
+            (each listed as a difference or a note). Absent in reports of imports made before media was copied.
         notes:
           type: array
           description: What did not come across, such as "frame type unknown" for each zone or a skipped tale.
@@ -2497,12 +2502,22 @@ components:
       description: What the source record becomes in TaleArt (the app is the project).
     ImportDifferenceKind:
       type: string
-      enum: [missing, renamed, unexpected, wrongType, notHeld, invalidRecord]
+      enum: [missing, renamed, unexpected, wrongType, notHeld, invalidRecord, mediaNotImported]
       description: >-
         missing: a field the import needs is absent; renamed: an expected field came under another name;
         unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong
         type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be
-        read and was skipped.
+        read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported
+        without it (see reason).
+    ImportMediaFailure:
+      type: string
+      enum: [invalidUrl, blockedAddress, unreachable, timeout, tooManyRedirects, httpError, tooLarge, unsupportedType]
+      description: >-
+        Why media was not copied. invalidUrl: not an http or https URL; blockedAddress: it leads to a private,
+        loopback, link-local or otherwise non-public address; unreachable: no connection or the transfer
+        broke off; timeout: it took too long; tooManyRedirects: more redirects than allowed; httpError: the
+        media host answered an error status; tooLarge: over the size limit of its type; unsupportedType: not
+        an accepted image or video type, or its bytes do not match the type.
     ImportDifferenceRecord:
       type: object
       required: [sourceId, name, within, withinSourceId, position]
@@ -2540,6 +2555,9 @@ components:
         sourceField:
           type: [string, 'null']
           description: For a rename, the name the source used; null otherwise.
+        reason:
+          $ref: '#/components/schemas/ImportMediaFailure'
+          description: For mediaNotImported, why the media was not copied; absent otherwise.
     ImportProgressCount:
       type: object
       required: [read, written]

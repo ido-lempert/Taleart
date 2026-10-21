@@ -1,7 +1,13 @@
 import { join, resolve } from 'node:path';
 import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
-import { DEFAULT_STORYLY_API_URL, parseTokenKey, startImportWorker, type ImportWorker } from '@taleart/server-importer';
+import {
+  DEFAULT_STORYLY_API_URL,
+  parseAllowedAddresses,
+  parseTokenKey,
+  startImportWorker,
+  type ImportWorker,
+} from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
@@ -50,9 +56,33 @@ async function start(): Promise<void> {
         : 'Importer off: IMPORT_TOKEN_KEY is not set',
     );
   }
+  // Imported media comes from URLs the source names, so the importer fetches only
+  // public addresses. IMPORT_MEDIA_ALLOWED_ADDRESSES exempts listed IP addresses,
+  // for local reviews against the fake server; it is empty by default.
+  const allowed = parseAllowedAddresses(
+    process.env['IMPORT_MEDIA_ALLOWED_ADDRESSES'],
+  );
+  if (allowed.invalid.length > 0) {
+    log(
+      'error',
+      `IMPORT_MEDIA_ALLOWED_ADDRESSES: ${allowed.invalid.length} value(s) are not IP addresses and were ignored`,
+    );
+  }
+  if (allowed.addresses.length > 0) {
+    log(
+      'info',
+      `Imported media may be fetched from these non-public addresses: ${allowed.addresses.join(', ')}`,
+    );
+  }
   let worker: ImportWorker | null = null;
   if (tokenKey !== null) {
-    worker = startImportWorker(pool, { tokenKey, storylyApiUrl, log });
+    worker = startImportWorker(pool, {
+      tokenKey,
+      storylyApiUrl,
+      storage,
+      mediaPolicy: { allowedAddresses: allowed.addresses },
+      log,
+    });
     log('info', `Import worker started; source ${storylyApiUrl}`);
   }
   const importer = { tokenKey, storylyApiUrl, wake: () => worker?.wake() };
