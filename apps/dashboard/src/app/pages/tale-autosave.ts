@@ -59,6 +59,10 @@ export class TaleAutosaver {
   private failure: Failed | null = null;
   // The document the API refused, not sent again until it changes or a retry is asked for.
   private refused: TaleDocument | null = null;
+  // Why it was refused, shown again when the content comes back to it.
+  private refusedFailure: TaleDocumentFailure | null = null;
+  // Paused (while the draft is published or discarded): changes are kept and nothing is sent.
+  private paused = false;
   private inFlight: Promise<void> | null = null;
   // A save was due while another was on its way.
   private again = false;
@@ -107,15 +111,35 @@ export class TaleAutosaver {
     this.emit();
   }
 
+  /**
+   * Stops sending: changes are kept, and no save starts until {@link resume}. Used while the
+   * draft is published or discarded, so no save of the draft is on its way meanwhile.
+   */
+  pause(): void {
+    this.paused = true;
+    this.clearTimers();
+    this.emit();
+  }
+
+  /** Sends again after {@link pause}: changes kept meanwhile are saved, based on the revision saved last. */
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    if (this.current !== this.saved && this.failure === null) this.changed(this.current);
+    else this.emit();
+  }
+
   /** Starts over from a document just read, at its revision: nothing to save, no failure. */
   reset(document: TaleDocument, revision: number): void {
     this.clearTimers();
     this.generation++;
+    this.paused = false;
     this.current = document;
     this.saved = document;
     this.revision = revision;
     this.failure = null;
     this.refused = null;
+    this.refusedFailure = null;
     this.again = false;
     this.attempt = 0;
     this.emit();
@@ -134,7 +158,14 @@ export class TaleAutosaver {
     }
     // While retrying, the retry sends the latest document.
     if (this.failure?.kind === 'retrying') return this.emit();
+    // Back to the document the API refused: it stays refused, with its reason, and is not sent again.
+    if (document === this.refused && this.refusedFailure && !this.inFlight) {
+      this.clearTimers();
+      this.failure = { kind: 'refused', failure: this.refusedFailure };
+      return this.emit();
+    }
     if (this.failure?.kind === 'refused') this.failure = null;
+    if (this.paused) return this.emit();
     this.pendingSince ??= this.now();
     if (this.debounce !== null) clearTimeout(this.debounce);
     const wait = Math.max(0, Math.min(this.timing.debounceMs, this.pendingSince + this.timing.maxWaitMs - this.now()));
@@ -144,8 +175,9 @@ export class TaleAutosaver {
 
   /** Saves now, as "Retry now" asks; after a stale refusal it does nothing. */
   retryNow(): void {
-    if (this.disposed || this.failure?.kind === 'conflict') return;
+    if (this.disposed || this.paused || this.failure?.kind === 'conflict') return;
     this.refused = null;
+    this.refusedFailure = null;
     this.fire();
   }
 
@@ -156,7 +188,8 @@ export class TaleAutosaver {
 
   /**
    * Saves what is unsaved now, waiting for a save on its way, and tries once. True when everything
-   * is saved; false when it could not be (a failure, or a stale refusal).
+   * is saved; false when it could not be (a failure, a stale refusal, or a document the API
+   * refused, which is not sent again by itself).
    */
   async flush(): Promise<boolean> {
     let tried = false;
@@ -167,7 +200,7 @@ export class TaleAutosaver {
         continue;
       }
       if (this.current === this.saved) return true;
-      if (tried) return false;
+      if (tried || this.current === this.refused) return false;
       tried = true;
       this.clearTimers();
       this.start();
@@ -190,7 +223,7 @@ export class TaleAutosaver {
 
   private fire(): void {
     this.clearTimers();
-    if (this.disposed || this.failure?.kind === 'conflict') return;
+    if (this.disposed || this.paused || this.failure?.kind === 'conflict') return;
     if (this.inFlight) {
       this.again = true;
       return;
@@ -247,6 +280,7 @@ export class TaleAutosaver {
     } else {
       this.failure = { kind: 'refused', failure: result };
       this.refused = document;
+      this.refusedFailure = result;
       // A change made while it was on its way may fix it, and gets its own save.
       if (this.current !== document) {
         this.failure = null;

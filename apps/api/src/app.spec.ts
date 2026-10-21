@@ -2430,7 +2430,7 @@ describe('Management API v1: projects and zones', () => {
         });
       });
 
-      it('publishes the draft when a draft tale is published, and not when a paused tale resumes', async () => {
+      it('publishes the draft when a tale with nothing published goes live, and not on a later resume', async () => {
         const tale = await createTale();
         await save(tale.id, { document: doc([text(1, 'First')]), revision: 0 });
         await publish('tales', tale.id);
@@ -2440,6 +2440,42 @@ describe('Management API v1: projects and zones', () => {
         await save(tale.id, { document: doc([text(1, 'Later')]), revision: 1 });
         await publish('tales', tale.id);
         expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'First')]), revision: 1 });
+      });
+
+      it('publishes the draft of a never-published tale going archived, paused, then live', async () => {
+        const tale = await createTale();
+        await save(tale.id, { document: doc([text(1, 'Kept')]), revision: 0 });
+        expect((await setStatus('tales', tale.id, 'archived')).status).toBe(200);
+        expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
+        expect((await state(tale.id)).published).toEqual({ document: null, revision: 0 });
+        const live = await setStatus('tales', tale.id, 'live');
+        expect(live.status).toBe(200);
+        expect(await live.json()).not.toHaveProperty('draftNotPublished');
+        expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'Kept')]), revision: 1 });
+      });
+
+      it('goes live without publishing a draft that no longer passes, and says so', async () => {
+        const tale = await createTale();
+        await pool.query(
+          `UPDATE tales SET draft_document = '{"version": 1}'::jsonb, draft_revision = 1 WHERE id = $1`,
+          [tale.id],
+        );
+        const res = await setStatus('tales', tale.id, 'live');
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({ storedStatus: 'live', draftNotPublished: true });
+        expect((await state(tale.id)).published).toEqual({ document: null, revision: 0 });
+      });
+
+      it('refuses to publish a tale with no draft, never emptying the published document', async () => {
+        const tale = await createTale();
+        const res = await action(tale.id, 'publish', { revision: 0, publishedRevision: 0 });
+        expect([res.status, (await res.json()).error.code]).toEqual([409, 'nothing_to_publish']);
+        await save(tale.id, { document: doc([text(1, 'Live')]), revision: 0 });
+        await action(tale.id, 'publish', { revision: 1, publishedRevision: 0 });
+        await pool.query('UPDATE tales SET draft_document = NULL WHERE id = $1', [tale.id]);
+        const again = await action(tale.id, 'publish', { revision: 1, publishedRevision: 1 });
+        expect([again.status, (await again.json()).error.code]).toEqual([409, 'nothing_to_publish']);
+        expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'Live')]), revision: 1 });
       });
 
       it('refuses publish and discard without integer revisions, for an unknown tale, and for another project', async () => {

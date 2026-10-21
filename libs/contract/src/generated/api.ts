@@ -923,7 +923,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale.
-         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11). Publishing a `draft` tale (`draft` to `live`) also publishes its draft document (AD-15) in the same transaction; resuming a `paused` tale does not.
+         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11). Setting `live` on a tale that has nothing published yet (from any status) also publishes its draft document (AD-15) in the same transaction, after checking it again; a tale that already has a published document keeps it. When the draft no longer passes the check, the status still changes, the draft is not published, and the answer says so with `draftNotPublished: true`.
          */
         put: operations["setTaleStatus"];
         post?: never;
@@ -1020,7 +1020,7 @@ export interface paths {
         put?: never;
         /**
          * Publish a tale's draft document.
-         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. The draft is checked again first (400 `invalid_tale_document` with `pointer`). The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. A tale with no draft answers 409 `nothing_to_publish`; publishing never empties the published document. The draft is checked again first (400 `invalid_tale_document` with `pointer`). The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
          */
         post: operations["publishTaleDocument"];
         delete?: never;
@@ -1501,6 +1501,11 @@ export interface components {
             revision: number;
             published: components["schemas"]["PublishedTaleDocument"];
         };
+        /** @description A tale as a status change answers it. */
+        TaleStatusResult: components["schemas"]["Tale"] & {
+            /** @description Present and true when the tale went live with nothing published yet and its draft document no longer passes the checks, so the draft was not published (AD-15). */
+            draftNotPublished?: boolean;
+        };
         PublishedTaleDocument: {
             /** @description The published document, the one the Delivery API serves, or null when none is published. */
             document: components["schemas"]["v1.schema"] | null;
@@ -1832,7 +1837,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -3494,7 +3499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Tale"];
+                    "application/json": components["schemas"]["TaleStatusResult"];
                 };
             };
             400: components["responses"]["Error"];
@@ -3773,4 +3778,4 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "internal_error"];

@@ -1817,6 +1817,22 @@ describe('App', () => {
       expect(badge(groupRow(root, 'Summer').querySelector('.tale-card') as HTMLElement)).toBe('Status: Paused');
     });
 
+    it("says in the drawer when going live could not publish the tale's studio draft", async () => {
+      const paused = { ...live, tales: [{ ...taleA, status: 'paused', storedStatus: 'paused' }] };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [paused] } });
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Publish').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tales/t1/status`).flush({ ...taleA, draftNotPublished: true });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [live] } });
+      await settle(fixture);
+      const warning = "Tale is live; its studio draft has problems and wasn't published.";
+      expect(drawer()?.textContent).toContain(warning);
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toContain(warning);
+    });
+
     it("offers the stored status's buttons for a tale blocked by its group, and shows a refusal in the drawer", async () => {
       const blocked = { ...live, status: 'paused', storedStatus: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }] };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });

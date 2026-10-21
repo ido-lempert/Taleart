@@ -21,6 +21,7 @@ import {
   InvalidStatusTransitionError,
   InvalidTaleDocumentError,
   StaleRevisionError,
+  NothingToPublishError,
   TaleDocumentTooLargeError,
   OrderMismatchError,
   TaleGroupFullError,
@@ -102,7 +103,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof PlaybookAlreadyAppliedError ||
     err instanceof PlaybookConcurrentChangeError ||
     err instanceof InvalidStatusTransitionError ||
-    err instanceof StaleRevisionError
+    err instanceof StaleRevisionError ||
+    err instanceof NothingToPublishError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;

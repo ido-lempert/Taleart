@@ -5,6 +5,7 @@ import {
   deliverableTaleDocument,
   getTaleDocument,
   InvalidTaleDocumentError,
+  NothingToPublishError,
   saveTaleDocument,
   publishTaleDocument,
   discardTaleDraft,
@@ -276,6 +277,7 @@ describe('tale document storage', () => {
     const [sql, params] = query.mock.calls[1] as unknown as [string, unknown[]];
     expect(sql).toMatch(/SET document = draft_document, document_revision = document_revision \+ 1/);
     expect(sql).toMatch(/WHERE id = \$1 AND draft_revision = \$2 AND document_revision = \$3/);
+    expect(sql).toMatch(/AND draft_document IS NOT NULL/);
     expect(params).toEqual([taleId, 4, 0]);
   });
 
@@ -293,6 +295,10 @@ describe('tale document storage', () => {
     await expect(publishTaleDocument(fakeDb([{ rows: [] }]).db, taleId, 0, 0)).rejects.toBeInstanceOf(
       TaleNotFoundError,
     );
+    // No draft: nothing is published, and the published document is never emptied.
+    const none = fakeDb([{ rows: [{ document: null, revision: 0, ...NONE }] }]);
+    await expect(publishTaleDocument(none.db, taleId, 0, 0)).rejects.toBeInstanceOf(NothingToPublishError);
+    expect(none.query).toHaveBeenCalledTimes(1);
   });
 
   it('discards the draft back to the published document with compare-and-set on both revisions', async () => {

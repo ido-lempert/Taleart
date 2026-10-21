@@ -151,7 +151,8 @@ Clients never import `libs/server`. Modules never import `apps/*`.
   - **Draft and published** (user decision, 2026-10-22): each tale keeps two documents of this shape, each with its own revision.
     - The **draft** is what Tale Studio edits and autosaves. Every save raises the draft revision, and a save based on an older one is refused with 409, so undo, redo, autosave and the conflict flow all work on the draft and never change what visitors see.
     - The **published** document is what the Delivery API serves. "Publish changes" copies the draft to it in one compare-and-set on both revisions (409 when either is stale), raising the published revision. "Discard draft" resets the draft to the published document the same way.
-    - Publishing a `draft` tale (AD-6, `draft` to `live`) also publishes its draft in the same transaction; resuming a `paused` tale does not.
+    - Setting a tale `live` (AD-6) while nothing of it is published yet, from any status, also publishes its draft in the same transaction, after checking it again; a tale that already has a published document keeps it on resume. A draft that no longer passes is not published: the tale still goes live, and the answer flags it for the dashboard to say so.
+    - Publishing a tale with no draft is refused (409 `nothing_to_publish`), so publishing never empties the published document.
     - A tale whose document existed before drafts gets it as both, at the same revision. Keeping a refused version as a new tale stores it as that tale's draft, with nothing published.
     - Both are columns on the tale row (`draft_document` and `document`), an additive change.
   - **Validation on every write:** the Management API checks the document against the schema, with no additional properties, and then applies semantic rules. A refusal uses the standard error body naming the JSON pointer of the field it refused.
