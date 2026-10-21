@@ -2,6 +2,8 @@
 // open full-screen viewer, with axe-core in headless Chromium. The Delivery API and media are
 // stubbed, so no API, database or key is needed. Also drives the viewer by keyboard and checks
 // that focus returns to the bar item and the viewed group shows the seen ring after a reload.
+// Then the banner frame of the same zone: rotating and stopped, its controls, swipe, opening the
+// viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 //
 // axe-core is not a workspace dependency yet: a pinned build is fetched from cdnjs and checked
@@ -23,7 +25,10 @@ const image = (id, title) => ({ id, title, media: { kind: 'image', contentType: 
 const ZONE = {
   id: 'z1',
   name: 'Home',
-  frames: [{ id: 'f1', type: 'bar', settings: {} }],
+  frames: [
+    { id: 'f1', type: 'bar', settings: {} },
+    { id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } },
+  ],
   taleGroups: [
     { id: 'ga', name: 'Summer sale', tales: [image('a1', 'Beach day'), image('a2', 'Sunset')] },
     { id: 'gb', name: 'New arrivals', tales: [image('b1', 'Jackets')] },
@@ -181,7 +186,105 @@ try {
   check((await items.first().getAttribute('data-seen')) !== null, 'after a reload the viewed group shows the seen ring');
   check((await items.nth(2).getAttribute('data-seen')) === null, 'an unviewed group does not');
   violations += await scan(page, 'bar with seen ring', axe);
+
+  // The banner frame (R3) of the same zone, below the bar.
+  const banner = page.locator('taleart-view section.banner');
+  const slideShown = () =>
+    page.evaluate(() =>
+      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.b-dot')].findIndex(
+        (dot) => dot.getAttribute('aria-current') === 'true',
+      ),
+    );
+  check((await page.locator('taleart-view .b-open').count()) === 3, 'the banner shows one slide per group');
+  // Away from the banner, so a hovering mouse does not pause it.
+  await page.mouse.move(1, 1);
+  check((await slideShown()) === 0, 'the banner starts on the first slide');
+  await page.waitForTimeout(3400);
+  check((await slideShown()) === 1, 'the banner autoplays after its 3 s interval');
+  violations += await scan(page, 'bar and rotating banner', axe);
+
+  await banner.getByRole('button', { name: 'Show New arrivals' }).click();
+  check((await slideShown()) === 1, 'a dot shows its slide');
+  await banner.locator('.b-next').click();
+  check((await slideShown()) === 2, 'Next slide moves the banner');
+  await page.waitForTimeout(3400);
+  check((await slideShown()) === 2, 'interacting with the banner stops autoplay');
+  const viewportBox = await banner.locator('.b-viewport').boundingBox();
+  const by = viewportBox.y + viewportBox.height / 2;
+  await page.mouse.move(viewportBox.x + viewportBox.width * 0.3, by);
+  await page.mouse.down();
+  await page.mouse.move(viewportBox.x + viewportBox.width * 0.8, by, { steps: 5 });
+  await page.mouse.up();
+  check((await slideShown()) === 1, 'a swipe right on the banner moves back');
+  check((await dialog.isVisible()) === false, 'a swipe does not open the viewer');
+  violations += await scan(page, 'banner stopped', axe);
+
+  await banner.locator('.b-slide:not([inert]) .b-open').click();
+  await dialog.waitFor();
+  check((await dialog.getAttribute('aria-label')) === 'New arrivals', 'activating a slide opens the viewer at its group');
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+  const back = await focused(page);
+  check(back?.group === 'gb' && back?.tag === 'BUTTON' && back?.label === 'New arrivals', 'closing returns focus to the banner slide');
   check(errors.length === 0, `no console errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
+
+  // With reduced motion and the story's settings (3:1, 3 s, no dots): no autoplay.
+  const reduced = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+  const still = await reduced.newPage();
+  const settings = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 3, showDots: false, loop: true };
+  await still.route(`${API}/delivery/v1/zone`, (route) =>
+    route.fulfill({
+      json: { ...ZONE, frames: [ZONE.frames[0], { id: 'f2', type: 'banner', settings }] },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+    }),
+  );
+  await still.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+  await still.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  const stillBanner = still.locator('taleart-view section.banner');
+  await stillBanner.waitFor();
+  const ratioBox = await stillBanner.locator('.b-viewport').boundingBox();
+  check(Math.abs(ratioBox.width / ratioBox.height - 3) < 0.05, 'the banner follows its 3:1 aspect ratio');
+  check((await stillBanner.locator('.b-dots').count()) === 0, 'the banner follows showDots: false');
+  check(await stillBanner.locator('.b-rotate').isHidden(), 'with reduced motion there is no rotation button');
+  const transform = () => stillBanner.locator('.b-track').evaluate((track) => track.style.transform);
+  await still.waitForTimeout(3400);
+  check((await transform()) === 'translateX(0%)', 'with reduced motion the banner does not autoplay');
+  violations += await scan(still, 'banner with reduced motion', axe);
+  await reduced.close();
+
+  // A 3:1 banner on a 390 px phone with autoplay: no control overlaps another, targets are 44 px.
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const narrow = await phone.newPage();
+  await narrow.route(`${API}/delivery/v1/zone`, (route) =>
+    route.fulfill({
+      json: { ...ZONE, frames: [{ id: 'f2', type: 'banner', settings: { aspectRatio: '3:1', intervalSeconds: 3 } }] },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+    }),
+  );
+  await narrow.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+  await narrow.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  const narrowBanner = narrow.locator('taleart-view section.banner');
+  await narrowBanner.waitFor();
+  const boxes = {
+    rotate: await narrowBanner.locator('.b-rotate').boundingBox(),
+    prev: await narrowBanner.locator('.b-prev').boundingBox(),
+    next: await narrowBanner.locator('.b-next').boundingBox(),
+    dots: await narrowBanner.locator('.b-dots').boundingBox(),
+  };
+  const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  const names = Object.keys(boxes);
+  const clashes = names.flatMap((a, i) => names.slice(i + 1).filter((b) => overlap(boxes[a], boxes[b])).map((b) => `${a}/${b}`));
+  check(clashes.length === 0, `no banner controls overlap at 390 px on 3:1${clashes.length ? `: ${clashes.join(', ')}` : ''}`);
+  check(
+    ['rotate', 'prev', 'next'].every((k) => boxes[k].width >= 44 && boxes[k].height >= 44),
+    'banner buttons are at least 44 px',
+  );
+  violations += await scan(narrow, 'phone 3:1 banner', axe);
+  await phone.close();
 } finally {
   await browser.close();
   server.kill();
