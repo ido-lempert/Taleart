@@ -77,6 +77,14 @@ type FontChoice = SystemFontStack | 'theme' | 'name';
 const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 
 /**
+ * A contrast ratio as people read it: rounded down to one decimal, so a ratio just under its
+ * minimum never reads as the minimum ("4.5:1, below 4.5:1").
+ */
+export function ratioText(ratio: number): string {
+  return (Math.floor(ratio * 10) / 10).toFixed(1);
+}
+
+/**
  * What a contrast check says (epic Tale Studio R12): a warning only, never a block. Null when the
  * contrast is enough.
  */
@@ -86,7 +94,7 @@ export function contrastWarning(check: TextContrast): string | null {
   }
   if (check.kind === 'ok') return null;
   return (
-    `Low contrast: ${check.ratio.toFixed(1)}:1 against ${AGAINST[check.against]}, below the ` +
+    `Low contrast: ${ratioText(check.ratio)}:1 against ${AGAINST[check.against]}, below the ` +
     `${check.minimum}:1 that WCAG 2.2 AA asks for text this size. You can still save and publish.`
   );
 }
@@ -202,6 +210,10 @@ export function parseHexColor(value: string): string | null {
           <div class="field">
             <label class="field__label" for="ts-weight">Weight</label>
             <select id="ts-weight" class="select" (change)="setWeight($any($event.target).value)">
+              @if (look().weight === null) {
+                <!-- A text stored before styling keeps its weight until one is chosen. -->
+                <option value="" selected disabled>Semibold (as before)</option>
+              }
               @for (key of weightKeys; track key) {
                 <option [value]="key" [selected]="look().weight === key">{{ weightNames[key] }}</option>
               }
@@ -241,18 +253,22 @@ export function parseHexColor(value: string): string | null {
               class="input"
               type="color"
               [value]="look().color.slice(0, 7).toLowerCase()"
-              (change)="pickColor('color', $any($event.target).value)"
+              aria-describedby="ts-contrast"
+              (change)="pickColor('color', $any($event.target).value, colorHex)"
             />
           </div>
           <div class="field">
             <label class="field__label" for="ts-color-hex">Text colour hex</label>
             <input
+              #colorHex
               id="ts-color-hex"
               class="input input--mono"
               type="text"
               spellcheck="false"
               autocomplete="off"
-              [attr.aria-describedby]="colorError() ? 'ts-hex-hint ts-color-error' : 'ts-hex-hint'"
+              [attr.aria-describedby]="
+                colorError() ? 'ts-hex-hint ts-color-error ts-contrast' : 'ts-hex-hint ts-contrast'
+              "
               [attr.aria-invalid]="colorError() ? 'true' : null"
               [value]="look().color"
               (change)="setHex('color', $any($event.target))"
@@ -265,7 +281,7 @@ export function parseHexColor(value: string): string | null {
         }
       </fieldset>
       <fieldset class="text-style__group" aria-describedby="ts-align-hint">
-        <legend class="field__label">Alignment</legend>
+        <legend class="field__label">Alignment and direction</legend>
         <div class="text-style__choices">
           @for (key of alignKeys; track key) {
             <label class="checkbox">
@@ -282,23 +298,24 @@ export function parseHexColor(value: string): string | null {
           }
         </div>
         <span class="field__hint" id="ts-align-hint">Start and end follow the text direction.</span>
+        <div class="field">
+          <label class="field__label" for="ts-direction">Text direction</label>
+          <select
+            id="ts-direction"
+            class="select"
+            aria-describedby="ts-direction-hint"
+            (change)="setDirection($any($event.target).value)"
+          >
+            @for (key of directionKeys; track key) {
+              <option [value]="key" [selected]="look().direction === key">{{ directionNames[key] }}</option>
+            }
+          </select>
+          <span class="field__hint" id="ts-direction-hint">
+            Automatic takes each text's direction from its first letter: Hebrew and Arabic read right to left, other
+            text left to right.
+          </span>
+        </div>
       </fieldset>
-      <div class="field">
-        <label class="field__label" for="ts-direction">Text direction</label>
-        <select
-          id="ts-direction"
-          class="select"
-          aria-describedby="ts-direction-hint"
-          (change)="setDirection($any($event.target).value)"
-        >
-          @for (key of directionKeys; track key) {
-            <option [value]="key" [selected]="look().direction === key">{{ directionNames[key] }}</option>
-          }
-        </select>
-        <span class="field__hint" id="ts-direction-hint">
-          Automatic reads Hebrew and Arabic right to left and other text left to right.
-        </span>
-      </div>
       <fieldset class="text-style__group">
         <legend class="field__label">Background</legend>
         <div class="field">
@@ -318,12 +335,13 @@ export function parseHexColor(value: string): string | null {
                 class="input"
                 type="color"
                 [value]="look().backgroundColor.slice(0, 7).toLowerCase()"
-                (change)="pickColor('backgroundColor', $any($event.target).value)"
+                (change)="pickColor('backgroundColor', $any($event.target).value, bgHex)"
               />
             </div>
             <div class="field">
               <label class="field__label" for="ts-bg-hex">Background colour hex</label>
               <input
+                #bgHex
                 id="ts-bg-hex"
                 class="input input--mono"
                 type="text"
@@ -342,7 +360,8 @@ export function parseHexColor(value: string): string | null {
         }
       </fieldset>
     </fieldset>
-    <p class="text-style__contrast" id="ts-contrast" role="status" [class.is-warning]="warning() !== null">
+    <!-- Not a live region: the studio says when a change turns the warning on or off. -->
+    <p class="text-style__contrast" id="ts-contrast" [class.is-warning]="warning() !== null">
       {{ warning() ?? contrastNote() }}
     </p>
   `,
@@ -360,8 +379,8 @@ export class TaleTextStyle {
   readonly backdrop = input.required<TextBackdrop>();
   /** A change the studio makes, as one history step. */
   readonly changed = output<TextStyleChange>();
-  /** A typed value was refused; the studio announces it. */
-  readonly refused = output<string>();
+  /** Something to announce that is no change: a typed value refused, or a choice waiting for a value. */
+  readonly notice = output<string>();
 
   protected readonly stacks = SYSTEM_FONT_STACK_KEYS;
   protected readonly stackNames = STACK_NAMES;
@@ -414,7 +433,7 @@ export class TaleTextStyle {
   protected readonly warning = computed(() => contrastWarning(this.contrast()));
   protected readonly contrastNote = computed(() => {
     const check = this.contrast();
-    return check.kind === 'ok' ? `Contrast ${check.ratio.toFixed(1)}:1 against ${AGAINST[check.against]}.` : '';
+    return check.kind === 'ok' ? `Contrast ${ratioText(check.ratio)}:1 against ${AGAINST[check.against]}.` : '';
   });
 
   constructor() {
@@ -441,7 +460,7 @@ export class TaleTextStyle {
 
   private refuse(error: WritableSignal<string>, message: string): void {
     error.set(message);
-    this.refused.emit(message);
+    this.notice.emit(message);
   }
 
   protected setFont(choice: FontChoice): void {
@@ -449,6 +468,7 @@ export class TaleTextStyle {
     if (choice === 'name') {
       // Applied once a valid name is typed.
       this.pendingName.set(this.look().font.source !== 'name');
+      if (this.pendingName()) this.notice.emit('Type a font name the page loads, then leave the field to apply it.');
       return;
     }
     this.pendingName.set(false);
@@ -483,6 +503,7 @@ export class TaleTextStyle {
     this.sizeError.set('');
     if (choice === 'custom') {
       this.pendingCustom.set(true);
+      this.notice.emit('Type a custom size in % of the canvas height, then leave the field to apply it.');
       return;
     }
     this.pendingCustom.set(false);
@@ -527,10 +548,14 @@ export class TaleTextStyle {
     this.emit('Line height changed', { lineHeight }, `Line height set to ${lineHeight}`);
   }
 
-  /** The colour picker gives `#rrggbb`; a colour with transparency keeps its alpha. */
-  protected pickColor(field: 'color' | 'backgroundColor', picked: string): void {
+  /**
+   * The colour picker gives `#rrggbb`; a colour with transparency keeps its alpha. The hex field
+   * always shows the picked colour, even after it held a refused value and the colour is unchanged.
+   */
+  protected pickColor(field: 'color' | 'backgroundColor', picked: string, hex: HTMLInputElement): void {
     const current = this.look()[field];
     const color = current.length === 9 ? `${picked}${current.slice(7)}` : picked;
+    hex.value = color;
     this.applyColor(field, color);
   }
 

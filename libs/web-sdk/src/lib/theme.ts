@@ -1,6 +1,8 @@
-// The SDK keeps its own copy of the theme rules, so nothing from the contract
-// ends up in the bundle (AD-3); a test keeps the copy in step with the
-// contract's `DEFAULT_THEME` and `themeSettingsError`.
+// The SDK keeps its own copy of the theme rules, so the contract's theme code
+// stays out of the bundle (AD-3); a test keeps the copy in step with the
+// contract's `DEFAULT_THEME` and `themeSettingsError`. Only the font-list
+// quoting comes from the contract, which the text renderer already uses.
+import { cssFontFamilyList } from '@taleart/contract';
 import type { Theme } from './public-types';
 
 /**
@@ -135,7 +137,8 @@ export function themeProperties(raw: unknown, ...overrides: Partial<Theme>[]): R
   };
   if (theme.backgroundColor !== 'transparent') props['--ta-gap'] = theme.backgroundColor;
   if (theme.cornerRadius !== null) props['--ta-radius'] = `${theme.cornerRadius}px`;
-  if (theme.fontFamily !== null) props['--ta-font'] = theme.fontFamily;
+  // Each name quoted, so a name CSS refuses bare (`Source Sans 3`) still applies.
+  if (theme.fontFamily !== null) props['--ta-font'] = cssFontFamilyList(theme.fontFamily);
   if (theme.titleColor !== null) props['--ta-title'] = theme.titleColor;
   return props;
 }

@@ -2256,17 +2256,39 @@ describe('Management API v1: projects and zones', () => {
       expect(await readDraft(tale.id)).toEqual({ document, revision: 1 });
     });
 
-    it('refuses unsafe font names, colours and out-of-range sizes (story 7.4)', async () => {
-      const styled = (style: Record<string, unknown>) => doc([{ ...text(1), props: { text: 'x', ...style } }]);
-      const at = '/elements/0/props';
-      await expectRefused(styled({ font: { source: 'name', family: 'inherit' } }), `${at}/font/family`);
-      await expectRefused(styled({ font: { source: 'name', family: 'x;color:red' } }), `${at}/font/family`);
-      await expectRefused(styled({ color: 'red; background:url(x)' }), `${at}/color`);
-      await expectRefused(styled({ backgroundColor: 'red; background:url(x)' }), `${at}/backgroundColor`);
-      await expectRefused(styled({ size: 0.005 }), `${at}/size`);
-      await expectRefused(styled({ size: 0.5 }), `${at}/size`);
-      await expectRefused(styled({ lineHeight: 4 }), `${at}/lineHeight`);
-      await expectRefused(styled({ direction: 'up' }), `${at}/direction`);
+    // Every refusal of a text style (story 7.4), over HTTP: 400 naming the field, nothing stored.
+    it.each([
+      ['font', { source: 'name', family: 'inherit' }, 'font/family'],
+      ['font', { source: 'name', family: 'Inter, initial' }, 'font/family'],
+      ['font', { source: 'name', family: 'x;color:red' }, 'font/family'],
+      ['font', { source: 'name', family: 'url(x)' }, 'font/family'],
+      ['font', { source: 'name', family: 'a'.repeat(201) }, 'font/family'],
+      ['font', { source: 'name' }, 'font/family'],
+      ['font', { source: 'system', stack: 'fantasy' }, 'font/stack'],
+      ['font', { source: 'system', stack: 'serif', family: 'Inter' }, 'font/family'],
+      ['font', { source: 'theme', stack: 'serif' }, 'font/stack'],
+      ['font', { source: 'project' }, 'font/source'],
+      ['font', { source: 'theme', url: 'x' }, 'font/url'],
+      ['color', 'red; background:url(x)', 'color'],
+      ['color', 'red', 'color'],
+      ['color', '#12345', 'color'],
+      ['color', '<b>x</b>', 'color'],
+      ['backgroundColor', 'red; background:url(x)', 'backgroundColor'],
+      ['size', 0, 'size'],
+      ['size', 0.005, 'size'],
+      ['size', 0.5, 'size'],
+      ['size', 'big', 'size'],
+      ['lineHeight', 0.5, 'lineHeight'],
+      ['lineHeight', 4, 'lineHeight'],
+      ['weight', 'heavy', 'weight'],
+      ['italic', 'yes', 'italic'],
+      ['align', 'left', 'align'],
+      ['direction', 'up', 'direction'],
+      ['background', 'gradient', 'background'],
+      ['fallback', 'inherit', 'fallback'],
+      ['shadow', '0 0 2px red', 'shadow'],
+    ])('refuses a text style %s of %j (story 7.4)', async (field, value, at) => {
+      await expectRefused(doc([{ ...text(1), props: { text: 'x', [field]: value } }]), `/elements/0/props/${at}`);
     });
 
     it('refuses more than 60 elements', async () => {

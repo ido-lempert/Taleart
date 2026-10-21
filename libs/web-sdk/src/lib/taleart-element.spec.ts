@@ -133,7 +133,7 @@ describe('TaleartElement', () => {
     const themed = el.shadowRoot?.querySelector<HTMLElement>('.taleart');
     expect(themed?.style.getPropertyValue('--ta-ring')).toBe('#0055ff');
     expect(themed?.style.getPropertyValue('--ta-radius')).toBe('0px');
-    expect(themed?.style.getPropertyValue('--ta-font')).toBe('Georgia, serif');
+    expect(themed?.style.getPropertyValue('--ta-font')).toBe('"Georgia", serif');
     expect(themed?.style.getPropertyValue('--ta-seen')).toBe('#6b7280');
     // Both frames and, once open, the viewer sit inside the themed wrapper, so they inherit it.
     expect(themed?.querySelector('.bar')).not.toBeNull();
@@ -230,7 +230,7 @@ describe('TaleartElement', () => {
         theme: '{"cornerRadius":0,"fontFamily":"Georgia, serif"}',
       });
       expect(prop(el, '--ta-radius')).toBe('0px');
-      expect(prop(el, '--ta-font')).toBe('Georgia, serif');
+      expect(prop(el, '--ta-font')).toBe('"Georgia", serif');
       expect(fetchMock).toHaveBeenCalledTimes(1);
       // Changing it restyles without a new request.
       el.setAttribute('theme', '{"cornerRadius":8}');

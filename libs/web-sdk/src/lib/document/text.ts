@@ -4,7 +4,7 @@ import {
   resolveTextStyle,
   TEXT_BOX_PADDING_EM,
   TEXT_HIGHLIGHT_PADDING_EM,
-  TEXT_WEIGHTS,
+  textCssWeight,
   textFontFamily,
   type DeliveryTaleElement,
 } from '@taleart/contract';
@@ -45,7 +45,7 @@ export function renderText(element: DeliveryTaleElement): HTMLElement | null {
   style.fontFamily = textFontFamily(look);
   style.fontSize = `${look.size * 100}cqh`;
   style.lineHeight = String(look.lineHeight);
-  style.fontWeight = String(TEXT_WEIGHTS[look.weight]);
+  style.fontWeight = String(textCssWeight(look.weight));
   style.fontStyle = look.italic ? 'italic' : 'normal';
   style.color = look.color;
   style.textAlign = look.align;

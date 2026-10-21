@@ -3,13 +3,13 @@ title: 'Style text with fonts, sizes, colours and backgrounds'
 type: 'feature'
 ticket: '4'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '901ba7e'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
+review: 'thorough'
+review_source: 'pinned'
 lenses_ran: []
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -18,7 +18,14 @@ context:
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-tale-studio/tickets/story-undo-redo-and-autosave-without-losing-work-plan.md'
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-web-zones/tickets/story-set-the-project-theme-in-the-dashboard-plan.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: 'AD-16: the studio canvas still draws text in Angular (sharing the contract helpers) instead of mounting the SDK renderer.'
+    evidence: 'Coordinator review 2026-10-22; epic R10 is story 7.9'
+    location: 'apps/dashboard/src/app/pages/tale-studio.ts'
+    severity: 'medium'
+  - summary: 'AC1 studio-vs-sample pixel parity is not verified; it is story 7.9 verification (preview mounts the SDK renderer).'
+    evidence: 'Coordinator review 2026-10-22'
+    severity: 'low'
 ---
 
 <intent-contract>
@@ -62,7 +69,7 @@ deferred: []
 | Named font | `family:'Inter'` | `Inter, <fallback stack>` | `inherit`, `x;color:red`, `'a' + 201 chars` → 400 at `.../font/family`; studio marks the field and keeps the old value |
 | Font combo | `source:'system'` with `family` | — | 400 (no extra field) |
 | Size | preset large / custom 12 % | 0.06 / 0.12 × canvas height (`cqh`) | 0, 0.005, 0.5, `"big"` → 400 at `.../props/size`; studio refuses outside 1–20 % |
-| Weight, italic | `bold`, `true` | 700, italic | `heavy` → 400 |
+| Weight, italic | `bold`, `true` | 700, italic; weight left out (text from before styling) → 600 as before | `heavy` → 400 |
 | Colour | `#ff0000cc` | colour applied | `red; background:url(x)`, `red`, `#12345` → 400 at `.../props/color` |
 | Align | `start` with Hebrew text, direction auto | right-aligned; with `ltr` left-aligned | `left` → 400 |
 | Direction | `rtl` / `ltr` / `auto` | `dir` attribute set to it | `up` → 400 |
@@ -79,7 +86,8 @@ deferred: []
 ## Code Map
 
 - `libs/contract/tale-document/element-types/text.schema.json`: the new props.
-- `libs/contract/src/lib/text-style.ts` (new, + spec): the font registry, presets, ranges, `DEFAULT_TEXT_PROPS`, `resolveTextStyle`, `textContrast`; exported from `src/index.ts`. `tale-document.ts`: `TEXT_ELEMENT_STYLE` keeps the defaults.
+- `libs/contract/src/lib/text-style.ts` (new, + spec): the font registry, presets, ranges, `DEFAULT_TEXT_STYLE`, `resolveTextStyle`, `textFontFamily`, `cssFontFamilyList`, `textCssWeight`, `textContrast`; exported from `src/index.ts`. `tale-document.ts`: `TEXT_ELEMENT_STYLE` (7.1's fixed look) is **removed**; its values live on as `DEFAULT_TEXT_STYLE` (weight: `LEGACY_TEXT_WEIGHT` 600 for texts without one). `theme.ts` initialisers marked pure; `package.json` `sideEffects: false`.
+- `libs/web-sdk/src/lib/theme.ts`: `--ta-font` is quoted per name through `cssFontFamilyList`.
 - `libs/server/tales/src/lib/tale-document.ts` (+ spec): the text props rule re-checks `isFontFamily`. `apps/api/src/app.spec.ts`: the refusal rows over HTTP.
 - `libs/web-sdk/src/lib/document/text.ts`, `renderer.ts` (+ spec): CSSOM styles, `dir`, box and highlight, alignment.
 - `apps/dashboard/src/app/pages/tale-text-style.ts` (new, + spec): the inspector component. `tale-studio.ts` (+ spec): canvas styling from `resolveTextStyle`, the theme font via `ThemeService`, commit and announce, new text defaults.
@@ -107,11 +115,13 @@ deferred: []
   - **A font name** accepts what the theme's `isFontFamily` accepts: a comma-separated list of at most 200 characters with no CSS-wide keyword. The fallback stack is always appended after it.
   - **Theme font:** the SDK writes `var(--ta-font, <fallback>), <fallback>`, so it follows the delivered theme and any SDK override (story 3.9), and shows the fallback when the theme sets no font. The studio reads the project theme through `ThemeService`. It cannot see SDK configuration overrides.
   - **Ranges:** size from 1 % to 20 % of the canvas height, with presets small 3 %, medium 4 % and large 6 %; line height from 0.8 to 3; colours `#RRGGBB` or `#RRGGBBAA`, like the canvas colour. The weights map to regular 400, medium 500 and bold 700.
-  - **Defaults** (`DEFAULT_TEXT_STYLE`) keep the look before styling: system sans, 4 %, 1.25, white, centred, `dir="auto"`. The one change is the weight. It was 600, which is not one of the three weights, so it is now bold (700).
+  - **Defaults** (`DEFAULT_TEXT_STYLE`) keep the look before styling: system sans, 4 %, 1.25, white, centred, `dir="auto"`. A text whose props leave the weight out keeps 600 (`LEGACY_TEXT_WEIGHT`, review item 8: changing live content is a product decision not taken here); the inspector shows it as "Semibold (as before)" until a weight is chosen. New texts store `bold` explicitly.
+  - **Font names are quoted** when the `font-family` value is built (review item 1), each name in double quotes except a bare generic family: CSS refuses some bare names (`Source Sans 3`, `Noto Sans 3D`, `A - B`). The font-list rules forbid quotes and backslashes inside a name, so no escaping is needed. This applies to named fonts, the studio's theme font and the SDK's `--ta-font` (so bar, banner and viewer too).
+  - **Forward compatibility** (review item 2): `readTextFont` ignores keys it does not know, and an unknown source (such as 7.17's project font, read by an older SDK) draws in the text's fallback stack. The server still refuses both on write.
   - **New texts** store every setting explicitly, `direction: 'auto'` included. Older texts that have only `{ text }` render with the defaults and are not migrated.
   - **Box and highlight:** a solid box fills the element's box, with 0.5 em of inline padding. A highlight is drawn on the inline glyphs with `box-decoration-break: clone` and 0.25 em of inline padding. The contract holds both padding values.
   - **Alignment and direction:** alignment is `text-align: start | center | end`. Direction is the `dir` attribute on the paragraph in the SDK and on the canvas element and in-place editor in the studio.
-  - **Contrast** is a warning only. It shows in the inspector (`role="status"`) and as "Low contrast" in the layer row. The check uses 4.5:1, or 3:1 for large text. Large text means at least 24 px, or 18.67 px when bold, on a 640 px canvas (a 360 px wide phone).
+  - **Contrast** is a warning only. It shows in the inspector (not a live region; a change that turns the warning on or off says so in its announcement) and as "Low contrast" in the layer row. Ratios are shown rounded down, so a ratio under its minimum never reads as the minimum. The check uses 4.5:1, or 3:1 for large text. Large text means at least 24 px, or 18.67 px at weight 700, on a 540 px reference canvas: about the smallest canvas the viewer draws on a supported phone (320 × 568 less its insets), so text called large is large on every phone.
     - The backdrop is the text's opaque box or highlight. Otherwise it is the canvas colour (over the black stage when that colour is translucent), with a translucent box or highlight drawn over it.
     - When the tale has media and nothing opaque is behind the text, the inspector says "Contrast can't be checked over media".
     - Layers lying under a text are not counted.
@@ -124,12 +134,39 @@ deferred: []
   - The inspector is its own component (`tale-text-style.ts`), with its styles in `styles.css`. It emits `{ label, patch, said }`. The studio's `restyle` turns that into one history step through `change()` and announces it, so every change is undoable and autosaves to the draft.
 - Budgets.
   - The Web SDK grew from 14.54 KB to 15.54 KB gzipped.
-  - The dashboard's initial bundle is 498.41 KB, still under its 500 KB warning. The contract is not tree-shaken in the dashboard's main chunk: the theme page's contrast strings were already there, so the new helpers land in main too. The lazy studio chunk is 76 KB.
+  - The dashboard's initial bundle is 498.82 KB after the review fixes (498.41 KB before them), under its 500 KB warning; the lazy studio chunk is 77 KB.
+    - Review item 10 was applied (`sideEffects: false`, pure initialisers in `theme.ts` and `text-style.ts`; the eager dashboard files already import types with `type`), and it does not shrink main.
+    - Cause, measured: esbuild code splitting assigns a whole module to the chunks that reach it, and the `export *` barrel of `@taleart/contract` makes every contract module reachable from the eager code (which imports `isErrorBody`, `ErrorCodes` and others). Live code used only by lazy pages (studio, theme page) therefore lands in an eager chunk. A two-entry esbuild test outside Angular shows the same; turning off Angular's chunk optimizer only moves it to another initial chunk.
+    - A real fix is a secondary entry point (for example `@taleart/contract/text-style`) or splitting the barrel. That is a workspace change, left for the coordinator.
 - Not verified by hand: a signed-in browser walk of the studio and a real screen reader. Component tests cover each inspector row. The review's new section 11 drives the built SDK at 390 and 360 px.
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-22 — Coordinator review
+- **Verdicts:** style values judged injection-safe. 13 findings patched, 2 deferred to story 7.9. `autopilot/foundation` (web zones 3.13: public types moved to `public-types.ts`, `web-sdk:types-check`) was merged first, and both features were kept.
+- **Findings:**
+  1. `[patch]` Font names that CSS refuses bare were dropped. Each name is now quoted (`cssFontFamilyList`) in the SDK, the studio and `--ta-font`. Tested with `Source Sans 3` in the contract, the SDK renderer, the SDK theme and the studio.
+  2. `[patch]` `readTextFont` was not forward compatible. It now ignores unknown keys and draws an unknown source in the fallback stack. Tested.
+  3. `[patch]` The large-text threshold used a 640 px reference canvas. It now uses 540 px, and the reason is documented. Tested at the 4.45 % and 3.46 % (bold) boundaries.
+  4. `[patch]` Contrast ratios were rounded to nearest. They are now rounded down (`ratioText`). Tested.
+  5. `[patch]` The in-place editor did not draw the box or highlight colour and padding. It now does, so the text does not shift when editing starts or stops. Tested.
+  6. `[patch]` A refused hex value could stay in its field after a colour was picked. Picking now always rewrites the field and clears `aria-invalid`. Tested for the text and background colours.
+  7. `[patch]` Announcements:
+     - Only a recorded step is announced; a repeat of the same value says nothing.
+     - The contrast line is no longer live; the announcement says when the warning turns on or off.
+     - Choosing a font name or a custom size announces what to type.
+     - Text direction moved into the "Alignment and direction" group.
+     - Tested.
+  8. `[patch]` Texts without a weight changed to 700. They now render at 600, in the SDK and the studio; new texts store their weight. Tested.
+  9. `[patch]` The plan did not record the removal of `TEXT_ELEMENT_STYLE`. It is now in the Code Map and the notes.
+  10. `[patch]` Bundle hygiene: `sideEffects: false` added and `theme.ts` initialisers marked pure. The eager dashboard files already use `type` imports. The initial bundle is unchanged at 498.82 KB; the cause is under Budgets.
+  11. `[patch]` A 128-character doc comment and a template line were wrapped. Strings that cannot be broken were left.
+  12. `[patch]` AC2: `a11y-review` now asserts the visual order of mixed Hebrew and English runs at both widths. The epic Notes document `dir="auto"` per text.
+  13. `[patch]` The API test of style refusals is now table-driven over HTTP, with 29 rows.
+  14. `[defer]` AD-16 "studio mounts the SDK renderer" is story 7.9's scope.
+  15. `[defer]` AC1 pixel parity between the studio and the sample page is story 7.9's verification.
 
 ## Auto Run Result
 
@@ -152,12 +189,20 @@ deferred: []
 - `sdk-sample:a11y`: no violations.
 - `sdk-sample:a11y-review`: all 147 checks pass, with 0 axe violations in 21 states.
 - `sdk-sample:perf`: cold p75 first content 1,257 ms, warm p75 754 ms.
+- After the review fixes, on the merge with `autopilot/foundation` (web zones 3.13), with `--skip-nx-cache`:
+  - `run-many -t lint test build` on the 12 projects passes. Test counts: contract 150, server-tales 136, web-sdk 298, dashboard 321, api 426.
+  - `web-sdk:size`: 15.72 KB gzipped.
+  - `web-sdk:types-check`: passes.
+  - `sdk-sample:a11y`: no violations.
+  - `sdk-sample:a11y-review`: all 149 checks pass.
+  - `sdk-sample:perf`: cold p75 1,266 ms, warm p75 769 ms.
+  - Dashboard initial bundle: 498.82 KB.
 
 **Residual risks:**
-- The dashboard's initial bundle has only about 1.6 KB of headroom left under its 500 KB warning, because the contract is not tree-shaken there.
+- The dashboard's initial bundle has about 1.2 KB of headroom under its 500 KB warning, because the contract barrel puts lazy-only contract code in an eager chunk (see Budgets).
 - The studio cannot see SDK configuration theme overrides, so a theme-font text may preview in the project theme's font while a page with an override shows another.
 - If an edit is refused while editing is held (during discard or keep-as-copy), a select can keep showing the refused choice until the next render.
-- Existing texts change weight from 600 to 700.
+- AD-16's "studio preview mounts the SDK renderer" and AC1's pixel parity are deferred to story 7.9.
 
 ## Verification
 

@@ -167,9 +167,10 @@ describe('text style (story 7.4)', () => {
   const sans = SYSTEM_FONT_STACKS.sans;
   const serif = SYSTEM_FONT_STACKS.serif;
 
-  it('renders a text without style as before: sans, 4 % of the canvas, white, centred, its own direction', () => {
+  it('renders a text without style as before: sans, 600, 4 % of the canvas, white, centred, its own direction', () => {
     const p = styled({});
     expect(p.style.fontFamily).toBe(sans);
+    expect(p.style.fontWeight).toBe('600');
     expect(p.style.fontSize).toBe('4cqh');
     expect(p.style.lineHeight).toBe('1.25');
     expect(p.style.color).toBe('rgb(255, 255, 255)');
@@ -230,9 +231,13 @@ describe('text style (story 7.4)', () => {
     expect(DOCUMENT_STYLES).toMatch(/\.ta-hl \{[^}]*box-decoration-break: clone;/);
   });
 
-  it('puts a named font before its fallback stack', () => {
+  it('puts a named font, quoted, before its fallback stack', () => {
     expect(styled({ font: { source: 'name', family: 'Inter' }, fallback: 'serif' }).style.fontFamily).toBe(
-      `Inter, ${serif}`,
+      `"Inter", ${serif}`,
+    );
+    // CSS refuses `Source Sans 3` bare (a word starting with a digit); quoted, it applies.
+    expect(styled({ font: { source: 'name', family: 'Source Sans 3' } }).style.fontFamily).toBe(
+      `"Source Sans 3", ${sans}`,
     );
   });
 
