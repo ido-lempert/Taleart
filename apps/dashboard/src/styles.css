@@ -949,6 +949,12 @@ select {
   background: var(--surface-sunken);
 }
 
+.cover-source {
+  width: auto;
+  max-width: 100%;
+  max-height: 240px;
+}
+
 .cover-preview {
   width: 160px;
   aspect-ratio: 1;
