@@ -1,4 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  type ElementRef,
+  inject,
+  input,
+  OnInit,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { ProjectFont } from '@taleart/contract/core';
 import {
@@ -10,18 +20,40 @@ import {
   loadProjectFont,
   MAX_FONT_BYTES,
   MAX_PROJECT_FONT_FAMILY_LENGTH,
+  normalizeFontFamily,
   projectFontFamilyError,
   WOFF2_HEADER_BYTES,
   type ProjectFontStyle,
 } from '@taleart/contract/project-fonts';
-import { SYSTEM_FONT_STACK_KEYS, textFontFamily, type SystemFontStack } from '@taleart/contract/text-style';
+import {
+  SYSTEM_FONT_STACK_KEYS,
+  SYSTEM_FONT_STACK_NAMES,
+  textFontFamily,
+  type SystemFontStack,
+} from '@taleart/contract/text-style';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { projectFontFileUrl, ProjectFontsService } from '../project-fonts.service';
-import { STACK_NAMES } from './tale-text-style';
 
 /** The fields of the upload form that can be refused. */
 type FontField = 'file' | 'family' | 'licence';
+
+/** The field a refusal from the server is about, by its code (and, for a validation, its message). */
+export function refusedField(code: string, message: string): FontField {
+  if (code === 'font_exists') return 'family';
+  if (code === 'validation_failed') {
+    if (/^family /.test(message)) return 'family';
+    if (/distribute/.test(message)) return 'licence';
+  }
+  // unsupported_media_type, media_too_large, font_storage_full, font_limit_reached and the rest.
+  return 'file';
+}
+
+const FIELD_IDS: Readonly<Record<FontField, string>> = {
+  file: 'font-file',
+  family: 'font-family',
+  licence: 'font-licence',
+};
 
 /** A family with its faces, as the list shows them. */
 interface FontFamily {
@@ -105,6 +137,10 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
       font-size: var(--text-lg);
       overflow-wrap: anywhere;
     }
+    .fonts-in-use {
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
     .fonts-saved {
       margin: 0;
       color: var(--text-secondary);
@@ -131,6 +167,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
               class="input"
               type="file"
               accept=".woff2,font/woff2"
+              aria-required="true"
               [attr.aria-invalid]="errors().file ? 'true' : null"
               [attr.aria-describedby]="errors().file ? 'font-file-hint font-file-error' : 'font-file-hint'"
               (change)="pickFile(fileInput.files)"
@@ -151,6 +188,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
               type="text"
               spellcheck="false"
               autocomplete="off"
+              aria-required="true"
               [attr.maxlength]="maxFamily"
               [value]="family()"
               [attr.aria-invalid]="errors().family ? 'true' : null"
@@ -205,6 +243,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
               <input
                 id="font-licence"
                 type="checkbox"
+                aria-required="true"
                 [checked]="licence()"
                 [attr.aria-invalid]="errors().licence ? 'true' : null"
                 [attr.aria-describedby]="errors().licence ? 'font-licence-error' : null"
@@ -259,14 +298,21 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
                           <span class="muted">
                             {{ size(font.sizeBytes) }}, fallback {{ fallbackName(font) }}. Uploaded with the licence
                             confirmed by {{ font.licenceConfirmedBy.name }} on {{ date(font.licenceConfirmedAt) }}.
-                            {{ font.inUse ? 'Used by a tale.' : 'Not used by any tale.' }}
                           </span>
+                          @if (font.inUse) {
+                            <span class="fonts-in-use" [id]="'font-in-use-' + font.id">
+                              Used by a tale, so it cannot be deleted. Change that text's font first.
+                            </span>
+                          } @else {
+                            <span class="muted">Not used by any tale.</span>
+                          }
                         </span>
                         <button
                           type="button"
                           class="btn btn--secondary btn--sm"
                           [attr.aria-label]="'Delete ' + group.family + ' ' + faceLabel(font)"
-                          [disabled]="busy()"
+                          [attr.aria-describedby]="font.inUse ? 'font-in-use-' + font.id : null"
+                          [disabled]="busy() || font.inUse"
                           (click)="remove(font, group.family)"
                         >
                           Delete
@@ -314,7 +360,8 @@ export class FontsPage implements OnInit {
   protected readonly weightNames = FONT_WEIGHT_NAMES;
   protected readonly styles = FONT_STYLES;
   protected readonly stacks = SYSTEM_FONT_STACK_KEYS;
-  protected readonly stackNames = STACK_NAMES;
+  protected readonly stackNames = SYSTEM_FONT_STACK_NAMES;
+  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   protected readonly maxKb = MAX_FONT_BYTES / 1024;
   protected readonly maxFamily = MAX_PROJECT_FONT_FAMILY_LENGTH;
 
@@ -345,7 +392,7 @@ export class FontsPage implements OnInit {
   }
 
   protected fallbackName(font: ProjectFont): string {
-    return STACK_NAMES[font.fallback as SystemFontStack] ?? font.fallback;
+    return SYSTEM_FONT_STACK_NAMES[font.fallback as SystemFontStack] ?? font.fallback;
   }
 
   protected sampleFamily(font: ProjectFont): string {
@@ -375,7 +422,7 @@ export class FontsPage implements OnInit {
     else if (!isWoff2Header(await readHead(file), file.size)) {
       errors.file = 'This is not a WOFF2 font file. Convert it to WOFF2 first; TTF, OTF and WOFF are not accepted.';
     }
-    if (projectFontFamilyError(this.family()) !== null) {
+    if (projectFontFamilyError(normalizeFontFamily(this.family())) !== null) {
       errors.family =
         'Enter one font name of letters, digits, spaces and hyphens, starting with a letter, with no commas or quotes ' +
         `(not a CSS keyword such as inherit), at most ${this.maxFamily} characters.`;
@@ -384,37 +431,60 @@ export class FontsPage implements OnInit {
     return errors;
   }
 
-  protected async upload(): Promise<void> {
-    if (this.busy()) return;
-    this.uploadError.set('');
-    this.said.set('');
-    const errors = await this.check();
-    this.errors.set(errors);
-    const first = (['file', 'family', 'licence'] as const).find((field) => errors[field]);
-    if (first) {
-      this.uploadError.set(`The font was not uploaded: ${errors[first]}`);
-      document.getElementById(first === 'file' ? 'font-file' : `font-${first}`)?.focus();
-      return;
-    }
-    this.busy.set(true);
-    const family = this.family().trim();
-    const { value, message } = await this.service.upload(this.projectId(), this.file() as File, {
-      family,
-      weight: this.weight(),
-      style: this.style(),
-      fallback: this.fallback(),
-    });
-    this.busy.set(false);
-    if (value === null) {
-      this.uploadError.set(message);
-      return;
-    }
-    this.said.set(`${value.family} ${fontFaceName(value)} uploaded.`);
+  // Marks a field refused, says why in the alert, and moves focus to it.
+  private refuse(field: FontField, message: string): void {
+    this.errors.set({ [field]: message });
+    this.uploadError.set(`The font was not uploaded: ${message}`);
+    document.getElementById(FIELD_IDS[field])?.focus();
+  }
+
+  // After an upload: an empty form, the licence asked again for the next file.
+  private resetForm(): void {
+    this.file.set(null);
+    const input = this.fileInput()?.nativeElement;
+    if (input) input.value = '';
+    this.family.set('');
+    this.weight.set(400);
+    this.style.set('normal');
+    this.fallback.set('sans');
     this.licence.set(false);
-    await this.load();
+    this.errors.set({});
+  }
+
+  protected async upload(): Promise<void> {
+    // Busy before anything is awaited, so a second press does nothing.
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      this.uploadError.set('');
+      this.said.set('');
+      const errors = await this.check();
+      this.errors.set(errors);
+      const first = (['file', 'family', 'licence'] as const).find((field) => errors[field]);
+      if (first) {
+        this.refuse(first, errors[first] as string);
+        return;
+      }
+      const result = await this.service.upload(this.projectId(), this.file() as File, {
+        family: normalizeFontFamily(this.family()),
+        weight: this.weight(),
+        style: this.style(),
+        fallback: this.fallback(),
+      });
+      if (result.value === null) {
+        this.refuse(refusedField(result.code, result.message), result.message);
+        return;
+      }
+      this.said.set(`${result.value.family} ${fontFaceName(result.value)} uploaded.`);
+      this.resetForm();
+      await this.load();
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected async remove(font: ProjectFont, family: string): Promise<void> {
+    if (this.busy() || font.inUse) return;
     const name = `${family} ${fontFaceName(font)}`;
     if (!window.confirm(`Delete the font ${name}? Texts can no longer pick it.`)) return;
     this.busy.set(true);

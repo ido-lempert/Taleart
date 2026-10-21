@@ -3,13 +3,13 @@ title: 'Upload a project font and use it in a tale'
 type: 'feature'
 ticket: '17'
 created: '2026-10-22'
-status: 'in-review'
+status: 'built'
 baseline_revision: '8bea2cb'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
+review: 'thorough'
+review_source: 'pinned'
 lenses_ran: []
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -103,9 +103,29 @@ deferred: []
 - Not verified by hand: a signed-in browser walk of the font page and studio, and a real screen reader.
 - Verification (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 168, server-tales 147, web-sdk 300, dashboard 329, api 440 tests). `web-sdk:size` 16.62 KB gzipped (15.72 before); `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 157 checks pass (6 new project-font checks, axe clean on the font tale). `sdk-sample:perf`: cold p75 first content 1,258 ms, warm 756 ms; 0 font requests on the font-free zone; font zone 0 requests before opening, 1 after; p75 first tale frame (20 texts) 67 ms, font swapped in at p75 240 ms after the tap. Dashboard initial bundle 490.30 KB.
 
+- After the security review (see the triage log): `tale_fonts` replaces the document scans; the upload is a transaction with the file stored before the commit; the public lookup has an in-process cache; the loader remembers failed faces. Residual risk: the server checks only the WOFF2 container structure (no decompression, no table parsing); the font tables are parsed by the visitor's browser, OTS (OpenType Sanitizer) in Chromium and Firefox and CoreText in Safari, and a flaw there is not mitigated beyond the caps, the licence confirmation and loading only in an opened tale's viewer. Recorded in the epic's Notes as well. The body-parser mapping of `request.aborted` and `request.size.invalid` is in the router but not exercised by an HTTP test (fetch cannot send a short body); `encoding.unsupported` and the early `Connection: close` are tested.
+
+- Verification after the security review fixes (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 194, server-tales 154, server-importer 276, web-sdk 301, dashboard 338, api 445 tests). `web-sdk:size` 17.48 KB gzipped (the WOFF2 structure check in the shared loader adds about 0.9 KB); `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 157 checks pass; `sdk-sample:perf` cold p75 first content 1,257 ms, warm 770 ms, 0 font requests on the font-free zone, p75 first tale frame 67 ms, font swapped in at p75 242 ms. Dashboard initial bundle 490.58 KB.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-22 — Coordinator security review
+- **Verdicts:** 12 findings, all patched; none deferred. `autopilot/foundation` was already merged (its tip is this story's baseline, `8bea2cb`).
+- **Findings:**
+  1. `[patch]` Reserved prefix: `taleart-font-` (any case, bare or quoted) is refused by `isFontFamily`/`FONT_FAMILY_PATTERN` (`RESERVED_FONT_PREFIX`), the text schema's `family` pattern, the OpenAPI theme pattern and the SDK's theme copy, so a name or theme font cannot draw text in another project's font. Tests: contract theme rows and OpenAPI agreement, SDK theme fallback, server and HTTP refusals (text `name` source and theme PUT).
+  2. `[patch]` `tale_fonts` (tale, font, draft or published, project, `delivered`) written in the transaction of every save, publish, discard, go-live publish, keep-as-copy and group copy, and by a migration backfill for documents written before it; indexes on `tale_fonts (font_id, document)` and `tales (project_id)`. `findPublishedFont`, `listProjectFonts` in-use and the delete check read it, never the documents. A bounded in-process cache (1,000 keys, 30 s TTL) keeps public yes/no answers and is cleared after publishing, status, schedule and placement changes, copies and deletes in this process. Tests: SQL-order unit tests, cache TTL and clearing, HTTP backfill.
+  3. `[patch]` WOFF2 structure: flavour TrueType, `OTTO` or `ttcf`; reserved 0; 1 to 256 tables; `totalSfntSize` ≤ 30 MB; table directory parsed (known-tag flags, arbitrary tags, UIntBase128 with no leading zero, at most 5 bytes and 32 bits, transform versions as defined, `loca` transform length 0), collection directory parsed with indices in range; metadata, private data and compressed data inside the file. Uploads stay with admins and content managers (explicit role check). Tests: 19 crafted headers refused, sound collection and transformed tables accepted, a real Inter WOFF2 accepted. Residual browser-parser risk recorded above and in the epic.
+  4. `[patch]` Same-project `copyTaleGroup` share locks the source's referenced fonts before inserting the copies, then records the copies' `tale_fonts` rows. SQL-order unit test.
+  5. `[patch]` The loader remembers a failed face per page and fetches it again only after 60 s or on `retry: true`; with no browser environment nothing is remembered. Tests: contract backoff and retry, studio edits fetching a failed face once.
+  6. `[patch]` The upload takes only `font/woff2` or `application/octet-stream` (CORS preflight types); anything else 415. HTTP test with JSON, text, multipart, `font/ttf` and none.
+  7. `[patch]` Early refusals set `Connection: close`; the body is read without inflating; `encoding.unsupported` → 415, `request.aborted`/`request.size.invalid` → 400, `entity.too.large` → 413. HTTP tests for gzip and the closing header.
+  8. `[patch]` Upload pipeline: under a per-project advisory lock, caps of 50 faces (409 `font_limit_reached`) and 10 MB (413 `font_storage_full`), insert, store the file, commit; a failed store rolls the row back, a failed commit removes the file, and `sweepUnusedFontFiles` (run by the worker's start-up sweep) removes old `fonts/` files no row names. Family names have their spaces collapsed before the uniqueness check. Tests: unit (order, rollback, cleanup, caps, sweep) and HTTP (caps, collapsed duplicate).
+  9. `[patch]` Public route and Delivery agree: `delivered` rows are written only for published documents that passed the document check (publish, go-live, copy and backfill check them), and only for visible text. HTTP test: a published document made invalid in the database is neither delivered nor served.
+  10. `[patch]` The private file route's ETag is opaque (a 22-character hash of the key). HTTP test.
+  11. `[patch]` Fonts page: server refusals tied to their field (`font_exists` → family, type, size and caps → file, licence message → licence) with `aria-invalid`, the field's error and focus; `aria-required` on file, family and licence; the form resets after an upload; `busy` is set before anything is awaited; Delete is disabled for a face in use with the reason shown and linked by `aria-describedby`; stack names come from the contract (`SYSTEM_FONT_STACK_NAMES`), so the Fonts chunk no longer imports the studio inspector. Component tests for each.
+  12. `[patch]` Inspector: with a project face chosen, the weight select and italic box are disabled and a hint names the face, so the browser never synthesises bold or oblique. Studio test.
 
 ## Design Notes
 

@@ -498,6 +498,8 @@ export const ErrorCodes = {
   fontNotFound: 'font_not_found',
   fontExists: 'font_exists',
   fontInUse: 'font_in_use',
+  fontLimitReached: 'font_limit_reached',
+  fontStorageFull: 'font_storage_full',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

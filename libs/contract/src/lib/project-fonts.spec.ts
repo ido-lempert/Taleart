@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   clearProjectFontLoads,
   FONT_LOAD_TIMEOUT_MS,
+  FONT_RETRY_AFTER_MS,
   FONT_WEIGHTS,
   isFontWeight,
   isProjectFontFamily,
@@ -18,14 +21,22 @@ import {
   type FontLoadEnvironment,
 } from '../index';
 
-/** A file with a WOFF2 header whose total length is its size. */
-function woff2Bytes(size = 64): Uint8Array {
+/**
+ * A structurally sound WOFF2 file of `size` bytes: a TrueType flavour, one `cmap` table of 16
+ * bytes, untransformed, and compressed data filling the rest. `edit` changes it before it is read.
+ */
+function woff2Bytes(size = 64, edit?: (view: DataView, data: Uint8Array) => void): Uint8Array {
   const data = new Uint8Array(size);
-  data.set([0x77, 0x4f, 0x46, 0x32, 0x00, 0x01, 0x00, 0x00]);
-  data[8] = (size >>> 24) & 0xff;
-  data[9] = (size >>> 16) & 0xff;
-  data[10] = (size >>> 8) & 0xff;
-  data[11] = size & 0xff;
+  const view = new DataView(data.buffer);
+  data.set([0x77, 0x4f, 0x46, 0x32]);
+  view.setUint32(4, 0x00010000);
+  view.setUint32(8, size);
+  view.setUint16(12, 1);
+  view.setUint32(16, 1024);
+  view.setUint32(20, size - 50);
+  data[48] = 0x00; // cmap (known tag 0), version 0: no transform
+  data[49] = 0x10; // origLength 16, as UIntBase128
+  edit?.(view, data);
   return data;
 }
 
@@ -54,6 +65,57 @@ describe('isWoff2', () => {
     const longer = new Uint8Array(80);
     longer.set(woff2Bytes(64));
     expect(isWoff2(longer)).toBe(false);
+  });
+
+  it('accepts a real WOFF2 font', () => {
+    const file = readFileSync(
+      resolve(__dirname, '../../../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2'),
+    );
+    expect(isWoff2(new Uint8Array(file))).toBe(true);
+  });
+
+  it.each<[string, (view: DataView, data: Uint8Array) => void]>([
+    ['an unknown flavour', (v) => v.setUint32(4, 0x12345678)],
+    ['a reserved field that is not 0', (v) => v.setUint16(14, 1)],
+    ['no table', (v) => v.setUint16(12, 0)],
+    ['over 256 tables', (v) => v.setUint16(12, 257)],
+    ['a decoded size over 30 MB', (v) => v.setUint32(16, 30 * 1024 * 1024 + 1)],
+    ['compressed data past the end', (v, d) => v.setUint32(20, d.length - 49)],
+    ['metadata past the end', (v, d) => (v.setUint32(28, d.length - 2), v.setUint32(32, 4))],
+    ['a metadata offset without a length', (v) => v.setUint32(28, 52)],
+    ['private data past the end', (v, d) => (v.setUint32(40, d.length), v.setUint32(44, 1))],
+    ['a table directory past the end', (v, d) => (v.setUint16(12, 200), v.setUint32(20, d.length - 50))],
+    ['a UIntBase128 with a leading zero byte', (_, d) => (d[49] = 0x80)],
+    ['a UIntBase128 over 5 bytes', (v, d) => (d.set([0x81, 0x81, 0x81, 0x81, 0x81, 0x01], 49), v.setUint32(20, 0))],
+    ['a UIntBase128 over 32 bits', (v, d) => (d.set([0x90, 0x80, 0x80, 0x80, 0x00], 49), v.setUint32(20, 0))],
+    ['a table larger than 30 MB', (v, d) => (d.set([0x90, 0x80, 0x80, 0x00], 49), v.setUint32(20, 0))],
+    ['a reserved glyf transform', (_, d) => (d[48] = 0x40 | 10)],
+    ['an undefined transform of another table', (_, d) => (d[48] = 0x40 | 1)],
+    ['a transformed loca with a length', (v, d) => (d.set([11, 0x10, 0x01], 48), v.setUint32(20, d.length - 51))],
+    ['a collection without fonts', (v) => v.setUint32(4, 0x74746366)],
+    [
+      'a collection index out of range',
+      (v, d) => (v.setUint32(4, 0x74746366), d.set([0, 0, 2, 0, 1, 1, 0, 1, 0, 0, 1], 50), v.setUint32(20, 0)),
+    ],
+  ])('refuses %s', (_, edit) => {
+    expect(isWoff2(woff2Bytes(128, edit))).toBe(false);
+  });
+
+  it('accepts a sound collection, a transformed glyf with loca, hmtx and an arbitrary tag', () => {
+    // A collection of one font with one table, index 0.
+    const collection = (v: DataView, d: Uint8Array) => {
+      v.setUint32(4, 0x74746366);
+      d.set([0, 0, 2, 0, 1, 1, 0, 1, 0, 0, 0], 50);
+      v.setUint32(20, d.length - 61);
+    };
+    expect(isWoff2(woff2Bytes(128, collection))).toBe(true);
+    const tables = (v: DataView, d: Uint8Array) => {
+      v.setUint16(12, 4);
+      // glyf transformed (version 0) with a length; loca transformed with length 0; hmtx version 1; tag 'ABCD'.
+      d.set([10, 0x20, 0x10, 11, 0x08, 0x00, 0x40 | 3, 0x10, 0x08, 0x3f, 0x41, 0x42, 0x43, 0x44, 0x04], 48);
+      v.setUint32(20, d.length - 63);
+    };
+    expect(isWoff2(woff2Bytes(128, tables))).toBe(true);
   });
 
   it('checks a header against the size of its file, for a browser that reads only the start', () => {
@@ -183,18 +245,35 @@ describe('loadProjectFont', () => {
     expect(added).toHaveLength(1);
   });
 
-  it('keeps the fallback when the fetch fails, answers an error or is not WOFF2, and tries again later', async () => {
+  it('keeps the fallback when the fetch fails, answers an error or is not WOFF2', async () => {
     for (const answer of [
       () => Promise.reject(new Error('offline')),
       () => Promise.resolve({ ok: false, arrayBuffer: async () => new ArrayBuffer(0) }),
       () => ok(new TextEncoder().encode('<svg></svg>'.padEnd(64))),
     ]) {
+      clearProjectFontLoads();
       const { env, added } = environment(answer);
       await expect(loadProjectFont(face, { env })).resolves.toBe(false);
       expect(added).toHaveLength(0);
-      await loadProjectFont(face, { env });
-      expect(env.fetch).toHaveBeenCalledTimes(2);
     }
+  });
+
+  it('remembers a failed face: no fetch again until the backoff passes or a retry is asked for', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T10:00:00Z'));
+    const { env } = environment(() => Promise.reject(new Error('offline')));
+    await loadProjectFont(face, { env });
+    // An editor renders again and again: the failed face is not fetched each time.
+    for (let i = 0; i < 5; i++) await loadProjectFont(face, { env });
+    expect(env.fetch).toHaveBeenCalledTimes(1);
+    await loadProjectFont(face, { env, retry: true });
+    expect(env.fetch).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(new Date(Date.now() + FONT_RETRY_AFTER_MS - 1));
+    await loadProjectFont(face, { env });
+    expect(env.fetch).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(new Date(Date.now() + 1));
+    await loadProjectFont(face, { env });
+    expect(env.fetch).toHaveBeenCalledTimes(3);
   });
 
   it('gives up after 3 s and never adds a face that arrives later', async () => {

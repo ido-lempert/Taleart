@@ -229,7 +229,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
             "family": {
               "type": "string",
               "maxLength": 200,
-              "pattern": "^(?!.*(?:^|[\\s,\"'])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\\s,\"']))\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*(?:,\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*)*$"
+              "pattern": "^(?!.*(?:^|[\\s,\"'])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\\s,\"']))(?!.*(?:^|[\\s,\"'])[tT][aA][lL][eE][aA][rR][tT]-[fF][oO][nN][tT]-)\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*(?:,\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*)*$"
             },
             "fontId": {
               "description": "The id of a font of the tale's project (`project_fonts`).",

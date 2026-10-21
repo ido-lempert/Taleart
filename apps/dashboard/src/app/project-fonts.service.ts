@@ -4,8 +4,8 @@ import { isErrorBody, type ProjectFont } from '@taleart/contract/core';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
 
-/** A call's result: its value, or the message to show. */
-export type FontsResult<T> = { value: T; message: '' } | { value: null; message: string };
+/** A call's result: its value, or the message to show with the error code (empty when unknown). */
+export type FontsResult<T> = { value: T; message: ''; code: '' } | { value: null; message: string; code: string };
 
 /** The face an upload describes (epic Tale Studio R18). */
 export interface FontFaceInput {
@@ -16,8 +16,10 @@ export interface FontFaceInput {
 }
 
 function failure<T>(err: unknown, fallback: string): FontsResult<T> {
-  const message = err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
-  return { value: null, message };
+  if (err instanceof HttpErrorResponse && isErrorBody(err.error)) {
+    return { value: null, message: err.error.error.message, code: err.error.error.code };
+  }
+  return { value: null, message: fallback, code: '' };
 }
 
 function fontsUrl(projectId: string): string {
@@ -37,7 +39,7 @@ export class ProjectFontsService {
   /** The project's fonts, by family, weight and style. */
   async list(projectId: string): Promise<FontsResult<ProjectFont[]>> {
     try {
-      return { value: await firstValueFrom(this.http.get<ProjectFont[]>(fontsUrl(projectId))), message: '' };
+      return { value: await firstValueFrom(this.http.get<ProjectFont[]>(fontsUrl(projectId))), message: '', code: '' };
     } catch (err) {
       return failure(err, 'Could not read the project fonts. Reload the page to try again.');
     }
@@ -62,7 +64,7 @@ export class ProjectFontsService {
           headers: { 'Content-Type': 'font/woff2' },
         }),
       );
-      return { value: font, message: '' };
+      return { value: font, message: '', code: '' };
     } catch (err) {
       return failure(err, 'The font was not uploaded. Try again.');
     }
@@ -72,7 +74,7 @@ export class ProjectFontsService {
   async remove(projectId: string, fontId: string): Promise<FontsResult<true>> {
     try {
       await firstValueFrom(this.http.delete(`${fontsUrl(projectId)}/${encodeURIComponent(fontId)}`));
-      return { value: true, message: '' };
+      return { value: true, message: '', code: '' };
     } catch (err) {
       return failure(err, 'The font was not deleted. Try again.');
     }
