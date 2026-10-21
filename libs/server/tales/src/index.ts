@@ -23,6 +23,7 @@ export {
   taleProjectId,
   getTaleMedia,
   setTaleMedia,
+  setTaleMediaIfNone,
   getTaleGroupCover,
   setTaleGroupCover,
   isMediaKeyInUse,

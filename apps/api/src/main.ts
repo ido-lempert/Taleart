@@ -1,7 +1,13 @@
 import { join, resolve } from 'node:path';
 import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
-import { DEFAULT_another tool_API_URL, parseTokenKey, startImportWorker, type ImportWorker } from '@taleart/server-importer';
+import {
+  DEFAULT_another tool_API_URL,
+  parseAllowedAddresses,
+  parseTokenKey,
+  startImportWorker,
+  type ImportWorker,
+} from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
@@ -9,7 +15,7 @@ import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, migrate } from './db';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
-function log(level: 'info' | 'error', msg: string, err?: unknown): void {
+function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void {
   const entry: Record<string, unknown> = { level, msg };
   if (err !== undefined) {
     entry['error'] = err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err);
@@ -50,9 +56,33 @@ async function start(): Promise<void> {
         : 'Importer off: IMPORT_TOKEN_KEY is not set',
     );
   }
+  // Imported media comes from URLs the source names, so the importer fetches only
+  // public addresses. IMPORT_MEDIA_ALLOWED_ADDRESSES exempts exact address:port
+  // endpoints, for local reviews against the fake server; it is empty by default.
+  const allowed = parseAllowedAddresses(process.env['IMPORT_MEDIA_ALLOWED_ADDRESSES']);
+  if (allowed.invalid.length > 0) {
+    log(
+      'warn',
+      `IMPORT_MEDIA_ALLOWED_ADDRESSES: ${allowed.invalid.length} entry(ies) are not address:port and were ignored`,
+    );
+  }
+  if (allowed.addresses.length > 0) {
+    log('warn', `Imported media may be fetched from these non-public endpoints: ${allowed.addresses.join(', ')}`);
+  }
+  // Per-import media budgets: bytes and time, after which the rest is listed as not imported.
+  const positive = (name: string): number | undefined => {
+    const value = Number(process.env[name]);
+    return process.env[name] && Number.isFinite(value) && value > 0 ? value : undefined;
+  };
+  const maxSeconds = positive('IMPORT_MEDIA_MAX_SECONDS_PER_JOB');
+  const mediaPolicy = {
+    allowedAddresses: allowed.addresses,
+    maxBytesPerJob: positive('IMPORT_MEDIA_MAX_BYTES_PER_JOB'),
+    maxMsPerJob: maxSeconds === undefined ? undefined : maxSeconds * 1000,
+  };
   let worker: ImportWorker | null = null;
   if (tokenKey !== null) {
-    worker = startImportWorker(pool, { tokenKey, another toolApiUrl, log });
+    worker = startImportWorker(pool, { tokenKey, another toolApiUrl, storage, mediaPolicy, log });
     log('info', `Import worker started; source ${another toolApiUrl}`);
   }
   const importer = { tokenKey, another toolApiUrl, wake: () => worker?.wake() };

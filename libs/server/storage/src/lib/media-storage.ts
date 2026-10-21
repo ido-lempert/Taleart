@@ -6,6 +6,12 @@
 export interface MediaStorage {
   /** Stores `data` under `key`, replacing anything already there. */
   put(key: string, data: Buffer): Promise<void>;
+  /**
+   * Stores the bytes `chunks` yields under `key`, replacing anything already
+   * there, without holding the whole file in memory. When `chunks` throws,
+   * nothing is stored under `key` and that error is passed on unchanged.
+   */
+  putStream(key: string, chunks: AsyncIterable<Uint8Array>): Promise<void>;
   /** The bytes stored under `key`, or null when there are none. */
   get(key: string): Promise<Buffer | null>;
   /** Removes what is stored under `key`. Removing a missing key is not an error. */

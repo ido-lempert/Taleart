@@ -663,7 +663,7 @@ describe('App', () => {
       return row;
     };
 
-    it("lists each stage with its name, key and frame, and Rename and Delete named by the stage", async () => {
+    it('lists each stage with its name, key and frame, and Rename and Delete named by the stage', async () => {
       const { root } = await open('/zones/z1', { ...withFrames, stages: { z1: [topStage, heroStage] } });
 
       const rows = [...(stageList(root)?.querySelectorAll('li') ?? [])];
@@ -1205,7 +1205,7 @@ describe('App', () => {
       expect(buttonNamed(groupRow(root, 'Summer'), 'Rename')).toBeTruthy();
     });
 
-    it("adds a group to another zone of its project from the drawer, then shows it there and \"Also in\"", async () => {
+    it('adds a group to another zone of its project from the drawer, then shows it there and "Also in"', async () => {
       const { fixture, root } = await open('/zones/z1', {
         ...twoZones,
         groups: { z1: [{ ...group, tales: [] }] },
@@ -1488,7 +1488,7 @@ describe('App', () => {
       expect(drawer()?.querySelector('[role=status] a')?.textContent?.trim()).toBe('Home bar');
     });
 
-    it('shows the saved tale order in the group\'s other zone too', async () => {
+    it("shows the saved tale order in the group's other zone too", async () => {
       const store = TestBed.inject(DashboardStore);
       const withTales = { ...shared, tales: [taleA, taleB] };
       const { fixture } = await open('/zones/z1', { ...twoZones, groups: { z1: [withTales], z3: [{ ...withTales, position: 0 }] } });
@@ -2393,7 +2393,7 @@ describe('App', () => {
       expect(drawer()).toBeNull();
     });
 
-    it('shows the default cover, the first tale\'s image, when the group has none', async () => {
+    it("shows the default cover, the first tale's image, when the group has none", async () => {
       const { root } = await openCover({
         ...oneZone,
         groups: { z1: [{ ...group, cover: null, tales: [{ ...taleA, media: pngMedia }] }] },
@@ -3349,7 +3349,7 @@ describe('App', () => {
       expect(root.querySelector('[aria-label^="Import from another tool"]')).toBeNull();
     });
 
-    it("starts the import, opens its own page and shows its progress rising, then the report", async () => {
+    it('starts the import, opens its own page and shows its progress rising, then the report', async () => {
       const { fixture, root } = await openForm();
       await startImport(fixture, root);
       expect(TestBed.inject(Router).url).toBe('/projects/p1/import/j1');
@@ -3390,7 +3390,7 @@ describe('App', () => {
       for (const z of imported) expect(root.textContent).toContain(z.name);
     });
 
-    it("keeps following a running import after a reload of its page", async () => {
+    it('keeps following a running import after a reload of its page', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       await answerPoll(fixture, job('running', { progress: progress([3, 2], [4, 3], [8, 6]) }));
       expect(root.querySelector('[role=status]')?.textContent).toContain('Running');
@@ -3420,7 +3420,13 @@ describe('App', () => {
     // A report difference; the parent's source id defaults to its name, for brevity.
     const difference = (
       entity: string,
-      record: { sourceId: string | null; name: string | null; within: string | null; withinSourceId?: string | null; position: number },
+      record: {
+        sourceId: string | null;
+        name: string | null;
+        within: string | null;
+        withinSourceId?: string | null;
+        position: number;
+      },
       kind: string,
       field: string | null,
       sourceField: string | null = null,
@@ -3473,6 +3479,37 @@ describe('App', () => {
       ]);
       expect([...section.querySelectorAll('details')].every((d) => d.open)).toBe(true);
       expect(root.textContent).toContain('Not imported by design: Conversion records, Stats.');
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('shows the media row and why a tale has no media', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const big = { sourceId: '4305', name: 'Too big', within: 'Every kind of media', position: 5 };
+      const meta = { sourceId: '4308', name: 'Metadata', within: 'Every kind of media', position: 8 };
+      const differences = [
+        { ...difference('tale', big, 'mediaNotImported', 'media'), reason: 'tooLarge' },
+        { ...difference('tale', meta, 'mediaNotImported', 'media'), reason: 'blockedAddress' },
+      ];
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: { ...report, media: { source: 14, imported: 12, skipped: 2 }, differences },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      expect(rows(root, 'Report')).toEqual([
+        'Zones: 3 source / 3 imported',
+        'Tale groups: 6 source / 6 imported',
+        'Tales: 15 source / 14 imported / 1 skipped',
+        'Media: 14 source / 12 imported / 2 skipped',
+      ]);
+      const lines = [...root.querySelectorAll('[aria-label="Tales differences"] .import-difference-lines > li')].map(
+        (li) => li.textContent?.trim(),
+      );
+      expect(lines).toEqual([
+        'media: not imported (larger than a tale accepts), so the tale has no media',
+        'media: not imported (its link leads to a private address), so the tale has no media',
+      ]);
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
