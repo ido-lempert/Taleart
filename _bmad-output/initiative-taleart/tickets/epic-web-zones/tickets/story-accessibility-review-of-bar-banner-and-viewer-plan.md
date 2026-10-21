@@ -3,7 +3,7 @@ title: 'Accessibility review of bar, banner and viewer'
 type: 'chore'
 ticket: '12'
 created: '2026-10-21'
-status: 'in-review'
+status: done
 baseline_revision: '27f71e9'
 route: 'full'
 route_source: 'auto'

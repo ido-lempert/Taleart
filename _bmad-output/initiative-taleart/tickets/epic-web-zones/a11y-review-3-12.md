@@ -195,3 +195,12 @@ Android):
       tale steps, and swipes between groups still have the tap alternative.
 
 Sign-off: ______________________ Date: __________
+
+## Sign-off
+
+Signed off by the user on 2026-10-22, based on the automated and scripted review. The manual checklist above (real screen readers and real high-contrast themes) stays open for a later pass.
+
+User decisions recorded with the sign-off:
+- Animated tale group covers stop on their first frame after 5 s (WCAG 2.2.2). Visitors who prefer reduced motion see a still cover.
+- Captions for video tales (WebVTT) and a language setting for tales and text are post-MVP. Until then, 1.2.x and 3.1.2 stay open, as recorded above.
+- The WCAG scan of this epic's dashboard screens moves to Tale Studio story 7.15, the accessibility review, together with the studio screens.
