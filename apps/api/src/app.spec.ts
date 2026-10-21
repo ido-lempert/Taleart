@@ -12,7 +12,13 @@ import {
   PasskeyFailedError,
   type PasskeyVerifier,
 } from '@taleart/server-access';
-import { encryptToken, runImportJob, startImportWorker, type ImportWorker } from '@taleart/server-importer';
+import {
+  encryptToken,
+  recoverStaleJobs,
+  runImportJob,
+  startImportWorker,
+  type ImportWorker,
+} from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
@@ -40,6 +46,7 @@ interface Fakeanother tool {
     failInstances: 'status' | 'shape' | null;
     failStoryGroups: 'status' | 'shape' | null;
     failStories: 'status' | 'shape' | null;
+    delayMs: number;
     data: {
       storyGroups: Record<string, { data: Record<string, unknown>[] }>;
       stories: Record<string, { data: Record<string, unknown>[] }>;
@@ -2707,8 +2714,14 @@ describe('Management API v1: projects and zones', () => {
             'Zone "Checkout": frame type unknown',
           ],
         },
+        progress: {
+          zones: { read: 3, written: 3 },
+          taleGroups: { read: 6, written: 6 },
+          tales: { read: 15, written: 15 },
+        },
         error: null,
         createdAt: expect.any(String),
+        startedAt: expect.any(String),
         finishedAt: expect.any(String),
       });
       const zones = await projectZones(project.id);
@@ -3166,6 +3179,7 @@ describe('Management API v1: projects and zones', () => {
         ['POST', `/projects/${project.id}/imports/another tool/apps`, { token: FAKE_another tool_TOKEN }],
         ['POST', `/projects/${project.id}/imports`, { token: FAKE_another tool_TOKEN, appId: '1001' }],
         ['GET', `/projects/${project.id}/imports/${started.id}`, undefined],
+        ['GET', `/projects/${project.id}/imports`, undefined],
       ] as const) {
         const res = await send(method, path, body);
         expect(res.status).toBe(403);
@@ -3180,6 +3194,7 @@ describe('Management API v1: projects and zones', () => {
         ['POST', `/projects/${project.id}/imports/another tool/apps`, { token: FAKE_another tool_TOKEN }],
         ['POST', `/projects/${project.id}/imports`, { token: FAKE_another tool_TOKEN, appId: '1001' }],
         ['GET', `/projects/${project.id}/imports/${randomUUID()}`, undefined],
+        ['GET', `/projects/${project.id}/imports`, undefined],
       ] as const) {
         const res = await send(method, path, body, base);
         expect(res.status).toBe(503);
@@ -3206,6 +3221,168 @@ describe('Management API v1: projects and zones', () => {
       const other = await createProject('Beta');
       const started = await start(project.id);
       expect((await send('GET', `/projects/${other.id}/imports/${started.id}`)).status).toBe(404);
+    });
+
+    // Progress as the API answers it, read/written per entity.
+    const progress = (z: [number, number], g: [number, number], t: [number, number]) => ({
+      zones: { read: z[0], written: z[1] },
+      taleGroups: { read: g[0], written: g[1] },
+      tales: { read: t[0], written: t[1] },
+    });
+
+    it('answers a queued job with no start time and no progress', async () => {
+      const project = await createProject();
+      const started = await start(project.id);
+      const job = await (await send('GET', `/projects/${project.id}/imports/${started.id}`)).json();
+      expect(job).toMatchObject({ status: 'queued', startedAt: null, progress: null, finishedAt: null });
+    });
+
+    it('shows progress rising while a slow import runs, read never behind written, up to the final counts', async () => {
+      const project = await createProject();
+      fake.control.delayMs = 30;
+      startWorker();
+      const started = await start(project.id);
+      const seen: { status: string; startedAt: string | null; progress: ReturnType<typeof progress> | null }[] = [];
+      const until = Date.now() + 15_000;
+      for (;;) {
+        const job = await (await send('GET', `/projects/${project.id}/imports/${started.id}`)).json();
+        seen.push(job);
+        if (job.status === 'done' || job.status === 'failed') break;
+        if (Date.now() > until) throw new Error(`Import still ${job.status}`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const final = seen[seen.length - 1];
+      expect(final.status).toBe('done');
+      expect(final.startedAt).toEqual(expect.any(String));
+      expect(final.progress).toEqual(progress([3, 3], [6, 6], [15, 15]));
+
+      const running = seen.filter((j) => j.status === 'running' && j.progress !== null);
+      // Several distinct steps were seen on the way, not only the end.
+      const steps = new Set(running.map((j) => JSON.stringify(j.progress)));
+      expect(steps.size).toBeGreaterThanOrEqual(3);
+      expect(running.some((j) => (j.progress?.tales.written ?? 0) < 15)).toBe(true);
+      let last = -1;
+      for (const job of running) {
+        const p = job.progress as ReturnType<typeof progress>;
+        for (const entity of [p.zones, p.taleGroups, p.tales]) expect(entity.read).toBeGreaterThanOrEqual(entity.written);
+        const written = p.zones.written + p.taleGroups.written + p.tales.written;
+        expect(written).toBeGreaterThanOrEqual(last);
+        last = written;
+        expect(job.startedAt).toEqual(expect.any(String));
+      }
+    });
+
+    it('keeps the progress of a failed run with its reason, and lists it as failed', async () => {
+      const project = await createProject();
+      fake.control.failStories = 'status';
+      startWorker();
+      const started = await start(project.id);
+      const job = await waitForEnd(project.id, started.id);
+      expect(job['status']).toBe('failed');
+      expect(job['error']).toMatch(/answered 500 when listing stories/);
+      // The first zone was written before the stories of its first group failed.
+      expect(job['progress']).toEqual(progress([3, 1], [3, 0], [0, 0]));
+      expect((await storedJob(started.id)).token_ciphertext).toBeNull();
+
+      const list = await (await send('GET', `/projects/${project.id}/imports`)).json();
+      expect(list).toEqual([
+        {
+          id: started.id,
+          status: 'failed',
+          sourceAppName: 'Demo shop',
+          error: job['error'],
+          createdAt: expect.any(String),
+          startedAt: expect.any(String),
+          finishedAt: expect.any(String),
+        },
+      ]);
+    });
+
+    it("lists the project's imports newest first, without reports or tokens, and none of another project's", async () => {
+      const project = await createProject();
+      const other = await createProject('Beta');
+      expect(await (await send('GET', `/projects/${project.id}/imports`)).json()).toEqual([]);
+
+      startWorker();
+      const first = await waitForEnd(project.id, (await start(project.id)).id);
+      fake.control.failInstances = 'status';
+      const second = await waitForEnd(project.id, (await start(project.id)).id);
+      const queued = await start(other.id);
+      await waitForEnd(other.id, queued.id);
+
+      const res = await send('GET', `/projects/${project.id}/imports`);
+      expect(res.status).toBe(200);
+      const body = await res.text();
+      const list = JSON.parse(body);
+      expect(list.map((j: { id: string; status: string }) => [j.id, j.status])).toEqual([
+        [second['id'], 'failed'],
+        [first['id'], 'done'],
+      ]);
+      expect(list[0].error).toMatch(/answered 500 when listing instances/);
+      expect(list[1]).toEqual({
+        id: first['id'],
+        status: 'done',
+        sourceAppName: 'Demo shop',
+        error: null,
+        createdAt: first['createdAt'],
+        startedAt: first['startedAt'],
+        finishedAt: first['finishedAt'],
+      });
+      expect(body).not.toContain(FAKE_another tool_TOKEN);
+      expect(body).not.toContain('report');
+      expect(body).not.toContain('v1.');
+
+      const others = await (await send('GET', `/projects/${other.id}/imports`)).json();
+      expect(others.map((j: { id: string }) => j.id)).toEqual([queued.id]);
+    });
+
+    it('lists at most the newest 50 imports', async () => {
+      const project = await createProject();
+      await pool.query(
+        `INSERT INTO import_jobs (project_id, source_app_id, status, created_at)
+         SELECT $1, '1001', 'done', now() - n * interval '1 minute' FROM generate_series(1, 52) AS n`,
+        [project.id],
+      );
+      const list = await (await send('GET', `/projects/${project.id}/imports`)).json();
+      expect(list).toHaveLength(50);
+      const times = list.map((j: { createdAt: string }) => Date.parse(j.createdAt));
+      expect([...times].sort((a, b) => b - a)).toEqual(times);
+    });
+
+    it('clears the progress of a recovered job, which then counts again from the start', async () => {
+      const project = await createProject();
+      const stale = progress([3, 2], [5, 4], [11, 9]);
+      const { rows } = await pool.query(
+        `INSERT INTO import_jobs (project_id, source_app_id, status, token_ciphertext, started_at, attempts, progress)
+         VALUES ($1, '1001', 'running', $2, now(), 1, $3) RETURNING id`,
+        [project.id, encryptToken(FAKE_another tool_TOKEN, tokenKey), JSON.stringify(stale)],
+      );
+      const id = rows[0].id as string;
+      expect(await recoverStaleJobs(pool, 0, 3)).toEqual({ requeued: 1, failed: 0 });
+      const recovered = await (await send('GET', `/projects/${project.id}/imports/${id}`)).json();
+      expect(recovered).toMatchObject({ status: 'queued', startedAt: null, progress: null });
+
+      fake.control.delayMs = 30;
+      startWorker();
+      const seen: { status: string; progress: ReturnType<typeof progress> | null }[] = [];
+      const until = Date.now() + 15_000;
+      for (;;) {
+        const job = await (await send('GET', `/projects/${project.id}/imports/${id}`)).json();
+        seen.push(job);
+        if (job.status === 'done' || job.status === 'failed') break;
+        if (Date.now() > until) throw new Error(`Import still ${job.status}`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(seen[seen.length - 1]).toMatchObject({ status: 'done', progress: progress([3, 3], [6, 6], [15, 15]) });
+      const running = seen.filter((j) => j.status === 'running' && j.progress !== null);
+      // It counted again from the start, below the stale values.
+      expect(running.some((j) => (j.progress?.tales.written ?? 0) < stale.tales.written)).toBe(true);
+    });
+
+    it('answers the list of an unknown project with project_not_found', async () => {
+      const res = await send('GET', `/projects/${randomUUID()}/imports`);
+      expect(res.status).toBe(404);
+      expect((await res.json()).error.code).toBe('project_not_found');
     });
   });
 
