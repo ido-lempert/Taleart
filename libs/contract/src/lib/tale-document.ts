@@ -171,3 +171,49 @@ export function readingOrder<T extends { box: { x: number; y: number } }>(elemen
     .sort((a, b) => a.element.box.y - b.element.box.y || a.element.box.x - b.element.box.x || a.index - b.index)
     .map(({ element }) => element);
 }
+
+/** A rectangle on the canvas as fractions of its width (`x`, `w`) and height (`y`, `h`). */
+export interface CanvasRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The part of the canvas inside the safe areas ({@link TALE_SAFE_AREA}). */
+export function safeAreaBounds(): CanvasRect {
+  const { top, bottom, side } = TALE_SAFE_AREA;
+  return { x: side, y: top, w: 1 - 2 * side, h: 1 - top - bottom };
+}
+
+/**
+ * The upright rectangle an element covers on the 9:16 canvas: its box, grown to hold the box's
+ * rotation about its centre. It may reach past the canvas edges.
+ */
+export function elementBounds(box: TaleElementBox): CanvasRect {
+  if (box.rotation === 0) return { x: box.x, y: box.y, w: box.w, h: box.h };
+  const { width, height } = TALE_CANVAS_ASPECT;
+  const angle = (box.rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(angle));
+  const sin = Math.abs(Math.sin(angle));
+  // Half the box's size in canvas units (9 wide, 16 high), so a rotation keeps its true shape.
+  const halfW = (box.w * width) / 2;
+  const halfH = (box.h * height) / 2;
+  const w = (2 * (cos * halfW + sin * halfH)) / width;
+  const h = (2 * (sin * halfW + cos * halfH)) / height;
+  return { x: box.x + box.w / 2 - w / 2, y: box.y + box.h / 2 - h / 2, w, h };
+}
+
+/**
+ * True when the element, rotation included, reaches outside the safe areas, where the viewer's
+ * controls (top) and calls to action (bottom) may cover it. Tale Studio warns; saving is allowed.
+ * A thousandth of tolerance keeps an element placed on the edge inside.
+ */
+export function isOutsideSafeArea(box: TaleElementBox): boolean {
+  const safe = safeAreaBounds();
+  const at = elementBounds(box);
+  const e = 0.001;
+  return (
+    at.x < safe.x - e || at.y < safe.y - e || at.x + at.w > safe.x + safe.w + e || at.y + at.h > safe.y + safe.h + e
+  );
+}

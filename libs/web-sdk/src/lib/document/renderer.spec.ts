@@ -137,4 +137,13 @@ describe('renderTaleDocument', () => {
     const area = renderTaleDocument(doc([text('a', 'Over')], 'red;x'), { background: true });
     expect(canvasOf(area).style.backgroundColor).toBe('');
   });
+
+  it('skips an element marked hidden, as an editor copy may hold one, and keeps the z-order of the rest', () => {
+    const area = renderTaleDocument(
+      doc([text('a', 'Bottom'), { ...text('b', 'Hidden'), hidden: true }, text('c', 'Top', 0.1, 0.5)]),
+    );
+    const shown = texts(area);
+    expect(shown.map((p) => p.textContent)).toEqual(['Bottom', 'Top']);
+    expect(shown.map((p) => p.style.zIndex)).toEqual(['1', '2']);
+  });
 });

@@ -2,7 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import type { TaleDocument, ZoneTaleGroup } from '@taleart/contract';
+import { elementBounds, type TaleDocument, type ZoneTaleGroup } from '@taleart/contract';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { TaleStudioPage } from './tale-studio';
 
@@ -316,5 +316,510 @@ describe('TaleStudioPage', () => {
       .flush({ error: { code: 'tale_document_too_large', message: 'x' } }, { status: 413, statusText: 'Too Large' });
     await settle(fixture);
     expect(root.querySelector('[role=alert]')?.textContent).toContain('This tale is too large to save');
+  });
+  describe('layers, background and safe areas (story 2)', () => {
+    const ID = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+    const at = (n: number, text: string, y: number, extra: Partial<TaleDocument['elements'][number]> = {}) => ({
+      ...existing.elements[0],
+      id: ID(n),
+      box: { x: 0.1, y, w: 0.8, h: 0.1, rotation: 0 },
+      props: { text },
+      ...extra,
+    });
+    // A at the bottom of the z-order, then B, then C on top; A and B overlap.
+    const three: TaleDocument = { ...existing, elements: [at(1, 'A', 0.4), at(2, 'B', 0.42), at(3, 'C', 0.2)] };
+
+    const rows = () => [...root.querySelectorAll<HTMLButtonElement>('.layer__select')];
+    const rowNames = () => rows().map((r) => r.querySelector('.layer__name')?.textContent);
+    const canvasTexts = () => elements().map((e) => e.textContent);
+    const row = (n: number) => root.querySelector(`#layer-${ID(n)}`) as HTMLButtonElement;
+    const canvasEl = (n: number) => root.querySelector(`#studio-el-${ID(n)}`) as HTMLButtonElement | null;
+    const selected = () => rows().map((r) => r.parentElement?.getAttribute('aria-selected'));
+    const state = (n: number) => root.querySelector(`#layer-state-${ID(n)}`)?.textContent?.trim();
+
+    async function saved(): Promise<TaleDocument> {
+      buttonNamed(root, 'Save').click();
+      await settle(fixture);
+      const req = http.expectOne(url);
+      const body = req.request.body as { document: TaleDocument };
+      req.flush({ document: body.document, revision: 2 });
+      await settle(fixture);
+      return body.document;
+    }
+
+    it('lists every layer top first, with its type and a name from its text', async () => {
+      await open({ document: three, revision: 1 });
+      expect(rowNames()).toEqual(['C', 'B', 'A']);
+      expect(rows()[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Text: C');
+      expect(rows()[0].querySelector('svg')).not.toBeNull();
+      const grid = root.querySelector('[role=grid]') as HTMLElement;
+      expect(grid.getAttribute('aria-labelledby')).toBe('layers-title');
+      expect(grid.getAttribute('aria-multiselectable')).toBe('true');
+      expect(grid.querySelectorAll('[role=row]')).toHaveLength(3);
+      expect(rows()[0].getAttribute('role')).toBe('gridcell');
+      expect(rows()[0].getAttribute('aria-keyshortcuts')).toContain('Alt+ArrowUp');
+      // The state reads with the name, inside the same cell.
+      expect(rows()[0].querySelector(`#layer-state-${ID(3)}`)).not.toBeNull();
+    });
+
+    it('reorders from the list with the keyboard only, and the canvas and the saved document follow', async () => {
+      await open({ document: three, revision: 1 });
+      key(row(1), 'ArrowUp', { altKey: true });
+      await settle(fixture);
+      expect(rowNames()).toEqual(['C', 'A', 'B']);
+      expect(canvasTexts()).toEqual(['B', 'A', 'C']);
+      expect(canvasEl(1)?.style.zIndex).toBe('2');
+      expect(canvasEl(2)?.style.zIndex).toBe('1');
+      expect(document.activeElement).toBe(row(1));
+      expect(live()).toBe('Layer brought forward');
+      key(row(1), 'ArrowUp', { altKey: true, shiftKey: true });
+      await settle(fixture);
+      expect(rowNames()).toEqual(['A', 'C', 'B']);
+      expect(live()).toBe('Layer moved to the front');
+      key(row(1), 'ArrowUp', { altKey: true });
+      await settle(fixture);
+      expect(live()).toBe('Already at the front');
+      key(row(1), 'ArrowDown', { altKey: true, shiftKey: true });
+      await settle(fixture);
+      expect(rowNames()).toEqual(['C', 'B', 'A']);
+      key(row(1), 'ArrowUp', { altKey: true });
+      await settle(fixture);
+      expect((await saved()).elements.map((e) => e.props.text)).toEqual(['B', 'A', 'C']);
+    });
+
+    it('is one tab stop, a grid: the arrows move between layers and their controls', async () => {
+      await open({ document: three, revision: 1 });
+      const stops = () => [...root.querySelectorAll('[role=grid] [tabindex="0"]')];
+      expect(stops()).toEqual([row(3)]);
+      expect(root.querySelectorAll('[role=grid] [tabindex="-1"]')).toHaveLength(11);
+      row(3).focus();
+      key(row(3), 'ArrowDown');
+      expect(document.activeElement).toBe(row(2));
+      key(row(2), 'ArrowRight');
+      const hide2 = root.querySelector(`#layer-hide-${ID(2)}`) as HTMLButtonElement;
+      expect(document.activeElement).toBe(hide2);
+      key(hide2, 'ArrowDown');
+      expect(document.activeElement?.id).toBe(`layer-hide-${ID(1)}`);
+      key(document.activeElement as HTMLElement, 'End');
+      expect(document.activeElement?.id).toBe(`layer-more-${ID(1)}`);
+      key(document.activeElement as HTMLElement, 'ArrowRight');
+      expect(document.activeElement?.id).toBe(`layer-more-${ID(1)}`);
+      key(document.activeElement as HTMLElement, 'Home');
+      expect(document.activeElement).toBe(row(1));
+      key(row(1), 'Home', { ctrlKey: true });
+      expect(document.activeElement).toBe(row(3));
+      key(row(3), 'ArrowUp');
+      expect(document.activeElement).toBe(row(3));
+      key(row(3), 'End', { ctrlKey: true });
+      expect(document.activeElement).toBe(row(1));
+      await settle(fixture);
+      // The tab stop follows focus.
+      expect(stops()).toEqual([row(1)]);
+      // Enter or Space on a name selects that layer alone.
+      key(row(1), 'Enter');
+      await settle(fixture);
+      expect(selected()).toEqual(['false', 'false', 'true']);
+    });
+
+    it('selects several layers with Shift+click and Shift+Space, then moves, reorders and deletes them together', async () => {
+      await open({ document: three, revision: 1 });
+      row(1).click();
+      row(3).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true, detail: 1 }));
+      await settle(fixture);
+      expect(selected()).toEqual(['true', 'false', 'true']);
+      expect(canvasEl(1)?.getAttribute('aria-pressed')).toBe('true');
+      expect(root.querySelector('fieldset legend')?.textContent).toBe('2 layers selected');
+      // Shift+Space takes B in and out of the selection; the click a button fires for it changes nothing.
+      key(row(2), ' ', { shiftKey: true });
+      row(2).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+      await settle(fixture);
+      expect(selected()).toEqual(['true', 'true', 'true']);
+      key(row(2), ' ', { ctrlKey: true });
+      await settle(fixture);
+      expect(selected()).toEqual(['true', 'false', 'true']);
+
+      key(canvasEl(1) as HTMLElement, 'ArrowRight', { shiftKey: true });
+      await settle(fixture);
+      expect(canvasEl(1)?.style.left).toBe('20%');
+      expect(canvasEl(3)?.style.left).toBe('20%');
+      expect(canvasEl(2)?.style.left).toBe('10%');
+      expect(live()).toBe('2 layers moved');
+      // As a group: the boxes are 80% wide, so they stop together at the right edge.
+      key(canvasEl(1) as HTMLElement, 'ArrowRight', { shiftKey: true });
+      await settle(fixture);
+      expect(canvasEl(1)?.style.left).toBe('20%');
+
+      key(row(3), 'ArrowDown', { altKey: true });
+      await settle(fixture);
+      expect(rowNames()).toEqual(['B', 'C', 'A']);
+      expect(live()).toBe('2 layers sent backward');
+
+      key(row(3), 'Delete');
+      await settle(fixture);
+      expect(rowNames()).toEqual(['B']);
+      expect(live()).toBe('2 layers deleted');
+      expect(document.activeElement).toBe(row(2));
+    });
+
+    it('selects every layer with Ctrl+A', async () => {
+      await open({ document: three, revision: 1 });
+      key(elements()[0], 'a', { ctrlKey: true });
+      await settle(fixture);
+      expect(selected()).toEqual(['true', 'true', 'true']);
+      expect(live()).toBe('All 3 layers selected');
+    });
+
+    it('hides a layer: gone from the canvas, marked in its row, and saved as hidden', async () => {
+      await open({ document: three, revision: 1 });
+      const hide = root.querySelector(`#layer-hide-${ID(2)}`) as HTMLButtonElement;
+      expect(hide.getAttribute('aria-label')).toBe('Hide B');
+      expect(hide.getAttribute('aria-pressed')).toBe('false');
+      hide.click();
+      await settle(fixture);
+      expect(canvasEl(2)).toBeNull();
+      expect(canvasTexts()).toEqual(['A', 'C']);
+      expect(state(2)).toBe('Hidden');
+      expect(hide.getAttribute('aria-pressed')).toBe('true');
+      expect(live()).toBe('Layer hidden');
+      expect((await saved()).elements.map((e) => e.hidden)).toEqual([false, true, false]);
+      // From the canvas, the shortcut hides it and focus moves to its row.
+      key(canvasEl(1) as HTMLElement, 'h', { code: 'KeyH' });
+      await settle(fixture);
+      expect(canvasEl(1)).toBeNull();
+      expect(document.activeElement).toBe(row(1));
+      // A Hebrew layout types י on the H key.
+      key(row(1), 'י', { code: 'KeyH' });
+      await settle(fixture);
+      expect(canvasEl(1)).not.toBeNull();
+      expect(live()).toBe('Layer shown');
+    });
+
+    it('locks a layer: dragging, arrow keys, the fields and editing leave it as it is', async () => {
+      await open({ document: three, revision: 1 });
+      (root.querySelector(`#layer-lock-${ID(3)}`) as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(state(3)).toBe('Locked');
+      expect(live()).toBe('Layer locked');
+      const canvas = root.querySelector('.canvas') as HTMLElement;
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 600 }) as DOMRect;
+      const el = canvasEl(3) as HTMLElement;
+      const pointer = (type: string, x: number, y: number) =>
+        el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: x, clientY: y }));
+      pointer('pointerdown', 100, 150);
+      pointer('pointermove', 100, 300);
+      pointer('pointerup', 100, 300);
+      await settle(fixture);
+      expect(canvasEl(3)?.style.top).toBe('20%');
+      expect(live()).toContain('This layer is locked');
+      key(el, 'ArrowDown');
+      key(el, 'Enter');
+      await settle(fixture);
+      expect(canvasEl(3)?.style.top).toBe('20%');
+      expect(root.querySelector('textarea.el-edit')).toBeNull();
+      const y = root.querySelector('#studio-y') as HTMLInputElement;
+      expect(y.readOnly).toBe(true);
+      y.value = '50';
+      y.dispatchEvent(new Event('change'));
+      expect(y.value).toBe('20');
+      const textField = root.querySelector('#studio-text') as HTMLTextAreaElement;
+      expect(textField.readOnly).toBe(true);
+      textField.value = 'Changed';
+      textField.dispatchEvent(new Event('input'));
+      await settle(fixture);
+      expect(canvasEl(3)?.textContent).toBe('C');
+      // It can still be reordered, and unlocked.
+      key(row(3), 'ArrowDown', { altKey: true });
+      await settle(fixture);
+      expect(rowNames()).toEqual(['B', 'C', 'A']);
+      key(row(3), 'l');
+      await settle(fixture);
+      expect(live()).toBe('Layer unlocked');
+      const saved1 = await saved();
+      expect(saved1.elements.map((e) => e.locked)).toEqual([false, false, false]);
+    });
+
+    it('moves a selection without its locked layers, and says so', async () => {
+      const doc = { ...three, elements: [at(1, 'A', 0.4, { locked: true }), at(2, 'B', 0.3)] };
+      await open({ document: doc, revision: 1 });
+      key(elements()[0], 'a', { ctrlKey: true });
+      key(elements()[1], 'ArrowDown');
+      await settle(fixture);
+      expect(canvasEl(1)?.style.top).toBe('40%');
+      expect(canvasEl(2)?.style.top).toBe('31%');
+      expect(live()).toBe('Text moved to left 10%, top 31%; a locked layer stays');
+    });
+
+    it('duplicates a layer just above it with a new id, and stops at the element limit', async () => {
+      await open({ document: three, revision: 1 });
+      key(canvasEl(1) as HTMLElement, 'd');
+      await settle(fixture);
+      expect(rowNames()).toEqual(['C', 'B', 'A', 'A']);
+      const copy = rows()[2].id.replace('layer-', '');
+      expect(copy).toMatch(/^[0-9a-f-]{36}$/);
+      expect(copy).not.toBe(ID(1));
+      expect(document.activeElement?.id).toBe(`studio-el-${copy}`);
+      expect(live()).toBe('Layer duplicated');
+      const doc = await saved();
+      expect(doc.elements[1]).toEqual({
+        ...three.elements[0],
+        id: copy,
+        box: { ...three.elements[0].box, x: 0.12, y: 0.42 },
+      });
+
+      const full = {
+        ...existing,
+        elements: Array.from({ length: 60 }, (_, i) => ({
+          ...at(1, `T${i}`, 0.4),
+          id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        })),
+      };
+      fixture.destroy();
+      await open({ document: full, revision: 1 });
+      key(elements()[0], 'd');
+      await settle(fixture);
+      expect(elements()).toHaveLength(60);
+      expect(live()).toBe('A tale holds at most 60 layers');
+    });
+
+    it('opens the actions menu from a row, by Shift+F10 and by right-click, and returns focus when it closes', async () => {
+      await open({ document: three, revision: 1 });
+      const more = root.querySelector(`#layer-more-${ID(2)}`) as HTMLButtonElement;
+      expect(more.getAttribute('aria-label')).toBe('More actions for B');
+      expect(more.getAttribute('aria-haspopup')).toBe('menu');
+      more.click();
+      await settle(fixture);
+      const menu = () => root.querySelector('[role=menu]') as HTMLElement | null;
+      const items = () => [...(menu()?.querySelectorAll<HTMLButtonElement>('[role=menuitem]') ?? [])];
+      expect(more.getAttribute('aria-expanded')).toBe('true');
+      expect(items().map((i) => i.firstElementChild?.textContent)).toEqual([
+        'Bring forward',
+        'Send backward',
+        'Bring to front',
+        'Send to back',
+        'Hide',
+        'Lock',
+        'Duplicate',
+        'Delete',
+      ]);
+      // The menu shows the shortcuts, which work on the canvas and in the list, not in the menu.
+      expect(items()[0].querySelector('.layer-menu__key')?.textContent).toMatch(/^(⌥↑|Alt\+↑)$/);
+      expect(items()[0].hasAttribute('aria-keyshortcuts')).toBe(false);
+      expect(document.activeElement).toBe(items()[0]);
+      key(items()[0], 'ArrowUp');
+      expect(document.activeElement).toBe(items()[7]);
+      key(items()[7], 'Home');
+      key(items()[0], 'ArrowDown');
+      expect(document.activeElement).toBe(items()[1]);
+      key(items()[1], 'Escape');
+      await settle(fixture);
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(more);
+
+      // The More actions button toggles the menu.
+      more.click();
+      await settle(fixture);
+      expect(menu()).not.toBeNull();
+      more.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      more.click();
+      await settle(fixture);
+      expect(menu()).toBeNull();
+      expect(more.getAttribute('aria-expanded')).toBe('false');
+
+      // Shift+F10 or the context-menu key fire contextmenu at the focused canvas element (at 0, 0):
+      // the studio menu opens and the browser's does not.
+      canvasEl(1)?.focus();
+      const keyMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      canvasEl(1)?.dispatchEvent(keyMenu);
+      expect(keyMenu.defaultPrevented).toBe(true);
+      await settle(fixture);
+      const onItem = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      items()[0].dispatchEvent(onItem);
+      expect(onItem.defaultPrevented).toBe(true);
+      items()[2].click();
+      await settle(fixture);
+      expect(menu()).toBeNull();
+      expect(rowNames()).toEqual(['A', 'C', 'B']);
+      expect(document.activeElement).toBe(canvasEl(1));
+
+      // A right-click on a row of a two-layer selection offers the actions for both.
+      row(1).click();
+      row(2).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true, detail: 1 }));
+      await settle(fixture);
+      const context = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+      row(2).dispatchEvent(context);
+      await settle(fixture);
+      expect(context.defaultPrevented).toBe(true);
+      expect(items().map((i) => i.firstElementChild?.textContent)).toEqual([
+        'Bring forward',
+        'Send backward',
+        'Bring to front',
+        'Send to back',
+        'Delete 2 layers',
+      ]);
+      // A press outside closes it, leaving focus where it went.
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      await settle(fixture);
+      expect(menu()).toBeNull();
+    });
+
+    it('warns in the row when a layer reaches outside the safe area, and clears when it moves back', async () => {
+      await open({ document: three, revision: 1 });
+      expect(state(3)).toBe('');
+      const el = canvasEl(3) as HTMLElement;
+      // From 20% up by 10%: into the top safe area (12%).
+      key(el, 'ArrowUp', { shiftKey: true });
+      await settle(fixture);
+      expect(state(3)).toBe('Outside safe area');
+      expect(canvasEl(3)?.getAttribute('aria-describedby')).toBe(`layer-state-${ID(3)}`);
+      key(el, 'ArrowDown', { shiftKey: true });
+      await settle(fixture);
+      expect(state(3)).toBe('');
+      // Into the bottom 16%: still saved.
+      const y = root.querySelector('#studio-y') as HTMLInputElement;
+      y.value = '80';
+      y.dispatchEvent(new Event('change'));
+      await settle(fixture);
+      expect(state(3)).toBe('Outside safe area');
+      expect((await saved()).elements[2].box.y).toBe(0.8);
+    });
+
+    it('shows and hides the safe-area guides', async () => {
+      await open({ document: three, revision: 1 });
+      const guides = () => root.querySelector('.guides') as HTMLElement | null;
+      expect(guides()?.getAttribute('aria-hidden')).toBe('true');
+      expect(guides()?.style.top).toBe('12%');
+      expect(guides()?.style.bottom).toBe('16%');
+      expect(guides()?.style.left).toBe('4%');
+      const toggle = [...root.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].find((c) =>
+        c.parentElement?.textContent?.includes('Show safe areas'),
+      ) as HTMLInputElement;
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change'));
+      await settle(fixture);
+      expect(guides()).toBeNull();
+      expect(live()).toBe('Safe areas hidden');
+    });
+
+    it('snaps a dragged layer to the canvas centre and other layers, and not with Alt held', async () => {
+      const doc = {
+        ...three,
+        elements: [at(1, 'A', 0.5, { box: { x: 0.1, y: 0.5, w: 0.2, h: 0.1, rotation: 0 } }), at(2, 'B', 0.3)],
+      };
+      await open({ document: doc, revision: 1 });
+      const canvas = root.querySelector('.canvas') as HTMLElement;
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 600 }) as DOMRect;
+      const el = canvasEl(1) as HTMLElement;
+      const pointer = (type: string, x: number, y: number, altKey = false) =>
+        el.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: x, clientY: y, altKey }),
+        );
+      // Its centre from 60 px to 147 px: 3 px short of the canvas centre (150 px), so it snaps there.
+      pointer('pointerdown', 60, 330);
+      pointer('pointermove', 147, 333);
+      await settle(fixture);
+      expect(canvasEl(1)?.style.left).toBe('40%');
+      expect((root.querySelector('.snap-line--x') as HTMLElement).style.left).toBe('50%');
+      // With Alt it lands where it is dropped.
+      pointer('pointermove', 147, 333, true);
+      pointer('pointerup', 147, 333, true);
+      await settle(fixture);
+      expect(canvasEl(1)?.style.left).toBe('39%');
+      expect(root.querySelector('.snap-line--x')).toBeNull();
+      expect(live()).toBe('Text moved');
+    });
+
+    it('moves a selection by arrows without its hidden layers, which neither move nor hold the group back', async () => {
+      const doc = {
+        ...three,
+        elements: [
+          at(1, 'A', 0.4, { hidden: true, box: { x: 0.1, y: 0.9, w: 0.8, h: 0.1, rotation: 0 } }),
+          at(2, 'B', 0.3),
+        ],
+      };
+      await open({ document: doc, revision: 1 });
+      key(elements()[0], 'a', { ctrlKey: true });
+      key(canvasEl(2) as HTMLElement, 'ArrowDown', { shiftKey: true });
+      await settle(fixture);
+      expect(canvasEl(2)?.style.top).toBe('40%');
+      expect(live()).toBe('Text moved to left 10%, top 40%');
+      const saved1 = await saved();
+      expect(saved1.elements[0].box.y).toBe(0.9);
+    });
+
+    it('drags the unlocked layers of a selection when a locked one is pressed, and says the locked one stays', async () => {
+      const doc = { ...three, elements: [at(1, 'A', 0.4, { locked: true }), at(2, 'B', 0.2)] };
+      await open({ document: doc, revision: 1 });
+      const canvas = root.querySelector('.canvas') as HTMLElement;
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 600 }) as DOMRect;
+      key(elements()[0], 'a', { ctrlKey: true });
+      await settle(fixture);
+      const el = canvasEl(1) as HTMLElement;
+      const pointer = (type: string, x: number, y: number) =>
+        el.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: x, clientY: y, altKey: true }),
+        );
+      pointer('pointerdown', 150, 270);
+      pointer('pointermove', 150, 330);
+      pointer('pointerup', 150, 330);
+      await settle(fixture);
+      expect(canvasEl(1)?.style.top).toBe('40%');
+      expect(canvasEl(2)?.style.top).toBe('30%');
+      expect(live()).toBe('Text moved; a locked layer stays');
+    });
+
+    it("snaps by a turned layer's visible edge, the one the safe-area warning measures", async () => {
+      // A quarter-turned box 0.3 wide and 0.05 high: it shows 0.15 × 9/16 ≈ 0.0889 wide, centred at x 0.5.
+      const turned = { x: 0.35, y: 0.5, w: 0.3, h: 0.05, rotation: 90 };
+      const doc = { ...three, elements: [at(1, 'A', 0.5, { box: turned })] };
+      await open({ document: doc, revision: 1 });
+      const canvas = root.querySelector('.canvas') as HTMLElement;
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 900, height: 1600 }) as DOMRect;
+      const el = canvasEl(1) as HTMLElement;
+      const pointer = (type: string, x: number, y: number) =>
+        el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: x, clientY: y }));
+      // It shows 0.16875 high, so its visible top is at 0.4406 (705 px). Dragged up 509 px, that edge
+      // is 4 px below the top safe-area edge (0.12, 192 px) and snaps onto it; its box does not.
+      pointer('pointerdown', 450, 800);
+      pointer('pointermove', 450, 291);
+      await settle(fixture);
+      expect((root.querySelector('.snap-line--y') as HTMLElement).style.top).toBe('12%');
+      pointer('pointerup', 450, 291);
+      const box = (await saved()).elements[0].box;
+      expect(elementBounds(box).y).toBeCloseTo(0.12, 3);
+      expect(box.y).toBeCloseTo(0.1794, 4);
+    });
+
+    it('sets the background colour from the picker or the hex field, and saves it', async () => {
+      await open({ document: three, revision: 1 });
+      const picker = root.querySelector('#studio-bg') as HTMLInputElement;
+      expect(picker.type).toBe('color');
+      expect(root.querySelector('label[for=studio-bg]')?.textContent).toBe('Background colour');
+      picker.value = '#112233';
+      picker.dispatchEvent(new Event('change'));
+      await settle(fixture);
+      expect((root.querySelector('.canvas') as HTMLElement).style.backgroundColor).toBe('rgb(17, 34, 51)');
+      expect(live()).toBe('Background colour set to #112233');
+      const hex = root.querySelector('#studio-bg-hex') as HTMLInputElement;
+      expect(hex.value).toBe('#112233');
+      hex.value = 'red; background:url(x)';
+      hex.dispatchEvent(new Event('change'));
+      await settle(fixture);
+      // The entry stays, marked invalid and described by the message; the canvas keeps its colour.
+      expect(hex.value).toBe('red; background:url(x)');
+      expect(hex.getAttribute('aria-invalid')).toBe('true');
+      expect(hex.getAttribute('aria-describedby')).toBe('studio-bg-hint studio-bg-error');
+      expect(root.querySelector('#studio-bg-error')?.textContent).toBe(
+        'Enter a colour as #RRGGBB or #RRGGBBAA. The background stays #112233.',
+      );
+      expect((root.querySelector('.canvas') as HTMLElement).style.backgroundColor).toBe('rgb(17, 34, 51)');
+      hex.value = 'AABBCC80';
+      hex.dispatchEvent(new Event('change'));
+      await settle(fixture);
+      expect(hex.value).toBe('#AABBCC80');
+      expect(hex.hasAttribute('aria-invalid')).toBe(false);
+      expect(root.querySelector('#studio-bg-error')).toBeNull();
+      expect(picker.value).toBe('#aabbcc');
+      expect((await saved()).canvas).toEqual({ background: { type: 'color', color: '#AABBCC80' } });
+    });
   });
 });

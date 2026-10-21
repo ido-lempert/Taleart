@@ -62,7 +62,8 @@ const ZONE = {
           // A tale document (AD-15): a text element in the upper third, and right-to-left text with emoji below.
           document: {
             version: 1,
-            canvas: { background: { type: 'color', color: '#000000' } },
+            // A canvas colour (Tale Studio story 2): it fills the stage behind the tale's media.
+            canvas: { background: { type: 'color', color: '#1f3a5f' } },
             elements: [
               {
                 id: '00000000-0000-4000-8000-000000000001',
@@ -229,8 +230,10 @@ try {
       ratio: canvas.width / canvas.height,
       // The media is framed as for a tale without a document: full-bleed in the stage.
       over: root.querySelector('dialog .stage > img.media') !== null && !root.querySelector('dialog .ta-canvas img'),
+      background: getComputedStyle(root.querySelector('dialog .stage')).backgroundColor,
     };
   });
+  check(placed.background === 'rgb(31, 58, 95)', "the document's background colour fills the stage behind the media");
   check(!placed.markup && placed.upperThird, 'the text sits in the upper third of the 9:16 canvas, with no markup');
   check(
     Math.abs(placed.ratio - 9 / 16) < 0.01 && placed.over,
