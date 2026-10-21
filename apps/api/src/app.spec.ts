@@ -540,6 +540,7 @@ describe('Management API v1: projects and zones', () => {
         storedStatus: 'draft',
         startsAt: null,
         endsAt: null,
+        cover: null,
         position: 0,
         zoneIds: [zone.id],
         tales: [],
@@ -921,6 +922,7 @@ describe('Management API v1: projects and zones', () => {
         storedStatus: 'draft',
         startsAt: null,
         endsAt: null,
+        cover: null,
         zoneIds: [zone.id],
         tales: [],
         tags: [
@@ -1128,7 +1130,7 @@ describe('Management API v1: projects and zones', () => {
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       // C has no live tale, so only A is delivered.
       expect((await delivered.json()).taleGroups).toEqual([
-        { id: a.id, name: 'A', tales: [{ id: tale.id, title: 'Beach', media: null }] },
+        { id: a.id, name: 'A', cover: null, tales: [{ id: tale.id, title: 'Beach', media: null }] },
       ]);
     });
 
@@ -1149,6 +1151,7 @@ describe('Management API v1: projects and zones', () => {
         storedStatus: 'live',
         startsAt: null,
         endsAt: null,
+        cover: null,
         zoneIds: [z.id, z2.id],
         tales: [expect.objectContaining({ title: 'T', status: 'live' })],
         tags: [],
@@ -1314,7 +1317,18 @@ describe('Management API v1: projects and zones', () => {
         { zone_id: z2.id, tale_group_id: c, project_id: project.id, position: 0 },
       ].sort((x, y) => (x.zone_id < y.zone_id ? -1 : x.zone_id > y.zone_id ? 1 : x.position - y.position));
       expect(await placements()).toEqual(expected);
-      expect(await columns()).toEqual(['created_at', 'ends_at', 'id', 'name', 'project_id', 'starts_at', 'status']);
+      expect(await columns()).toEqual([
+        'cover_animated',
+        'cover_content_type',
+        'cover_key',
+        'created_at',
+        'ends_at',
+        'id',
+        'name',
+        'project_id',
+        'starts_at',
+        'status',
+      ]);
       expect((await pool.query("SELECT 1 FROM pg_indexes WHERE indexname = 'tale_groups_zone_id_idx'")).rowCount).toBe(0);
       expect((await listed(z.id)).map((g) => [g.name, g.position, g.tales.map((t) => t.title)])).toEqual([
         ['A', 0, ['Beach']],
@@ -1325,7 +1339,18 @@ describe('Management API v1: projects and zones', () => {
       // Runs twice without change.
       await restart();
       expect(await placements()).toEqual(expected);
-      expect(await columns()).toEqual(['created_at', 'ends_at', 'id', 'name', 'project_id', 'starts_at', 'status']);
+      expect(await columns()).toEqual([
+        'cover_animated',
+        'cover_content_type',
+        'cover_key',
+        'created_at',
+        'ends_at',
+        'id',
+        'name',
+        'project_id',
+        'starts_at',
+        'status',
+      ]);
     });
 
     it('makes groups and tales made before statuses live, new ones draft, once (AD-6)', async () => {
@@ -1453,6 +1478,7 @@ describe('Management API v1: projects and zones', () => {
         storedStatus: 'draft',
         startsAt: null,
         endsAt: null,
+        cover: null,
         position: 1,
         zoneIds: [production.id],
         tales: [
@@ -1807,6 +1833,317 @@ describe('Management API v1: projects and zones', () => {
       expect(Buffer.from(await res.arrayBuffer())).toEqual(png);
     });
   });
+  describe('tale group covers', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+    const KB = 1024;
+
+    // A PNG chunk: length, type, data and a (not checked) CRC.
+    function chunk(type: string, data: Buffer = Buffer.alloc(0)): Buffer {
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(data.length);
+      return Buffer.concat([length, Buffer.from(type, 'latin1'), data, Buffer.alloc(4)]);
+    }
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const png = Buffer.concat([pngSignature, chunk('IHDR', Buffer.alloc(13)), chunk('IDAT', Buffer.from([1, 2, 3]))]);
+    const apng = Buffer.concat([pngSignature, chunk('IHDR', Buffer.alloc(13)), chunk('acTL', Buffer.alloc(8)), chunk('IDAT')]);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+    // A GIF with `images` frames, each a 1x1 image with a control extension, as browsers and tools write them.
+    function gifOf(images: number): Buffer {
+      const header = Buffer.concat([Buffer.from('GIF89a'), Buffer.from([1, 0, 1, 0, 0, 0, 0])]);
+      const frame = Buffer.from([
+        0x21, 0xf9, 0x04, 0x00, 0x0a, 0x00, 0x00, 0x00, // graphic control extension
+        0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0x00, // image descriptor, no local colour table
+        0x02, 0x02, 0x44, 0x01, 0x00, // LZW code size, one data sub-block, terminator
+      ]);
+      return Buffer.concat([header, ...Array.from({ length: images }, () => frame), Buffer.from([0x3b])]);
+    }
+    const stillGif = gifOf(1);
+    const animatedGif = gifOf(3);
+    const animatedWebp = Buffer.concat([
+      Buffer.from('RIFF'),
+      Buffer.from([0x20, 0, 0, 0]),
+      Buffer.from('WEBPVP8X'),
+      Buffer.from([0x0a, 0, 0, 0, 0x02, 0, 0, 0]),
+      Buffer.alloc(16),
+    ]);
+    function webmOf(size: number): Buffer {
+      return Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(size - 4, 7)]);
+    }
+
+    function putCover(groupId: string, contentType: string, body: Uint8Array): Promise<Response> {
+      return fetch(`${base}/tale-groups/${groupId}/cover`, { method: 'PUT', headers: { 'Content-Type': contentType }, body });
+    }
+
+    function removeCover(groupId: string): Promise<Response> {
+      return fetch(`${base}/tale-groups/${groupId}/cover`, { method: 'DELETE' });
+    }
+
+    async function coverKey(groupId: string): Promise<string | null> {
+      const { rows } = await pool.query('SELECT cover_key FROM tale_groups WHERE id = $1', [groupId]);
+      return rows[0].cover_key;
+    }
+
+    function stored(key: string | null): boolean {
+      return key !== null && existsSync(join(mediaDir, key));
+    }
+
+    async function createGroup(): Promise<{ id: string; zoneId: string; projectId: string }> {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      return { id: group.id, zoneId: zone.id, projectId: zone.projectId };
+    }
+
+    // A live group with a live tale, in a zone with a key: what the Delivery API delivers (AD-6).
+    async function liveGroup(): Promise<{ id: string; zoneId: string; taleId: string; key: string }> {
+      const group = await createGroup();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      await publish('tale-groups', group.id);
+      await publish('tales', tale.id);
+      const { key } = await (await post(`/zones/${group.zoneId}/key`, {})).json();
+      return { id: group.id, zoneId: group.zoneId, taleId: tale.id, key };
+    }
+
+    async function deliveredGroups(key: string): Promise<{ id: string; cover: { url: string } | null }[]> {
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()).taleGroups;
+    }
+
+    function getPublic(url: string): Promise<Response> {
+      return globalThis.fetch(`${origin}${new URL(url).pathname}`);
+    }
+
+    beforeEach(() => {
+      rmSync(join(mediaDir, 'covers'), { recursive: true, force: true });
+    });
+
+    it('stores a still cover, keeping only the key on the group', async () => {
+      const group = await createGroup();
+      const res = await putCover(group.id, 'image/jpeg', jpeg);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(
+        expect.objectContaining({
+          id: group.id,
+          cover: { kind: 'image', contentType: 'image/jpeg', animated: false, url: `/api/v1/tale-groups/${group.id}/cover` },
+          tags: [],
+        }),
+      );
+      const key = await coverKey(group.id);
+      expect(key).toMatch(/^covers\/[0-9a-f-]{36}\.jpg$/);
+      expect(JSON.stringify(body)).not.toContain(key);
+      expect(stored(key)).toBe(true);
+      // Every zone list carries the cover.
+      const [listed] = await (await fetch(`${base}/zones/${group.zoneId}/tale-groups`)).json();
+      expect(listed.cover.contentType).toBe('image/jpeg');
+    });
+
+    it('decides from the bytes whether a cover moves', async () => {
+      const group = await createGroup();
+      for (const [type, body, kind, animated] of [
+        ['video/webm', webmOf(2 * KB), 'video', true],
+        ['image/gif', animatedGif, 'image', true],
+        ['image/gif', stillGif, 'image', false],
+        ['image/png', apng, 'image', true],
+        ['image/png', png, 'image', false],
+        ['image/webp', animatedWebp, 'image', true],
+      ] as const) {
+        const res = await putCover(group.id, type, body);
+        expect(res.status).toBe(200);
+        expect((await res.json()).cover).toEqual(expect.objectContaining({ kind, contentType: type, animated }));
+      }
+    });
+
+    it('refuses an animated cover above 300 KB with 413, keeping the previous cover', async () => {
+      const group = await createGroup();
+      expect((await putCover(group.id, 'image/jpeg', jpeg)).status).toBe(200);
+      const before = await coverKey(group.id);
+      for (const [type, body] of [
+        ['video/webm', webmOf(300 * KB + 1)],
+        ['image/gif', Buffer.concat([animatedGif.subarray(0, -1), Buffer.alloc(300 * KB), Buffer.from([0x3b])])],
+      ] as const) {
+        const res = await putCover(group.id, type, body);
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({ error: { code: 'media_too_large', message: 'An animated cover is at most 300 KB' } });
+      }
+      expect(await coverKey(group.id)).toBe(before);
+      expect(readdirSync(join(mediaDir, 'covers'))).toHaveLength(1);
+      // Exactly 300 KB is accepted.
+      expect((await putCover(group.id, 'video/webm', webmOf(300 * KB))).status).toBe(200);
+    });
+
+    it('accepts a still image cover far above the animated cap', async () => {
+      const group = await createGroup();
+      const large = Buffer.concat([png, Buffer.alloc(2 * KB * KB)]);
+      const res = await putCover(group.id, 'image/png', large);
+      expect(res.status).toBe(200);
+      expect((await res.json()).cover.animated).toBe(false);
+    });
+
+    it('refuses other or mismatched types with 415, an empty body with 400, and unknown groups with 404', async () => {
+      const group = await createGroup();
+      for (const [type, body] of [
+        ['application/pdf', Buffer.from('%PDF-1.7')],
+        ['image/png', jpeg],
+      ] as const) {
+        const res = await putCover(group.id, type, body);
+        expect(res.status).toBe(415);
+        expect((await res.json()).error.code).toBe('unsupported_media_type');
+      }
+      const empty = await putCover(group.id, 'image/png', Buffer.alloc(0));
+      expect([empty.status, (await empty.json()).error.code]).toEqual([400, 'validation_failed']);
+      for (const id of [unknownId, 'nope']) {
+        for (const res of [
+          await putCover(id, 'image/jpeg', jpeg),
+          await fetch(`${base}/tale-groups/${id}/cover`),
+          await removeCover(id),
+        ]) {
+          expect([res.status, (await res.json()).error.code]).toEqual([404, 'tale_group_not_found']);
+        }
+      }
+      expect(await coverKey(group.id)).toBeNull();
+    });
+
+    it('refuses every cover route with 403 to a caller without the project', async () => {
+      const group = await createGroup();
+      expect((await putCover(group.id, 'image/jpeg', jpeg)).status).toBe(200);
+      const mine = await createProject('Mine');
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, mine.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      for (const res of [
+        await putCover(group.id, 'image/png', png),
+        await fetch(`${base}/tale-groups/${group.id}/cover`),
+        await removeCover(group.id),
+      ]) {
+        expect([res.status, (await res.json()).error.code]).toEqual([403, 'forbidden']);
+      }
+      expect(await coverKey(group.id)).toMatch(/\.jpg$/);
+    });
+
+    it('serves the cover with its type and ETag, 304 when current, and 404 media_not_found without one', async () => {
+      const group = await createGroup();
+      const none = await fetch(`${base}/tale-groups/${group.id}/cover`);
+      expect([none.status, (await none.json()).error.code]).toEqual([404, 'media_not_found']);
+      await putCover(group.id, 'image/jpeg', jpeg);
+      const res = await fetch(`${base}/tale-groups/${group.id}/cover`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('image/jpeg');
+      expect(Buffer.from(await res.arrayBuffer())).toEqual(jpeg);
+      const etag = res.headers.get('etag') ?? '';
+      expect(etag).toBe(`"${await coverKey(group.id)}"`);
+      expect((await fetch(`${base}/tale-groups/${group.id}/cover`, { headers: { 'If-None-Match': etag } })).status).toBe(304);
+    });
+
+    it('deletes the replaced cover file, and the removed one, and reads no cover after removal', async () => {
+      const group = await createGroup();
+      await putCover(group.id, 'image/jpeg', jpeg);
+      const first = await coverKey(group.id);
+      await putCover(group.id, 'image/png', png);
+      const second = await coverKey(group.id);
+      expect(second).not.toBe(first);
+      expect([stored(first), stored(second)]).toEqual([false, true]);
+
+      const res = await removeCover(group.id);
+      expect(res.status).toBe(200);
+      expect((await res.json()).cover).toBeNull();
+      expect(stored(second)).toBe(false);
+      expect(await coverKey(group.id)).toBeNull();
+      // Removing again changes nothing.
+      expect((await removeCover(group.id)).status).toBe(200);
+    });
+
+    it("keeps a cover file a copy shares when the source's cover is replaced or removed", async () => {
+      const group = await createGroup();
+      await putCover(group.id, 'image/gif', animatedGif);
+      const shared = await coverKey(group.id);
+      const copy = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: group.zoneId })).json();
+      expect(copy.cover).toEqual(expect.objectContaining({ contentType: 'image/gif', animated: true }));
+      expect(await coverKey(copy.id)).toBe(shared);
+
+      await putCover(group.id, 'image/jpeg', jpeg);
+      expect(stored(shared)).toBe(true);
+      const served = await fetch(`${base}/tale-groups/${copy.id}/cover`);
+      expect(Buffer.from(await served.arrayBuffer())).toEqual(animatedGif);
+      await removeCover(group.id);
+      expect(stored(shared)).toBe(true);
+
+      // The last reference goes: the file goes.
+      await removeCover(copy.id);
+      expect(stored(shared)).toBe(false);
+    });
+
+    it('keeps a file a cover references when a tale replaces media with the same key', async () => {
+      const group = await createGroup();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      await fetch(`${base}/tales/${tale.id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+      const { rows } = await pool.query('SELECT media_key FROM tales WHERE id = $1', [tale.id]);
+      const key: string = rows[0].media_key;
+      // A cover pointing at the tale's file, as a shared key would.
+      await pool.query("UPDATE tale_groups SET cover_key = $2, cover_content_type = 'image/png' WHERE id = $1", [group.id, key]);
+      const replaced = await fetch(`${base}/tales/${tale.id}/media`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: jpeg,
+      });
+      expect(replaced.status).toBe(200);
+      expect(existsSync(join(mediaDir, key))).toBe(true);
+    });
+
+    it('delivers the cover as a public URL with its motion, and null without one', async () => {
+      const group = await liveGroup();
+      expect((await deliveredGroups(group.key))[0].cover).toBeNull();
+      await putCover(group.id, 'video/webm', webmOf(4 * KB));
+      const [delivered] = await deliveredGroups(group.key);
+      expect(delivered.cover).toEqual({
+        kind: 'video',
+        contentType: 'video/webm',
+        animated: true,
+        url: expect.stringMatching(/^https:\/\/api\.example\.com\/media\/covers\/[0-9a-f-]{36}\.webm$/),
+      });
+      const res = await getPublic(delivered.cover?.url ?? '');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('video/webm');
+      expect(res.headers.get('cache-control')).toBe('public, no-cache');
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('serves a cover publicly only while its group is delivered', async () => {
+      const group = await liveGroup();
+      await putCover(group.id, 'image/jpeg', jpeg);
+      const url = (await deliveredGroups(group.key))[0].cover?.url ?? '';
+      expect((await getPublic(url)).status).toBe(200);
+
+      // No published tale: the group is not delivered, so neither is its cover.
+      await setStatus('tales', group.taleId, 'paused');
+      expect((await getPublic(url)).status).toBe(404);
+      await publish('tales', group.taleId);
+      expect((await getPublic(url)).status).toBe(200);
+
+      // Paused group.
+      await setStatus('tale-groups', group.id, 'paused');
+      const paused = await getPublic(url);
+      expect([paused.status, (await paused.json()).error.code]).toEqual([404, 'media_not_found']);
+      await publish('tale-groups', group.id);
+
+      // Expired group.
+      const ended = await fetch(`${base}/tale-groups/${group.id}/schedule`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startsAt: null, endsAt: '2020-01-01T00:00:00Z' }),
+      });
+      expect(ended.status).toBe(200);
+      expect((await getPublic(url)).status).toBe(404);
+    });
+
+    it('does not serve the cover of a draft group publicly', async () => {
+      const group = await createGroup();
+      await putCover(group.id, 'image/jpeg', jpeg);
+      const key = (await coverKey(group.id)) ?? '';
+      expect((await globalThis.fetch(`${origin}/media/${key}`)).status).toBe(404);
+    });
+  });
+
   describe('invitations and project access', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
@@ -2315,6 +2652,7 @@ describe('Management API v1: projects and zones', () => {
           {
             id: a.id,
             name: 'A',
+            cover: null,
             tales: [
               { id: a1.id, title: 'A1', media: { kind: 'image', contentType: 'image/png', url: expect.stringMatching(mediaUrl) } },
               { id: a2.id, title: 'A2', media: null },
@@ -2323,6 +2661,7 @@ describe('Management API v1: projects and zones', () => {
           {
             id: b.id,
             name: 'B',
+            cover: null,
             tales: [{ id: b1.id, title: 'B1', media: { kind: 'video', contentType: 'video/mp4', url: expect.stringMatching(mediaUrl) } }],
           },
         ]);

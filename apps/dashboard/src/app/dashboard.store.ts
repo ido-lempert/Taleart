@@ -14,6 +14,7 @@ import {
   type Tag,
   type Tale,
   type TaleGroup,
+  type TaleGroupCover,
   type Zone,
   type ZoneKeyInfo,
   type ZoneTaleGroup,
@@ -45,6 +46,7 @@ export type DrawerRequest =
   | { kind: 'removeTaleGroup'; zoneId: string; taleGroupId: string }
   | { kind: 'copyTaleGroup'; taleGroupId: string }
   | { kind: 'taleMedia'; taleId: string }
+  | { kind: 'cover'; taleGroupId: string }
   | { kind: 'schedule'; target: ScheduleTarget; id: string }
   | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction };
 
@@ -112,6 +114,8 @@ export class DashboardStore {
   private readonly orderEpochs = new Map<string, number>();
   /** Bumped per tale on each upload, so a replaced file at the same URL is fetched again. */
   private readonly mediaVersions = signal<Record<string, number>>({});
+  /** Bumped per tale group on each cover change, so a replaced cover at the same URL is fetched again. */
+  private readonly coverVersions = signal<Record<string, number>>({});
   /** The element that opened the drawer; focus returns to it on close. */
   drawerOpener: HTMLElement | null = null;
 
@@ -225,6 +229,13 @@ export class DashboardStore {
     if (!tale.media) return '';
     const version = this.mediaVersions()[tale.id];
     return `${API_ORIGIN}${tale.media.url}${version ? `?v=${version}` : ''}`;
+  }
+
+  /** The URL of a tale group's cover, or '' when it has none. */
+  coverSrc(group: { id: string; cover: TaleGroupCover | null }): string {
+    if (!group.cover) return '';
+    const version = this.coverVersions()[group.id];
+    return `${API_ORIGIN}${group.cover.url}${version ? `?v=${version}` : ''}`;
   }
 
   /** Bumped by reset(), so a refresh that started before it writes nothing. */
@@ -702,6 +713,37 @@ export class DashboardStore {
       return apiErrorMessage(err, 'Media was not saved. Try again.');
     }
     this.mediaVersions.update((versions) => ({ ...versions, [taleId]: (versions[taleId] ?? 0) + 1 }));
+    return '';
+  }
+
+  /**
+   * Sets or replaces a tale group's cover with a file made or picked in the
+   * browser: an image, a video frame or a short clip (epic web zones R12). The
+   * API checks its type and size (an animated cover is at most 300 KB).
+   */
+  async uploadCover(taleGroupId: string, file: Blob): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/cover`, file, {
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The cover was not saved. Try again.');
+    }
+    this.coverVersions.update((versions) => ({ ...versions, [taleGroupId]: (versions[taleGroupId] ?? 0) + 1 }));
+    await this.refresh();
+    return '';
+  }
+
+  /** Removes a tale group's cover: the bar shows its first tale's media again. */
+  async removeCover(taleGroupId: string): Promise<string> {
+    try {
+      await firstValueFrom(this.http.delete<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/cover`));
+    } catch (err) {
+      return apiErrorMessage(err, 'The cover was not removed. Try again.');
+    }
+    await this.refresh();
     return '';
   }
 

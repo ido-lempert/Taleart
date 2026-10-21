@@ -902,6 +902,53 @@ select {
   text-align: center;
 }
 
+/* ---------- Cover drawer ---------- */
+.ring {
+  overflow: hidden;
+}
+
+.ring__cover {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.cover-current {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.cover-source,
+.cover-preview {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+}
+
+.cover-preview {
+  width: 160px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.range {
+  width: 100%;
+  min-height: var(--control-height);
+  accent-color: var(--ember-strong);
+}
+
+.range:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .input--file {
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);

@@ -7,6 +7,7 @@ import {
   mediaKind,
   readContentStatus,
   readTaleStatus,
+  taleGroupCoverUrl,
   taleMediaUrl,
   type ContentStatus,
   type MediaContentType,
@@ -14,6 +15,7 @@ import {
   type SettableStatus,
   type Tale,
   type TaleGroup,
+  type TaleGroupCover,
   type ZoneTaleGroup,
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
@@ -23,7 +25,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const GROUP_COLUMNS =
   'tale_groups.id, tale_groups.project_id AS "projectId", tale_groups.name, tale_groups.status AS "storedStatus", ' +
-  'tale_groups.starts_at AS "startsAt", tale_groups.ends_at AS "endsAt"';
+  'tale_groups.starts_at AS "startsAt", tale_groups.ends_at AS "endsAt", ' +
+  'tale_groups.cover_content_type AS "coverContentType", tale_groups.cover_animated AS "coverAnimated"';
 // A group as a zone lists it: the group's columns and its placement's position.
 const ZONE_GROUP_COLUMNS = `${GROUP_COLUMNS}, zone_tale_groups.position`;
 // Qualified, so the media update can join the tale's old row without ambiguity.
@@ -64,8 +67,16 @@ interface WindowRow {
   endsAt: Date | null;
 }
 
+// The cover columns as GROUP_COLUMNS reads them; the key stays inside the module (AD-11).
+interface CoverRow {
+  coverContentType: string | null;
+  coverAnimated: boolean;
+}
+
 // A tale_groups row as GROUP_COLUMNS reads it, with the placement's position when read through a zone.
-type GroupRow = Omit<StoredTaleGroup, 'tales' | 'zoneIds' | 'status' | 'startsAt' | 'endsAt'> & WindowRow;
+type GroupRow = Omit<StoredTaleGroup, 'tales' | 'zoneIds' | 'status' | 'startsAt' | 'endsAt' | 'cover'> &
+  WindowRow &
+  CoverRow;
 type ZoneGroupRow = GroupRow & { position: number };
 
 // The group's fields as the API returns them: the window in ISO 8601 UTC and the status as read (AD-6).
@@ -79,10 +90,29 @@ function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
 }
 
-// Computes the status as read from the stored key and the window, now (AD-6).
-function toGroup<T extends GroupRow>(row: T): Omit<T, keyof WindowRow> & GroupFields {
+// The API derives the cover URL from the group id; the row holds only the key (AD-11).
+function toCover(id: string, { coverContentType, coverAnimated }: CoverRow): TaleGroupCover | null {
+  return coverContentType !== null && isMediaContentType(coverContentType)
+    ? {
+        kind: mediaKind(coverContentType),
+        contentType: coverContentType,
+        animated: coverAnimated,
+        url: taleGroupCoverUrl(id),
+      }
+    : null;
+}
+
+// Computes the status as read from the stored key and the window, now (AD-6), and the cover.
+function toGroup<T extends GroupRow>(row: T): Omit<T, keyof WindowRow | keyof CoverRow> & GroupFields {
+  const { coverContentType, coverAnimated, ...rest } = row;
   const status = readContentStatus(row.storedStatus, row);
-  return { ...row, status, startsAt: iso(row.startsAt), endsAt: iso(row.endsAt) };
+  return {
+    ...rest,
+    status,
+    startsAt: iso(row.startsAt),
+    endsAt: iso(row.endsAt),
+    cover: toCover(row.id, { coverContentType, coverAnimated }),
+  } as Omit<T, keyof WindowRow | keyof CoverRow> & GroupFields;
 }
 
 // The API derives the media URL from the tale id; the row holds only the key (AD-11).
@@ -334,7 +364,12 @@ export async function listProjectTaleGroups(db: Db, projectId: string): Promise<
     [projectId],
   );
   const zoneIds = await zoneIdsOf(db, rows.map((g) => g.id));
-  return rows.map((group) => ({ ...toGroup(group), zoneIds: zoneIds.get(group.id) ?? [] }));
+  // The project's list carries no cover; the zone lists and a group's own reads do.
+  return rows.map(({ taleCount, ...row }) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { cover, ...group } = toGroup(row);
+    return { ...group, taleCount, zoneIds: zoneIds.get(row.id) ?? [] };
+  });
 }
 
 /**
@@ -427,15 +462,19 @@ export async function copyTaleGroup(
   return inTransaction(db, async (tx) => {
     await lockZone(tx, zoneId);
     // Shares the source group's row lock, so no tale is added to it mid-copy.
+    // The row lock also makes a cover replace on the source wait for this copy,
+    // so its "still referenced" check sees the copy's cover (AD-11).
     const source = await tx.query<{ name: string } & WindowRow>(
       'SELECT name, starts_at AS "startsAt", ends_at AS "endsAt" FROM tale_groups WHERE id = $1 FOR SHARE',
       [taleGroupId],
     );
     if (source.rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
-    // The copy keeps the source's start and end time (AD-6).
+    // The copy keeps the source's start and end time (AD-6) and shares its cover's storage key (AD-14).
     const { rows } = await tx.query<GroupRow>(
-      `INSERT INTO tale_groups (project_id, name, starts_at, ends_at) VALUES ($1, $2, $3, $4) RETURNING ${GROUP_COLUMNS}`,
-      [projectId, source.rows[0].name, source.rows[0].startsAt, source.rows[0].endsAt],
+      `INSERT INTO tale_groups (project_id, name, starts_at, ends_at, cover_key, cover_content_type, cover_animated)
+       SELECT $1, $2, $3, $4, cover_key, cover_content_type, cover_animated FROM tale_groups WHERE id = $5
+       RETURNING ${GROUP_COLUMNS}`,
+      [projectId, source.rows[0].name, source.rows[0].startsAt, source.rows[0].endsAt, taleGroupId],
     );
     const group = rows[0];
     // Locking the source tales means a media replace on one of them waits for
@@ -769,6 +808,50 @@ export async function setTaleMedia(
   return { tale: toTale(row), previousKey };
 }
 
+/** A tale group's stored cover: its storage key, content type and whether it moves. */
+export interface StoredCover extends StoredTaleMedia {
+  animated: boolean;
+}
+
+/** The group's stored cover, or null when it has none. Throws {@link TaleGroupNotFoundError}. */
+export async function getTaleGroupCover(db: Db, taleGroupId: string): Promise<StoredCover | null> {
+  if (!UUID.test(taleGroupId)) throw new TaleGroupNotFoundError(taleGroupId);
+  const { rows } = await db.query<{ key: string | null; contentType: string | null; animated: boolean }>(
+    'SELECT cover_key AS key, cover_content_type AS "contentType", cover_animated AS animated FROM tale_groups WHERE id = $1',
+    [taleGroupId],
+  );
+  if (rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+  const { key, contentType, animated } = rows[0];
+  return key !== null && isMediaContentType(contentType) ? { key, contentType, animated } : null;
+}
+
+/**
+ * Points the group at a newly stored cover, or at none (`null`), going back to
+ * the first tale's media. Returns the group and the key it pointed at before
+ * (null when none). Copies share cover keys (AD-14), so the caller deletes that
+ * file only when {@link isMediaKeyInUse} says nothing references it any more.
+ * Throws {@link TaleGroupNotFoundError}.
+ */
+export async function setTaleGroupCover(
+  db: Db,
+  taleGroupId: string,
+  cover: StoredCover | null,
+): Promise<{ group: StoredTaleGroup; previousKey: string | null }> {
+  if (!UUID.test(taleGroupId)) throw new TaleGroupNotFoundError(taleGroupId);
+  // The subquery locks the row and reads the old key in the same statement.
+  const { rows } = await db.query<GroupRow & { previousKey: string | null }>(
+    `UPDATE tale_groups SET cover_key = $2, cover_content_type = $3, cover_animated = $4
+     FROM (SELECT id AS old_id, cover_key AS old_key FROM tale_groups WHERE id = $1 FOR UPDATE) old
+     WHERE tale_groups.id = old.old_id
+     RETURNING ${GROUP_COLUMNS}, old.old_key AS "previousKey"`,
+    [taleGroupId, cover?.key ?? null, cover?.contentType ?? null, cover?.animated ?? false],
+  );
+  if (rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+  const { previousKey, ...row } = rows[0];
+  const [group] = await withTales(db, [row]);
+  return { group, previousKey };
+}
+
 /** A tale as the Delivery API needs it: its stored media key stays for the API to build the public URL. */
 export interface DeliveryStoredTale {
   id: string;
@@ -780,6 +863,8 @@ export interface DeliveryStoredTale {
 export interface DeliveryStoredTaleGroup {
   id: string;
   name: string;
+  /** The group's cover, whose key the API turns into a public URL; null for none. */
+  cover: StoredCover | null;
   tales: DeliveryStoredTale[];
 }
 
@@ -798,8 +883,16 @@ export async function listDeliveryTaleGroups(
   now: Date = new Date(),
 ): Promise<DeliveryStoredTaleGroup[]> {
   if (!UUID.test(zoneId)) return [];
-  const groups = await db.query<{ id: string; name: string }>(
-    `SELECT tale_groups.id, tale_groups.name FROM zone_tale_groups
+  const groups = await db.query<{
+    id: string;
+    name: string;
+    coverKey: string | null;
+    coverContentType: string | null;
+    coverAnimated: boolean;
+  }>(
+    `SELECT tale_groups.id, tale_groups.name, tale_groups.cover_key AS "coverKey",
+       tale_groups.cover_content_type AS "coverContentType", tale_groups.cover_animated AS "coverAnimated"
+     FROM zone_tale_groups
      JOIN tale_groups ON tale_groups.id = zone_tale_groups.tale_group_id
      WHERE zone_tale_groups.zone_id = $1 AND ${liveNow('tale_groups', '$2')}
      ORDER BY zone_tale_groups.position, tale_groups.id`,
@@ -822,6 +915,10 @@ export async function listDeliveryTaleGroups(
     .map((group) => ({
       id: group.id,
       name: group.name,
+      cover:
+        group.coverKey !== null && isMediaContentType(group.coverContentType)
+          ? { key: group.coverKey, contentType: group.coverContentType, animated: group.coverAnimated }
+          : null,
       tales: tales.rows
         .filter((tale) => tale.taleGroupId === group.id)
         .map(({ id, title, key, contentType }) => ({
@@ -836,9 +933,11 @@ export async function listDeliveryTaleGroups(
 /**
  * The stored media a published tale (a `live` tale of a `live` group, each
  * inside its start and end time at `now`, AD-6) currently references under
- * `key`, or null when none does: an unknown key, the key of replaced media,
- * or media of draft, paused, archived, scheduled or expired content (AD-11).
- * A key copies share is public while any published tale references it (AD-14).
+ * `key`, or the cover of a delivered group (`live`, in its window, with a
+ * published tale, as {@link listDeliveryTaleGroups} lists it); null when none
+ * does: an unknown key, the key of replaced media or a replaced cover, or
+ * media of draft, paused, archived, scheduled or expired content (AD-11).
+ * A key copies share is public while any published tale or cover references it (AD-14).
  */
 export async function findPublishedMedia(
   db: Db,
@@ -846,9 +945,15 @@ export async function findPublishedMedia(
   now: Date = new Date(),
 ): Promise<StoredTaleMedia | null> {
   const { rows } = await db.query<{ contentType: string | null }>(
-    `SELECT tales.media_content_type AS "contentType" FROM tales
-     JOIN tale_groups ON tale_groups.id = tales.tale_group_id
-     WHERE tales.media_key = $1 AND ${liveNow('tales', '$2')} AND ${liveNow('tale_groups', '$2')}
+    `(SELECT tales.media_content_type AS "contentType" FROM tales
+      JOIN tale_groups ON tale_groups.id = tales.tale_group_id
+      WHERE tales.media_key = $1 AND ${liveNow('tales', '$2')} AND ${liveNow('tale_groups', '$2')}
+      LIMIT 1)
+     UNION ALL
+     (SELECT g.cover_content_type FROM tale_groups g
+      WHERE g.cover_key = $1 AND ${liveNow('g', '$2')}
+        AND EXISTS (SELECT 1 FROM tales t WHERE t.tale_group_id = g.id AND ${liveNow('t', '$2')})
+      LIMIT 1)
      LIMIT 1`,
     [key, now],
   );
@@ -857,11 +962,16 @@ export async function findPublishedMedia(
 }
 
 /**
- * True when any tale still references the storage key. Copied tales share
- * their media's keys (AD-14), so a replaced file is deleted only when this is
- * false (AD-11).
+ * True when any tale or tale group cover still references the storage key.
+ * Copied tales and covers share their keys (AD-14), so a replaced or removed
+ * file is deleted only when this is false (AD-11).
  */
 export async function isMediaKeyInUse(db: Db, key: string): Promise<boolean> {
-  const { rows } = await db.query('SELECT 1 FROM tales WHERE media_key = $1 LIMIT 1', [key]);
+  const { rows } = await db.query(
+    `SELECT 1 FROM tales WHERE media_key = $1
+     UNION ALL SELECT 1 FROM tale_groups WHERE cover_key = $1
+     LIMIT 1`,
+    [key],
+  );
   return rows.length > 0;
 }

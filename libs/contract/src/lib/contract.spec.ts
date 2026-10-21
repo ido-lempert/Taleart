@@ -21,10 +21,13 @@ import {
   isErrorBody,
   isMediaContentType,
   maxMediaBytes,
+  MAX_ANIMATED_COVER_BYTES,
+  maxCoverBytes,
   MEDIA_CONTENT_TYPES,
   mediaKind,
   normalizeTagName,
   publicMediaUrl,
+  taleGroupCoverUrl,
   taleMediaUrl,
   USER_ROLES,
   ZONE_KEY_PREFIX,
@@ -80,6 +83,17 @@ describe('tale media', () => {
     expect(mediaKind('video/webm')).toBe('video');
     expect(maxMediaBytes('image/png')).toBe(10 * 1024 * 1024);
     expect(maxMediaBytes('video/mp4')).toBe(100 * 1024 * 1024);
+  });
+
+  it('caps animated covers at 300 KB and still covers at the image limit', () => {
+    expect(MAX_ANIMATED_COVER_BYTES).toBe(307_200);
+    expect(maxCoverBytes('video/webm', true)).toBe(307_200);
+    expect(maxCoverBytes('image/gif', true)).toBe(307_200);
+    expect(maxCoverBytes('image/jpeg', false)).toBe(10 * 1024 * 1024);
+  });
+
+  it('derives the cover URL from the tale group id', () => {
+    expect(taleGroupCoverUrl('g1')).toBe('/api/v1/tale-groups/g1/cover');
   });
 
   it('derives the media URL from the tale id', () => {
