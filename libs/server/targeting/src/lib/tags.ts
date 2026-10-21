@@ -297,23 +297,30 @@ async function addTags(
 }
 
 /**
- * {@link addTaleGroupTagsByName} on the caller's transaction, so the tags and
- * what the caller records about them commit together (the importer's
- * re-import baseline). A deadlock is not retried here: it fails the caller's
- * transaction, which the caller may run again. Same names, errors and answer.
+ * Adds tags to a tale group by name on the caller's transaction, deciding
+ * which from the tags it carries: the group's tag lock is taken, its current
+ * tags are read under it, and `decide` answers the names to add (compare and
+ * set, so a concurrent tag change cannot slip between the read and the add).
+ * The tags and what the caller records about them commit together (the
+ * importer's re-import baseline). Names, errors and the added map are as in
+ * {@link addTaleGroupTagsByName}; `current` is the tags the group carried
+ * before. A deadlock is not retried here: it fails the caller's transaction,
+ * which the caller may run again.
  */
 export async function addTaleGroupTagsByNameIn(
   tx: Db,
   groupId: string,
-  names: readonly string[],
-): Promise<Map<string, TaleGroupTag>> {
+  decide: (current: readonly TaleGroupTag[]) => readonly string[],
+): Promise<{ current: TaleGroupTag[]; added: Map<string, TaleGroupTag> }> {
   const taleGroupId = groupId.toLowerCase();
-  const wanted = tagNames(names);
   const projectId = UUID.test(taleGroupId) ? await taleGroupProjectId(tx, taleGroupId) : null;
   if (projectId === null) throw new TaleGroupNotFoundError(taleGroupId);
-  if (wanted.length === 0) return new Map();
+  await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_group_tags:' || $1, 0))", [taleGroupId]);
+  const current = (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [];
+  const wanted = tagNames(decide(current));
+  if (wanted.length === 0) return { current, added: new Map() };
   try {
-    return await addTags(tx, projectId, taleGroupId, wanted);
+    return { current, added: await addTags(tx, projectId, taleGroupId, wanted) };
   } catch (err) {
     throw missingParent(err, projectId, taleGroupId);
   }

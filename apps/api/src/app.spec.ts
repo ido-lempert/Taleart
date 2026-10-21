@@ -5219,6 +5219,12 @@ describe('Management API v1: projects and zones', () => {
             sourceField: null,
           },
         ]);
+        // Listed again on the next run while the group carries it, as other records removed at the source are.
+        const third = await importOnce(project.id);
+        expect(differencesOf(third, 'removedAtSource').map((d) => [d.entity, d.record.name])).toEqual([
+          ['tag', 'summer'],
+        ]);
+        expect(await tagNamesOf(summer)).toEqual(['beach', 'summer']);
       });
 
       it("replaces media the source changed, and keeps media a person set, listing it when the source's changed", async () => {
@@ -5346,6 +5352,129 @@ describe('Management API v1: projects and zones', () => {
           project.id,
         ]);
         expect(baselines.rows[0].n).toBe(24);
+      });
+
+      it('never fails while people create, place, copy, re-order and re-tag in the zones it updates', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const home = (await projectZones(project.id)).find((z) => z.name === 'Home page')?.id as string;
+        const product = (await projectZones(project.id)).find((z) => z.name === 'Product page')?.id as string;
+        const summer = await groupId(project.id, 'Summer sale');
+        const tags: { id: string; name: string }[] = await (await fetch(`${base}/projects/${project.id}/tags`)).json();
+        // Every run updates every zone, group and tale: names and orders change at the source each time.
+        const statuses: number[] = [];
+        const json = (method: string, path: string, body: unknown) =>
+          fetch(`${base}${path}`, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }).then((res) => statuses.push(res.status));
+        for (let round = 0; round < 3; round++) {
+          for (const list of Object.values(fake.control.data.storyGroups)) {
+            for (const group of list.data.filter((g) => g !== null && typeof g === 'object')) {
+              group['title'] = `${String(group['title']).replace(/ #\d+$/, '')} #${round}`;
+              group['sort_order'] = -Number(group['sort_order']);
+              group['segments'] = [`round-${round}`];
+            }
+          }
+          for (const list of Object.values(fake.control.data.stories)) {
+            for (const story of list.data.filter((s) => s !== null && typeof s === 'object')) {
+              story['sort_order'] = -Number(story['sort_order']);
+            }
+          }
+          const started = await start(project.id);
+          const people = Promise.all([
+            json('POST', `/zones/${home}/tale-groups`, { name: `Manual ${round}` }),
+            json('POST', `/tale-groups/${summer}/copy`, { zoneId: home }),
+            json('PUT', `/zones/${product}/tale-groups/${summer}`, {}),
+            json('PUT', `/tale-groups/${summer}/tags`, { tagIds: tags.slice(0, 2).map((t) => t.id) }),
+            json('POST', `/zones/${home}/tale-groups`, { name: `Another ${round}` }),
+            json('PUT', `/tale-groups/${summer}/tags`, { tagIds: tags.slice(1, 3).map((t) => t.id) }),
+          ]);
+          const job = await waitForEnd(project.id, started.id);
+          await people;
+          expect(job['status']).toBe('done');
+        }
+        expect(statuses.filter((s) => s >= 500)).toEqual([]);
+      });
+
+      it('looks for no removal among records of a list that held unreadable records, and says so', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        // "Last call" (4003) leaves the source, and the story list gains a record without an id.
+        summerStories().pop();
+        summerStories().push({ title: 'No id' } as Record<string, unknown>);
+        const stories = await importOnce(project.id);
+        expect(stories['status']).toBe('done');
+        expect(differencesOf(stories, 'removedAtSource')).toEqual([]);
+        expect(reportOf(stories).notes).toContain(
+          'Tales: the source listed records that could not be read, so none was looked for as removed at the source',
+        );
+        // An instance list with an unreadable entry: neither zones nor their content are looked for as removed.
+        fake.control.reset();
+        fake.control.data.instances['1001'].data.pop();
+        fake.control.data.instances['1001'].data.push('oops' as unknown as Record<string, unknown>);
+        const zones = await importOnce(project.id);
+        expect(differencesOf(zones, 'removedAtSource')).toEqual([]);
+        expect(reportOf(zones).notes).toEqual(
+          expect.arrayContaining([
+            'Zones: the source listed records that could not be read, so none was looked for as removed at the source',
+            'Tale groups: the source listed records that could not be read, so none was looked for as removed at the source',
+          ]),
+        );
+      });
+
+      it('lists a record removed at the source by its current TaleArt name, a renamed and a legacy one alike', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        // A person renames "Free shipping" (3006); "Gift ideas" (3003) loses its baseline, as if imported earlier.
+        const renamed = await fetch(`${base}/tale-groups/${await groupId(project.id, 'Free shipping')}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Shipping perks' }),
+        });
+        expect(renamed.status).toBe(200);
+        const gifts = await groupId(project.id, 'Gift ideas');
+        await pool.query("DELETE FROM import_records WHERE target_type = 'taleGroup' AND target_id = $1", [gifts]);
+        await pool.query("UPDATE tale_groups SET name = 'Gift guide' WHERE id = $1", [gifts]);
+        const homeGroups = fake.control.data.storyGroups['2001'].data;
+        homeGroups.splice(
+          homeGroups.findIndex((g) => g['id'] === 3003),
+          1,
+        );
+        fake.control.data.storyGroups['2003'].data.length = 0;
+        const again = await importOnce(project.id);
+        const removed = differencesOf(again, 'removedAtSource').filter((d) => d.entity === 'taleGroup');
+        expect(removed.map((d) => [d.record.sourceId, d.record.name])).toEqual(
+          expect.arrayContaining([
+            ['3003', 'Gift guide'],
+            ['3006', 'Shipping perks'],
+          ]),
+        );
+        expect(removed).toHaveLength(2);
+      });
+
+      it('leaves no baseline behind for a record deleted in TaleArt: the worker sweeps it when it starts', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const tale = await taleId(project.id, 'Last call');
+        // Deleted outside the import (no API deletes a tale yet), so its baseline is orphaned.
+        await pool.query('DELETE FROM import_media WHERE tale_id = $1', [tale]);
+        await pool.query('DELETE FROM tales WHERE id = $1', [tale]);
+        expect((await pool.query('SELECT 1 FROM import_records WHERE target_id = $1', [tale])).rowCount).toBe(1);
+        await Promise.all(workers.map((w) => w.stop()));
+        workers = [];
+        startWorker();
+        // The sweep runs before the first poll, so it is done once a job has run.
+        await importOnce(project.id);
+        expect((await pool.query('SELECT 1 FROM import_records WHERE target_id = $1', [tale])).rowCount).toBe(0);
+        expect((await pool.query('SELECT 1 FROM import_records WHERE project_id = $1', [project.id])).rowCount).toBe(
+          23,
+        );
       });
     });
 

@@ -309,25 +309,36 @@ describe('addTaleGroupTagsByName', () => {
 });
 
 describe('addTaleGroupTagsByNameIn', () => {
-  it("adds the tags on the caller's transaction, under the group lock, without opening its own", async () => {
+  it("reads the group's tags under its tag lock, adds what decide answers, on the caller's transaction", async () => {
     const { db, statements, query } = fakeDb([
       { rows: [{ project_id: projectId }] },
+      { rows: [] },
+      { rows: [{ taleGroupId: groupId, id: tagB, name: 'vip' }] },
       { rows: [] },
       { rows: [] },
       { rows: [{ requested: 'Summer', id: tagA, projectId, name: 'summer' }] },
       { rows: [] },
     ]);
-    const added = await addTaleGroupTagsByNameIn(db, groupId, ['Summer']);
-    expect([...added]).toEqual([['Summer', { id: tagA, name: 'summer' }]]);
-    expect(statements()).not.toContain('BEGIN');
+    const decide = vi.fn(() => ['Summer']);
+    const result = await addTaleGroupTagsByNameIn(db, groupId, decide);
+    expect(decide).toHaveBeenCalledWith([{ id: tagB, name: 'vip' }]);
+    expect(result.current).toEqual([{ id: tagB, name: 'vip' }]);
+    expect([...result.added]).toEqual([['Summer', { id: tagA, name: 'summer' }]]);
+    const sql = statements();
+    expect(sql).not.toContain('BEGIN');
     expect(db.connect).not.toHaveBeenCalled();
-    expect(statements().find((s) => /pg_advisory_xact_lock/.test(s))).toMatch(/tale_group_tags:/);
+    // Compare and set: the lock comes before the read of the current tags.
+    expect(sql[1]).toMatch(/pg_advisory_xact_lock\(hashtextextended\('tale_group_tags:'/);
+    expect(sql[2]).toMatch(/FROM tale_group_tags links JOIN tags/);
     const link = query.mock.calls.find((c) => /INSERT INTO tale_group_tags/.test(c[0] as string));
     expect(link?.[0]).toMatch(/ON CONFLICT \(tale_group_id, tag_id\) DO NOTHING/);
   });
 
-  it('refuses an unknown group and passes a deadlock on to the caller', async () => {
-    await expect(addTaleGroupTagsByNameIn(fakeDb([{ rows: [] }]).db, groupId, ['a'])).rejects.toBeInstanceOf(
+  it('writes nothing when decide answers no names, refuses an unknown group, and passes a deadlock on', async () => {
+    const none = fakeDb([{ rows: [{ project_id: projectId }] }, { rows: [] }, { rows: [] }]);
+    expect(await addTaleGroupTagsByNameIn(none.db, groupId, () => [])).toEqual({ current: [], added: new Map() });
+    expect(none.statements().some((s) => /INSERT/.test(s))).toBe(false);
+    await expect(addTaleGroupTagsByNameIn(fakeDb([{ rows: [] }]).db, groupId, () => ['a'])).rejects.toBeInstanceOf(
       TaleGroupNotFoundError,
     );
     const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' });
@@ -335,9 +346,12 @@ describe('addTaleGroupTagsByNameIn', () => {
       { rows: [{ project_id: projectId }] },
       { rows: [] },
       { rows: [] },
+      { rows: [] },
+      { rows: [] },
       { rows: [{ requested: 'a', id: tagA, projectId, name: 'a' }] },
       deadlock,
     ]);
-    await expect(addTaleGroupTagsByNameIn(db, groupId, ['a'])).rejects.toBe(deadlock);
+    await expect(addTaleGroupTagsByNameIn(db, groupId, () => ['a'])).rejects.toBe(deadlock);
   });
 });
+

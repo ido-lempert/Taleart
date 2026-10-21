@@ -31,6 +31,8 @@ import {
   setTaleSchedule,
   setTaleStatus,
   taleExists,
+  taleGroupName,
+  taleTitle,
   taleGroupProjectId,
   taleProjectId,
   TaleGroupFullError,
@@ -1030,6 +1032,17 @@ describe('covers', () => {
   });
 });
 
+describe('names by id', () => {
+  it("reads a group's name and a tale's title, null when the record or a UUID is missing", async () => {
+    expect(await taleGroupName(fakeDb([{ rows: [{ name: 'Summer' }] }]).db, groupId)).toBe('Summer');
+    expect(await taleTitle(fakeDb([{ rows: [{ title: 'A' }] }]).db, groupId)).toBe('A');
+    expect(await taleTitle(fakeDb([{ rows: [] }]).db, groupId)).toBeNull();
+    const { db, query } = fakeDb([]);
+    expect(await taleGroupName(db, 'nope')).toBeNull();
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
 describe('conditional updates (importer re-runs)', () => {
   const taleId = '00000000-0000-4000-8000-000000000004';
   const other = '00000000-0000-4000-8000-000000000005';
@@ -1040,7 +1053,7 @@ describe('conditional updates (importer re-runs)', () => {
       before: 'Old',
       after: 'New',
     });
-    expect(statements()[0]).toMatch(/FROM tale_groups WHERE id = \$1 FOR UPDATE/);
+    expect(statements()[0]).toMatch(/FROM tale_groups WHERE id = \$1 FOR NO KEY UPDATE/);
     expect(statements()[1]).toMatch(/UPDATE tale_groups SET name/);
 
     const kept = fakeDb([{ rows: [{ title: 'Mine', taleGroupId: groupId }] }]);
@@ -1050,7 +1063,7 @@ describe('conditional updates (importer re-runs)', () => {
       taleGroupId: groupId,
     });
     expect(kept.statements()).toHaveLength(1);
-    expect(kept.statements()[0]).toMatch(/FROM tales WHERE id = \$1 FOR UPDATE/);
+    expect(kept.statements()[0]).toMatch(/FROM tales WHERE id = \$1 FOR NO KEY UPDATE/);
 
     expect(await renameTaleWhen(fakeDb([{ rows: [] }]).db, taleId, () => 'x')).toBeNull();
     expect(await renameTaleGroupWhen(fakeDb([]).db, 'not-a-uuid', () => 'x')).toBeNull();
@@ -1062,7 +1075,7 @@ describe('conditional updates (importer re-runs)', () => {
       before: [taleId, other],
       after: [other, taleId],
     });
-    expect(statements()[0]).toMatch(/FROM tale_groups WHERE id = \$1 FOR UPDATE/);
+    expect(statements()[0]).toMatch(/FROM tale_groups WHERE id = \$1 FOR NO KEY UPDATE/);
     expect(statements()[2]).toMatch(/UPDATE tales SET position/);
 
     const same = fakeDb([{ rows: [{}] }, { rows: [{ id: taleId }] }]);
