@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MAX_TALES_PER_GROUP, type ProjectTaleGroup, type Zone } from '@taleart/contract';
+import { MAX_TALES_PER_GROUP, type ProjectTaleGroup, type Zone } from '@taleart/contract/core';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { StatusBadge } from '../status';

@@ -5,6 +5,29 @@
   "type": "commonjs",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./core": {
+      "types": "./src/lib/core.d.ts",
+      "default": "./src/lib/core.js"
+    },
+    "./tale-document": {
+      "types": "./src/lib/tale-document.d.ts",
+      "default": "./src/lib/tale-document.js"
+    },
+    "./text-style": {
+      "types": "./src/lib/text-style.d.ts",
+      "default": "./src/lib/text-style.js"
+    },
+    "./theme": {
+      "types": "./src/lib/theme.d.ts",
+      "default": "./src/lib/theme.js"
+    },
+    "./package.json": "./package.json"
+  },
   "sideEffects": false,
   "dependencies": {
     "tslib": "^2.3.0"

@@ -2,14 +2,10 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
-import {
-  DEFAULT_TEXT_STYLE,
-  DEFAULT_THEME,
-  elementBounds,
-  SYSTEM_FONT_STACKS,
-  type TaleDocument,
-  type ZoneTaleGroup,
-} from '@taleart/contract';
+import type { ZoneTaleGroup } from '@taleart/contract/core';
+import { elementBounds, type TaleDocument } from '@taleart/contract/tale-document';
+import { DEFAULT_TEXT_STYLE, SYSTEM_FONT_STACKS } from '@taleart/contract/text-style';
+import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { appRoutes } from '../app.routes';
 import { AUTOSAVE_TIMING } from './tale-autosave';

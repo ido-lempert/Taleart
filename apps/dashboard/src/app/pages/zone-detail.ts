@@ -19,7 +19,7 @@ import {
   type TaleGroup,
   type TaleGroupTag,
   type Zone,
-} from '@taleart/contract';
+} from '@taleart/contract/core';
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
