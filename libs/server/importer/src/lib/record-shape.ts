@@ -257,9 +257,7 @@ export function checkRecord(
     if (!consumed.has(key)) add('unexpected', key);
   }
 
-  const sortOrder = shape.required.includes('sort_order')
-    ? sortOrderOf(values.get('sort_order'))
-    : null;
+  const sortOrder = shape.required.includes('sort_order') ? sortOrderOf(values.get('sort_order')) : null;
   const record: CheckedRecord = { id, name, sortOrder };
   if (entity === 'tale') {
     record.media = values.get('media');

@@ -27,9 +27,7 @@ const readMedia = (name) => readFileSync(join(mediaDir, name));
 function send(res, status, body, origin) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   const text = JSON.stringify(body);
-  res.end(
-    origin ? text.split(FIXTURE_MEDIA_BASE).join(`${origin}/media/`) : text,
-  );
+  res.end(origin ? text.split(FIXTURE_MEDIA_BASE).join(`${origin}/media/`) : text);
 }
 
 const MEDIA_TYPES = {
@@ -89,15 +87,10 @@ function sendEndless(req, res, total) {
  * - anything else: 404.
  */
 function answerMedia(req, res, name, origin, port) {
-  const story = /^story-([A-Za-z0-9]+)\.(jpg|png|gif|webp|mp4|webm)$/.exec(
-    name,
-  );
+  const story = /^story-([A-Za-z0-9]+)\.(jpg|png|gif|webp|mp4|webm)$/.exec(name);
   if (story) {
     const [, id, ext] = story;
-    const file =
-      ext === 'jpg'
-        ? `story-${(Number.parseInt(id, 10) || 0) % 4}.jpg`
-        : `story.${ext}`;
+    const file = ext === 'jpg' ? `story-${(Number.parseInt(id, 10) || 0) % 4}.jpg` : `story.${ext}`;
     sendBytes(res, MEDIA_TYPES[ext], readMedia(file));
     return;
   }
@@ -120,18 +113,10 @@ function answerMedia(req, res, name, origin, port) {
       req.on('close', () => res.destroy());
       return;
     case 'wrong-type.jpg':
-      sendBytes(
-        res,
-        'image/jpeg',
-        Buffer.from('<!doctype html><title>Not an image</title>'),
-      );
+      sendBytes(res, 'image/jpeg', Buffer.from('<!doctype html><title>Not an image</title>'));
       return;
     case 'page.html':
-      sendBytes(
-        res,
-        'text/html; charset=utf-8',
-        Buffer.from('<!doctype html><title>A page</title>'),
-      );
+      sendBytes(res, 'text/html; charset=utf-8', Buffer.from('<!doctype html><title>A page</title>'));
       return;
     case 'redirect-private.jpg':
       res
@@ -141,14 +126,10 @@ function answerMedia(req, res, name, origin, port) {
         .end();
       return;
     case 'redirect-loopback.jpg':
-      res
-        .writeHead(302, { Location: `http://[::1]:${port}/media/story-1.jpg` })
-        .end();
+      res.writeHead(302, { Location: `http://[::1]:${port}/media/story-1.jpg` }).end();
       return;
     case 'redirect-loop.jpg':
-      res
-        .writeHead(302, { Location: `${origin}/media/redirect-loop.jpg` })
-        .end();
+      res.writeHead(302, { Location: `${origin}/media/redirect-loop.jpg` }).end();
       return;
     default:
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
@@ -222,13 +203,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
 
   function answer(req, res, url) {
     if (req.method === 'GET' && url.pathname.startsWith('/media/')) {
-      answerMedia(
-        req,
-        res,
-        url.pathname.slice('/media/'.length),
-        origin,
-        actualPort,
-      );
+      answerMedia(req, res, url.pathname.slice('/media/'.length), origin, actualPort);
       return;
     }
     if (req.method !== 'GET') {
@@ -246,12 +221,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       return;
     }
     if (path === '/instance') {
-      sendList(
-        res,
-        control.failInstances,
-        instances[url.searchParams.get('app_id') ?? ''],
-        origin,
-      );
+      sendList(res, control.failInstances, instances[url.searchParams.get('app_id') ?? ''], origin);
       return;
     }
     if (path === '/story-group') {
@@ -264,12 +234,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       return;
     }
     if (path === '/story') {
-      sendList(
-        res,
-        control.failStories,
-        control.data.stories[url.searchParams.get('story_group_id') ?? ''],
-        origin,
-      );
+      sendList(res, control.failStories, control.data.stories[url.searchParams.get('story_group_id') ?? ''], origin);
       return;
     }
     send(res, 404, { message: 'Not found' });

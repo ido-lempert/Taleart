@@ -62,23 +62,9 @@ describe('checkRecord', () => {
       omitted: 0,
     });
     expect(checkRecord('taleGroup', cleanGroup(), 1).differences).toEqual([]);
-    expect(checkRecord('taleGroup', cleanGroup(), 1).record).not.toHaveProperty(
-      'media',
-    );
-    expect(
-      checkRecord(
-        'zone',
-        { id: 2001, app_id: 1001, title: 'Home', platform: 'web' },
-        1,
-      ).differences,
-    ).toEqual([]);
-    expect(
-      checkRecord(
-        'app',
-        { id: 1001, title: 'Shop', token: 'app-token', settings: {} },
-        1,
-      ).differences,
-    ).toEqual([]);
+    expect(checkRecord('taleGroup', cleanGroup(), 1).record).not.toHaveProperty('media');
+    expect(checkRecord('zone', { id: 2001, app_id: 1001, title: 'Home', platform: 'web' }, 1).differences).toEqual([]);
+    expect(checkRecord('app', { id: 1001, title: 'Shop', token: 'app-token', settings: {} }, 1).differences).toEqual([]);
   });
 
   it('uses a renamed title and lists the rename', () => {

@@ -3,16 +3,16 @@ title: 'Copy tale media through the storage port'
 type: 'feature'
 ticket: '5'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'fbe2ef0'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: 'none'
+review: 'thorough'
 review_source: 'pinned'
-lenses_ran: []
+lenses_ran: ['security']
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md'
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-storyly-importer/epic-storyly-importer.md'
@@ -35,9 +35,9 @@ deferred: []
 - Storage port (AD-11) gains `putStream(key, chunks)`: the local adapter writes to a temp file and renames it, and removes the temp file when the source fails. Keys are server-made: `tales/<uuid>.<ext>`.
 - Type and size rules are the upload's, shared through `@taleart/contract` (`matchesMagicNumber`, `mediaExtension`, `maxMediaBytes`): the declared type is the response `Content-Type`; when it is absent or `application/octet-stream`, the story's `mime_type`. It must be an accepted media type and match the leading bytes. A `Content-Length` over the limit is refused before reading; the stream is cut at the limit.
 - Fetch guard: only `http:`/`https:` URLs without credentials; every resolved address must be public (no private, loopback, link-local, CGNAT, multicast, reserved, documentation, metadata, unspecified, IPv4-mapped/NAT64/6to4/Teredo IPv6). The socket connects to the checked address (no second DNS lookup) and its remote address is checked again on connect. At most 3 redirects, each hop checked the same way. A deadline covers the whole download (default 120 s) and an idle socket timeout (30 s). No token, cookie or auth header is sent; no proxy is used.
-- `IMPORT_MEDIA_ALLOWED_ADDRESSES` (comma-separated IP literals, default empty) exempts exact addresses from the private-address check, for tests and local reviews against the fake server. Production default allows none.
+- `IMPORT_MEDIA_ALLOWED_ADDRESSES` (comma-separated exact `address:port` endpoints, default empty) exempts those endpoints from the public-address rule, for tests and local reviews against the fake server (`127.0.0.1:4400`). Production default allows none.
 - Report: `media: {source, imported, skipped}` (source = imported tales whose story names media); a failure is `{entity: 'tale', kind: 'mediaNotImported', field: 'media', reason}` with reason one of `invalidUrl`, `blockedAddress`, `unreachable`, `timeout`, `tooManyRedirects`, `httpError`, `tooLarge`, `unsupportedType`. It draws on story 6's difference budget and caps. Neither the URL nor the token ever enters the report, the job row or the logs.
-- Re-run: a tale whose current media key is the one `import_media` recorded for its story keeps it with no download. A tale whose media was set in TaleArt is not overwritten (a note, counted skipped). Setting media and the `import_media` row happen in one transaction under the story's advisory lock; an unused new file or a replaced, no-longer-referenced file is deleted.
+- Re-run: a tale whose current media key is the one `import_media` recorded for that tale keeps it with no download. A tale that holds media set in TaleArt is never overwritten (a note, counted skipped): the importer sets media only on a tale that holds none, in one conditional update under the tale's lock, and deletes nothing but its own unused copy. `import_media` is keyed by tale id, so source ids stay only in `import_links` (AD-7).
 - Storage write failures (not source failures) fail the job, like database failures.
 - Fake server: story media URLs (`https://media.example/fake/...`) are served by the fake itself (rewritten to its own origin when served). It serves small JPEG, PNG, GIF, WebP, MP4 and WebM files, and a "Media shop" app (1004) with a too-large file, a wrong type, an HTML page, a redirect to a private address, a redirect to loopback IPv6, a redirect loop, a 404, a non-http URL and a good redirect.
 - Dashboard: a "Media" report row and difference lines such as "media: not imported (too large)".
@@ -98,21 +98,37 @@ deferred: []
 
 - Assumption (story 3 is frozen): a story's `media` is a plain URL string and `mime_type` its type, as the fake fixtures have them. A non-text `media` value is `invalidUrl`; a null or absent one is left to story 6's `wrongType` / `missing` and is not counted in `media`.
 - Declared type: the response `Content-Type`; when it is absent or `application/octet-stream` / `binary/octet-stream` (common on object stores), the story's `mime_type`. Then the upload rule: an accepted type whose leading bytes match. `matchesMagicNumber`, `mediaExtension` and `MEDIA_MAGIC_BYTES` moved from `apps/api/src/http/media.ts` into `@taleart/contract` (works on `Uint8Array`), and the API re-exports them, so uploads and imports share one rule.
-- Storage port: `putStream(key, AsyncIterable<Uint8Array>)` opens the temp file before reading the first chunk, writes chunk by chunk, renames at the end, and removes the temp file on any failure. (A first version with `createWriteStream` could leave a temp file when the source failed before the file had opened; an integration test caught it.) Only the first ~12 bytes are held back for the type check.
-- Fetch guard (`media-fetch.ts`): `node:http`/`https` with `agent: false` (no pooling, no proxy env), a `lookup` that hands the socket the already checked address (the name is resolved once per hop, so DNS rebinding cannot swap it), and a check of `socket.remoteAddress` on connect. Every resolved address must pass, not just the first. Blocked ranges use `net.BlockList`; IPv4-mapped IPv6 is checked against the IPv4 ranges (BlockList maps it), while NAT64, 6to4, Teredo and IPv4-compatible forms are refused outright. URL parsing normalises odd IPv4 notations (`2130706433`, `0x7f.1`) before the check. Credentials in the URL are refused; no auth header, cookie or token is sent.
-- Limits: 3 redirects, 120 s for the whole download, 30 s idle, the per-type size from the contract (10 MB images, 100 MB videos), checked on `Content-Length` first and while streaming. These are technical bounds of this story; story 10 may tune them with concurrency.
-- `IMPORT_MEDIA_ALLOWED_ADDRESSES` takes exact IP addresses only (no ranges, no names); invalid entries are logged and ignored. Tests allow exactly `127.0.0.1`, so `[::1]` and `169.254.169.254` stay blocked in the tests too.
-- Bookkeeping: an importer-owned `import_media` table (project, source system, story id → tale id, media key, content type, SHA-256). A re-run skips a tale whose current key is the recorded one, with no request to the media host. A tale whose media was set in TaleArt is kept, noted and counted skipped; story 7 decides whether a changed source replaces media. Setting the media and the row happen in one transaction under the story's advisory lock (`story_media` source key); an unused downloaded file is deleted. A small race remains: an upload between the check and `setTaleMedia` inside that transaction is overwritten (the upload path does not take the importer's lock).
+- Storage port: `putStream(key, AsyncIterable<Uint8Array>)` opens the temp file before reading the first chunk, writes each chunk until all of it is written (a short write continues), `fsync`s, closes, then renames; any failure removes the temp file. Only the first ~12 bytes are held back for the type check. The local adapter also lists keys (`listKeys`) and removes stale temp files (`removeStaleTemporaryFiles`) for the sweep; these are adapter methods, not port methods.
+- Fetch guard (`media-fetch.ts`): `node:http`/`https` with `agent: false` (no pooling, no proxy env) and a `lookup` that hands the socket the already checked addresses: all of them when Node asks for all (happy eyeballs), else the first. The name is resolved once per hop, so DNS rebinding cannot swap it, and the lookup is bounded by a 10 s DNS deadline and the download signal. On connect, the socket's peer must be one of the checked addresses and pass the guard. Allowing is decided positively and fails closed: the address must parse (anything with `%`, such as a zone id, is refused). IPv4 must be outside the special ranges. IPv6 must be in `2000::/3` and outside `2001::/32`, `2001:2::/48`, `2001:10::/28`, `2001:20::/28`, `2001:db8::/32`, `2002::/16`, `3fff::/20` and `5f00::/16`; IPv4-mapped/translated, NAT64 and the rest fall outside `2000::/3`. Every resolved address must pass, not just the first. URL parsing normalises odd IPv4 notations before the check. Credentials in the URL are refused; no auth header, cookie or token is sent. A test-only `ca` policy option lets the HTTPS tests trust a local self-signed certificate (`libs/server/importer/src/lib/test-tls/`).
+- Limits: 3 redirects, 120 s for the whole download, 30 s idle, 10 s per DNS lookup, and the per-type size from the contract (10 MB images, 100 MB videos), checked on `Content-Length` first and while streaming. Per import, at most 5 GB (`IMPORT_MEDIA_MAX_BYTES_PER_JOB`) and 60 min of media copying (`IMPORT_MEDIA_MAX_SECONDS_PER_JOB`). Past either limit, the rest is listed as not imported with reason `jobBudgetExceeded` and no longer requested. The defaults are assumptions; story 10 may tune them with concurrency.
+- `IMPORT_MEDIA_ALLOWED_ADDRESSES` takes exact `address:port` entries (`[v6]:port` for IPv6). Host names, ranges, missing ports, and unspecified, broadcast and multicast addresses are refused. Invalid entries and any active exemption are logged at `warn`. Tests exempt exactly `127.0.0.1:<fake port>`, so other ports, `[::1]` and `169.254.169.254` stay blocked in the tests too.
+- Bookkeeping: an importer-owned `import_media` table keyed by `tale_id` (project, media key, content type, SHA-256), indexed by media key. The story is known only through `import_links` (AD-7). An unreleased first shape keyed by source id is dropped by the migration. A re-run skips a tale whose current key is the recorded one, with no request to the media host. Media set in TaleArt is kept, noted and counted skipped; story 7 decides whether a changed source replaces media. The write is one transaction under the tale's advisory lock: `setTaleMediaIfNone` (new in the tales module: an `UPDATE … WHERE media_key IS NULL`), then the `import_media` row. If the update finds media already there (an upload while the download ran), the outcome is kept or imported and only the importer's own copy is deleted; no previous key is ever deleted. If COMMIT fails with an unknown outcome (`CommitUncertainError`), the copy is kept and the job fails. `sweepImportedMedia` runs when the worker starts. It removes temp files older than an hour, and imported files (`tales/imported-<uuid>.<ext>`) as old that no tale or cover references and no `import_media` row records. Uploaded files are never touched.
 - Storage failures are not source failures: they fail the job with the generic message, like database errors. Cleanup failures are logged without the token and never fail the job.
 - Failure messages never quote the URL (Node's error is reduced to its code). The report holds the reason only; the job row and logs hold no URL.
 - The fake rewrites `https://media.example/fake/` to its own `/media/` origin when it answers lists, so the fixtures keep the documented shape. Media files under `apps/fake-storyly/src/fixtures/media/` were generated with PIL (four gradient JPEGs, PNG, two-frame GIF, WebP). The MP4 and WebM are structural only (they pass the type check but do not play): no encoder was available. New app "Media shop" (1004) covers each failure; Demo, Odd and Clean shop counts are unchanged.
 - `inTransaction` moved from `worker.ts` to `transaction.ts` to be shared with `media-copy.ts`.
-- Formatting: a stray repo-wide `prettier --write` was undone with a three-way merge. New files are Prettier-formatted (80 columns); edited regions of a few existing files carry Prettier wrapping where the merge took this story's side.
-- Merged `autopilot/foundation` (web zones story 7, stages) before the commit; the only conflicts were the API test TRUNCATE list (now `import_media` plus `stages`) and the generated contract (regenerated).
+- Formatting: `.prettierrc` now sets `printWidth: 120` to match the codebase. The new files are formatted with it. In existing files, hunks that differ from the base only by re-wrapping were reverted, so the diff carries only real changes.
+- Merged `autopilot/foundation` twice: web zones story 7 (stages) before the first commit, and web zones story 8 (project theme) after the security fixes. Conflicts were confined to the API test TRUNCATE list and the generated contract.
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator security review
+- verdicts: 12 findings, all patched, none rejected
+- findings:
+  - `[patch]` An upload landing between the check and the update could be overwritten, and its old key deleted. Fixed: `setTaleMediaIfNone` (conditional update) under the tale's lock; no previous key is ever deleted. Tests: an API test that injects an upload during the download; a unit test of the conditional path.
+  - `[patch]` `import_media` stored source story ids outside `import_links` (AD-7). Fixed: it is keyed by tale id; the index.ts comment is restored. A migration test asserts that only `import_links` has `source_id`.
+  - `[patch]` The pinned lookup handed over one address when Node asked for all. Fixed: all checked addresses are handed over (`pinnedLookup`), and the socket peer must be one of them. The fake server binds `127.0.0.1` explicitly. Unit test.
+  - `[patch]` The guard decided "blocked" and fell through to allowed. Fixed: `isPublicAddress` decides positively, refuses zone ids and anything that does not parse, and serves both the pre-connect check and the socket re-check. Tests.
+  - `[patch]` The IPv6 blocklist was incomplete. Fixed: an allowlist of `2000::/3` minus the special ranges listed in the notes. One test per range.
+  - `[patch]` The allow list took bare IPs and logged at info. Fixed: exact `address:port` entries; unspecified, broadcast and multicast addresses and host names are refused; logged at warn. Docs name only `127.0.0.1:4400`. Tests.
+  - `[patch]` DNS lookups were unbounded. Fixed: bounded by `dnsTimeoutMs` and the download signal. Test with a resolver that never answers.
+  - `[patch]` No per-import limits. Fixed: per-job bytes and time limits (env-configurable) with the new reason `jobBudgetExceeded`; once spent, the rest is not requested. Unit tests and an API test.
+  - `[patch]` `putStream` ignored short writes and did not sync. Fixed: a write loop, then `fsync`, then rename, keeping the temp cleanup. Test with a stub handle that writes 3 bytes at a time.
+  - `[patch]` A failed COMMIT could delete a file a committed tale points at. Fixed: `CommitUncertainError` keeps the copy; a conservative sweep at worker start clears stale temp files and old unreferenced imported files. Unit, storage and API tests.
+  - `[patch]` No HTTPS coverage. Fixed: local TLS server tests (a self-signed certificate trusted only through the test `ca`). SNI and Host keep the host name while the connection goes to the pinned address; an untrusted certificate fails; the guard still blocks.
+  - `[patch]` Re-wrap noise from an 80-column Prettier run. Fixed: `printWidth: 120`, new files reformatted, and re-wrap-only hunks in existing files reverted.
 
 ## Verification
 
@@ -130,17 +146,20 @@ deferred: []
 - `apps/api/`: worker gets storage and `IMPORT_MEDIA_ALLOWED_ADDRESSES`; `media.ts` re-exports the shared rules; 6 integration tests.
 - `apps/fake-storyly/`: media route, URL rewriting, Media shop, media files; tests.
 - `apps/dashboard/`: Media row and reason text; component test.
+- `libs/server/tales/`: `setTaleMediaIfNone` (conditional media update); tests.
+- `libs/server/importer/src/lib/test-tls/`: self-signed certificate for the HTTPS tests only.
+- `.prettierrc`: `printWidth: 120`.
 - `.env.example`: `IMPORT_MEDIA_ALLOWED_ADDRESSES`.
 
-**Review:** not run (unreviewed build).
+**Review:** coordinator security review, 12 findings, all patched (see Review Triage Log).
 
-**Follow-up review recommended:** true. The SSRF guard and the streaming path are security-relevant and should get an adversarial review.
+**Follow-up review recommended:** false. The security findings are patched and tested.
 
 **Verification:** `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` passed for all 12 projects on the merged result, against `taleart_w3_test` (api 277, dashboard 145, server-importer 118, server-storage 14, fake-storyly 12 tests). The only warning is the dashboard bundle budget warning, which was already there.
 
 **Residual risks:**
 - Media URL shape and auth (for example signed URLs that need the token) are unconfirmed until story 3's real run.
 - Downloads are sequential. A 1,000-tale import with slow media hosts may miss the 30-minute target until story 10 adds concurrency.
-- A narrow race: a user upload landing between the importer's check and its update can be replaced.
+- A per-import media budget that runs out leaves the rest of the tales without media. A re-run picks them up, since tales without media are retried.
 - The fake's MP4 and WebM do not play in a browser.
 

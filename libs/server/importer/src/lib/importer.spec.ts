@@ -77,7 +77,9 @@ describe('migration', () => {
     await migrateImporter(db);
     const sql = statements().join('\n');
     expect(sql.match(/project_id uuid NOT NULL REFERENCES projects\(id\)/g)).toHaveLength(3);
-    expect(sql).toMatch(/PRIMARY KEY \(project_id, source_system, source_id\)/);
+    expect(sql).toMatch(/tale_id uuid PRIMARY KEY/);
+    // Source ids live only in import_links (AD-7).
+    expect(sql.match(/source_id text/g)).toHaveLength(1);
     expect(sql).toMatch(/UNIQUE \(project_id, source_system, source_type, source_id\)/);
     expect(sql).toMatch(/status IN \('queued', 'running'\) OR token_ciphertext IS NULL/);
   });
@@ -225,7 +227,13 @@ describe('runImportJob', () => {
     const { db, query } = fakeDb((sql) =>
       /SET source_app_name/.test(sql) ? new Error(`database refused ${TOKEN}`) : undefined,
     );
-    await runImportJob(db, claimed(), { tokenKey: key, storylyApiUrl: 'http://fake', storage: noStorage, fetch: vi.fn(apps), log });
+    await runImportJob(db, claimed(), {
+      tokenKey: key,
+      storylyApiUrl: 'http://fake',
+      storage: noStorage,
+      fetch: vi.fn(apps),
+      log,
+    });
     const logged = log.mock.calls.find((c) => c[0] === 'error')?.[2] as Error;
     expect(logged.message).toBe('database refused [token]');
     expect(logged.stack).not.toContain(TOKEN);
@@ -237,7 +245,13 @@ describe('runImportJob', () => {
     const log = vi.fn();
     const { db } = fakeDb((sql) => (/SET status = 'failed'/.test(sql) ? new Error('connection lost') : undefined));
     await expect(
-      runImportJob(db, claimed(), { tokenKey: key, storylyApiUrl: 'http://fake', storage: noStorage, fetch: vi.fn(async () => json(500, {})), log }),
+      runImportJob(db, claimed(), {
+        tokenKey: key,
+        storylyApiUrl: 'http://fake',
+        storage: noStorage,
+        fetch: vi.fn(async () => json(500, {})),
+        log,
+      }),
     ).resolves.toBeUndefined();
     expect(log).toHaveBeenCalledWith('error', expect.stringMatching(/could not be recorded/), expect.any(Error));
   });
@@ -958,7 +972,12 @@ describe('runImportJob: stored text', () => {
     await runImportJob(
       db,
       { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, key), lockedBy: 'w1' },
-      { tokenKey: key, storylyApiUrl: 'http://fake', storage: noStorage, fetch: fetch as unknown as typeof globalThis.fetch },
+      {
+        tokenKey: key,
+        storylyApiUrl: 'http://fake',
+        storage: noStorage,
+        fetch: fetch as unknown as typeof globalThis.fetch,
+      },
     );
     const named = query.mock.calls.find((c) => /SET source_app_name/.test(c[0] as string));
     const stored = (named?.[1] as string[])[2];

@@ -146,13 +146,7 @@ export class StorylyClient {
     what: string,
     entity: ImportDifferenceEntity,
   ): Promise<CheckedList<SourceStory>> {
-    return checkedList(
-      await this.get(path, query, what),
-      what,
-      entity,
-      this.options.token,
-      this.options.budget,
-    );
+    return checkedList(await this.get(path, query, what), what, entity, this.options.token, this.options.budget);
   }
 
   // GETs `path` and returns its JSON body. 401 and 403 count as a refused token.

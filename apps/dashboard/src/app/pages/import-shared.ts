@@ -84,6 +84,7 @@ const MEDIA_FAILURE_LABELS: Record<ImportMediaFailure, string> = {
   httpError: 'its host answered with an error',
   tooLarge: 'larger than a tale accepts',
   unsupportedType: 'not an accepted image or video',
+  jobBudgetExceeded: 'the import reached its media limit',
 };
 
 /** One difference as a line under its record. */
@@ -103,9 +104,7 @@ export function importDifferenceText(difference: ImportDifference): string {
     case 'invalidRecord':
       return 'could not be read, so it was skipped';
     case 'mediaNotImported': {
-      const reason = difference.reason
-        ? ` (${MEDIA_FAILURE_LABELS[difference.reason]})`
-        : '';
+      const reason = difference.reason ? ` (${MEDIA_FAILURE_LABELS[difference.reason]})` : '';
       return `${field}: not imported${reason}, so the tale has no media`;
     }
   }

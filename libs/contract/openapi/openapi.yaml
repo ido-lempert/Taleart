@@ -2511,13 +2511,14 @@ components:
         without it (see reason).
     ImportMediaFailure:
       type: string
-      enum: [invalidUrl, blockedAddress, unreachable, timeout, tooManyRedirects, httpError, tooLarge, unsupportedType]
+      enum: [invalidUrl, blockedAddress, unreachable, timeout, tooManyRedirects, httpError, tooLarge, unsupportedType, jobBudgetExceeded]
       description: >-
         Why media was not copied. invalidUrl: not an http or https URL; blockedAddress: it leads to a private,
         loopback, link-local or otherwise non-public address; unreachable: no connection or the transfer
         broke off; timeout: it took too long; tooManyRedirects: more redirects than allowed; httpError: the
         media host answered an error status; tooLarge: over the size limit of its type; unsupportedType: not
-        an accepted image or video type, or its bytes do not match the type.
+        an accepted image or video type, or its bytes do not match the type; jobBudgetExceeded: the import
+        had already copied as many bytes, or spent as long on media, as one import may.
     ImportDifferenceRecord:
       type: object
       required: [sourceId, name, within, withinSourceId, position]

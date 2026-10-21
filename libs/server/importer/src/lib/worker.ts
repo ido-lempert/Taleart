@@ -32,19 +32,17 @@ import {
   setSourceAppName,
   type ClaimedJob,
 } from './jobs';
+import { findLinkTarget, lockLinkSource, saveLink, type LinkSource } from './links';
 import {
-  findLinkTarget,
-  lockLinkSource,
-  saveLink,
-  type LinkSource,
-} from './links';
-import { copyMedia, importTaleMedia, type TaleMediaImport } from './media-copy';
+  copyMedia,
+  importTaleMedia,
+  isSweepable,
+  mediaJobBudget,
+  sweepImportedMedia,
+  type TaleMediaImport,
+} from './media-copy';
 import type { MediaFetchPolicy } from './media-fetch';
-import {
-  storedText,
-  type DifferenceBudget,
-  type ReportText,
-} from './record-shape';
+import { storedText, type DifferenceBudget, type ReportText } from './record-shape';
 import {
   recordsOf,
   StorylyClient,
@@ -66,7 +64,7 @@ export const IMPORT_STALE_AFTER_MS = 2 * 60_000;
 export const IMPORT_MAX_ATTEMPTS = 3;
 
 /** Writes one structured log line; the API passes its JSON logger. */
-export type ImportLog = (level: 'info' | 'error', msg: string, err?: unknown) => void;
+export type ImportLog = (level: 'info' | 'warn' | 'error', msg: string, err?: unknown) => void;
 
 /** What the worker needs to run a job. */
 export interface ImportRunOptions {
@@ -269,7 +267,8 @@ async function importLinked(
  * Imports the app's content into the project: each instance as a zone, its
  * story groups as tale groups placed in that zone, and their stories as tales
  * with their media when `options.media` is given, in source order, through the
- * zones and tales modules and the storage port (AD-8, AD-11, AD-14). Every record is linked (AD-7), so a re-run
+ * zones and tales modules and the storage port (AD-8, AD-11, AD-14). Every
+ * record is linked (AD-7), so a re-run
  * creates nothing twice: a linked record counts as imported while it exists,
  * else as skipped. A repeated source id is skipped, and so are the stories of
  * a group that is skipped; each unique story counts once, so source = imported
@@ -345,8 +344,7 @@ export async function importContent(
       // Each story's place in its list, from 1, as its differences name it.
       const positions = new Map<string, number>();
       storyList.entries.forEach((entry, index) => {
-        if (entry.record !== null && !positions.has(entry.record.id))
-          positions.set(entry.record.id, index + 1);
+        if (entry.record !== null && !positions.has(entry.record.id)) positions.set(entry.record.id, index + 1);
       });
       report.tales.source += storyList.entries.length;
       report.tales.skipped += storyList.entries.length - stories.length;
@@ -422,18 +420,9 @@ export async function importContent(
           continue;
         }
         report.tales.imported++;
-        if (tale.created && story.sortOrder === null)
-          report.notes.push(
-            `Tale "${text(title)}" in "${text(name)}": ${NO_POSITION}`,
-          );
+        if (tale.created && story.sortOrder === null) report.notes.push(`Tale "${text(title)}" in "${text(name)}": ${NO_POSITION}`);
         if (options.media && report.media) {
-          const outcome = await importTaleMedia(
-            db,
-            options.media,
-            projectId,
-            tale.id,
-            story,
-          );
+          const outcome = await importTaleMedia(db, options.media, projectId, tale.id, story);
           if (outcome.kind === 'none') continue;
           report.media.source++;
           if (outcome.kind === 'imported') {
@@ -442,13 +431,7 @@ export async function importContent(
             report.media.skipped++;
             if (outcome.kind === 'failed') {
               differences.addOne(
-                mediaDifference(
-                  story,
-                  positions.get(story.id) ?? 1,
-                  parentOf(name, group.id),
-                  outcome.reason,
-                  text,
-                ),
+                mediaDifference(story, positions.get(story.id) ?? 1, parentOf(name, group.id), outcome.reason, text),
               );
             } else if (outcome.kind === 'keptOwn') {
               report.notes.push(
@@ -570,6 +553,8 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     budget.remaining = MAX_IMPORT_REPORT_DIFFERENCES - appEntry.differences.length;
     if (!(await setSourceAppName(db, job, text(app.name)))) throw new ClaimLostError();
     const instances = await client.listInstances(app.id);
+    // What this import may spend on media in all: once spent, the rest is listed as not imported.
+    const mediaBudget = mediaJobBudget(options.mediaPolicy);
     // Every source string is already made safe as it is stored; redactDeep is a last guard.
     const report = redactDeep(
       await importContent(db, job.projectId, instances, client, beat, {
@@ -578,14 +563,9 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
         budget,
         media: {
           storage: options.storage,
-          copy: (url, mimeType) =>
-            copyMedia(options.storage, url, mimeType, options.mediaPolicy),
+          copy: (url, mimeType) => copyMedia(options.storage, url, mimeType, options.mediaPolicy, mediaBudget),
           onCleanupError: (err) =>
-            log(
-              'error',
-              `Import ${job.id} could not delete an unused media file`,
-              redactedError(err, secret),
-            ),
+            log('error', `Import ${job.id} could not delete an unused media file`, redactedError(err, secret)),
         },
       }),
       token,
@@ -627,6 +607,8 @@ export interface ImportWorkerOptions extends ImportRunOptions {
   pollIntervalMs?: number;
   staleAfterMs?: number;
   maxAttempts?: number;
+  /** Sweeps unused imported media files when it starts (the default); tests may turn it off. */
+  sweepOnStart?: boolean;
   /** Identifies this worker's claims; a new random id by default. */
   workerId?: string;
 }
@@ -668,7 +650,20 @@ export function startImportWorker(db: TransactionalDb, options: ImportWorkerOpti
     }
   };
 
-  let current: Promise<void> = drain();
+  // Clears what interrupted imports left in storage, once, before the first poll.
+  const sweep = async (): Promise<void> => {
+    if (!isSweepable(options.storage)) return;
+    try {
+      const swept = await sweepImportedMedia(db, options.storage);
+      if (swept.temporary + swept.imported > 0) {
+        log('info', `Removed ${swept.temporary} stale temporary and ${swept.imported} unused imported media file(s)`);
+      }
+    } catch (err) {
+      log('error', 'Import worker could not sweep unused media files', err);
+    }
+  };
+
+  let current: Promise<void> = (options.sweepOnStart === false ? Promise.resolve() : sweep()).then(drain);
 
   return {
     wake() {

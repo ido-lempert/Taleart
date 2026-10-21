@@ -52,22 +52,28 @@ export async function migrateImporter(db: Db): Promise<void> {
     );
   `);
 
-  // Which stored media file came from which source story (AD-7, AD-11): a
-  // re-import finds the tale still holding it and copies nothing again. The
-  // tale itself holds the key (the tales module); this row only says the
-  // import put it there, and the bytes' SHA-256 for a later update check.
+  // Which stored media file an import put on which tale (AD-11), keyed by the
+  // tale: the story it came from is known only through import_links (AD-7). A
+  // re-import finds the tale still holding that key and copies nothing again;
+  // the bytes' SHA-256 is kept for a later update check. An unreleased first
+  // shape of this table, keyed by source id, is dropped.
+  await db.query(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'import_media' AND column_name = 'source_id') THEN
+        DROP TABLE import_media;
+      END IF;
+    END $$;
+  `);
   await db.query(`
     CREATE TABLE IF NOT EXISTS import_media (
+      tale_id uuid PRIMARY KEY,
       project_id uuid NOT NULL REFERENCES projects(id),
-      source_system text NOT NULL CHECK (source_system IN ('storyly')),
-      source_id text NOT NULL,
-      tale_id uuid NOT NULL,
       media_key text NOT NULL,
       content_type text NOT NULL,
       content_sha256 text NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now(),
-      PRIMARY KEY (project_id, source_system, source_id)
+      updated_at timestamptz NOT NULL DEFAULT now()
     );
   `);
+  await db.query('CREATE INDEX IF NOT EXISTS import_media_media_key_idx ON import_media (media_key)');
 }

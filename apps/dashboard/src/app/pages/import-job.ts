@@ -226,10 +226,8 @@ import {
                       (toggle)="toggled(group, $event)"
                     >
                       <summary>
-                        {{ group.label }}: {{ group.count }}
-                        {{ group.count === 1 ? 'difference' : 'differences' }}
-                        in {{ group.records.length }}
-                        {{ group.records.length === 1 ? 'record' : 'records' }}
+                        {{ group.label }}: {{ group.count }} {{ group.count === 1 ? 'difference' : 'differences' }} in
+                        {{ group.records.length }} {{ group.records.length === 1 ? 'record' : 'records' }}
                       </summary>
                       <!-- A closed group renders nothing; an open one renders a page of records at a time. -->
                       @if (isOpen(group)) {
