@@ -2597,6 +2597,99 @@ describe('App', () => {
       const zonesOnly = { zones: report.zones, notes: report.notes };
       await answerPoll(fixture, job('done', { report: zonesOnly, finishedAt: '2026-10-20T12:00:05.000Z' }));
       expect(rows(root, 'Report')).toEqual(['Zones: 3 source / 3 imported']);
+      // Stored before records were checked: no differences section and no by-design line.
+      expect(root.textContent).not.toContain('Differences');
+      expect(root.textContent).not.toContain('Not imported by design');
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    const difference = (
+      entity: string,
+      record: { sourceId: string | null; name: string | null; within: string | null; position: number },
+      kind: string,
+      field: string | null,
+      sourceField: string | null = null,
+    ) => ({ entity, record, kind, field, sourceField });
+
+    it('lists the differences by entity and record, and what is not imported by design', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const deal = { sourceId: '4101', name: 'Deal of the day', within: 'Odd group', position: 1 };
+      const odd = { sourceId: '4102', name: 'Odd order', within: 'Odd group', position: 2 };
+      const differences = [
+        difference('zone', { sourceId: '2101', name: 'Odd home', within: null, position: 1 }, 'renamed', 'title', 'name'),
+        difference('zone', { sourceId: null, name: null, within: null, position: 2 }, 'invalidRecord', null),
+        difference('taleGroup', { sourceId: '3102', name: null, within: 'Odd home', position: 2 }, 'wrongType', 'title'),
+        difference('tale', deal, 'notHeld', 'deep_link'),
+        difference('tale', deal, 'notHeld', 'button_text'),
+        difference('tale', odd, 'unexpected', 'cta_macro'),
+        difference('tale', { ...deal, sourceId: '4105', name: 'No media', within: 'Untitled tale group' }, 'missing', 'media'),
+      ];
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: { ...report, differences, notImportedByDesign: ['Conversion records', 'Stats'] },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      const section = root.querySelector('[aria-labelledby=import-differences-title]') as HTMLElement;
+      expect(section.querySelector('h4')?.textContent?.trim()).toBe('Differences (7)');
+      const summaries = [...section.querySelectorAll('summary')].map((s) => s.textContent?.replace(/\s+/g, ' ').trim());
+      expect(summaries).toEqual([
+        'Zones: 2 differences in 2 records',
+        'Tale groups: 1 difference in 1 record',
+        'Tales: 4 differences in 3 records',
+      ]);
+      // Each record with its lines, as "record | line | line".
+      const records = (label: string) =>
+        [...section.querySelectorAll(`[aria-label="${label}"] > li`)].map((li) =>
+          [li.querySelector('.import-difference-record'), ...li.querySelectorAll('.import-difference-lines > li')]
+            .map((node) => node?.textContent?.trim())
+            .join(' | '),
+        );
+      expect(records('Zones differences')).toEqual([
+        '"Odd home" (id 2101) | title: came as "name"',
+        'Record 2 | could not be read, so it was skipped',
+      ]);
+      expect(records('Tale groups differences')).toEqual(['Record 2 (id 3102) in "Odd home" | title: empty or of the wrong type']);
+      expect(records('Tales differences')).toEqual([
+        '"Deal of the day" (id 4101) in "Odd group" | deep_link: not held in TaleArt | button_text: not held in TaleArt',
+        '"Odd order" (id 4102) in "Odd group" | cta_macro: unexpected field',
+        '"No media" (id 4105) in "Untitled tale group" | media: missing',
+      ]);
+      expect([...section.querySelectorAll('details')].every((d) => d.open)).toBe(true);
+      expect(root.textContent).toContain('Not imported by design: Conversion records, Stats.');
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('says when there are no differences, and keeps a long list closed with the omitted count', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: { ...report, differences: [], notImportedByDesign: ['Conversion records', 'Stats'] },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      expect(root.querySelector('#import-differences-title')?.textContent?.trim()).toBe('Differences (0)');
+      expect(root.textContent).toContain('No differences: every record matched the shape the import expects.');
+      expect(root.querySelector('details')).toBeNull();
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('keeps a long list of differences closed, scrolling inside its group, with the omitted count', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const many = Array.from({ length: 25 }, (_, i) =>
+        difference('tale', { sourceId: String(5000 + i), name: `Tale ${i}`, within: 'Big group', position: i + 1 }, 'notHeld', 'outlink'),
+      );
+      await answerPoll(
+        fixture,
+        job('done', { report: { ...report, differences: many, differencesOmitted: 3 }, finishedAt: '2026-10-20T12:00:09.000Z' }),
+      );
+      expect(root.querySelector('#import-differences-title')?.textContent?.trim()).toBe('Differences (28)');
+      const details = root.querySelector('details') as HTMLDetailsElement;
+      expect(details.open).toBe(false);
+      expect(details.querySelectorAll('.import-difference-records > li')).toHaveLength(25);
+      expect(root.textContent).toContain('3 more differences were found and are not listed.');
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 

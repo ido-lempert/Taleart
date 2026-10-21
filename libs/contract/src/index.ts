@@ -73,6 +73,10 @@ export type ImportJob = Schemas['ImportJob'];
 export type ImportJobSummary = Schemas['ImportJobSummary'];
 export type ImportProgress = Schemas['ImportProgress'];
 export type ImportProgressCount = Schemas['ImportProgressCount'];
+export type ImportDifference = Schemas['ImportDifference'];
+export type ImportDifferenceEntity = Schemas['ImportDifferenceEntity'];
+export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
+export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
@@ -89,6 +93,12 @@ export const IMPORT_STATUSES: readonly ImportStatus[] = importStatusValues;
 export function isImportActive(status: ImportStatus): boolean {
   return status === 'queued' || status === 'running';
 }
+
+/** What an import never brings across, listed once on every report. */
+export const IMPORT_NOT_IMPORTED_BY_DESIGN: readonly string[] = ['Conversion records', 'Stats'];
+
+/** The most differences one import report stores; the rest are only counted. */
+export const MAX_IMPORT_REPORT_DIFFERENCES = 5000;
 
 /** The http-only cookie holding the session token (AD-9). */
 export const SESSION_COOKIE = 'taleart_session';

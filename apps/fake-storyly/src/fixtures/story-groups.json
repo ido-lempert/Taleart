@@ -112,5 +112,65 @@
         "ts_updated": "2026-09-01 10:00:00"
       }
     ]
+  },
+  "2101": {
+    "data": [
+      {
+        "id": 3101,
+        "app_id": 1002,
+        "instance_id": 2101,
+        "account_id": 501,
+        "title": "Odd group",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": true,
+        "segments": [],
+        "settings": {
+          "autoplay": true
+        },
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00",
+        "media": "https://media.example/fake/group-3101.png",
+        "click_target_cap": 5,
+        "theme": "dark"
+      },
+      {
+        "id": 3102,
+        "app_id": 1002,
+        "instance_id": 2101,
+        "account_id": 501,
+        "title": 42,
+        "sort_order": "first",
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
+  },
+  "2201": {
+    "data": [
+      {
+        "id": 3201,
+        "app_id": 1003,
+        "instance_id": 2201,
+        "account_id": 501,
+        "title": "Clean picks",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
   }
 }

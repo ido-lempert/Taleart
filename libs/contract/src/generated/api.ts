@@ -1200,6 +1200,42 @@ export interface components {
             tales?: components["schemas"]["ImportCount"];
             /** @description What did not come across, such as "frame type unknown" for each zone or a skipped tale. */
             notes: string[];
+            /** @description Each difference between a source record and the shape the import expects, or a field TaleArt does not hold, in reading order, once per record. Holds field names, never field values. Absent in reports of imports made before records were checked. */
+            differences?: components["schemas"]["ImportDifference"][];
+            /** @description How many more differences were found than the report stores. */
+            differencesOmitted?: number;
+            /** @description What the import never brings across, listed once, such as conversion records and stats. */
+            notImportedByDesign?: string[];
+        };
+        /**
+         * @description What the source record becomes in TaleArt (the app is the project).
+         * @enum {string}
+         */
+        ImportDifferenceEntity: "app" | "zone" | "taleGroup" | "tale";
+        /**
+         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped.
+         * @enum {string}
+         */
+        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord";
+        /** @description The source record a difference belongs to. */
+        ImportDifferenceRecord: {
+            /** @description The record's id at the source; null when it has none. */
+            sourceId: string | null;
+            /** @description The record's title at the source, if it has one. */
+            name: string | null;
+            /** @description The title of the record it belongs to, such as a story's group; null for top-level records. */
+            within: string | null;
+            /** @description The record's place in its source list, from 1. */
+            position: number;
+        };
+        ImportDifference: {
+            entity: components["schemas"]["ImportDifferenceEntity"];
+            record: components["schemas"]["ImportDifferenceRecord"];
+            kind: components["schemas"]["ImportDifferenceKind"];
+            /** @description The field name the import expects (or the unexpected one); null for an invalid record. */
+            field: string | null;
+            /** @description For a rename, the name the source used; null otherwise. */
+            sourceField: string | null;
         };
         /** @description Records read from the source so far, and records in TaleArt so far (already linked ones included). */
         ImportProgressCount: {
@@ -2603,4 +2639,6 @@ export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["s
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
+export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale"];
+export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "internal_error"];

@@ -50,8 +50,12 @@ export function importsRouter(pool: Pool, importer: ImporterConfig): Router {
       const input: FindStorylyAppsRequest = { token: requiredString(req.body, 'token') };
       // Only reads the app list; the token is neither stored nor logged.
       const client = new StorylyClient({ baseUrl: importer.storylyApiUrl, token: input.token, fetch: importer.fetch });
-      const apps: StorylyApp[] = await client.listApps();
-      res.json(apps.map(({ id, name }) => ({ id, name })));
+      // An app the check could not read cannot be picked; one without a title shows its id.
+      const apps: StorylyApp[] = (await client.listApps()).records.map(({ id, name }) => ({
+        id,
+        name: name.trim() || id,
+      }));
+      res.json(apps);
     } catch (err) {
       next(err);
     }

@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
+import { MAX_IMPORT_REPORT_DIFFERENCES, type ImportDifference } from '@taleart/contract';
 import type { TransactionalDb } from '@taleart/server-access';
 import { decryptToken, encryptToken, parseTokenKey } from './crypto';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import { claimNextJob, IMPORT_LIST_LIMIT, listImportJobs, progressOf } from './jobs';
 import { migrateImporter } from './migration';
 import { StorylyClient } from './storyly-client';
-import { importContent, runImportJob, type ContentSource } from './worker';
+import { importContent, redactDeep, runImportJob, type ContentSource } from './worker';
 
 const noContent: ContentSource = { listStoryGroups: async () => [], listStories: async () => [] };
 
@@ -85,7 +86,7 @@ describe('StorylyClient', () => {
   it('sends a bearer token and reads apps from a data list', async () => {
     const fetch = vi.fn(async () => json(200, { data: [{ id: 1001, title: 'Demo shop', token: 'x' }] }));
     const client = new StorylyClient({ baseUrl: 'http://fake/external/', token: TOKEN, fetch });
-    expect(await client.listApps()).toEqual([{ id: '1001', name: 'Demo shop' }]);
+    expect(await client.listApps()).toEqual({ records: [{ id: '1001', name: 'Demo shop', differences: [] }], rejected: [] });
     const [url, init] = fetch.mock.calls[0] as unknown as [URL, RequestInit];
     expect(String(url)).toBe('http://fake/external/app');
     expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${TOKEN}`);
@@ -94,8 +95,8 @@ describe('StorylyClient', () => {
   it('falls back to the token parameter when the bearer token is refused, and keeps using it', async () => {
     const fetch = vi.fn(async (url: URL) => (url.searchParams.get('token') === TOKEN ? json(200, []) : json(401, {})));
     const client = new StorylyClient({ baseUrl: 'http://fake', token: TOKEN, fetch: fetch as unknown as typeof globalThis.fetch });
-    expect(await client.listApps()).toEqual([]);
-    expect(await client.listInstances('1001')).toEqual([]);
+    expect(await client.listApps()).toEqual({ records: [], rejected: [] });
+    expect(await client.listInstances('1001')).toEqual({ records: [], rejected: [] });
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(String(fetch.mock.calls[2][0])).toBe(`http://fake/instance?app_id=1001&token=${TOKEN}`);
   });
@@ -110,8 +111,6 @@ describe('StorylyClient', () => {
     const answers: (() => Promise<Response>)[] = [
       async () => json(500, {}),
       async () => json(200, { instances: 'unexpected' }),
-      async () => json(200, { data: [{ title: 'No id' }] }),
-      async () => json(200, { data: [{ id: 5 }] }),
       async () => {
         throw new Error(`connect ECONNREFUSED http://fake/instance?token=${TOKEN}`);
       },
@@ -139,6 +138,8 @@ describe('importContent: zones', () => {
       taleGroups: { source: 0, imported: 0, skipped: 0 },
       tales: { source: 0, imported: 0, skipped: 0 },
       notes: ['Zone "Home page": frame type unknown'],
+      differences: [],
+      notImportedByDesign: ['Conversion records', 'Stats'],
     });
     expect(statements().some((s) => /INSERT INTO import_links/.test(s))).toBe(true);
   });
@@ -542,11 +543,11 @@ describe('StorylyClient: story groups and stories', () => {
       token: TOKEN,
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
-    expect(await client.listStoryGroups('2001')).toEqual([
+    expect((await client.listStoryGroups('2001')).records).toMatchObject([
       { id: '3001', name: 'A', sortOrder: 2 },
       { id: '3002', name: 'B', sortOrder: 1 },
     ]);
-    expect(await client.listStories('3001')).toEqual([
+    expect((await client.listStories('3001')).records).toMatchObject([
       { id: '4001', name: 'T', sortOrder: null },
       { id: '4002', name: 'U', sortOrder: null },
     ]);
@@ -558,7 +559,7 @@ describe('StorylyClient: story groups and stories', () => {
     const client = new StorylyClient({
       baseUrl: 'http://fake',
       token: TOKEN,
-      fetch: vi.fn(async () => json(200, { data: [{ id: 1 }] })),
+      fetch: vi.fn(async () => json(200, { stories: [{ id: 1 }] })),
     });
     await expect(client.listStories('1')).rejects.toThrow(/stories response has an unexpected shape/);
   });
@@ -784,5 +785,101 @@ describe('listImportJobs', () => {
     const { db, query } = fakeDb();
     expect(await listImportJobs(db, 'nope')).toEqual([]);
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('importContent: differences', () => {
+  const diff = (
+    entity: ImportDifference['entity'],
+    sourceId: string | null,
+    kind: ImportDifference['kind'],
+    field: string | null,
+    position = 1,
+  ): ImportDifference => ({
+    entity,
+    record: { sourceId, name: null, within: null, position },
+    kind,
+    field,
+    sourceField: null,
+  });
+
+  it('lists differences per record with the record they belong to, and counts rejected records as skipped', async () => {
+    const fake = contentDb();
+    const instances = {
+      records: [{ id: '2001', name: 'Home page', differences: [diff('zone', '2001', 'notHeld', 'token')] }],
+      rejected: [diff('zone', null, 'invalidRecord', null, 2)],
+    };
+    const content: ContentSource = {
+      listStoryGroups: async () => ({
+        records: [{ id: 'g1', name: 'Summer', sortOrder: 0, differences: [diff('taleGroup', 'g1', 'unexpected', 'theme')] }],
+        rejected: [diff('taleGroup', null, 'invalidRecord', null, 2)],
+      }),
+      listStories: async () => ({
+        records: [
+          { id: 's1', name: 'A', sortOrder: 0, differences: [diff('tale', 's1', 'notHeld', 'deep_link')] },
+          // Listed twice at the source: skipped the second time, its differences listed once.
+          { id: 's1', name: 'A', sortOrder: 1, differences: [diff('tale', 's1', 'notHeld', 'deep_link')] },
+        ],
+        rejected: [diff('tale', null, 'invalidRecord', null, 3)],
+      }),
+    };
+    const report = await importContent(fake.db, projectId, instances, content, undefined, [
+      diff('app', '1001', 'notHeld', 'settings'),
+    ]);
+    expect(report.zones).toEqual({ source: 2, imported: 1, skipped: 1 });
+    expect(report.taleGroups).toEqual({ source: 2, imported: 1, skipped: 1 });
+    expect(report.tales).toEqual({ source: 3, imported: 1, skipped: 2 });
+    expect(report.differences?.map((d) => [d.entity, d.kind, d.field, d.record.within])).toEqual([
+      ['app', 'notHeld', 'settings', null],
+      ['zone', 'invalidRecord', null, null],
+      ['zone', 'notHeld', 'token', null],
+      ['taleGroup', 'invalidRecord', null, 'Home page'],
+      ['taleGroup', 'unexpected', 'theme', 'Home page'],
+      ['tale', 'invalidRecord', null, 'Summer'],
+      ['tale', 'notHeld', 'deep_link', 'Summer'],
+    ]);
+    expect(report.notImportedByDesign).toEqual(['Conversion records', 'Stats']);
+    expect(report.differencesOmitted).toBeUndefined();
+  });
+
+  it('lists the differences of the stories of a skipped group', async () => {
+    const fake = contentDb();
+    const content: ContentSource = {
+      listStoryGroups: async () => [{ id: 'g1', name: 'Summer', sortOrder: 0 }],
+      listStories: async () => [
+        { id: 's1', name: 'A', sortOrder: 0, differences: [diff('tale', 's1', 'notHeld', 'outlink')] },
+      ],
+    };
+    await importContent(fake.db, projectId, [{ id: '2001', name: 'Home page' }], content);
+    // The zone is gone now: the group and its story are skipped, their differences still listed.
+    fake.zones.clear();
+    const report = await importContent(fake.db, projectId, [{ id: '2001', name: 'Home page' }], content);
+    expect(report.tales).toEqual({ source: 1, imported: 0, skipped: 1 });
+    expect(report.differences?.map((d) => d.field)).toEqual(['outlink']);
+  });
+
+  it(`stores at most ${MAX_IMPORT_REPORT_DIFFERENCES} differences and counts the rest`, async () => {
+    const fake = contentDb();
+    const many = Array.from({ length: MAX_IMPORT_REPORT_DIFFERENCES + 7 }, (_, i) =>
+      diff('zone', '2001', 'unexpected', `f${i}`),
+    );
+    const report = await importContent(
+      fake.db,
+      projectId,
+      [{ id: '2001', name: 'Home page', differences: many }],
+      noContent,
+    );
+    expect(report.differences).toHaveLength(MAX_IMPORT_REPORT_DIFFERENCES);
+    expect(report.differencesOmitted).toBe(7);
+  });
+
+  it('removes the token from every string of a report', () => {
+    const report = { notes: [`a ${TOKEN} b`], differences: [{ record: { name: TOKEN } }], zones: { source: 1 } };
+    expect(redactDeep(report, TOKEN)).toEqual({
+      notes: ['a [token] b'],
+      differences: [{ record: { name: '[token]' } }],
+      zones: { source: 1 },
+    });
+    expect(redactDeep(report, null)).toBe(report);
   });
 });

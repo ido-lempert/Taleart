@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { MAX_TALES_PER_GROUP, type ImportCount, type ImportReport } from '@taleart/contract';
+import {
+  IMPORT_NOT_IMPORTED_BY_DESIGN,
+  MAX_IMPORT_REPORT_DIFFERENCES,
+  MAX_TALES_PER_GROUP,
+  type ImportCount,
+  type ImportDifference,
+  type ImportReport,
+} from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
 import {
   createTale,
@@ -25,6 +32,7 @@ import {
 import { findLinkTarget, lockLinkSource, saveLink, type LinkSource } from './links';
 import {
   StorylyClient,
+  type CheckedList,
   type SourceInstance,
   type SourceOrderedRecord,
   type SourceStory,
@@ -84,10 +92,34 @@ async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T
   }
 }
 
+/** A list of source records: checked, or plain records with no rejected ones. */
+export type SourceList<T> = readonly T[] | CheckedList<T>;
+
 /** Reads an instance's story groups and a group's stories; the Storyly client in the worker. */
 export interface ContentSource {
-  listStoryGroups(instanceId: string): Promise<SourceStoryGroup[]>;
-  listStories(storyGroupId: string): Promise<SourceStory[]>;
+  listStoryGroups(instanceId: string): Promise<SourceList<SourceStoryGroup>>;
+  listStories(storyGroupId: string): Promise<SourceList<SourceStory>>;
+}
+
+const checkedOf = <T>(list: SourceList<T>): CheckedList<T> =>
+  Array.isArray(list) ? { records: [...list], rejected: [] } : (list as CheckedList<T>);
+
+/**
+ * The report's differences (FR-029): at most {@link MAX_IMPORT_REPORT_DIFFERENCES}
+ * stored, the rest counted. `within` names the record each one belongs to.
+ */
+function differenceList(report: ImportReport) {
+  const list: ImportDifference[] = [];
+  report.differences = list;
+  return (differences: readonly ImportDifference[] | undefined, within: string | null = null) => {
+    for (const difference of differences ?? []) {
+      if (list.length >= MAX_IMPORT_REPORT_DIFFERENCES) {
+        report.differencesOmitted = (report.differencesOmitted ?? 0) + 1;
+        continue;
+      }
+      list.push(within === null ? difference : { ...difference, record: { ...difference.record, within } });
+    }
+  };
 }
 
 /** A link appeared while this import was creating the record: roll the creation back. */
@@ -192,16 +224,22 @@ async function importLinked(
 export async function importContent(
   db: TransactionalDb,
   projectId: string,
-  instances: readonly SourceInstance[],
+  instanceList: SourceList<SourceInstance>,
   source: ContentSource,
   beforeEach: (sofar: Readonly<ImportReport>) => Promise<void> = async () => undefined,
+  appDifferences: readonly ImportDifference[] = [],
 ): Promise<ImportReport> {
-  const report: Required<ImportReport> = {
-    zones: { ...emptyCount(), source: instances.length },
+  const { records: instances, rejected: rejectedInstances } = checkedOf(instanceList);
+  const report: ImportReport & Required<Pick<ImportReport, 'taleGroups' | 'tales'>> = {
+    zones: { source: instances.length + rejectedInstances.length, imported: 0, skipped: rejectedInstances.length },
     taleGroups: emptyCount(),
     tales: emptyCount(),
     notes: [],
+    notImportedByDesign: [...IMPORT_NOT_IMPORTED_BY_DESIGN],
   };
+  const addDifferences = differenceList(report);
+  addDifferences(appDifferences);
+  addDifferences(rejectedInstances);
   const seenInstances = new Set<string>();
   const seenGroups = new Set<string>();
   const seenStories = new Set<string>();
@@ -211,6 +249,7 @@ export async function importContent(
       continue;
     }
     seenInstances.add(instance.id);
+    addDifferences(instance.differences);
     await beforeEach(report);
     const zoneName = instance.name.trim() || `Instance ${instance.id}`;
     const zoneId = await importZone(db, projectId, instance, zoneName);
@@ -223,8 +262,11 @@ export async function importContent(
       report.notes.push(`Zone "${zoneName}": frame type unknown`);
     }
 
-    const groups = inSourceOrder(await source.listStoryGroups(instance.id));
-    report.taleGroups.source += groups.length;
+    const groupList = checkedOf(await source.listStoryGroups(instance.id));
+    const groups = inSourceOrder(groupList.records);
+    report.taleGroups.source += groups.length + groupList.rejected.length;
+    report.taleGroups.skipped += groupList.rejected.length;
+    addDifferences(groupList.rejected, zoneName);
     let groupsWithoutZone = 0;
     for (const group of groups) {
       if (seenGroups.has(group.id)) {
@@ -233,13 +275,23 @@ export async function importContent(
       }
       seenGroups.add(group.id);
       const name = groupName(group);
-      const stories = await source.listStories(group.id);
-      report.tales.source += stories.length;
+      addDifferences(group.differences, zoneName);
+      const storyList = checkedOf(await source.listStories(group.id));
+      const stories = storyList.records;
+      report.tales.source += stories.length + storyList.rejected.length;
+      report.tales.skipped += storyList.rejected.length;
+      addDifferences(storyList.rejected, name);
+      // A story is listed with its differences the first time it is seen.
+      const seeStory = (story: SourceStory) => {
+        if (seenStories.has(story.id)) return;
+        seenStories.add(story.id);
+        addDifferences(story.differences, name);
+      };
       // The group is skipped: so is each of its stories, once.
       const skipGroup = (note?: string) => {
         report.taleGroups.skipped++;
         report.tales.skipped += stories.length;
-        for (const story of stories) seenStories.add(story.id);
+        for (const story of stories) seeStory(story);
         if (note) report.notes.push(note);
       };
       if (zoneId === null) {
@@ -275,7 +327,7 @@ export async function importContent(
           report.tales.skipped++;
           continue;
         }
-        seenStories.add(story.id);
+        seeStory(story);
         const title = taleTitle(story, name);
         await beforeEach(report);
         let tale: { id: string; created: boolean } | null;
@@ -323,6 +375,17 @@ const isKnownFailure = (err: unknown): err is Error =>
 
 const redact = (text: string, token: string | null): string => (token ? text.split(token).join('[token]') : text);
 
+/** A copy of `value` with the token removed from every string in it: a report never holds the token. */
+export function redactDeep<T>(value: T, token: string | null): T {
+  if (!token) return value;
+  if (typeof value === 'string') return redact(value, token) as T;
+  if (Array.isArray(value)) return value.map((item) => redactDeep(item, token)) as T;
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactDeep(item, token)])) as T;
+  }
+  return value;
+}
+
 // The message stored on a failed job: ours for known failures, a generic one
 // otherwise. The token never appears in it.
 function failureMessage(err: unknown, token: string | null): string {
@@ -366,11 +429,14 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
       throw new ImportFailure('The stored Storyly token could not be read. Start the import again.');
     }
     const client = new StorylyClient({ baseUrl: options.storylyApiUrl, token, fetch: options.fetch });
-    const app = (await client.listApps()).find((a) => a.id === job.sourceAppId);
+    const app = (await client.listApps()).records.find((a) => a.id === job.sourceAppId);
     if (!app) throw new ImportFailure('This Storyly token cannot read the chosen app.');
     if (!(await setSourceAppName(db, job, app.name))) throw new ClaimLostError();
     const instances = await client.listInstances(app.id);
-    const report = await importContent(db, job.projectId, instances, client, beat);
+    const report = redactDeep(
+      await importContent(db, job.projectId, instances, client, beat, app.differences),
+      token,
+    );
     if (!(await finishImportJob(db, job, report))) throw new ClaimLostError();
     const count = (name: string, c: ImportCount | undefined) => `${c?.imported ?? 0} of ${c?.source ?? 0} ${name}`;
     log(

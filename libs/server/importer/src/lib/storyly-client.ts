@@ -1,28 +1,33 @@
+import type { ImportDifference, ImportDifferenceEntity } from '@taleart/contract';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
+import { checkRecord } from './record-shape';
 
 /** The real Storyly External API; `STORYLY_API_URL` overrides it (the fake server in tests). */
 export const DEFAULT_STORYLY_API_URL = 'https://api.storyly.io/external';
 
-/** A Storyly app, as the import source. */
-export interface SourceApp {
+/**
+ * A checked source record: its id, its title ('' when it has none usable),
+ * and how it differs from the shape the import expects (FR-029).
+ */
+export interface SourceRecord {
   id: string;
   name: string;
+  /** The record's differences; none when absent. */
+  differences?: ImportDifference[];
 }
 
+/** A Storyly app, as the import source. */
+export type SourceApp = SourceRecord;
+
 /** A Storyly instance: it becomes a zone. */
-export interface SourceInstance {
-  id: string;
-  name: string;
-}
+export type SourceInstance = SourceRecord;
 
 /**
  * A record with a source position: a story group (it becomes a tale group) or
  * a story (it becomes a tale). `sortOrder` is null when the record carries no
  * usable `sort_order`.
  */
-export interface SourceOrderedRecord {
-  id: string;
-  name: string;
+export interface SourceOrderedRecord extends SourceRecord {
   sortOrder: number | null;
 }
 
@@ -31,6 +36,16 @@ export type SourceStoryGroup = SourceOrderedRecord;
 
 /** A Storyly story: it becomes a tale of its group's tale group. */
 export type SourceStory = SourceOrderedRecord;
+
+/**
+ * A checked list: the records that can be imported, in response order, and
+ * one `invalidRecord` difference for each record that cannot (not an object,
+ * or no usable id).
+ */
+export interface CheckedList<T> {
+  records: T[];
+  rejected: ImportDifference[];
+}
 
 export interface StorylyClientOptions {
   /** Base URL of the External API, without a trailing slash. */
@@ -52,39 +67,26 @@ function recordsOf(body: unknown, what: string): unknown[] {
   throw new StorylyUnavailableError(`Storyly's ${what} response has an unexpected shape: no list of records`);
 }
 
-// A `sort_order` as a number; the API types numbers as strings in places.
-function sortOrderOf(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
-  return null;
-}
-
-// Records with an id, a title and their source position.
-function orderedRecords(body: unknown, what: string): SourceOrderedRecord[] {
-  const records = recordsOf(body, what);
-  return namedRecords(records, what).map((record, index) => ({
-    ...record,
-    sortOrder: sortOrderOf((records[index] as { sort_order?: unknown }).sort_order),
-  }));
-}
-
-// An id and a title from each record; anything else is an unexpected shape.
-function namedRecords(body: unknown, what: string): { id: string; name: string }[] {
-  return recordsOf(body, what).map((record, index) => {
-    const r = record as { id?: unknown; title?: unknown } | null;
-    if (typeof r !== 'object' || r === null) {
-      throw new StorylyUnavailableError(`Storyly's ${what} response has an unexpected shape: record ${index + 1} is not an object`);
-    }
-    const id = typeof r.id === 'number' && Number.isFinite(r.id) ? String(r.id) : typeof r.id === 'string' ? r.id.trim() : '';
-    if (!id) {
-      throw new StorylyUnavailableError(`Storyly's ${what} response has an unexpected shape: record ${index + 1} has no id`);
-    }
-    if (typeof r.title !== 'string') {
-      throw new StorylyUnavailableError(`Storyly's ${what} response has an unexpected shape: record ${id} has no title`);
-    }
-    return { id, name: r.title };
+// Checks each record of a list against its entity's expected shape (FR-029).
+function checkedList(
+  body: unknown,
+  what: string,
+  entity: ImportDifferenceEntity,
+): CheckedList<SourceOrderedRecord> {
+  const list: CheckedList<SourceOrderedRecord> = { records: [], rejected: [] };
+  recordsOf(body, what).forEach((raw, index) => {
+    const { record, differences } = checkRecord(entity, raw, index + 1);
+    if (record === null) list.rejected.push(...differences);
+    else list.records.push(record);
   });
+  return list;
 }
+
+// Without the source position, for records that have none.
+const unordered = (list: CheckedList<SourceOrderedRecord>): CheckedList<SourceRecord> => ({
+  records: list.records.map(({ id, name, differences }) => ({ id, name, differences })),
+  rejected: list.rejected,
+});
 
 /**
  * A read-only client of the Storyly External API. It sends the token as a
@@ -103,24 +105,24 @@ export class StorylyClient {
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
-  /** The apps the token can read. */
-  async listApps(): Promise<SourceApp[]> {
-    return namedRecords(await this.get('/app', {}, 'apps'), 'apps');
+  /** The apps the token can read, checked. */
+  async listApps(): Promise<CheckedList<SourceApp>> {
+    return unordered(checkedList(await this.get('/app', {}, 'apps'), 'apps', 'app'));
   }
 
-  /** The instances of one app. */
-  async listInstances(appId: string): Promise<SourceInstance[]> {
-    return namedRecords(await this.get('/instance', { app_id: appId }, 'instances'), 'instances');
+  /** The instances of one app, checked. */
+  async listInstances(appId: string): Promise<CheckedList<SourceInstance>> {
+    return unordered(checkedList(await this.get('/instance', { app_id: appId }, 'instances'), 'instances', 'zone'));
   }
 
-  /** The story groups of one instance, in response order. */
-  async listStoryGroups(instanceId: string): Promise<SourceStoryGroup[]> {
-    return orderedRecords(await this.get('/story-group', { instance_id: instanceId }, 'story groups'), 'story groups');
+  /** The story groups of one instance, in response order, checked. */
+  async listStoryGroups(instanceId: string): Promise<CheckedList<SourceStoryGroup>> {
+    return checkedList(await this.get('/story-group', { instance_id: instanceId }, 'story groups'), 'story groups', 'taleGroup');
   }
 
-  /** The stories of one story group, in response order. */
-  async listStories(storyGroupId: string): Promise<SourceStory[]> {
-    return orderedRecords(await this.get('/story', { story_group_id: storyGroupId }, 'stories'), 'stories');
+  /** The stories of one story group, in response order, checked. */
+  async listStories(storyGroupId: string): Promise<CheckedList<SourceStory>> {
+    return checkedList(await this.get('/story', { story_group_id: storyGroupId }, 'stories'), 'stories', 'tale');
   }
 
   // GETs `path` and returns its JSON body. 401 and 403 count as a refused token.

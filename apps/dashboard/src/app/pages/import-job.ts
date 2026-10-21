@@ -17,8 +17,10 @@ import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { IMPORT_POLL_INTERVAL_MS, ImportService } from '../import.service';
 import {
+  IMPORT_DIFFERENCES_OPEN_LIMIT,
   IMPORT_PILL_STYLES,
   importCountText,
+  importDifferenceGroups,
   importProgressText,
   importStatusClass,
   importStatusLabel,
@@ -78,6 +80,57 @@ import {
         margin: 0;
         padding-left: var(--space-5);
         color: var(--text-secondary);
+      }
+      .import-differences {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+      }
+      .import-differences__title {
+        margin: 0;
+        font-size: 1rem;
+      }
+      .import-differences p {
+        margin: 0;
+      }
+      .import-difference-group {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-control);
+        background: var(--surface);
+      }
+      .import-difference-group summary {
+        padding: var(--space-2) var(--space-3);
+        font-weight: 600;
+        cursor: pointer;
+        font-variant-numeric: tabular-nums;
+      }
+      /* A long list scrolls inside its group, so the page stays short. */
+      .import-difference-records {
+        max-height: 420px;
+        overflow-y: auto;
+        margin: 0;
+        padding: 0 var(--space-3) var(--space-3);
+        list-style: none;
+        border-top: 1px solid var(--border);
+      }
+      .import-difference-records > li {
+        padding: var(--space-2) 0;
+        border-bottom: 1px solid var(--border);
+        overflow-wrap: anywhere;
+      }
+      .import-difference-records > li:last-child {
+        border-bottom: 0;
+      }
+      .import-difference-record {
+        font-weight: 600;
+      }
+      .import-difference-lines {
+        margin: var(--space-1) 0 0;
+        padding-left: var(--space-5);
+        color: var(--text-secondary);
+      }
+      .import-by-design {
+        margin: 0;
       }
     `,
   ],
@@ -148,6 +201,46 @@ import {
                   }
                 </ul>
               }
+              @if (report.differences; as differences) {
+                <section class="import-differences" aria-labelledby="import-differences-title">
+                  <h4 class="import-differences__title" id="import-differences-title">
+                    Differences ({{ differences.length + (report.differencesOmitted ?? 0) }})
+                  </h4>
+                  @if (differences.length === 0) {
+                    <p class="muted">No differences: every record matched the shape the import expects.</p>
+                  } @else {
+                    <p class="muted">What the source holds that did not come across as it was, record by record.</p>
+                  }
+                  @for (group of differenceGroups(); track group.entity) {
+                    <details class="import-difference-group" [open]="group.count <= openLimit">
+                      <summary>
+                        {{ group.label }}: {{ group.count }} {{ group.count === 1 ? 'difference' : 'differences' }} in
+                        {{ group.records.length }} {{ group.records.length === 1 ? 'record' : 'records' }}
+                      </summary>
+                      <ul class="import-difference-records" [attr.aria-label]="group.label + ' differences'">
+                        @for (record of group.records; track record.key) {
+                          <li>
+                            <span class="import-difference-record">{{ record.label }}</span>
+                            <ul class="import-difference-lines">
+                              @for (line of record.lines; track $index) {
+                                <li>{{ line }}</li>
+                              }
+                            </ul>
+                          </li>
+                        }
+                      </ul>
+                    </details>
+                  }
+                  @if (report.differencesOmitted) {
+                    <p class="muted">{{ report.differencesOmitted }} more differences were found and are not listed.</p>
+                  }
+                </section>
+              }
+              @if (report.notImportedByDesign; as byDesign) {
+                @if (byDesign.length > 0) {
+                  <p class="muted import-by-design">Not imported by design: {{ byDesign.join(', ') }}.</p>
+                }
+              }
             } @else if (job.progress; as progress) {
               <ul class="import-counts" aria-label="Progress" aria-live="polite">
                 <li>Zones: {{ progressText(progress.zones) }}</li>
@@ -201,6 +294,10 @@ export class ImportJobPage implements OnInit {
     const job = this.job();
     return job !== null && isImportActive(job.status);
   });
+
+  /** The report's differences, by entity type and record. */
+  protected readonly differenceGroups = computed(() => importDifferenceGroups(this.job()?.report?.differences ?? []));
+  protected readonly openLimit = IMPORT_DIFFERENCES_OPEN_LIMIT;
 
   protected readonly statusLabel = importStatusLabel;
   protected readonly statusClass = importStatusClass;

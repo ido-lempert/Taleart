@@ -13,11 +13,11 @@ describe('fake Storyly server', () => {
   const get = (path, init) => fetch(`${fake.url}${path}`, init);
   const bearer = { headers: { Authorization: `Bearer ${FAKE_STORYLY_TOKEN}` } };
 
-  it('lists the one app for the test token, as a bearer token or the token parameter', async () => {
+  it('lists the apps for the test token, as a bearer token or the token parameter', async () => {
     const res = await get('/app', bearer);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.map((a) => a.title)).toEqual(['Demo shop']);
+    expect(body.data.map((a) => a.title)).toEqual(['Demo shop', 'Odd shop', 'Clean shop']);
     expect((await get(`/app?token=${FAKE_STORYLY_TOKEN}`)).status).toBe(200);
   });
 
@@ -90,5 +90,23 @@ describe('fake Storyly server', () => {
 
   it('never accepts a write', async () => {
     expect((await get('/app', { ...bearer, method: 'POST' })).status).toBe(405);
+  });
+
+  it('serves Odd shop with malformed and unmappable records, and Clean shop with records of the expected shape', async () => {
+    const odd = (await (await get('/instance?app_id=1002', bearer)).json()).data;
+    expect(odd).toEqual([expect.objectContaining({ id: 2101, name: 'Odd home' }), 'oops', expect.not.objectContaining({ id: expect.anything() })]);
+    const oddGroups = (await (await get('/story-group?instance_id=2101', bearer)).json()).data;
+    expect(oddGroups.map((g) => g.id)).toEqual([3101, 3102]);
+    expect(oddGroups[0]).toMatchObject({ click_target_cap: 5, theme: 'dark', pinned: true });
+    const oddStories = (await (await get('/story?story_group_id=3101', bearer)).json()).data;
+    expect(oddStories[0]).toMatchObject({ deep_link: expect.any(String), button_text: 'Shop now' });
+    expect(oddStories[1]).toHaveProperty('sortOrder');
+    expect(oddStories[1]).not.toHaveProperty('sort_order');
+    expect(oddStories[2]).toBeNull();
+
+    const clean = (await (await get('/instance?app_id=1003', bearer)).json()).data;
+    expect(clean.map((i) => i.title)).toEqual(['Clean home']);
+    const cleanStories = (await (await get('/story?story_group_id=3201', bearer)).json()).data;
+    expect(cleanStories.map((s) => s.title)).toEqual(['Fresh today', 'Weekend menu']);
   });
 });
