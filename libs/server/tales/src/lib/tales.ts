@@ -5,6 +5,7 @@ import {
   isValidWindow,
   MAX_TALES_PER_GROUP,
   mediaKind,
+  projectFontIds,
   readContentStatus,
   readTaleStatus,
   taleGroupCoverUrl,
@@ -21,7 +22,9 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
+import { deliveryProjectFonts, withoutProjectFonts, type StoredFontFile } from './project-fonts';
 import {
+  checkDocumentFonts,
   checkTaleDocument,
   deliverableTaleDocument,
   InvalidTaleDocumentError,
@@ -46,7 +49,7 @@ const TALE_COLUMNS =
 
 // Live content inside its window at $n (AD-6), for the table or alias `t`:
 // at or after its start and before its end; a missing bound is open.
-function liveNow(t: string, param: string): string {
+export function liveNow(t: string, param: string): string {
   return (
     `${t}.status = 'live' AND (${t}.starts_at IS NULL OR ${t}.starts_at <= ${param}) ` +
     `AND (${t}.ends_at IS NULL OR ${t}.ends_at > ${param})`
@@ -55,8 +58,8 @@ function liveNow(t: string, param: string): string {
 
 // A group the Delivery API delivers at $n, for the tale_groups alias `g`: live
 // in its window, with a live tale in its window, and placed in a zone (AD-6,
-// AD-14). The one rule for both the Delivery list and the public cover lookup.
-function deliveredGroup(g: string, param: string): string {
+// AD-14). The one rule for the Delivery list and the public cover and font lookups.
+export function deliveredGroup(g: string, param: string): string {
   return (
     `${liveNow(g, param)} ` +
     `AND EXISTS (SELECT 1 FROM tales dt WHERE dt.tale_group_id = ${g}.id AND ${liveNow('dt', param)}) ` +
@@ -482,8 +485,9 @@ export async function copyTaleGroup(
     // Shares the source group's row lock, so no tale is added to it mid-copy.
     // The row lock also makes a cover replace on the source wait for this copy,
     // so its "still referenced" check sees the copy's cover (AD-11).
-    const source = await tx.query<{ name: string } & WindowRow>(
-      'SELECT name, starts_at AS "startsAt", ends_at AS "endsAt" FROM tale_groups WHERE id = $1 FOR SHARE',
+    const source = await tx.query<{ name: string; projectId: string } & WindowRow>(
+      `SELECT name, project_id AS "projectId", starts_at AS "startsAt", ends_at AS "endsAt"
+       FROM tale_groups WHERE id = $1 FOR SHARE`,
       [taleGroupId],
     );
     if (source.rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
@@ -508,6 +512,9 @@ export async function copyTaleGroup(
        WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId, group.id, projectId],
     );
+    // Project fonts stay in their project (R18: their licence was confirmed for it), so a copy in
+    // another project draws those texts in their fallback stack.
+    if (source.rows[0].projectId !== projectId) await dropProjectFonts(tx, group.id);
     const placed = await tx.query<{ position: number }>(
       `INSERT INTO zone_tale_groups (zone_id, tale_group_id, project_id, position)
        VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), -1) + 1 FROM zone_tale_groups WHERE zone_id = $1))
@@ -518,6 +525,24 @@ export async function copyTaleGroup(
     const [copy] = await withTales(tx, [{ ...group, position: placed.rows[0].position }]);
     return copy;
   });
+}
+
+// Replaces the project fonts of the group's tales' documents, draft and published, by their fallback stacks.
+async function dropProjectFonts(tx: Db, taleGroupId: string): Promise<void> {
+  const { rows } = await tx.query<{ id: string; document: unknown; draft: unknown }>(
+    'SELECT id, document, draft_document AS draft FROM tales WHERE tale_group_id = $1',
+    [taleGroupId],
+  );
+  for (const row of rows) {
+    const document = withoutProjectFonts(row.document);
+    const draft = withoutProjectFonts(row.draft);
+    if (document === row.document && draft === row.draft) continue;
+    await tx.query('UPDATE tales SET document = $2::jsonb, draft_document = $3::jsonb WHERE id = $1', [
+      row.id,
+      document === null ? null : JSON.stringify(document),
+      draft === null ? null : JSON.stringify(draft),
+    ]);
+  }
 }
 
 /**
@@ -933,11 +958,14 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
   const document = checkTaleDocument(value);
 
   return inTransaction(db, async (tx) => {
-    const groupOf = await tx.query<{ groupId: string }>('SELECT tale_group_id AS "groupId" FROM tales WHERE id = $1', [
-      taleId,
-    ]);
+    const groupOf = await tx.query<{ groupId: string; projectId: string }>(
+      'SELECT tale_group_id AS "groupId", project_id AS "projectId" FROM tales WHERE id = $1',
+      [taleId],
+    );
     const groupId = groupOf.rows[0]?.groupId;
     if (groupId === undefined) throw new TaleNotFoundError(taleId);
+    // Its project fonts must be the project's, and stay until this commits (R14, R18).
+    await checkDocumentFonts(tx, groupOf.rows[0].projectId, document, true);
     await tx.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [groupId]);
     // The source is read under a share lock, after the group's, as copyTaleGroup does.
     const source = await tx.query('SELECT 1 FROM tales WHERE id = $1 FOR SHARE', [taleId]);
@@ -1114,6 +1142,8 @@ export interface DeliveryStoredTale {
   media: StoredTaleMedia | null;
   /** The tale's document as delivered (AD-15), or null when it has none or it no longer validates. */
   document: DeliveryTaleDocument | null;
+  /** The project fonts the delivered document uses (R18), whose keys the API turns into public URLs. */
+  fonts: (StoredFontFile & { id: string })[];
 }
 
 /** A tale group as the Delivery API needs it, with its tales by position. */
@@ -1162,14 +1192,40 @@ export async function listDeliveryTaleGroups(
     title: string;
     key: string | null;
     contentType: string | null;
+    projectId: string;
     document: unknown;
     revision: number;
     documentBytes: number | null;
   }>(
     `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType",
-       document, document_revision AS revision, octet_length(document::text) AS "documentBytes"
+       project_id AS "projectId", document, document_revision AS revision,
+       octet_length(document::text) AS "documentBytes"
      FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND ${liveNow('tales', '$2')} ORDER BY position, id`,
     [groups.rows.map((g) => g.id), now],
+  );
+  // Checked in full once per tale and revision (every save raises it), then kept.
+  const documents = new Map(
+    tales.rows.map((tale) => [
+      tale.id,
+      deliverableTaleDocument(tale.document, `${tale.id}:${tale.revision}`, tale.documentBytes ?? undefined),
+    ]),
+  );
+  // The project fonts each delivered document uses (R18), of the tale's own project only (AD-4).
+  const fontsUsed = tales.rows.map((tale) => ({ tale, ids: projectFontIds(documents.get(tale.id)) }));
+  const fonts = await deliveryProjectFonts(
+    db,
+    fontsUsed.flatMap(({ tale, ids }) => ids.map((fontId) => ({ projectId: tale.projectId, fontId }))),
+  );
+  const fontsOf = new Map(
+    fontsUsed.map(({ tale, ids }) => [
+      tale.id,
+      ids.flatMap((id) => {
+        const font = fonts.get(id);
+        return font && font.projectId === tale.projectId
+          ? [{ id, key: font.key, weight: font.weight, style: font.style }]
+          : [];
+      }),
+    ]),
   );
   // A live group with no live tale has nothing to play, so it is left out.
   return groups.rows
@@ -1182,12 +1238,12 @@ export async function listDeliveryTaleGroups(
           : null,
       tales: tales.rows
         .filter((tale) => tale.taleGroupId === group.id)
-        .map(({ id, title, key, contentType, document, revision, documentBytes }) => ({
+        .map(({ id, title, key, contentType }) => ({
           id,
           title,
           media: key !== null && isMediaContentType(contentType) ? { key, contentType } : null,
-          // Checked in full once per tale and revision (every save raises it), then kept.
-          document: deliverableTaleDocument(document, `${id}:${revision}`, documentBytes ?? undefined),
+          document: documents.get(id) ?? null,
+          fonts: fontsOf.get(id) ?? [],
         })),
     }))
     .filter((group) => group.tales.length > 0);

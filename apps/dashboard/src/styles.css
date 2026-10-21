@@ -1338,6 +1338,11 @@ app-tale-text-style {
   flex-direction: column;
   gap: var(--space-3);
 }
+/* The link to the project's fonts (story 7.17). */
+.text-style__link {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+}
 .text-style,
 .text-style__group {
   display: flex;

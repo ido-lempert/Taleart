@@ -1,6 +1,7 @@
 // Public interface of the tales module (AD-1). It owns the `tale_groups`,
-// `zone_tale_groups` (zone placements, AD-14) and `tales` tables (including
-// each tale's media key and document, AD-15), and reads zones only through @taleart/server-zones.
+// `zone_tale_groups` (zone placements, AD-14), `tales` (including each tale's
+// media key and document, AD-15) and `project_fonts` (R18) tables, and reads
+// zones only through @taleart/server-zones.
 // Tale groups carry no tags here: the targeting module owns them and the API composes them in.
 export { migrateTales } from './lib/migration';
 export {
@@ -56,6 +57,20 @@ export {
   type TransactionalDb,
 } from './lib/tales';
 export {
+  listProjectFonts,
+  createProjectFont,
+  getProjectFontFile,
+  deleteProjectFont,
+  findPublishedFont,
+  withoutProjectFonts,
+  FontExistsError,
+  FontInUseError,
+  FontNotFoundError,
+  type NewProjectFont,
+  type StoredFontFile,
+} from './lib/project-fonts';
+export {
+  checkDocumentFonts,
   checkTaleDocument,
   clearDeliveryCache,
   deliverableTaleDocument,

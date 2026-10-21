@@ -117,6 +117,16 @@ What the host page does:
 - Give tale groups a cover in the dashboard: a still cover is a 320 px JPEG of about 20 KB, while a group without one
   shows its first tale's full-size image in the bar, often 300 KB or more.
 
+### Project fonts
+
+A text in a tale can use a WOFF2 font uploaded to the project (Tale Studio). The SDK never loads one for first zone
+content: it fetches a font only when the viewer opens a tale that uses it, once per page, from its public URL on the
+API (CORS, no credentials). It registers the bytes with `new FontFace(...)` and `document.fonts.add`, under an internal
+name made of the font's id, and builds no `@font-face` or `url()` text. The text shows its fallback stack until the
+font is ready and then swaps; a font that fails, or takes over 3 s, is dropped and the fallback stays. A page whose
+tales use no project font downloads no font file. Under a CSP, the API origin must be allowed in `connect-src`, as it
+already is for the Delivery API.
+
 ### Measuring
 
 `nx run sdk-sample:perf` builds the API and the SDK, starts the API on `TEST_DATABASE_URL` (a database whose name
@@ -125,12 +135,16 @@ groups (an animated cover first, a group without a cover third, still covers for
 tales each), serves the sample page and loads it in headless Chromium with Chrome DevTools' Fast 4G (165 ms latency,
 9 Mbps x 0.9 down, 1.5 Mbps x 0.9 up), a 4x slower CPU and a 412 x 823 phone screen. Each run is a cold load (empty
 cache) and a warm reload; it reads `taleart:first-content` and prints every run, p50, p75 and max, layout shift and
-the SDK's gzipped size. It fails when cold p75 is over 1.5 s or the SDK over 50 KB gzipped. `PERF_RUNS` (default 10),
-`PERF_BUDGET_MS` (default 1500) and `PERF_DEBUG=1` (the first load's requests) tune it.
+the SDK's gzipped size. It fails when cold p75 is over 1.5 s, the SDK over 50 KB gzipped, or that page requests a
+font file. A second zone holds one tale of 20 texts, half in a project font: the run checks that its page requests no
+font before the tale opens, then times the first tale frame and the font swap from the tap on its bar item, and fails
+when p75 first tale frame is over 1 s. `PERF_RUNS` (default 10), `PERF_BUDGET_MS` (default 1500),
+`PERF_FRAME_BUDGET_MS` (default 1000) and `PERF_DEBUG=1` (the first load's requests) tune it.
 
 What a run adds to the database, and deletes again at the end (also when it fails or gets SIGINT/SIGTERM): an admin
 user and their session (inserted directly, as the API tests sign in), and through the Management API a project, its
-zone, two frames, eight tale groups with their zone placements, covers and 24 tales, and a zone key. The media files go
+zone, two frames, eight tale groups with their zone placements, covers and 24 tales, and a zone key; and a project
+font with a second zone, its bar frame, group, tale and key. The media files go
 to a temporary folder that is removed with them. A run killed outright (SIGKILL) leaves those rows, whose media keys
 then name files that no longer exist.
 

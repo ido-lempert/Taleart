@@ -394,6 +394,177 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /projects/{projectId}/fonts:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listProjectFonts
+      summary: The project's fonts (epic Tale Studio R18), by family, weight and style.
+      description: >-
+        Every face uploaded to the project, with whether a tale's draft or
+        published document uses it. Unknown project 404 `project_not_found`.
+      responses:
+        '200':
+          description: The project's fonts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectFont'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: uploadProjectFont
+      summary: Upload a font face to the project.
+      description: >-
+        The body is the font file's bytes. Only WOFF2 is accepted, judged
+        from the bytes (the `wOF2` signature and a whole header); the
+        declared `Content-Type` and the file name are ignored. At most
+        500 KB. The query names the face and carries the uploader's
+        confirmation that they may use and distribute the font, which is
+        stored with their id and name and the time. Checked in this order:
+        unknown project 404 `project_not_found`; an invalid `family`,
+        `weight`, `style` or `fallback` 400 `validation_failed`; no licence
+        confirmation 400 `validation_failed`; too large 413
+        `media_too_large` (refused before the body is read when its declared
+        length is too large); empty 400 `validation_failed`; not WOFF2 415
+        `unsupported_media_type`; a face with the same family, weight and
+        style 409 `font_exists`.
+      parameters:
+        - name: family
+          in: query
+          required: true
+          description: >-
+            One font name, the label people read: letters, digits, spaces
+            and hyphens, starting with a letter, at most 100 characters, and
+            no CSS-wide keyword (the theme's font-list rules). It never
+            reaches CSS: the SDK draws the font under an alias made of its id.
+          schema:
+            type: string
+        - name: weight
+          in: query
+          required: true
+          schema:
+            type: integer
+            enum: [100, 200, 300, 400, 500, 600, 700, 800, 900]
+        - name: style
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [normal, italic]
+        - name: fallback
+          in: query
+          required: true
+          description: The system stack text shows until, or when, the font is not available.
+          schema:
+            type: string
+            enum: [sans, serif, rounded, monospace]
+        - name: licence
+          in: query
+          required: true
+          description: "`confirmed`: the uploader may use and distribute this font."
+          schema:
+            type: string
+            enum: [confirmed]
+      requestBody:
+        required: true
+        content:
+          font/woff2:
+            schema: { type: string, contentMediaType: font/woff2 }
+      responses:
+        '201':
+          description: The new font face.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectFont'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '415':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /projects/{projectId}/fonts/{fontId}:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: fontId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: deleteProjectFont
+      summary: Delete a font face and its file.
+      description: >-
+        A font that any tale's draft or published document uses cannot be
+        deleted: 409 `font_in_use`. Unknown font, or a font of another
+        project: 404 `font_not_found`.
+      responses:
+        '204':
+          description: The font and its file are gone.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /projects/{projectId}/fonts/{fontId}/file:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: fontId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getProjectFontFile
+      summary: Read a font's file with a session, whether a published tale uses it or not.
+      description: >-
+        What Tale Studio and the font list load. `font/woff2`, cached
+        privately with the storage key as ETag. Unknown font, or a font of
+        another project: 404 `font_not_found`.
+      responses:
+        '200':
+          description: The font file.
+          content:
+            font/woff2:
+              schema: { type: string, contentMediaType: font/woff2 }
+        '304':
+          description: The client's copy, named by `If-None-Match`, is still current.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects/{projectId}/tags:
     parameters:
       - name: projectId
@@ -1065,9 +1236,10 @@ paths:
         in: path
         required: true
         description: >-
-          The storage key of a published tale's media or a published tale
-          group's cover, such as `tales/<uuid>.png` or
-          `covers/<uuid>.webm`. It contains a slash, sent as is.
+          The storage key of a published tale's media, a published tale
+          group's cover or a project font a published tale uses, such as
+          `tales/<uuid>.png`, `covers/<uuid>.webm` or `fonts/<uuid>.woff2`.
+          It contains a slash, sent as is.
         schema:
           type: string
         allowReserved: true
@@ -1081,7 +1253,11 @@ paths:
         draft, paused, archived, scheduled or expired content, answers
         404 `media_not_found` (AD-11). A tale group's cover is served while
         the group is delivered: `live`, inside its window, with at least one
-        published tale. The response carries the stored
+        published tale. A project font (`fonts/<uuid>.woff2`, epic Tale
+        Studio R18) is served as `font/woff2` while a published tale of a
+        delivered group (`live`, in its window, placed in a zone) has a
+        published document with a visible text that uses it; any other
+        font key answers 404. The response carries the stored
         `Content-Type`, supports one byte range (206, or 416 when
         unsatisfiable) and is open to any origin. It is cached as `public,
         no-cache` with the key as ETag, so a client revalidates (304 while
@@ -1103,6 +1279,8 @@ paths:
               schema: { type: string, contentMediaType: video/mp4 }
             video/webm:
               schema: { type: string, contentMediaType: video/webm }
+            font/woff2:
+              schema: { type: string, contentMediaType: font/woff2 }
         '206':
           description: The requested byte range of the media file.
         '304':
@@ -2803,6 +2981,31 @@ components:
           oneOf:
             - $ref: '#/components/schemas/DeliveryTaleDocument'
             - type: 'null'
+        fonts:
+          type: array
+          description: >-
+            The project fonts the document's visible text uses (epic Tale
+            Studio R18), left out when it uses none. SDKs fetch them only when
+            the tale opens.
+          items:
+            $ref: '#/components/schemas/DeliveryFont'
+    DeliveryFont:
+      type: object
+      required: [id, url, weight, style]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The font id a text's `font.fontId` names.
+        url:
+          type: string
+          format: uri
+          description: The public `font/woff2` URL of the file (AD-11), open to any origin.
+        weight:
+          type: integer
+        style:
+          type: string
+          enum: [normal, italic]
     DeliveryTaleDocument:
       type: object
       description: >-
@@ -2842,6 +3045,50 @@ components:
       $ref: '../tale-document/v1.schema.json'
     TextElementProps:
       $ref: '../tale-document/element-types/text.schema.json'
+    ProjectFont:
+      type: object
+      description: A font face uploaded to a project (epic Tale Studio R18).
+      required: [id, projectId, family, weight, style, fallback, sizeBytes, licenceConfirmedBy, licenceConfirmedAt, inUse]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        family:
+          type: string
+          description: The family name people read; never used as a CSS name.
+        weight:
+          type: integer
+          minimum: 100
+          maximum: 900
+        style:
+          type: string
+          enum: [normal, italic]
+        fallback:
+          type: string
+          enum: [sans, serif, rounded, monospace]
+        sizeBytes:
+          type: integer
+        licenceConfirmedBy:
+          type: object
+          description: Who uploaded the font and confirmed they may use and distribute it.
+          required: [id, name]
+          properties:
+            id:
+              type: [string, 'null']
+              format: uuid
+            name:
+              type: string
+        licenceConfirmedAt:
+          type: string
+          format: date-time
+        inUse:
+          type: boolean
+          description: >-
+            True while a tale's draft or published document uses the font,
+            which then cannot be deleted.
     TaleDocumentRevision:
       type: object
       required: [document, revision, published]
@@ -3522,6 +3769,9 @@ components:
         - tale_document_too_large
         - stale_revision
         - nothing_to_publish
+        - font_not_found
+        - font_exists
+        - font_in_use
         - internal_error
     ErrorBody:
       type: object

@@ -14,6 +14,10 @@
       "types": "./src/lib/core.d.ts",
       "default": "./src/lib/core.js"
     },
+    "./project-fonts": {
+      "types": "./src/lib/project-fonts.d.ts",
+      "default": "./src/lib/project-fonts.js"
+    },
     "./tale-document": {
       "types": "./src/lib/tale-document.d.ts",
       "default": "./src/lib/tale-document.js"

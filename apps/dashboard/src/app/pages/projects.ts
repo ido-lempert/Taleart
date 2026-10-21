@@ -80,6 +80,13 @@ import { Icon } from '../icon';
                   >
                     Theme
                   </a>
+                  <a
+                    class="btn btn--secondary btn--sm"
+                    [routerLink]="['/projects', project.id, 'fonts']"
+                    [attr.aria-label]="'Fonts of ' + project.name"
+                  >
+                    Fonts
+                  </a>
                   @if (auth.isAdmin()) {
                     <button
                       type="button"

@@ -2,7 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
-import type { ZoneTaleGroup } from '@taleart/contract/core';
+import type { ProjectFont, ZoneTaleGroup } from '@taleart/contract/core';
 import { elementBounds, type TaleDocument } from '@taleart/contract/tale-document';
 import { DEFAULT_TEXT_STYLE, SYSTEM_FONT_STACKS } from '@taleart/contract/text-style';
 import { DEFAULT_THEME } from '@taleart/contract/theme';
@@ -76,7 +76,11 @@ describe('TaleStudioPage', () => {
   let fixture: ComponentFixture<TaleStudioPage>;
   let root: HTMLElement;
 
-  async function open(read: Parameters<typeof draftRead>[0], themeFont: string | null = null): Promise<void> {
+  async function open(
+    read: Parameters<typeof draftRead>[0],
+    themeFont: string | null = null,
+    fonts: ProjectFont[] = [],
+  ): Promise<void> {
     fixture = TestBed.createComponent(TaleStudioPage);
     fixture.componentRef.setInput('taleId', 't1');
     fixture.detectChanges();
@@ -85,6 +89,8 @@ describe('TaleStudioPage', () => {
     http
       .expectOne(`${API_BASE}/projects/p1/theme`)
       .flush({ projectId: 'p1', theme: {}, resolved: { ...DEFAULT_THEME, fontFamily: themeFont } });
+    // The project's fonts, which the inspector offers (story 7.17).
+    http.expectOne(`${API_BASE}/projects/p1/fonts`).flush(fonts);
     await settle(fixture);
     root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
@@ -1475,12 +1481,68 @@ describe('TaleStudioPage', () => {
       await settle(fixture);
     }
 
-    async function openSelected(props: Record<string, unknown> = {}, themeFont: string | null = null): Promise<void> {
+    async function openSelected(
+      props: Record<string, unknown> = {},
+      themeFont: string | null = null,
+      fonts: ProjectFont[] = [],
+    ): Promise<void> {
       const element = { ...existing.elements[0], props: { text: 'Hi', ...props } };
-      await open({ document: { ...existing, elements: [element] } as TaleDocument, revision: 1 }, themeFont);
+      await open({ document: { ...existing, elements: [element] } as TaleDocument, revision: 1 }, themeFont, fonts);
       canvasText().click();
       await settle(fixture);
     }
+
+    describe('project fonts (story 7.17)', () => {
+      const brand: ProjectFont = {
+        id: '0f0e0d0c-0000-4000-8000-00000000000a',
+        projectId: 'p1',
+        family: 'Brand Sans',
+        weight: 600,
+        style: 'italic',
+        fallback: 'serif',
+        sizeBytes: 2048,
+        licenceConfirmedBy: { id: 'u1', name: 'Ada' },
+        licenceConfirmedAt: '2026-10-22T10:00:00.000Z',
+        inUse: false,
+      };
+
+      it("offers the project's fonts and sets one as one undoable step, with its fallback, weight and style", async () => {
+        await openSelected({}, null, [brand]);
+        const select = field<HTMLSelectElement>('ts-font');
+        const group = select.querySelector('optgroup') as HTMLOptGroupElement;
+        expect(group.label).toBe('Project fonts');
+        expect(group.querySelector('option')?.textContent?.trim()).toBe('Brand Sans Semibold italic');
+        await set('ts-font', `project:${brand.id}`);
+        // Drawn under its alias, never its family name, then the fallback until the face loads.
+        expect(canvasText().style.fontFamily).toContain(`taleart-font-${brand.id}`);
+        expect(canvasText().style.fontFamily).toContain('Georgia');
+        expect(canvasText().style.fontFamily).not.toContain('Brand');
+        expect(live()).toBe('Font set to Brand Sans Semibold italic');
+        expect(root.querySelector('#ts-project-hint')?.textContent).toContain('3 seconds');
+        expect(field<HTMLSelectElement>('ts-fallback').value).toBe('serif');
+        expect(root.querySelector('a.text-style__link')?.getAttribute('href')).toBe('/projects/p1/fonts');
+        const saved = await saveNow(2);
+        expect(saved.document.elements[0].props).toEqual({
+          text: 'Hi',
+          font: { source: 'project', fontId: brand.id },
+          fallback: 'serif',
+          weight: 'bold',
+          italic: true,
+        });
+        (root.querySelector('#studio-undo') as HTMLButtonElement).click();
+        await settle(fixture);
+        expect(canvasText().style.fontFamily).toBe(sans);
+        await saveNow(3);
+      });
+
+      it('keeps showing a project font the list does not hold', async () => {
+        await openSelected({ font: { source: 'project', fontId: brand.id }, fallback: 'rounded' });
+        const select = field<HTMLSelectElement>('ts-font');
+        expect(select.value).toBe(`project:${brand.id}`);
+        expect(select.selectedOptions[0].textContent?.trim()).toBe("Project font (not in this project's list)");
+        expect(canvasText().style.fontFamily).toContain(`taleart-font-${brand.id}`);
+      });
+    });
 
     it('shows a text without style as before, and the inspector its defaults', async () => {
       await openSelected();
