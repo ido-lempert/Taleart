@@ -85,6 +85,7 @@ export type ImportDifferenceEntity = Schemas['ImportDifferenceEntity'];
 export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
 export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
 export type ImportMediaFailure = Schemas['ImportMediaFailure'];
+export type ImportTagFailure = Schemas['ImportTagFailure'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 /**

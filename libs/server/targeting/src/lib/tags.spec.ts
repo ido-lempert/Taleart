@@ -2,7 +2,15 @@ import type { TransactionalDb } from '@taleart/server-access';
 import { TaleGroupNotFoundError } from '@taleart/server-tales';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError } from './errors';
 import { migrateTargeting } from './migration';
-import { copyTaleGroupTags, createTag, listTags, setTaleGroupTags, tagsForTaleGroups } from './tags';
+import {
+  addTaleGroupTagsByName,
+  copyTaleGroupTags,
+  createTag,
+  ensureTags,
+  listTags,
+  setTaleGroupTags,
+  tagsForTaleGroups,
+} from './tags';
 
 const projectId = '00000000-0000-4000-8000-000000000002';
 const groupId = '00000000-0000-4000-8000-000000000003';
@@ -174,6 +182,83 @@ describe('copyTaleGroupTags', () => {
   it('writes nothing when the source has no tags', async () => {
     const { db, statements } = fakeDb([{ rows: [] }, { rows: [] }]);
     expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual([]);
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+  });
+});
+
+describe('ensureTags', () => {
+  it('creates the missing names ignoring case and answers the tag of each trimmed name, reused with its spelling', async () => {
+    const { db, query } = fakeDb([
+      { rows: [] },
+      {
+        rows: [
+          { requested: 'vip', id: tagA, projectId, name: 'VIP' },
+          { requested: 'new', id: tagB, projectId, name: 'new' },
+        ],
+      },
+    ]);
+    const tags = await ensureTags(db, projectId, [' vip ', 'new', 'vip']);
+    expect([...tags]).toEqual([
+      ['vip', { id: tagA, projectId, name: 'VIP' }],
+      ['new', { id: tagB, projectId, name: 'new' }],
+    ]);
+    const [create, read] = query.mock.calls;
+    expect(create[0]).toMatch(/ON CONFLICT \(project_id, lower\(name\)\) DO NOTHING/);
+    expect(create[1]).toEqual([projectId, ['vip', 'new']]);
+    expect(read[0]).toMatch(/lower\(tags.name\) = lower\(requested.name\)/);
+  });
+
+  it('refuses an invalid name before writing, and writes nothing for no names', async () => {
+    const { db, query } = fakeDb([]);
+    await expect(ensureTags(db, projectId, ['ok', ' '])).rejects.toBeInstanceOf(InvalidTagNameError);
+    await expect(ensureTags(db, projectId, ['x'.repeat(41)])).rejects.toBeInstanceOf(InvalidTagNameError);
+    expect(await ensureTags(db, projectId, [])).toEqual(new Map());
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('addTaleGroupTagsByName', () => {
+  it("adds the tags under the group lock, keeping the group's other tags", async () => {
+    const { db, statements, query } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ requested: 'Summer', id: tagA, projectId, name: 'summer' }] },
+      { rows: [] },
+    ]);
+    const added = await addTaleGroupTagsByName(db, groupId.toUpperCase(), ['Summer']);
+    expect([...added]).toEqual([['Summer', { id: tagA, name: 'summer' }]]);
+    const sql = statements();
+    expect(sql.some((s) => /DELETE/.test(s))).toBe(false);
+    const link = query.mock.calls.find((c) => /INSERT INTO tale_group_tags/.test(c[0] as string));
+    expect(link?.[0]).toMatch(/ON CONFLICT \(tale_group_id, tag_id\) DO NOTHING/);
+    expect(link?.[1]).toEqual([groupId, projectId, [tagA]]);
+    expect(sql).toContain('COMMIT');
+    expect(sql.find((s) => /pg_advisory_xact_lock/.test(s))).toMatch(/tale_group_tags:/);
+  });
+
+  it('refuses an unknown group, also one deleted while the tags are added', async () => {
+    await expect(addTaleGroupTagsByName(fakeDb([{ rows: [] }]).db, groupId, ['a'])).rejects.toBeInstanceOf(
+      TaleGroupNotFoundError,
+    );
+    await expect(addTaleGroupTagsByName(fakeDb([]).db, 'not-a-uuid', ['a'])).rejects.toBeInstanceOf(
+      TaleGroupNotFoundError,
+    );
+    const fkError = Object.assign(new Error('fk'), { code: '23503' });
+    const { db, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ requested: 'a', id: tagA, projectId, name: 'a' }] },
+      fkError,
+    ]);
+    await expect(addTaleGroupTagsByName(db, groupId, ['a'])).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(statements()).toContain('ROLLBACK');
+  });
+
+  it('writes nothing for no names', async () => {
+    const { db, statements } = fakeDb([{ rows: [{ project_id: projectId }] }]);
+    expect(await addTaleGroupTagsByName(db, groupId, [])).toEqual(new Map());
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
   });
 });
