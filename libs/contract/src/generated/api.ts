@@ -1716,6 +1716,8 @@ export interface components {
             /** @description What was left out because it was not picked. Absent when the import took everything. */
             notSelected?: components["schemas"]["ImportNotSelected"];
             changes?: components["schemas"]["ImportChanges"];
+            /** @description How long the import took, in seconds: from the first time a worker started it to its end, over every run of it when a stopped worker's job ran again. Absent in reports of imports made before it was recorded. */
+            elapsedSeconds?: number;
         };
         /** @description What one import changed in TaleArt for one entity type. created + updated + unchanged is the imported count. keptLocalEdit counts records (or tale media) where a value changed at the source was not written because a person had changed it in TaleArt; they are also counted updated or unchanged (media: skipped). removedAtSource counts records an earlier import of the same app brought across that the source no longer lists; they stay in TaleArt. */
         ImportChangeCount: {

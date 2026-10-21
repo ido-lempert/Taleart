@@ -18,6 +18,7 @@ import {
   IMPORTED_MEDIA_PREFIX,
   MEDIA_SWEEP_MIN_AGE_MS,
   sweepImportedMedia,
+  claimNextJob,
   recoverStaleJobs,
   runImportJob,
   signSelectionKey,
@@ -31,7 +32,7 @@ import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@t
 import type { Pool } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig } from './app';
-import { createPool, migrate } from './db';
+import { createPool, databasePoolMax, migrate } from './db';
 
 // Runs against a separate test database. It clears tables, so it must never
 // point at the development database.
@@ -66,6 +67,9 @@ interface Fakeanother tool {
     failStories: 'status' | 'shape' | null;
     failSegments: 'status' | 'shape' | null;
     delayMs: number;
+    useScale(options: Record<string, unknown>): { appId: string; tales: number };
+    hold: { matches(url: URL): boolean; until: Promise<void> } | null;
+    stats: { mediaRequests: number; injected: Record<string, number>; maxMediaOpen: number };
     data: {
       instances: Record<string, { data: Record<string, unknown>[] }>;
       storyGroups: Record<string, { data: Record<string, unknown>[] }>;
@@ -4805,7 +4809,9 @@ describe('Management API v1: projects and zones', () => {
     function workerMedia() {
       return {
         storage: new LocalDiskStorage(mediaDir),
-        mediaPolicy: { allowedAddresses: [`127.0.0.1:${fake.port}`] },
+        mediaPolicy: { allowedAddresses: [`127.0.0.1:${fake.port}`], retry: { baseDelayMs: 1 } },
+        // Replies 429 and 5xx are tried again quickly in these tests.
+        retry: { baseDelayMs: 1 },
       };
     }
 
@@ -5287,6 +5293,8 @@ describe('Management API v1: projects and zones', () => {
           taleGroups: { source: 6, imported: 6, skipped: 0 },
           tales: { source: 15, imported: 15, skipped: 0 },
           media: { source: 15, imported: 15, skipped: 0 },
+          // How long it took, from the first claim to its end (story 10).
+          elapsedSeconds: expect.any(Number),
           // Four labels in the app's list and five on story groups, counted per occurrence.
           tags: { source: 9, imported: 9, skipped: 0 },
           notes: [
@@ -5491,6 +5499,7 @@ describe('Management API v1: projects and zones', () => {
         zones: { source: 1, imported: 1, skipped: 0 },
         taleGroups: { source: 1, imported: 1, skipped: 0 },
         tales: { source: 2, imported: 2, skipped: 0 },
+        elapsedSeconds: expect.any(Number),
         media: { source: 2, imported: 2, skipped: 0 },
         tags: { source: 0, imported: 0, skipped: 0 },
         notes: ['Zone "Clean home": frame type unknown'],
@@ -7188,6 +7197,274 @@ describe('Management API v1: projects and zones', () => {
       const res = await send('GET', `/projects/${randomUUID()}/imports`);
       expect(res.status).toBe(404);
       expect((await res.json()).error.code).toBe('project_not_found');
+    });
+
+    describe('throughput: retries, concurrency and restarts (story 10)', () => {
+      // A small Scale shop: one zone, two groups of three stories, small files.
+      const small = {
+        instances: 1,
+        groupsPerInstance: 2,
+        storiesPerGroup: 3,
+        media: {
+          ttfbMs: [0, 0],
+          bytesPerSecond: 1_000_000_000,
+          videoShare: 0.5,
+          imageBytes: [2_000, 4_000],
+          videoBytes: [5_000, 8_000],
+        },
+      };
+      const withoutTime = (report: unknown) => {
+        const copy = { ...(report as Record<string, unknown>) };
+        delete copy['elapsedSeconds'];
+        return copy;
+      };
+
+      it('tries every 429, 500 and 503 again and imports every tale with its media', async () => {
+        const project = await createProject();
+        // Every request of the app fails once: another tool's lists with 429 or 500, the media with 429 or 503.
+        fake.control.useScale({
+          ...small,
+          factor: 0,
+          failures: { api429: 0.5, api500: 0.5, media429: 0.5, media503: 0.5, retryAfterSeconds: 0 },
+        });
+        startWorker();
+        const job = await importApp(project.id, '9001');
+        expect(job['error']).toBeNull();
+        expect(job['status']).toBe('done');
+        const report = job['report'] as ImportReport;
+        expect(report.tales).toEqual({ source: 6, imported: 6, skipped: 0 });
+        expect(report.media).toEqual({ source: 6, imported: 6, skipped: 0 });
+        expect(report.differences?.filter((d) => d.kind === 'mediaNotImported')).toEqual([]);
+        expect(report.elapsedSeconds).toEqual(expect.any(Number));
+        const injected = fake.control.stats.injected;
+        expect(injected[429]).toBeGreaterThan(0);
+        expect(injected[500]).toBeGreaterThan(0);
+        expect(injected[503]).toBeGreaterThan(0);
+        // Each request was answered after one failure: every list and file was read twice, no more.
+        expect(fake.control.stats.mediaRequests).toBe(12);
+      });
+
+      it('stores the same report with copies at once as one at a time, with every guard and reason', async () => {
+        const sequential = await createProject();
+        workers.push(
+          startImportWorker(pool, {
+            ...workerMedia(),
+            tokenKey,
+            another toolApiUrl: fake.url,
+            pollIntervalMs: 50,
+            concurrency: { media: 1, mediaPerHost: 1, listReadAhead: 0 },
+          }),
+        );
+        const one = await importApp(sequential.id, '1004');
+        await Promise.all(workers.map((w) => w.stop()));
+        workers = [];
+        const concurrent = await createProject();
+        startWorker();
+        const many = await importApp(concurrent.id, '1004');
+        expect(many['status']).toBe('done');
+        expect(withoutTime(many['report'])).toEqual(withoutTime(one['report']));
+        const reasons = (many['report'] as ImportReport).differences
+          ?.filter((d) => d.kind === 'mediaNotImported')
+          .map((d) => d.reason);
+        expect(reasons).toContain('blockedAddress');
+        expect(reasons).toContain('tooManyRedirects');
+        // The Demo shop too, with its labels and differences.
+        const demoOne = await createProject();
+        workers.push(
+          startImportWorker(pool, {
+            ...workerMedia(),
+            tokenKey,
+            another toolApiUrl: fake.url,
+            pollIntervalMs: 50,
+            workerId: 'sequential',
+            concurrency: { media: 1, mediaPerHost: 1, listReadAhead: 0 },
+          }),
+        );
+        const demoSequential = await importApp(demoOne.id, '1001');
+        await Promise.all(workers.map((w) => w.stop()));
+        workers = [];
+        const demoMany = await createProject();
+        startWorker();
+        expect(withoutTime((await importApp(demoMany.id, '1001'))['report'])).toEqual(
+          withoutTime(demoSequential['report']),
+        );
+      });
+
+      it('keeps at most six downloads open against one media host', async () => {
+        const project = await createProject();
+        fake.control.useScale({
+          ...small,
+          groupsPerInstance: 4,
+          storiesPerGroup: 5,
+          factor: 1,
+          failures: false,
+          api: { latencyMs: [0, 0] },
+          media: { ...small.media, ttfbMs: [30, 30] },
+        });
+        startWorker();
+        const job = await importApp(project.id, '9001');
+        expect(job['status']).toBe('done');
+        expect(fake.control.stats.maxMediaOpen).toBeGreaterThan(1);
+        expect(fake.control.stats.maxMediaOpen).toBeLessThanOrEqual(6);
+      });
+
+      it('sizes the pool from DATABASE_POOL_MAX, 20 by default', () => {
+        expect(databasePoolMax({ DATABASE_POOL_MAX: '7' })).toBe(7);
+        expect(databasePoolMax({})).toBe(20);
+        expect(databasePoolMax({ DATABASE_POOL_MAX: 'many' })).toBe(20);
+      });
+
+      it('keeps answering progress polls while eight copies hold database connections, on a small pool', async () => {
+        // A pool of 8 (DATABASE_POOL_MAX=8) shared by the API and the worker, as in main.ts.
+        const tight = createPool(testDatabaseUrl, databasePoolMax({ DATABASE_POOL_MAX: '8' }));
+        // The worker's database: each copy's first media read holds its connection for 2.5 s (a slow database). Without
+        // the limit, eight such reads would hold every connection of the pool and the polls would wait.
+        const slow = async (sql: string) => {
+          if (/SELECT media_key AS key/.test(sql)) await new Promise((resolve) => setTimeout(resolve, 2500));
+        };
+        const workerDb = {
+          query: async (sql: string, params?: unknown[]) => {
+            const client = await tight.connect();
+            try {
+              await slow(sql);
+              return await client.query(sql, params);
+            } finally {
+              client.release();
+            }
+          },
+          connect: async () => {
+            const client = await tight.connect();
+            return {
+              query: async (sql: string, params?: unknown[]) => {
+                await slow(sql);
+                return client.query(sql, params);
+              },
+              release: (err?: Error) => client.release(err),
+            };
+          },
+        } as unknown as Pool;
+        const app = createApp(
+          tight,
+          loadFrameTypeRegistry(frameTypesDir),
+          new LocalDiskStorage(mediaDir),
+          { verifier: fakeVerifier },
+          { publicApiUrl },
+          { tokenKey, another toolApiUrl: fake.url, wake: () => undefined },
+        ).listen(0);
+        await new Promise<void>((resolve) => app.once('listening', () => resolve()));
+        const at = `http://127.0.0.1:${(app.address() as AddressInfo).port}/api/v1`;
+        try {
+          const project = await createProject();
+          fake.control.useScale({
+            ...small,
+            groupsPerInstance: 1,
+            storiesPerGroup: 8,
+            factor: 0,
+            failures: false,
+            media: { ttfbMs: [0, 0], bytesPerSecond: 1_000_000_000, videoShare: 0, imageBytes: [2_000, 4_000] },
+          });
+          workers.push(
+            startImportWorker(workerDb, {
+              ...workerMedia(),
+              tokenKey,
+              another toolApiUrl: fake.url,
+              pollIntervalMs: 50,
+              dbConcurrency: 8 - 6,
+            }),
+          );
+          const res = await send(
+            'POST',
+            `/projects/${project.id}/imports`,
+            { token: FAKE_another tool_TOKEN, appId: '9001' },
+            at,
+          );
+          const { id } = (await res.json()) as { id: string };
+          const took: number[] = [];
+          for (const until = Date.now() + 30_000; ; ) {
+            const started = Date.now();
+            const job = await (await send('GET', `/projects/${project.id}/imports/${id}`, undefined, at)).json();
+            took.push(Date.now() - started);
+            if (job.status !== 'queued' && job.status !== 'running') {
+              expect(job.status).toBe('done');
+              break;
+            }
+            if (Date.now() > until) throw new Error(`Import still ${job.status}`);
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+          expect(took.length).toBeGreaterThan(3);
+          expect(Math.max(...took)).toBeLessThan(2000);
+        } finally {
+          await Promise.all(workers.map((w) => w.stop()));
+          workers = [];
+          await new Promise<void>((resolve) => app.close(() => resolve()));
+          await tight.end();
+        }
+      }, 60_000);
+
+      it('resumes a job whose worker stopped mid-run, creating nothing twice and copying no media again', async () => {
+        const project = await createProject();
+        fake.control.useScale({ ...small, storiesPerGroup: 4, factor: 0, failures: false });
+        // The second group's stories are held: the first run stops there, with the first group done.
+        let release: () => void = () => undefined;
+        fake.control.hold = {
+          matches: (url: URL) => url.pathname.endsWith('/story') && url.searchParams.get('story_group_id') === '910001',
+          until: new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+        };
+        const { rows } = await pool.query(
+          `INSERT INTO import_jobs (project_id, source_app_id, token_ciphertext) VALUES ($1, '9001', $2) RETURNING id`,
+          [project.id, encryptToken(FAKE_another tool_TOKEN, tokenKey)],
+        );
+        const id = rows[0].id as string;
+        const claimed = await claimNextJob(pool, 'first-worker');
+        expect(claimed?.id).toBe(id);
+        const options = { ...workerMedia(), tokenKey, another toolApiUrl: fake.url, heartbeatMs: 20 };
+        const first = runImportJob(pool, claimed as NonNullable<typeof claimed>, options);
+        const copied = async () =>
+          Number(
+            (await pool.query('SELECT count(*) FROM import_media WHERE project_id = $1', [project.id])).rows[0].count,
+          );
+        for (const until = Date.now() + 10_000; (await copied()) < 4; ) {
+          if (Date.now() > until) throw new Error('The first group was not imported');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        // The first worker "dies": another takes the job over, and the first one's heartbeat finds out and stops.
+        await pool.query(
+          "UPDATE import_jobs SET locked_by = 'gone', heartbeat_at = now() - interval '1 hour' WHERE id = $1",
+          [id],
+        );
+        await first;
+        release();
+        const halfway = await contentCounts(project.id);
+        expect(halfway).toEqual({ groups: 1, placements: 1, tales: 4, links: 6 });
+        const copiedBefore = Number(
+          (await pool.query('SELECT count(*) FROM import_media WHERE project_id = $1', [project.id])).rows[0].count,
+        );
+
+        // The stale job is queued again and the next worker runs it to the end.
+        expect(await recoverStaleJobs(pool, 60_000, 3)).toEqual({ requeued: 1, failed: 0 });
+        // Counted as they arrive: an answer the first run gave up on still counts on the fake's side later.
+        const requestsBefore = fake.control.requests.length;
+        startWorker('second-worker');
+        const job = await waitForEnd(project.id, id);
+        expect(job['status']).toBe('done');
+        const report = job['report'] as ImportReport;
+        expect(report.tales).toEqual({ source: 8, imported: 8, skipped: 0 });
+        expect(report.media).toEqual({ source: 8, imported: 8, skipped: 0 });
+        expect(report.changes?.tales.created).toBe(8 - halfway.tales);
+        expect(report.changes?.tales.unchanged).toBe(halfway.tales);
+        expect(await contentCounts(project.id)).toEqual({ groups: 2, placements: 2, tales: 8, links: 11 });
+        // Media the first run copied is not downloaded again.
+        const fetched = fake.control.requests.slice(requestsBefore).filter((r) => r.path.startsWith('/media/'));
+        expect(fetched).toHaveLength(8 - copiedBefore);
+        // The elapsed time covers both runs, from the first claim.
+        const { rows: times } = await pool.query(
+          'SELECT extract(epoch FROM finished_at - first_started_at) AS seconds FROM import_jobs WHERE id = $1',
+          [id],
+        );
+        expect(report.elapsedSeconds).toBe(Math.round(Number(times[0].seconds)));
+      });
     });
   });
 

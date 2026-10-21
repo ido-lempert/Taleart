@@ -3257,6 +3257,12 @@ components:
           description: What was left out because it was not picked. Absent when the import took everything.
         changes:
           $ref: '#/components/schemas/ImportChanges'
+        elapsedSeconds:
+          type: integer
+          minimum: 0
+          description: >-
+            How long the import took, in seconds: from the first time a worker started it to its end, over every
+            run of it when a stopped worker's job ran again. Absent in reports of imports made before it was recorded.
     ImportChangeCount:
       type: object
       required: [created, updated, unchanged, keptLocalEdit, removedAtSource]
