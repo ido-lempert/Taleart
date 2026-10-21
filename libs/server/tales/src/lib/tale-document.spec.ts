@@ -1,4 +1,3 @@
-import type { Db } from '@taleart/server-access';
 import {
   checkTaleDocument,
   clearDeliveryCache,
@@ -12,10 +11,11 @@ import {
   StaleRevisionError,
   TaleDocumentTooLargeError,
 } from './tale-document';
-import { TaleNotFoundError } from './tales';
+import { TaleNotFoundError, type TransactionalDb } from './tales';
 import { DELIVERY_CACHE_SIZE } from './tale-document';
 
 const taleId = '00000000-0000-4000-8000-000000000010';
+const FONT_ID = '0f0e0d0c-0000-4000-8000-00000000000a';
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 function text(n: number, value = 'Hello', extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -170,6 +170,11 @@ describe('checkTaleDocument: text style (story 7.4)', () => {
   const styled = (props: Record<string, unknown>) => doc([text(1, 'Hello', { props: { text: 'Hello', ...props } })]);
   const at = '/elements/0/props';
 
+  it('accepts a project font by its id and stores the id in lower case (story 7.17)', () => {
+    const checked = checkTaleDocument(styled({ font: { source: 'project', fontId: FONT_ID.toUpperCase() } }));
+    expect((checked.elements[0].props as { font: unknown }).font).toEqual({ source: 'project', fontId: FONT_ID });
+  });
+
   it('accepts every setting, each font source, and text without any style', () => {
     const style = {
       font: { source: 'name', family: '"Open Sans", Inter' },
@@ -201,7 +206,16 @@ describe('checkTaleDocument: text style (story 7.4)', () => {
     ['an unknown stack', { source: 'system', stack: 'fantasy' }, `${at}/font/stack`],
     ['a system source with a family', { source: 'system', stack: 'serif', family: 'Inter' }, `${at}/font/family`],
     ['a theme source with a stack', { source: 'theme', stack: 'serif' }, `${at}/font/stack`],
-    ['an unknown source', { source: 'project' }, `${at}/font/source`],
+    ['an unknown source', { source: 'cloud' }, `${at}/font/source`],
+    [
+      'a project font alias as a name',
+      { source: 'name', family: `Inter, taleart-font-${FONT_ID}` },
+      `${at}/font/family`,
+    ],
+    ['a project source without its id', { source: 'project' }, `${at}/font/fontId`],
+    ['a project source with a family', { source: 'project', fontId: FONT_ID, family: 'Inter' }, `${at}/font/family`],
+    ['a project id that is no UUID', { source: 'project', fontId: 'brand' }, `${at}/font/fontId`],
+    ['a system source with a project id', { source: 'system', stack: 'serif', fontId: FONT_ID }, `${at}/font/fontId`],
     ['an unknown font field', { source: 'theme', url: 'x' }, `${at}/font/url`],
   ])('refuses a font of %s', (_, font, pointer) => {
     expect(refusal(styled({ font }))).toBe(pointer);
@@ -290,9 +304,18 @@ describe('deliverableTaleDocument', () => {
 });
 
 // A fake database answering queries in order.
+// A fake pool whose one connection answers queries in order from `answers`; transaction
+// statements answer nothing and take no answer. `calls` are the other statements with their values.
 function fakeDb(answers: { rows: unknown[] }[]) {
-  const query = vi.fn(async () => answers.shift() ?? { rows: [] });
-  return { db: { query } as unknown as Db, query };
+  const query = vi.fn(async (sql: string) => {
+    if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql)) return { rows: [] };
+    return answers.shift() ?? { rows: [] };
+  });
+  const db = { query, connect: vi.fn(async () => ({ query, release: vi.fn() })) } as unknown as TransactionalDb;
+  const calls = () =>
+    (query.mock.calls as unknown as [string, unknown[]][]).filter(([sql]) => !/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql));
+  const statements = () => (query.mock.calls as unknown as [string][]).map(([sql]) => sql);
+  return { db, query, calls, statements };
 }
 
 describe('tale document storage', () => {
@@ -316,7 +339,7 @@ describe('tale document storage', () => {
 
   it('saves the draft only when its revision matches, never the published document', async () => {
     const published = doc([text(9)]);
-    const { db, query } = fakeDb([
+    const { db, calls, statements } = fakeDb([
       { rows: [{ document: {}, revision: 4, publishedDocument: published, publishedRevision: 2 }] },
     ]);
     const value = doc();
@@ -325,16 +348,51 @@ describe('tale document storage', () => {
       revision: 4,
       published: { document: published, revision: 2 },
     });
-    const [sql, params] = query.mock.calls[0] as unknown as [string, unknown[]];
+    // The draft's font references are rewritten in the same transaction.
+    expect(statements()).toEqual([
+      'BEGIN',
+      expect.stringMatching(/^UPDATE tales/),
+      expect.stringMatching(/^DELETE FROM tale_fonts/),
+      'COMMIT',
+    ]);
+    const [sql, params] = calls()[0];
     expect(sql).toMatch(/SET draft_document = \$2::jsonb, draft_revision = draft_revision \+ 1/);
     expect(sql).toMatch(/WHERE id = \$1 AND draft_revision = \$3/);
     expect(sql.split('RETURNING')[0]).not.toMatch(/SET document|document_revision =/);
     expect(params).toEqual([taleId, JSON.stringify(value), 3]);
   });
 
+  it("saves a document with project fonts only when they are the tale's project's, share locked, and records them", async () => {
+    const projectId = '00000000-0000-4000-8000-0000000000aa';
+    const value = doc([text(1, 'Hello', { props: { text: 'Hello', font: { source: 'project', fontId: FONT_ID } } })]);
+    const { db, calls, statements } = fakeDb([
+      { rows: [{ projectId }] },
+      { rows: [{ id: FONT_ID }] },
+      { rows: [{ document: {}, revision: 1, ...NONE }] },
+    ]);
+    expect((await saveTaleDocument(db, taleId, value, 0)).revision).toBe(1);
+    // The fonts are share locked before the write, inside its transaction.
+    expect(calls()[1][0]).toMatch(
+      /FROM project_fonts WHERE project_id = \$1 AND id = ANY\(\$2::uuid\[\]\) ORDER BY id FOR SHARE/,
+    );
+    expect(calls()[1][1]).toEqual([projectId, [FONT_ID]]);
+    expect(calls()[2][0]).toMatch(/^UPDATE tales SET draft_document/);
+    expect(calls()[3][0]).toMatch(/^DELETE FROM tale_fonts WHERE tale_id = \$1 AND document = \$2/);
+    expect(calls()[4][0]).toMatch(/^INSERT INTO tale_fonts/);
+    expect(calls()[4][1]).toEqual([taleId, 'draft', [FONT_ID], [false]]);
+    expect(statements().at(-1)).toBe('COMMIT');
+
+    const foreign = fakeDb([{ rows: [{ projectId }] }, { rows: [] }]);
+    const refused = saveTaleDocument(foreign.db, taleId, value, 0);
+    await expect(refused).rejects.toBeInstanceOf(InvalidTaleDocumentError);
+    await expect(refused).rejects.toMatchObject({ pointer: '/elements/0/props/font/fontId' });
+    expect(foreign.calls()).toHaveLength(2);
+    expect(foreign.statements()).toContain('ROLLBACK');
+  });
+
   it('publishes the checked draft with compare-and-set on both revisions', async () => {
     const draft = doc();
-    const { db, query } = fakeDb([
+    const { db, calls } = fakeDb([
       { rows: [{ document: draft, revision: 4, ...NONE }] },
       { rows: [{ document: draft, revision: 4, publishedDocument: draft, publishedRevision: 1 }] },
     ]);
@@ -343,7 +401,10 @@ describe('tale document storage', () => {
       revision: 4,
       published: { document: draft, revision: 1 },
     });
-    const [sql, params] = query.mock.calls[1] as unknown as [string, unknown[]];
+    expect(calls()[0][0]).toMatch(/FOR UPDATE$/);
+    // The published document's font references are rewritten in the same transaction.
+    expect(calls()[2]).toEqual([expect.stringMatching(/^DELETE FROM tale_fonts/), [taleId, 'published']]);
+    const [sql, params] = calls()[1];
     expect(sql).toMatch(/SET document = draft_document, document_revision = document_revision \+ 1/);
     expect(sql).toMatch(/WHERE id = \$1 AND draft_revision = \$2 AND document_revision = \$3/);
     expect(sql).toMatch(/AND draft_document IS NOT NULL/);
@@ -360,23 +421,24 @@ describe('tale document storage', () => {
     expect((err as StaleRevisionError).currentRevision).toBe(6);
     const invalid = fakeDb([{ rows: [{ document: doc([{ ...text(1), type: 'poll' }]), revision: 1, ...NONE }] }]);
     await expect(publishTaleDocument(invalid.db, taleId, 1, 0)).rejects.toBeInstanceOf(InvalidTaleDocumentError);
-    expect(invalid.query).toHaveBeenCalledTimes(1);
+    expect(invalid.calls()).toHaveLength(1);
     await expect(publishTaleDocument(fakeDb([{ rows: [] }]).db, taleId, 0, 0)).rejects.toBeInstanceOf(
       TaleNotFoundError,
     );
     // No draft: nothing is published, and the published document is never emptied.
     const none = fakeDb([{ rows: [{ document: null, revision: 0, ...NONE }] }]);
     await expect(publishTaleDocument(none.db, taleId, 0, 0)).rejects.toBeInstanceOf(NothingToPublishError);
-    expect(none.query).toHaveBeenCalledTimes(1);
+    expect(none.calls()).toHaveLength(1);
   });
 
   it('discards the draft back to the published document with compare-and-set on both revisions', async () => {
     const published = doc();
-    const { db, query } = fakeDb([
+    const { db, calls } = fakeDb([
       { rows: [{ document: published, revision: 5, publishedDocument: published, publishedRevision: 2 }] },
     ]);
     expect((await discardTaleDraft(db, taleId, 4, 2)).revision).toBe(5);
-    const [sql, params] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(calls()[1]).toEqual([expect.stringMatching(/^DELETE FROM tale_fonts/), [taleId, 'draft']]);
+    const [sql, params] = calls()[0];
     expect(sql).toMatch(/SET draft_document = document, draft_revision = draft_revision \+ 1/);
     expect(sql).toMatch(/AND draft_revision = \$2 AND document_revision = \$3/);
     expect(params).toEqual([taleId, 4, 2]);

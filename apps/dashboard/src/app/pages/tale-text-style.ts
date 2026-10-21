@@ -8,10 +8,14 @@ import {
   signal,
   type WritableSignal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import type { ProjectFont } from '@taleart/contract/core';
+import { fontFaceName, textWeightForFont } from '@taleart/contract/project-fonts';
 import type { TextElementProps } from '@taleart/contract/tale-document';
 import {
   resolveTextStyle,
   SYSTEM_FONT_STACK_KEYS,
+  SYSTEM_FONT_STACK_NAMES,
   TEXT_COLOR_PATTERN,
   TEXT_LINE_HEIGHT_RANGE,
   TEXT_SIZE_PRESETS,
@@ -39,13 +43,8 @@ export interface TextStyleChange {
   said: string;
 }
 
-/** The names people read for each system stack. */
-export const STACK_NAMES: Readonly<Record<SystemFontStack, string>> = {
-  sans: 'Sans',
-  serif: 'Serif',
-  rounded: 'Rounded',
-  monospace: 'Monospace',
-};
+/** The names people read for each system stack (the contract's, shared with the font page). */
+export const STACK_NAMES = SYSTEM_FONT_STACK_NAMES;
 const SIZE_NAMES: Readonly<Record<TextSizePreset | 'custom', string>> = {
   small: 'Small',
   medium: 'Medium',
@@ -70,8 +69,13 @@ const AGAINST: Readonly<Record<'box' | 'highlight' | 'canvas', string>> = {
   canvas: 'the canvas colour',
 };
 
-/** A font source as the font select lists it: a system stack, the theme's font, or a name the page loads. */
-type FontChoice = SystemFontStack | 'theme' | 'name';
+/**
+ * A font source as the font select lists it: a system stack, the theme's font, a name the page
+ * loads, or a project font as `project:<id>`.
+ */
+type FontChoice = SystemFontStack | 'theme' | 'name' | `project:${string}`;
+
+const PROJECT_CHOICE = 'project:';
 
 const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 
@@ -106,8 +110,9 @@ export function parseHexColor(value: string): string | null {
 }
 
 /**
- * The text style inspector of Tale Studio (epic Tale Studio R4, R12, R13): font (a system stack,
- * the project theme's font or a font name the host page loads, with a fallback stack), size
+ * The text style inspector of Tale Studio (epic Tale Studio R4, R12, R13, R18): font (a system
+ * stack, the project theme's font, a font name the host page loads or a project font, with a
+ * fallback stack), size
  * (presets or a custom value), weight, italic, line height, colour, alignment, direction and
  * background, each a named control in a labelled group and usable with the keyboard alone. It
  * asks the studio for each change (one history step each); a typed value that breaks a rule is
@@ -116,6 +121,7 @@ export function parseHexColor(value: string): string | null {
  */
 @Component({
   selector: 'app-tale-text-style',
+  imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <fieldset class="text-style" [disabled]="locked()">
@@ -130,10 +136,31 @@ export function parseHexColor(value: string): string | null {
             }
             <option value="theme" [selected]="fontChoice() === 'theme'">Project theme font</option>
             <option value="name" [selected]="fontChoice() === 'name'">Font name loaded by the page</option>
+            @if (projectFonts()?.length || missingFont()) {
+              <optgroup label="Project fonts">
+                @for (font of projectFonts() ?? []; track font.id) {
+                  <option [value]="'project:' + font.id" [selected]="fontChoice() === 'project:' + font.id">
+                    {{ projectFontName(font) }}
+                  </option>
+                }
+                @if (missingFont(); as id) {
+                  <option [value]="'project:' + id" selected>Project font (not in this project's list)</option>
+                }
+              </optgroup>
+            }
           </select>
         </div>
         @if (fontChoice() === 'theme') {
           <p class="field__hint" id="ts-theme-hint">{{ themeHint() }}</p>
+        }
+        @if (isProjectChoice()) {
+          <p class="field__hint" id="ts-project-hint">
+            Uploaded to this project. A visitor's browser loads it only when this tale opens; the fallback font shows
+            until then, and stays if the font takes over 3 seconds.
+          </p>
+        }
+        @if (projectId(); as id) {
+          <a class="text-style__link" [routerLink]="['/projects', id, 'fonts']">Manage project fonts</a>
         }
         @if (fontChoice() === 'name') {
           <div class="field">
@@ -159,7 +186,7 @@ export function parseHexColor(value: string): string | null {
             }
           </div>
         }
-        @if (fontChoice() === 'theme' || fontChoice() === 'name') {
+        @if (fontChoice() === 'theme' || fontChoice() === 'name' || isProjectChoice()) {
           <div class="field">
             <label class="field__label" for="ts-fallback">Fallback font</label>
             <select
@@ -208,7 +235,13 @@ export function parseHexColor(value: string): string | null {
         <div class="row">
           <div class="field">
             <label class="field__label" for="ts-weight">Weight</label>
-            <select id="ts-weight" class="select" (change)="setWeight($any($event.target).value)">
+            <select
+              id="ts-weight"
+              class="select"
+              [disabled]="face() !== null"
+              [attr.aria-describedby]="face() ? 'ts-face-hint' : null"
+              (change)="setWeight($any($event.target).value)"
+            >
               @if (look().weight === null) {
                 <!-- A text stored before styling keeps its weight until one is chosen. -->
                 <option value="" selected disabled>Semibold (as before)</option>
@@ -238,9 +271,22 @@ export function parseHexColor(value: string): string | null {
           </div>
         </div>
         <label class="checkbox">
-          <input id="ts-italic" type="checkbox" [checked]="look().italic" (change)="setItalic($any($event.target))" />
+          <input
+            id="ts-italic"
+            type="checkbox"
+            [checked]="look().italic"
+            [disabled]="face() !== null"
+            [attr.aria-describedby]="face() ? 'ts-face-hint' : null"
+            (change)="setItalic($any($event.target))"
+          />
           Italic
         </label>
+        @if (face(); as f) {
+          <p class="field__hint" id="ts-face-hint">
+            Weight and italic come from the project font's face, {{ faceName(f) }}, so it is never drawn bolder or
+            slanted by the browser. Pick another face of the family to change them.
+          </p>
+        }
       </fieldset>
       <fieldset class="text-style__group">
         <legend class="field__label">Colour</legend>
@@ -376,6 +422,10 @@ export class TaleTextStyle {
   readonly themeFont = input<string | null | undefined>(undefined);
   /** What lies behind the text, for the contrast check. */
   readonly backdrop = input.required<TextBackdrop>();
+  /** The project's fonts (R18); null while unknown. */
+  readonly projectFonts = input<readonly ProjectFont[] | null>(null);
+  /** The tale's project, for the link to its fonts. */
+  readonly projectId = input<string | null>(null);
   /** A change the studio makes, as one history step. */
   readonly changed = output<TextStyleChange>();
   /** Something to announce that is no change: a typed value refused, or a choice waiting for a value. */
@@ -413,7 +463,24 @@ export class TaleTextStyle {
   protected readonly fontChoice = computed<FontChoice>(() => {
     const font = this.look().font;
     if (this.pendingName()) return 'name';
+    if (font.source === 'project') return `${PROJECT_CHOICE}${font.fontId}`;
     return font.source === 'system' ? font.stack : font.source;
+  });
+  protected readonly isProjectChoice = computed(() => this.fontChoice().startsWith(PROJECT_CHOICE));
+  /**
+   * The project font face the text uses, when the project's list holds it: its weight and italic
+   * are tied to the face (no synthetic bold or oblique), so those controls are off.
+   */
+  protected readonly face = computed(() => {
+    const font = this.look().font;
+    if (font.source !== 'project' || this.pendingName()) return null;
+    return this.projectFonts()?.find((f) => f.id === font.fontId) ?? null;
+  });
+  /** The text's project font when the project's list (once read) does not hold it. */
+  protected readonly missingFont = computed(() => {
+    const font = this.look().font;
+    const list = this.projectFonts();
+    return font.source === 'project' && list !== null && !list.some((f) => f.id === font.fontId) ? font.fontId : null;
   });
   protected readonly family = computed(() => {
     const font = this.look().font;
@@ -462,8 +529,33 @@ export class TaleTextStyle {
     this.notice.emit(message);
   }
 
+  protected faceName(font: ProjectFont): string {
+    return fontFaceName(font);
+  }
+
+  protected projectFontName(font: ProjectFont): string {
+    return `${font.family} ${fontFaceName(font)}`;
+  }
+
   protected setFont(choice: FontChoice): void {
     this.familyError.set('');
+    if (choice.startsWith(PROJECT_CHOICE)) {
+      this.pendingName.set(false);
+      const font = this.projectFonts()?.find((f) => `${PROJECT_CHOICE}${f.id}` === choice);
+      if (!font) return;
+      // The text takes the face's fallback, weight and style, so the browser draws the face itself.
+      this.emit(
+        'Font changed',
+        {
+          font: { source: 'project', fontId: font.id },
+          fallback: font.fallback as SystemFontStack,
+          weight: textWeightForFont(font.weight),
+          italic: font.style === 'italic',
+        },
+        `Font set to ${this.projectFontName(font)}`,
+      );
+      return;
+    }
     if (choice === 'name') {
       // Applied once a valid name is typed.
       this.pendingName.set(this.look().font.source !== 'name');
@@ -475,7 +567,8 @@ export class TaleTextStyle {
       this.emit('Font changed', { font: { source: 'theme' } }, 'Font set to the project theme font');
       return;
     }
-    this.emit('Font changed', { font: { source: 'system', stack: choice } }, `Font set to ${STACK_NAMES[choice]}`);
+    const stack = choice as SystemFontStack;
+    this.emit('Font changed', { font: { source: 'system', stack } }, `Font set to ${STACK_NAMES[stack]}`);
   }
 
   protected setFamily(field: HTMLInputElement): void {
@@ -526,10 +619,12 @@ export class TaleTextStyle {
   }
 
   protected setWeight(weight: TextWeight): void {
+    if (this.face()) return;
     this.emit('Text weight changed', { weight }, `Weight set to ${WEIGHT_NAMES[weight]}`);
   }
 
   protected setItalic(field: HTMLInputElement): void {
+    if (this.face()) return;
     this.emit('Italic changed', { italic: field.checked }, field.checked ? 'Italic on' : 'Italic off');
   }
 

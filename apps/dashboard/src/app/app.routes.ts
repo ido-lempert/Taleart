@@ -86,6 +86,13 @@ export const appRoutes: Route[] = [
         data: { heading: 'Projects' } satisfies ShellData,
       },
       {
+        // The project's fonts, for text in Tale Studio (epic Tale Studio R18).
+        path: 'projects/:projectId/fonts',
+        loadComponent: () => import('./pages/fonts').then((m) => m.FontsPage),
+        title: 'Fonts · TaleArt',
+        data: { heading: 'Projects' } satisfies ShellData,
+      },
+      {
         // Admins import a another tool app into this project.
         path: 'projects/:projectId/import',
         loadComponent: () => import('./pages/import').then((m) => m.ImportPage),

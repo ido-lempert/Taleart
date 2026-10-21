@@ -17,6 +17,11 @@ import {
   ZoneNotFoundError,
 } from '@taleart/server-zones';
 import {
+  FontExistsError,
+  FontInUseError,
+  FontLimitError,
+  FontStorageFullError,
+  FontNotFoundError,
   InvalidScheduleError,
   InvalidStatusTransitionError,
   InvalidTaleDocumentError,
@@ -76,7 +81,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof StageNotFoundError ||
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
-    err instanceof ZoneKeyNotFoundError
+    err instanceof ZoneKeyNotFoundError ||
+    err instanceof FontNotFoundError
   ) {
     res.status(404).json(errorBody(err.code, err.message));
     return;
@@ -85,7 +91,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     res.status(400).json(errorBody(err.code, err.message, err.pointer));
     return;
   }
-  if (err instanceof TaleDocumentTooLargeError) {
+  if (err instanceof TaleDocumentTooLargeError || err instanceof FontStorageFullError) {
     res.status(413).json(errorBody(err.code, err.message));
     return;
   }
@@ -104,7 +110,10 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof PlaybookConcurrentChangeError ||
     err instanceof InvalidStatusTransitionError ||
     err instanceof StaleRevisionError ||
-    err instanceof NothingToPublishError
+    err instanceof NothingToPublishError ||
+    err instanceof FontExistsError ||
+    err instanceof FontInUseError ||
+    err instanceof FontLimitError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;
@@ -135,6 +144,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
   }
   // A body parser rejects a body over its limit this way: express.raw() on the
   // media upload (100 MB) and the cover upload (10 MB), express.json() elsewhere.
+  // The font upload answers its own 413 before this.
   if ((err as { type?: string })?.type === 'entity.too.large') {
     if (/\/media$/.test(req.path)) {
       res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 100 MB'));

@@ -27,6 +27,7 @@ import {
 } from '@taleart/server-importer';
 import { DEFAULT_THEME, PLAYBOOKS, type ImportReport, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
+import { clearDeliveryCache, clearPublicFontCache } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
@@ -197,7 +198,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -2267,7 +2268,10 @@ describe('Management API v1: projects and zones', () => {
       ['font', { source: 'system', stack: 'fantasy' }, 'font/stack'],
       ['font', { source: 'system', stack: 'serif', family: 'Inter' }, 'font/family'],
       ['font', { source: 'theme', stack: 'serif' }, 'font/stack'],
-      ['font', { source: 'project' }, 'font/source'],
+      ['font', { source: 'cloud' }, 'font/source'],
+      ['font', { source: 'name', family: '"TaleArt-Font-x"' }, 'font/family'],
+      ['font', { source: 'project' }, 'font/fontId'],
+      ['font', { source: 'project', fontId: 'brand' }, 'font/fontId'],
       ['font', { source: 'theme', url: 'x' }, 'font/url'],
       ['color', 'red; background:url(x)', 'color'],
       ['color', 'red', 'color'],
@@ -3638,6 +3642,7 @@ describe('Management API v1: projects and zones', () => {
       [{ fontFamily: 'inherit' }, expect.stringMatching(/^theme\.fontFamily /)],
       [{ fontFamily: 'Georgia, revert-layer' }, expect.stringMatching(/^theme\.fontFamily /)],
       [{ fontFamily: '-apple-system' }, expect.stringMatching(/^theme\.fontFamily /)],
+      [{ fontFamily: 'Georgia, taleart-font-x' }, expect.stringMatching(/^theme\.fontFamily .*taleart-font-/)],
       [{ ringColors: [] }, 'theme.ringColors must hold 1 to 3 colours'],
       [{ ringColors: ['#000000', '#000000', '#000000', '#000000'] }, 'theme.ringColors must hold 1 to 3 colours'],
       [{ ringWidth: 5 }, 'theme.ringWidth must be at most 4'],
@@ -4865,6 +4870,456 @@ describe('Management API v1: projects and zones', () => {
       const res = await send('GET', `/zones/${zone.id}/key`);
       expect(res.status).toBe(403);
       expect((await res.json()).error.code).toBe('forbidden');
+    });
+  });
+
+  describe('project fonts (epic Tale Studio R18, story 7.17)', () => {
+    const FACE = { family: 'Brand Sans', weight: '700', style: 'italic', fallback: 'serif', licence: 'confirmed' };
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    // A structurally sound WOFF2 file: TrueType flavour, one untransformed table, compressed data after.
+    function woff2(size = 2048): Buffer {
+      const data = Buffer.alloc(size, 7);
+      data.fill(0, 0, 50);
+      data.write('wOF2', 0, 'latin1');
+      data.writeUInt32BE(0x00010000, 4);
+      data.writeUInt32BE(size, 8);
+      data.writeUInt16BE(1, 12);
+      data.writeUInt32BE(1024, 16);
+      data.writeUInt32BE(size - 50, 20);
+      data[49] = 0x10;
+      return data;
+    }
+
+    function upload(
+      projectId: string,
+      query: Record<string, string> = FACE,
+      body: Uint8Array = woff2(),
+      contentType = 'font/woff2',
+    ): Promise<Response> {
+      return fetch(`${base}/projects/${projectId}/fonts?${new URLSearchParams(query)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': contentType },
+        body,
+      });
+    }
+
+    async function uploaded(projectId: string, query: Record<string, string> = FACE): Promise<{ id: string }> {
+      const res = await upload(projectId, query);
+      expect(res.status).toBe(201);
+      return res.json();
+    }
+
+    function list(projectId: string): Promise<Response> {
+      return fetch(`${base}/projects/${projectId}/fonts`);
+    }
+
+    function remove(projectId: string, fontId: string): Promise<Response> {
+      return fetch(`${base}/projects/${projectId}/fonts/${fontId}`, { method: 'DELETE' });
+    }
+
+    function storedFonts(): string[] {
+      const dir = join(mediaDir, 'fonts');
+      return existsSync(dir) ? readdirSync(dir) : [];
+    }
+
+    function text(n: number, font: unknown, extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+        type: 'text',
+        box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+        hidden: false,
+        locked: false,
+        a11y: {},
+        props: { text: 'Sale', font, fallback: 'serif' },
+        ...extra,
+      };
+    }
+
+    function doc(elements: unknown[]): Record<string, unknown> {
+      return { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements };
+    }
+
+    async function draftOf(
+      taleId: string,
+    ): Promise<{ document: unknown; revision: number; published: { revision: number } }> {
+      return (await fetch(`${base}/tales/${taleId}/document`)).json();
+    }
+
+    function save(taleId: string, document: unknown, revision: number): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document, revision }),
+      });
+    }
+
+    async function publishDraft(taleId: string): Promise<void> {
+      const state = await draftOf(taleId);
+      const res = await post(`/tales/${taleId}/document/publish`, {
+        revision: state.revision,
+        publishedRevision: state.published.revision,
+      });
+      expect(res.status).toBe(200);
+    }
+
+    // A zone with a key, holding a live group with one live tale whose draft uses `elements`.
+    async function liveTale(elements: (fontId: string) => unknown[]) {
+      const zone = await createZone();
+      const font = await uploaded(zone.projectId);
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      expect((await save(tale.id, doc(elements(font.id)), 0)).status).toBe(200);
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      return { zone, font, group, tale, key: key as string };
+    }
+
+    async function delivered(key: string) {
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()).taleGroups as { tales: { id: string; fonts?: { id: string; url: string }[] }[] }[];
+    }
+
+    function getPublic(url: string, headers: Record<string, string> = {}): Promise<Response> {
+      return globalThis.fetch(`${origin}${new URL(url).pathname}`, { headers });
+    }
+
+    async function signInAsContentManager(projectId: string): Promise<void> {
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, projectId, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+    }
+
+    beforeEach(() => rmSync(join(mediaDir, 'fonts'), { recursive: true, force: true }));
+
+    it('uploads a WOFF2 face with the licence confirmed, and lists it with the uploader and time', async () => {
+      const project = await createProject();
+      const res = await upload(project.id);
+      expect(res.status).toBe(201);
+      const font = await res.json();
+      expect(font).toEqual({
+        id: expect.any(String),
+        projectId: project.id,
+        family: 'Brand Sans',
+        weight: 700,
+        style: 'italic',
+        fallback: 'serif',
+        sizeBytes: 2048,
+        licenceConfirmedBy: { id: expect.any(String), name: 'Test Admin' },
+        licenceConfirmedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+        inUse: false,
+      });
+      expect(await (await list(project.id)).json()).toEqual([font]);
+      expect(storedFonts()).toHaveLength(1);
+
+      const file = await fetch(`${base}/projects/${project.id}/fonts/${font.id}/file`);
+      expect(file.status).toBe(200);
+      expect(file.headers.get('content-type')).toBe('font/woff2');
+      expect(file.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(Buffer.from(await file.arrayBuffer()).equals(woff2())).toBe(true);
+      // The ETag is opaque: it does not tell the storage key.
+      expect(file.headers.get('etag')).toMatch(/^"[A-Za-z0-9_-]{22}"$/);
+      expect(file.headers.get('etag')).not.toContain('fonts');
+      const again = await fetch(`${base}/projects/${project.id}/fonts/${font.id}/file`, {
+        headers: { 'If-None-Match': file.headers.get('etag') ?? '' },
+      });
+      expect(again.status).toBe(304);
+    });
+
+    it('takes font/woff2 or application/octet-stream only, types a form cannot send without preflight', async () => {
+      const project = await createProject();
+      expect((await upload(project.id, FACE, woff2(), 'application/octet-stream')).status).toBe(201);
+      for (const type of ['application/json', 'text/plain', 'multipart/form-data; boundary=x', 'font/ttf', '']) {
+        const res = await upload(project.id, { ...FACE, weight: '400' }, woff2(), type);
+        expect(res.status, type).toBe(415);
+        expect((await res.json()).error.code).toBe('unsupported_media_type');
+      }
+      expect(storedFonts()).toHaveLength(1);
+    });
+
+    it('refuses a compressed body and closes the connection on an early refusal', async () => {
+      const project = await createProject();
+      const gzip = await fetch(`${base}/projects/${project.id}/fonts?${new URLSearchParams(FACE)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'font/woff2', 'Content-Encoding': 'gzip' },
+        body: woff2(),
+      });
+      expect(gzip.status).toBe(415);
+      const early = await upload(project.id, { ...FACE, family: 'inherit' });
+      expect(early.status).toBe(400);
+      expect(early.headers.get('connection')).toBe('close');
+      expect(storedFonts()).toEqual([]);
+    });
+
+    it('collapses spaces in a family before comparing, and caps a project at 50 faces and 10 MB', async () => {
+      const project = await createProject();
+      const first = await (await upload(project.id, { ...FACE, family: '  Brand   Sans ' })).json();
+      expect(first.family).toBe('Brand Sans');
+      const same = await upload(project.id, { ...FACE, family: 'brand  sans' });
+      expect((await same.json()).error.code).toBe('font_exists');
+
+      const add = (count: number, bytes: number) =>
+        pool.query(
+          `INSERT INTO project_fonts (project_id, family, weight, style, fallback, storage_key, size_bytes, uploaded_by_name)
+           SELECT $1::uuid, 'Filler ' || n, 400, 'normal', 'sans', 'fonts/filler-' || $1::text || '-' || n || '.woff2', $3, 'x'
+           FROM generate_series(1, $2) AS n`,
+          [project.id, count, bytes],
+        );
+      await add(48, 1024);
+      expect((await upload(project.id, { ...FACE, family: 'Second' })).status).toBe(201);
+      const full = await upload(project.id, { ...FACE, family: 'Third' });
+      expect(full.status).toBe(409);
+      expect((await full.json()).error.code).toBe('font_limit_reached');
+
+      const other = await createProject('Beta');
+      await pool.query(
+        `INSERT INTO project_fonts (project_id, family, weight, style, fallback, storage_key, size_bytes, uploaded_by_name)
+         VALUES ($1, 'Big', 400, 'normal', 'sans', 'fonts/big.woff2', $2, 'x')`,
+        [other.id, 10 * 1024 * 1024 - 1024],
+      );
+      const heavy = await upload(other.id);
+      expect(heavy.status).toBe(413);
+      expect((await heavy.json()).error.code).toBe('font_storage_full');
+      expect(storedFonts()).toHaveLength(2);
+    });
+
+    it('refuses a TrueType file renamed to .woff2, a WOFF 1 file, an SVG and HTML, storing nothing', async () => {
+      const project = await createProject();
+      const ttf = Buffer.alloc(2048);
+      ttf.writeUInt32BE(0x00010000, 0);
+      const woff1 = woff2();
+      woff1.write('wOFF', 0, 'latin1');
+      const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'.padEnd(64));
+      const html = Buffer.from('<html><script>alert(1)</script></html>'.padEnd(64));
+      for (const body of [ttf, woff1, svg, html]) {
+        const res = await upload(project.id, FACE, body);
+        expect(res.status).toBe(415);
+        expect((await res.json()).error.code).toBe('unsupported_media_type');
+      }
+      expect(await (await list(project.id)).json()).toEqual([]);
+      expect(storedFonts()).toEqual([]);
+    });
+
+    it('refuses a file over 500 KB, and an empty one', async () => {
+      const project = await createProject();
+      const res = await upload(project.id, FACE, woff2(600 * 1024));
+      expect(res.status).toBe(413);
+      expect((await res.json()).error.code).toBe('media_too_large');
+      expect((await upload(project.id, FACE, woff2(500 * 1024))).status).toBe(201);
+      const empty = await upload(project.id, { ...FACE, weight: '400' }, new Uint8Array(0));
+      expect(empty.status).toBe(400);
+      expect(storedFonts()).toHaveLength(1);
+    });
+
+    it('refuses a family, weight, style or fallback outside the rules, naming the field', async () => {
+      const project = await createProject();
+      const cases: [Record<string, string>, RegExp][] = [
+        [{ ...FACE, family: 'inherit' }, /family/],
+        [{ ...FACE, family: 'Brand, Arial' }, /family/],
+        [{ ...FACE, family: '"Brand"' }, /family/],
+        [{ ...FACE, family: 'x;color:red' }, /family/],
+        [{ ...FACE, family: 'a'.repeat(101) }, /family/],
+        [{ ...FACE, family: '' }, /family/],
+        [{ ...FACE, weight: '950' }, /weight/],
+        [{ ...FACE, weight: '150' }, /weight/],
+        [{ ...FACE, weight: 'bold' }, /weight/],
+        [{ ...FACE, style: 'oblique' }, /style/],
+        [{ ...FACE, fallback: 'cursive' }, /fallback/],
+      ];
+      for (const [query, field] of cases) {
+        const res = await upload(project.id, query);
+        expect(res.status).toBe(400);
+        const { error } = await res.json();
+        expect(error.code).toBe('validation_failed');
+        expect(error.message).toMatch(field);
+      }
+      const unconfirmed = Object.fromEntries(Object.entries(FACE).filter(([name]) => name !== 'licence'));
+      for (const query of [unconfirmed, { ...FACE, licence: 'yes' }]) {
+        const res = await upload(project.id, query);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.message).toMatch(/distribute/);
+      }
+      expect(storedFonts()).toEqual([]);
+    });
+
+    it('refuses a second face with the same family (in any case), weight and style', async () => {
+      const project = await createProject();
+      await uploaded(project.id);
+      const res = await upload(project.id, { ...FACE, family: 'brand sans' });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('font_exists');
+      expect(storedFonts()).toHaveLength(1);
+      expect((await upload(project.id, { ...FACE, style: 'normal' })).status).toBe(201);
+    });
+
+    it('answers 404 for an unknown project and 403 for a project the caller cannot access', async () => {
+      expect((await upload(unknownId)).status).toBe(404);
+      expect((await list(unknownId)).status).toBe(404);
+      const project = await createProject();
+      const font = await uploaded(project.id);
+      const other = await createProject('Beta');
+      await signInAsContentManager(other.id);
+      expect((await list(project.id)).status).toBe(403);
+      expect((await upload(project.id)).status).toBe(403);
+      expect((await remove(project.id, font.id)).status).toBe(403);
+      expect((await fetch(`${base}/projects/${project.id}/fonts/${font.id}/file`)).status).toBe(403);
+      // A font is reached only through its own project.
+      expect((await remove(other.id, font.id)).status).toBe(404);
+      expect((await fetch(`${base}/projects/${other.id}/fonts/${font.id}/file`)).status).toBe(404);
+    });
+
+    it("saves a document that uses the project's font, and refuses another project's or an unknown one", async () => {
+      const zone = await createZone();
+      const font = await uploaded(zone.projectId);
+      const otherProject = await createProject('Beta');
+      const foreign = await uploaded(otherProject.id);
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+
+      for (const id of [foreign.id, unknownId]) {
+        const res = await save(
+          tale.id,
+          doc([text(1, { source: 'system', stack: 'sans' }), text(2, { source: 'project', fontId: id })]),
+          0,
+        );
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toMatchObject({
+          code: 'invalid_tale_document',
+          pointer: '/elements/1/props/font/fontId',
+        });
+      }
+      const mixed = await save(tale.id, doc([text(1, { source: 'project', fontId: font.id, family: 'Brand' })]), 0);
+      expect((await mixed.json()).error.pointer).toBe('/elements/0/props/font/family');
+      const bad = await save(tale.id, doc([text(1, { source: 'project', fontId: 'brand' })]), 0);
+      expect((await bad.json()).error.pointer).toBe('/elements/0/props/font/fontId');
+
+      const ok = await save(tale.id, doc([text(1, { source: 'project', fontId: font.id.toUpperCase() })]), 0);
+      expect(ok.status).toBe(200);
+      expect((await ok.json()).document.elements[0].props.font).toEqual({ source: 'project', fontId: font.id });
+      // Keeping a refused version as a new tale checks its fonts the same way.
+      const copy = await fetch(`${base}/tales/${tale.id}/document/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document: doc([text(1, { source: 'project', fontId: foreign.id })]) }),
+      });
+      expect(copy.status).toBe(400);
+    });
+
+    it('refuses deleting a font a draft or a published document uses, and deletes it with its file after', async () => {
+      const { zone, font, tale } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      expect((await (await list(zone.projectId)).json())[0].inUse).toBe(true);
+      const inDraft = await remove(zone.projectId, font.id);
+      expect(inDraft.status).toBe(409);
+      expect((await inDraft.json()).error).toEqual({ code: 'font_in_use', message: expect.stringContaining('Beach') });
+
+      await publishDraft(tale.id);
+      expect((await save(tale.id, doc([text(1, { source: 'system', stack: 'sans' })]), 1)).status).toBe(200);
+      // The published document still uses it.
+      expect((await remove(zone.projectId, font.id)).status).toBe(409);
+      await publishDraft(tale.id);
+      expect((await (await list(zone.projectId)).json())[0].inUse).toBe(false);
+
+      expect((await remove(zone.projectId, font.id)).status).toBe(204);
+      expect(await (await list(zone.projectId)).json()).toEqual([]);
+      expect(storedFonts()).toEqual([]);
+      expect((await remove(zone.projectId, font.id)).status).toBe(404);
+    });
+
+    it('serves the font publicly only while a delivered tale’s published document uses it', async () => {
+      const { group, font, tale, key } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts WHERE id = $1', [font.id])).rows[0]
+        .storage_key as string;
+      const url = `${publicApiUrl}/media/${fontKey}`;
+      // A draft only: nothing is public, and the zone is not delivered yet.
+      expect((await getPublic(url)).status).toBe(404);
+      await publish('tale-groups', group.id);
+      await publish('tales', tale.id); // Going live publishes the draft (AD-15).
+
+      const [{ tales }] = await delivered(key);
+      expect(tales[0].fonts).toEqual([{ id: font.id, url, weight: 700, style: 'italic' }]);
+      const res = await getPublic(url);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('font/woff2');
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect(res.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(Buffer.from(await res.arrayBuffer()).equals(woff2())).toBe(true);
+      expect((await getPublic(url, { 'If-None-Match': `"${fontKey}"` })).status).toBe(304);
+
+      // Pausing the tale makes it private again, and the 304 is not given either.
+      expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
+      expect((await getPublic(url)).status).toBe(404);
+      expect((await getPublic(url, { 'If-None-Match': `"${fontKey}"` })).status).toBe(404);
+    });
+
+    it('backfills tale_fonts for documents written before it, and serves a font only with a deliverable document', async () => {
+      const { zone, group, font, tale, key } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      await publish('tale-groups', group.id);
+      await publish('tales', tale.id);
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts WHERE id = $1', [font.id])).rows[0]
+        .storage_key as string;
+      const url = `${publicApiUrl}/media/${fontKey}`;
+      expect((await getPublic(url)).status).toBe(200);
+
+      // As before tale_fonts: the rows are gone; the migration writes them again.
+      await pool.query('DELETE FROM tale_fonts');
+      await migrate(pool);
+      const rows = await pool.query('SELECT document, delivered FROM tale_fonts WHERE font_id = $1 ORDER BY document', [
+        font.id,
+      ]);
+      expect(rows.rows).toEqual([
+        { document: 'draft', delivered: false },
+        { document: 'published', delivered: true },
+      ]);
+      expect((await (await list(zone.projectId)).json())[0].inUse).toBe(true);
+
+      // A published document that no longer passes the document check is not delivered, so its
+      // font is not public either: the two agree.
+      await pool.query(
+        `UPDATE tales SET document = jsonb_set(document, '{canvas,background,color}', '"red"') WHERE id = $1`,
+        [tale.id],
+      );
+      clearDeliveryCache();
+      await pool.query('DELETE FROM tale_fonts');
+      await migrate(pool);
+      clearPublicFontCache();
+      const [{ tales }] = await delivered(key);
+      expect(tales[0].fonts).toBeUndefined();
+      expect((await getPublic(url)).status).toBe(404);
+    });
+
+    it('keeps a font private when only a hidden element or an unplaced group uses it', async () => {
+      const hidden = await liveTale((id) => [text(1, { source: 'project', fontId: id }, { hidden: true })]);
+      await publish('tale-groups', hidden.group.id);
+      await publish('tales', hidden.tale.id);
+      const [{ tales }] = await delivered(hidden.key);
+      expect(tales[0].fonts).toBeUndefined();
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts')).rows[0].storage_key as string;
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(404);
+
+      // Shown, but its group placed in no zone: not delivered, so not public.
+      expect(
+        (await save(hidden.tale.id, doc([text(1, { source: 'project', fontId: hidden.font.id })]), 1)).status,
+      ).toBe(200);
+      await publishDraft(hidden.tale.id);
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(200);
+      const placed = await fetch(`${base}/zones/${hidden.zone.id}/tale-groups/${hidden.group.id}`, {
+        method: 'DELETE',
+      });
+      expect(placed.status).toBe(204);
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(404);
+    });
+
+    it('draws project-font texts in their fallback stack in a copy in another project', async () => {
+      const { zone, group, font } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      const fontOf = async (copy: { tales: { id: string }[] }) =>
+        ((await draftOf(copy.tales[0].id)).document as { elements: { props: { font: unknown } }[] }).elements[0].props
+          .font;
+      const same = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: zone.id })).json();
+      expect(await fontOf(same)).toEqual({ source: 'project', fontId: font.id });
+      const target = await createZone();
+      const other = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id })).json();
+      expect(await fontOf(other)).toEqual({ source: 'system', stack: 'serif' });
     });
   });
 

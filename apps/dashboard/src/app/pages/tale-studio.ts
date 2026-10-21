@@ -12,7 +12,8 @@ import {
   untracked,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { ErrorCodes } from '@taleart/contract/core';
+import { ErrorCodes, type ProjectFont } from '@taleart/contract/core';
+import { loadProjectFont, projectFontIds } from '@taleart/contract/project-fonts';
 import {
   cleanText,
   ELEMENT_TEXT_RULE,
@@ -41,6 +42,7 @@ import {
 } from '@taleart/contract/text-style';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
+import { projectFontFileUrl, ProjectFontsService } from '../project-fonts.service';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
 import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
@@ -732,6 +734,8 @@ export function newTextProps(text: string): TextElementProps {
                     [locked]="el.locked"
                     [themeFont]="themeFont()"
                     [backdrop]="backdrop()"
+                    [projectFonts]="projectFonts()"
+                    [projectId]="projectId() ?? null"
                     (changed)="restyle(el.id, $event)"
                     (notice)="say($event)"
                   />
@@ -914,13 +918,16 @@ export class TaleStudioPage implements OnChanges {
 
   protected readonly tale = computed(() => this.store.tale(this.taleId()));
   // The tale's project: the theme is read again only when it changes, not on each store refresh.
-  private readonly projectId = computed(() => this.tale()?.projectId);
+  protected readonly projectId = computed(() => this.tale()?.projectId);
   /**
    * The project theme's font-family list, for texts in the theme font (web zones R9): null when
    * the theme sets none; undefined until read, or when it cannot be read (the fallback shows).
    */
   protected readonly themeFont = signal<string | null | undefined>(undefined);
   private readonly themes = inject(ThemeService);
+  /** The project's fonts (R18), which the inspector offers; null until read, or when they cannot be read. */
+  protected readonly projectFonts = signal<readonly ProjectFont[] | null>(null);
+  private readonly fonts = inject(ProjectFontsService);
   /** What lies behind texts, for their contrast checks (R12): the canvas colour, and whether media covers it. */
   protected readonly backdrop = computed<TextBackdrop>(() => ({
     canvasColor: this.doc()?.canvas.background.color ?? '#000000',
@@ -1006,6 +1013,35 @@ export class TaleStudioPage implements OnChanges {
       const projectId = this.projectId();
       if (projectId) void untracked(() => this.loadThemeFont(projectId));
     });
+    // ...and its fonts.
+    effect(() => {
+      const projectId = this.projectId();
+      if (projectId) void untracked(() => this.loadProjectFonts(projectId));
+    });
+    // The project fonts the document uses load through the same code as the Web SDK's (R18): from
+    // their bytes, under their alias; texts show their fallback until then. Each loads once.
+    effect(() => {
+      const projectId = this.projectId();
+      const fonts = this.projectFonts();
+      const used = projectFontIds(this.doc());
+      if (!projectId || !fonts) return;
+      for (const font of fonts) {
+        if (!used.includes(font.id)) continue;
+        const face = {
+          id: font.id,
+          url: projectFontFileUrl(projectId, font.id),
+          weight: font.weight,
+          style: font.style,
+        };
+        void loadProjectFont(face, { credentials: 'same-origin' });
+      }
+    });
+  }
+
+  private async loadProjectFonts(projectId: string): Promise<void> {
+    const result = await this.fonts.list(projectId);
+    if (this.tale()?.projectId !== projectId) return;
+    this.projectFonts.set(result.value);
   }
 
   private async loadThemeFont(projectId: string): Promise<void> {

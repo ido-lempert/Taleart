@@ -304,6 +304,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/fonts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The project's fonts (epic Tale Studio R18), by family, weight and style.
+         * @description Every face uploaded to the project, with whether a tale's draft or published document uses it. Unknown project 404 `project_not_found`.
+         */
+        get: operations["listProjectFonts"];
+        put?: never;
+        /**
+         * Upload a font face to the project.
+         * @description The body is the font file's bytes, uncompressed (no `Content-Encoding`), sent as `font/woff2` or `application/octet-stream`, types a form cannot send without CORS preflight. Only WOFF2 is accepted, judged from the bytes: the `wOF2` signature, a header whose length is the file's, a TrueType, CFF or collection flavour, a reserved field of 0, 1 to 256 tables, a declared decoded size of at most 30 MB, and table and collection directories, metadata and compressed data that lie inside the file. Nothing is decompressed. At most 500 KB; a project holds at most 50 faces and 10 MB of font files. The query names the face (the family stored with its spaces collapsed) and carries the uploader's confirmation that they may use and distribute the font, which is stored with their id and name and the time. Admins and content managers upload. Checked in this order: unknown project 404 `project_not_found`; another type 415 `unsupported_media_type`; an invalid `family`, `weight`, `style` or `fallback` 400 `validation_failed`; no licence confirmation 400 `validation_failed`; too large 413 `media_too_large` (refused before the body is read when its declared length is too large, with `Connection: close`); a compressed body 415; a body that did not arrive whole 400; empty 400 `validation_failed`; not WOFF2 415 `unsupported_media_type`; 50 faces already 409 `font_limit_reached`; over 10 MB together 413 `font_storage_full`; a face with the same family (in any case), weight and style 409 `font_exists`.
+         */
+        post: operations["uploadProjectFont"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/fonts/{fontId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                fontId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a font face and its file.
+         * @description A font that any tale's draft or published document uses cannot be deleted: 409 `font_in_use`. Unknown font, or a font of another project: 404 `font_not_found`.
+         */
+        delete: operations["deleteProjectFont"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/fonts/{fontId}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                fontId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a font's file with a session, whether a published tale uses it or not.
+         * @description What Tale Studio and the font list load. `font/woff2`, cached privately with an opaque ETag (304 when it matches). Unknown font, or a font of another project: 404 `font_not_found`.
+         */
+        get: operations["getProjectFontFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/tags": {
         parameters: {
             query?: never;
@@ -637,14 +709,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The storage key of a published tale's media or a published tale group's cover, such as `tales/<uuid>.png` or `covers/<uuid>.webm`. It contains a slash, sent as is. */
+                /** @description The storage key of a published tale's media, a published tale group's cover or a project font a published tale uses, such as `tales/<uuid>.png`, `covers/<uuid>.webm` or `fonts/<uuid>.woff2`. It contains a slash, sent as is. */
                 key: string;
             };
             cookie?: never;
         };
         /**
          * Read a published tale's media file, with no credentials.
-         * @description Serves only keys that a published tale (a `live` tale of a `live` group, each inside its start and end time, AD-6) currently references; any other key, including the key of replaced media or of draft, paused, archived, scheduled or expired content, answers 404 `media_not_found` (AD-11). A tale group's cover is served while the group is delivered: `live`, inside its window, with at least one published tale. The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
+         * @description Serves only keys that a published tale (a `live` tale of a `live` group, each inside its start and end time, AD-6) currently references; any other key, including the key of replaced media or of draft, paused, archived, scheduled or expired content, answers 404 `media_not_found` (AD-11). A tale group's cover is served while the group is delivered: `live`, inside its window, with at least one published tale. A project font (`fonts/<uuid>.woff2`, epic Tale Studio R18) is served as `font/woff2` while a published tale of a delivered group (`live`, in its window, placed in a zone) has a published document with a visible text that uses it; any other font key answers 404. The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
          */
         get: operations["getPublicMedia"];
         put?: never;
@@ -1474,6 +1546,23 @@ export interface components {
             media: components["schemas"]["DeliveryMedia"] | null;
             /** @description The tale's document (AD-15) as SDKs render it over the media, or null when the tale has none: then it shows its media only. */
             document: components["schemas"]["DeliveryTaleDocument"] | null;
+            /** @description The project fonts the document's visible text uses (epic Tale Studio R18), left out when it uses none. SDKs fetch them only when the tale opens. */
+            fonts?: components["schemas"]["DeliveryFont"][];
+        };
+        DeliveryFont: {
+            /**
+             * Format: uuid
+             * @description The font id a text's `font.fontId` names.
+             */
+            id: string;
+            /**
+             * Format: uri
+             * @description The public `font/woff2` URL of the file (AD-11), open to any origin.
+             */
+            url: string;
+            weight: number;
+            /** @enum {string} */
+            style: "normal" | "italic";
         };
         /** @description A tale document as delivered (AD-15): hidden elements are removed, and so are the editor-only fields `hidden` and `locked`. Clients ignore fields they do not know and skip element types they do not know. */
         DeliveryTaleDocument: {
@@ -1494,6 +1583,31 @@ export interface components {
         };
         TaleDocument: components["schemas"]["v1.schema"];
         TextElementProps: components["schemas"]["text.schema"];
+        /** @description A font face uploaded to a project (epic Tale Studio R18). */
+        ProjectFont: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            /** @description The family name people read; never used as a CSS name. */
+            family: string;
+            weight: number;
+            /** @enum {string} */
+            style: "normal" | "italic";
+            /** @enum {string} */
+            fallback: "sans" | "serif" | "rounded" | "monospace";
+            sizeBytes: number;
+            /** @description Who uploaded the font and confirmed they may use and distribute it. */
+            licenceConfirmedBy: {
+                /** Format: uuid */
+                id: string | null;
+                name: string;
+            };
+            /** Format: date-time */
+            licenceConfirmedAt: string;
+            /** @description True while a tale's draft or published document uses the font, which then cannot be deleted. */
+            inUse: boolean;
+        };
         TaleDocumentRevision: {
             /** @description The tale's draft document, the one Tale Studio edits, or null when it has none. */
             document: components["schemas"]["v1.schema"] | null;
@@ -1837,7 +1951,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -1948,14 +2062,16 @@ export interface components {
          */
         "text.schema": {
             text: string;
-            /** @description Where the font comes from: a system stack of the font registry, the project theme's font, or a font-family list the host page loads (the theme's font-list rules, `isFontFamily`). Project fonts join later as another source. */
+            /** @description Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project (story 7.17), by its id. */
             font?: {
                 /** @enum {string} */
-                source: "system" | "theme" | "name";
+                source: "system" | "theme" | "name" | "project";
                 /** @enum {string} */
                 stack?: "sans" | "serif" | "rounded" | "monospace";
                 family?: string;
-            } & (unknown & unknown & unknown);
+                /** @description The id of a font of the tale's project (`project_fonts`). */
+                fontId?: string;
+            } & (unknown & unknown & unknown & unknown);
             /**
              * @description The system stack used until, or when, the font is not available.
              * @enum {string}
@@ -2406,6 +2522,132 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listProjectFonts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's fonts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFont"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    uploadProjectFont: {
+        parameters: {
+            query: {
+                /** @description One font name, the label people read: letters, digits, spaces and hyphens, starting with a letter, at most 100 characters, and no CSS-wide keyword (the theme's font-list rules). It never reaches CSS: the SDK draws the font under an alias made of its id. */
+                family: string;
+                weight: 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+                style: "normal" | "italic";
+                /** @description The system stack text shows until, or when, the font is not available. */
+                fallback: "sans" | "serif" | "rounded" | "monospace";
+                /** @description `confirmed`: the uploader may use and distribute this font. */
+                licence: "confirmed";
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "font/woff2": string;
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The new font face. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFont"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteProjectFont: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                fontId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The font and its file are gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getProjectFontFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                fontId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The font file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "font/woff2": string;
+                };
+            };
+            /** @description The client's copy, named by `If-None-Match`, is still current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -3020,7 +3262,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The storage key of a published tale's media or a published tale group's cover, such as `tales/<uuid>.png` or `covers/<uuid>.webm`. It contains a slash, sent as is. */
+                /** @description The storage key of a published tale's media, a published tale group's cover or a project font a published tale uses, such as `tales/<uuid>.png`, `covers/<uuid>.webm` or `fonts/<uuid>.woff2`. It contains a slash, sent as is. */
                 key: string;
             };
             cookie?: never;
@@ -3039,6 +3281,7 @@ export interface operations {
                     "image/gif": string;
                     "video/mp4": string;
                     "video/webm": string;
+                    "font/woff2": string;
                 };
             };
             /** @description The requested byte range of the media file. */
@@ -3805,11 +4048,18 @@ type ReadonlyArray<T> = [
 ] extends [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
+export const pathsProjectsProjectIdFontsPostParametersQueryWeightValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["weight"]> = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["style"]> = ["normal", "italic"];
+export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
+export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
 export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ContentStatus"]> = ["draft", "live", "scheduled", "processing", "invalid-media", "paused", "blocked-by-group", "expired", "quota-reached", "archived"];
 export const setStatusRequestStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SetStatusRequest"]["status"]> = ["live", "paused", "archived"];
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const ringStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["RingStyle"]> = ["gradient", "solid", "none"];
+export const deliveryFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryFont"]["style"]> = ["normal", "italic"];
+export const projectFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["style"]> = ["normal", "italic"];
+export const projectFontFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const importEntityChoiceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportEntityChoice"]> = ["taleGroups", "media", "tags"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
@@ -3817,8 +4067,8 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "internal_error"];
-export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "internal_error"];
+export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];
 export const textSchemaFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const textSchemaWeightValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["weight"]> = ["regular", "medium", "bold"];

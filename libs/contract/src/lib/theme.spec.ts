@@ -114,6 +114,11 @@ describe('theme', () => {
     '-apple-system, sans-serif',
     '1font',
     'Georgia, 9serif',
+    // The project fonts' internal names (story 7.17), in any case, bare or quoted.
+    'taleart-font-0f0e0d0c-0000-4000-8000-00000000000a',
+    'Georgia, TaleArt-Font-x',
+    '"TALEART-FONT-x", serif',
+    "'taleart-font-'",
   ])('refuses the font-family %j', (value) => {
     expect(isFontFamily(value)).toBe(false);
     expect(themeSettingsError({ fontFamily: value })).toMatch(/^theme\.fontFamily /);
@@ -247,7 +252,15 @@ describe('theme schema in the OpenAPI document', () => {
   it('agrees with the validator on sample values through the OpenAPI patterns', () => {
     const font = new RegExp(p('fontFamily'));
     const background = new RegExp(p('backgroundColor'));
-    for (const value of ['Georgia, serif', 'inherit', '-apple-system', '"Default"', 'a;b']) {
+    for (const value of [
+      'Georgia, serif',
+      'inherit',
+      '-apple-system',
+      '"Default"',
+      'a;b',
+      'taleart-font-x',
+      'Mytaleart-font',
+    ]) {
       expect(font.test(value)).toBe(isFontFamily(value));
     }
     for (const value of ['transparent', '#ffffff', '#fff', 'none']) {
