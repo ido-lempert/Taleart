@@ -1,7 +1,7 @@
 import { normalizeTagName, type Tag, type TaleGroupTag } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
 import { taleGroupProjectId, TaleGroupNotFoundError } from '@taleart/server-tales';
-import { InvalidTagNameError, TagExistsError, TagNotFoundError } from './errors';
+import { InvalidTagNameError, TagExistsError, TagNotFoundError, TagProjectNotFoundError } from './errors';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -153,11 +153,7 @@ export async function copyTaleGroupTags(
     const names = source.rows.map((r) => r.name);
     // A concurrent create of the same name waits on the unique index, then
     // this insert skips it and the select below finds it.
-    await tx.query(
-      `INSERT INTO tags (project_id, name) SELECT $1, name FROM unnest($2::text[]) AS name
-       ON CONFLICT (project_id, lower(name)) DO NOTHING`,
-      [input.projectId, names],
-    );
+    await tx.query(INSERT_TAGS, [input.projectId, names]);
     await tx.query(
       `INSERT INTO tale_group_tags (tale_group_id, tag_id, project_id)
        SELECT $1, tags.id, $2 FROM tags
@@ -167,6 +163,42 @@ export async function copyTaleGroupTags(
     );
   }
   return (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [];
+}
+
+/**
+ * Creates the names a project lacks, ignoring case. Rows are inserted in one
+ * order, by `lower(name)`, for every caller: two concurrent inserts of
+ * overlapping names then wait on each other in the same order and cannot
+ * deadlock on the unique index.
+ */
+const INSERT_TAGS = `INSERT INTO tags (project_id, name)
+  SELECT $1, name FROM unnest($2::text[]) AS name ORDER BY lower(name), name
+  ON CONFLICT (project_id, lower(name)) DO NOTHING`;
+
+const pgCode = (err: unknown): string | undefined => (err as { code?: string } | null)?.code;
+const pgConstraint = (err: unknown): string | undefined => (err as { constraint?: string } | null)?.constraint;
+
+// Runs `work` again once when PostgreSQL broke a deadlock by failing it (40P01): sorted inserts make one rare.
+async function retryDeadlockOnce<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if (pgCode(err) !== '40P01') throw err;
+    return work();
+  }
+}
+
+// A foreign-key failure on the project's tags as the error it means: the project or the group is gone.
+function missingParent(err: unknown, projectId: string, taleGroupId?: string): unknown {
+  if (pgCode(err) !== '23503') return err;
+  const constraint = pgConstraint(err);
+  if (constraint === 'tags_project_id_fkey' || constraint === 'tale_group_tags_project_id_fkey') {
+    return new TagProjectNotFoundError(projectId);
+  }
+  if (taleGroupId !== undefined && constraint === 'tale_group_tags_tale_group_id_project_id_fkey') {
+    return new TaleGroupNotFoundError(taleGroupId);
+  }
+  return err;
 }
 
 // Valid tag names, each once as stored (trimmed): an invalid one throws before anything is written.
@@ -188,11 +220,7 @@ function tagNames(names: readonly string[]): string[] {
 async function findOrCreateTags(tx: Db, projectId: string, names: readonly string[]): Promise<Map<string, Tag>> {
   const byName = new Map<string, Tag>();
   if (names.length === 0) return byName;
-  await tx.query(
-    `INSERT INTO tags (project_id, name) SELECT $1, name FROM unnest($2::text[]) AS name
-     ON CONFLICT (project_id, lower(name)) DO NOTHING`,
-    [projectId, names],
-  );
+  await tx.query(INSERT_TAGS, [projectId, names]);
   const { rows } = await tx.query<Tag & { requested: string }>(
     `SELECT requested.name AS requested, tags.id, tags.project_id AS "projectId", tags.name
      FROM unnest($2::text[]) AS requested(name)
@@ -206,20 +234,28 @@ async function findOrCreateTags(tx: Db, projectId: string, names: readonly strin
 /**
  * The project's tags with these names, ignoring case: an existing tag is
  * reused with its spelling, a missing one is created. Names are trimmed and
- * must hold 1 to 40 characters, else {@link InvalidTagNameError} and nothing
- * is written. Keyed by each trimmed name. The caller checks the project exists.
+ * must hold 1 to 40 characters and no control character, else
+ * {@link InvalidTagNameError} and nothing is written. Keyed by each trimmed
+ * name. A project that is gone throws {@link TagProjectNotFoundError}.
  */
 export async function ensureTags(db: Db, projectId: string, names: readonly string[]): Promise<Map<string, Tag>> {
-  return findOrCreateTags(db, projectId, tagNames(names));
+  const wanted = tagNames(names);
+  try {
+    return await retryDeadlockOnce(() => findOrCreateTags(db, projectId, wanted));
+  } catch (err) {
+    throw missingParent(err, projectId);
+  }
 }
 
 /**
  * Adds tags to a tale group by name, in its project, keeping every tag it
  * already carries: each name finds the project's tag ignoring case, or
  * creates it, and a tag the group carries is not added twice. Nothing is ever
- * removed. Names are trimmed and must hold 1 to 40 characters
- * ({@link InvalidTagNameError}). Throws {@link TaleGroupNotFoundError} for an
- * unknown group, also one deleted meanwhile. Returns the tag of each trimmed name.
+ * removed. Names are trimmed and must hold 1 to 40 characters and no control
+ * character ({@link InvalidTagNameError}). Throws {@link TaleGroupNotFoundError}
+ * for an unknown group, also one deleted meanwhile, and
+ * {@link TagProjectNotFoundError} when its project is gone. Returns the tag of
+ * each trimmed name.
  */
 export async function addTaleGroupTagsByName(
   db: TransactionalDb,
@@ -233,8 +269,8 @@ export async function addTaleGroupTagsByName(
   const projectId = UUID.test(taleGroupId) ? await taleGroupProjectId(db, taleGroupId) : null;
   if (projectId === null) throw new TaleGroupNotFoundError(taleGroupId);
   if (wanted.length === 0) return new Map();
-  try {
-    return await inTransaction(db, async (tx) => {
+  const add = () =>
+    inTransaction(db, async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_group_tags:' || $1, 0))", [taleGroupId]);
       const tags = await findOrCreateTags(tx, projectId, wanted);
       await tx.query(
@@ -243,11 +279,14 @@ export async function addTaleGroupTagsByName(
          ON CONFLICT (tale_group_id, tag_id) DO NOTHING`,
         [taleGroupId, projectId, [...new Set([...tags.values()].map((tag) => tag.id))]],
       );
-      return new Map([...tags].map(([name, tag]): [string, TaleGroupTag] => [name, { id: tag.id, name: tag.name }]));
+      return new Map(
+        [...tags].map(([name, tag]): [string, TaleGroupTag] => [name, { id: tag.id, name: tag.name }]),
+      );
     });
+  try {
+    return await retryDeadlockOnce(add);
   } catch (err) {
-    // The group was deleted after its project was read, so its key no longer matches.
-    if ((err as { code?: string }).code === '23503') throw new TaleGroupNotFoundError(taleGroupId);
-    throw err;
+    // The group (or its project) was deleted after the project was read, so its key no longer matches.
+    throw missingParent(err, projectId, taleGroupId);
   }
 }

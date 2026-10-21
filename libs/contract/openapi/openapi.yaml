@@ -424,7 +424,7 @@ paths:
       operationId: createTag
       summary: Create a tag in a project.
       description: >-
-        The name is trimmed and holds 1 to 40 characters (400
+        The name is trimmed and holds 1 to 40 characters and no control characters (400
         `validation_failed` otherwise). Names are unique per project ignoring
         case; a taken name answers 409 `tag_exists`. Unknown project 404
         `project_not_found`.
@@ -2652,9 +2652,11 @@ components:
         tags:
           $ref: '#/components/schemas/ImportCount'
           description: >-
-            Labels as tags: the distinct label texts read from the labels list and the story groups, how many are
-            carried by a tag of the project now, and how many could not become a tag (each listed as a difference).
-            Absent in reports of imports made before labels were imported.
+            Labels as tags, counted per occurrence: every label read (each entry of the labels list and each value
+            of a story group's segments), how many are carried by a tag of the project now, and how many are not.
+            Each skipped label is listed as a difference, counted in differencesOmitted when its record or the
+            report is full, or counted in a note (a repeated list record, or a label past an import limit). Absent
+            in reports of imports made before labels were imported.
         notes:
           type: array
           description: What did not come across, such as "frame type unknown" for each zone or a skipped tale.
@@ -2692,10 +2694,10 @@ components:
         without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason).
     ImportTagFailure:
       type: string
-      enum: [blank, tooLong, notText]
+      enum: [blank, tooLong, notText, invalidCharacters]
       description: >-
         Why a label did not become a tag. blank: it holds no text; tooLong: longer than a tag name may be;
-        notText: the value is not text.
+        notText: the value is not text; invalidCharacters: it holds control characters, which a tag name may not.
     ImportMediaFailure:
       type: string
       enum: [invalidUrl, blockedAddress, unreachable, timeout, tooManyRedirects, httpError, tooLarge, unsupportedType, jobBudgetExceeded]

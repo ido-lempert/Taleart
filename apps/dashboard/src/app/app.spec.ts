@@ -3516,12 +3516,25 @@ describe('App', () => {
     it('shows the tags row and why a label did not become a tag, after the other entities', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       const blank = { sourceId: null, name: null, within: 'Odd labels', withinSourceId: '3402', position: 1 };
-      const long = { sourceId: null, name: 'A label far too long', within: 'Odd labels', withinSourceId: '3402', position: 3 };
-      const group = { sourceId: '3404', name: 'Bad segments', within: 'Label wall', withinSourceId: '2401', position: 4 };
+      const long = {
+        sourceId: null,
+        name: 'A label far too long',
+        within: 'Odd labels',
+        withinSourceId: '3402',
+        position: 3,
+      };
+      const group = {
+        sourceId: '3404',
+        name: 'Bad segments',
+        within: 'Label wall',
+        withinSourceId: '2401',
+        position: 4,
+      };
       const differences = [
         { ...difference('tag', blank, 'tagNotImported', 'segments'), reason: 'blank' },
         { ...difference('tag', long, 'tagNotImported', 'segments'), reason: 'tooLong' },
         { ...difference('tag', { ...blank, position: 4 }, 'tagNotImported', 'segments'), reason: 'notText' },
+        { ...difference('tag', { ...blank, position: 9 }, 'tagNotImported', 'segments'), reason: 'invalidCharacters' },
         difference('taleGroup', group, 'wrongType', 'segments'),
       ];
       await answerPoll(
@@ -3551,6 +3564,7 @@ describe('App', () => {
         'Record 1 in "Odd labels" | segments: label not imported (blank)',
         '"A label far too long" in "Odd labels" | segments: label not imported (longer than 40 characters)',
         'Record 4 in "Odd labels" | segments: label not imported (not text)',
+        'Record 9 in "Odd labels" | segments: label not imported (holds control characters)',
       ]);
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
