@@ -135,7 +135,7 @@ export async function recoverStaleJobs(
     [staleAfterMs, maxAttempts],
   );
   const requeued = await db.query(
-    `UPDATE import_jobs SET status = 'queued', locked_by = NULL, heartbeat_at = NULL, started_at = NULL
+    `UPDATE import_jobs SET status = 'queued', locked_by = NULL, heartbeat_at = NULL, started_at = NULL, progress = NULL
      WHERE ${stale}`,
     [staleAfterMs],
   );

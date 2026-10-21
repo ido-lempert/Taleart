@@ -16,12 +16,12 @@ export const IMPORT_POLL_INTERVAL_MS = new InjectionToken<number>('IMPORT_POLL_I
   factory: () => 2000,
 });
 
-/** A call's result: the value, or the message to show. */
-export type ImportResult<T> = { value: T; message: '' } | { value: null; message: string };
+/** A call's result: the value, or the message to show and the HTTP status (0 when no answer came). */
+export type ImportResult<T> = { value: T; message: '' } | { value: null; message: string; status: number };
 
 function failure<T>(err: unknown, fallback: string): ImportResult<T> {
   const message = err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
-  return { value: null, message };
+  return { value: null, message, status: err instanceof HttpErrorResponse ? err.status : 0 };
 }
 
 function importsUrl(projectId: string): string {

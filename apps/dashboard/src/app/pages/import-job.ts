@@ -1,4 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  input,
+  OnInit,
+  signal,
+  untracked,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { isImportActive, type ImportJob } from '@taleart/contract';
 import { AuthStore } from '../auth';
@@ -205,34 +216,46 @@ export class ImportJobPage implements OnInit {
       this.destroyed = true;
       clearTimeout(this.timer);
     });
+    // The router reuses this page when only `:importId` changes: follow the new import from the start.
+    effect(() => {
+      const importId = this.importId();
+      untracked(() => this.follow(importId));
+    });
   }
 
   ngOnInit(): void {
     // The imported zones show on the Zones page of this project.
     this.store.selectProject(this.projectId());
-    if (this.auth.isAdmin()) void this.read();
   }
 
-  private schedule(): void {
+  private follow(importId: string): void {
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.read(), this.pollInterval);
+    this.job.set(null);
+    this.error.set('');
+    if (this.auth.isAdmin()) void this.read(importId);
   }
 
-  private async read(): Promise<void> {
-    const wasActive = this.active();
-    const { value, message } = await this.imports.job(this.projectId(), this.importId());
-    if (this.destroyed) return;
-    if (value === null) {
-      this.error.set(message);
-      // A job we were following keeps running on the server: try again at the next poll.
-      // A job that could not be read at all (such as an unknown id) is not retried.
-      if (wasActive) this.schedule();
+  private schedule(importId: string): void {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.read(importId), this.pollInterval);
+  }
+
+  private async read(importId: string): Promise<void> {
+    const result = await this.imports.job(this.projectId(), importId);
+    // The page was left, or moved on to another import meanwhile.
+    if (this.destroyed || this.importId() !== importId) return;
+    if (result.value === null) {
+      this.error.set(result.message);
+      // No access or no such import: reading again cannot help. Anything else
+      // (no connection, a server error) may pass, so try again at the next poll.
+      if (result.status !== 403 && result.status !== 404) this.schedule(importId);
       return;
     }
+    const value = result.value;
     this.error.set('');
     this.job.set(value);
     if (isImportActive(value.status)) {
-      this.schedule();
+      this.schedule(importId);
     } else if (value.status === 'done') {
       // The import may have added zones since the dashboard loaded: load them so
       // the Zones page and project cards show them.

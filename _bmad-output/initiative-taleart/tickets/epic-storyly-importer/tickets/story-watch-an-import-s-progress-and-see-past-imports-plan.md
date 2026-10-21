@@ -3,7 +3,7 @@ title: 'Watch an import''s progress and see past imports'
 type: 'feature'
 ticket: '4'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '9adf4bebe0788c49cb92403673b5ee94442dbf13'
 route: 'full'
 route_source: 'auto'
@@ -101,6 +101,14 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Coordinator review
+- verdicts: 4 findings, all patched
+- findings:
+  - `[patch]` `recoverStaleJobs` re-queued a job without clearing `progress`, so a recovered job read queued, `startedAt` null and stale progress. Fixed: the re-queue also sets `progress = NULL`. Added an integration test for the "Re-claimed" row: the recovered job reads progress null, and progress counts again from the start after the next claim. `recoverStaleJobs` is now exported for that test.
+  - `[patch]` The job page never polled again after a failed first read. Fixed: a failed read is retried at the next poll unless the API answered 403 or 404. `ImportResult` failures now carry the HTTP status, or 0 when no answer came. Component tests: a 500 on the first read is retried, and 403 and 404 are not.
+  - `[patch]` The job page ignored a change of `:importId`, since the router reuses the component. Fixed: an effect on the `importId` input clears the job and error, cancels the poll and follows the new import; a response for the previous id is ignored. Component test.
+  - `[patch]` The matrix "Re-claimed" row had no integration test. Covered by the test added for the first finding.
+
 ## Verification
 
 **Commands:**
@@ -120,11 +128,13 @@ deferred: []
 - `apps/dashboard/src/app/pages/import.ts`, `pages/import-job.ts` (new), `pages/import-shared.ts` (new), `import.service.ts`, `app.routes.ts`, `app.spec.ts`: job page with progress, history list; tests.
 - `apps/fake-storyly/src/fake-storyly.mjs`, `main.mjs`, `fake-storyly.spec.mjs`, `.env.example`: delay and failure switches.
 
-**Review:** not run (unreviewed build).
+**Review:** coordinator review, 4 findings, all patched (see Review Triage Log).
 
 **Follow-up review recommended:** true. The dashboard flow changed shape (two routes instead of one in-memory state), and progress writes share the heartbeat's claim guard.
 
-**Verification:** `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` passed for all 12 projects against `taleart_w3_test`: api 209, dashboard 98, server-importer 38, fake-storyly 9 tests; no lint warnings (only the pre-existing dashboard bundle budget warning). The fake server was started on a free port with `FAKE_STORYLY_DELAY_MS=300 FAKE_STORYLY_FAIL=stories` and answered slowly with a 500 on the story list, then stopped.
+**Verification (review fixes):** `nx run-many -t lint test build -p api dashboard contract server-importer fake-storyly` passed: api 210, dashboard 101, server-importer 38, contract 14, fake-storyly 9 tests.
+
+**Verification (build):** `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` passed for all 12 projects against `taleart_w3_test`: api 209, dashboard 98, server-importer 38, fake-storyly 9 tests; no lint warnings (only the pre-existing dashboard bundle budget warning). The fake server was started on a free port with `FAKE_STORYLY_DELAY_MS=300 FAKE_STORYLY_FAIL=stories` and answered slowly with a 500 on the story list, then stopped.
 
 **Residual risks:**
 - Progress lags by up to one record, and during a long single source request (slow list) nothing moves until the next record.

@@ -18,6 +18,7 @@ export {
   createImportJob,
   getImportJob,
   listImportJobs,
+  recoverStaleJobs,
   progressOf,
   IMPORT_LIST_LIMIT,
   type ClaimedJob,
