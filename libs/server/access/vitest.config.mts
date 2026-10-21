@@ -1,11 +1,10 @@
 import { defineConfig } from 'vitest/config';
-import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
-import { nxCopyAssetsPlugin } from '@nx/vite/plugins/nx-copy-assets.plugin';
 
 export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../../node_modules/.vite/libs/server/access',
-  plugins: [nxViteTsPaths(), nxCopyAssetsPlugin(['*.md'])],
+  // Resolves the @taleart/* aliases from tsconfig.base.json (Vite native; replaces the deprecated nxViteTsPaths).
+  resolve: { tsconfigPaths: true },
   test: {
     name: 'server-access',
     watch: false,
