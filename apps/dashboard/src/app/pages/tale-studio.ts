@@ -5,6 +5,7 @@ import {
   ELEMENT_TEXT_RULE,
   emptyTaleDocument,
   ErrorCodes,
+  elementBounds,
   isOutsideSafeArea,
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
@@ -24,7 +25,8 @@ import {
   clamp,
   clampMove,
   duplicateElement,
-  LAYER_SHORTCUTS,
+  isApple,
+  LAYER_KEYSHORTCUTS,
   layerName,
   layerShortcut,
   moveBox,
@@ -32,6 +34,7 @@ import {
   round,
   snap,
   SNAP_DISTANCE_PX,
+  shortcutLabel,
   snapTargets,
   type LayerCommand,
   type ReorderCommand,
@@ -125,7 +128,8 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
       justify-content: center;
       margin: 0;
       padding: 0;
-      border: 1px dashed rgb(255 255 255 / 60%);
+      border: 1px dashed #fff;
+      outline: 1px solid rgb(0 0 0 / 70%);
       background: transparent;
       text-align: center;
       white-space: pre-wrap;
@@ -137,6 +141,8 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
     }
     .el.is-selected {
       border: 2px solid var(--ember);
+      box-shadow: inset 0 0 0 1px #fff;
+      outline: 2px solid #000;
     }
     .el.is-locked {
       cursor: default;
@@ -155,6 +161,9 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
     }
     .snap-line {
       background: var(--ember);
+      box-shadow:
+        0 0 0 1px #fff,
+        0 0 0 2px #000;
     }
     .snap-line--x {
       top: 0;
@@ -275,6 +284,7 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                     [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
                     [attr.aria-label]="'Text: ' + name(el)"
                     [attr.aria-describedby]="'layer-state-' + el.id"
+                    [attr.aria-keyshortcuts]="keyShortcuts"
                     [textContent]="el.props.text"
                     [style.left.%]="el.box.x * 100"
                     [style.top.%]="el.box.y * 100"
@@ -331,82 +341,118 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
               </div>
               <p class="field__hint" id="studio-keys">
                 Select a text to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
-                stops editing, the Delete key removes it. Dragging snaps to the centre, the safe areas and other layers;
-                hold Alt to place freely.
+                stops editing. Dragging snaps to the centre, the safe areas and other layers; hold Alt to place freely.
+                On the canvas and in the layers list: {{ keys.forward }} and {{ keys.backward }} reorder,
+                {{ keys.front }} and {{ keys.back }} bring to the front or the back, H hides, L locks, D duplicates,
+                {{ keys.delete }} deletes, {{ keys['select-all'] }} selects all, and the context-menu key or Shift+F10
+                opens the actions.
               </p>
               <section class="field" aria-labelledby="layers-title">
                 <h4 class="field__label" id="layers-title">Layers</h4>
                 <p class="field__hint" id="layers-hint">
-                  Top layer first. Shift+click or Shift+Space adds a layer to the selection, Ctrl+A selects all. Alt+Up
-                  and Alt+Down reorder; Shift+F10 opens a layer's actions.
+                  Top layer first. The up and down arrows move between layers, left and right between a layer's
+                  controls. {{ multiHint }} adds a layer to the selection.
                 </p>
                 @if (layerRows().length === 0) {
                   <p class="muted">No layers yet.</p>
                 } @else {
-                  <ol class="layers" aria-labelledby="layers-title" aria-describedby="layers-hint">
+                  <div
+                    class="layers"
+                    role="grid"
+                    aria-labelledby="layers-title"
+                    aria-describedby="layers-hint"
+                    aria-multiselectable="true"
+                  >
                     @for (row of layerRows(); track row.el.id) {
-                      <li class="layer" [class.is-selected]="isSelected(row.el.id)" [class.is-hidden]="row.el.hidden">
-                        <button
-                          type="button"
+                      <div
+                        class="layer"
+                        role="row"
+                        [class.is-selected]="isSelected(row.el.id)"
+                        [class.is-hidden]="row.el.hidden"
+                        [attr.aria-selected]="isSelected(row.el.id)"
+                      >
+                        <div
+                          role="gridcell"
                           class="layer__select"
                           [id]="'layer-' + row.el.id"
-                          [attr.aria-pressed]="isSelected(row.el.id)"
-                          [attr.aria-describedby]="'layer-state-' + row.el.id"
+                          [attr.tabindex]="tabIndex(row.el.id, 0)"
+                          [attr.aria-keyshortcuts]="keyShortcuts"
                           (click)="pick($event, row.el.id)"
-                          (keydown)="onRowKey($event, row.el)"
+                          (focus)="activate(row.el.id, 0)"
+                          (keydown)="onCellKey($event, row.el, 0)"
                           (contextmenu)="openMenuAt($event, row.el, 'list')"
                         >
-                          <app-icon name="text" />
-                          <span class="visually-hidden">Text: </span>
-                          <span class="layer__name">{{ row.name }}</span>
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn--ghost layer__toggle"
-                          [id]="'layer-hide-' + row.el.id"
-                          [attr.aria-label]="'Hide ' + row.name"
-                          [attr.aria-pressed]="row.el.hidden"
-                          [attr.aria-keyshortcuts]="shortcuts.hide?.aria"
-                          (click)="run('hide', 'list', 'layer-hide-' + row.el.id, row.el.id)"
-                        >
-                          <app-icon [name]="row.el.hidden ? 'eye-off' : 'eye'" />
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn--ghost layer__toggle"
-                          [id]="'layer-lock-' + row.el.id"
-                          [attr.aria-label]="'Lock ' + row.name"
-                          [attr.aria-pressed]="row.el.locked"
-                          [attr.aria-keyshortcuts]="shortcuts.lock?.aria"
-                          (click)="run('lock', 'list', 'layer-lock-' + row.el.id, row.el.id)"
-                        >
-                          <app-icon [name]="row.el.locked ? 'lock' : 'unlock'" />
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn--ghost layer__toggle"
-                          [id]="'layer-more-' + row.el.id"
-                          [attr.aria-label]="'More actions for ' + row.name"
-                          aria-haspopup="menu"
-                          [attr.aria-expanded]="menu()?.returnId === 'layer-more-' + row.el.id"
-                          (click)="openMenuFrom($any($event.currentTarget), row.el)"
-                        >
-                          <app-icon name="more" />
-                        </button>
-                        <span class="layer__state" [id]="'layer-state-' + row.el.id">
-                          @if (row.el.hidden) {
-                            <span>Hidden</span>
-                          }
-                          @if (row.el.locked) {
-                            <span>Locked</span>
-                          }
-                          @if (row.outside) {
-                            <span class="layer__warning"><app-icon name="alert" /> Outside safe area</span>
-                          }
-                        </span>
-                      </li>
+                          <span class="layer__line">
+                            <app-icon name="text" />
+                            <span class="visually-hidden">Text: </span>
+                            <span class="layer__name">{{ row.name }}</span>
+                          </span>
+                          <span class="layer__state" [id]="'layer-state-' + row.el.id">
+                            @if (row.el.hidden) {
+                              <span>Hidden</span>
+                            }
+                            @if (row.el.locked) {
+                              <span>Locked</span>
+                            }
+                            @if (row.outside) {
+                              <span class="layer__warning"><app-icon name="alert" /> Outside safe area</span>
+                            }
+                          </span>
+                        </div>
+                        <div role="gridcell">
+                          <button
+                            type="button"
+                            class="btn btn--ghost layer__toggle"
+                            [id]="'layer-hide-' + row.el.id"
+                            [attr.tabindex]="tabIndex(row.el.id, 1)"
+                            [attr.aria-label]="'Hide ' + row.name"
+                            [attr.aria-pressed]="row.el.hidden"
+                            aria-keyshortcuts="H"
+                            (click)="run('hide', 'list', 'layer-hide-' + row.el.id, row.el.id)"
+                            (focus)="activate(row.el.id, 1)"
+                            (keydown)="onCellKey($event, row.el, 1)"
+                            (contextmenu)="openMenuAt($event, row.el, 'list')"
+                          >
+                            <app-icon [name]="row.el.hidden ? 'eye-off' : 'eye'" />
+                          </button>
+                        </div>
+                        <div role="gridcell">
+                          <button
+                            type="button"
+                            class="btn btn--ghost layer__toggle"
+                            [id]="'layer-lock-' + row.el.id"
+                            [attr.tabindex]="tabIndex(row.el.id, 2)"
+                            [attr.aria-label]="'Lock ' + row.name"
+                            [attr.aria-pressed]="row.el.locked"
+                            aria-keyshortcuts="L"
+                            (click)="run('lock', 'list', 'layer-lock-' + row.el.id, row.el.id)"
+                            (focus)="activate(row.el.id, 2)"
+                            (keydown)="onCellKey($event, row.el, 2)"
+                            (contextmenu)="openMenuAt($event, row.el, 'list')"
+                          >
+                            <app-icon [name]="row.el.locked ? 'lock' : 'unlock'" />
+                          </button>
+                        </div>
+                        <div role="gridcell">
+                          <button
+                            type="button"
+                            class="btn btn--ghost layer__toggle"
+                            [id]="'layer-more-' + row.el.id"
+                            [attr.tabindex]="tabIndex(row.el.id, 3)"
+                            [attr.aria-label]="'More actions for ' + row.name"
+                            aria-haspopup="menu"
+                            [attr.aria-expanded]="menu()?.returnId === 'layer-more-' + row.el.id"
+                            (click)="openMenuFrom($any($event.currentTarget), row.el)"
+                            (focus)="activate(row.el.id, 3)"
+                            (keydown)="onCellKey($event, row.el, 3)"
+                            (contextmenu)="openMenuAt($event, row.el, 'list')"
+                          >
+                            <app-icon name="more" />
+                          </button>
+                        </div>
+                      </div>
                     }
-                  </ol>
+                  </div>
                 }
               </section>
               @if (selected(); as el) {
@@ -500,7 +546,8 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                       type="text"
                       spellcheck="false"
                       autocomplete="off"
-                      aria-describedby="studio-bg-hint"
+                      [attr.aria-describedby]="hexError() ? 'studio-bg-hint studio-bg-error' : 'studio-bg-hint'"
+                      [attr.aria-invalid]="hexError() ? 'true' : null"
                       [value]="d.canvas.background.color"
                       (change)="setBackgroundHex($any($event.target))"
                     />
@@ -509,6 +556,9 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                 <span class="field__hint" id="studio-bg-hint">
                   As #RRGGBB, or #RRGGBBAA with transparency. It fills the canvas behind the tale's media.
                 </span>
+                @if (hexError()) {
+                  <span class="field__error" id="studio-bg-error">{{ hexError() }}</span>
+                }
                 <label class="checkbox">
                   <input type="checkbox" [checked]="guides()" (change)="showGuides($any($event.target).checked)" />
                   Show safe areas
@@ -536,6 +586,7 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
               [items]="m.items"
               [x]="m.x"
               [y]="m.y"
+              [anchorId]="m.returnId"
               (chosen)="menuChosen($event)"
               (closed)="closeMenu($event)"
             />
@@ -589,7 +640,21 @@ export class TaleStudioPage implements OnInit {
   protected readonly textStyle = TEXT_ELEMENT_STYLE;
   protected readonly fontSize = `${TEXT_ELEMENT_STYLE.fontSize * 100}cqh`;
   protected readonly safeArea = TALE_SAFE_AREA;
-  protected readonly shortcuts = LAYER_SHORTCUTS;
+  private readonly apple = isApple();
+  /** Each layer shortcut as people read it on this platform. */
+  protected readonly keys = Object.fromEntries(
+    (['forward', 'backward', 'front', 'back', 'hide', 'lock', 'duplicate', 'delete', 'select-all'] as const).map(
+      (command) => [command, shortcutLabel(command, this.apple)],
+    ),
+  ) as Record<LayerCommand, string>;
+  protected readonly keyShortcuts = LAYER_KEYSHORTCUTS;
+  protected readonly multiHint = this.apple
+    ? 'Shift+click, ⌘+click, or Shift+Space'
+    : 'Shift+click, Ctrl+click, or Shift+Space';
+  /** Why the hex field's value was refused, shown under it; empty when it was not. */
+  protected readonly hexError = signal('');
+  /** The layers list's one tab stop (roving tabindex): a layer and its column. */
+  private readonly active = signal<{ id: string; col: number } | null>(null);
   protected readonly lockedHint = LOCKED;
 
   protected readonly tale = computed(() => this.store.tale(this.taleId()));
@@ -680,6 +745,18 @@ export class TaleStudioPage implements OnInit {
     return this.selectedSet().has(id);
   }
 
+  /** The layers list is one tab stop: the cell last focused, else the top layer's name. */
+  protected tabIndex(id: string, col: number): number {
+    const rows = this.layerRows();
+    const active = this.active();
+    const current = active && rows.some((r) => r.el.id === active.id) ? active : { id: rows[0]?.el.id, col: 0 };
+    return current.id === id && current.col === col ? 0 : -1;
+  }
+
+  protected activate(id: string, col: number): void {
+    this.active.set({ id, col });
+  }
+
   private selectOnly(id: string | null): void {
     this.selection.set(id === null ? [] : [id]);
   }
@@ -699,7 +776,8 @@ export class TaleStudioPage implements OnInit {
       this.dragged = false;
       return;
     }
-    if (event.shiftKey || event.ctrlKey || event.metaKey) this.toggleSelected(id);
+    // On a Mac, Ctrl+click is the context menu; Cmd+click adds to the selection there.
+    if (event.shiftKey || event.metaKey || (event.ctrlKey && !this.apple)) this.toggleSelected(id);
     else this.selectOnly(id);
   }
 
@@ -890,23 +968,18 @@ export class TaleStudioPage implements OnInit {
         this.selection.set(doc.elements.map((e) => e.id));
         this.say(`All ${doc.elements.length} layers selected`);
         break;
-      case 'menu':
-        return;
     }
     this.focusSoon(returnId);
   }
 
-  // A layer shortcut pressed on a canvas element or a layer row; true when it was one.
+  // A layer shortcut pressed on a canvas element or in the layers list; true when it was one. Hide,
+  // lock and duplicate act on the focused layer; the others on the selection, which holds it.
   private shortcut(event: KeyboardEvent, element: TaleElement, origin: Origin): boolean {
-    const command = layerShortcut(event);
+    const command = layerShortcut(event, this.apple);
     if (!command) return false;
     event.preventDefault();
     if (!this.isSelected(element.id) && command !== 'select-all') this.selectOnly(element.id);
-    const control = event.currentTarget as HTMLElement;
-    if (command === 'menu') {
-      const rect = control.getBoundingClientRect();
-      this.openMenu(rect.left, rect.bottom, origin, control.id);
-    } else this.run(command, origin, control.id);
+    this.run(command, origin, (event.currentTarget as HTMLElement).id, element.id);
     return true;
   }
 
@@ -940,29 +1013,57 @@ export class TaleStudioPage implements OnInit {
     }
   }
 
-  /** Keys on a layer row: the layer shortcuts, Shift+Space, and the arrows, Home and End to move between rows. */
-  protected onRowKey(event: KeyboardEvent, element: TaleElement): void {
-    if (this.shortcut(event, element, 'list') || this.selectionKey(event, element.id)) return;
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  /**
+   * Keys in the layers list, a WAI-ARIA grid: the layer shortcuts; Shift+Space (or Ctrl or Cmd)
+   * on a name to add it to the selection, Enter or Space to select it alone; up and down to the
+   * same control of the next layer, left and right between a layer's controls, Home and End to its
+   * first and last, Ctrl+Home and Ctrl+End to the top and bottom layers.
+   */
+  protected onCellKey(event: KeyboardEvent, element: TaleElement, col: number): void {
+    if (this.shortcut(event, element, 'list')) return;
+    if (col === 0 && this.selectionKey(event, element.id)) return;
+    if (
+      col === 0 &&
+      (event.key === 'Enter' || event.key === ' ') &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      event.preventDefault();
+      this.selectOnly(element.id);
+      return;
+    }
+    if (event.altKey || event.shiftKey || ((event.ctrlKey || event.metaKey) && !/^(Home|End)$/.test(event.key))) return;
     const rows = this.layerRows();
     const at = rows.findIndex((r) => r.el.id === element.id);
-    const to: Record<string, number> = { ArrowUp: at - 1, ArrowDown: at + 1, Home: 0, End: rows.length - 1 };
-    const next = rows[to[event.key] ?? -1];
-    if (next) {
-      event.preventDefault();
-      document.getElementById(`layer-${next.el.id}`)?.focus();
-    }
+    const mod = event.ctrlKey || event.metaKey;
+    const moves: Record<string, [number, number]> = {
+      ArrowUp: [at - 1, col],
+      ArrowDown: [at + 1, col],
+      ArrowLeft: [at, Math.max(0, col - 1)],
+      ArrowRight: [at, Math.min(3, col + 1)],
+      Home: mod ? [0, col] : [at, 0],
+      End: mod ? [rows.length - 1, col] : [at, 3],
+    };
+    const move = moves[event.key];
+    const row = move ? rows[move[0]] : undefined;
+    if (!move || !row) return;
+    event.preventDefault();
+    const prefix = ['layer-', 'layer-hide-', 'layer-lock-', 'layer-more-'][move[1]];
+    this.active.set({ id: row.el.id, col: move[1] });
+    document.getElementById(`${prefix}${row.el.id}`)?.focus();
   }
 
   /**
-   * Moves the selected layers together by `dx`, `dy`, kept on the canvas as a group; locked ones
-   * stay where they are.
+   * Moves the selected layers together by `dx`, `dy`, kept on the canvas as a group; locked and
+   * hidden ones stay where they are.
    */
   private moveSelection(dx: number, dy: number): void {
-    const selected = (this.doc()?.elements ?? []).filter((e) => this.isSelected(e.id));
+    // Hidden layers are not on the canvas: they neither move nor hold the group back, as when dragging.
+    const selected = (this.doc()?.elements ?? []).filter((e) => this.isSelected(e.id) && !e.hidden);
     const movable = selected.filter((e) => !e.locked);
     if (movable.length === 0) {
-      this.say(LOCKED);
+      this.say(selected.length ? LOCKED : 'Hidden layers do not move. Show them first.');
       return;
     }
     const step = clampMove(
@@ -999,7 +1100,8 @@ export class TaleStudioPage implements OnInit {
       width: canvas.width,
       height: canvas.height,
       moved: false,
-      locked: element.locked,
+      // A locked layer alone stays; pressed in a selection, the unlocked others move.
+      locked: moving.length === 0,
     };
     try {
       (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
@@ -1023,7 +1125,8 @@ export class TaleStudioPage implements OnInit {
     let step = clampMove(boxes, (event.clientX - drag.x) / drag.width, (event.clientY - drag.y) / drag.height);
     let lines: { x: number | null; y: number | null } | null = null;
     if (!event.altKey) {
-      const at = boundsOf(boxes);
+      // Snapped by what shows: the bounds of the rotated boxes, as the safe-area warning measures them.
+      const at = boundsOf(boxes.map(elementBounds));
       const snapped = snap({ ...at, x: at.x + step.dx, y: at.y + step.dy }, drag.targets, {
         x: SNAP_DISTANCE_PX / drag.width,
         y: SNAP_DISTANCE_PX / drag.height,
@@ -1049,7 +1152,10 @@ export class TaleStudioPage implements OnInit {
     this.dragged = true;
     // A click may not follow (the pointer was released elsewhere); it is only ignored straight after.
     setTimeout(() => (this.dragged = false), 0);
-    const locked = [...this.selectedSet()].filter((id) => this.element(id)?.locked).length;
+    const locked = [...this.selectedSet()].filter((id) => {
+      const e = this.element(id);
+      return e?.locked && !e.hidden;
+    }).length;
     const stay = locked ? `; ${locked === 1 ? 'a locked layer stays' : `${locked} locked layers stay`}` : '';
     this.say(drag.boxes.size === 1 ? `Text moved${stay}` : `${drag.boxes.size} layers moved${stay}`);
   }
@@ -1061,8 +1167,7 @@ export class TaleStudioPage implements OnInit {
     const item = (command: LayerCommand, label: string): LayerMenuItem => ({
       command,
       label,
-      shortcut: LAYER_SHORTCUTS[command]?.label,
-      aria: LAYER_SHORTCUTS[command]?.aria,
+      shortcut: this.keys[command],
     });
     return [
       item('forward', 'Bring forward'),
@@ -1088,12 +1193,27 @@ export class TaleStudioPage implements OnInit {
   /** A right-click on a canvas element or a layer row opens the actions for the selection holding it. */
   protected openMenuAt(event: MouseEvent, element: TaleElement, origin: Origin): void {
     event.preventDefault();
+    event.stopPropagation();
     if (!this.isSelected(element.id)) this.selectOnly(element.id);
-    this.openMenu(event.clientX, event.clientY, origin, (event.currentTarget as HTMLElement).id);
+    const control = event.currentTarget as HTMLElement;
+    const rect = control.getBoundingClientRect();
+    // A pointer opens it where it is; the context-menu key or Shift+F10 below the control.
+    const inside =
+      (event.clientX !== 0 || event.clientY !== 0) &&
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+    this.openMenu(inside ? event.clientX : rect.left, inside ? event.clientY : rect.bottom, origin, control.id);
   }
 
   /** A row's "More actions" button opens the actions below it. */
   protected openMenuFrom(button: HTMLElement, element: TaleElement): void {
+    // The button toggles: pressed while its menu is open, it closes it.
+    if (this.menu()?.returnId === button.id) {
+      this.closeMenu(true);
+      return;
+    }
     if (!this.isSelected(element.id)) this.selectOnly(element.id);
     const rect = button.getBoundingClientRect();
     this.openMenu(rect.left, rect.bottom, 'list', button.id);
@@ -1113,6 +1233,7 @@ export class TaleStudioPage implements OnInit {
 
   /** Sets the canvas background colour, from the colour picker or the hex field. */
   protected setBackground(color: string): void {
+    this.hexError.set('');
     const doc = this.doc();
     if (!doc || doc.canvas.background.color === color) return;
     this.doc.set({ ...doc, canvas: { ...doc.canvas, background: { type: 'color', color } } });
@@ -1126,10 +1247,12 @@ export class TaleStudioPage implements OnInit {
     const value = field.value.trim();
     const color = value.startsWith('#') ? value : `#${value}`;
     if (!/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) {
-      field.value = current;
-      this.say(`Enter a colour as #RRGGBB or #RRGGBBAA; it stays ${current}`);
+      // The entry stays, marked invalid, so it can be corrected; the canvas keeps its colour.
+      this.hexError.set(`Enter a colour as #RRGGBB or #RRGGBBAA. The background stays ${current}.`);
+      this.say(this.hexError());
       return;
     }
+    this.hexError.set('');
     field.value = color;
     this.setBackground(color);
   }

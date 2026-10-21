@@ -6,6 +6,7 @@ import {
   layerShortcut,
   moveBox,
   reorder,
+  shortcutLabel,
   snap,
   snapTargets,
 } from './tale-layers';
@@ -70,7 +71,10 @@ describe('layer helpers', () => {
     expect(copy).toEqual({ ...original, id: 'b', box: { ...original.box, x: 0.12, y: 0.42 } });
     expect(copy.props).not.toBe(original.props);
     const edge = duplicateElement(text('a', 'x', { box: { x: 0.5, y: 0.9, w: 0.5, h: 0.1, rotation: 10 } }), 'b');
-    expect(edge.box).toEqual({ x: 0.5, y: 0.9, w: 0.5, h: 0.1, rotation: 10 });
+    // No room past the edge: the copy goes up and to the left instead, so it is seen.
+    expect(edge.box).toEqual({ x: 0.48, y: 0.88, w: 0.5, h: 0.1, rotation: 10 });
+    const full = duplicateElement(text('a', 'x', { box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 } }), 'b');
+    expect(full.box).toEqual({ x: 0, y: 0, w: 1, h: 1, rotation: 0 });
   });
 
   it('keeps a moving group on the canvas as a whole', () => {
@@ -91,6 +95,11 @@ describe('layer helpers', () => {
     const targets = snapTargets([text('m'), other, hidden], new Set(['m']));
     expect(targets.x).toEqual([0.5, 0.04, 0.96, 0.3, 0.4, 0.5]);
     expect(targets.y.map((y) => Math.round(y * 1000) / 1000)).toEqual([0.5, 0.12, 0.84, 0.7, 0.725, 0.75]);
+    // A turned layer offers its visible edges: a quarter turn of a 0.45 × 0.1 box at the centre.
+    const turned = text('t', 't', { box: { x: 0.275, y: 0.45, w: 0.45, h: 0.1, rotation: 90 } });
+    const visible = snapTargets([text('m'), turned], new Set(['m']));
+    expect(visible.x[3]).toBeCloseTo(0.5 - 1.6 / 9 / 2);
+    expect(visible.y[3]).toBeCloseTo(0.5 - 4.05 / 16 / 2);
     const near = { x: 0.01, y: 0.01 };
     // Its centre lands on the canvas centre.
     expect(snap({ x: 0.246, y: 0.2, w: 0.5, h: 0.1 }, targets, near)).toMatchObject({ x: 0.5, y: null });
@@ -105,35 +114,51 @@ describe('layer helpers', () => {
 });
 
 describe('layerShortcut', () => {
-  const press = (key: string, init: KeyboardEventInit = {}) =>
-    layerShortcut(new KeyboardEvent('keydown', { key, ...init }));
+  const press = (key: string, init: KeyboardEventInit = {}, apple = false) =>
+    layerShortcut(new KeyboardEvent('keydown', { key, ...init }), apple);
 
-  it('reads the reorder shortcuts with Ctrl or Cmd, and Alt with the up and down arrows', () => {
-    expect(press(']', { ctrlKey: true })).toBe('forward');
-    expect(press('[', { metaKey: true })).toBe('backward');
-    expect(press('}', { ctrlKey: true, shiftKey: true, code: 'BracketRight' })).toBe('front');
-    expect(press('{', { ctrlKey: true, shiftKey: true, code: 'BracketLeft' })).toBe('back');
+  it('reorders with Alt and the up and down arrows, with Shift to the front and the back', () => {
     expect(press('ArrowUp', { altKey: true })).toBe('forward');
     expect(press('ArrowDown', { altKey: true })).toBe('backward');
+    expect(press('ArrowUp', { altKey: true, shiftKey: true })).toBe('front');
+    expect(press('ArrowDown', { altKey: true, shiftKey: true })).toBe('back');
     expect(press('ArrowLeft', { altKey: true })).toBeNull();
+    // The old browser-clashing combinations do nothing.
+    expect(press(']', { ctrlKey: true })).toBeNull();
+    expect(press('d', { ctrlKey: true })).toBeNull();
   });
 
-  it('reads hide, lock, duplicate, select all, delete and the menu', () => {
-    expect(press('H', { ctrlKey: true, shiftKey: true })).toBe('hide');
-    expect(press('l', { metaKey: true, shiftKey: true })).toBe('lock');
-    expect(press('d', { ctrlKey: true })).toBe('duplicate');
+  it('reads H, L and D by physical key, so a Hebrew layout works too', () => {
+    expect(press('h')).toBe('hide');
+    expect(press('L')).toBe('lock');
+    expect(press('d')).toBe('duplicate');
+    expect(press('י', { code: 'KeyH' })).toBe('hide');
+    expect(press('ך', { code: 'KeyL' })).toBe('lock');
+    expect(press('ג', { code: 'KeyD' })).toBe('duplicate');
+    expect(press('ש', { code: 'KeyA', ctrlKey: true })).toBe('select-all');
     expect(press('a', { metaKey: true })).toBe('select-all');
-    expect(press('Delete')).toBe('delete');
-    expect(press('F10', { shiftKey: true })).toBe('menu');
-    expect(press('ContextMenu')).toBe('menu');
+    expect(press('H', { shiftKey: true })).toBeNull();
+    expect(press('h', { ctrlKey: true })).toBeNull();
   });
 
-  it('leaves other keys alone, Backspace and plain letters included', () => {
+  it('deletes with Delete, and with Backspace on a Mac only', () => {
+    expect(press('Delete')).toBe('delete');
     expect(press('Backspace')).toBeNull();
-    expect(press('h')).toBeNull();
-    expect(press('d', { ctrlKey: true, shiftKey: true })).toBeNull();
-    expect(press('ArrowUp')).toBeNull();
-    expect(press('F10')).toBeNull();
+    expect(press('Backspace', {}, true)).toBe('delete');
     expect(press('Delete', { ctrlKey: true })).toBeNull();
+  });
+
+  it('leaves other keys alone, the context-menu keys included (the contextmenu event opens the menu)', () => {
+    expect(press('F10', { shiftKey: true })).toBeNull();
+    expect(press('ContextMenu')).toBeNull();
+    expect(press('ArrowUp')).toBeNull();
+    expect(press('x')).toBeNull();
+  });
+
+  it('labels the shortcuts with the Mac symbols on a Mac', () => {
+    expect(shortcutLabel('front', true)).toBe('⌥⇧↑');
+    expect(shortcutLabel('front', false)).toBe('Alt+Shift+↑');
+    expect(shortcutLabel('delete', true)).toBe('⌫');
+    expect(shortcutLabel('select-all', false)).toBe('Ctrl+A');
   });
 });

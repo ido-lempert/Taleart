@@ -1,6 +1,12 @@
 // Tale Studio's layer operations (epic Tale Studio R2, R3): pure functions over the document's
 // elements, whose array order is the z-order, first at the bottom (AD-15).
-import { TALE_SAFE_AREA, type CanvasRect, type TaleElement, type TaleElementBox } from '@taleart/contract';
+import {
+  elementBounds,
+  TALE_SAFE_AREA,
+  type CanvasRect,
+  type TaleElement,
+  type TaleElementBox,
+} from '@taleart/contract';
 
 /** A layer action, from the layers list, the actions menu or a keyboard shortcut. */
 export type LayerCommand =
@@ -12,8 +18,7 @@ export type LayerCommand =
   | 'lock'
   | 'duplicate'
   | 'delete'
-  | 'select-all'
-  | 'menu';
+  | 'select-all';
 
 /** The reorder commands; each one works on several layers at once. */
 export type ReorderCommand = 'forward' | 'backward' | 'front' | 'back';
@@ -62,7 +67,16 @@ export function reorder<T extends { id: string }>(
 /** How far a duplicate sits from its original, as a fraction of the canvas, so both can be seen. */
 export const DUPLICATE_OFFSET = 0.02;
 
-/** A copy of the element with a new id, placed a little down and to the right of it, on the canvas. */
+// The offset start: `offset` further on, or back the other way when the canvas has no room for it.
+function shifted(start: number, size: number, offset: number): number {
+  const max = 1 - size;
+  return round(start + offset <= max ? start + offset : clamp(start - offset, 0, max));
+}
+
+/**
+ * A copy of the element with a new id, placed a little down and to the right of it, or up and to
+ * the left where it meets the canvas edge, so the copy is always seen beside its original.
+ */
 export function duplicateElement(element: TaleElement, id: string): TaleElement {
   const { box } = element;
   return {
@@ -70,16 +84,16 @@ export function duplicateElement(element: TaleElement, id: string): TaleElement 
     id,
     box: {
       ...box,
-      x: round(clamp(box.x + DUPLICATE_OFFSET, 0, 1 - box.w)),
-      y: round(clamp(box.y + DUPLICATE_OFFSET, 0, 1 - box.h)),
+      x: shifted(box.x, box.w, DUPLICATE_OFFSET),
+      y: shifted(box.y, box.h, DUPLICATE_OFFSET),
     },
     a11y: { ...element.a11y },
     props: { ...element.props },
   };
 }
 
-/** The smallest rectangle around the boxes. */
-export function boundsOf(boxes: readonly TaleElementBox[]): CanvasRect {
+/** The smallest rectangle around the boxes or rectangles. */
+export function boundsOf(boxes: readonly CanvasRect[]): CanvasRect {
   const x = Math.min(...boxes.map((b) => b.x));
   const y = Math.min(...boxes.map((b) => b.y));
   const right = Math.max(...boxes.map((b) => b.x + b.w));
@@ -106,8 +120,8 @@ export interface SnapTargets {
 }
 
 /**
- * What a dragged selection snaps to: the canvas centre, the safe-area edges, and the edges and
- * centres of every other element that is shown.
+ * What a dragged selection snaps to: the canvas centre, the safe-area edges, and the visible edges
+ * and centres of every other element that is shown, rotation included ({@link elementBounds}).
  */
 export function snapTargets(elements: readonly TaleElement[], moving: ReadonlySet<string>): SnapTargets {
   const { top, bottom, side } = TALE_SAFE_AREA;
@@ -115,8 +129,9 @@ export function snapTargets(elements: readonly TaleElement[], moving: ReadonlySe
   const y = [0.5, top, 1 - bottom];
   for (const e of elements) {
     if (moving.has(e.id) || e.hidden) continue;
-    x.push(e.box.x, e.box.x + e.box.w / 2, e.box.x + e.box.w);
-    y.push(e.box.y, e.box.y + e.box.h / 2, e.box.y + e.box.h);
+    const at = elementBounds(e.box);
+    x.push(at.x, at.x + at.w / 2, at.x + at.w);
+    y.push(at.y, at.y + at.h / 2, at.y + at.h);
   }
   return { x, y };
 }
@@ -155,44 +170,68 @@ export function snap(rect: CanvasRect, targets: SnapTargets, distance: { x: numb
 /** How close, in screen pixels, a dragged edge comes to a target before it snaps. */
 export const SNAP_DISTANCE_PX = 6;
 
+/** True on macOS and iOS, where Cmd is the command key and Backspace is the delete key. */
+export function isApple(): boolean {
+  const nav = typeof navigator === 'undefined' ? null : navigator;
+  const platform =
+    (nav as { userAgentData?: { platform?: string } } | null)?.userAgentData?.platform ?? nav?.platform ?? '';
+  return /mac|iphone|ipad|ipod/i.test(platform);
+}
+
+// The letter a key press types on a Latin layout: by its physical key (`KeyH`), so it works on any
+// layout such as Hebrew, else by the character.
+function letter(event: KeyboardEvent): string {
+  const code = /^Key([A-Z])$/.exec(event.code ?? '')?.[1];
+  return (code ?? event.key).toLowerCase();
+}
+
 /**
- * The layer command a key press asks for, on a focused canvas element or layer row, or null.
- * Ctrl (Cmd on a Mac) with ] or [ brings forward or sends backward, with Shift to the front or
- * back; Alt with the up or down arrow does the same as ] and [. Ctrl+Shift+H hides or shows,
- * Ctrl+Shift+L locks or unlocks, Ctrl+D duplicates, Ctrl+A selects every layer, Delete deletes,
- * and Shift+F10 or the context-menu key opens the actions menu.
+ * The layer command a key press asks for, or null. Studio shortcuts work only while focus is on a
+ * canvas element or in the layers list, never in a text field, so single keys are safe there
+ * (WCAG 2.1.4) and nothing clashes with the browser: Alt+Up and Alt+Down bring forward and send
+ * backward, with Shift to the front and the back; H hides or shows, L locks or unlocks, D
+ * duplicates; Ctrl+A (Cmd+A on a Mac) selects every layer; Delete deletes, and so does Backspace
+ * on a Mac. Letters are matched by physical key, so they work on any keyboard layout.
  */
-export function layerShortcut(event: KeyboardEvent): LayerCommand | null {
+export function layerShortcut(event: KeyboardEvent, apple = isApple()): LayerCommand | null {
   const mod = event.ctrlKey || event.metaKey;
-  const key = event.key.toLowerCase();
-  if (mod && !event.altKey) {
-    if (event.code === 'BracketRight' || key === ']' || key === '}') return event.shiftKey ? 'front' : 'forward';
-    if (event.code === 'BracketLeft' || key === '[' || key === '{') return event.shiftKey ? 'back' : 'backward';
-    if (event.shiftKey && key === 'h') return 'hide';
-    if (event.shiftKey && key === 'l') return 'lock';
-    if (!event.shiftKey && key === 'd') return 'duplicate';
-    if (!event.shiftKey && key === 'a') return 'select-all';
+  if (event.altKey && !mod) {
+    if (event.key === 'ArrowUp') return event.shiftKey ? 'front' : 'forward';
+    if (event.key === 'ArrowDown') return event.shiftKey ? 'back' : 'backward';
     return null;
   }
-  if (event.altKey && !mod && !event.shiftKey) {
-    if (event.key === 'ArrowUp') return 'forward';
-    if (event.key === 'ArrowDown') return 'backward';
-    return null;
-  }
-  if (event.altKey || mod) return null;
-  if (event.key === 'Delete' && !event.shiftKey) return 'delete';
-  if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) return 'menu';
+  if (event.altKey) return null;
+  if (mod) return !event.shiftKey && letter(event) === 'a' ? 'select-all' : null;
+  if (event.shiftKey) return null;
+  if (event.key === 'Delete' || (apple && event.key === 'Backspace')) return 'delete';
+  const key = letter(event);
+  if (key === 'h') return 'hide';
+  if (key === 'l') return 'lock';
+  if (key === 'd') return 'duplicate';
   return null;
 }
 
-/** The shortcut of each command as people read it, and as `aria-keyshortcuts` names it. */
-export const LAYER_SHORTCUTS: Readonly<Partial<Record<LayerCommand, { label: string; aria: string }>>> = {
-  forward: { label: 'Ctrl+]', aria: 'Control+BracketRight Alt+ArrowUp' },
-  backward: { label: 'Ctrl+[', aria: 'Control+BracketLeft Alt+ArrowDown' },
-  front: { label: 'Ctrl+Shift+]', aria: 'Control+Shift+BracketRight' },
-  back: { label: 'Ctrl+Shift+[', aria: 'Control+Shift+BracketLeft' },
-  hide: { label: 'Ctrl+Shift+H', aria: 'Control+Shift+H' },
-  lock: { label: 'Ctrl+Shift+L', aria: 'Control+Shift+L' },
-  duplicate: { label: 'Ctrl+D', aria: 'Control+D' },
-  delete: { label: 'Delete', aria: 'Delete' },
-};
+/** How each shortcut reads, with the Mac symbols on a Mac. */
+export function shortcutLabel(command: LayerCommand, apple = isApple()): string {
+  const alt = apple ? '⌥' : 'Alt+';
+  const shift = apple ? '⇧' : 'Shift+';
+  const labels: Record<LayerCommand, string> = {
+    forward: `${alt}↑`,
+    backward: `${alt}↓`,
+    front: `${alt}${shift}↑`,
+    back: `${alt}${shift}↓`,
+    hide: 'H',
+    lock: 'L',
+    duplicate: 'D',
+    delete: apple ? '⌫' : 'Delete',
+    'select-all': apple ? '⌘A' : 'Ctrl+A',
+  };
+  return labels[command];
+}
+
+/**
+ * The layer shortcuts as `aria-keyshortcuts` names them (ARIA key values), for the canvas elements
+ * and the layer rows, where they work.
+ */
+export const LAYER_KEYSHORTCUTS =
+  'Alt+ArrowUp Alt+ArrowDown Alt+Shift+ArrowUp Alt+Shift+ArrowDown H L D Delete Control+A Meta+A';
