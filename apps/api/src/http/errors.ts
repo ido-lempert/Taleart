@@ -3,7 +3,11 @@ import { ErrorCodes } from '@taleart/contract';
 import {
   FrameNotFoundError,
   InvalidFrameSettingsError,
+  InvalidStageError,
   ProjectNotFoundError,
+  StageFrameNotFoundError,
+  StageKeyTakenError,
+  StageNotFoundError,
   UnknownFrameTypeError,
   ZoneNotFoundError,
 } from '@taleart/server-zones';
@@ -59,6 +63,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
   if (
     err instanceof ZoneNotFoundError ||
     err instanceof FrameNotFoundError ||
+    err instanceof StageNotFoundError ||
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
     err instanceof ZoneKeyNotFoundError
@@ -76,6 +81,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof SetupClosedError ||
     err instanceof EmailTakenError ||
     err instanceof TagExistsError ||
+    err instanceof StageKeyTakenError ||
     err instanceof InvalidStatusTransitionError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
@@ -86,6 +92,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof ProjectNotFoundError ||
     err instanceof UnknownFrameTypeError ||
     err instanceof InvalidFrameSettingsError ||
+    err instanceof InvalidStageError ||
+    err instanceof StageFrameNotFoundError ||
     err instanceof InvalidTagNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||
