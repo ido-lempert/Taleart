@@ -383,6 +383,9 @@
             <p class="muted">This tale group no longer exists.</p>
           }
         }
+        @case ('cover') {
+          <app-cover-editor [taleGroupId]="coverGroupId()" (problem)="error.set($event)" (removed)="close()" />
+        }
         @case ('taleMedia') {
           @if (tale(); as tale) {
             <p class="tale-drawer__title">{{ tale.title }}</p>

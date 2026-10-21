@@ -30,9 +30,15 @@ const ZONE = {
     { id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } },
   ],
   taleGroups: [
-    { id: 'ga', name: 'Summer sale', tales: [image('a1', 'Beach day'), image('a2', 'Sunset')] },
-    { id: 'gb', name: 'New arrivals', tales: [image('b1', 'Jackets')] },
-    { id: 'gc', name: 'Stories', tales: [image('c1', 'Behind the scenes')] },
+    // A group with its own cover (R12), and two that fall back to their first tale's image.
+    {
+      id: 'ga',
+      name: 'Summer sale',
+      cover: { kind: 'image', contentType: 'image/svg+xml', animated: false, url: `${API}/media/covers/ga.svg` },
+      tales: [image('a1', 'Beach day'), image('a2', 'Sunset')],
+    },
+    { id: 'gb', name: 'New arrivals', cover: null, tales: [image('b1', 'Jackets')] },
+    { id: 'gc', name: 'Stories', cover: null, tales: [image('c1', 'Behind the scenes')] },
   ],
 };
 

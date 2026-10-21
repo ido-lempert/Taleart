@@ -1,6 +1,6 @@
 import type { DeliveryZone } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
-import { BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
+import { applyCoverMotion, BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
 import { fetchZone } from './delivery-client';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
@@ -47,6 +47,9 @@ export class TaleartElement extends HTMLElement {
   private pendingFocus: FocusTarget | null = null;
   // The frame whose item or slide opened the viewer, kept across reloads.
   private openerFrameId: string | null = null;
+  // The visitor's reduced-motion setting, watched while connected so animated covers follow it (R11, R12).
+  private motionQuery: MediaQueryList | null = null;
+  private readonly onMotionChange = (event: MediaQueryListEvent): void => applyCoverMotion(this.root, event.matches);
 
   /** The TaleArt API origin, such as `https://api.example.com`. */
   get apiUrl(): string {
@@ -65,6 +68,13 @@ export class TaleartElement extends HTMLElement {
   }
 
   connectedCallback(): void {
+    if (typeof matchMedia === 'function') {
+      const query = matchMedia('(prefers-reduced-motion: reduce)');
+      this.motionQuery = query;
+      // Safari before 14 has only the older addListener.
+      if (typeof query.addEventListener === 'function') query.addEventListener('change', this.onMotionChange);
+      else query.addListener?.(this.onMotionChange);
+    }
     this.scheduleLoad();
   }
 
@@ -73,6 +83,10 @@ export class TaleartElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    const query = this.motionQuery;
+    if (query && typeof query.removeEventListener === 'function') query.removeEventListener('change', this.onMotionChange);
+    else query?.removeListener?.(this.onMotionChange);
+    this.motionQuery = null;
     this.loadId++;
     this.closeViewer();
     this.destroyViews();

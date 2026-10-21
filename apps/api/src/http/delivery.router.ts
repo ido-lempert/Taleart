@@ -91,6 +91,12 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         taleGroups: taleGroups.map((group) => ({
           id: group.id,
           name: group.name,
+          cover: group.cover && {
+            kind: mediaKind(group.cover.contentType),
+            contentType: group.cover.contentType,
+            animated: group.cover.animated,
+            url: publicMediaUrl(options.publicApiUrl, group.cover.key),
+          },
           tales: group.tales.map((tale) => ({
             id: tale.id,
             title: tale.title,

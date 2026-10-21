@@ -42,6 +42,7 @@ export type SetStatusRequest = Schemas['SetStatusRequest'];
 export type SettableStatus = SetStatusRequest['status'];
 export type SetScheduleRequest = Schemas['SetScheduleRequest'];
 export type TaleMedia = Schemas['TaleMedia'];
+export type TaleGroupCover = Schemas['TaleGroupCover'];
 export type MediaKind = Schemas['MediaKind'];
 export type MediaContentType = Schemas['MediaContentType'];
 export type UserRole = Schemas['UserRole'];
@@ -62,6 +63,7 @@ export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
 export type DeliveryTale = Schemas['DeliveryTale'];
 export type DeliveryMedia = Schemas['DeliveryMedia'];
+export type DeliveryCover = Schemas['DeliveryCover'];
 export type FindStorylyAppsRequest = Schemas['FindStorylyAppsRequest'];
 export type StorylyApp = Schemas['StorylyApp'];
 export type StartImportRequest = Schemas['StartImportRequest'];
@@ -184,6 +186,23 @@ export function maxMediaBytes(contentType: MediaContentType): number {
 /** Where the Management API serves a tale's media. Content stores only a storage key (AD-11). */
 export function taleMediaUrl(taleId: string): string {
   return `/api/v1/tales/${encodeURIComponent(taleId)}/media`;
+}
+
+/**
+ * The largest animated tale group cover (a video, a GIF, an animated WebP or
+ * an APNG), in bytes: 300 KB, so animated covers fit the 1.5 s budget (epic
+ * web zones R10, R12). The cap is an [ASSUMPTION] the user confirms.
+ */
+export const MAX_ANIMATED_COVER_BYTES = 300 * 1024;
+
+/** The largest cover of this type accepted, in bytes: 300 KB animated, else the tale media limit. */
+export function maxCoverBytes(contentType: MediaContentType, animated: boolean): number {
+  return animated ? MAX_ANIMATED_COVER_BYTES : maxMediaBytes(contentType);
+}
+
+/** Where the Management API serves a tale group's cover. Content stores only a storage key (AD-11). */
+export function taleGroupCoverUrl(taleGroupId: string): string {
+  return `/api/v1/tale-groups/${encodeURIComponent(taleGroupId)}/cover`;
 }
 
 /** Every status key of the AD-6 scheme. */
