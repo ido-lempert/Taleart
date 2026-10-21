@@ -57,8 +57,8 @@ span.media { background: #1f2937; }
   background: none;
   cursor: pointer;
 }
-.zone.prev { left: 0; width: 33.333%; }
-.zone.next { right: 0; width: 66.667%; }
+.zone.prev { inset-inline-start: 0; width: 33.333%; }
+.zone.next { inset-inline-end: 0; width: 66.667%; }
 .zone:focus-visible { outline: 3px solid #fff; outline-offset: -6px; box-shadow: inset 0 0 0 6px #000; }
 .top {
   position: absolute;
@@ -72,6 +72,7 @@ span.media { background: #1f2937; }
 .segments { display: flex; gap: 4px; }
 .segment { flex: 1; height: 3px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.4); }
 .fill { display: block; height: 100%; background: var(--ta-accent, #fff); transform-origin: left; transform: scaleX(0); }
+.viewer[data-rtl] .fill { transform-origin: right; }
 .done .fill { transform: none; }
 .fill.timed { animation: taleart-fill var(--taleart-duration) linear forwards; }
 .viewer[data-paused] .fill { animation-play-state: paused; }
@@ -91,8 +92,8 @@ span.media { background: #1f2937; }
   background: rgba(0, 0, 0, 0.8);
   font-weight: 600;
 }
-.pause { margin-left: auto; }
-.pause[hidden] + .close { margin-left: auto; }
+.pause { margin-inline-start: auto; }
+.pause[hidden] + .close { margin-inline-start: auto; }
 .control[hidden] { display: none; }
 .control {
   display: grid;
@@ -101,7 +102,8 @@ span.media { background: #1f2937; }
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 0;
+  /* Transparent, so forced colours draw the button's edge. */
+  border: 1px solid transparent;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);
   color: var(--ta-accent, #fff);
@@ -121,6 +123,10 @@ span.media { background: #1f2937; }
   white-space: nowrap;
   border: 0;
 }
+@media (forced-colors: active) {
+  .segment { forced-color-adjust: none; background: GrayText; }
+  .fill { forced-color-adjust: none; background: CanvasText; }
+}
 ${DOCUMENT_STYLES}`;
 
 const ICONS = {
@@ -137,6 +143,16 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): H
 
 function hasModifier(e: KeyboardEvent): boolean {
   return e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
+}
+
+// True when Space goes to the focused Close button, which it activates as on any button.
+function onClose(e: Event): boolean {
+  return !!(e.target as Element | null)?.closest?.('.close');
+}
+
+// True when `node` lays out right to left (the host page's direction reaches the Shadow DOM).
+export function isRtl(node: Element): boolean {
+  return typeof getComputedStyle === 'function' && getComputedStyle(node).direction === 'rtl';
 }
 
 // True when the event happened on a document's text element.
@@ -161,10 +177,12 @@ export interface TaleViewerOptions {
  * (or their document's duration), videos to their end. A tale with a document
  * (AD-15) shows its elements over its media on a 9:16 canvas; its text is
  * selectable, and a tap on it does not step. Tap or arrow keys step through tales (and across
- * groups), a swipe moves between groups, a hold or Space pauses, and Escape
+ * groups), a swipe moves between groups, a hold or Space pauses (Space on the focused Close
+ * button closes, as on any button), and Escape
  * or Close closes. Groups without tales are skipped. When the visitor
  * prefers reduced motion nothing plays or advances by itself: each tale
- * starts paused, videos play from the Play button, and the visitor steps.
+ * starts paused, videos play from the Play button, and the visitor steps. On a right-to-left
+ * host page the tap zones, arrow keys and swipes mirror: the next tale is to the left.
  */
 export class TaleViewer {
   private readonly groups: readonly DeliveryTaleGroup[];
@@ -193,6 +211,7 @@ export class TaleViewer {
   private suppressClick = false;
   private opened = false;
   private reduced = false;
+  private rtl = false; // the host page lays out right to left: tap zones, arrows and swipes mirror
   private statusTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly onBlur = () => this.onPointerCancel();
 
@@ -230,6 +249,8 @@ export class TaleViewer {
     this.parts.pause.hidden = false;
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
+    this.rtl = isRtl(dialog);
+    dialog.toggleAttribute('data-rtl', this.rtl);
     dialog.focus();
     addEventListener('blur', this.onBlur);
     this.show(index, 0, true);
@@ -304,6 +325,7 @@ export class TaleViewer {
     segments.setAttribute('aria-hidden', 'true');
     const head = el('div', 'head');
     const name = el('span', 'name');
+    name.dir = 'auto';
     const pause = el('button', 'control pause');
     pause.type = 'button';
     pause.setAttribute('aria-label', 'Pause');
@@ -345,7 +367,7 @@ export class TaleViewer {
     dialog.addEventListener('keydown', (e) => this.onKeyDown(e));
     // Firefox activates a focused button on Space's keyup.
     dialog.addEventListener('keyup', (e) => {
-      if (e.key === ' ' && !hasModifier(e)) {
+      if (e.key === ' ' && !hasModifier(e) && !onClose(e)) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -376,7 +398,7 @@ export class TaleViewer {
     if (zone) back = zone.classList.contains('prev');
     else {
       const rect = this.parts.stage.getBoundingClientRect();
-      back = e.clientX < rect.left + rect.width / 3;
+      back = this.rtl ? e.clientX > rect.right - rect.width / 3 : e.clientX < rect.left + rect.width / 3;
     }
     if (back) this.previous();
     else this.next();
@@ -385,8 +407,11 @@ export class TaleViewer {
   private onKeyDown(e: KeyboardEvent): void {
     // Modified keys (such as Alt+Arrow for browser history) stay with the browser.
     if (hasModifier(e)) return;
-    if (e.key === 'ArrowRight') this.next();
-    else if (e.key === 'ArrowLeft') this.previous();
+    // Right to left, the next tale is to the left.
+    const [forward, back] = this.rtl ? ['ArrowLeft', 'ArrowRight'] : ['ArrowRight', 'ArrowLeft'];
+    if (e.key === forward) this.next();
+    else if (e.key === back) this.previous();
+    else if (e.key === ' ' && onClose(e)) return;
     else if (e.key === ' ') {
       if (!e.repeat) this.togglePause();
     } else if (e.key === 'Escape') this.close();
@@ -418,7 +443,8 @@ export class TaleViewer {
     const dy = e.clientY - press.y;
     if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
       this.suppressNextClick();
-      if (dx < 0) this.nextGroup();
+      // A swipe toward the start of the line (left, or right in right-to-left) shows the next group.
+      if (this.rtl ? dx > 0 : dx < 0) this.nextGroup();
       else {
         this.previousGroup();
         this.applyPause();

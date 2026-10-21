@@ -79,6 +79,14 @@ describe('renderBar', () => {
     expect(buttons.map((b) => b.querySelector('.title')?.textContent)).toEqual(['Summer', 'Winter']);
   });
 
+  it('gives each title its own direction and up to two lines, and draws rings in forced colours', () => {
+    const titles = [...bar().querySelectorAll<HTMLElement>('.title')];
+    expect(titles.map((t) => t.dir)).toEqual(['auto', 'auto']);
+    expect(BAR_STYLES).toContain('-webkit-line-clamp: 2;');
+    expect(BAR_STYLES).not.toContain('white-space: nowrap');
+    expect(BAR_STYLES).toMatch(/@media \(forced-colors: active\) \{\s*\.ring \{ forced-color-adjust: none; background: CanvasText; \}/);
+  });
+
   it('has the style rules each setting relies on', () => {
     expect(BAR_STYLES).toContain('.bar[data-titles="hidden"] .title { display: none; }');
     expect(BAR_STYLES).toContain('.bar[data-shape="rounded-square"] .ring');

@@ -118,15 +118,31 @@ export const BAR_STYLES = `
   object-fit: cover;
   background: #e5e7eb;
 }
+/* Up to two lines, so a name that fits on one still shows in full with wider text spacing (WCAG 1.4.12). */
 .title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: center;
   font-size: 12px;
   line-height: 16px;
 }
+/* Forced colours drop the ring's gradient: draw it, and the seen ring, in system colours. */
+@media (forced-colors: active) {
+  .ring { forced-color-adjust: none; background: CanvasText; }
+  .item[data-seen] .ring { background: GrayText; }
+}
 `;
+
+/**
+ * How long animated covers move after a render before they stop on their first frame: moving
+ * content that starts by itself may run at most 5 s without a pause control (WCAG 2.2.2).
+ */
+export const COVER_MOTION_MS = 5000;
 
 /** True when the visitor asks for reduced motion (R11): animated covers then stay still. */
 export function prefersReducedMotion(): boolean {
@@ -275,6 +291,8 @@ export function renderBar(
     title.className = 'title';
     title.textContent = group.name;
     title.setAttribute('aria-hidden', 'true');
+    // A name in another script (such as Hebrew on an English page) takes its own direction.
+    title.dir = 'auto';
     button.append(ring, title);
     item.appendChild(button);
     list.appendChild(item);
