@@ -22,6 +22,17 @@
       "options": {
         "command": "node apps/sdk-sample/a11y-scan.mjs"
       }
+    },
+    "perf": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        { "projects": ["web-sdk"], "target": "build" },
+        { "projects": ["api"], "target": "build" }
+      ],
+      "options": {
+        "command": "node apps/sdk-sample/perf.mjs"
+      }
     }
   }
 }

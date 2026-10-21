@@ -29,6 +29,7 @@ import { LocalDiskStorage } from '@taleart/server-storage';
 import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
+import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig } from './app';
 import { createPool, migrate } from './db';
 
@@ -36,7 +37,12 @@ import { createPool, migrate } from './db';
 // point at the development database.
 const testDatabaseUrl =
   process.env['TEST_DATABASE_URL'] ?? 'postgres://taleart:taleart@localhost:5432/taleart_test';
-if (!new URL(testDatabaseUrl).pathname.endsWith('_test')) {
+// Parsed as pg parses it, so `?db=` and socket forms are judged by the database they reach.
+const parsedTestDatabase = parseConnectionString(testDatabaseUrl);
+if (
+  !parsedTestDatabase.database?.endsWith('_test') ||
+  (parsedTestDatabase['db'] !== undefined && !String(parsedTestDatabase['db']).endsWith('_test'))
+) {
   throw new Error('TEST_DATABASE_URL must point at a database whose name ends in _test');
 }
 
@@ -3178,6 +3184,37 @@ describe('Management API v1: projects and zones', () => {
       expect(rows[0].zone_id).toBe(zone.id);
       expect(rows[0].project_id).toBe(zone.projectId);
       expect(JSON.stringify(rows)).not.toContain(issued.key);
+    });
+
+    it('lets a browser revalidate the zone: private, no-cache, by key, 304 while unchanged', async () => {
+      const zone = await createZone();
+      await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: {} });
+      const { key } = await issue(zone.id);
+
+      const first = await deliver(key);
+      expect(first.status).toBe(200);
+      expect(first.headers.get('cache-control')).toBe('private, no-cache');
+      expect(first.headers.get('vary')).toContain('Authorization');
+      const etag = first.headers.get('etag');
+      expect(etag).toBeTruthy();
+
+      // As a browser revalidates from its cache. (fetch adds `Cache-Control: no-cache` to a request with
+      // its own If-None-Match unless one is set, and Express never answers 304 to that.)
+      const revalidate = { 'If-None-Match': etag as string, 'Cache-Control': 'max-age=0' };
+      const same = await deliver(key, revalidate);
+      expect(same.status).toBe(304);
+      expect(same.headers.get('access-control-allow-origin')).toBe('*');
+      expect(await same.text()).toBe('');
+
+      // A change answers the new zone at once.
+      await post(`/zones/${zone.id}/frames`, { type: 'banner', settings: {} });
+      const changed = await deliver(key, revalidate);
+      expect(changed.status).toBe(200);
+      expect((await changed.json()).frames).toHaveLength(2);
+
+      // A refused key never gets a 304, whatever ETag it sends.
+      await send('DELETE', `/zones/${zone.id}/key`);
+      await expectInvalidKey(await deliver(key, revalidate));
     });
 
     it('serves the zone and its frames to a valid key', async () => {

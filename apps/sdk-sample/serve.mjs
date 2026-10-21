@@ -3,6 +3,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 const root = resolve(import.meta.dirname, '../..');
 const pageDir = resolve(root, 'apps/sdk-sample');
@@ -24,16 +25,35 @@ function within(dir, path) {
 
 createServer(async (req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost');
+  let sdkPath = null;
+  if (pathname.startsWith('/sdk/')) {
+    try {
+      sdkPath = decodeURIComponent(pathname.slice('/sdk/'.length));
+    } catch {
+      // A malformed escape names no file.
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Bad request');
+      return;
+    }
+  }
   const file =
     pathname === '/' || pathname === '/index.html'
       ? join(pageDir, 'index.html')
-      : pathname.startsWith('/sdk/')
-        ? within(sdkDir, decodeURIComponent(pathname.slice('/sdk/'.length)))
+      : sdkPath !== null
+        ? within(sdkDir, sdkPath)
         : null;
   try {
     if (!file) throw Object.assign(new Error('not found'), { code: 'ENOENT' });
     const data = await readFile(file);
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    const type = TYPES[extname(file)] ?? 'application/octet-stream';
+    const headers = { 'Content-Type': type, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' };
+    // Compressed, as a host's CDN serves the SDK, so the perf measurement sees realistic transfer sizes.
+    if (type.startsWith('text/') && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
+      res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip' });
+      res.end(gzipSync(data));
+      return;
+    }
+    res.writeHead(200, headers);
     res.end(data);
   } catch (err) {
     const missing = err.code === 'ENOENT' || err.code === 'EISDIR';
