@@ -195,6 +195,48 @@ describe('renderBanner', () => {
     expect(BANNER_STYLES).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.b-track \{ transition: none; \}/);
   });
 
+  it('draws the current dot in the host text colour, and every dot in forced colours', () => {
+    expect(BANNER_STYLES).toMatch(/\.b-dot \{[^}]*color: inherit;/);
+    expect(BANNER_STYLES).toContain('background: var(--ta-title, currentColor); }');
+    expect(BANNER_STYLES).toMatch(/@media \(forced-colors: active\) \{[^@]*background: GrayText;[^@]*background: CanvasText;/);
+  });
+
+  describe('on a right-to-left page', () => {
+    let spy: ReturnType<typeof vi.spyOn> | undefined;
+    afterEach(() => spy?.mockRestore());
+    beforeEach(() => {
+      const real = window.getComputedStyle.bind(window);
+      spy = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+        const style = real(el, pseudo);
+        return (el as Element).classList?.contains('banner') ? ({ ...style, direction: 'rtl' } as CSSStyleDeclaration) : style;
+      });
+    });
+
+    it('moves the track right to show the next slide', () => {
+      const b = banner();
+      b.next.click();
+      expect(b.track.style.transform).toBe('translateX(100%)');
+      b.next.click();
+      expect(b.track.style.transform).toBe('translateX(200%)');
+    });
+
+    it('mirrors swipes: toward the right shows the next slide', () => {
+      const b = banner();
+      pointer('pointerdown', b.viewport, 100);
+      pointer('pointerup', b.viewport, 200);
+      expect(b.view.index).toBe(1);
+      pointer('pointerdown', b.viewport, 200);
+      pointer('pointerup', b.viewport, 100);
+      expect(b.view.index).toBe(0);
+    });
+
+    it('places previous and next by logical sides and flips only their chevrons', () => {
+      expect(BANNER_STYLES).toContain('.b-prev { inset-inline-start: 8px; }');
+      expect(BANNER_STYLES).toContain('.b-next { inset-inline-end: 8px; }');
+      expect(BANNER_STYLES).toContain('.b-prev:dir(rtl) svg, .b-next:dir(rtl) svg { transform: scaleX(-1); }');
+    });
+  });
+
   it('shows only the current slide to assistive technology and the keyboard', () => {
     const b = banner();
     const state = () => b.slides().map((s) => [s.hasAttribute('inert'), s.getAttribute('aria-hidden')]);
