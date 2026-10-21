@@ -2620,6 +2620,217 @@ describe('App', () => {
     });
   });
 
+  describe('project theme (R9)', () => {
+    const themeUrl = `${API_BASE}/projects/p1/theme`;
+    const defaults = {
+      ringStyle: 'gradient',
+      ringColors: ['#ea580c', '#db2777', '#7c3aed'],
+      seenRingColor: '#6b7280',
+      ringWidth: 2,
+      cornerRadius: null,
+      fontFamily: null,
+      titleColor: null,
+      backgroundColor: 'transparent',
+      accentColor: '#ffffff',
+    };
+    const projectTheme = (theme: object) => ({ projectId: 'p1', theme, resolved: { ...defaults, ...theme } });
+
+    async function openTheme(theme: object = {}): Promise<{ fixture: ComponentFixture<App>; root: HTMLElement }> {
+      const opened = await open('/projects/p1/theme', oneZone);
+      http.expectOne(themeUrl).flush(projectTheme(theme));
+      await settle(opened.fixture);
+      return opened;
+    }
+
+    const input = (root: HTMLElement, id: string) => root.querySelector<HTMLInputElement>(`#theme-${id}`);
+    const warning = (root: HTMLElement) => root.querySelector('.contrast:not(.contrast--note)')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const note = (root: HTMLElement) => root.querySelector('.contrast--note')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    function toggle(box: HTMLInputElement | null, checked: boolean): void {
+      if (!box) throw new Error('No checkbox');
+      box.checked = checked;
+      box.dispatchEvent(new Event('change'));
+    }
+
+    async function expectSave(fixture: ComponentFixture<unknown>, root: HTMLElement, body: object): Promise<void> {
+      buttonNamed(root, 'Save theme').click();
+      const req = http.expectOne(themeUrl);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual(body);
+      req.flush(projectTheme(body));
+      await settle(fixture);
+    }
+
+    it('links each project card to its theme, for content managers too', async () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/projects', { setupRequired: false, user: { ...admin, role: 'content_manager' } });
+      await flushRefresh(fixture, oneZone);
+      const root = fixture.nativeElement as HTMLElement;
+      const link = root.querySelector<HTMLAnchorElement>('a[aria-label="Theme of Acme"]');
+      expect(link?.getAttribute('href')).toBe('/projects/p1/theme');
+    });
+
+    it("shows the default theme: host page's title colour, font and background, the frame's radius", async () => {
+      const { root } = await openTheme();
+      expect(root.querySelector('h2')?.textContent).toContain('Theme');
+      expect(root.querySelector<HTMLSelectElement>('#theme-ringStyle')?.value).toBe('gradient');
+      expect([0, 1, 2].map((i) => input(root, `ringColors-${i}`)?.value)).toEqual(defaults.ringColors);
+      expect(input(root, 'ringWidth')?.value).toBe('2');
+      for (const id of ['titleColor', 'backgroundColor', 'fontFamily', 'cornerRadius']) {
+        expect(input(root, `${id}-host`)?.checked).toBe(true);
+        expect(input(root, id)).toBeNull();
+      }
+      expect(input(root, 'seenRingColor')?.value).toBe('#6b7280');
+      expect(warning(root)).toBe('');
+      // Pairs whose colour comes from the host page are not checked, and the page says so.
+      expect(note(root)).toContain('Title on background: both come from the host page');
+      expect(note(root)).toContain('Rings on background: the background is transparent');
+    });
+
+    it('shows explicit values with their fields', async () => {
+      const { root } = await openTheme({ cornerRadius: 0, titleColor: '#000000', fontFamily: 'Georgia, serif', backgroundColor: '#fafafa' });
+      expect(input(root, 'cornerRadius')?.value).toBe('0');
+      expect(input(root, 'titleColor')?.value).toBe('#000000');
+      expect(input(root, 'fontFamily')?.value).toBe('Georgia, serif');
+      expect(input(root, 'backgroundColor')?.value).toBe('#fafafa');
+      expect(root.querySelector<HTMLInputElement>('input[type=color][aria-label="Title colour picker"]')?.value).toBe('#000000');
+      expect(note(root)).toBe('');
+    });
+
+    it('stores only the field that changed', async () => {
+      const { fixture, root } = await openTheme();
+      type(input(root, 'seenRingColor'), '#333333');
+      await settle(fixture);
+      await expectSave(fixture, root, { seenRingColor: '#333333' });
+    });
+
+    it('keeps the stored fields and drops a field changed back to its default', async () => {
+      const { fixture, root } = await openTheme({ seenRingColor: '#333333', cornerRadius: 0 });
+      type(input(root, 'seenRingColor'), '#6B7280');
+      toggle(input(root, 'cornerRadius-host'), true);
+      type(input(root, 'accentColor'), '#ffcc00');
+      await settle(fixture);
+      await expectSave(fixture, root, { accentColor: '#ffcc00' });
+    });
+
+    it('saves a solid ring in one colour, corner radius 0 and a serif font', async () => {
+      const { fixture, root } = await openTheme();
+      choose(root.querySelector<HTMLSelectElement>('#theme-ringStyle'), 'solid');
+      await settle(fixture);
+      for (let i = 0; i < 2; i++) {
+        buttonNamed(root, 'Remove').click();
+        await settle(fixture);
+      }
+      expect(root.querySelector('#theme-ringColors-1')).toBeNull();
+      type(root.querySelector<HTMLInputElement>('input[type=color][aria-label="Ring colour 1 picker"]'), '#0055ff');
+      toggle(input(root, 'cornerRadius-host'), false);
+      toggle(input(root, 'fontFamily-host'), false);
+      await settle(fixture);
+      type(input(root, 'cornerRadius'), '0');
+      type(input(root, 'fontFamily'), 'Georgia, serif');
+      await settle(fixture);
+      expect(input(root, 'ringColors-0')?.value).toBe('#0055ff');
+
+      await expectSave(fixture, root, { ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0, fontFamily: 'Georgia, serif' });
+      expect(root.textContent).toContain('Theme saved.');
+    });
+
+    it('sets and clears an explicit title colour and background', async () => {
+      const { fixture, root } = await openTheme({ titleColor: '#000000' });
+      toggle(input(root, 'titleColor-host'), true);
+      toggle(input(root, 'backgroundColor-host'), false);
+      await settle(fixture);
+      expect(input(root, 'titleColor')).toBeNull();
+      expect(input(root, 'backgroundColor')?.value).toBe('#ffffff');
+      await expectSave(fixture, root, { backgroundColor: '#ffffff' });
+    });
+
+    it('keeps the typed text of a number field and restores the last valid number on blur', async () => {
+      const { fixture, root } = await openTheme({ ringWidth: 3 });
+      const width = input(root, 'ringWidth') as HTMLInputElement;
+      type(width, '');
+      await settle(fixture);
+      expect(width.value).toBe('');
+      type(width, '9');
+      await settle(fixture);
+      expect(width.value).toBe('9');
+      width.dispatchEvent(new Event('blur'));
+      await settle(fixture);
+      expect(width.value).toBe('3');
+      type(width, '4');
+      width.dispatchEvent(new Event('blur'));
+      await settle(fixture);
+      expect(width.value).toBe('4');
+      await expectSave(fixture, root, { ringWidth: 4 });
+    });
+
+    it('refuses an invalid colour in the form, naming and marking the field, without sending', async () => {
+      const { fixture, root } = await openTheme();
+      toggle(input(root, 'titleColor-host'), false);
+      await settle(fixture);
+      type(input(root, 'titleColor'), 'red');
+      await settle(fixture);
+      buttonNamed(root, 'Save theme').click();
+      await settle(fixture);
+      http.expectNone(themeUrl);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('theme.titleColor must be a colour as #rrggbb');
+      expect(input(root, 'titleColor')?.getAttribute('aria-invalid')).toBe('true');
+      expect(input(root, 'titleColor')?.getAttribute('aria-describedby')).toContain('theme-error');
+      // Changing the field clears the mark.
+      type(input(root, 'titleColor'), '#000000');
+      await settle(fixture);
+      expect(input(root, 'titleColor')?.getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it("shows the API's refusal and marks the field it names", async () => {
+      const { fixture, root } = await openTheme();
+      buttonNamed(root, 'Save theme').click();
+      http
+        .expectOne(themeUrl)
+        .flush({ error: { code: 'invalid_theme', message: 'theme.ringWidth must be at most 4' } }, { status: 400, statusText: 'Bad Request' });
+      await settle(fixture);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('theme.ringWidth must be at most 4');
+      expect(input(root, 'ringWidth')?.getAttribute('aria-invalid')).toBe('true');
+    });
+
+    it('warns when a colour pair fails WCAG contrast, and still saves', async () => {
+      const { fixture, root } = await openTheme({ titleColor: '#000000', backgroundColor: '#ffffff' });
+      type(input(root, 'titleColor'), '#cccccc');
+      type(input(root, 'accentColor'), '#808080');
+      await settle(fixture);
+      expect(warning(root)).toContain('Title on background: 1.61:1, needs 4.5:1');
+      expect(warning(root)).toContain("Accent on the viewer's progress track");
+      expect(warning(root)).toContain("Accent on the viewer's buttons over light media");
+      expect(root.querySelector('.contrast')?.closest('[role=status]')).not.toBeNull();
+      await expectSave(fixture, root, { titleColor: '#cccccc', backgroundColor: '#ffffff', accentColor: '#808080' });
+    });
+
+    it("resets the theme to TaleArt's default", async () => {
+      const { fixture, root } = await openTheme({ cornerRadius: 0, titleColor: '#000000' });
+      buttonNamed(root, 'Reset to TaleArt default').click();
+      const req = http.expectOne(themeUrl);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({});
+      req.flush(projectTheme({}));
+      await settle(fixture);
+      expect(input(root, 'cornerRadius-host')?.checked).toBe(true);
+      expect(input(root, 'titleColor-host')?.checked).toBe(true);
+      expect(root.textContent).toContain("Theme reset to TaleArt's default.");
+    });
+
+    it('adds ring colours up to three', async () => {
+      const { fixture, root } = await openTheme({ ringColors: ['#000000'] });
+      expect(root.querySelector('#theme-ringColors-1')).toBeNull();
+      buttonNamed(root, 'Add colour').click();
+      await settle(fixture);
+      buttonNamed(root, 'Add colour').click();
+      await settle(fixture);
+      expect([0, 1, 2].map((i) => input(root, `ringColors-${i}`)?.value)).toEqual(['#000000', '#db2777', '#7c3aed']);
+      expect([...root.querySelectorAll('button')].some((b) => b.textContent?.includes('Add colour'))).toBe(false);
+    });
+  });
+
   describe('projects page', () => {
     it('lists project cards and creates a project from the drawer', async () => {
       const { fixture, root } = await open('/projects', { projects: [acme], zones: [zone] });

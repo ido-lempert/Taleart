@@ -15,6 +15,7 @@ import { projectsRouter } from './http/projects.router';
 import { publicMediaRouter } from './http/public-media.router';
 import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
 import { projectTagsRouter } from './http/tags.router';
+import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import { zoneKeysRouter } from './http/zone-keys.router';
 import { zonesRouter } from './http/zones.router';
@@ -78,6 +79,7 @@ export function createApp(
   v1.use('/projects', projectTagsRouter(pool));
   v1.use('/projects', projectTaleGroupsRouter(pool));
   v1.use('/projects', importsRouter(pool, importer));
+  v1.use('/projects', projectThemeRouter(pool));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));

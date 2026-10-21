@@ -54,4 +54,14 @@ export async function migrateZones(db: Db): Promise<void> {
       CONSTRAINT stages_zone_id_key_key UNIQUE (zone_id, key)
     );
   `);
+
+  // One theme per project (epic web zones R9, AD-4): only the fields the
+  // project sets, as JSONB; readers fill the rest from TaleArt's default theme.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS project_themes (
+      project_id uuid NOT NULL PRIMARY KEY REFERENCES projects(id),
+      theme jsonb NOT NULL DEFAULT '{}'::jsonb,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
 }

@@ -1,5 +1,5 @@
-// Public interface of the zones module (AD-1). It owns the `zones`, `frames`
-// and `stages` tables and the frame-type registry, and checks projects only
+// Public interface of the zones module (AD-1). It owns the `zones`, `frames`,
+// `stages` and `project_themes` tables and the frame-type registry, and checks projects only
 // through @taleart/server-access.
 export { migrateZones } from './lib/migration';
 export { listZones, createZone, ProjectNotFoundError } from './lib/zones';
@@ -31,3 +31,4 @@ export {
   InvalidFrameSettingsError,
   type FrameTypeDefinition,
 } from './lib/frame-types';
+export { getProjectTheme, setProjectTheme, InvalidThemeError } from './lib/theme';
