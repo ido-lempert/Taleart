@@ -131,7 +131,7 @@ function hasModifier(e: KeyboardEvent): boolean {
   return e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
 }
 
-function setIcon(button: HTMLButtonElement, path: string): void {
+export function setIcon(button: HTMLButtonElement, path: string): void {
   button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
 
