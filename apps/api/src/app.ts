@@ -58,6 +58,8 @@ export function createApp(
   // reads its body first, with a larger limit, and the parser below then leaves that body as it is.
   // Being a route, it matches as the routers do: in any case, with or without a trailing slash.
   app.put(`${MANAGEMENT_API_BASE}/tales/:taleId/document`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
+  // Keeping a document as a new tale (after a stale save) takes the same body.
+  app.post(`${MANAGEMENT_API_BASE}/tales/:taleId/document/copy`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
   app.use(express.json());
 
   // The dashboard reaches the API through its dev proxy, on its own origin, so

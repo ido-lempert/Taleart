@@ -3,22 +3,36 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   ErrorCodes,
   isErrorBody,
+  type CopyTaleDocumentRequest,
   type SaveTaleDocumentRequest,
+  type Tale,
   type TaleDocument,
   type TaleDocumentRevision,
 } from '@taleart/contract';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
 
-/**
- * A call's result: the document and its revision, or why it failed: the API's message and code,
- * `stale` for a 409 (AD-15), and `pointer`, the refused field of a document ('' for none).
- */
-export type TaleDocumentResult =
-  | { value: TaleDocumentRevision; message: ''; stale: false; code: ''; pointer: '' }
-  | { value: null; message: string; stale: boolean; code: string; pointer: string };
+/** Why a call failed: the API's message and code, its HTTP status (0 when the network failed). */
+export interface TaleDocumentFailure {
+  value: null;
+  message: string;
+  /** A 409 `stale_revision`: another save came first (AD-15). */
+  stale: boolean;
+  code: string;
+  /** The refused field of a document ('' for none). */
+  pointer: string;
+  status: number;
+}
 
-function failure(err: unknown, fallback: string): TaleDocumentResult {
+/** A call's result: the document and its revision, or why it failed. */
+export type TaleDocumentResult =
+  | { value: TaleDocumentRevision; message: ''; stale: false; code: ''; pointer: ''; status: 200 }
+  | TaleDocumentFailure;
+
+/** The result of keeping a document as a new tale: the new tale, or why it failed. */
+export type TaleCopyResult = { value: Tale; message: ''; code: ''; status: 201 } | Omit<TaleDocumentFailure, 'stale'>;
+
+function failure(err: unknown, fallback: string): TaleDocumentFailure {
   const body = err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error : null;
   return {
     value: null,
@@ -26,6 +40,7 @@ function failure(err: unknown, fallback: string): TaleDocumentResult {
     stale: body?.code === ErrorCodes.staleRevision,
     code: body?.code ?? '',
     pointer: body?.pointer ?? '',
+    status: err instanceof HttpErrorResponse ? err.status : 0,
   };
 }
 
@@ -42,7 +57,7 @@ export class TaleDocumentService {
   async load(taleId: string): Promise<TaleDocumentResult> {
     try {
       const value = await firstValueFrom(this.http.get<TaleDocumentRevision>(documentUrl(taleId)));
-      return { value, message: '', stale: false, code: '', pointer: '' };
+      return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
     } catch (err) {
       return failure(err, 'Could not read the tale. Reload the page to try again.');
     }
@@ -53,9 +68,21 @@ export class TaleDocumentService {
     try {
       const body: SaveTaleDocumentRequest = { document, revision };
       const value = await firstValueFrom(this.http.put<TaleDocumentRevision>(documentUrl(taleId), body));
-      return { value, message: '', stale: false, code: '', pointer: '' };
+      return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
     } catch (err) {
       return failure(err, 'The tale was not saved. Try again.');
+    }
+  }
+
+  /** Keeps `document` as a new draft tale in the tale's group, for a save refused as stale (epic Tale Studio R9). */
+  async keepAsNewTale(taleId: string, document: TaleDocument): Promise<TaleCopyResult> {
+    try {
+      const body: CopyTaleDocumentRequest = { document };
+      const value = await firstValueFrom(this.http.post<Tale>(`${documentUrl(taleId)}/copy`, body));
+      return { value, message: '', code: '', status: 201 };
+    } catch (err) {
+      const { message, code, pointer, status } = failure(err, 'Your version was not kept as a new tale. Try again.');
+      return { value: null, message, code, pointer, status };
     }
   }
 }

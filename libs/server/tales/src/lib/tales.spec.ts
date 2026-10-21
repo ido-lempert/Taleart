@@ -1,5 +1,6 @@
 import {
   copyTaleGroup,
+  copyTaleWithDocument,
   createTale,
   createTaleGroup,
   InvalidScheduleError,
@@ -42,6 +43,7 @@ import {
   type TransactionalDb,
 } from './tales';
 import { migrateTales } from './migration';
+import { InvalidTaleDocumentError } from './tale-document';
 import { ZoneNotFoundError } from '@taleart/server-zones';
 
 const zoneId = '00000000-0000-4000-8000-000000000001';
@@ -361,6 +363,68 @@ describe('tales', () => {
     ).rejects.toThrow('link failed');
     expect(failing.statements()).toContain('ROLLBACK');
     expect(failing.statements()).not.toContain('COMMIT');
+  });
+});
+
+describe('keep a document as a new tale', () => {
+  const taleId = '00000000-0000-4000-8000-000000000009';
+  const document = {
+    version: 1,
+    canvas: { background: { type: 'color', color: '#112233' } },
+    elements: [
+      {
+        id: '00000000-0000-4000-8000-0000000000aa',
+        type: 'text',
+        box: { x: 0.1, y: 0.1, w: 0.5, h: 0.1, rotation: 0 },
+        hidden: false,
+        locked: false,
+        a11y: {},
+        props: { text: 'Mine' },
+      },
+    ],
+  };
+
+  it('does not query for a tale id that is not a UUID, nor for a document that does not pass', async () => {
+    const { db, query } = fakeDb([]);
+    await expect(copyTaleWithDocument(db, 'nope', document)).rejects.toBeInstanceOf(TaleNotFoundError);
+    await expect(copyTaleWithDocument(db, taleId, { ...document, extra: 1 })).rejects.toBeInstanceOf(
+      InvalidTaleDocumentError,
+    );
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown tale and rolls back', async () => {
+    const { db, statements } = fakeDb([{ rows: [] }]);
+    await expect(copyTaleWithDocument(db, taleId, document)).rejects.toBeInstanceOf(TaleNotFoundError);
+    expect(statements()).toContain('ROLLBACK');
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+  });
+
+  it('refuses when the group already holds 100 tales, after locking it', async () => {
+    const { db, statements } = fakeDb([{ rows: [{ groupId }] }, { rows: [] }, { rows: [{ count: 100, next: 100 }] }]);
+    await expect(copyTaleWithDocument(db, taleId, document)).rejects.toBeInstanceOf(TaleGroupFullError);
+    expect(statements().some((s) => /FROM tale_groups WHERE id = \$1 FOR UPDATE/.test(s))).toBe(true);
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+    expect(statements()).toContain('ROLLBACK');
+  });
+
+  it('inserts a draft at the end of the group with the checked document at revision 1, in one transaction', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{ groupId }] },
+      { rows: [] },
+      { rows: [{ count: 3, next: 3 }] },
+      { rows: [{ id: 't2', mediaContentType: 'image/png', storedStatus: 'draft', groupStatus: 'live' }] },
+    ]);
+    const tale = await copyTaleWithDocument(db, taleId, document);
+    const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
+    expect(insert?.[0]).toMatch(/title \|\| ' \(copy\)'/);
+    expect(insert?.[0]).toMatch(/media_key, media_content_type, \$3::jsonb, 1/);
+    expect((insert?.[0] as string).split('RETURNING')[0]).not.toMatch(/status|starts_at/);
+    expect(insert?.[1]).toEqual([taleId, 3, JSON.stringify(document)]);
+    expect(statements().indexOf('BEGIN')).toBe(0);
+    expect(statements()).toContain('COMMIT');
+    expect(tale.id).toBe('t2');
+    expect(tale.media?.url).toBe('/api/v1/tales/t2/media');
   });
 });
 

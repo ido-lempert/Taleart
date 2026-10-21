@@ -45,6 +45,11 @@ export type SaveTaleDocumentRequest = Omit<Schemas['SaveTaleDocumentRequest'], '
   document: TaleDocument;
 };
 
+/** The body of `POST /tales/{taleId}/document/copy`: the document to keep as a new tale in the tale's group. */
+export type CopyTaleDocumentRequest = Omit<Schemas['CopyTaleDocumentRequest'], 'document'> & {
+  document: TaleDocument;
+};
+
 /** A text element as the Delivery API returns it: without the editor-only fields. */
 export type DeliveryTextElement = Omit<TextElement, 'hidden' | 'locked'>;
 

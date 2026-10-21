@@ -19,6 +19,7 @@ export {
   setTaleSchedule,
   removeTaleGroup,
   createTale,
+  copyTaleWithDocument,
   taleGroupExists,
   taleExists,
   taleGroupName,

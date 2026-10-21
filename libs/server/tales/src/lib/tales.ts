@@ -21,7 +21,7 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
-import { deliverableTaleDocument } from './tale-document';
+import { checkTaleDocument, deliverableTaleDocument } from './tale-document';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -883,6 +883,49 @@ export async function createTale(
       [input.taleGroupId, projectId, input.title, next],
     );
     if (withTale) await withTale(tx, { taleId: rows[0].id, projectId });
+    return toTale(rows[0]);
+  });
+}
+
+/**
+ * Keeps a document as a new tale in the source tale's group (epic Tale Studio R9): for an editor
+ * whose save was refused as stale, so their version is not lost. The document is checked as a
+ * save checks it ({@link checkTaleDocument}) before anything is written. In one transaction the
+ * group row is locked, so the {@link MAX_TALES_PER_GROUP} check and the position hold under
+ * concurrent adds; the new tale is a `draft` at the end of the group, titled after the source
+ * with " (copy)", sharing the source's media key (AD-14), holding the document at revision 1.
+ * Throws {@link TaleNotFoundError}, {@link TaleGroupFullError} and the document's errors.
+ */
+export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, value: unknown): Promise<Tale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const document = checkTaleDocument(value);
+
+  return inTransaction(db, async (tx) => {
+    const groupOf = await tx.query<{ groupId: string }>('SELECT tale_group_id AS "groupId" FROM tales WHERE id = $1', [
+      taleId,
+    ]);
+    const groupId = groupOf.rows[0]?.groupId;
+    if (groupId === undefined) throw new TaleNotFoundError(taleId);
+    await tx.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [groupId]);
+
+    const stats = await tx.query<{ count: number; next: number }>(
+      `SELECT count(*)::int AS count, COALESCE(MAX(position), -1) + 1 AS next
+       FROM tales WHERE tale_group_id = $1`,
+      [groupId],
+    );
+    const { count, next } = stats.rows[0];
+    if (count >= MAX_TALES_PER_GROUP) throw new TaleGroupFullError(groupId);
+
+    // The status, schedule and position are the new row's own: a draft, unscheduled, last.
+    const { rows } = await tx.query<TaleRow>(
+      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type,
+                          document, document_revision)
+       SELECT tale_group_id, project_id, title || ' (copy)', $2, media_key, media_content_type, $3::jsonb, 1
+       FROM tales WHERE id = $1
+       RETURNING ${TALE_COLUMNS}`,
+      [taleId, next, JSON.stringify(document)],
+    );
+    if (rows.length === 0) throw new TaleNotFoundError(taleId);
     return toTale(rows[0]);
   });
 }

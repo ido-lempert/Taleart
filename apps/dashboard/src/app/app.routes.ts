@@ -75,6 +75,8 @@ export const appRoutes: Route[] = [
         // Tale Studio: a tale's document on a 9:16 canvas (epic Tale Studio, AD-15), loaded on first visit.
         path: 'tales/:taleId/studio',
         loadComponent: () => import('./pages/tale-studio').then((m) => m.TaleStudioPage),
+        // Leaving with unsaved changes saves them first, or asks (epic Tale Studio R9).
+        canDeactivate: [(page: { canLeave(): Promise<boolean> }) => page.canLeave()],
         title: 'Tale Studio · TaleArt',
         data: { heading: 'Tale Studio' } satisfies ShellData,
       },

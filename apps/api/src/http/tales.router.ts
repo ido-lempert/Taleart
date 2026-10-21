@@ -8,6 +8,7 @@ import {
 } from '@taleart/contract';
 import type { MediaStorage } from '@taleart/server-storage';
 import {
+  copyTaleWithDocument,
   getTaleDocument,
   getTaleMedia,
   isMediaKeyInUse,
@@ -161,6 +162,23 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
         throw new HttpError(400, ErrorCodes.validationFailed, 'document is required');
       }
       res.json(await saveTaleDocument(pool, taleId, body['document'], revision));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Keeps the editor's version of the document as a new draft tale in the tale's group, after a
+  // stale save (epic Tale Studio R9). Its body is parsed in app.ts, as the document route's is.
+  router.post('/:taleId/document/copy', taleAccess, async (req, res, next) => {
+    try {
+      // Tale first (404), then the body (400), then the group's room (409).
+      const { taleId } = req.params;
+      if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
+      const body = req.body as Record<string, unknown> | undefined;
+      if (typeof body !== 'object' || body === null || !('document' in body)) {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'document is required');
+      }
+      res.status(201).json(await copyTaleWithDocument(pool, taleId, body['document']));
     } catch (err) {
       next(err);
     }

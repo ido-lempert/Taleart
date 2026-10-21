@@ -1867,6 +1867,53 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tales/{taleId}/document/copy:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: copyTaleDocument
+      summary: Keep a document as a new tale in the tale's group.
+      description: >-
+        For a save refused with 409 `stale_revision`: keeps the editor's own
+        version as a new tale instead of dropping it. In one transaction,
+        creates a `draft` tale at the end of the source tale's group, titled
+        after the source with " (copy)", sharing the source's media storage
+        key (AD-11, AD-14), and holding `document` at revision 1. The document
+        is checked as a save checks it: 400 `invalid_tale_document` with
+        `pointer`, 413 `tale_document_too_large`. A tale group holds at most
+        100 tales: 409 `tale_group_full`, and nothing is created. The caller
+        needs access to the source tale's project (403 `forbidden`). Unknown
+        tale: 404 `tale_not_found`; a body without a document: 400
+        `validation_failed`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopyTaleDocumentRequest'
+      responses:
+        '201':
+          description: The new tale, a draft, holding the document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     session:
@@ -2723,6 +2770,12 @@ components:
           minimum: 0
           maximum: 2147483647
           description: The revision this document was based on, as the last read or save returned it.
+    CopyTaleDocumentRequest:
+      type: object
+      required: [document]
+      properties:
+        document:
+          $ref: '#/components/schemas/TaleDocument'
     DeliveryMedia:
       type: object
       required: [kind, contentType, url]

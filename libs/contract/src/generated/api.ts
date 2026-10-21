@@ -1007,6 +1007,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tales/{taleId}/document/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep a document as a new tale in the tale's group.
+         * @description For a save refused with 409 `stale_revision`: keeps the editor's own version as a new tale instead of dropping it. In one transaction, creates a `draft` tale at the end of the source tale's group, titled after the source with " (copy)", sharing the source's media storage key (AD-11, AD-14), and holding `document` at revision 1. The document is checked as a save checks it: 400 `invalid_tale_document` with `pointer`, 413 `tale_document_too_large`. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the source tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a body without a document: 400 `validation_failed`.
+         */
+        post: operations["copyTaleDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1438,6 +1460,9 @@ export interface components {
             document: components["schemas"]["v1.schema"];
             /** @description The revision this document was based on, as the last read or save returned it. */
             revision: number;
+        };
+        CopyTaleDocumentRequest: {
+            document: components["schemas"]["v1.schema"];
         };
         DeliveryMedia: {
             kind: components["schemas"]["MediaKind"];
@@ -3564,6 +3589,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaleDocumentRevision"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    copyTaleDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyTaleDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description The new tale, a draft, holding the document. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
                 };
             };
             400: components["responses"]["Error"];
