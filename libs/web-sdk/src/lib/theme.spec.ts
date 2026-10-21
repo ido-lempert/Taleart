@@ -144,6 +144,43 @@ describe('theme', () => {
       expect({ ...readTheme(raw) }).toEqual({ ...DEFAULT_THEME, cornerRadius: 0 });
     });
 
+    it('copies ring colours by index before checking: a Proxy, a custom iterator, a sparse array', () => {
+      let reads = 0;
+      const proxy = new Proxy(['#0000ff'], {
+        get(target, key, receiver) {
+          if (key === '0') return ++reads === 1 ? '#0000ff' : 'red;}x{';
+          return Reflect.get(target, key, receiver);
+        },
+      });
+      const fromProxy = readThemeOverride({ ringColors: proxy }, 'x');
+      expect(fromProxy).toEqual({ ringColors: ['#0000ff'] });
+      expect(Object.isFrozen(fromProxy) && Object.isFrozen(fromProxy.ringColors)).toBe(true);
+      expect(themeProperties({}, fromProxy)['--ta-ring']).toBe('#0000ff');
+      const iterated = Object.assign(['#0000ff'], {
+        *[Symbol.iterator]() {
+          yield 'url(x)';
+        },
+      });
+      expect(readThemeOverride({ ringColors: iterated }, 'x')).toEqual({ ringColors: ['#0000ff'] });
+      expect(readTheme({ ringColors: iterated }).ringColors).toEqual(['#0000ff']);
+      expect(warn).not.toHaveBeenCalled();
+      for (const sparse of [new Array(1), Object.assign(new Array(2), { 0: '#0000ff' }), [undefined]]) {
+        expect(readThemeOverride({ ringColors: sparse }, 'x')).toEqual({});
+        expect(readTheme({ ringColors: sparse })).toEqual(resolveTheme({ ringColors: sparse }));
+      }
+      expect(warn).toHaveBeenCalledTimes(3);
+      // A huge array is never copied in full, and still fails.
+      expect(readThemeOverride({ ringColors: new Array(1e9) }, 'x')).toEqual({});
+    });
+
+    it('checks overrides again when building properties, so an unchecked value never reaches CSS', () => {
+      expect(themeProperties({}, { ringColors: ['red;}x{'], ringWidth: 9 } as never)).toMatchObject({
+        '--ta-ring': 'linear-gradient(45deg, #ea580c, #db2777, #7c3aed)',
+        '--ta-ring-width': '2px',
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
     it.each(['blue', 3, ['#0000ff'], true])('ignores %j, not an object, with one warning', (raw) => {
       expect(readThemeOverride(raw, 'x')).toEqual({});
       expect(warn).toHaveBeenCalledTimes(1);

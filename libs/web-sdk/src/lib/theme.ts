@@ -48,21 +48,26 @@ const CHECKS: { readonly [K in keyof Theme]: (value: unknown) => boolean } = {
 const isRecord = (raw: unknown): raw is Record<string, unknown> =>
   typeof raw === 'object' && raw !== null && !Array.isArray(raw);
 
+// A plain, frozen copy of an array, read by index (at most one more than the three colours
+// allowed, so an over-long one still fails; a hole reads as undefined and fails), so the value
+// checked is the value kept, whatever a Proxy or a custom iterator would answer later.
+const copyValue = (value: unknown): unknown =>
+  Array.isArray(value) ? Object.freeze(Array.from({ length: Math.min(value.length, 4) }, (_, i) => value[i])) : value;
+
 /**
- * The fields of `raw` that pass the theme's rules (arrays copied), and the
- * names of the fields that do not: unknown keys and values that fail. A field
- * that is absent or `undefined` is neither.
+ * The fields of `raw` that pass the theme's rules (arrays copied first, then
+ * checked, then frozen), and the names of the fields that do not: unknown keys
+ * and values that fail. A field that is absent or `undefined` is neither.
  */
 function themeFields(raw: unknown): { fields: Partial<Theme>; invalid: string[] } {
   const fields: Record<string, unknown> = {};
   const invalid: string[] = [];
   if (!isRecord(raw)) return { fields, invalid };
   for (const key of Object.keys(raw)) {
-    const value = raw[key];
+    const value = copyValue(raw[key]);
     if (value === undefined) continue;
-    if (Object.prototype.hasOwnProperty.call(CHECKS, key) && CHECKS[key as keyof Theme](value)) {
-      fields[key] = Array.isArray(value) ? [...value] : value;
-    } else invalid.push(key);
+    if (Object.prototype.hasOwnProperty.call(CHECKS, key) && CHECKS[key as keyof Theme](value)) fields[key] = value;
+    else invalid.push(key);
   }
   return { fields: fields as Partial<Theme>, invalid };
 }
@@ -83,20 +88,21 @@ export function readTheme(raw: unknown): Theme {
 /**
  * A theme override from the host page's SDK configuration (R9), named by
  * `source` in warnings (such as `the theme of zone "tak_…"`): the fields that
- * pass the theme's rules, copied, so later changes to `raw` do not leak in.
+ * pass the theme's rules, copied before they are checked and frozen, so later
+ * changes to `raw` (or a Proxy's or iterator's other answers) never leak in.
  * Each invalid or unknown field is ignored with one console warning naming it;
  * an override that is not an object is ignored with one warning. `null` and
  * `undefined` mean no override.
  */
-export function readThemeOverride(raw: unknown, source: string): Partial<Theme> {
-  if (raw === null || raw === undefined) return {};
+export function readThemeOverride(raw: unknown, source: string): Readonly<Partial<Theme>> {
+  if (raw === null || raw === undefined) return Object.freeze({});
   if (!isRecord(raw)) {
     console.warn(`TaleArt: ${source} must be an object of theme fields; it is ignored`);
-    return {};
+    return Object.freeze({});
   }
   const { fields, invalid } = themeFields(raw);
   for (const key of invalid) console.warn(`TaleArt: ${source} has an invalid or unknown field "${key}"; it is ignored`);
-  return fields;
+  return Object.freeze(fields);
 }
 
 /**
@@ -109,10 +115,11 @@ export function readThemeOverride(raw: unknown, source: string): Partial<Theme> 
  * lets the CSS fall back to the host page's value or the frame's own. With
  * ring style `none` no ring shows, seen or not. `overrides` are checked fields
  * from the SDK configuration ({@link readThemeOverride}), lowest precedence
- * first; each field one sets replaces the delivered theme's.
+ * first; each field one sets replaces the delivered theme's. They are checked
+ * again here, silently, so no unchecked value can reach CSS.
  */
 export function themeProperties(raw: unknown, ...overrides: Partial<Theme>[]): Record<string, string> {
-  const theme: Theme = Object.assign(readTheme(raw), ...overrides);
+  const theme: Theme = Object.assign(readTheme(raw), ...overrides.map((o) => themeFields(o).fields));
   const none = theme.ringStyle === 'none';
   const [first] = theme.ringColors;
   const ring =

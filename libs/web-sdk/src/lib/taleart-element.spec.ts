@@ -322,6 +322,101 @@ describe('TaleartElement', () => {
       expect([prop(el, '--ta-ring'), prop(el, '--ta-ring-width')]).toEqual(['#ff0000', '4px']);
     });
 
+    it('returns copies from el.theme: mutating them changes nothing', async () => {
+      const el = await mount();
+      el.theme = { ringColors: ['#00ff00'] };
+      const read = el.theme;
+      read.ringColors?.push('#000000');
+      (read.ringColors as string[])[0] = 'red;}x{';
+      read.ringWidth = 4;
+      expect(el.theme).toEqual({ ringColors: ['#00ff00'] });
+      el.retheme();
+      expect([prop(el, '--ta-ring'), prop(el, '--ta-ring-width')]).toEqual(['#00ff00', '3px']);
+    });
+
+    it('warns once for theme="null", and clears silently for a missing or empty attribute', async () => {
+      const el = await mount({ 'api-url': API, 'zone-key': KEY, theme: '{"ringColors":["#00ff00"]}' });
+      expect(prop(el, '--ta-ring')).toBe('#00ff00');
+      el.setAttribute('theme', 'null');
+      expect(warnings()).toEqual([expect.stringContaining('theme attribute must be a JSON object')]);
+      expect(prop(el, '--ta-ring')).toBe('#ff0000');
+      el.setAttribute('theme', '{"ringColors":["#00ff00"]}');
+      el.setAttribute('theme', '');
+      expect(prop(el, '--ta-ring')).toBe('#ff0000');
+      el.setAttribute('theme', '{"ringColors":["#00ff00"]}');
+      el.removeAttribute('theme');
+      expect(prop(el, '--ta-ring')).toBe('#ff0000');
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('names the zone in its warnings by the start of its key only', async () => {
+      const key = 'tak_0123456789abcdef';
+      configureZone(key, { theme: { ringWidth: 9 } as never });
+      expect(warnings()).toEqual([
+        'TaleArt: the theme of zone "tak_0123…" has an invalid or unknown field "ringWidth"; it is ignored',
+      ]);
+      expect(warnings()[0]).not.toContain(key);
+      configureZone(key);
+    });
+
+    it('removes the zone configuration with configureZone(key) or configureZone(key, {})', async () => {
+      const el = await mount();
+      const clears = [() => configureZone(KEY), () => configureZone(KEY, {}), () => configureZone(KEY, { theme: null })];
+      for (const clear of clears) {
+        configureZone(KEY, { theme: { ringColors: ['#0000ff'] } });
+        expect(prop(el, '--ta-ring')).toBe('#0000ff');
+        clear();
+        expect(prop(el, '--ta-ring')).toBe('#ff0000');
+      }
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it("never applies a new zone's override to content rendered for the old key", async () => {
+      configureZone('tak_other', { theme: { ringColors: ['#0000ff'] } });
+      const el = await mount();
+      const oldWrapper = el.shadowRoot?.querySelector<HTMLElement>('.taleart');
+      el.zoneKey = 'tak_other';
+      // Before the new load runs, the old content still belongs to the old zone.
+      el.retheme();
+      expect(oldWrapper?.style.getPropertyValue('--ta-ring')).toBe('#ff0000');
+      configureZone('tak_other', { theme: { ringColors: ['#0000fe'] } });
+      expect(oldWrapper?.style.getPropertyValue('--ta-ring')).toBe('#ff0000');
+      await settle();
+      expect(prop(el, '--ta-ring')).toBe('#0000fe');
+    });
+
+    it('lets a theme property set before upgrade win over a theme attribute present at upgrade, silently', async () => {
+      const tag = 'taleart-prop-first-view';
+      const el = document.createElement(tag) as TaleartElement;
+      el.setAttribute('theme', '{bad json');
+      (el as unknown as { theme: unknown }).theme = { ringColors: ['#00ff00'] };
+      el.setAttribute('api-url', API);
+      el.setAttribute('zone-key', KEY);
+      document.body.appendChild(el);
+      customElements.define(tag, class extends TaleartElement {});
+      await settle();
+      expect(prop(el, '--ta-ring')).toBe('#00ff00');
+      expect(el.theme).toEqual({ ringColors: ['#00ff00'] });
+      expect(warnSpy).not.toHaveBeenCalled();
+      // A later attribute change applies as usual.
+      el.setAttribute('theme', '{"ringColors":["#0000ff"]}');
+      expect(prop(el, '--ta-ring')).toBe('#0000ff');
+    });
+
+    it('checks a pre-upgrade theme when upgraded while detached, and never returns it unchecked', () => {
+      const tag = 'taleart-detached-view';
+      // Created before the definition and kept detached, so defining it does not upgrade it.
+      const el = document.createElement(tag) as TaleartElement;
+      (el as unknown as { theme: unknown }).theme = { ringColors: ['#00ff00'], fontFamily: 'x;}body{' };
+      customElements.define(tag, class extends TaleartElement {});
+      expect(el instanceof TaleartElement).toBe(false);
+      customElements.upgrade(el);
+      expect(el instanceof TaleartElement).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(el, 'theme')).toBe(false);
+      expect(el.theme).toEqual({ ringColors: ['#00ff00'] });
+      expect(warnings()).toEqual([expect.stringContaining('"fontFamily"')]);
+    });
+
     it('takes a theme set on the element before the SDK defined it', async () => {
       const tag = 'taleart-late-view';
       const el = document.createElement(tag) as TaleartElement;

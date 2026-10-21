@@ -60,9 +60,15 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 - Each value is checked with the same rules as the dashboard's. An invalid or unknown field is ignored with one console
   warning naming it, and the next source's value applies. An override that is not an object (or attribute text that is
   not JSON) is ignored with one warning. Values only ever reach CSS custom properties, never style text.
-- The value is copied when set: assign the property again, or call `configureZone` again, to change it. Rendered
-  elements restyle at once, with no new request. `el.theme = null`, removing the attribute, or
-  `configureZone(key, {})` removes an override.
+- The value is copied, checked and kept when set: assign the property again, or call `configureZone` again, to change
+  it. Reading `el.theme` returns a copy of that element's own override fields that passed (not the zone's or the
+  project's). Rendered elements restyle at once, with no new request.
+- `el.theme = null`, removing the attribute (or setting it empty), `configureZone(key)` or `configureZone(key, {})`
+  removes an override. A `theme` attribute of `null` or of JSON that is not an object warns once and sets none.
+- A `theme` property set by script before the SDK defines `<taleart-view>` is applied when the element upgrades and wins
+  over a `theme` attribute already present then, which is left unread and logs nothing; later attribute changes apply
+  as usual.
+- Warnings about a zone's theme name the zone by the first 8 characters of its key only.
 - With an override, colour contrast is the host page's responsibility: keep titles at 4.5:1 and rings at 3:1 against the
   background (WCAG 2.2 AA).
 

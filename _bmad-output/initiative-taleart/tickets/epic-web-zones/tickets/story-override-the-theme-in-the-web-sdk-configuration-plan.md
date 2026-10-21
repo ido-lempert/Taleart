@@ -3,7 +3,7 @@ title: 'Override the theme in the Web SDK configuration'
 type: 'feature'
 ticket: '9'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'ad0bf8a9aba7ccb6f5faeb7edce79d162536ad46'
 route: 'full'
 route_source: 'auto'
@@ -96,6 +96,18 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Coordinator review
+- verdicts: 8 findings, all patched.
+- findings:
+  - `[patch]` `get theme()` leaked the internal `ringColors` array — it now returns a copy with the array copied; stored overrides (and their arrays) are frozen; `themeProperties` checks overrides again, silently, so only checked values reach CSS. Tests: mutating `el.theme.ringColors` changes nothing; unchecked overrides passed to `themeProperties` fall back.
+  - `[patch]` Check-then-copy on arrays — the SDK and the contract (`resolveTheme`, `cleanThemeSettings`) now copy arrays by index first (length capped at 4, one over the rules' 3), then check the copy; the contract's `fieldError` checks colours by index, so sparse holes fail (it used `every`, which skips holes). Tests in both: a Proxy that answers differently on a second read, an array with a junk custom iterator, sparse arrays and `[undefined]`, a 1e9-length array; drift tests still compare SDK and contract.
+  - `[patch]` Upgrade order — the pre-upgrade own `theme` property is taken in the constructor (before `attributeChangedCallback`), deleted and run through the setter; set by script it wins over a `theme` attribute present at upgrade, which is skipped without logging; later attribute changes apply. `el.theme` never returns an unchecked value. Tests: attribute plus pre-upgrade property, and `customElements.upgrade` of a detached element. Documented in the README.
+  - `[patch]` `theme="null"` was silent — it now warns once like other non-object JSON; a missing or empty attribute clears silently. Test.
+  - `[patch]` Zone warnings now name the zone by its key's first 8 characters plus "…", never the full key; JSDoc example fixed. Test.
+  - `[patch]` `configureZone(key)` / `configureZone(key, {})` / `{ theme: null }` deletes the registry entry (as does an override with no valid field). Test.
+  - `[patch]` `get theme()` JSDoc now says it returns this element's own override fields.
+  - `[patch]` The rendered zone key is stored with the themed wrapper and the zone override is looked up by it, so a key change never applies the new zone's override to the old content. Test.
+
 ## Verification
 
 **Commands:**
@@ -114,7 +126,9 @@ deferred: []
 - `libs/web-sdk/README.md` -- public configuration.
 - `apps/sdk-sample/index.html`, `apps/sdk-sample/a11y-scan.mjs` -- `&theme=` demo hook and documentation; override checks and scan on a bar stage and a banner stage.
 
-**Review:** none yet (unreviewed).
+**Review:** coordinator review, 8 findings, all patched (see the triage log); `autopilot/foundation` merged (already up to date at ad0bf8a). The review fixes also touch `libs/contract/src/lib/theme.ts` and its spec (sparse arrays, copy before check).
+
+**Verification after review:** the same `nx run-many -t lint test build` for the twelve projects passed against `taleart_w1_test` (web-sdk 217, contract 91, api 306, server-zones 56 tests, among others); `nx run web-sdk:size`: 11.08 KB gzipped; `nx run sdk-sample:a11y`: no WCAG 2.2 AA violations, override checks pass.
 
 **Verification:** `nx run-many -t lint test build` for the twelve projects passed against `taleart_w1_test` (web-sdk 208, api 306, contract 87, server-zones 56 tests, among others); `nx run web-sdk:size`: 10.92 KB gzipped (budget 50 KB); `nx run sdk-sample:a11y`: no WCAG 2.2 AA violations, including the SDK-override state; the override checks (blue wins in bar and banner stages, invalid `ringWidth` warns once and the project's width applies, red returns without it) pass. No live-API run (the Delivery API is stubbed in the scan).
 
