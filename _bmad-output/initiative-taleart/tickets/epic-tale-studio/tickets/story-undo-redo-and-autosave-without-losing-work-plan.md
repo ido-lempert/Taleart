@@ -105,7 +105,7 @@ deferred: []
   - Keep-as-copy: `POST /api/v1/tales/{taleId}/document/copy` with `{ document }` answers 201 with the new `Tale`. The new tale goes at the **end** of the group (as `createTale` does), titled "<title> (copy)", status `draft`, unscheduled, sharing the source's media key (AD-14), holding the submitted document (element ids kept: it is the same person's version, not R11's duplicate) at revision 1. Authorization is the source tale's project (the copy stays in its group, so the same project). Then the studio refreshes the store, navigates to the copy's studio and says where the version went.
   - The 413 mapping and the 256 KB body parser cover the copy route too.
 - Design. `tale-history.ts` (pure stack) and `tale-autosave.ts` (`TaleAutosaver`: timers, serialization, retry, flush; `AUTOSAVE_TIMING` token so tests shorten it) are framework-free classes. The studio routes every change through `commit()`; a drag shows live and records one step at its end. The page re-initialises on a `taleId` change (`ngOnChanges`), since Angular reuses it when keep-as-copy navigates to another tale's studio.
-- Dashboard bundle: initial 638.4 KB (637.5 KB before; the 500 KB warning budget was exceeded at baseline); the lazy studio chunk is 49.4 KB (38 KB before).
+- Dashboard bundle: after merging `autopilot/foundation` fe8c9b6 (lazy routes), the initial bundle is 493.5 KB, within the 500 KB budget; the lazy studio chunk is 53.9 KB (38 KB before this story). The studio route stays lazy, with its `canDeactivate` guard.
 - Not verified by hand: a browser walk with two real tabs and a screen reader. Component tests cover each matrix row with a mocked API; API tests cover the two-tab conflict and keep-as-copy against the test database.
 
 ## Plan Change Log
@@ -124,15 +124,17 @@ deferred: []
 - **Contract:** `POST /tales/{taleId}/document/copy` with `CopyTaleDocumentRequest`; `contract:generate` run.
 - **Tales module:** `copyTaleWithDocument`: checks the document as a save does, then in one transaction locks the group row, enforces 100 tales per group, and inserts a draft "<title> (copy)" at the end of the group with the source's media key and the document at revision 1.
 - **API:** the route (taleAccess authorization, 404, 400, 409 `tale_group_full`, 413), the 256 KB body parser and 413 mapping for it.
+- **Draft and publish (user decision 2026-10-22):** `draft_document`/`draft_revision` beside the published `document`/`document_revision` (backfilled at the same revision); the studio's GET/PUT act on the draft and also answer `published`; `POST …/document/publish` and `…/discard` compare-and-set both revisions; publishing a draft tale publishes its draft; Delivery and the SDK read only the published document. The studio shows "Draft — not visible to visitors", "Unpublished changes …" or "Published …", with "Publish changes" and "Discard draft" (asks first; undoable).
 - **Dashboard (Tale Studio):** a history of every document change (200 steps; typing and held arrows merged; one step per drag) with Undo/Redo toolbar buttons and Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z, Ctrl+Y outside text fields; debounced, serialized autosave with retry/backoff, `online` retry, "Retry now" and a saved/saving/failed indicator; on 409 a choice of "Reload latest version" or "Keep my version as a new tale"; `canDeactivate` and `beforeunload` guards; undoable Delete with "press ⌘Z/Ctrl+Z to undo"; undo/redo icons; Latin-key-first shortcut letters (AZERTY fix).
 
 **Files changed:** `libs/contract/openapi/openapi.yaml`, `libs/contract/src/generated/api.ts`, `libs/contract/src/lib/tale-document.ts`; `libs/server/tales/src/lib/tales.ts` (+ spec), `libs/server/tales/src/index.ts`; `apps/api/src/app.ts`, `apps/api/src/http/tales.router.ts`, `apps/api/src/http/errors.ts`, `apps/api/src/app.spec.ts`; `apps/dashboard/src/app/pages/tale-history.ts` (+ spec, new), `tale-autosave.ts` (+ spec, new), `tale-layers.ts` (+ spec), `tale-studio.ts` (+ spec), `apps/dashboard/src/app/tale-document.service.ts`, `app.routes.ts`, `icon.ts`, `styles.css`.
 
 **Verification:**
-- `run-many -t lint test build` on the 12 projects: all pass. Test counts: api 381 (5 new), dashboard 286 (history 5, autosave 12, shortcuts 6, studio 12 new), server-tales 100 (4 new), contract 109, web-sdk 264.
+- First build: `run-many` passed; api 381, dashboard 286, server-tales 100.
+- After draft and publish, on the merge with `autopilot/foundation` fe8c9b6 (`--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes. Test counts: api 393 (11 new for this story's draft/publish and keep-as-copy rows, plus the foundation's), dashboard 295, server-tales 104, contract 109, web-sdk 264.
 - `web-sdk:size`: 13.88 KB gzipped (unchanged).
 - `sdk-sample:a11y`: WCAG 2.2 AA scan, no violations.
-- `sdk-sample:perf`: cold p75 first content 1,253 ms (≤ 1,500 ms), warm p75 754 ms.
+- `sdk-sample:perf`: cold p75 first content 1,255 ms (≤ 1,500 ms), warm p75 754 ms.
 
 **Residual risks:**
 - "Publish changes" publishes the document only; a tale that is not live stays unseen, and the studio says so. The tale's own status is still set from the zone page.
