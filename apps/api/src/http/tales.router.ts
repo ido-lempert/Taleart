@@ -8,8 +8,10 @@ import {
 } from '@taleart/contract';
 import type { MediaStorage } from '@taleart/server-storage';
 import {
+  getTaleDocument,
   getTaleMedia,
   isMediaKeyInUse,
+  saveTaleDocument,
   setTaleMedia,
   setTaleSchedule,
   setTaleStatus,
@@ -32,6 +34,9 @@ function logError(msg: string, err: unknown): void {
     }),
   );
 }
+
+/** The largest document revision: the stored column is a PostgreSQL integer. */
+const MAX_REVISION = 2147483647;
 
 /** A tale's media and status: mounted at `/tales`. */
 export function talesRouter(pool: Pool, storage: MediaStorage): Router {
@@ -122,6 +127,40 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
       if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
       const input: SetScheduleRequest = requiredSchedule(req.body);
       res.json(await setTaleSchedule(pool, taleId, input));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // The tale's document (AD-15). Its body is parsed in app.ts with a larger limit than other
+  // routes'; the document's own size is checked when it is saved.
+  router.get('/:taleId/document', taleAccess, async (req, res, next) => {
+    try {
+      res.json(await getTaleDocument(pool, req.params['taleId']));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/:taleId/document', taleAccess, async (req, res, next) => {
+    try {
+      // Tale first (404), then the body (400), then the revision (409).
+      const { taleId } = req.params;
+      if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
+      const body = req.body as Record<string, unknown> | undefined;
+      const revision = body?.['revision'];
+      // The stored revision is a PostgreSQL integer.
+      if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0 || revision > MAX_REVISION) {
+        throw new HttpError(
+          400,
+          ErrorCodes.validationFailed,
+          'revision must be the revision the document was based on',
+        );
+      }
+      if (typeof body !== 'object' || body === null || !('document' in body)) {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'document is required');
+      }
+      res.json(await saveTaleDocument(pool, taleId, body['document'], revision));
     } catch (err) {
       next(err);
     }

@@ -981,6 +981,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tales/{taleId}/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a tale's document.
+         * @description The tale document (AD-15) and its revision. A tale without a document answers `document: null` and revision 0; it shows its media only. Unknown tale: 404 `tale_not_found`.
+         */
+        get: operations["getTaleDocument"];
+        /**
+         * Save a tale's document.
+         * @description Replaces the document when `revision` is the tale's current revision, and answers the document with the next revision. A write based on an older revision changes nothing and answers 409 `stale_revision`, so two editors never overwrite each other silently. The document is checked against `tale-document/v1.schema.json` (no additional properties), each element's `props` against the schema of its registered type, and the rules of AD-15: at most 60 elements, 1,000 characters per text, unique ids, numbers in range, no control characters except a line feed in text. A refused document answers 400 `invalid_tale_document` with `pointer`, the JSON pointer of the field it refused (from the document's root); a document over 128 KB answers 413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647): 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         */
+        put: operations["saveTaleDocument"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1380,6 +1406,38 @@ export interface components {
             title: string;
             /** @description The tale's image, GIF or video, or null when it has none. */
             media: components["schemas"]["DeliveryMedia"] | null;
+            /** @description The tale's document (AD-15) as SDKs render it over the media, or null when the tale has none: then it shows its media only. */
+            document: components["schemas"]["DeliveryTaleDocument"] | null;
+        };
+        /** @description A tale document as delivered (AD-15): hidden elements are removed, and so are the editor-only fields `hidden` and `locked`. Clients ignore fields they do not know and skip element types they do not know. */
+        DeliveryTaleDocument: {
+            version: number;
+            canvas: components["schemas"]["Canvas"];
+            durationMs?: number;
+            /** @description The visible elements, first at the bottom of the z-order. */
+            elements: components["schemas"]["DeliveryTaleElement"][];
+        };
+        DeliveryTaleElement: {
+            id: string;
+            /** @description A key of the element-type registry; `text` in version 1. */
+            type: string;
+            box: components["schemas"]["Box"];
+            a11y: components["schemas"]["A11y"];
+            /** @description The type's props, as its schema in `tale-document/element-types/` defines them. */
+            props: Record<string, never>;
+        };
+        TaleDocument: components["schemas"]["v1.schema"];
+        TextElementProps: components["schemas"]["text.schema"];
+        TaleDocumentRevision: {
+            /** @description The tale's document, or null when it has none. */
+            document: components["schemas"]["v1.schema"] | null;
+            /** @description Raised by one on every save; 0 before the first save. */
+            revision: number;
+        };
+        SaveTaleDocumentRequest: {
+            document: components["schemas"]["v1.schema"];
+            /** @description The revision this document was based on, as the last read or save returned it. */
+            revision: number;
         };
         DeliveryMedia: {
             kind: components["schemas"]["MediaKind"];
@@ -1690,12 +1748,117 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
                 message: string;
+                /** @description For `invalid_tale_document`: the JSON pointer (RFC 6901) of the document field that was refused, such as `/elements/0/box/x`. */
+                pointer?: string;
             };
+        };
+        /** @description A colour as #RRGGBB or #RRGGBBAA. */
+        Color: string;
+        /** @description A solid background colour. */
+        ColorBackground: {
+            /** @constant */
+            type: "color";
+            color: components["schemas"]["Color"];
+        };
+        /** @description The 9:16 stage of the tale. */
+        Canvas: {
+            background: components["schemas"]["ColorBackground"];
+        };
+        /** @description Where an element sits, as fractions (0 to 1) of the canvas width (x, w) and height (y, h), and its rotation in degrees about its centre. */
+        Box: {
+            x: number;
+            y: number;
+            w: number;
+            h: number;
+            rotation: number;
+        };
+        /** @description What assistive technology is told about the element. */
+        A11y: {
+            label?: string;
+            decorative?: boolean;
+        };
+        /** @description A UUID, unique in the document. */
+        ElementId: string;
+        /** @description A key of the element-type registry. */
+        ElementType: string;
+        /** @description One element. `hidden` and `locked` are editor state and are never delivered. */
+        Element: {
+            id: components["schemas"]["ElementId"];
+            type: components["schemas"]["ElementType"];
+            box: components["schemas"]["Box"];
+            hidden: boolean;
+            locked: boolean;
+            a11y: components["schemas"]["A11y"];
+            props: Record<string, never>;
+        };
+        /**
+         * TaleDocument
+         * @description A tale document, version 1 (AD-15): the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.
+         */
+        "v1.schema": {
+            /**
+             * @description The document version. Additive changes keep it; a breaking change raises it and ships a forward migration.
+             * @constant
+             */
+            version: 1;
+            canvas: components["schemas"]["Canvas"];
+            /** @description How long the tale shows, in milliseconds, when it has no video. */
+            durationMs?: number;
+            /** @description The elements, first at the bottom of the z-order. */
+            elements: components["schemas"]["Element"][];
+            $defs: {
+                /** @description A colour as #RRGGBB or #RRGGBBAA. */
+                Color: string;
+                /** @description The 9:16 stage of the tale. */
+                Canvas: {
+                    background: components["schemas"]["ColorBackground"];
+                };
+                /** @description A solid background colour. */
+                ColorBackground: {
+                    /** @constant */
+                    type: "color";
+                    color: components["schemas"]["Color"];
+                };
+                /** @description Where an element sits, as fractions (0 to 1) of the canvas width (x, w) and height (y, h), and its rotation in degrees about its centre. */
+                Box: {
+                    x: number;
+                    y: number;
+                    w: number;
+                    h: number;
+                    rotation: number;
+                };
+                /** @description What assistive technology is told about the element. */
+                A11y: {
+                    label?: string;
+                    decorative?: boolean;
+                };
+                /** @description A key of the element-type registry. */
+                ElementType: string;
+                /** @description A UUID, unique in the document. */
+                ElementId: string;
+                /** @description One element. `hidden` and `locked` are editor state and are never delivered. */
+                Element: {
+                    id: components["schemas"]["ElementId"];
+                    type: components["schemas"]["ElementType"];
+                    box: components["schemas"]["Box"];
+                    hidden: boolean;
+                    locked: boolean;
+                    a11y: components["schemas"]["A11y"];
+                    props: Record<string, never>;
+                };
+            };
+        };
+        /**
+         * TextElementProps
+         * @description The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line.
+         */
+        "text.schema": {
+            text: string;
         };
     };
     responses: {
@@ -3354,6 +3517,63 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getTaleDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document and its revision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleDocumentRevision"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    saveTaleDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveTaleDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved document and its new revision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleDocumentRevision"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
 }
 type FlattenedDeepRequired<T> = {
     [K in keyof T]-?: FlattenedDeepRequired<T[K] extends unknown[] | undefined | null ? Extract<T[K], unknown[]>[number] : T[K]>;
@@ -3375,4 +3595,4 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "internal_error"];

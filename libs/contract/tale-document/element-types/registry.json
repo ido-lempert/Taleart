@@ -1,0 +1,3 @@
+{
+  "types": [{ "key": "text", "label": "Text", "schema": "text.schema.json" }]
+}

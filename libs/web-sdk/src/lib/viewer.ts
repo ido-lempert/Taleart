@@ -1,6 +1,7 @@
 import type { DeliveryTale, DeliveryTaleGroup } from '@taleart/contract';
+import { DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
 
-/** How long an image, or a tale without playable media, shows. */
+/** How long an image, or a tale without playable media, shows when its document sets no duration. */
 export const IMAGE_DURATION_MS = 5000;
 /** Horizontal travel that makes a pointer gesture a swipe between groups. */
 export const SWIPE_MIN_PX = 50;
@@ -120,7 +121,7 @@ span.media { background: #1f2937; }
   white-space: nowrap;
   border: 0;
 }
-`;
+${DOCUMENT_STYLES}`;
 
 const ICONS = {
   pause: 'M6 5h4v14H6zM14 5h4v14h-4z',
@@ -138,6 +139,11 @@ function hasModifier(e: KeyboardEvent): boolean {
   return e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
 }
 
+// True when the event happened on a document's text element.
+function inText(e: Event): boolean {
+  return !!(e.target as Element | null)?.closest?.('.ta-text');
+}
+
 export function setIcon(button: HTMLButtonElement, path: string): void {
   button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
@@ -151,8 +157,10 @@ export interface TaleViewerOptions {
 
 /**
  * The full-screen tale viewer: a modal `<dialog>` in `root` that plays a
- * zone's tale groups in order. Images show for {@link IMAGE_DURATION_MS},
- * videos to their end. Tap or arrow keys step through tales (and across
+ * zone's tale groups in order. Images show for {@link IMAGE_DURATION_MS}
+ * (or their document's duration), videos to their end. A tale with a document
+ * (AD-15) shows its elements over its media on a 9:16 canvas; its text is
+ * selectable, and a tap on it does not step. Tap or arrow keys step through tales (and across
  * groups), a swipe moves between groups, a hold or Space pauses, and Escape
  * or Close closes. Groups without tales are skipped. When the visitor
  * prefers reduced motion nothing plays or advances by itself: each tale
@@ -166,16 +174,19 @@ export class TaleViewer {
     name: HTMLElement;
     pause: HTMLButtonElement;
     stage: HTMLElement;
+    top: HTMLElement;
     status: HTMLElement;
   };
   private group = 0;
   private tale = 0;
   private media: HTMLElement | null = null;
+  private layer: HTMLElement | null = null; // the current tale's document, over its media
   private video: HTMLVideoElement | null = null;
   private paused = false; // by the visitor (Space or the button)
   private held = false; // while a pointer is down on the stage
   private timer: ReturnType<typeof setTimeout> | undefined;
   private timed = false; // the current tale runs on the timer, not a video
+  private duration = IMAGE_DURATION_MS; // the current tale's time on the timer
   private remaining = 0;
   private startedAt = 0;
   private press: { x: number; y: number; at: number } | null = null;
@@ -317,13 +328,17 @@ export class TaleViewer {
     stage.addEventListener('lostpointercapture', () => this.onPointerCancel());
     dialog.addEventListener('pointerup', (e) => this.onPointerUp(e));
     dialog.addEventListener('pointercancel', () => this.onPointerCancel());
-    dialog.addEventListener('contextmenu', (e) => e.preventDefault());
+    // No context menu or scrolling, except on a document's text, where a long press and a drag
+    // select it (and the menu copies it) on touch screens.
+    dialog.addEventListener('contextmenu', (e) => {
+      if (!inText(e)) e.preventDefault();
+    });
     // The host page never scrolls under the open viewer; two-finger pinch-zoom still works.
     dialog.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
     dialog.addEventListener(
       'touchmove',
       (e) => {
-        if (e.touches.length < 2) e.preventDefault();
+        if (e.touches.length < 2 && !inText(e)) e.preventDefault();
       },
       { passive: false },
     );
@@ -346,7 +361,7 @@ export class TaleViewer {
 
     this.root.appendChild(dialog);
     this.dialog = dialog;
-    this.parts = { segments, name, pause, stage, status };
+    this.parts = { segments, name, pause, stage, top, status };
     return dialog;
   }
 
@@ -456,8 +471,22 @@ export class TaleViewer {
     clearTimeout(this.statusTimer);
     this.statusTimer = setTimeout(() => (status.textContent = text), 0);
 
-    this.media = this.renderMedia(g.tales[tale]);
-    stage.prepend(this.media);
+    const current = g.tales[tale];
+    const doc = current.document;
+    this.duration = doc?.durationMs ?? IMAGE_DURATION_MS;
+    // The media is framed the same with or without a document: full-bleed in the stage. A tale
+    // with a document but no media shows its canvas colour instead, and the canvas carries the
+    // tale's name.
+    this.media = doc && !current.media ? null : this.renderMedia(current);
+    if (this.media) stage.prepend(this.media);
+    if (doc) {
+      // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
+      this.layer = renderTaleDocument(doc, {
+        background: !current.media,
+        label: current.media ? undefined : current.title || `Tale ${tale + 1}`,
+      });
+      this.parts.top.before(this.layer);
+    }
     this.options.onGroupShown?.(g.id);
     if (this.reduced) {
       // Reduced motion: every tale starts paused; only a video can be played, from the button.
@@ -518,9 +547,9 @@ export class TaleViewer {
       this.video = null;
     }
     this.timed = true;
-    this.remaining = IMAGE_DURATION_MS;
+    this.remaining = this.duration;
     const fill = this.fill();
-    fill.style.setProperty('--taleart-duration', `${IMAGE_DURATION_MS}ms`);
+    fill.style.setProperty('--taleart-duration', `${this.duration}ms`);
     fill.classList.add('timed');
     this.applyPause();
   }
@@ -576,5 +605,7 @@ export class TaleViewer {
     this.video = null;
     this.media?.remove();
     this.media = null;
+    this.layer?.remove();
+    this.layer = null;
   }
 }

@@ -1,0 +1,206 @@
+// Generated from libs/contract/tale-document/ by scripts/generate-tale-document-schemas.mjs; do not edit.
+// Run `npm exec nx -- run contract:generate` after changing a schema file.
+
+/** `tale-document/v1.schema.json`: the tale document's envelope (AD-15). */
+export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaleDocument",
+  "description": "A tale document, version 1 (AD-15): the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "canvas",
+    "elements"
+  ],
+  "properties": {
+    "version": {
+      "description": "The document version. Additive changes keep it; a breaking change raises it and ships a forward migration.",
+      "type": "integer",
+      "const": 1
+    },
+    "canvas": {
+      "$ref": "#/$defs/Canvas"
+    },
+    "durationMs": {
+      "description": "How long the tale shows, in milliseconds, when it has no video.",
+      "type": "integer",
+      "minimum": 3000,
+      "maximum": 15000
+    },
+    "elements": {
+      "description": "The elements, first at the bottom of the z-order.",
+      "type": "array",
+      "maxItems": 60,
+      "items": {
+        "$ref": "#/$defs/Element"
+      }
+    }
+  },
+  "$defs": {
+    "Color": {
+      "description": "A colour as #RRGGBB or #RRGGBBAA.",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    "Canvas": {
+      "description": "The 9:16 stage of the tale.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "background"
+      ],
+      "properties": {
+        "background": {
+          "$ref": "#/$defs/ColorBackground"
+        }
+      }
+    },
+    "ColorBackground": {
+      "description": "A solid background colour.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "color"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "color"
+        },
+        "color": {
+          "$ref": "#/$defs/Color"
+        }
+      }
+    },
+    "Box": {
+      "description": "Where an element sits, as fractions (0 to 1) of the canvas width (x, w) and height (y, h), and its rotation in degrees about its centre.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "rotation"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "w": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "h": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "rotation": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "A11y": {
+      "description": "What assistive technology is told about the element.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "decorative": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ElementType": {
+      "description": "A key of the element-type registry.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "ElementId": {
+      "description": "A UUID, unique in the document.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "Element": {
+      "description": "One element. `hidden` and `locked` are editor state and are never delivered.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "box",
+        "hidden",
+        "locked",
+        "a11y",
+        "props"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ElementId"
+        },
+        "type": {
+          "$ref": "#/$defs/ElementType"
+        },
+        "box": {
+          "$ref": "#/$defs/Box"
+        },
+        "hidden": {
+          "type": "boolean"
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "a11y": {
+          "$ref": "#/$defs/A11y"
+        },
+        "props": {
+          "type": "object"
+        }
+      }
+    }
+  }
+};
+
+/** `tale-document/element-types/registry.json`, each entry with its props schema. */
+export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
+  readonly key: string;
+  readonly label: string;
+  readonly schema: { readonly [key: string]: unknown };
+}[] = [
+  {
+    "key": "text",
+    "label": "Text",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "TextElementProps",
+      "description": "The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    }
+  }
+];
