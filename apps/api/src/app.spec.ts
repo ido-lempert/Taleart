@@ -42,7 +42,9 @@ const fakeanother toolModule = join(__dirname, '../../fake-another tool/src/fake
 const FAKE_another tool_TOKEN = 'fake-another tool-token';
 interface Fakeanother tool {
   url: string;
+  mediaUrl: string;
   control: {
+    requests: { method: string; path: string }[];
     failInstances: 'status' | 'shape' | null;
     failStoryGroups: 'status' | 'shape' | null;
     failStories: 'status' | 'shape' | null;
@@ -172,7 +174,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -939,7 +941,13 @@ describe('Management API v1: projects and zones', () => {
         return (await post(`/tale-groups/${groupId}/tales`, { title })).json();
       }
 
-      async function listed(zoneId: string): Promise<{ id: string; position: number; tales: { id: string; position: number }[] }[]> {
+      async function listed(zoneId: string): Promise<
+        {
+          id: string;
+          position: number;
+          tales: { id: string; position: number }[];
+        }[]
+      > {
         return (await fetch(`${base}/zones/${zoneId}/tale-groups`)).json();
       }
 
@@ -1885,8 +1893,14 @@ describe('Management API v1: projects and zones', () => {
       return existsSync(dir) ? readdirSync(dir) : [];
     }
 
-    async function storedRow(taleId: string): Promise<{ media_key: string | null; media_content_type: string | null }> {
-      const { rows } = await pool.query('SELECT media_key, media_content_type FROM tales WHERE id = $1', [taleId]);
+    async function storedRow(taleId: string): Promise<{
+      media_key: string | null;
+      media_content_type: string | null;
+    }> {
+      const { rows } = await pool.query(
+        'SELECT media_key, media_content_type FROM tales WHERE id = $1',
+        [taleId],
+      );
       return rows[0];
     }
 
@@ -3109,7 +3123,12 @@ describe('Management API v1: projects and zones', () => {
           return res.json();
         }
 
-        async function delivered(key: string): Promise<{ name: string; tales: { title: string; media: { url: string } | null }[] }[]> {
+        async function delivered(key: string): Promise<
+          {
+            name: string;
+            tales: { title: string; media: { url: string } | null }[];
+          }[]
+        > {
           const res = await deliver(key);
           expect(res.status).toBe(200);
           return (await res.json()).taleGroups;
@@ -3694,9 +3713,26 @@ describe('Management API v1: projects and zones', () => {
       });
     }
 
+    // Media goes to the test MEDIA_DIR. The fake serves media on 127.0.0.1, so
+    // exactly that address is allowed, as IMPORT_MEDIA_ALLOWED_ADDRESSES would.
+    function workerMedia() {
+      return {
+        storage: new LocalDiskStorage(mediaDir),
+        mediaPolicy: { allowedAddresses: ['127.0.0.1'] },
+      };
+    }
+
     // Runs the worker as main.ts does, polling fast.
     function startWorker(workerId?: string): void {
-      workers.push(startImportWorker(pool, { tokenKey, another toolApiUrl: fake.url, pollIntervalMs: 50, workerId }));
+      workers.push(
+        startImportWorker(pool, {
+          ...workerMedia(),
+          tokenKey,
+          another toolApiUrl: fake.url,
+          pollIntervalMs: 50,
+          workerId,
+        }),
+      );
     }
 
     // Reads the job until it is done or failed.
@@ -3778,6 +3814,7 @@ describe('Management API v1: projects and zones', () => {
         { id: '1001', name: 'Demo shop' },
         { id: '1002', name: 'Odd shop' },
         { id: '1003', name: 'Clean shop' },
+        { id: '1004', name: 'Media shop' },
       ]);
       expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(0);
     });
@@ -3805,6 +3842,7 @@ describe('Management API v1: projects and zones', () => {
           zones: { source: 3, imported: 3, skipped: 0 },
           taleGroups: { source: 6, imported: 6, skipped: 0 },
           tales: { source: 15, imported: 15, skipped: 0 },
+          media: { source: 15, imported: 15, skipped: 0 },
           notes: [
             'Zone "Home page": frame type unknown',
             'Zone "Product page": frame type unknown',
@@ -4000,6 +4038,7 @@ describe('Management API v1: projects and zones', () => {
         zones: { source: 1, imported: 1, skipped: 0 },
         taleGroups: { source: 1, imported: 1, skipped: 0 },
         tales: { source: 2, imported: 2, skipped: 0 },
+        media: { source: 2, imported: 2, skipped: 0 },
         notes: ['Zone "Clean home": frame type unknown'],
         differences: [],
         notImportedByDesign: ['Conversion records', 'Stats'],
@@ -4049,12 +4088,24 @@ describe('Management API v1: projects and zones', () => {
         { source_type: 'story', target_type: 'tale', n: 15 },
         { source_type: 'story_group', target_type: 'tale_group', n: 6 },
       ]);
-      // Tales are created without media (a later story); source ids live only in import_links.
-      const tales = await pool.query('SELECT media_key FROM tales WHERE project_id = $1', [project.id]);
-      expect(tales.rows.every((t) => t.media_key === null)).toBe(true);
-      const home = (await projectZones(project.id)).find((z) => z.name === 'Home page');
-      const values = leafValues(await (await fetch(`${base}/zones/${home?.id}/tale-groups`)).json());
-      for (const sourceId of ['3001', '3002', '3003', '4001', '4005', '4008']) expect(values).not.toContain(sourceId);
+      // Each tale holds its copied media's storage key (AD-11); source ids live only in import_links.
+      const tales = await pool.query(
+        'SELECT media_key FROM tales WHERE project_id = $1',
+        [project.id],
+      );
+      expect(
+        tales.rows.every((t) =>
+          /^tales\/[0-9a-f-]{36}\.jpg$/.test(t.media_key),
+        ),
+      ).toBe(true);
+      const home = (await projectZones(project.id)).find(
+        (z) => z.name === 'Home page',
+      );
+      const values = leafValues(
+        await (await fetch(`${base}/zones/${home?.id}/tale-groups`)).json(),
+      );
+      for (const sourceId of ['3001', '3002', '3003', '4001', '4005', '4008'])
+        expect(values).not.toContain(sourceId);
     });
 
     it('creates no tale group, placement, tale or link twice when the app is imported again', async () => {
@@ -4115,6 +4166,335 @@ describe('Management API v1: projects and zones', () => {
       if (!record) throw new Error(`No fixture ${id}`);
       return record;
     }
+
+    // The media files stored so far in the test MEDIA_DIR.
+    function storedMediaFiles(): string[] {
+      const dir = join(mediaDir, 'tales');
+      return existsSync(dir) ? readdirSync(dir) : [];
+    }
+
+    type ListedTale = {
+      id: string;
+      title: string;
+      media: { kind: string; contentType: string; url: string } | null;
+    };
+
+    // Each tale of the project with its media, as the zone pages list them.
+    async function projectTales(projectId: string): Promise<ListedTale[]> {
+      const tales: ListedTale[] = [];
+      for (const zone of await projectZones(projectId)) {
+        const groups: { tales: ListedTale[] }[] = await (
+          await fetch(`${base}/zones/${zone.id}/tale-groups`)
+        ).json();
+        tales.push(...groups.flatMap((g) => g.tales));
+      }
+      return tales;
+    }
+
+    async function importApp(
+      projectId: string,
+      appId: string,
+    ): Promise<Record<string, unknown>> {
+      const res = await send('POST', `/projects/${projectId}/imports`, {
+        token: FAKE_another tool_TOKEN,
+        appId,
+      });
+      expect(res.status).toBe(202);
+      return waitForEnd(projectId, ((await res.json()) as { id: string }).id);
+    }
+
+    const mediaRequests = () =>
+      fake.control.requests.filter((r) => r.path.startsWith('/media/'));
+
+    describe('tale media', () => {
+      beforeEach(() => {
+        fake.control.requests.length = 0;
+      });
+
+      it("copies each story's media through the storage port, so every tale shows it after a reload", async () => {
+        const project = await createProject();
+        const before = storedMediaFiles().length;
+        startWorker();
+        const job = await importOnce(project.id);
+        expect(job['status']).toBe('done');
+        expect(job['report']).toMatchObject({
+          media: { source: 15, imported: 15, skipped: 0 },
+        });
+        expect(storedMediaFiles().length - before).toBe(15);
+
+        // A fresh read, as after a reload: each tale serves its JPEG.
+        const tales = await projectTales(project.id);
+        expect(tales).toHaveLength(15);
+        for (const tale of tales) {
+          expect(tale.media).toEqual({
+            kind: 'image',
+            contentType: 'image/jpeg',
+            url: `/api/v1/tales/${tale.id}/media`,
+          });
+          const res = await fetch(`${base}/tales/${tale.id}/media`);
+          expect(res.status).toBe(200);
+          expect(res.headers.get('content-type')).toBe('image/jpeg');
+          expect([
+            ...new Uint8Array(await res.arrayBuffer()).subarray(0, 3),
+          ]).toEqual([0xff, 0xd8, 0xff]);
+        }
+        // The importer's own record holds the key and the bytes' hash, never the URL.
+        const { rows } = await pool.query(
+          'SELECT * FROM import_media WHERE project_id = $1',
+          [project.id],
+        );
+        expect(rows).toHaveLength(15);
+        expect(JSON.stringify(rows)).not.toContain('/media/story-');
+      });
+
+      it('imports a story whose media fails without it, lists the reason, and finishes the job', async () => {
+        const project = await createProject();
+        const before = storedMediaFiles().length;
+        const log = vi.fn();
+        workers.push(
+          startImportWorker(pool, {
+            ...workerMedia(),
+            tokenKey,
+            another toolApiUrl: fake.url,
+            pollIntervalMs: 50,
+            log,
+          }),
+        );
+        const job = await importApp(project.id, '1004');
+        expect(job['status']).toBe('done');
+        const report = job['report'] as {
+          tales: unknown;
+          media: unknown;
+          differences: {
+            kind: string;
+            record: { name: string; position: number };
+            field: string;
+            reason: string;
+          }[];
+        };
+        expect(report.tales).toEqual({ source: 14, imported: 14, skipped: 0 });
+        expect(report.media).toEqual({ source: 14, imported: 5, skipped: 9 });
+        const failures = report.differences
+          .filter((d) => d.kind === 'mediaNotImported')
+          .map((d) => [d.record.name, d.record.position, d.field, d.reason]);
+        expect(failures).toEqual([
+          ['Too big', 5, 'media', 'tooLarge'],
+          ['Not a picture', 6, 'media', 'unsupportedType'],
+          ['Web page', 7, 'media', 'unsupportedType'],
+          ['Metadata', 8, 'media', 'blockedAddress'],
+          ['Loopback', 9, 'media', 'blockedAddress'],
+          ['Loop', 10, 'media', 'tooManyRedirects'],
+          ['Gone', 11, 'media', 'httpError'],
+          ['File', 12, 'media', 'invalidUrl'],
+          ['Too big declared', 14, 'media', 'tooLarge'],
+        ]);
+        expect(report.differences).toHaveLength(9);
+        expect(report.differences[0]).toEqual({
+          entity: 'tale',
+          record: {
+            sourceId: '4305',
+            name: 'Too big',
+            within: 'Every kind of media',
+            withinSourceId: '3301',
+            position: 5,
+          },
+          kind: 'mediaNotImported',
+          field: 'media',
+          sourceField: null,
+          reason: 'tooLarge',
+        });
+
+        // Every tale exists; only the five good ones hold media, of their own types.
+        const tales = Object.fromEntries(
+          (await projectTales(project.id)).map((t) => [
+            t.title,
+            t.media?.contentType ?? null,
+          ]),
+        );
+        expect(tales).toEqual({
+          Animated: 'image/gif',
+          Clip: 'video/mp4',
+          'WebP card': 'image/webp',
+          Moved: 'image/jpeg',
+          'Too big': null,
+          'Not a picture': null,
+          'Web page': null,
+          Metadata: null,
+          Loopback: null,
+          Loop: null,
+          Gone: null,
+          File: null,
+          'Generic type': 'image/png',
+          'Too big declared': null,
+        });
+        // No file is left behind by a failed download.
+        expect(storedMediaFiles().length - before).toBe(5);
+        // The loop was cut after 3 redirects: the first request and 3 more.
+        expect(
+          mediaRequests().filter((r) => r.path === '/media/redirect-loop.jpg'),
+        ).toHaveLength(4);
+
+        // No media URL and no token in the report, the job row or the logs.
+        const stored = JSON.stringify(
+          (
+            await pool.query(
+              'SELECT * FROM import_jobs WHERE project_id = $1',
+              [project.id],
+            )
+          ).rows,
+        );
+        const logged = JSON.stringify(log.mock.calls);
+        for (const text of [JSON.stringify(job), stored, logged]) {
+          for (const secret of [
+            fake.mediaUrl,
+            'media.example',
+            '169.254.169.254',
+            '/etc/passwd',
+            '[::1]',
+            FAKE_another tool_TOKEN,
+          ]) {
+            expect(text).not.toContain(secret);
+          }
+        }
+      });
+
+      it('fetches no non-public address by default, not even the fake on localhost', async () => {
+        const project = await createProject();
+        const before = storedMediaFiles().length;
+        workers.push(
+          startImportWorker(pool, {
+            storage: new LocalDiskStorage(mediaDir),
+            tokenKey,
+            another toolApiUrl: fake.url,
+            pollIntervalMs: 50,
+          }),
+        );
+        const job = await importOnce(project.id);
+        expect(job['status']).toBe('done');
+        const report = job['report'] as {
+          media: unknown;
+          differences: { kind: string; reason?: string }[];
+        };
+        expect(report.media).toEqual({ source: 15, imported: 0, skipped: 15 });
+        const reasons = report.differences
+          .filter((d) => d.kind === 'mediaNotImported')
+          .map((d) => d.reason);
+        expect(reasons).toEqual(Array(15).fill('blockedAddress'));
+        expect(mediaRequests()).toEqual([]);
+        expect(storedMediaFiles().length).toBe(before);
+      });
+
+      it('downloads and stores nothing again when the app is imported again', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const files = storedMediaFiles().length;
+        const keys = (
+          await pool.query(
+            'SELECT id, media_key FROM tales WHERE project_id = $1 ORDER BY id',
+            [project.id],
+          )
+        ).rows;
+        fake.control.requests.length = 0;
+
+        const again = await importOnce(project.id);
+        expect(again['status']).toBe('done');
+        expect(again['report']).toMatchObject({
+          media: { source: 15, imported: 15, skipped: 0 },
+        });
+        expect(mediaRequests()).toEqual([]);
+        expect(storedMediaFiles().length).toBe(files);
+        expect(
+          (
+            await pool.query(
+              'SELECT id, media_key FROM tales WHERE project_id = $1 ORDER BY id',
+              [project.id],
+            )
+          ).rows,
+        ).toEqual(keys);
+        const recorded = await pool.query(
+          'SELECT count(*)::int AS n FROM import_media WHERE project_id = $1',
+          [project.id],
+        );
+        expect(recorded.rows[0].n).toBe(15);
+      });
+
+      it('retries a failed download on the next import, and keeps media a person set in TaleArt', async () => {
+        const project = await createProject();
+        const stories = fake.control.data.stories['3001'].data;
+        const [failing, replaced] = [
+          String(stories[0]['title']),
+          String(stories[1]['title']),
+        ];
+        const media = stories[0]['media'];
+        stories[0]['media'] = 'https://media.example/fake/missing.jpg';
+        startWorker();
+        const first = await importOnce(project.id);
+        expect(first['report']).toMatchObject({
+          media: { source: 15, imported: 14, skipped: 1 },
+        });
+
+        // A person replaces another tale's media in TaleArt.
+        const own = (await projectTales(project.id)).find(
+          (t) => t.title === replaced,
+        );
+        const png = Buffer.from([
+          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
+        ]);
+        const upload = await fetch(`${base}/tales/${own?.id}/media`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/png' },
+          body: png,
+        });
+        expect(upload.status).toBe(200);
+
+        stories[0]['media'] = media;
+        const second = await importOnce(project.id);
+        expect(second['report']).toMatchObject({
+          media: { source: 15, imported: 14, skipped: 1 },
+        });
+        expect((second['report'] as { notes: string[] }).notes).toContain(
+          `Tale "${replaced}" in "Summer sale": its media was set in TaleArt, so it was not replaced`,
+        );
+        const after = Object.fromEntries(
+          (await projectTales(project.id)).map((t) => [
+            t.title,
+            t.media?.contentType,
+          ]),
+        );
+        expect(after[failing]).toBe('image/jpeg');
+        expect(after[replaced]).toBe('image/png');
+      });
+
+      it('fails the job, with the generic message, when the storage port fails', async () => {
+        const project = await createProject();
+        const storage = new LocalDiskStorage(mediaDir);
+        vi.spyOn(storage, 'putStream').mockRejectedValue(
+          new Error('disk full'),
+        );
+        const log = vi.fn();
+        workers.push(
+          startImportWorker(pool, {
+            storage,
+            mediaPolicy: { allowedAddresses: ['127.0.0.1'] },
+            tokenKey,
+            another toolApiUrl: fake.url,
+            pollIntervalMs: 50,
+            log,
+          }),
+        );
+        const job = await importOnce(project.id);
+        expect(job['status']).toBe('failed');
+        expect(job['error']).toBe(
+          'The import stopped on an internal error. Try again.',
+        );
+        expect(log).toHaveBeenCalledWith(
+          'error',
+          expect.stringMatching(/failed$/),
+          expect.objectContaining({ message: 'disk full' }),
+        );
+      });
+    });
 
     it('places a story group without a usable sort_order after the others, noting it only when created', async () => {
       const project = await createProject();
@@ -4363,8 +4743,14 @@ describe('Management API v1: projects and zones', () => {
       const id = await runningJob(project.id, 'new-worker', 'now()');
       await runImportJob(
         pool,
-        { id, projectId: project.id, sourceAppId: '1001', tokenCiphertext: encryptToken(FAKE_another tool_TOKEN, tokenKey), lockedBy: 'stale-worker' },
-        { tokenKey, another toolApiUrl: fake.url },
+        {
+          id,
+          projectId: project.id,
+          sourceAppId: '1001',
+          tokenCiphertext: encryptToken(FAKE_another tool_TOKEN, tokenKey),
+          lockedBy: 'stale-worker',
+        },
+        { ...workerMedia(), tokenKey, another toolApiUrl: fake.url },
       );
       const row = await jobRow(id);
       expect(row).toMatchObject({ status: 'running', locked_by: 'new-worker', report: null, error: null });
@@ -4674,7 +5060,9 @@ describe('Management API v1: projects and zones', () => {
     beforeEach(async () => {
       jar = {};
       // Auth tests start from an empty install.
-      await pool.query('TRUNCATE import_links, import_jobs, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users');
+      await pool.query(
+        'TRUNCATE import_media, import_links, import_jobs, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
+      );
     });
 
     it('reports that setup is required on an empty install', async () => {
