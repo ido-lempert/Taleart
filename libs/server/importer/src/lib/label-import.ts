@@ -1,6 +1,11 @@
 import type { ImportCount, TaleGroupTag } from '@taleart/contract';
-import type { TransactionalDb } from '@taleart/server-access';
-import { addTaleGroupTagsByName, ensureTags, InvalidTagNameError } from '@taleart/server-targeting';
+import type { Db, TransactionalDb } from '@taleart/server-access';
+import {
+  addTaleGroupTagsByName,
+  addTaleGroupTagsByNameIn,
+  ensureTags,
+  InvalidTagNameError,
+} from '@taleart/server-targeting';
 import { labelOutcome, MAX_IMPORT_TAGS, type LabelOutcome } from './labels';
 import type { ReportText } from './record-shape';
 
@@ -88,6 +93,13 @@ export class LabelImport {
     const allowed = this.allowed(names);
     if (allowed.length === 0) return;
     this.carried(allowed, await addTaleGroupTagsByName(this.db, taleGroupId, allowed));
+  }
+
+  /** {@link addToGroup} on the caller's transaction, where a re-import records the tags it gave the group. */
+  async addToGroupIn(tx: Db, taleGroupId: string, names: readonly string[]): Promise<void> {
+    const allowed = this.allowed(names);
+    if (allowed.length === 0) return;
+    this.carried(allowed, await addTaleGroupTagsByNameIn(tx, taleGroupId, allowed));
   }
 
   // Records which tag carries each name, in the order the names were read.

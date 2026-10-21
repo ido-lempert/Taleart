@@ -21,6 +21,7 @@ import {
   IMPORT_DIFFERENCES_PAGE,
   IMPORT_PILL_STYLES,
   type ImportDifferenceGroupView,
+  importChangeText,
   importCountText,
   importDifferenceGroups,
   importNotSelectedText,
@@ -192,15 +193,15 @@ import {
 
             @if (job.report; as report) {
               <ul class="import-counts" aria-label="Report">
-                <li>Zones: {{ countText(report.zones) }}</li>
+                <li>Zones: {{ countText(report.zones) }}{{ changeText(report.changes?.zones) }}</li>
                 @if (report.taleGroups; as taleGroups) {
-                  <li>Tale groups: {{ countText(taleGroups) }}</li>
+                  <li>Tale groups: {{ countText(taleGroups) }}{{ changeText(report.changes?.taleGroups) }}</li>
                 }
                 @if (report.tales; as tales) {
-                  <li>Tales: {{ countText(tales) }}</li>
+                  <li>Tales: {{ countText(tales) }}{{ changeText(report.changes?.tales) }}</li>
                 }
                 @if (report.media; as media) {
-                  <li>Media: {{ countText(media) }}</li>
+                  <li>Media: {{ countText(media) }}{{ changeText(report.changes?.media) }}</li>
                 }
                 @if (report.tags; as tags) {
                   <li>Tags: {{ countText(tags) }}</li>
@@ -373,6 +374,7 @@ export class ImportJobPage implements OnInit {
   protected readonly statusLabel = importStatusLabel;
   protected readonly statusClass = importStatusClass;
   protected readonly countText = importCountText;
+  protected readonly changeText = importChangeText;
   protected readonly notSelectedText = importNotSelectedText;
   protected readonly progressText = importProgressText;
   protected readonly time = importTimeText;

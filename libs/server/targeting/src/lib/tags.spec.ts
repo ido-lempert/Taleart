@@ -4,6 +4,7 @@ import { InvalidTagNameError, TagExistsError, TagNotFoundError, TagProjectNotFou
 import { migrateTargeting } from './migration';
 import {
   addTaleGroupTagsByName,
+  addTaleGroupTagsByNameIn,
   copyTaleGroupTags,
   createTag,
   ensureTags,
@@ -304,5 +305,39 @@ describe('addTaleGroupTagsByName', () => {
     const { db, statements } = fakeDb([{ rows: [{ project_id: projectId }] }]);
     expect(await addTaleGroupTagsByName(db, groupId, [])).toEqual(new Map());
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+  });
+});
+
+describe('addTaleGroupTagsByNameIn', () => {
+  it("adds the tags on the caller's transaction, under the group lock, without opening its own", async () => {
+    const { db, statements, query } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ requested: 'Summer', id: tagA, projectId, name: 'summer' }] },
+      { rows: [] },
+    ]);
+    const added = await addTaleGroupTagsByNameIn(db, groupId, ['Summer']);
+    expect([...added]).toEqual([['Summer', { id: tagA, name: 'summer' }]]);
+    expect(statements()).not.toContain('BEGIN');
+    expect(db.connect).not.toHaveBeenCalled();
+    expect(statements().find((s) => /pg_advisory_xact_lock/.test(s))).toMatch(/tale_group_tags:/);
+    const link = query.mock.calls.find((c) => /INSERT INTO tale_group_tags/.test(c[0] as string));
+    expect(link?.[0]).toMatch(/ON CONFLICT \(tale_group_id, tag_id\) DO NOTHING/);
+  });
+
+  it('refuses an unknown group and passes a deadlock on to the caller', async () => {
+    await expect(addTaleGroupTagsByNameIn(fakeDb([{ rows: [] }]).db, groupId, ['a'])).rejects.toBeInstanceOf(
+      TaleGroupNotFoundError,
+    );
+    const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    const { db } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ requested: 'a', id: tagA, projectId, name: 'a' }] },
+      deadlock,
+    ]);
+    await expect(addTaleGroupTagsByNameIn(db, groupId, ['a'])).rejects.toBe(deadlock);
   });
 });

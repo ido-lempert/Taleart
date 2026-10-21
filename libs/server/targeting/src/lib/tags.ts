@@ -269,24 +269,52 @@ export async function addTaleGroupTagsByName(
   const projectId = UUID.test(taleGroupId) ? await taleGroupProjectId(db, taleGroupId) : null;
   if (projectId === null) throw new TaleGroupNotFoundError(taleGroupId);
   if (wanted.length === 0) return new Map();
-  const add = () =>
-    inTransaction(db, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_group_tags:' || $1, 0))", [taleGroupId]);
-      const tags = await findOrCreateTags(tx, projectId, wanted);
-      await tx.query(
-        `INSERT INTO tale_group_tags (tale_group_id, tag_id, project_id)
-         SELECT $1, tag_id, $2 FROM unnest($3::uuid[]) AS tag_id
-         ON CONFLICT (tale_group_id, tag_id) DO NOTHING`,
-        [taleGroupId, projectId, [...new Set([...tags.values()].map((tag) => tag.id))]],
-      );
-      return new Map(
-        [...tags].map(([name, tag]): [string, TaleGroupTag] => [name, { id: tag.id, name: tag.name }]),
-      );
-    });
+  const add = () => inTransaction(db, (tx) => addTags(tx, projectId, taleGroupId, wanted));
   try {
     return await retryDeadlockOnce(add);
   } catch (err) {
     // The group (or its project) was deleted after the project was read, so its key no longer matches.
+    throw missingParent(err, projectId, taleGroupId);
+  }
+}
+
+// Adds the tags of these valid names to the group under its tag lock, on the caller's transaction.
+async function addTags(
+  tx: Db,
+  projectId: string,
+  taleGroupId: string,
+  wanted: readonly string[],
+): Promise<Map<string, TaleGroupTag>> {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_group_tags:' || $1, 0))", [taleGroupId]);
+  const tags = await findOrCreateTags(tx, projectId, wanted);
+  await tx.query(
+    `INSERT INTO tale_group_tags (tale_group_id, tag_id, project_id)
+     SELECT $1, tag_id, $2 FROM unnest($3::uuid[]) AS tag_id
+     ON CONFLICT (tale_group_id, tag_id) DO NOTHING`,
+    [taleGroupId, projectId, [...new Set([...tags.values()].map((tag) => tag.id))]],
+  );
+  return new Map([...tags].map(([name, tag]): [string, TaleGroupTag] => [name, { id: tag.id, name: tag.name }]));
+}
+
+/**
+ * {@link addTaleGroupTagsByName} on the caller's transaction, so the tags and
+ * what the caller records about them commit together (the importer's
+ * re-import baseline). A deadlock is not retried here: it fails the caller's
+ * transaction, which the caller may run again. Same names, errors and answer.
+ */
+export async function addTaleGroupTagsByNameIn(
+  tx: Db,
+  groupId: string,
+  names: readonly string[],
+): Promise<Map<string, TaleGroupTag>> {
+  const taleGroupId = groupId.toLowerCase();
+  const wanted = tagNames(names);
+  const projectId = UUID.test(taleGroupId) ? await taleGroupProjectId(tx, taleGroupId) : null;
+  if (projectId === null) throw new TaleGroupNotFoundError(taleGroupId);
+  if (wanted.length === 0) return new Map();
+  try {
+    return await addTags(tx, projectId, taleGroupId, wanted);
+  } catch (err) {
     throw missingParent(err, projectId, taleGroupId);
   }
 }

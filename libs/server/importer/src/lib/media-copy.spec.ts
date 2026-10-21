@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import type { TransactionalDb } from '@taleart/server-access';
-import { copyMedia, importTaleMedia, type TaleMediaImport } from './media-copy';
+import { copyMedia, importTaleMedia, sourceMediaDigest, type TaleMediaImport } from './media-copy';
 import { CommitUncertainError } from './transaction';
 import {
   isPublicAddress,
@@ -458,6 +458,7 @@ describe('importTaleMedia', () => {
     expect(await importTaleMedia(db, media, 'p', 't', { media: { url: 'x' } })).toEqual({
       kind: 'failed',
       reason: 'invalidUrl',
+      keptEarlier: false,
     });
     expect(media.copy).not.toHaveBeenCalled();
     expect(db.query).not.toHaveBeenCalled();
@@ -628,7 +629,7 @@ describe('importTaleMedia: writing the tale', () => {
     const outcome = await importTaleMedia(db, { storage: store, copy: async () => copied }, 'p', taleId, {
       media: 'https://media.example/a.jpg',
     });
-    expect(outcome).toEqual({ kind: 'keptOwn' });
+    expect(outcome).toEqual({ kind: 'keptOwn', sourceChanged: false });
     expect(store.delete).toHaveBeenCalledTimes(1);
     expect(store.delete).toHaveBeenCalledWith(copied.key);
     expect(query.mock.calls.map((c) => c[0] as string).some((sql) => /INSERT INTO import_media/.test(sql))).toBe(false);
@@ -646,5 +647,134 @@ describe('importTaleMedia: writing the tale', () => {
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CommitUncertainError);
     expect(store.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('importTaleMedia: re-imports', () => {
+  const taleId = '00000000-0000-4000-8000-0000000000aa';
+  const url = 'https://media.example/a.jpg';
+  const oldKey = 'tales/imported-old.jpg';
+  const copied = { key: 'tales/imported-new.jpg', contentType: 'image/jpeg' as const, sha256: 'new-bytes' };
+
+  // The tale holds `holds`; import_media recorded the import's copy with `digest` and `sha256`.
+  function fakeDb(opts: { holds: string; digest: string | null; sha256?: string; replaceWins?: boolean }) {
+    let holds = opts.holds;
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+      if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql)) return { rows: [] };
+      if (/SELECT media_key AS key/.test(sql)) return { rows: [{ key: holds, contentType: 'image/jpeg' }] };
+      if (/FROM import_media WHERE tale_id/.test(sql)) {
+        return { rows: [{ key: oldKey, sha256: opts.sha256 ?? 'old-bytes', digest: opts.digest }] };
+      }
+      if (/UPDATE tales SET media_key = \$3/.test(sql)) {
+        if (opts.replaceWins === false) {
+          holds = 'tales/upload.png';
+          return { rows: [], rowCount: 0 };
+        }
+        holds = params[2] as string;
+        return { rows: [], rowCount: 1 };
+      }
+      if (/SELECT 1 FROM tales/.test(sql)) return { rows: [{}] };
+      return { rows: [], rowCount: 1 };
+    });
+    const release = vi.fn();
+    const statements = () => query.mock.calls.map((c) => c[0] as string);
+    return {
+      db: { query, connect: vi.fn(async () => ({ query, release })) } as unknown as TransactionalDb,
+      statements,
+    };
+  }
+  const store = () => ({ put: vi.fn(), putStream: vi.fn(), get: vi.fn(), delete: vi.fn(async () => undefined) });
+  const digest = sourceMediaDigest(url, 'image/jpeg');
+
+  it('downloads nothing while the source names the same media and the tale holds the import copy', async () => {
+    const { db } = fakeDb({ holds: oldKey, digest });
+    const copy = vi.fn(async () => copied);
+    const outcome = await importTaleMedia(db, { storage: store(), copy }, 'p', taleId, {
+      media: url,
+      mimeType: 'image/jpeg',
+    });
+    expect(outcome).toEqual({ kind: 'imported', change: 'unchanged' });
+    expect(copy).not.toHaveBeenCalled();
+  });
+
+  it('replaces the media when the source names other media, only while the tale holds the import copy', async () => {
+    const { db, statements } = fakeDb({ holds: oldKey, digest: 'another' });
+    const storage = store();
+    const outcome = await importTaleMedia(db, { storage, copy: async () => copied }, 'p', taleId, {
+      media: url,
+      mimeType: 'image/jpeg',
+    });
+    expect(outcome).toEqual({ kind: 'imported', change: 'updated' });
+    expect(statements().find((s) => /UPDATE tales SET media_key = \$3/.test(s))).toMatch(/AND media_key = \$2/);
+    expect(statements().some((s) => /source_digest = EXCLUDED.source_digest/.test(s))).toBe(true);
+    // The earlier copy is left to the sweep: copies of the tale may share it (AD-14).
+    expect(storage.delete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the copy in place when the new download holds the same bytes, recording the new fingerprint', async () => {
+    const { db, statements } = fakeDb({ holds: oldKey, digest: null, sha256: copied.sha256 });
+    const storage = store();
+    const outcome = await importTaleMedia(db, { storage, copy: async () => copied }, 'p', taleId, { media: url });
+    expect(outcome).toEqual({ kind: 'imported', change: 'unchanged' });
+    expect(storage.delete).toHaveBeenCalledWith(copied.key);
+    expect(statements().some((s) => /UPDATE import_media SET source_digest/.test(s))).toBe(true);
+    expect(statements().some((s) => /UPDATE tales SET media_key/.test(s))).toBe(false);
+  });
+
+  it("keeps media a person set: a kept local edit when the source's media changed since the import copied it", async () => {
+    const copy = vi.fn(async () => copied);
+    const changed = await importTaleMedia(
+      fakeDb({ holds: 'tales/upload.png', digest: 'another' }).db,
+      { storage: store(), copy },
+      'p',
+      taleId,
+      {
+        media: url,
+        mimeType: 'image/jpeg',
+      },
+    );
+    expect(changed).toEqual({ kind: 'keptOwn', sourceChanged: true });
+    const same = await importTaleMedia(
+      fakeDb({ holds: 'tales/upload.png', digest }).db,
+      { storage: store(), copy },
+      'p',
+      taleId,
+      {
+        media: url,
+        mimeType: 'image/jpeg',
+      },
+    );
+    expect(same).toEqual({ kind: 'keptOwn', sourceChanged: false });
+    expect(copy).not.toHaveBeenCalled();
+  });
+
+  it('keeps media a person set while the new media downloaded, deleting only its own copy', async () => {
+    const { db } = fakeDb({ holds: oldKey, digest: 'another', replaceWins: false });
+    const storage = store();
+    const outcome = await importTaleMedia(db, { storage, copy: async () => copied }, 'p', taleId, {
+      media: url,
+      mimeType: 'image/jpeg',
+    });
+    expect(outcome).toEqual({ kind: 'keptOwn', sourceChanged: true });
+    expect(storage.delete).toHaveBeenCalledTimes(1);
+    expect(storage.delete).toHaveBeenCalledWith(copied.key);
+  });
+
+  it('keeps the earlier media when the new media cannot be downloaded', async () => {
+    const { db } = fakeDb({ holds: oldKey, digest: 'another' });
+    const copy = async () => {
+      throw new MediaFetchError('httpError', 'The media host answered with an error');
+    };
+    expect(await importTaleMedia(db, { storage: store(), copy }, 'p', taleId, { media: url })).toEqual({
+      kind: 'failed',
+      reason: 'httpError',
+      keptEarlier: true,
+    });
+  });
+
+  it('never stores the URL, only its fingerprint', () => {
+    expect(digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(digest).not.toContain('media.example');
+    expect(sourceMediaDigest(url, 'image/png')).not.toBe(digest);
   });
 });

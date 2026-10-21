@@ -4,8 +4,11 @@ import {
   MAX_IMPORT_REPORT_DIFFERENCES,
   MAX_IMPORT_SELECTED_ZONES,
   MAX_TALES_PER_GROUP,
+  type ImportChangeCount,
+  type ImportChanges,
   type ImportCount,
   type ImportDifference,
+  type ImportDifferenceEntity,
   type ImportEntityChoice,
   type ImportMediaFailure,
   type ImportReport,
@@ -16,12 +19,17 @@ import type { Db, TransactionalDb } from '@taleart/server-access';
 import {
   createTale,
   createTaleGroup,
+  orderTaleGroupsWhen,
+  orderTalesWhen,
+  renameTaleGroupWhen,
+  renameTaleWhen,
   taleExists,
   taleGroupExists,
   TaleGroupFullError,
   TaleGroupNotFoundError,
 } from '@taleart/server-tales';
-import { createZone, zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
+import { tagsForTaleGroups } from '@taleart/server-targeting';
+import { createZone, renameZoneWhen, zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { decryptToken } from './crypto';
 import { isLabelError, LabelImport } from './label-import';
 import { groupLabels, labelText, MAX_GROUP_LABELS, MAX_GROUP_TAGS, MAX_LABEL_LIST_ENTRIES } from './labels';
@@ -37,7 +45,21 @@ import {
   setSourceAppName,
   type ClaimedJob,
 } from './jobs';
-import { findLinkTarget, lockLinkSource, saveLink, type LinkSource } from './links';
+import { findLinkTarget, lockLinkSource, saveLink, unlistedLinks, type LinkSource } from './links';
+import {
+  countChange,
+  emptyChanges,
+  lockRecord,
+  mergeOrder,
+  mergeTags,
+  mergeValue,
+  recordNames,
+  saveRecord,
+  type FieldMerge,
+  type RecordFields,
+  type RecordOutcome,
+  type RecordType,
+} from './reimport';
 import {
   copyMedia,
   importTaleMedia,
@@ -136,6 +158,12 @@ export interface ImportContentOptions {
    */
   labels?: () => Promise<SourceList<SourceLabel>>;
   /**
+   * The source app's id. Links remember it, so a re-import of the app lists
+   * the records an earlier import brought across that the source no longer
+   * lists (`removedAtSource`); without it, no removal is looked for.
+   */
+  appId?: string;
+  /**
    * What the admin picked: only the picked instances become zones, and with
    * `taleGroups` false no story group or story is read. The caller leaves out
    * `media` and `labels` when they were not picked. Absent takes everything.
@@ -227,24 +255,89 @@ const taleTitle = (story: SourceStory, group: string): string => story.name.trim
  * decision), through the zones module (AD-8), and links it (AD-7). The
  * instance is locked by its source key first, so concurrent imports of the
  * same app cannot both create it. An instance already linked is not created
- * again. Returns the zone's id, or null when its earlier zone is gone (a link
- * is never re-pointed).
+ * again. A created zone's link and baseline (what the import wrote, for
+ * re-imports) commit with it. Returns the zone's id and whether this call
+ * created it, or null when its earlier zone is gone (a link is never re-pointed).
  */
 async function importZone(
   db: TransactionalDb,
   projectId: string,
   instance: SourceInstance,
   name: string,
-): Promise<string | null> {
+  appId: string | null,
+): Promise<{ id: string; created: boolean } | null> {
   const source = { projectId, sourceType: 'instance', sourceId: instance.id };
   return inTransaction(db, async (tx) => {
     await lockLinkSource(tx, source);
     const linked = await findLinkTarget(tx, source);
-    if (linked !== null) return (await zoneExists(tx, linked)) ? linked : null;
+    if (linked !== null) return (await zoneExists(tx, linked)) ? { id: linked, created: false } : null;
     const zone = await createZone(tx, { name, projectId });
-    await saveLink(tx, { ...source, targetType: 'zone', targetId: zone.id });
-    return zone.id;
+    await saveLink(tx, { ...source, targetType: 'zone', targetId: zone.id, appId });
+    await saveRecord(tx, 'zone', zone.id, projectId, { name });
+    return { id: zone.id, created: true };
   });
+}
+
+/** Runs `work` again once when PostgreSQL broke a deadlock by failing it (40P01). */
+async function retryDeadlockOnce<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code !== '40P01') throw err;
+    return work();
+  }
+}
+
+/** What a re-import's update of one record did. */
+interface RecordUpdate {
+  /** Some field was written from the source. */
+  written: boolean;
+  /** The source fields whose change was not written, since a person had changed them in TaleArt. */
+  kept: string[];
+}
+
+/**
+ * Updates one record an import holds, in one transaction (AD-7): locks its
+ * baseline, then lets `apply` merge each field through the owning module's
+ * conditional calls, and records the new baseline. Returns null when the
+ * record no longer exists. A deadlock runs it once more.
+ */
+async function updateRecord(
+  db: TransactionalDb,
+  type: RecordType,
+  targetId: string,
+  projectId: string,
+  apply: (tx: Db, baseline: RecordFields | null) => Promise<{ fields: RecordFields; update: RecordUpdate } | null>,
+): Promise<RecordUpdate | null> {
+  return retryDeadlockOnce(() =>
+    inTransaction(db, async (tx) => {
+      const baseline = await lockRecord(tx, type, targetId, projectId);
+      const result = await apply(tx, baseline);
+      if (result === null) return null;
+      await saveRecord(tx, type, targetId, projectId, result.fields);
+      return result.update;
+    }),
+  );
+}
+
+/** Merges a value under the module's lock: `decide` hands the module the value to write, or null. */
+function valueMerger(baseline: string | undefined, source: string) {
+  let merge: FieldMerge<string> = { write: null, keptLocalEdit: false, baseline: source };
+  const decide = (current: string) => {
+    merge = mergeValue(baseline, current, source);
+    return merge.write;
+  };
+  return { decide, result: () => merge };
+}
+
+/** Merges an order under the module's lock, as {@link valueMerger} does a value. */
+function orderMerger(baseline: readonly string[] | undefined, imported: readonly string[]) {
+  let merge: FieldMerge<string[]> = { write: null, keptLocalEdit: false, baseline: [...imported] };
+  const decide = (current: readonly string[]) => {
+    merge = mergeOrder(baseline, current, imported);
+    return merge.write;
+  };
+  return { decide, result: () => merge };
 }
 
 /**
@@ -258,8 +351,9 @@ async function importZone(
  */
 async function importLinked(
   db: TransactionalDb,
-  source: LinkSource,
+  source: LinkSource & { appId: string | null },
   targetType: string,
+  record: { type: RecordType; fields: RecordFields },
   exists: (id: string) => Promise<boolean>,
   create: (link: (tx: Db, targetId: string) => Promise<void>) => Promise<unknown>,
 ): Promise<{ id: string; created: boolean } | null> {
@@ -272,6 +366,8 @@ async function importLinked(
         await lockLinkSource(tx, source);
         if ((await findLinkTarget(tx, source)) !== null) throw new AlreadyLinkedError();
         await saveLink(tx, { ...source, targetType, targetId });
+        // What the import wrote, for re-imports to tell a person's later edit from the source's.
+        await saveRecord(tx, record.type, targetId, source.projectId, record.fields);
         createdId = targetId;
       });
     } catch (err) {
@@ -318,8 +414,45 @@ export async function importContent(
     notes: [],
     notImportedByDesign: [...IMPORT_NOT_IMPORTED_BY_DESIGN],
   };
+  // What this run created, updated or left unchanged per entity type (AD-7, re-imports).
+  const changes: Required<Omit<ImportChanges, 'media'>> & Pick<ImportChanges, 'media'> = {
+    zones: emptyChanges(),
+    taleGroups: emptyChanges(),
+    tales: emptyChanges(),
+    ...(options.media ? { media: emptyChanges() } : {}),
+  };
+  const appId = options.appId ?? null;
   const differences = differenceList(report, options.budget);
   if (options.app) differences.addEntry(options.app, null);
+  // Each record's place in its source list, from 1, as its differences name it.
+  const placeOf = <T extends { id: string }>(list: CheckedList<T>): Map<string, number> => {
+    const places = new Map<string, number>();
+    list.entries.forEach((entry, index) => {
+      if (entry.record !== null && !places.has(entry.record.id)) places.set(entry.record.id, index + 1);
+    });
+    return places;
+  };
+  const instancePlaces = placeOf(checkedInstances);
+  // A source field whose change was not written, since a person changed it in TaleArt: field names only, no values.
+  const keptDifference = (
+    entity: ImportDifferenceEntity,
+    record: { id: string; name: string },
+    position: number,
+    parent: DifferenceParent | null,
+    field: string,
+  ): ImportDifference => ({
+    entity,
+    record: {
+      sourceId: text(record.id),
+      name: record.name.trim() === '' ? null : text(record.name.trim()),
+      within: parent?.within ?? null,
+      withinSourceId: parent?.withinSourceId ?? null,
+      position,
+    },
+    kind: 'keptLocalEdit',
+    field,
+    sourceField: null,
+  });
   // What was not picked is skipped, never missing: an instance not picked is listed once, without its differences.
   const picked = options.selection ? new Set(options.selection.zones) : null;
   const withGroups = options.selection?.taleGroups ?? true;
@@ -344,6 +477,12 @@ export async function importContent(
     new Set(),
     null,
   );
+  // Every source id this run listed, per link source type: a linked record the source no longer lists is reported.
+  // An instance not picked is still listed at the source, so its zone is never taken for removed.
+  const listedInstances = new Set(instances.map((instance) => instance.id));
+  // Story groups and stories are read only for the picked zones: removals among them are looked for only when
+  // every zone and the tale groups were picked, since a record of a zone not read is not known to be gone.
+  const readEverything = picked === null ? withGroups : withGroups && instances.every((i) => picked.has(i.id));
   const labels = options.labels ? new LabelImport(db, projectId) : null;
   // A label that cannot become a tag, as a report difference: its text only when it has some.
   const labelDifference = (
@@ -441,6 +580,7 @@ export async function importContent(
     seenInstances.add(instance.id);
     const zoneName = instance.name.trim() || `Instance ${instance.id}`;
     if (picked !== null && notSelected !== null && !picked.has(instance.id)) {
+      // Not picked: neither created nor updated, and not taken for removed at the source.
       report.zones.skipped++;
       report.zones.notSelected = (report.zones.notSelected ?? 0) + 1;
       if (notSelected.zones.length < MAX_IMPORT_SELECTED_ZONES) {
@@ -449,8 +589,9 @@ export async function importContent(
       continue;
     }
     await beforeEach(report);
-    const zoneId = await importZone(db, projectId, instance, zoneName);
-    if (zoneId === null) {
+    const zone = await importZone(db, projectId, instance, zoneName, appId);
+    const zoneId = zone?.id ?? null;
+    if (zone === null) {
       report.zones.skipped++;
       report.notes.push(`Zone "${text(zoneName)}": its earlier import was deleted, so it was not imported again`);
     } else {
@@ -458,11 +599,42 @@ export async function importContent(
       // The source names no widget type, so the zone has no frame yet (epic decision).
       report.notes.push(`Zone "${text(zoneName)}": frame type unknown`);
     }
-    // Zones only: no story group or story is read.
-    if (!withGroups) continue;
+    // The tale groups this run imported into the zone, in source order: their order there is merged at the end.
+    const zoneGroups: string[] = [];
+    // The zone itself: its name and, when its tale groups were read, their order, in one transaction.
+    const updateZone = async (withOrder: boolean) => {
+      if (zone === null) return;
+      const zoneUpdate = await updateRecord(db, 'zone', zone.id, projectId, async (tx, baseline) => {
+        const nameMerge = valueMerger(baseline?.name, zoneName);
+        if ((await renameZoneWhen(tx, zone.id, nameMerge.decide)) === null) return null;
+        const fields: RecordFields = { name: nameMerge.result().baseline };
+        let orderWritten = false;
+        let orderKept = false;
+        if (withOrder) {
+          const orderMerge = orderMerger(baseline?.order, zoneGroups);
+          await orderTaleGroupsWhen(tx, zone.id, orderMerge.decide);
+          fields.order = orderMerge.result().baseline;
+          orderWritten = orderMerge.result().write !== null;
+          orderKept = orderMerge.result().keptLocalEdit;
+        }
+        const kept = [...(nameMerge.result().keptLocalEdit ? ['title'] : []), ...(orderKept ? ['sort_order'] : [])];
+        return { fields, update: { written: nameMerge.result().write !== null || orderWritten, kept } };
+      });
+      const outcome: RecordOutcome = zone.created ? 'created' : zoneUpdate?.written ? 'updated' : 'unchanged';
+      countChange(changes.zones, outcome, (zoneUpdate?.kept.length ?? 0) > 0);
+      for (const field of zoneUpdate?.kept ?? []) {
+        differences.addOne(keptDifference('zone', instance, instancePlaces.get(instance.id) ?? 1, null, field));
+      }
+    };
+    // Zones only: no story group or story is read, and the order of the zone's tale groups is left as it is.
+    if (!withGroups) {
+      await updateZone(false);
+      continue;
+    }
 
     const groupList = checkedOf(await source.listStoryGroups(instance.id));
     const groups = inSourceOrder(recordsOf(groupList));
+    const groupPlaces = placeOf(groupList);
     report.taleGroups.source += groupList.entries.length;
     report.taleGroups.skipped += groupList.entries.length - groups.length;
     differences.addList(groupList, listedGroups, parentOf(zoneName, instance.id));
@@ -539,10 +711,7 @@ export async function importContent(
       const storyList = checkedOf(await source.listStories(group.id));
       const stories = recordsOf(storyList);
       // Each story's place in its list, from 1, as its differences name it.
-      const positions = new Map<string, number>();
-      storyList.entries.forEach((entry, index) => {
-        if (entry.record !== null && !positions.has(entry.record.id)) positions.set(entry.record.id, index + 1);
-      });
+      const positions = placeOf(storyList);
       report.tales.source += storyList.entries.length;
       report.tales.skipped += storyList.entries.length - stories.length;
       differences.addList(storyList, listedStories, parentOf(name, group.id));
@@ -563,8 +732,9 @@ export async function importContent(
       try {
         taleGroup = await importLinked(
           db,
-          { projectId, sourceType: 'story_group', sourceId: group.id },
+          { projectId, sourceType: 'story_group', sourceId: group.id, appId },
           'tale_group',
+          { type: 'taleGroup', fields: { name } },
           (id) => taleGroupExists(db, id),
           (link) => createTaleGroup(db, { zoneId, name }, (tx, created) => link(tx, created.taleGroupId)),
         );
@@ -580,20 +750,9 @@ export async function importContent(
       report.taleGroups.imported++;
       if (taleGroup.created && group.sortOrder === null) report.notes.push(`Tale group "${text(name)}": ${NO_POSITION}`);
       const taleGroupId = taleGroup.id;
-      if (labels) {
-        // Adds the group's tags, keeping every tag it carries, also ones added in TaleArt.
-        try {
-          await labels.addToGroup(taleGroupId, groupTagNames.get(group.id) ?? []);
-        } catch (err) {
-          if (err instanceof TaleGroupNotFoundError) {
-            report.notes.push(
-              `Tale group "${text(name)}": it was deleted during the import, so its tags were not added`,
-            );
-          } else if (isLabelError(err)) {
-            report.notes.push(`Tale group "${text(name)}": its labels could not be saved as tags, so none were added`);
-          } else throw err;
-        }
-      }
+      zoneGroups.push(taleGroupId);
+      // The tales this run imported into the group, in source order: their order there is merged below.
+      const groupTales: string[] = [];
 
       for (const story of inSourceOrder(stories)) {
         if (seenStories.has(story.id)) {
@@ -607,8 +766,9 @@ export async function importContent(
         try {
           tale = await importLinked(
             db,
-            { projectId, sourceType: 'story', sourceId: story.id },
+            { projectId, sourceType: 'story', sourceId: story.id, appId },
             'tale',
+            { type: 'tale', fields: { name: title } },
             (id) => taleExists(db, id),
             (link) => createTale(db, { taleGroupId, title }, (tx, created) => link(tx, created.taleId)),
           );
@@ -632,22 +792,69 @@ export async function importContent(
         }
         report.tales.imported++;
         if (tale.created && story.sortOrder === null) report.notes.push(`Tale "${text(title)}" in "${text(name)}": ${NO_POSITION}`);
-        if (options.media && report.media) {
-          const outcome = await importTaleMedia(db, options.media, projectId, tale.id, story);
+        const taleId = tale.id;
+        if (tale.created) {
+          countChange(changes.tales, 'created', false);
+          groupTales.push(taleId);
+        } else {
+          // A linked tale: its title follows the source unless a person changed it in TaleArt.
+          let movedTo: string | null = null;
+          const update = await updateRecord(db, 'tale', taleId, projectId, async (tx, baseline) => {
+            const merge = valueMerger(baseline?.name, title);
+            const renamed = await renameTaleWhen(tx, taleId, merge.decide);
+            if (renamed === null) return null;
+            movedTo = renamed.taleGroupId === taleGroupId ? null : renamed.taleGroupId;
+            const result = merge.result();
+            const kept = result.keptLocalEdit ? ['title'] : [];
+            return { fields: { name: result.baseline }, update: { written: result.write !== null, kept } };
+          });
+          if (update === null) {
+            // Deleted since it was found: it counts as imported, as when it was read, with nothing changed.
+            countChange(changes.tales, 'unchanged', false);
+          } else {
+            countChange(changes.tales, update.written ? 'updated' : 'unchanged', update.kept.length > 0);
+            for (const field of update.kept) {
+              differences.addOne(
+                keptDifference('tale', story, positions.get(story.id) ?? 1, parentOf(name, group.id), field),
+              );
+            }
+            if (movedTo === null) groupTales.push(taleId);
+            else {
+              report.notes.push(
+                `Tale "${text(title)}" in "${text(name)}": it is in another tale group in TaleArt, so it stays there`,
+              );
+            }
+          }
+        }
+        if (options.media && report.media && changes.media) {
+          const outcome = await importTaleMedia(db, options.media, projectId, taleId, story);
           if (outcome.kind === 'none') continue;
           report.media.source++;
           if (outcome.kind === 'imported') {
             report.media.imported++;
+            countChange(changes.media, outcome.change, false);
           } else {
             report.media.skipped++;
             if (outcome.kind === 'failed') {
               differences.addOne(
                 mediaDifference(story, positions.get(story.id) ?? 1, parentOf(name, group.id), outcome.reason, text),
               );
+              if (outcome.keptEarlier) {
+                report.notes.push(
+                  `Tale "${text(title)}" in "${text(name)}": its new media could not be copied, so it keeps its earlier media`,
+                );
+              }
             } else if (outcome.kind === 'keptOwn') {
-              report.notes.push(
-                `Tale "${text(title)}" in "${text(name)}": its media was set in TaleArt, so it was not replaced`,
-              );
+              if (outcome.sourceChanged) {
+                changes.media.keptLocalEdit++;
+                differences.addOne(
+                  keptDifference('tale', story, positions.get(story.id) ?? 1, parentOf(name, group.id), 'media'),
+                );
+              } else {
+                report.notes.push(
+                  `Tale "${text(title)}" in "${text(name)}": its media was set in TaleArt, so it was not replaced`,
+                );
+              }
             } else {
               report.notes.push(
                 `Tale "${text(title)}" in "${text(name)}": it was deleted during the import, so its media was not copied`,
@@ -656,13 +863,76 @@ export async function importContent(
           }
         }
       }
+
+      // The group itself: its name, its tags and the order of its tales, in one transaction.
+      const groupPosition = groupPlaces.get(group.id) ?? 1;
+      const updateGroup = (withTags: boolean) =>
+        updateRecord(db, 'taleGroup', taleGroupId, projectId, async (tx, baseline) => {
+          const nameMerge = valueMerger(baseline?.name, name);
+          if ((await renameTaleGroupWhen(tx, taleGroupId, nameMerge.decide)) === null) return null;
+          const fields: RecordFields = { name: nameMerge.result().baseline };
+          let tagsAdded = false;
+          if (labels && withTags) {
+            const carried = ((await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? []).map((t) => t.name);
+            const tagMerge = mergeTags(baseline?.tags, carried, groupTagNames.get(group.id) ?? []);
+            await labels.addToGroupIn(tx, taleGroupId, tagMerge.add);
+            tagsAdded = tagMerge.add.length > 0;
+            fields.tags = tagMerge.baseline;
+            removedLabels = tagMerge.removedAtSource;
+          }
+          const orderMerge = orderMerger(baseline?.order, groupTales);
+          await orderTalesWhen(tx, taleGroupId, orderMerge.decide);
+          fields.order = orderMerge.result().baseline;
+          const kept = [
+            ...(nameMerge.result().keptLocalEdit ? ['title'] : []),
+            ...(orderMerge.result().keptLocalEdit ? ['sort_order'] : []),
+          ];
+          const written = nameMerge.result().write !== null || tagsAdded || orderMerge.result().write !== null;
+          return { fields, update: { written, kept } };
+        });
+      let removedLabels: string[] = [];
+      let groupUpdate: RecordUpdate | null = null;
+      try {
+        groupUpdate = await updateGroup(true);
+      } catch (err) {
+        removedLabels = [];
+        // Deleted between its update's first read and its tags (the targeting module found no group).
+        if (err instanceof TaleGroupNotFoundError) groupUpdate = null;
+        else if (isLabelError(err)) {
+          report.notes.push(`Tale group "${text(name)}": its labels could not be saved as tags, so none were added`);
+          groupUpdate = await updateGroup(false);
+        } else throw err;
+      }
+      if (groupUpdate === null) {
+        countChange(changes.taleGroups, taleGroup.created ? 'created' : 'unchanged', false);
+        if (labels) {
+          report.notes.push(`Tale group "${text(name)}": it was deleted during the import, so its tags were not added`);
+        }
+      } else {
+        const outcome: RecordOutcome = taleGroup.created ? 'created' : groupUpdate.written ? 'updated' : 'unchanged';
+        countChange(changes.taleGroups, outcome, groupUpdate.kept.length > 0);
+        for (const field of groupUpdate.kept) {
+          differences.addOne(keptDifference('taleGroup', group, groupPosition, parentOf(zoneName, instance.id), field));
+        }
+        for (const label of removedLabels) {
+          differences.addOne({
+            entity: 'tag',
+            record: { sourceId: null, name: text(label), ...parentOf(name, group.id), position: null },
+            kind: 'removedAtSource',
+            field: 'segments',
+            sourceField: null,
+          });
+        }
+      }
     }
     if (groupsWithoutZone > 0) {
       report.notes.push(
         `Zone "${text(zoneName)}": its ${groupsWithoutZone} tale group(s) were not imported, since the zone was not`,
       );
     }
+    await updateZone(true);
   }
+  if (appId !== null) await listRemovedAtSource();
   if (labels) {
     report.tags = labels.count();
     report.notes.push(...labels.notes(text));
@@ -678,12 +948,80 @@ export async function importContent(
   if (notSelected !== null && (notSelected.zones.length > 0 || notSelected.entities.length > 0)) {
     report.notSelected = notSelected;
   }
+  report.changes = changes;
   if (withGroups) return report;
   // Tale groups and tales were not picked: the report has no counts for them.
   const zonesOnly: ImportReport = { ...report };
   delete zonesOnly.taleGroups;
   delete zonesOnly.tales;
   return zonesOnly;
+
+  /**
+   * Lists the app's records an earlier import brought across that this run's
+   * source lists no longer hold and that still exist in TaleArt: they stay as
+   * they are (an import deletes nothing), counted and listed by their name in TaleArt.
+   */
+  async function listRemovedAtSource(): Promise<void> {
+    if (appId === null) return;
+    interface RemovalKind {
+      sourceType: string;
+      type: RecordType;
+      entity: ImportDifferenceEntity;
+      count: ImportChangeCount;
+      exists: (id: string) => Promise<boolean>;
+    }
+    const zoneKind: RemovalKind = {
+      sourceType: 'instance',
+      type: 'zone',
+      entity: 'zone',
+      count: changes.zones,
+      exists: (id) => zoneExists(db, id),
+    };
+    const contentKinds: RemovalKind[] = [
+      {
+        sourceType: 'story_group',
+        type: 'taleGroup',
+        entity: 'taleGroup',
+        count: changes.taleGroups,
+        exists: (id) => taleGroupExists(db, id),
+      },
+      { sourceType: 'story', type: 'tale', entity: 'tale', count: changes.tales, exists: (id) => taleExists(db, id) },
+    ];
+    // Story groups and stories count as removed only when this run read them all (see `readEverything`).
+    const kinds = readEverything ? [zoneKind, ...contentKinds] : [zoneKind];
+    const listed = new Map<string, ReadonlySet<string>>([['instance', listedInstances]]);
+    if (readEverything) {
+      listed.set('story_group', listedGroups);
+      listed.set('story', listedStories);
+    }
+    const unlisted = await unlistedLinks(db, projectId, appId, listed);
+    for (const kind of kinds) {
+      const links = unlisted.filter((link) => link.sourceType === kind.sourceType);
+      const names = await recordNames(
+        db,
+        kind.type,
+        links.map((link) => link.targetId),
+      );
+      for (const link of links) {
+        if (!(await kind.exists(link.targetId))) continue;
+        kind.count.removedAtSource++;
+        const name = names.get(link.targetId);
+        differences.addOne({
+          entity: kind.entity,
+          record: {
+            sourceId: text(link.sourceId),
+            name: name === undefined || name.trim() === '' ? null : text(name),
+            within: null,
+            withinSourceId: null,
+            position: null,
+          },
+          kind: 'removedAtSource',
+          field: null,
+          sourceField: null,
+        });
+      }
+    }
+  }
 }
 
 /** A story whose media was not copied, as a report difference: the reason only, never the URL. */
@@ -800,6 +1138,7 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
         text,
         budget,
         selection,
+        appId: app.id,
         labels: picks('tags') ? () => client.listLabels(app.id) : undefined,
         media: !picks('media')
           ? undefined

@@ -2,7 +2,7 @@
 // zone's applied playbook key), `frames`, `stages` and `project_themes` tables
 // and the frame-type registry, and checks projects only through @taleart/server-access.
 export { migrateZones } from './lib/migration';
-export { listZones, createZone, ProjectNotFoundError } from './lib/zones';
+export { listZones, createZone, renameZoneWhen, ProjectNotFoundError } from './lib/zones';
 export {
   listFrames,
   createFrame,

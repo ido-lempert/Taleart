@@ -1,5 +1,6 @@
 import { MAX_TAG_NAME_LENGTH } from '@taleart/contract';
 import type {
+  ImportChangeCount,
   ImportCount,
   ImportDifference,
   ImportDifferenceEntity,
@@ -50,6 +51,22 @@ const ENTITY_CHOICE_LABELS: Record<ImportEntityChoice, string> = {
 /** A report row for content left out because it was not selected, such as "Tags: not selected, skipped". */
 export function importNotSelectedText(entity: ImportEntityChoice): string {
   return `${ENTITY_CHOICE_LABELS[entity]}: not selected, skipped`;
+}
+
+/**
+ * What an import changed for one report row, after its counts: " · 1 updated, 14 unchanged". Empty for a
+ * report made before re-imports updated records, or when nothing was counted.
+ */
+export function importChangeText(change: ImportChangeCount | undefined): string {
+  if (!change) return '';
+  const parts = [
+    change.created > 0 ? `${change.created} created` : '',
+    change.updated > 0 ? `${change.updated} updated` : '',
+    change.unchanged > 0 ? `${change.unchanged} unchanged` : '',
+    change.keptLocalEdit > 0 ? `${change.keptLocalEdit} kept as changed in TaleArt` : '',
+    change.removedAtSource > 0 ? `${change.removedAtSource} no longer at the source` : '',
+  ].filter((part) => part !== '');
+  return parts.length > 0 ? ` · ${parts.join(', ')}` : '';
 }
 
 /** One progress row's counts: "6 read / 4 written". */
@@ -138,12 +155,20 @@ export function importDifferenceText(difference: ImportDifference): string {
       const label = difference.reason && TAG_FAILURE_LABELS[difference.reason as ImportTagFailure];
       return `${field}: label not imported${label ? ` (${label})` : ''}`;
     }
+    case 'keptLocalEdit':
+      return `${field}: changed at the source, kept as changed in TaleArt`;
+    case 'removedAtSource':
+      return difference.entity === 'tag'
+        ? `${field}: label no longer at the source; the tag stays`
+        : 'no longer at the source; kept in TaleArt';
   }
 }
 
 /** A source record as people find it: "Summer sale" (id 3001) in "Home page". */
 export function importDifferenceRecordLabel(record: ImportDifferenceRecord): string {
-  const parts = [record.name !== null ? `"${record.name}"` : `Record ${record.position}`];
+  const parts = [
+    record.name !== null ? `"${record.name}"` : record.position !== null ? `Record ${record.position}` : 'A record',
+  ];
   if (record.sourceId !== null) parts.push(`(id ${record.sourceId})`);
   if (record.within !== null) parts.push(`in "${record.within}"`);
   return parts.join(' ');

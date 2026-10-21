@@ -38,6 +38,16 @@ describe('fake Storyly server', () => {
     expect(await (await get('/instance?app_id=1001', bearer)).json()).toEqual({ unexpected: true });
   });
 
+  it('serves changed instances until reset, so a re-import can see a renamed or removed instance', async () => {
+    fake.control.data.instances['1001'].data[0].title = 'Start page';
+    fake.control.data.instances['1001'].data.pop();
+    const changed = await (await get('/instance?app_id=1001', bearer)).json();
+    expect(changed.data.map((i) => i.title)).toEqual(['Start page', 'Product page']);
+    fake.control.reset();
+    const restored = await (await get('/instance?app_id=1001', bearer)).json();
+    expect(restored.data.map((i) => i.title)).toEqual(['Home page', 'Product page', 'Checkout']);
+  });
+
   it("lists each instance's story groups, six in all, out of sort order", async () => {
     const counts = [];
     for (const instanceId of ['2001', '2002', '2003']) {

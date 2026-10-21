@@ -2938,19 +2938,59 @@ components:
         notSelected:
           $ref: '#/components/schemas/ImportNotSelected'
           description: What was left out because it was not picked. Absent when the import took everything.
+        changes:
+          $ref: '#/components/schemas/ImportChanges'
+    ImportChangeCount:
+      type: object
+      required: [created, updated, unchanged, keptLocalEdit, removedAtSource]
+      description: >-
+        What one import changed in TaleArt for one entity type. created + updated + unchanged is the imported
+        count. keptLocalEdit counts records (or tale media) where a value changed at the source was not written
+        because a person had changed it in TaleArt; they are also counted updated or unchanged (media: skipped).
+        removedAtSource counts records an earlier import of the same app brought across that the source no
+        longer lists; they stay in TaleArt.
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        unchanged:
+          type: integer
+        keptLocalEdit:
+          type: integer
+        removedAtSource:
+          type: integer
+    ImportChanges:
+      type: object
+      required: [zones, taleGroups, tales]
+      description: >-
+        Per entity type, what this import created, updated or left unchanged in TaleArt. Absent in reports of
+        imports made before re-imports updated records.
+      properties:
+        zones:
+          $ref: '#/components/schemas/ImportChangeCount'
+        taleGroups:
+          $ref: '#/components/schemas/ImportChangeCount'
+        tales:
+          $ref: '#/components/schemas/ImportChangeCount'
+        media:
+          $ref: '#/components/schemas/ImportChangeCount'
     ImportDifferenceEntity:
       type: string
       enum: [app, zone, taleGroup, tale, tag]
       description: What the source record becomes in TaleArt (the app is the project; a label is a tag).
     ImportDifferenceKind:
       type: string
-      enum: [missing, renamed, unexpected, wrongType, notHeld, invalidRecord, mediaNotImported, tagNotImported]
+      enum: [missing, renamed, unexpected, wrongType, notHeld, invalidRecord, mediaNotImported, tagNotImported, keptLocalEdit, removedAtSource]
       description: >-
         missing: a field the import needs is absent; renamed: an expected field came under another name;
         unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong
         type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be
         read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported
-        without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason).
+        without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason);
+        keptLocalEdit: the field changed at the source, but a person had changed it in TaleArt, so their value
+        was kept; removedAtSource: an earlier import brought the record (or label) across and the source no
+        longer lists it, so it stays in TaleArt unchanged.
     ImportTagFailure:
       type: string
       enum: [blank, tooLong, notText, invalidCharacters]
@@ -2985,9 +3025,9 @@ components:
           type: [string, 'null']
           description: The source id of the record it belongs to; null for top-level records.
         position:
-          type: integer
+          type: [integer, 'null']
           minimum: 1
-          description: The record's place in its source list, from 1.
+          description: The record's place in its source list, from 1; null for a record the source no longer lists.
     ImportDifference:
       type: object
       required: [entity, record, kind, field, sourceField]
