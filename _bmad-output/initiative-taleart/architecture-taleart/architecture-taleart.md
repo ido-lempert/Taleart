@@ -133,7 +133,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 - **Prevents:** tales flattened into images, whose text is not accessible, not editable, not translatable and not sharp; web and native renderers placing elements differently; a migration for each new element type; and markup or style injection through tale content.
 - **Rule:** Each tale holds one **tale document**: versioned JSON stored as JSONB on the tale row and owned by the `tales` module. The schema lives in `libs/contract` as JSON Schema (`tale-document/v1.schema.json`), with generated TypeScript types. Its shape is `{ version, canvas, durationMs?, elements[] }`.
   - **Version:** an integer, 1 at launch. Additive changes keep the number: a new optional field, or a new element type. A breaking change raises it, and `libs/contract` ships a forward migration that the server applies when it reads or writes a stored document.
-  - **Canvas:** a 9:16 stage. It has a background, either a colour or one media element, and it defines its **safe areas** as contract constants: top 12% (progress bar and close control), bottom 16% (swipe-up and CTA) and 4% on each side `[ASSUMPTION]`.
+  - **Canvas:** a 9:16 stage. It has a background, either a colour or one media element, and it defines its **safe areas** as contract constants: top 12% (progress bar and close control), bottom 16% (swipe-up and CTA) and 4% on each side. These are starting values, tuned by Tale Studio story 7.14 (user, 2026-10-21).
   - **Elements:** a discriminated union keyed by `type` from an **element-type registry** in `libs/contract`, like frame types (AD-5). The MVP types are `text`, `image`, `video`, `shape`, `sticker` and `button`, plus at most one `swipe-up` per tale. Interactive components (poll, quiz, emoji reaction, countdown, product pins, promo code, Rating) join as further element types, each with its own schema, and the document version stays the same.
   - **Every element has:**
     - `id`: a UUID, unique in the document, used for undo, analytics and later locale variants.
@@ -146,9 +146,10 @@ Clients never import `libs/server`. Modules never import `apps/*`.
   - **Z-order:** the order of the `elements` array, first at the bottom.
   - **Reading order:** visual, top to bottom and then left to right by `box` `[ASSUMPTION]`.
   - **Text:** plain Unicode strings, never HTML or Markdown.
-  - **Styles:** enumerated or range-checked values, such as a colour as `#RRGGBB` or `#RRGGBBAA` or a font key from the font registry in `libs/contract`. Raw CSS strings are never stored.
+  - **Styles:** enumerated or range-checked values, such as a colour as `#RRGGBB` or `#RRGGBBAA`. Raw CSS strings are never stored.
+  - **Fonts:** a text element's font is a system stack key from the font registry in `libs/contract`, the project theme font, a font-family name that passes the theme's font-list rules (`isFontFamily`) and that the host loads, or the id of a **project font**, each with a fallback system stack. A project font is a row in `project_fonts` (project, family, weight, style, fallback stack, storage key, licence confirmation), owned by the `tales` module. Its file is WOFF2 only, checked by magic bytes, and at most 500 KB. It is media under AD-11: public, served as `font/woff2` with CORS that allows any origin, while a published tale's document references it.
   - **Validation on every write:** the Management API checks the document against the schema, with no additional properties, and then applies semantic rules. A refusal uses the standard error body naming the JSON pointer of the field it refused.
-    - The document is at most 128 KB, with at most 60 elements and at most 1,000 characters per text `[ASSUMPTION]`.
+    - The document is at most 128 KB, with at most 60 elements and at most 1,000 characters per text. These are starting values, tuned by story 7.14.
     - Element ids are unique, and numbers are finite and inside their ranges.
     - Link targets are absolute `http` or `https` URLs of at most 2,048 characters. Any other scheme, `javascript:` included, is refused.
     - Every media reference is a storage key that belongs to the tale's project.
@@ -173,8 +174,11 @@ Clients never import `libs/server`. Modules never import `apps/*`.
     - Buttons and links are focusable, with accessible names.
   - **Renderer modules:** one renderer module per element type, keyed by the element-type registry under `libs/web-sdk/src/lib/document/`. An unknown type renders nothing.
   - **Studio preview:** the dashboard's Tale Studio preview mounts the same renderer, imported from `libs/web-sdk`, on the unsaved document, so preview and visitor rendering cannot diverge.
-  - **Bundle budget:** the renderer counts toward the 50 KB gzip budget. While the whole SDK stays at or below 40 KB gzipped, it ships as one bundle. When it crosses 40 KB, the viewer, the document renderer and the element renderers move to a chunk loaded on first open, and the entry chunk keeps only what first zone content needs, so the 1.5 s target holds. The size check then reports both chunks `[ASSUMPTION]`.
-  - **Fonts:** the SDK loads no font files. Font keys map to system font stacks or to the project theme's `fontFamily`, which the host page loads.
+  - **Bundle budget:** the renderer counts toward the 50 KB gzip budget. While the whole SDK stays at or below 40 KB gzipped, it ships as one bundle. When it crosses 40 KB, the viewer, the document renderer and the element renderers move to a chunk loaded on first open, and the entry chunk keeps only what first zone content needs, so the 1.5 s target holds. The size check then reports both chunks. The 40 KB threshold is a starting value, tuned by story 7.14.
+  - **Fonts:** the SDK loads only the project fonts used by a tale that is opening, never for first zone content.
+    - It fetches each font's public URL as bytes and registers it with `new FontFace(alias, bytes)` and `document.fonts.add`, under an internal alias such as `taleart-<fontId>`. It never builds CSS text such as `@font-face` or `url()`.
+    - Text renders in the fallback stack until the face is ready, then swaps. A face that fails or takes over 3 s keeps the fallback.
+    - System stacks, the theme font and font-family names are applied as validated `font-family` values through CSSOM, and the host page loads named fonts.
 
 ## Consistency Conventions
 
@@ -303,7 +307,7 @@ libs/
 | R9 Web zones | `libs/web-sdk`, Delivery API, public media URLs | AD-2, AD-3, AD-11 |
 | R10 native-ready, extensible | `libs/contract`, frame registry | AD-3, AD-5 |
 | R11 stage and playbook | `libs/server/zones`, playbook registry in `libs/contract` | AD-5 |
-| R13 Tale Studio | `apps/dashboard` (Tale Studio), `libs/server/tales` (tale document), `libs/contract` (document schema, element-type and font registries), `libs/web-sdk` (document renderer) | AD-11, AD-15, AD-16 |
+| R13 Tale Studio | `apps/dashboard` (Tale Studio), `libs/server/tales` (tale document, project fonts), `libs/contract` (document schema, element-type and font registries), `libs/web-sdk` (document renderer) | AD-11, AD-15, AD-16 |
 | NFR-006, NFR-007 | all clients and APIs | Quality Targets |
 
 ## Deferred
@@ -321,5 +325,5 @@ libs/
 - **Campaigns (FR-031):** post-MVP, in a separate `campaigns` module rather than `tales`, so tale groups stay free of campaign logic; a campaign references tale groups through the `tales` public interface and is a reporting unit for `analytics`. A tale group in a campaign is delivered only inside both its own window and the campaign's schedule.
 - **Journeys:** post-MVP, in `zones` (a zone holds a frame or a journey); distinct from playbooks.
 - **Product sets (FR-021, FR-022):** after product feeds exist, in `product-sets`; out of the foundation epic (user, 2026-10-20).
-- **Tale Studio beyond the MVP:** templates gallery, a brand kit beyond the project theme, uploaded font files, animations, GIF search, AI assist, text locale variants, a reading-order override and collaborative editing. AD-15 keeps each of them additive: a new element type, a new optional field or a new registry entry.
+- **Tale Studio beyond the MVP:** templates gallery, a brand kit beyond the project theme and project fonts, font formats other than WOFF2, animations, GIF search, AI assist, text locale variants, a reading-order override and collaborative editing. AD-15 keeps each of them additive: a new element type, a new optional field or a new registry entry.
 - **Native document renderers:** post-MVP; they render the AD-15 document with the same element-type registry.

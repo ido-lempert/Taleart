@@ -3,10 +3,10 @@
 # Table order is build order; id is permanent.
 #
 # Lanes once story 1 is done:
-#   Editor lane (one dashboard editor component, document renderers): 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
+#   Editor lane (one dashboard editor component, document renderers): 2 -> 3 -> 4 -> 17 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 #   Tales lane (tales module, Delivery, covers):                       11 (after 5) -> 12
 #   Importer touch point:                                              13 (after 7 and 11)
-# Then 14 (performance, after 10 and 11), 15 (accessibility review, hitl), 16 (sweep).
+# Then 14 (performance, after 10, 11 and 17), 15 (accessibility review, hitl), 16 (sweep).
 
 [[entry]]
 id = 1
@@ -24,7 +24,7 @@ references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture
 id = 2
 type = "story"
 title = "Arrange elements: layers list, canvas background and safe areas"
-description = "Adds the layers list (top of z-order first, type icon, name from content) with select, bring forward, send backward, to front, to back, hide, lock, duplicate and delete, each from the list, a context menu and keyboard shortcuts; multi-select moves, deletes and reorders several elements. The canvas gets a background colour, safe-area guides from contract constants (top 12%, bottom 16%, sides 4% [ASSUMPTION]) that can be toggled, snapping to the centre, the safe-area edges and other elements, and a warning in the layer row when an element reaches outside the safe area. Hidden elements are not delivered; locked elements cannot be moved or edited on the canvas. Changes are announced in a live region."
+description = "Adds the layers list (top of z-order first, type icon, name from content) with select, bring forward, send backward, to front, to back, hide, lock, duplicate and delete, each from the list, a context menu and keyboard shortcuts; multi-select moves, deletes and reorders several elements. The canvas gets a background colour, safe-area guides from contract constants (top 12%, bottom 16%, sides 4%; starting values tuned by story 14) that can be toggled, snapping to the centre, the safe-area edges and other elements, and a warning in the layer row when an element reaches outside the safe area. Hidden elements are not delivered; locked elements cannot be moved or edited on the canvas. Changes are announced in a live region."
 verify = "With three text elements, reorder two overlapping ones from the list using only the keyboard and see the canvas and, after saving, the sample page follow; hide one: it is gone from the sample page; lock one: dragging does not move it; drag one into the bottom safe area: its row shows the warning; set a background colour: the sample page shows it."
 covers = ["R2", "R3", "R13"]
 after = [1]
@@ -46,21 +46,34 @@ risk = "medium"
 id = 4
 type = "story"
 title = "Style text with fonts, sizes, colours and backgrounds"
-description = "Adds the font registry to libs/contract (system stacks: sans, serif, rounded, monospace; plus the project theme's fontFamily from web-zones story 3.8) and the text settings per epic R4: font key, size as a fraction of canvas height (presets small, medium, large or custom), weight, italic, colour, alignment, line height, and background none, solid box or per-line highlight with its colour. The inspector edits them with named controls; the server validates font keys, hex colours and ranges; the SDK applies them through CSSOM only (AD-16) and loads no font files."
-verify = "Style a text element with each setting and see it the same in Tale Studio and, after publishing, on the sample page at two phone widths; choosing the project theme font uses the theme's font; a saved colour of 'red; background:url(x)' is refused."
+description = "Adds the font registry to libs/contract (system stacks: sans, serif, rounded, monospace; the project theme's fontFamily from web-zones story 3.8; and a font-family name the host loads, validated by the theme's isFontFamily rules) and the text settings per epic R4: font source with a fallback stack, size as a fraction of canvas height (presets small, medium, large or custom), weight, italic, colour, alignment, line height, and background none, solid box or per-line highlight with its colour. The inspector edits them with named controls; the server validates font sources, hex colours and ranges; the SDK applies them through CSSOM only (AD-16) and loads no font files (project fonts are story 17)."
+verify = "Style a text element with each setting and see it the same in Tale Studio and, after publishing, on the sample page at two phone widths; choosing the project theme font uses the theme's font; a font-family name loaded by the sample page shows, and a name of 'inherit' or 'x;color:red' is refused; a saved colour of 'red; background:url(x)' is refused."
 covers = ["R4"]
 after = [3, "3.8"]
 hitl = false
 risk = "medium"
 
 [[entry]]
+id = 17
+type = "story"
+title = "Upload a project font and use it in a tale"
+description = "Per epic R18 (user decision 2026-10-21). In project settings a content manager uploads a font: WOFF2 only, checked by the wOF2 magic bytes (extension and declared type ignored), at most 500 KB (starting value), with a family name validated by the theme's font-list rules, a weight (100 to 900), a style (normal or italic), a fallback system stack, and a required confirmation that they may use and distribute the font, stored with the uploader and time. The tales module keeps project_fonts (project-scoped, AD-4) and the file goes through the storage port; a font file is public (font/woff2, CORS allowing any origin) while a published tale's document references it and private otherwise (AD-11); a font in use cannot be deleted. The text inspector offers project fonts; the server refuses a project font id of another project. The Delivery API returns, with each tale, the public URLs of the project fonts it uses. The SDK, and the studio through the same code, fetch the font bytes only when a tale that uses them opens, register them with new FontFace(alias, bytes) and document.fonts.add under an internal alias, never building @font-face or url() CSS text, render the fallback stack first and swap when ready, and keep the fallback after a failure or 3 s."
+verify = "Upload a WOFF2 font with the licence box checked and use it on a text element: Tale Studio and the sample page show the fallback then the font; the sample page's network log shows the font requested only when that tale opens; uploads of a TTF renamed to .woff2, a 600 KB WOFF2, a family name 'inherit', and one without the licence confirmation are refused; deleting a font used by a tale is refused; the font URL of an unpublished tale answers 404."
+covers = ["R18", "R4", "R14"]
+after = [4, "1.12"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-11", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-16"]
+notes = ["Fonts: system stacks, plus a font-family name or a custom font uploaded to the project, loaded only when a tale that uses them opens (user, 2026-10-21)."]
+
+[[entry]]
 id = 5
 type = "story"
 title = "Add images and video from the project's media"
-description = "Adds image (including GIF) and video element types: a media picker over the project's media with upload through the storage port (foundation story 1.12), box, rotation, cover or contain fit, corner radius and opacity; the canvas background can be one media element with cover or contain fit and an adjustable band colour. At most one video element per tale [ASSUMPTION]; with one, the tale plays for the video's length, otherwise for durationMs (3 to 15 s, default 7 s), set in the studio. Media is referenced by storage key; the server refuses keys of another project; a key referenced by a published document is public (AD-11). An image needs alt text or the decorative mark before publish; publishing is refused with a message naming the element."
+description = "Adds image (including GIF) and video element types: a media picker over the project's media with upload through the storage port (foundation story 1.12), box, rotation, cover or contain fit, corner radius and opacity; the canvas background can be one media element with cover or contain fit and an adjustable band colour. At most one video element per tale (starting value, tuned by story 14); with one, the tale plays for the video's length, otherwise for durationMs (3 to 15 s, default 7 s), set in the studio. Media is referenced by storage key; the server refuses keys of another project; a key referenced by a published document is public (AD-11). An image needs alt text or the decorative mark before publish; publishing is refused with a message naming the element."
 verify = "Add an image and a video from the project's media, resize, rotate and round them, set a 5 s duration on a tale without video; on the sample page both render as in the studio and the tale plays for the video's length; publishing with an image lacking alt text is refused naming it; a PUT with a media key from another project is refused."
 covers = ["R5", "R2", "R12"]
-after = [4, "1.12"]
+after = [17]
 hitl = false
 risk = "high"
 references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-11"]
@@ -114,7 +127,7 @@ references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture
 id = 10
 type = "story"
 title = "Warn about low contrast and read tales in visual order"
-description = "Tale Studio computes the contrast of each text and button label against what lies behind it (canvas colour, shape fill, or sampled media pixels) and shows a warning on the element and its layer row below 4.5:1, or 3:1 for large text; it does not block publishing [ASSUMPTION]. The SDK orders elements for screen readers and focus by visual position, top to bottom then left to right (AD-15), names every element, and keeps animated content still under reduced motion. Adds an automated WCAG 2.2 AA scan of a composed tale on the sample page and of the studio."
+description = "Tale Studio computes the contrast of each text and button label against what lies behind it (canvas colour, shape fill, or sampled media pixels) and shows a warning on the element and its layer row below 4.5:1, or 3:1 for large text; it does not block publishing (user decision, 2026-10-21). The SDK orders elements for screen readers and focus by visual position, top to bottom then left to right (AD-15), names every element, and keeps animated content still under reduced motion. Adds an automated WCAG 2.2 AA scan of a composed tale on the sample page and of the studio."
 verify = "Put light grey text on white: the warning shows, and clears when the colour darkens; on the sample page a screen reader reads a composed tale's text, alt text and button in visual order; the automated scans of the sample page and the studio report no WCAG 2.2 AA violations."
 covers = ["R12", "R13"]
 after = [9]
@@ -159,10 +172,10 @@ references = ["_bmad-output/initiative-taleart/tickets/epic-storyly-importer/imp
 id = 14
 type = "story"
 title = "Keep the Web SDK within budget with the document renderer"
-description = "Extends the web-zones measurement target (story 3.11) with time to first tale frame after opening the viewer for a tale with 20 elements, and makes the SDK meet the budgets: at most 50 KB gzipped, p75 first zone content at most 1.5 s, p75 first tale frame at most 1 s on Fast 4G [ASSUMPTION]. When the bundle passes 40 KB gzipped, the viewer and renderers move to a chunk loaded on first open (AD-16) and the size check reports both chunks."
-verify = "Run the measurement target named in the web-sdk README: it reports the bundle at or under 50 KB gzipped, p75 first content at or under 1.5 s and p75 first tale frame at or under 1 s."
+description = "Extends the web-zones measurement target (story 3.11) with time to first tale frame after opening the viewer for a tale with 20 elements, and makes the SDK meet the budgets: at most 50 KB gzipped, p75 first zone content at most 1.5 s, p75 first tale frame at most 1 s on Fast 4G, with project fonts swapping in after the first frame and loaded only when a tale that uses them opens; these limits, the 500 KB font cap and the document limits are starting values this story tunes. When the bundle passes 40 KB gzipped, the viewer and renderers move to a chunk loaded on first open (AD-16) and the size check reports both chunks."
+verify = "Run the measurement target named in the web-sdk README: it reports the bundle at or under 50 KB gzipped, p75 first content at or under 1.5 s and p75 first tale frame at or under 1 s for a tale using a project font; the network log of a page whose tales use no project font shows no font request."
 covers = ["R15"]
-after = [10, 11]
+after = [10, 11, 17]
 hitl = false
 risk = "medium"
 
@@ -184,6 +197,6 @@ title = "Refactor sweep"
 description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
 verify = "The full test suite passes and Tale Studio, the preview and the sample page behave as before, with no behavior change."
 covers = []
-after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+after = [1, 2, 3, 4, 17, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 hitl = false
 risk = "low"

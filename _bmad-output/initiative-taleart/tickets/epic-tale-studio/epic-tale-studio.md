@@ -52,7 +52,12 @@ R3 (parent R13; PRD FR-032): **Layers**
 
 R4 (parent R13; PRD FR-032, FR-033; digest: text): **Text**
    A text element holds plain text, up to 1,000 characters, wrapped inside its box. Its settings:
-   - **font:** a font key from the font registry in `libs/contract`. The registry holds system font stacks (sans, serif, rounded, monospace) and the project theme's `fontFamily` (web-zones R9).
+   - **font:** one of four sources.
+     - A system font stack from the font registry in `libs/contract`: sans, serif, rounded or monospace.
+     - The project theme's `fontFamily` (web-zones R9).
+     - A **font-family name** that the host page is expected to load. It is validated by the theme's font-list rules (`isFontFamily` in `libs/contract`: letters, digits, spaces and hyphens, optionally quoted, with no CSS-wide keywords).
+     - A **project font** (R18).
+     Every text element also has a fallback system stack, which is used until a named or project font is available.
    - **size** as a fraction of canvas height, through presets small, medium and large or a custom value.
    - **weight:** regular, medium or bold.
    - **italic**.
@@ -66,7 +71,7 @@ R4 (parent R13; PRD FR-032, FR-033; digest: text): **Text**
 R5 (parent R13; PRD FR-032, FR-010; digest: media layers): **Image and video elements**
    - Image (including GIF) and video elements come from the project's media. They are uploaded in the studio through the storage port (AD-11, foundation story 1.12) or picked from media the project already has.
    - Each has a box, rotation, `cover` or `contain` fit, corner radius and opacity.
-   - A tale has at most one video element `[ASSUMPTION]`. When it has one, the tale plays for the video's length; otherwise its `durationMs` applies, 3 to 15 s with a default of 7 s.
+   - A tale has at most one video element (a starting value, tuned by story 7.14). When it has one, the tale plays for the video's length; otherwise its `durationMs` applies, 3 to 15 s with a default of 7 s.
    - An image needs alt text, or must be marked decorative, before the tale can be published (R12).
    Verify: add an image and a video from the project's media, resize and rotate them, and see the same result on the sample page; the tale plays for the video's length; publishing with an image that has no alt text is refused with a message naming the element.
 
@@ -109,7 +114,7 @@ R11 (parent R13; PRD FR-012; digest: story actions): **Duplicate a tale**
 
 R12 (parent R13; NFR-007; digest: accessibility): **Accessibility of tales**
    - Every image, video, image sticker and image button has alt text or is marked decorative. Publishing a tale that breaks this rule is refused.
-   - Text and button labels get a contrast check against what lies behind them. A ratio below 4.5:1, or below 3:1 for large text, shows a warning in the studio but does not block publishing `[ASSUMPTION]`.
+   - Text and button labels get a contrast check against what lies behind them. A ratio below 4.5:1, or below 3:1 for large text, shows a warning in the studio but does not block publishing (user decision, 2026-10-21).
    - Reading order is visual, top to bottom and then left to right (AD-15).
    - The SDK names each element for screen readers, and buttons and links are focusable in reading order.
    - Animated content respects reduced motion. Video autoplays muted.
@@ -124,16 +129,17 @@ R13 (parent R13; NFR-007; architecture Quality Targets): **Accessible editor**
    Verify: a person composes a tale with text, an image and a button using only the keyboard and a screen reader; the automated scan of the studio reports no WCAG 2.2 AA violations.
 
 R14 (parent R13; AD-15): **Security of tale content**
-   - All document data is validated on the server on every write. The checks are the schema with no additional properties, plus the semantic rules: at most 128 KB, 60 elements and 1,000 characters per text `[ASSUMPTION]`; unique ids; finite numbers in range; colours as hex; font keys from the registry; media keys of the tale's project; URLs that are absolute `http` or `https`, at most 2,048 characters.
+   - All document data is validated on the server on every write. The checks are the schema with no additional properties, plus the semantic rules: at most 128 KB, 60 elements and 1,000 characters per text (starting values, tuned by story 7.14); unique ids; finite numbers in range; colours as hex; font sources as in R4 (registry keys, names that pass the font-list rules, and project font ids of the tale's project); media keys of the tale's project; URLs that are absolute `http` or `https`, at most 2,048 characters.
    - The document holds no HTML, CSS or script, and the SDK sets text only as text nodes and styles only through CSSOM (AD-16).
    Verify: API tests refuse a document with an HTML string in a style field, a `javascript:` URL, a media key of another project, an unknown property, and one over each size limit; a text of `<img src=x onerror=alert(1)>` renders as visible literal text on the sample page.
 
 R15 (parent R13; NFR-006; AD-16): **SDK budget with the renderer**
    - The Web SDK, with the document renderer and the MVP element renderers, stays within 50 KB gzipped, checked on every build.
    - p75 first zone content stays within 1.5 s on Fast 4G.
-   - A composed tale's first frame shows within 1 s of opening the viewer at p75 on the same profile `[ASSUMPTION]`.
+   - A composed tale's first frame shows within 1 s of opening the viewer at p75 on the same profile (starting values, tuned by story 7.14). Text paints in its fallback stack first, and project fonts swap in when they load.
+   - Project fonts load only when a tale that uses them opens. They are never part of first zone content and never part of the SDK bundle.
    - Once the SDK passes 40 KB gzipped, the viewer and renderers move to a chunk loaded on first open (AD-16).
-   Verify: the size check passes; the web-zones measurement target still reports p75 first content at or under 1.5 s; the same target reports p75 first tale frame at or under 1 s for a tale with 20 elements.
+   Verify: the size check passes; the web-zones measurement target still reports p75 first content at or under 1.5 s; the same target reports p75 first tale frame at or under 1 s for a tale with 20 elements and a project font; a page whose zone uses no tale with a project font downloads no font file.
 
 R16 (parent R13, R10; AD-15): **Existing tales become documents**
    - A one-way migration gives every tale that has media a version 1 document with one full-bleed media element (`cover`, decorative until someone adds alt text), so it renders exactly as before.
@@ -146,6 +152,17 @@ R17 (parent R2; importer epic R2; digest: External API): **Imported tales keep w
    - When it has `button_text` and an `outlink` (or a `deep_link` that is `http` or `https`), it also gets a button element at the bottom of the safe area.
    - The import report lists, per tale, "text, stickers and components not readable through the API" as a difference, and lists any link with another scheme.
    Verify: import a fixture story with `button_text` and `outlink`; the tale shows a button that opens the link; the report lists the unreadable layers; a `myapp://` deep link is listed and not imported.
+
+R18 (parent R13; PRD FR-032; user decision 2026-10-21): **Project fonts**
+   An admin or content manager uploads a font to the project.
+   - **Format:** WOFF2 only. The server checks the `wOF2` magic bytes and ignores the extension and the declared type.
+   - **Size:** at most 500 KB (a starting value, tuned by story 7.14).
+   - **Font record:** a family name (one name that passes the font-list rules), a weight (100 to 900), a style (normal or italic) and a fallback system stack.
+   - **Licence:** the uploader confirms they may use and distribute the font, and the confirmation is stored with the font.
+   - **Storage:** the font file goes through the storage port. It follows the AD-11 public media rules: it is public, with CORS for font loading and `font/woff2`, while a published tale's document uses it, and private otherwise.
+   - **Font list:** the project's font list shows each family with its faces. A font in use by any tale cannot be deleted.
+   - **Loading:** the SDK and the studio load a project font through the `FontFace` API from the fetched bytes, under an internal family alias, never from CSS text. Text renders in the fallback stack until the font is ready, which is swap behaviour. A font that fails or takes over 3 s keeps the fallback.
+   Verify: upload a WOFF2 font, use it on a text element, and the sample page shows the fallback then the font; a TTF renamed to `.woff2`, a 600 KB WOFF2, and an upload without the licence confirmation are refused; a font used by a tale cannot be deleted; a sample page with no tale using the font requests no font file.
 
 ## Constraints
 
@@ -161,7 +178,7 @@ R17 (parent R2; importer epic R2; digest: External API): **Imported tales keep w
 
 ## Done when
 
-- On the deployed dashboard a content manager composes a tale with text, an image, a shape, an emoji, a button and a swipe-up link in Tale Studio, previews it, publishes it, and the sample page shows the same tale with live text and working links.
+- On the deployed dashboard a content manager composes a tale with text in a project font, an image, a shape, an emoji, a button and a swipe-up link in Tale Studio, previews it, publishes it, and the sample page shows the same tale with live text and working links.
 - Every existing and imported tale renders as before, now from a document.
 - A test element type registers by configuration with no migration, which is the hook epic-interactive-components uses.
 - The SDK is at most 50 KB gzipped, p75 first content stays at or under 1.5 s, and the WCAG 2.2 AA scans of the studio and the sample page are clean, with a person's keyboard and screen-reader walk recorded.
@@ -171,7 +188,7 @@ R17 (parent R2; importer epic R2; digest: External API): **Imported tales keep w
 - **MVP in:** the requirements above.
 - **Post-MVP:** these are decided from the research. Storyly documents none of the editor-side ones, so they are not parity gaps:
   - a gallery of ready-made designs, and feed-driven templates (Storyly's are feed automation tied to product sets);
-  - a brand kit beyond the project theme, and uploaded web font files;
+  - a brand kit beyond the project theme and project fonts, and font formats other than WOFF2;
   - animations and transitions;
   - GIF search (a third-party API with its own terms);
   - AI assist;
@@ -201,10 +218,11 @@ R17 (parent R2; importer epic R2; digest: External API): **Imported tales keep w
 ## Notes
 
 - Decision (2026-10-21, user): Tale Studio is in the MVP. Tales are documents of live elements rendered by the SDK, not flattened images, with Storyly's story editor as the reference.
-- Decision (2026-10-21): the tracer bullet is story 1, "Tracer: add a text element to a tale and see it in the viewer". It covers the document schema with one element type, storage with a revision, the Management and Delivery API, a minimal studio with a canvas, and the SDK renderer in the viewer (Sofia, headless; user to confirm).
-- Decision (2026-10-21): calls to action (PRD FR-016) move from epic-interactive-components to this epic, since they are element types with no response to record. Interactive components stay in their epic and build on R8 (Sofia, headless; user to confirm).
-- Decision (2026-10-21): the epic builds after web zones (it needs the viewer, story 3.2, and the theme, story 3.8) and before epic-interactive-components, which now waits on story 8 (the element-type registry) (Sofia, headless).
-- Assumption: the safe-area values (top 12%, bottom 16%, sides 4%), the document limits (128 KB, 60 elements, 1,000 characters), one video per tale, contrast as a warning rather than a block, and the 1 s first-frame target are proposals for the user to confirm.
+- Decision (2026-10-21): the tracer bullet is story 1, "Tracer: add a text element to a tale and see it in the viewer". It covers the document schema with one element type, storage with a revision, the Management and Delivery API, a minimal studio with a canvas, and the SDK renderer in the viewer (autopilot default; the user may change it).
+- Decision (2026-10-21): calls to action (PRD FR-016) move from epic-interactive-components to this epic, since they are element types with no response to record. Interactive components stay in their epic and build on R8 (autopilot default; the user may change it).
+- Decision (2026-10-21): the epic builds after web zones (it needs the viewer, story 3.2, and the theme, story 3.8) and before epic-interactive-components, which now waits on story 8 (the element-type registry) (autopilot default; the user may change it).
+- Decision (2026-10-21, user): the starting limits are accepted. They are the safe areas (top 12%, bottom 16%, sides 4%), the document limits (128 KB, 60 elements, 1,000 characters), one video per tale, and the 1 s first tale frame. All are starting values, tuned by story 7.14.
+- Decision (2026-10-21, user): contrast below the WCAG ratios is a warning only and never blocks publishing.
 - Assumption: the editor's stories share one dashboard editor component, so stories 1 to 10 form one ordered lane. Migration (11) and duplication (12) touch the `tales` module and run beside the later editor stories, after story 5.
-- Open question: fonts. The MVP offers system font stacks plus the project theme font, and the SDK loads no font files. Bundled open-licence web fonts served by the install would cost bytes and first-content time. Recommendation: keep MVP to system stacks plus the theme font.
-- Open question: `studio_image` from the External API probably holds a flattened render of Storyly's editor layers. Importing it as one image element above the background would keep the look, but not live text. Recommendation: do not import it in the MVP, list the layers as a difference, and revisit after the real run (importer story 2.3).
+- Decision (2026-10-21, user): fonts are system stacks plus either a font-family name that the host loads or a custom font uploaded to the project. The custom font is WOFF2 only, checked by magic bytes, at most 500 KB, with a family, weight and style, and a licence confirmation. It is served under the AD-11 rules and loaded by the SDK through `FontFace` only when a tale that uses it opens (R4, R18, story 17; AD-16).
+- Decision (2026-10-21, user): `studio_image` is not imported in the MVP. The layers it probably flattens are listed as a difference in the import report (R17, story 13). Revisit after the real run (importer story 2.3).
