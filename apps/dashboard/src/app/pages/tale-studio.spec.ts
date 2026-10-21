@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
 import type { ProjectFont, ZoneTaleGroup } from '@taleart/contract/core';
+import { clearProjectFontLoads } from '@taleart/contract/project-fonts';
 import { elementBounds, type TaleDocument } from '@taleart/contract/tale-document';
 import { DEFAULT_TEXT_STYLE, SYSTEM_FONT_STACKS } from '@taleart/contract/text-style';
 import { DEFAULT_THEME } from '@taleart/contract/theme';
@@ -1541,6 +1542,54 @@ describe('TaleStudioPage', () => {
         expect(select.value).toBe(`project:${brand.id}`);
         expect(select.selectedOptions[0].textContent?.trim()).toBe("Project font (not in this project's list)");
         expect(canvasText().style.fontFamily).toContain(`taleart-font-${brand.id}`);
+      });
+
+      it('ties weight and italic to the chosen face, so it is never synthesised, and says so', async () => {
+        await openSelected({ font: { source: 'project', fontId: brand.id }, weight: 'bold', italic: true }, null, [
+          brand,
+        ]);
+        const weight = field<HTMLSelectElement>('ts-weight');
+        const italic = field<HTMLInputElement>('ts-italic');
+        expect(weight.disabled).toBe(true);
+        expect(italic.disabled).toBe(true);
+        expect(weight.getAttribute('aria-describedby')).toBe('ts-face-hint');
+        expect(root.querySelector('#ts-face-hint')?.textContent).toContain('Semibold italic');
+        // Back on a system font, both are free again.
+        await set('ts-font', 'serif');
+        expect(field<HTMLSelectElement>('ts-weight').disabled).toBe(false);
+        expect(root.querySelector('#ts-face-hint')).toBeNull();
+        await saveNow(2);
+      });
+
+      it('fetches a face that failed once per page while it is edited, not on every edit', async () => {
+        clearProjectFontLoads();
+        const fetchFont = vi.fn(async () => Promise.reject(new Error('offline')));
+        vi.stubGlobal('fetch', fetchFont);
+        vi.stubGlobal(
+          'FontFace',
+          class {
+            async load() {
+              return this;
+            }
+          },
+        );
+        Object.defineProperty(document, 'fonts', { configurable: true, value: { add: vi.fn() } });
+        try {
+          await openSelected({ font: { source: 'project', fontId: brand.id } }, null, [brand]);
+          await set('ts-size', 'large');
+          await set('ts-size', 'small');
+          await set('ts-size', 'medium');
+          expect(fetchFont).toHaveBeenCalledTimes(1);
+          expect(fetchFont).toHaveBeenCalledWith(
+            `/api/v1/projects/p1/fonts/${brand.id}/file`,
+            expect.objectContaining({ credentials: 'same-origin' }),
+          );
+          await saveNow(2);
+        } finally {
+          vi.unstubAllGlobals();
+          delete (document as { fonts?: unknown }).fonts;
+          clearProjectFontLoads();
+        }
       });
     });
 

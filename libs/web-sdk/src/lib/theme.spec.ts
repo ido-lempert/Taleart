@@ -40,6 +40,7 @@ describe('theme', () => {
     { fontFamily: 'Arial</style>' },
     { fontFamily: 'inherit' },
     { fontFamily: 'Georgia, Unset' },
+    { fontFamily: 'Georgia, "taleart-font-0f0e0d0c-0000-4000-8000-00000000000a"' },
     { fontFamily: '"default"' },
     { fontFamily: 'revert-layer' },
     { fontFamily: '-apple-system' },

@@ -26,8 +26,10 @@ const COLOR = /^#[0-9a-fA-F]{6}$/;
 const KEYWORDS = ['inherit', 'initial', 'unset', 'revert', 'revert-layer', 'default'];
 const anyCase = (word: string) => word.replace(/[a-z]/g, (c) => `[${c}${c.toUpperCase()}]`);
 const NAME = `(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|'[A-Za-z0-9 -]+')`;
+// Project fonts' internal names (`taleart-font-<id>`, Tale Studio R18) are reserved: a theme never names one.
+const RESERVED = `(?!.*(?:^|[\\s,"'])${anyCase('taleart-font-')})`;
 const FONT = new RegExp(
-  `^(?!.*(?:^|[\\s,"'])(?:${KEYWORDS.map(anyCase).join('|')})(?=$|[\\s,"']))\\s*${NAME}\\s*(?:,\\s*${NAME}\\s*)*$`,
+  `^(?!.*(?:^|[\\s,"'])(?:${KEYWORDS.map(anyCase).join('|')})(?=$|[\\s,"']))${RESERVED}\\s*${NAME}\\s*(?:,\\s*${NAME}\\s*)*$`,
 );
 
 const isColor = (value: unknown): value is string => typeof value === 'string' && COLOR.test(value);

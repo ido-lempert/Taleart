@@ -18,8 +18,8 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020';
-import { knownProjectFontIds } from './project-fonts';
-import { TaleNotFoundError } from './tales';
+import { clearPublicFontCache, knownProjectFontIds, recordTaleFonts } from './project-fonts';
+import { inTransaction, TaleNotFoundError, type TransactionalDb } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -338,100 +338,96 @@ async function refuseStale(db: Db, taleId: string): Promise<never> {
 }
 
 /**
- * Replaces the tale's draft document when `basedOn` is the draft's current revision, in one
- * conditional update, and returns it with the next revision. The published document, and so
- * what visitors see, does not change. Checks the document first ({@link checkTaleDocument}).
- * Throws {@link StaleRevisionError} when another save came first, so no write is lost silently,
- * and {@link TaleNotFoundError}.
+ * Replaces the tale's draft document when `basedOn` is the draft's current revision, and returns it
+ * with the next revision. The published document, and so what visitors see, does not change.
+ * Checks the document first ({@link checkTaleDocument}). In one transaction: the project fonts it
+ * uses must be the tale's project's (R14), and are share locked, so a font being deleted (which
+ * locks its row first) is either gone, and the save refused, or waits for this save and then sees
+ * it recorded in `tale_fonts`, which is written here with the draft. Throws
+ * {@link StaleRevisionError} when another save came first, so no write is lost silently,
+ * {@link InvalidTaleDocumentError} and {@link TaleNotFoundError}.
  */
 export async function saveTaleDocument(
-  db: Db,
+  db: TransactionalDb,
   taleId: string,
   value: unknown,
   basedOn: number,
 ): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
   const document = checkTaleDocument(value);
-  const fontIds = projectFontIds(document);
-  if (fontIds.length === 0) {
-    const { rows } = await db.query<StateRow>(
+  const usesFonts = projectFontIds(document).length > 0;
+  return inTransaction(db, async (tx) => {
+    if (usesFonts) await checkDocumentFonts(tx, await projectOfTale(tx, taleId), document, true);
+    const { rows } = await tx.query<StateRow>(
       `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
        WHERE id = $1 AND draft_revision = $3
        RETURNING ${STATE_COLUMNS}`,
       [taleId, JSON.stringify(document), basedOn],
     );
-    if (rows.length > 0) return { ...toState(rows[0]), document };
-    return refuseStale(db, taleId);
-  }
-  // Its project fonts must be the tale's project's (R14). The statement share locks them, so a
-  // font being deleted (which locks its row first) is either gone, and the save refused, or waits
-  // for this save and then sees it uses the font.
-  const projectId = await projectOfTale(db, taleId);
-  await checkDocumentFonts(db, projectId, document);
-  const { rows } = await db.query<StateRow>(
-    `WITH fonts AS (
-       SELECT id FROM project_fonts WHERE project_id = $4 AND id = ANY($5::uuid[]) FOR SHARE
-     )
-     UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
-     WHERE id = $1 AND draft_revision = $3 AND (SELECT count(*) FROM fonts) = $6
-     RETURNING ${STATE_COLUMNS}`,
-    [taleId, JSON.stringify(document), basedOn, projectId, fontIds, fontIds.length],
-  );
-  if (rows.length > 0) return { ...toState(rows[0]), document };
-  // A font deleted since the check above refuses the document; else the revision was stale.
-  await checkDocumentFonts(db, projectId, document);
-  return refuseStale(db, taleId);
+    if (rows.length === 0) return refuseStale(tx, taleId);
+    await recordTaleFonts(tx, taleId, 'draft', document, false);
+    return { ...toState(rows[0]), document };
+  });
 }
 
 /**
  * Publishes the tale's draft: copies it to the published document, which the Delivery API serves,
- * raising the published revision. Compare-and-set on both revisions, in one statement: when
- * `draftRevision` or `publishedRevision` is no longer current nothing changes and it throws
+ * raising the published revision. Compare-and-set on both revisions: when `draftRevision` or
+ * `publishedRevision` is no longer current nothing changes and it throws
  * {@link StaleRevisionError}. The draft is checked again first, as rules may have changed since
  * it was saved ({@link InvalidTaleDocumentError}). A tale with no draft throws
- * {@link NothingToPublishError}: publishing never empties the published document. The tale's
- * status does not change.
+ * {@link NothingToPublishError}: publishing never empties the published document. The fonts the
+ * published document uses are recorded in the same transaction. The tale's status does not change.
  */
 export async function publishTaleDocument(
-  db: Db,
+  db: TransactionalDb,
   taleId: string,
   draftRevision: number,
   publishedRevision: number,
 ): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const read = await db.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
-  if (read.rows.length === 0) throw new TaleNotFoundError(taleId);
-  const draft = read.rows[0].document;
-  if (draft === null) throw new NothingToPublishError();
-  checkTaleDocument(draft);
-  const { rows } = await db.query<StateRow>(
-    `UPDATE tales SET document = draft_document, document_revision = document_revision + 1
-     WHERE id = $1 AND draft_revision = $2 AND document_revision = $3 AND draft_document IS NOT NULL
-     RETURNING ${STATE_COLUMNS}`,
-    [taleId, draftRevision, publishedRevision],
-  );
-  if (rows.length > 0) return toState(rows[0]);
-  return refuseStale(db, taleId);
+  const state = await inTransaction(db, async (tx) => {
+    const read = await tx.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1 FOR UPDATE`, [taleId]);
+    if (read.rows.length === 0) throw new TaleNotFoundError(taleId);
+    const draft = read.rows[0].document;
+    if (draft === null) throw new NothingToPublishError();
+    checkTaleDocument(draft);
+    const { rows } = await tx.query<StateRow>(
+      `UPDATE tales SET document = draft_document, document_revision = document_revision + 1
+       WHERE id = $1 AND draft_revision = $2 AND document_revision = $3 AND draft_document IS NOT NULL
+       RETURNING ${STATE_COLUMNS}`,
+      [taleId, draftRevision, publishedRevision],
+    );
+    if (rows.length === 0) return refuseStale(tx, taleId);
+    await recordTaleFonts(tx, taleId, 'published', rows[0].publishedDocument, true);
+    return toState(rows[0]);
+  });
+  clearPublicFontCache();
+  return state;
 }
 
 /**
  * Discards the tale's draft: it becomes the published document again (null when nothing is
- * published), raising the draft's revision. Compare-and-set on both revisions, as
- * {@link publishTaleDocument}; throws {@link StaleRevisionError} and {@link TaleNotFoundError}.
+ * published), raising the draft's revision, and its recorded fonts become the published one's.
+ * Compare-and-set on both revisions, as {@link publishTaleDocument}; throws
+ * {@link StaleRevisionError} and {@link TaleNotFoundError}.
  */
 export async function discardTaleDraft(
-  db: Db,
+  db: TransactionalDb,
   taleId: string,
   draftRevision: number,
   publishedRevision: number,
 ): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const { rows } = await db.query<StateRow>(
-    `UPDATE tales SET draft_document = document, draft_revision = draft_revision + 1
-     WHERE id = $1 AND draft_revision = $2 AND document_revision = $3
-     RETURNING ${STATE_COLUMNS}`,
-    [taleId, draftRevision, publishedRevision],
-  );
-  if (rows.length > 0) return toState(rows[0]);
-  return refuseStale(db, taleId);
+  return inTransaction(db, async (tx) => {
+    const { rows } = await tx.query<StateRow>(
+      `UPDATE tales SET draft_document = document, draft_revision = draft_revision + 1
+       WHERE id = $1 AND draft_revision = $2 AND document_revision = $3
+       RETURNING ${STATE_COLUMNS}`,
+      [taleId, draftRevision, publishedRevision],
+    );
+    if (rows.length === 0) return refuseStale(tx, taleId);
+    await recordTaleFonts(tx, taleId, 'draft', rows[0].document, false);
+    return toState(rows[0]);
+  });
 }

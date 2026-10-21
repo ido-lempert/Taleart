@@ -41,6 +41,14 @@ export const SYSTEM_FONT_STACKS: Readonly<Record<SystemFontStack, string>> = /* 
   monospace: 'ui-monospace, Menlo, Consolas, "Cascadia Mono", "Liberation Mono", monospace',
 });
 
+/** The names people read for each system stack. */
+export const SYSTEM_FONT_STACK_NAMES: Readonly<Record<SystemFontStack, string>> = /* @__PURE__ */ Object.freeze({
+  sans: 'Sans',
+  serif: 'Serif',
+  rounded: 'Rounded',
+  monospace: 'Monospace',
+});
+
 /** The system stack keys, in the order editors list them. */
 export const SYSTEM_FONT_STACK_KEYS: readonly SystemFontStack[] = ['sans', 'serif', 'rounded', 'monospace'];
 

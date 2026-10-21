@@ -99,7 +99,7 @@ describe('FontsPage (story 7.17)', () => {
     expect(faces).toHaveLength(2);
     expect(faces[0].textContent).toContain('Bold italic');
     expect(faces[0].textContent).toContain('Ada Admin');
-    expect(faces[0].textContent).toContain('Used by a tale.');
+    expect(faces[0].textContent).toContain('Used by a tale, so it cannot be deleted.');
     expect(faces[1].textContent).toContain('Not used by any tale.');
     // The sample is drawn under the font's alias with its fallback, and hidden from screen readers.
     const sample = faces[0].querySelector('.fonts-sample') as HTMLElement;
@@ -174,12 +174,68 @@ describe('FontsPage (story 7.17)', () => {
     await settle(fixture);
     expect(root.querySelector('.fonts-saved')?.textContent).toContain('Brand Sans Bold italic uploaded.');
     expect(root.querySelectorAll('.fonts-face')).toHaveLength(1);
-    // The confirmation is asked again for the next file.
+    // The form is empty again; the confirmation is asked again for the next file.
     expect(field<HTMLInputElement>('font-licence').checked).toBe(false);
+    expect(field<HTMLInputElement>('font-family').value).toBe('');
+    expect(field<HTMLSelectElement>('font-weight').value).toBe('400');
+    expect(field<HTMLSelectElement>('font-style').value).toBe('normal');
   });
 
-  it("shows the server's refusal of a font in use, and keeps it in the list", async () => {
+  it('marks the required fields', async () => {
+    await open();
+    for (const id of ['font-file', 'font-family', 'font-licence']) {
+      expect(field(id).getAttribute('aria-required'), id).toBe('true');
+    }
+  });
+
+  it('sends one upload however often it is submitted', async () => {
+    await open();
+    await fill(woff2File(), 'Brand Sans', true);
+    const form = root.querySelector('form') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle(fixture);
+    await settle(fixture);
+    const posts = http.match((r) => r.method === 'POST');
+    expect(posts).toHaveLength(1);
+    posts[0].flush(font({ inUse: false }));
+    await settle(fixture);
+    http.expectOne(listUrl).flush([]);
+    await settle(fixture);
+  });
+
+  it.each([
+    [409, 'font_exists', 'This project already has a font with this family, weight and style.', 'font-family'],
+    [415, 'unsupported_media_type', 'Upload a WOFF2 font file.', 'font-file'],
+    [413, 'font_storage_full', "A project's font files take at most 10 MB together.", 'font-file'],
+    [409, 'font_limit_reached', 'A project holds at most 50 fonts.', 'font-file'],
+  ])('ties a %i %s refusal to its field and moves focus there', async (status, code, message, id) => {
+    await open();
+    await fill(woff2File(), 'Brand Sans', true);
+    await submit();
+    http.expectOne((r) => r.method === 'POST').flush({ error: { code, message } }, { status, statusText: 'No' });
+    await settle(fixture);
+    const control = field(id);
+    expect(control.getAttribute('aria-invalid')).toBe('true');
+    expect(control.getAttribute('aria-describedby')).toContain(`${id}-error`);
+    expect(root.querySelector(`#${id}-error`)?.textContent).toContain(message);
+    expect(root.querySelector('[role=alert]')?.textContent).toContain(message);
+    expect(document.activeElement).toBe(control);
+  });
+
+  it('disables Delete for a face a tale uses, and says why', async () => {
     await open([font()]);
+    const button = root.querySelector('.fonts-face button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const reason = root.querySelector(`#${button.getAttribute('aria-describedby')}`);
+    expect(reason?.textContent).toContain('cannot be deleted');
+    button.click();
+    await settle(fixture);
+    expect(window.confirm).not.toHaveBeenCalled();
+  });
+
+  it("shows the server's refusal of a font a tale started using meanwhile, and keeps it in the list", async () => {
+    await open([font({ inUse: false })]);
     (root.querySelector('.fonts-face button') as HTMLButtonElement).click();
     await settle(fixture);
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Brand Sans Bold italic'));

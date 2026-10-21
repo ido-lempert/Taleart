@@ -23,6 +23,7 @@ import {
   orderTalesWhen,
   renameTaleGroupWhen,
   renameTaleWhen,
+  sweepUnusedFontFiles,
   taleExists,
   taleGroupExists,
   taleGroupName,
@@ -1532,6 +1533,13 @@ export function startImportWorker(db: TransactionalDb, options: ImportWorkerOpti
       }
     } catch (err) {
       log('error', 'Import worker could not sweep unused media files', err);
+    }
+    // Font files an upload stored but whose row never committed (Tale Studio R18).
+    try {
+      const fonts = await sweepUnusedFontFiles(db, options.storage);
+      if (fonts > 0) log('info', `Removed ${fonts} font file(s) no font names`);
+    } catch (err) {
+      log('error', 'Import worker could not sweep unused font files', err);
     }
   };
 

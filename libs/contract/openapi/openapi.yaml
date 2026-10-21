@@ -426,19 +426,31 @@ paths:
       operationId: uploadProjectFont
       summary: Upload a font face to the project.
       description: >-
-        The body is the font file's bytes. Only WOFF2 is accepted, judged
-        from the bytes (the `wOF2` signature and a whole header); the
-        declared `Content-Type` and the file name are ignored. At most
-        500 KB. The query names the face and carries the uploader's
-        confirmation that they may use and distribute the font, which is
-        stored with their id and name and the time. Checked in this order:
-        unknown project 404 `project_not_found`; an invalid `family`,
-        `weight`, `style` or `fallback` 400 `validation_failed`; no licence
-        confirmation 400 `validation_failed`; too large 413
-        `media_too_large` (refused before the body is read when its declared
-        length is too large); empty 400 `validation_failed`; not WOFF2 415
-        `unsupported_media_type`; a face with the same family, weight and
-        style 409 `font_exists`.
+        The body is the font file's bytes, uncompressed (no
+        `Content-Encoding`), sent as `font/woff2` or
+        `application/octet-stream`, types a form cannot send without CORS
+        preflight. Only WOFF2 is accepted, judged from the bytes: the
+        `wOF2` signature, a header whose length is the file's, a TrueType,
+        CFF or collection flavour, a reserved field of 0, 1 to 256 tables,
+        a declared decoded size of at most 30 MB, and table and collection
+        directories, metadata and compressed data that lie inside the
+        file. Nothing is decompressed. At most 500 KB; a project holds at
+        most 50 faces and 10 MB of font files. The query names the face
+        (the family stored with its spaces collapsed) and carries the
+        uploader's confirmation that they may use and distribute the font,
+        which is stored with their id and name and the time. Admins and
+        content managers upload. Checked in this order: unknown project
+        404 `project_not_found`; another type 415 `unsupported_media_type`;
+        an invalid `family`, `weight`, `style` or `fallback` 400
+        `validation_failed`; no licence confirmation 400
+        `validation_failed`; too large 413 `media_too_large` (refused
+        before the body is read when its declared length is too large,
+        with `Connection: close`); a compressed body 415; a body that did
+        not arrive whole 400; empty 400 `validation_failed`; not WOFF2 415
+        `unsupported_media_type`; 50 faces already 409
+        `font_limit_reached`; over 10 MB together 413 `font_storage_full`;
+        a face with the same family (in any case), weight and style 409
+        `font_exists`.
       parameters:
         - name: family
           in: query
@@ -480,6 +492,8 @@ paths:
         required: true
         content:
           font/woff2:
+            schema: { type: string, contentMediaType: font/woff2 }
+          application/octet-stream:
             schema: { type: string, contentMediaType: font/woff2 }
       responses:
         '201':
@@ -549,7 +563,7 @@ paths:
       summary: Read a font's file with a session, whether a published tale uses it or not.
       description: >-
         What Tale Studio and the font list load. `font/woff2`, cached
-        privately with the storage key as ETag. Unknown font, or a font of
+        privately with an opaque ETag (304 when it matches). Unknown font, or a font of
         another project: 404 `font_not_found`.
       responses:
         '200':
@@ -2814,7 +2828,7 @@ components:
         fontFamily:
           type: [string, 'null']
           maxLength: 200
-          pattern: '^(?!.*(?:^|[\s,"''])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\s,"'']))\s*(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*(?:,\s*(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*)*$'
+          pattern: '^(?!.*(?:^|[\s,"''])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\s,"'']))(?!.*(?:^|[\s,"''])[tT][aA][lL][eE][aA][rR][tT]-[fF][oO][nN][tT]-)\s*(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*(?:,\s*(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*)*$'
           default: null
           description: >-
             A CSS font-family list (the host page loads the font): names of
@@ -3772,6 +3786,8 @@ components:
         - font_not_found
         - font_exists
         - font_in_use
+        - font_limit_reached
+        - font_storage_full
         - internal_error
     ErrorBody:
       type: object

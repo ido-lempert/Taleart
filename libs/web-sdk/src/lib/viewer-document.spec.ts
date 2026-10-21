@@ -186,11 +186,16 @@ describe('TaleViewer with tale documents (AD-16)', () => {
 describe('TaleViewer with project fonts (epic Tale Studio R18)', () => {
   const FONT_ID = '0f0e0d0c-0000-4000-8000-00000000000a';
   const FONT_URL = `${API}/media/fonts/a.woff2`;
-  // A file with a WOFF2 header whose total length is its size.
+  // A structurally sound WOFF2 file: TrueType flavour, one untransformed table, compressed data after.
   const woff2 = () => {
     const data = new Uint8Array(64);
+    const view = new DataView(data.buffer);
     data.set([0x77, 0x4f, 0x46, 0x32]);
-    data[11] = 64;
+    view.setUint32(4, 0x00010000);
+    view.setUint32(8, 64);
+    view.setUint16(12, 1);
+    view.setUint32(20, 14);
+    data[49] = 0x10;
     return data.buffer;
   };
   const branded = (id: string): DeliveryTale => {

@@ -1,7 +1,7 @@
 // Project fonts (epic Tale Studio R4, R18; AD-15, AD-16; user decision 2026-10-21): the rules a
 // font uploaded to a project follows, the internal alias it is drawn under, and the one loader the
 // Web SDK and Tale Studio share, so both fetch and register a font the same way.
-import { isFontFamily } from './theme';
+import { isFontFamily, RESERVED_FONT_PREFIX } from './theme';
 import type { TextWeight } from './text-style';
 
 /** The largest font file accepted, in bytes: 500 KB (a starting value, tuned by story 7.14). */
@@ -44,6 +44,19 @@ export const FONT_STYLES: readonly ProjectFontStyle[] = ['normal', 'italic'];
 /** The value of the upload's `licence` parameter that confirms the uploader may use and distribute the font. */
 export const FONT_LICENCE_CONFIRMED = 'confirmed';
 
+/** The most font faces one project holds (a starting value, tuned by story 7.14). */
+export const MAX_PROJECT_FONTS = 50;
+/** The most bytes of font files one project holds: 10 MB (a starting value, tuned by story 7.14). */
+export const MAX_PROJECT_FONT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * A family name as it is stored and compared: without spaces at either end, and each run of
+ * spaces inside it one space, so `Brand  Sans` and `Brand Sans` are the same family.
+ */
+export function normalizeFontFamily(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
 /** The longest family name accepted. */
 export const MAX_PROJECT_FONT_FAMILY_LENGTH = 100;
 
@@ -85,18 +98,119 @@ export function isProjectFontStyle(value: unknown): value is ProjectFontStyle {
 /** The size of a WOFF2 file's header, in bytes. */
 export const WOFF2_HEADER_BYTES = 48;
 
-/**
- * True when the bytes are a WOFF2 file, judged from the bytes alone (the name and declared type are
- * ignored): the `wOF2` signature, a whole header, and the header's total length equal to the size
- * of the file. A TrueType, OpenType or WOFF 1 file, an SVG or any other text fails.
- */
-export function isWoff2(data: Uint8Array): boolean {
-  return isWoff2Header(data, data.length);
+/** The most tables a WOFF2 file may declare (real fonts have a few dozen). */
+export const MAX_WOFF2_TABLES = 256;
+/** The largest decoded font a WOFF2 file may declare (`totalSfntSize`): 30 MB. */
+export const MAX_WOFF2_SFNT_BYTES = 30 * 1024 * 1024;
+
+// The flavours a WOFF2 file may wrap: TrueType (0x00010000), CFF ('OTTO') and a collection ('ttcf').
+const WOFF2_FLAVORS = [0x00010000, 0x4f54544f, 0x74746366];
+const TTCF = 0x74746366;
+// The known-tag indices of `glyf` and `loca`, whose transform versions read the other way round.
+const GLYF = 10;
+const LOCA = 11;
+
+// Reads the WOFF2 header and directories (no decompression, no table data) and answers why they
+// are not sound, or null. Every length and offset is checked against the file, so nothing points
+// outside it.
+function woff2StructureError(d: Uint8Array): string | null {
+  const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  const u32 = (at: number) => view.getUint32(at);
+  const u16 = (at: number) => view.getUint16(at);
+  if (!WOFF2_FLAVORS.includes(u32(4))) return 'unknown flavour';
+  const numTables = u16(12);
+  if (numTables === 0 || numTables > MAX_WOFF2_TABLES) return 'table count out of range';
+  if (u16(14) !== 0) return 'reserved field is not 0';
+  const totalSfntSize = u32(16);
+  if (totalSfntSize > MAX_WOFF2_SFNT_BYTES) return 'decoded size too large';
+  const totalCompressedSize = u32(20);
+  for (const [offset, length] of [
+    [u32(28), u32(32)],
+    [u32(40), u32(44)],
+  ]) {
+    if ((offset === 0) !== (length === 0) || offset + length > d.length) return 'metadata outside the file';
+  }
+
+  let at = WOFF2_HEADER_BYTES;
+  const byte = () => {
+    if (at >= d.length) throw new RangeError();
+    return d[at++];
+  };
+  // UIntBase128: at most 5 bytes, no leading zero byte, at most 2^32 - 1.
+  const base128 = (): number => {
+    let value = 0;
+    for (let i = 0; i < 5; i++) {
+      const b = byte();
+      if (i === 0 && b === 0x80) throw new RangeError();
+      if (value > 0x1ffffff) throw new RangeError();
+      value = value * 128 + (b & 0x7f);
+      if ((b & 0x80) === 0) return value;
+    }
+    throw new RangeError();
+  };
+  // 255UInt16, for the collection directory.
+  const uint255 = (): number => {
+    const code = byte();
+    if (code === 253) return (byte() << 8) | byte();
+    if (code === 255) return byte() + 253;
+    if (code === 254) return byte() + 506;
+    return code;
+  };
+  try {
+    let transformedSum = 0;
+    for (let i = 0; i < numTables; i++) {
+      const flags = byte();
+      const tag = flags & 0x3f;
+      if (tag === 0x3f) at += 4;
+      const version = (flags >> 6) & 0x03;
+      const origLength = base128();
+      if (origLength > MAX_WOFF2_SFNT_BYTES) return 'table too large';
+      // glyf and loca are transformed unless their version is 3; other tables only when it is not 0.
+      const glyfOrLoca = tag === GLYF || tag === LOCA;
+      const transformed = glyfOrLoca ? version !== 3 : version !== 0;
+      // The defined transforms: glyf and loca version 0 (3 is none), hmtx (index 3) version 1.
+      if (glyfOrLoca ? version === 1 || version === 2 : version !== 0 && !(tag === 3 && version === 1)) {
+        return 'unknown table transform';
+      }
+      const length = transformed ? base128() : origLength;
+      if (transformed && tag === LOCA && length !== 0) return 'loca transform length is not 0';
+      transformedSum += length;
+      if (transformedSum > MAX_WOFF2_SFNT_BYTES) return 'tables too large';
+    }
+    if (u32(4) === TTCF) {
+      at += 4; // collection version
+      const numFonts = uint255();
+      if (numFonts === 0) return 'empty collection';
+      for (let f = 0; f < numFonts; f++) {
+        const tables = uint255();
+        at += 4; // flavour
+        for (let t = 0; t < tables; t++) if (uint255() >= numTables) return 'collection index out of range';
+      }
+    }
+  } catch {
+    return 'directory runs past the end of the file';
+  }
+  if (at + totalCompressedSize > d.length) return 'compressed data runs past the end of the file';
+  return null;
 }
 
 /**
- * {@link isWoff2} from the start of a file (at least its header) and the file's size, so a browser
- * can check a picked file without reading all of it.
+ * True when the bytes are a WOFF2 file, judged from the bytes alone (the name and declared type are
+ * ignored): the `wOF2` signature, a whole header whose total length is the size of the file, a known
+ * flavour (TrueType, CFF or a collection), a reserved field of 0, 1 to {@link MAX_WOFF2_TABLES}
+ * tables, a declared decoded size of at most {@link MAX_WOFF2_SFNT_BYTES}, and a table directory
+ * (and collection directory), metadata, private data and compressed data that all lie inside the
+ * file. Nothing is decompressed or transcoded. A TrueType, OpenType or WOFF 1 file, an SVG or any
+ * other text fails.
+ */
+export function isWoff2(data: Uint8Array): boolean {
+  return isWoff2Header(data, data.length) && woff2StructureError(data) === null;
+}
+
+/**
+ * The first checks of {@link isWoff2} (signature, whole header, total length equal to the file
+ * size) from the start of a file and its size, so a browser can check a picked file without
+ * reading all of it. The server checks the rest.
  */
 export function isWoff2Header(head: Uint8Array, size: number): boolean {
   if (head.length < WOFF2_HEADER_BYTES || size < WOFF2_HEADER_BYTES) return false;
@@ -113,7 +227,7 @@ export function isFontId(value: unknown): value is string {
 }
 
 /** The start of every alias a project font is registered under. */
-export const PROJECT_FONT_ALIAS_PREFIX = 'taleart-font-';
+export const PROJECT_FONT_ALIAS_PREFIX = RESERVED_FONT_PREFIX;
 
 /**
  * The internal family name a project font is registered and drawn under: `taleart-font-<id>`, from
@@ -208,11 +322,18 @@ export interface FontLoadOptions {
   timeoutMs?: number;
   /** Defaults to the browser's `fetch`, `FontFace` and `document.fonts`. */
   env?: FontLoadEnvironment;
+  /** Tries a face that failed again at once, rather than after {@link FONT_RETRY_AFTER_MS}: an explicit retry. */
+  retry?: boolean;
 }
 
-// Faces asked for on this page, by alias and URL: each is fetched once. A failed one is forgotten,
-// so the next opening of a tale that uses it tries again.
+/** How long a face that failed is not fetched again on this page, unless a retry is asked for. */
+export const FONT_RETRY_AFTER_MS = 60_000;
+
+// Faces asked for on this page, by alias and URL: each is fetched once while it loads or after it
+// loaded. A failed one is remembered with the time it failed, so the many renders of an editor do
+// not fetch it again; it is tried again after FONT_RETRY_AFTER_MS, or at once on an explicit retry.
 const loads = new Map<string, Promise<boolean>>();
+const failures = new Map<string, number>();
 
 function browserEnvironment(): FontLoadEnvironment | null {
   const g = globalThis as unknown as {
@@ -230,31 +351,46 @@ function browserEnvironment(): FontLoadEnvironment | null {
  * and adds it to `document.fonts`. No CSS text (`@font-face`, `url()`) is ever built. Text drawn as
  * `"<alias>", <fallback stack>` shows its fallback until the face is added, then swaps. A face that
  * fails, or is not ready within {@link FONT_LOAD_TIMEOUT_MS}, is never added, so the fallback stays.
- * Each face is fetched at most once per page while it loads or after it loaded. Resolves true when
- * the face was added; never rejects.
+ * Each face is fetched at most once per page while it loads or after it loaded; one that failed is
+ * not fetched again for {@link FONT_RETRY_AFTER_MS} unless `retry` is set. Resolves true when the
+ * face was added; never rejects.
  */
 export function loadProjectFont(face: ProjectFontFace, options: FontLoadOptions = {}): Promise<boolean> {
   const alias = projectFontAlias(face.id);
-  if (alias === null) return Promise.resolve(false);
+  // Without a browser (server rendering, tests) nothing is loaded, and nothing is remembered as failed.
+  const env = options.env ?? browserEnvironment();
+  if (alias === null || env === null) return Promise.resolve(false);
   const key = `${alias} ${face.url}`;
   const known = loads.get(key);
   if (known) return known;
-  const loading = load(alias, face, options).then((added) => {
-    if (!added) loads.delete(key);
+  const failedAt = failures.get(key);
+  if (failedAt !== undefined && !options.retry && Date.now() - failedAt < FONT_RETRY_AFTER_MS) {
+    return Promise.resolve(false);
+  }
+  failures.delete(key);
+  const loading = load(alias, face, env, options).then((added) => {
+    if (!added) {
+      loads.delete(key);
+      failures.set(key, Date.now());
+    }
     return added;
   });
   loads.set(key, loading);
   return loading;
 }
 
-/** Forgets which faces this page loaded (for tests). */
+/** Forgets which faces this page loaded or failed to load (for tests). */
 export function clearProjectFontLoads(): void {
   loads.clear();
+  failures.clear();
 }
 
-async function load(alias: string, face: ProjectFontFace, options: FontLoadOptions): Promise<boolean> {
-  const env = options.env ?? browserEnvironment();
-  if (env === null) return false;
+async function load(
+  alias: string,
+  face: ProjectFontFace,
+  env: FontLoadEnvironment,
+  options: FontLoadOptions,
+): Promise<boolean> {
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<null>((done) => {

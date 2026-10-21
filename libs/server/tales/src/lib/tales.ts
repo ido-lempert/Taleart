@@ -22,7 +22,7 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
-import { deliveryProjectFonts, withoutProjectFonts, type StoredFontFile } from './project-fonts';
+import { deliveryProjectFonts, recordTaleFonts, withoutProjectFonts, type StoredFontFile } from './project-fonts';
 import {
   checkDocumentFonts,
   checkTaleDocument,
@@ -265,7 +265,7 @@ async function lockZone(tx: Db, zoneId: string): Promise<void> {
 }
 
 // Runs `work` in one transaction on one connection; rolls back on any error.
-async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
+export async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
   const tx = await db.connect();
   try {
     await tx.query('BEGIN');
@@ -503,6 +503,19 @@ export async function copyTaleGroup(
     // this copy to commit, so its "still referenced" check sees the copy's
     // tales and never deletes a file the copy now uses (AD-11).
     await tx.query('SELECT 1 FROM tales WHERE tale_group_id = $1 FOR SHARE', [taleGroupId]);
+    const sameProject = source.rows[0].projectId === projectId;
+    // In the same project the copies reference the source's project fonts: they are share locked
+    // before the copies exist, so a font being deleted either went first (and no source still used
+    // it) or waits for this copy and then sees the copies' references (R18).
+    if (sameProject) {
+      await tx.query(
+        `SELECT f.id FROM project_fonts f
+         WHERE f.id IN (SELECT tf.font_id FROM tale_fonts tf JOIN tales st ON st.id = tf.tale_id
+                        WHERE st.tale_group_id = $1)
+         ORDER BY f.id FOR SHARE`,
+        [taleGroupId],
+      );
+    }
     // Each copy keeps its tale's published and draft documents (AD-15), starting their own revisions.
     await tx.query(
       `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status,
@@ -513,8 +526,9 @@ export async function copyTaleGroup(
       [taleGroupId, group.id, projectId],
     );
     // Project fonts stay in their project (R18: their licence was confirmed for it), so a copy in
-    // another project draws those texts in their fallback stack.
-    if (source.rows[0].projectId !== projectId) await dropProjectFonts(tx, group.id);
+    // another project draws those texts in their fallback stack; in the same project the copies'
+    // references are recorded.
+    await copyProjectFonts(tx, group.id, sameProject);
     const placed = await tx.query<{ position: number }>(
       `INSERT INTO zone_tale_groups (zone_id, tale_group_id, project_id, position)
        VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), -1) + 1 FROM zone_tale_groups WHERE zone_id = $1))
@@ -527,21 +541,37 @@ export async function copyTaleGroup(
   });
 }
 
-// Replaces the project fonts of the group's tales' documents, draft and published, by their fallback stacks.
-async function dropProjectFonts(tx: Db, taleGroupId: string): Promise<void> {
+// For the copied group's tales: in the same project, records the project fonts their draft and
+// published documents use; in another project, replaces them by their fallback stacks.
+async function copyProjectFonts(tx: Db, taleGroupId: string, sameProject: boolean): Promise<void> {
   const { rows } = await tx.query<{ id: string; document: unknown; draft: unknown }>(
     'SELECT id, document, draft_document AS draft FROM tales WHERE tale_group_id = $1',
     [taleGroupId],
   );
   for (const row of rows) {
+    if (projectFontIds(row.document).length === 0 && projectFontIds(row.draft).length === 0) continue;
+    if (sameProject) {
+      await recordTaleFonts(tx, row.id, 'draft', row.draft, false);
+      await recordTaleFonts(tx, row.id, 'published', row.document, isCheckedDocument(row.document));
+      continue;
+    }
     const document = withoutProjectFonts(row.document);
     const draft = withoutProjectFonts(row.draft);
-    if (document === row.document && draft === row.draft) continue;
     await tx.query('UPDATE tales SET document = $2::jsonb, draft_document = $3::jsonb WHERE id = $1', [
       row.id,
       document === null ? null : JSON.stringify(document),
       draft === null ? null : JSON.stringify(draft),
     ]);
+  }
+}
+
+// True when a stored document passes the document check, as the Delivery API requires.
+function isCheckedDocument(doc: unknown): boolean {
+  try {
+    checkTaleDocument(doc);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -813,6 +843,7 @@ export async function setTaleStatus(
           `UPDATE tales SET document = draft_document, document_revision = document_revision + 1 WHERE id = $1`,
           [taleId],
         );
+        await recordTaleFonts(tx, taleId, 'published', draft, true);
       } catch (err) {
         if (!(err instanceof InvalidTaleDocumentError || err instanceof TaleDocumentTooLargeError)) throw err;
         draftNotPublished = true;
@@ -989,6 +1020,7 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
       [taleId, next, JSON.stringify(document)],
     );
     if (rows.length === 0) throw new TaleNotFoundError(taleId);
+    await recordTaleFonts(tx, rows[0].id, 'draft', document, false);
     return toTale(rows[0]);
   });
 }
@@ -1143,7 +1175,7 @@ export interface DeliveryStoredTale {
   /** The tale's document as delivered (AD-15), or null when it has none or it no longer validates. */
   document: DeliveryTaleDocument | null;
   /** The project fonts the delivered document uses (R18), whose keys the API turns into public URLs. */
-  fonts: (StoredFontFile & { id: string })[];
+  fonts: (Omit<StoredFontFile, 'sizeBytes'> & { id: string })[];
 }
 
 /** A tale group as the Delivery API needs it, with its tales by position. */

@@ -243,6 +243,7 @@ async function removeSeeded(databaseUrl, { userId, projectId }) {
     await client.query('BEGIN');
     if (projectId) {
       for (const table of [
+        'tale_fonts',
         'project_fonts',
         'zone_keys',
         'zone_tale_groups',

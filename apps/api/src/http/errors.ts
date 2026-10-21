@@ -19,6 +19,8 @@ import {
 import {
   FontExistsError,
   FontInUseError,
+  FontLimitError,
+  FontStorageFullError,
   FontNotFoundError,
   InvalidScheduleError,
   InvalidStatusTransitionError,
@@ -89,7 +91,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     res.status(400).json(errorBody(err.code, err.message, err.pointer));
     return;
   }
-  if (err instanceof TaleDocumentTooLargeError) {
+  if (err instanceof TaleDocumentTooLargeError || err instanceof FontStorageFullError) {
     res.status(413).json(errorBody(err.code, err.message));
     return;
   }
@@ -110,7 +112,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof StaleRevisionError ||
     err instanceof NothingToPublishError ||
     err instanceof FontExistsError ||
-    err instanceof FontInUseError
+    err instanceof FontInUseError ||
+    err instanceof FontLimitError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;

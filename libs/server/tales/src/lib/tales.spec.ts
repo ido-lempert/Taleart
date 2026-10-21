@@ -768,6 +768,51 @@ describe('copy to zone', () => {
     ).toBe(true);
   });
 
+  it("in the same project, share locks the source's fonts before the copies exist, then records the copies' fonts", async () => {
+    const fontId = '0f0e0d0c-0000-4000-8000-00000000000a';
+    const branded = {
+      version: 1,
+      canvas: { background: { type: 'color', color: '#000000' } },
+      elements: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          type: 'text',
+          box: { x: 0, y: 0.2, w: 1, h: 0.1, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { text: 'x', font: { source: 'project', fontId } },
+        },
+      ],
+    };
+    const { db, statements, query } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ name: 'A', projectId, startsAt: null, endsAt: null }] },
+      { rows: [{ id: copyId, projectId, name: 'A', startsAt: null, endsAt: null }] },
+      { rows: [] },
+      { rows: [{ id: fontId }] },
+      { rows: [] },
+      { rows: [{ id: 't9', document: branded, draft: branded }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ position: 0 }] },
+    ]);
+    await copyTaleGroup(db, { taleGroupId: groupId, zoneId });
+    const order = statements();
+    const lock = order.findIndex((s) => /FROM project_fonts f[\s\S]*FROM tale_fonts tf[\s\S]*FOR SHARE/.test(s));
+    expect(lock).toBeGreaterThan(-1);
+    expect(lock).toBeLessThan(order.findIndex((s) => /INSERT INTO tales/.test(s)));
+    const recorded = query.mock.calls.filter((c) => /^INSERT INTO tale_fonts/.test(c[0] as string)).map((c) => c[1]);
+    expect(recorded).toEqual([
+      ['t9', 'draft', [fontId], [false]],
+      ['t9', 'published', [fontId], [true]],
+    ]);
+    expect(order.findIndex((s) => /^INSERT INTO tale_fonts/.test(s))).toBeLessThan(order.indexOf('COMMIT'));
+  });
+
   it('rolls the copy back when the callback fails', async () => {
     const { db, statements } = fakeDb([
       { rows: [{ project_id: projectId }] },
@@ -883,9 +928,18 @@ describe('status', () => {
     };
     const publishes = (statements: string[]) => statements.some((s) => /SET document = draft_document/.test(s));
     for (const from of ['draft', 'paused']) {
-      const first = fakeDb([{ rows: [{ status: from, draft, unpublished: true }] }, { rows: [] }, { rows: [row] }]);
+      const first = fakeDb([
+        { rows: [{ status: from, draft, unpublished: true }] },
+        { rows: [] },
+        { rows: [] },
+        { rows: [row] },
+      ]);
       const tale = await setTaleStatus(first.db, taleId, 'live');
       expect(publishes(first.statements())).toBe(true);
+      // The published document's font references are rewritten in the same transaction.
+      const fonts = first.query.mock.calls.findIndex((c) => /^DELETE FROM tale_fonts/.test(c[0] as string));
+      expect(first.query.mock.calls[fonts]?.[1]).toEqual([taleId, 'published']);
+      expect(fonts).toBeLessThan(first.statements().indexOf('COMMIT'));
       expect(first.statements().findIndex((s) => /SET document = draft_document/.test(s))).toBeLessThan(
         first.statements().indexOf('COMMIT'),
       );
@@ -1141,6 +1195,10 @@ describe('covers', () => {
         ],
       },
       { rows: [] },
+      // The source's project fonts, share locked (same project).
+      { rows: [] },
+      { rows: [] },
+      // The copies' documents, for their font references: none.
       { rows: [] },
       { rows: [{ position: 0 }] },
     ]);

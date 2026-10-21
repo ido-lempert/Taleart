@@ -15,6 +15,7 @@ import type { TextElementProps } from '@taleart/contract/tale-document';
 import {
   resolveTextStyle,
   SYSTEM_FONT_STACK_KEYS,
+  SYSTEM_FONT_STACK_NAMES,
   TEXT_COLOR_PATTERN,
   TEXT_LINE_HEIGHT_RANGE,
   TEXT_SIZE_PRESETS,
@@ -42,13 +43,8 @@ export interface TextStyleChange {
   said: string;
 }
 
-/** The names people read for each system stack. */
-export const STACK_NAMES: Readonly<Record<SystemFontStack, string>> = {
-  sans: 'Sans',
-  serif: 'Serif',
-  rounded: 'Rounded',
-  monospace: 'Monospace',
-};
+/** The names people read for each system stack (the contract's, shared with the font page). */
+export const STACK_NAMES = SYSTEM_FONT_STACK_NAMES;
 const SIZE_NAMES: Readonly<Record<TextSizePreset | 'custom', string>> = {
   small: 'Small',
   medium: 'Medium',
@@ -239,7 +235,13 @@ export function parseHexColor(value: string): string | null {
         <div class="row">
           <div class="field">
             <label class="field__label" for="ts-weight">Weight</label>
-            <select id="ts-weight" class="select" (change)="setWeight($any($event.target).value)">
+            <select
+              id="ts-weight"
+              class="select"
+              [disabled]="face() !== null"
+              [attr.aria-describedby]="face() ? 'ts-face-hint' : null"
+              (change)="setWeight($any($event.target).value)"
+            >
               @if (look().weight === null) {
                 <!-- A text stored before styling keeps its weight until one is chosen. -->
                 <option value="" selected disabled>Semibold (as before)</option>
@@ -269,9 +271,22 @@ export function parseHexColor(value: string): string | null {
           </div>
         </div>
         <label class="checkbox">
-          <input id="ts-italic" type="checkbox" [checked]="look().italic" (change)="setItalic($any($event.target))" />
+          <input
+            id="ts-italic"
+            type="checkbox"
+            [checked]="look().italic"
+            [disabled]="face() !== null"
+            [attr.aria-describedby]="face() ? 'ts-face-hint' : null"
+            (change)="setItalic($any($event.target))"
+          />
           Italic
         </label>
+        @if (face(); as f) {
+          <p class="field__hint" id="ts-face-hint">
+            Weight and italic come from the project font's face, {{ faceName(f) }}, so it is never drawn bolder or
+            slanted by the browser. Pick another face of the family to change them.
+          </p>
+        }
       </fieldset>
       <fieldset class="text-style__group">
         <legend class="field__label">Colour</legend>
@@ -452,6 +467,15 @@ export class TaleTextStyle {
     return font.source === 'system' ? font.stack : font.source;
   });
   protected readonly isProjectChoice = computed(() => this.fontChoice().startsWith(PROJECT_CHOICE));
+  /**
+   * The project font face the text uses, when the project's list holds it: its weight and italic
+   * are tied to the face (no synthetic bold or oblique), so those controls are off.
+   */
+  protected readonly face = computed(() => {
+    const font = this.look().font;
+    if (font.source !== 'project' || this.pendingName()) return null;
+    return this.projectFonts()?.find((f) => f.id === font.fontId) ?? null;
+  });
   /** The text's project font when the project's list (once read) does not hold it. */
   protected readonly missingFont = computed(() => {
     const font = this.look().font;
@@ -503,6 +527,10 @@ export class TaleTextStyle {
   private refuse(error: WritableSignal<string>, message: string): void {
     error.set(message);
     this.notice.emit(message);
+  }
+
+  protected faceName(font: ProjectFont): string {
+    return fontFaceName(font);
   }
 
   protected projectFontName(font: ProjectFont): string {
@@ -591,10 +619,12 @@ export class TaleTextStyle {
   }
 
   protected setWeight(weight: TextWeight): void {
+    if (this.face()) return;
     this.emit('Text weight changed', { weight }, `Weight set to ${WEIGHT_NAMES[weight]}`);
   }
 
   protected setItalic(field: HTMLInputElement): void {
+    if (this.face()) return;
     this.emit('Italic changed', { italic: field.checked }, field.checked ? 'Italic on' : 'Italic off');
   }
 
