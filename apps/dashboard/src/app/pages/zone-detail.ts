@@ -104,6 +104,32 @@ type Direction = 'earlier' | 'later';
       align-items: center;
       gap: var(--space-2);
     }
+    .stage-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      margin: 0 0 var(--space-3);
+      padding: 0;
+      list-style: none;
+    }
+    .stage-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-2) var(--space-4);
+    }
+    .stage-row__info {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2) var(--space-3);
+      min-width: 0;
+    }
+    .stage-row__name {
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
     .key-info {
       display: flex;
       flex-wrap: wrap;
@@ -135,6 +161,8 @@ export class ZoneDetailPage {
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected readonly zone = computed(() => this.store.zone(this.zoneId()));
   protected readonly frames = computed(() => this.store.framesOf(this.zoneId()));
+  /** The zone's stages, each showing one of its frames on a page (R7). */
+  protected readonly stages = computed(() => this.store.stagesOf(this.zoneId()));
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
   /** The zone's active key (prefix and date only), or null. */
   protected readonly zoneKey = computed(() => this.store.zoneKey(this.zoneId()));

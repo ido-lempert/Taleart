@@ -4,6 +4,8 @@
 // that focus returns to the bar item and the viewed group shows the seen ring after a reload.
 // Then the banner frame of the same zone: rotating and stopped, its controls, swipe, opening the
 // viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
+// Last, stages: two <taleart-view stage> elements show their own frames, and an unknown stage
+// key renders nothing and logs a warning.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 //
 // axe-core is not a workspace dependency yet: a pinned build is fetched from cdnjs and checked
@@ -29,6 +31,7 @@ const ZONE = {
     { id: 'f1', type: 'bar', settings: {} },
     { id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } },
   ],
+  stages: [],
   taleGroups: [
     // A group with its own cover (R12), and two that fall back to their first tale's image.
     {
@@ -291,6 +294,70 @@ try {
   );
   violations += await scan(narrow, 'phone 3:1 banner', axe);
   await phone.close();
+
+  // Stages (R7): two bar frames of one zone, circle and rounded-square, each placed by its own
+  // <taleart-view stage>; an unknown stage key renders nothing and logs a warning.
+  const staging = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const staged = await staging.newPage();
+  const stagedErrors = [];
+  const warnings = [];
+  staged.on('console', (msg) => {
+    if (msg.type() === 'error') stagedErrors.push(msg.text());
+    if (msg.type() === 'warning') warnings.push(msg.text());
+  });
+  staged.on('pageerror', (err) => stagedErrors.push(String(err)));
+  await staged.route(`${API}/delivery/v1/zone`, (route) =>
+    route.fulfill({
+      json: {
+        ...ZONE,
+        frames: [
+          { id: 'f1', type: 'bar', settings: { shape: 'circle' } },
+          { id: 'f2', type: 'banner', settings: {} },
+          { id: 'f3', type: 'bar', settings: { shape: 'rounded-square' } },
+        ],
+        stages: [
+          { key: 'round', frameId: 'f1' },
+          { key: 'square', frameId: 'f3' },
+        ],
+      },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+    }),
+  );
+  await staged.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+  await staged.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}&stages=round,square,nope`);
+  await staged.locator('taleart-view[stage="square"] .bar').waitFor();
+  await staged.locator('taleart-view[stage="round"] .bar').waitFor();
+  // The third element's response may land last; its warning ends the loads.
+  for (let i = 0; i < 40 && warnings.length === 0; i++) await staged.waitForTimeout(50);
+  const shapes = await staged.evaluate(() =>
+    [...document.querySelectorAll('taleart-view')].map((view) => ({
+      stage: view.getAttribute('stage'),
+      bars: [...view.shadowRoot.querySelectorAll('.bar')].map((bar) => bar.dataset.shape),
+      banners: view.shadowRoot.querySelectorAll('section.banner').length,
+      nodes: view.shadowRoot.childNodes.length,
+    })),
+  );
+  check(
+    JSON.stringify(shapes.map((s) => [s.stage, s.bars])) === JSON.stringify([['round', ['circle']], ['square', ['rounded-square']], ['nope', []]]),
+    'two elements naming two stages each show their own bar shape',
+  );
+  check(shapes.every((s) => s.banners === 0), 'a staged element does not render the zone’s other frames');
+  check(shapes[2].nodes === 0, 'an unknown stage key renders nothing');
+  check(warnings.length === 1 && warnings[0].includes('"nope"'), 'an unknown stage key logs one warning');
+  check(stagedErrors.length === 0, `no console errors with stages${stagedErrors.length ? `: ${stagedErrors.join('; ')}` : ''}`);
+  await staged.locator('taleart-view[stage="square"] button.item').first().click();
+  const stagedDialog = staged.locator('taleart-view[stage="square"] dialog.viewer');
+  await stagedDialog.waitFor();
+  await staged.keyboard.press('Escape');
+  await stagedDialog.waitFor({ state: 'hidden' });
+  const stagedFocus = await staged.evaluate(
+    () => document.querySelector('taleart-view[stage="square"]').shadowRoot.activeElement?.dataset.taleGroupId ?? null,
+  );
+  check(stagedFocus === 'ga', 'closing the viewer returns focus to the staged bar item');
+  violations += await scan(staged, 'two stages and an unknown stage', axe);
+  await staging.close();
 } finally {
   await browser.close();
   server.kill();

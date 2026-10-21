@@ -70,6 +70,8 @@ interface Data {
   keys?: Record<string, unknown>;
   /** Each project's tale groups (the Tale groups page), keyed by project id. */
   projectGroups?: Record<string, unknown[]>;
+  /** Each zone's stages, keyed by zone id. */
+  stages?: Record<string, unknown[]>;
 }
 
 const oneZone: Data = { projects: [acme], zones: [zone] };
@@ -148,7 +150,7 @@ describe('App', () => {
   afterEach(() => http.verify());
 
   // Answers one full refresh: projects, zones, frame types, each zone's frames and tale groups, each project's
-  // tags and tale groups, then each zone's key info.
+  // tags and tale groups, then each zone's key info and stages.
   async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data): Promise<void> {
     const zones = data.zones ?? [];
     http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
@@ -170,6 +172,8 @@ describe('App', () => {
     }
     await settle(fixture);
     for (const z of zones) http.expectOne(`${API_BASE}/zones/${z.id}/key`).flush(data.keys?.[z.id] ?? null);
+    await settle(fixture);
+    for (const z of zones) http.expectOne(`${API_BASE}/zones/${z.id}/stages`).flush(data.stages?.[z.id] ?? []);
     await settle(fixture);
   }
 
@@ -642,6 +646,196 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/tale-groups/g1/tales`, 'tale_group_full', 'A tale group holds at most 100 tales');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('A tale group holds at most 100 tales');
+    });
+  });
+
+  describe('stages', () => {
+    const frameBanner = { id: 'f2', zoneId: 'z1', projectId: 'p1', type: 'banner', settings: {} };
+    const topStage = { id: 's1', zoneId: 'z1', projectId: 'p1', frameId: 'f1', name: 'Top bar', key: 'top-bar' };
+    const heroStage = { id: 's2', zoneId: 'z1', projectId: 'p1', frameId: 'f2', name: 'Hero', key: 'hero' };
+    const withFrames: Data = { ...oneZone, frames: { z1: [frameBar, frameBanner] } };
+    const stageList = (root: HTMLElement) => root.querySelector<HTMLElement>('[aria-label="Stages of Home bar"]');
+    const stageRow = (root: HTMLElement, name: string) => {
+      const row = [...(stageList(root)?.querySelectorAll<HTMLElement>('li') ?? [])].find((li) =>
+        li.textContent?.includes(name),
+      );
+      if (!row) throw new Error(`No stage row ${name}`);
+      return row;
+    };
+
+    it("lists each stage with its name, key and frame, and Rename and Delete named by the stage", async () => {
+      const { root } = await open('/zones/z1', { ...withFrames, stages: { z1: [topStage, heroStage] } });
+
+      const rows = [...(stageList(root)?.querySelectorAll('li') ?? [])];
+      expect(rows.map((row) => row.querySelector('.stage-row__name')?.textContent?.trim())).toEqual(['Top bar', 'Hero']);
+      expect(rows[0].querySelector('code')?.textContent).toContain('top-bar');
+      expect(rows[0].textContent).toContain('Frame 1 · Bar');
+      expect(rows[1].textContent).toContain('Frame 2 · Banner');
+      const rename = buttonNamed(rows[1], 'Rename');
+      const described = root.querySelector(`#${rename.getAttribute('aria-describedby')}`);
+      expect(described?.textContent).toBe('Hero');
+      expect(buttonNamed(rows[1], 'Delete').getAttribute('aria-describedby')).toBe('stage-name-s2');
+      expect(root.textContent).toContain('<taleart-view stage="key">');
+    });
+
+    it('offers no Add stage without frames, and explains why', async () => {
+      const { root } = await open('/zones/z1', oneZone);
+      expect([...root.querySelectorAll('button')].some((b) => b.textContent?.includes('Add stage'))).toBe(false);
+      expect(root.textContent).toContain('Add a frame first, then a stage to place it on a page.');
+    });
+
+    it('creates a stage: the key follows the name until edited, and the frame is picked from the zone', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones/z1', withFrames);
+      expect(root.textContent).toContain('No stages yet.');
+
+      buttonNamed(root, 'Add stage').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('New stage');
+      const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
+      const key = drawer()?.querySelector<HTMLInputElement>('#stage-key') ?? null;
+      const frame = drawer()?.querySelector<HTMLSelectElement>('#stage-frame') ?? null;
+      expect([...(frame?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Frame 1 · Bar', 'Frame 2 · Banner']);
+      expect(key?.getAttribute('aria-describedby')).toBe('stage-key-hint');
+
+      type(name, 'Home: Hero banner');
+      await settle(fixture);
+      expect(key?.value).toBe('home-hero-banner');
+      expect(drawer()?.querySelector('#stage-key-hint')?.textContent).toContain('<taleart-view stage="home-hero-banner">');
+      type(key, 'hero');
+      type(name, 'Hero banner');
+      await settle(fixture);
+      expect(key?.value).toBe('hero');
+      choose(frame, 'f2');
+      await settle(fixture);
+
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z1/stages`);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ name: 'Hero banner', key: 'hero', frameId: 'f2' });
+      req.flush({ ...heroStage, name: 'Hero banner' });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(store.stagesOf('z1')).toEqual([{ ...heroStage, name: 'Hero banner' }]);
+      expect(stageRow(root, 'Hero banner').textContent).toContain('Frame 2 · Banner');
+    });
+
+    it('lets an emptied key follow the name again, and defaults the frame to the first', async () => {
+      const { fixture, root } = await open('/zones/z1', withFrames);
+      buttonNamed(root, 'Add stage').click();
+      await settle(fixture);
+      const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
+      const key = drawer()?.querySelector<HTMLInputElement>('#stage-key') ?? null;
+      type(key, 'custom');
+      type(key, '');
+      type(name, 'Top bar');
+      await settle(fixture);
+      expect(key?.value).toBe('top-bar');
+
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z1/stages`);
+      expect(req.request.body).toEqual({ name: 'Top bar', key: 'top-bar', frameId: 'f1' });
+      req.flush(topStage);
+      await settle(fixture);
+    });
+
+    it("shows the API's message in the new stage drawer, marking the fields", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...withFrames, stages: { z1: [topStage] } });
+      buttonNamed(root, 'Add stage').click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Top bar');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z1/stages`)
+        .flush(
+          { error: { code: 'stage_key_taken', message: 'Another stage of this zone already has the key "top-bar"' } },
+          { status: 409, statusText: 'Conflict' },
+        );
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('already has the key "top-bar"');
+      expect(drawer()?.querySelector('#stage-key')?.getAttribute('aria-invalid')).toBe('true');
+      expect(drawer()?.querySelector('#stage-key')?.getAttribute('aria-describedby')).toBe('stage-key-hint create-error');
+    });
+
+    it('renames a stage; its key stays', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones/z1', { ...withFrames, stages: { z1: [topStage, heroStage] } });
+
+      buttonNamed(stageRow(root, 'Top bar'), 'Rename').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Rename stage');
+      expect(drawer()?.textContent).toContain('top-bar');
+      const input = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
+      expect(input?.value).toBe('Top bar');
+      type(input, 'Header bar');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z1/stages/s1`);
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({ name: 'Header bar' });
+      req.flush({ ...topStage, name: 'Header bar' });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(store.stagesOf('z1').map((s) => s.name)).toEqual(['Header bar', 'Hero']);
+      expect(stageRow(root, 'Header bar').querySelector('code')?.textContent).toContain('top-bar');
+    });
+
+    it("shows the API's message in the Rename stage drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...withFrames, stages: { z1: [topStage] } });
+      buttonNamed(stageRow(root, 'Top bar'), 'Rename').click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, ' ');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await refuse(fixture, `${API_BASE}/zones/z1/stages/s1`, 'validation_failed', 'name is required');
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('name is required');
+    });
+
+    it('deletes a stage after a destructive confirmation', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones/z1', { ...withFrames, stages: { z1: [topStage, heroStage] } });
+
+      const opener = buttonNamed(stageRow(root, 'Hero'), 'Delete');
+      opener.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Delete stage');
+      expect(drawer()?.textContent).toContain('Delete Hero?');
+      const confirm = buttonNamed(drawer() as HTMLElement, 'Delete');
+      expect(confirm.classList).toContain('btn--danger');
+      confirm.click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z1/stages/s2`);
+      expect(req.request.method).toBe('DELETE');
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(store.stagesOf('z1')).toEqual([topStage]);
+      expect(stageList(root)?.textContent).not.toContain('Hero');
+    });
+
+    it("shows the API's message in the Delete stage drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...withFrames, stages: { z1: [topStage] } });
+      buttonNamed(stageRow(root, 'Top bar'), 'Delete').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Delete').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z1/stages/s1`)
+        .flush({ error: { code: 'stage_not_found', message: 'stageId does not match a stage of this zone' } }, {
+          status: 404,
+          statusText: 'Not Found',
+        });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('does not match a stage');
     });
   });
 

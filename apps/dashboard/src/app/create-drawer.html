@@ -259,6 +259,84 @@
             <p class="muted">This tale group no longer exists.</p>
           }
         }
+        @case ('stage') {
+          @if (stageFrames().length > 0) {
+            <div class="field">
+              <label class="field__label" for="create-text">Stage name</label>
+              <input
+                id="create-text"
+                class="input"
+                name="text"
+                autocomplete="off"
+                [(ngModel)]="text"
+                (ngModelChange)="stageNameChanged($event)"
+                [attr.aria-invalid]="error() ? 'true' : null"
+                [attr.aria-describedby]="error() ? 'create-error' : null"
+              />
+            </div>
+            <div class="field">
+              <label class="field__label" for="stage-key">Key</label>
+              <input
+                id="stage-key"
+                class="input input--mono"
+                name="stageKey"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="off"
+                [maxlength]="maxStageKey"
+                [(ngModel)]="stageKey"
+                (ngModelChange)="stageKeyChanged($event)"
+                [attr.aria-invalid]="error() ? 'true' : null"
+                [attr.aria-describedby]="error() ? 'stage-key-hint create-error' : 'stage-key-hint'"
+              />
+              <p class="field__hint" id="stage-key-hint">
+                Lowercase letters, digits and hyphens. A page shows this stage with
+                <code>&lt;taleart-view stage="{{ stageKey || 'key' }}"&gt;</code>. The key cannot change later.
+              </p>
+            </div>
+            <div class="field">
+              <label class="field__label" for="stage-frame">Frame</label>
+              <select id="stage-frame" class="select" name="stageFrame" [(ngModel)]="stageFrameId">
+                @for (frame of stageFrames(); track frame.id) {
+                  <option [value]="frame.id">{{ store.frameName(stageZoneId(), frame.id) }}</option>
+                }
+              </select>
+            </div>
+          } @else {
+            <p class="muted">This zone has no frames yet. Add a frame first, then a stage to show it.</p>
+          }
+        }
+        @case ('renameStage') {
+          @if (editedStage(); as stage) {
+            <div class="field">
+              <label class="field__label" for="create-text">Stage name</label>
+              <input
+                id="create-text"
+                class="input"
+                name="text"
+                autocomplete="off"
+                [(ngModel)]="text"
+                [attr.aria-invalid]="error() ? 'true' : null"
+                [attr.aria-describedby]="error() ? 'rename-stage-hint create-error' : 'rename-stage-hint'"
+              />
+              <p class="field__hint" id="rename-stage-hint">
+                The key <code>{{ stage.key }}</code> stays, so pages that show this stage keep working.
+              </p>
+            </div>
+          } @else {
+            <p class="muted">This stage no longer exists.</p>
+          }
+        }
+        @case ('deleteStage') {
+          @if (editedStage(); as stage) {
+            <p>
+              Delete {{ stage.name }}? Pages that show the stage <code>{{ stage.key }}</code> show nothing there
+              from then on. The frame stays in the zone.
+            </p>
+          } @else {
+            <p class="muted">This stage no longer exists.</p>
+          }
+        }
         @case ('placeTaleGroup') {
           @if (placementGroup(); as group) {
             @if (placeZones().length > 0) {

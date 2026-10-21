@@ -1,7 +1,7 @@
 import { ErrorCodes, mediaKind, publicMediaUrl, type DeliveryZone } from '@taleart/contract';
 import { zoneForKey, type KeyZone } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { findZone, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
+import { findZone, listDeliveryStages, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
 import { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
@@ -78,7 +78,11 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         res.status(401).json(errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE));
         return;
       }
-      const [frames, taleGroups] = await Promise.all([listFrames(pool, zoneId), listDeliveryTaleGroups(pool, zoneId)]);
+      const [frames, stages, taleGroups] = await Promise.all([
+        listFrames(pool, zoneId),
+        listDeliveryStages(pool, zoneId),
+        listDeliveryTaleGroups(pool, zoneId),
+      ]);
       // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).
       const body: DeliveryZone = {
         id: zone.id,
@@ -88,6 +92,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
           type,
           settings: options.frameTypes.withDefaults(type, settings),
         })),
+        // Key and frame only: a stage's name and id stay in the dashboard (R7).
+        stages: stages.map(({ key, frameId }) => ({ key, frameId })),
         taleGroups: taleGroups.map((group) => ({
           id: group.id,
           name: group.name,
