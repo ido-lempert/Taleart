@@ -2,7 +2,7 @@
 title: TaleArt PRD
 status: final
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # TaleArt — Product Requirements
@@ -25,7 +25,7 @@ Organizations with several teams and project budgets also cannot see usage per p
 
 ## Scope
 
-**MVP (Web):** the features in FR-001 to FR-030 that are not marked post-MVP.
+**MVP (Web):** the features in FR-001 to FR-030 that are not marked post-MVP, and Tale Studio (FR-032, FR-033; user decision, 2026-10-21).
 
 **Post-MVP:** native iOS and Android SDKs; campaigns (FR-031); journeys, multi-step sequences that show different content over time or by behaviour; usage and storage metering with audit export; Canvas, Swipe Card and Video Feed widgets; conversion tracking (TaleArt's own design, not another tool's conversion endpoint); AI personalization; retail media; in-story checkout.
 
@@ -60,6 +60,13 @@ Organizations with several teams and project budgets also cannot see usage per p
 - **FR-014** A content manager adds poll, quiz, emoji reaction, countdown, product pins, promo code and Rating to a tale.
 - **FR-015** A viewer responds to an interactive component on the Web SDK, and the response is recorded.
 - **FR-016** A tale can carry a call to action: a button, a swipe-up link, or a custom image button, each with a destination.
+
+### Tale Studio
+
+User decision (2026-10-21): Tale Studio is in the MVP. another tool's story editor is the reference for its features and flow; the research is in `research-another tool-competitive-teardown/digests/studio-r4-1.md`.
+
+- **FR-032** A content manager composes a tale in Tale Studio, an editor in the dashboard. A tale is built from text, images, video, shapes, stickers and emoji, calls to action (FR-016) and interactive components (FR-014), placed on a 9:16 canvas with safe areas. The editor has a layers list, undo and redo, a preview that matches what the Web SDK shows, and full keyboard and screen-reader access.
+- **FR-033** A tale is stored as a structured document of elements. The SDKs render each element live, so text stays real text: accessible, editable, translatable and sharp. A tale is never flattened into one image, and native SDKs later render the same document.
 
 ### Tags, segments, user lists and targeting
 
@@ -127,6 +134,7 @@ Deferred to architecture (owner: the user; revisit when `bmad-architecture` star
 - Targeting and campaign names (tag, segment, user list, user attributes, external user ID, journey, campaign, schedule, product set): approved by the user on 2026-10-20 (`research-another tool-competitive-teardown/naming-targeting-and-campaigns.md`).
 - Native clients consume the same data through the same API (R10, C6).
 - Project tag on all content from the first release (R8).
+- Tale Studio and live-element tales are in the MVP (FR-032, FR-033), with another tool's story editor as the reference (user, 2026-10-21).
 
 ## Sources
 

@@ -1,0 +1,189 @@
+# Breakdown for epic-tale-studio, vertical slices in build order.
+# Each entry is a flow a person reviews in the dashboard (Tale Studio) or on the sample host page that loads the Web SDK.
+# Table order is build order; id is permanent.
+#
+# Lanes once story 1 is done:
+#   Editor lane (one dashboard editor component, document renderers): 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
+#   Tales lane (tales module, Delivery, covers):                       11 (after 5) -> 12
+#   Importer touch point:                                              13 (after 7 and 11)
+# Then 14 (performance, after 10 and 11), 15 (accessibility review, hitl), 16 (sweep).
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: add a text element to a tale and see it in the viewer"
+description = "Adds the tale document (AD-15) to libs/contract: JSON Schema v1 with version, canvas (9:16, background colour), elements[] as a discriminated union holding only the text type (plain text, default style), each element with id, box in canvas fractions, hidden, locked and a11y, plus generated TypeScript types and the element-type registry with its first entry. The tales module stores the document as JSONB on the tale with a revision; GET and PUT /api/v1 tale document validate on write (schema with no additional properties, size and text limits, unique ids) and refuse a stale revision with 409. The Delivery API returns the document with each published tale, without hidden elements or editor-only fields. In the dashboard, an Edit in Tale Studio action on a tale card opens a minimal studio: the tale's existing media as a read-only background on a 9:16 canvas, an Add text button, typing in place, moving by drag and by arrow keys, and Save. The Web SDK viewer (web-zones story 3.2) renders the document's text over the tale's media as DOM in the Shadow DOM, setting text only as text nodes (AD-16); tales without a document render as before. Text styling, layers, other element types and migration are later stories."
+verify = "Open a published tale in Tale Studio, add a text element reading 'Hello', move it to the upper third, save, and reload the sample page: the viewer shows 'Hello' over the tale's media at that position, the text can be selected with the mouse, and a screen reader reads it; saving the text '<b>x</b>' shows the literal characters; a PUT with an older revision answers 409."
+covers = ["R1", "R4"]
+after = ["3.2", "1.12", "1.14"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-15", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-16"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Arrange elements: layers list, canvas background and safe areas"
+description = "Adds the layers list (top of z-order first, type icon, name from content) with select, bring forward, send backward, to front, to back, hide, lock, duplicate and delete, each from the list, a context menu and keyboard shortcuts; multi-select moves, deletes and reorders several elements. The canvas gets a background colour, safe-area guides from contract constants (top 12%, bottom 16%, sides 4% [ASSUMPTION]) that can be toggled, snapping to the centre, the safe-area edges and other elements, and a warning in the layer row when an element reaches outside the safe area. Hidden elements are not delivered; locked elements cannot be moved or edited on the canvas. Changes are announced in a live region."
+verify = "With three text elements, reorder two overlapping ones from the list using only the keyboard and see the canvas and, after saving, the sample page follow; hide one: it is gone from the sample page; lock one: dragging does not move it; drag one into the bottom safe area: its row shows the warning; set a background colour: the sample page shows it."
+covers = ["R2", "R3", "R13"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Undo, redo and autosave without losing work"
+description = "Every document change goes through one command stack: undo and redo with Ctrl or Cmd+Z and Shift+Ctrl or Cmd+Z and toolbar buttons, at least 100 steps per session. Edits autosave, debounced, as the draft document, with a saved, saving or failed indicator; leaving with unsaved changes asks first. When a save is refused with 409 (story 1), the content manager chooses to reload the latest version or keep their version as a new tale in the same group; nothing is dropped silently. Later element stories add their changes as commands on this stack."
+verify = "Make ten edits (add, move, reorder, hide), undo all ten and redo them; reload and see the last autosaved state; open the same tale in two tabs, edit both: the second save offers reload or keep-as-copy, and keep-as-copy creates a new draft tale with that content."
+covers = ["R9", "R1"]
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Style text with fonts, sizes, colours and backgrounds"
+description = "Adds the font registry to libs/contract (system stacks: sans, serif, rounded, monospace; plus the project theme's fontFamily from web-zones story 3.8) and the text settings per epic R4: font key, size as a fraction of canvas height (presets small, medium, large or custom), weight, italic, colour, alignment, line height, and background none, solid box or per-line highlight with its colour. The inspector edits them with named controls; the server validates font keys, hex colours and ranges; the SDK applies them through CSSOM only (AD-16) and loads no font files."
+verify = "Style a text element with each setting and see it the same in Tale Studio and, after publishing, on the sample page at two phone widths; choosing the project theme font uses the theme's font; a saved colour of 'red; background:url(x)' is refused."
+covers = ["R4"]
+after = [3, "3.8"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Add images and video from the project's media"
+description = "Adds image (including GIF) and video element types: a media picker over the project's media with upload through the storage port (foundation story 1.12), box, rotation, cover or contain fit, corner radius and opacity; the canvas background can be one media element with cover or contain fit and an adjustable band colour. At most one video element per tale [ASSUMPTION]; with one, the tale plays for the video's length, otherwise for durationMs (3 to 15 s, default 7 s), set in the studio. Media is referenced by storage key; the server refuses keys of another project; a key referenced by a published document is public (AD-11). An image needs alt text or the decorative mark before publish; publishing is refused with a message naming the element."
+verify = "Add an image and a video from the project's media, resize, rotate and round them, set a 5 s duration on a tale without video; on the sample page both render as in the studio and the tale plays for the video's length; publishing with an image lacking alt text is refused naming it; a PUT with a media key from another project is refused."
+covers = ["R5", "R2", "R12"]
+after = [4, "1.12"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-11"]
+
+[[entry]]
+id = 6
+type = "story"
+title = "Add shapes, stickers and emoji"
+description = "Adds shape elements (rectangle with corner radius, ellipse, line; fill, stroke colour, stroke width, opacity) and sticker elements: an emoji from a keyboard-operable picker, rendered as text with the platform emoji font and named from its Unicode name (editable), or an image sticker (PNG, WebP or GIF from the project's media) with alt text or the decorative mark. Each has its schema in the registry, an inspector and an SDK renderer."
+verify = "Add a rounded rectangle, an ellipse, a line, an emoji and an image sticker; each renders on the sample page as in the studio; a screen reader announces the emoji's name and skips a decorative sticker."
+covers = ["R6"]
+after = [5]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Add a button, an image button and a swipe-up link"
+description = "Adds call-to-action element types per epic R7: button (label, filled or outline, colours, corner radius), custom image button (image with alt text) and swipe-up link (label, pinned to the bottom safe area, at most one per tale), each with a destination URL and same-tab (default) or new-tab with noopener. The server accepts only absolute http or https URLs up to 2,048 characters; the SDK renders <a> elements, checks the scheme again, and opens the swipe-up link on a swipe-up gesture, a click, or Enter on its focused label. CTA click events belong to epic-analytics."
+verify = "Add one of each with destinations; on the sample page each opens its URL by click and by keyboard, the swipe-up link also by swiping up, and a new-tab button opens a tab without opener access; saving 'javascript:alert(1)' or an ftp URL is refused; a second swipe-up link cannot be added."
+covers = ["R7", "R14"]
+after = [6]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Register an element type by configuration (hook for interactive components)"
+description = "Makes the element-type registry the single source for the studio's Add menu, the inspector (from a per-type descriptor) and the SDK renderer lookup, and documents how a new type is added (schema, inspector descriptor, renderer) in the contract README, the hook epic-interactive-components uses for poll, quiz, emoji reaction, countdown, product pins, promo code and Rating. A test-only element type registered by configuration appears in the menu, saves and validates with no document version change and no migration; an SDK build without its renderer skips it, shows the rest of the tale and logs one console warning."
+verify = "Enable the test element type: it appears in the Add menu, its inspector edits it, saving validates it, and an invalid value is refused; on the sample page with an SDK that lacks its renderer, the tale shows without it and the console has one warning."
+covers = ["R8"]
+after = [7]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Preview the tale exactly as the Web SDK renders it"
+description = "Builds the document renderer in libs/web-sdk so the dashboard can import it (AD-16) and adds a preview pane to Tale Studio that mounts it on the unsaved document with the viewer chrome (progress, close) at phone sizes (390x844 default, plus a smaller and a larger size), playing the tale for its duration, with the safe-area overlay toggle. The studio canvas and the preview read the same document; nothing is rendered by a second code path."
+verify = "Open the preview of a tale with text, media, a shape, an emoji and a button; capture it and the sample page's viewer at 390x844: apart from the host page they match; an unsaved change shows in the preview at once."
+covers = ["R10"]
+after = [8]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-16"]
+
+[[entry]]
+id = 10
+type = "story"
+title = "Warn about low contrast and read tales in visual order"
+description = "Tale Studio computes the contrast of each text and button label against what lies behind it (canvas colour, shape fill, or sampled media pixels) and shows a warning on the element and its layer row below 4.5:1, or 3:1 for large text; it does not block publishing [ASSUMPTION]. The SDK orders elements for screen readers and focus by visual position, top to bottom then left to right (AD-15), names every element, and keeps animated content still under reduced motion. Adds an automated WCAG 2.2 AA scan of a composed tale on the sample page and of the studio."
+verify = "Put light grey text on white: the warning shows, and clears when the colour darkens; on the sample page a screen reader reads a composed tale's text, alt text and button in visual order; the automated scans of the sample page and the studio report no WCAG 2.2 AA violations."
+covers = ["R12", "R13"]
+after = [9]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Turn every existing tale into a document"
+description = "A forward-only migration gives every tale with media a version 1 document holding one full-bleed media element (cover fit, decorative until someone adds alt text), so it renders as before. From then on the tales module's create-with-media path, used by the dashboard upload and the importer, creates that document through its public interface; the Delivery API returns documents for every tale and the SDK renders only documents. The default tale group cover (web-zones story 3.14) becomes the first tale's lowest media element; a tale without media shows its background colour with the group title in the bar."
+verify = "On a database with tales from before this story, run the migration and reload the sample page: every tale renders as before; upload media to a new tale and run an import against the fake another tool server: both tales have documents; a group whose first tale is text on a colour shows that colour and its title in the bar."
+covers = ["R16"]
+after = [5, "3.14"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 12
+type = "story"
+title = "Duplicate a tale with its document"
+description = "A content manager duplicates a tale from its card or from Tale Studio into the same tale group or another group of the project (PRD FR-012). The copy is a new draft placed after the original (or last in the target group), with the whole document, new element ids, and the same media storage keys (not copied; AD-14 shared-key rule)."
+verify = "Duplicate a styled tale into another group; edit the copy's text: the original is unchanged; publish both: each shows its media on the sample page; delete the original: the copy's media still loads."
+covers = ["R11"]
+after = [11]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 13
+type = "story"
+title = "Imported tales keep their call to action"
+description = "Touch point in the importer module (owner epic-another tool-importer). A another tool story with button_text and an http or https outlink (or deep_link) imports as a document with its background media and a button element at the bottom of the safe area; other link schemes are not imported and are listed. The report lists, per tale, that text, stickers and components are not readable through the External API (digest studio-r4-1), replacing the button_text, outlink and deep_link rows for tales whose CTA was carried. Re-import updates the button through import links (AD-7) unless a person edited it."
+verify = "Import a fake-server fixture whose story has button_text and outlink: the tale shows a button that opens the link on the sample page; the report lists the unreadable layers; a myapp:// deep link is listed and not imported; re-import after changing the source button_text updates the label."
+covers = ["R17"]
+after = [7, 11, "2.6", "2.7"]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-taleart/tickets/epic-another tool-importer/import-mapping.md", "_bmad-output/initiative-taleart/research-another tool-competitive-teardown/digests/studio-r4-1.md"]
+
+[[entry]]
+id = 14
+type = "story"
+title = "Keep the Web SDK within budget with the document renderer"
+description = "Extends the web-zones measurement target (story 3.11) with time to first tale frame after opening the viewer for a tale with 20 elements, and makes the SDK meet the budgets: at most 50 KB gzipped, p75 first zone content at most 1.5 s, p75 first tale frame at most 1 s on Fast 4G [ASSUMPTION]. When the bundle passes 40 KB gzipped, the viewer and renderers move to a chunk loaded on first open (AD-16) and the size check reports both chunks."
+verify = "Run the measurement target named in the web-sdk README: it reports the bundle at or under 50 KB gzipped, p75 first content at or under 1.5 s and p75 first tale frame at or under 1 s."
+covers = ["R15"]
+after = [10, 11]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 15
+type = "story"
+title = "Accessibility review of Tale Studio and composed tales"
+description = "Re-runs the automated WCAG 2.2 AA scans of the studio and the sample page and fixes what they find; a person then composes a tale with text, an image, a shape, an emoji and a button using only the keyboard and a screen reader (VoiceOver or NVDA), and walks the published tale on the sample page; the walk is recorded and its issues are fixed."
+verify = "Both scans report no WCAG 2.2 AA violations, and the walk record shows every studio action done without a pointer and every element of the published tale announced in visual order."
+covers = ["R12", "R13"]
+after = [10, 12, 13]
+hitl = true # a person does the keyboard and screen-reader walk
+risk = "medium"
+
+[[entry]]
+id = 16
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
+verify = "The full test suite passes and Tale Studio, the preview and the sample page behave as before, with no behavior change."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+hitl = false
+risk = "low"
