@@ -446,6 +446,31 @@ paths:
         required: true
         schema:
           type: string
+    get:
+      operationId: listImports
+      summary: List the project's imports, newest first (admins only).
+      description: >-
+        The project's import jobs, newest first, at most 50, with their state,
+        times and failure reason; the report is read per job. A content manager
+        gets 403 `forbidden`; an unknown project 404 `project_not_found`;
+        without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+      responses:
+        '200':
+          description: The project's imports.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ImportJobSummary'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
     post:
       operationId: startImport
       summary: Start importing a another tool app into the project (admins only).
@@ -492,9 +517,9 @@ paths:
           type: string
     get:
       operationId: getImport
-      summary: Read an import job, its state and its report (admins only).
+      summary: Read an import job, its state, progress and report (admins only).
       description: >-
-        A job of another project, or none, answers 404 `not_found`. A content
+        Poll it while the job is queued or running to follow its progress. A job of another project, or none, answers 404 `not_found`. A content
         manager gets 403 `forbidden`; without `IMPORT_TOKEN_KEY` 503
         `importer_not_configured`.
       responses:
@@ -2047,9 +2072,55 @@ components:
           description: What did not come across, such as "frame type unknown" for each zone or a skipped tale.
           items:
             type: string
+    ImportProgressCount:
+      type: object
+      required: [read, written]
+      description: Records read from the source so far, and records in TaleArt so far (already linked ones included).
+      properties:
+        read:
+          type: integer
+        written:
+          type: integer
+    ImportProgress:
+      type: object
+      required: [zones, taleGroups, tales]
+      description: How far a job got, per entity type; updated while it runs.
+      properties:
+        zones:
+          $ref: '#/components/schemas/ImportProgressCount'
+        taleGroups:
+          $ref: '#/components/schemas/ImportProgressCount'
+        tales:
+          $ref: '#/components/schemas/ImportProgressCount'
+    ImportJobSummary:
+      type: object
+      required: [id, status, sourceAppName, error, createdAt, startedAt, finishedAt]
+      description: An import job in the project's list of imports, without its report.
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ImportStatus'
+        sourceAppName:
+          type: [string, 'null']
+          description: The source app's name, once the worker has read it.
+        error:
+          type: [string, 'null']
+          description: Why the job failed; null unless the status is failed.
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+          description: When a worker last started the job; null while it waits in the queue.
+        finishedAt:
+          type: [string, 'null']
+          format: date-time
     ImportJob:
       type: object
-      required: [id, status, sourceAppName, report, error, createdAt, finishedAt]
+      required: [id, status, sourceAppName, report, progress, error, createdAt, startedAt, finishedAt]
       properties:
         id:
           type: string
@@ -2063,12 +2134,21 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ImportReport'
             - type: 'null'
+        progress:
+          description: How far the job got; null until a worker has started it.
+          oneOf:
+            - $ref: '#/components/schemas/ImportProgress'
+            - type: 'null'
         error:
           type: [string, 'null']
           description: Why the job failed; null unless the status is failed.
         createdAt:
           type: string
           format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+          description: When a worker last started the job; null while it waits in the queue.
         finishedAt:
           type: [string, 'null']
           format: date-time

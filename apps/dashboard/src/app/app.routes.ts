@@ -1,6 +1,7 @@
 import { Route } from '@angular/router';
 import { authGuard, setupGuard, signInGuard } from './auth';
 import { ImportPage } from './pages/import';
+import { ImportJobPage } from './pages/import-job';
 import { InvitePage } from './pages/invite';
 import { SetupPage } from './pages/setup';
 import { SignInPage } from './pages/sign-in';
@@ -79,6 +80,13 @@ export const appRoutes: Route[] = [
         // Admins import a another tool app into this project.
         path: 'projects/:projectId/import',
         component: ImportPage,
+        title: 'Import from another tool · TaleArt',
+        data: { heading: 'Projects' } satisfies ShellData,
+      },
+      {
+        // One import of the project: its progress while it runs, then its report.
+        path: 'projects/:projectId/import/:importId',
+        component: ImportJobPage,
         title: 'Import from another tool · TaleArt',
         data: { heading: 'Projects' } satisfies ShellData,
       },
