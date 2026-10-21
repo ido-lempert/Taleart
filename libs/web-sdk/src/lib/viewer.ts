@@ -1,4 +1,5 @@
 import type { DeliveryTale, DeliveryTaleGroup } from '@taleart/contract';
+import { prefersReducedMotion } from './bar';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
 
 /** How long an image, or a tale without playable media, shows when its document sets no duration. */
@@ -241,7 +242,7 @@ export class TaleViewer {
     this.held = false;
     this.press = null;
     this.suppressClick = false;
-    this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.reduced = prefersReducedMotion();
     // Built once and kept, so its live region exists before it is filled.
     const dialog = this.dialog ?? this.build();
     this.opened = true;
