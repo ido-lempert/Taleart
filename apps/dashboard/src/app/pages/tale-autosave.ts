@@ -95,6 +95,18 @@ export class TaleAutosaver {
     return this.current !== this.saved;
   }
 
+  /** The revision of the document last saved, which publishing and discarding are based on. */
+  get savedRevision(): number {
+    return this.revision;
+  }
+
+  /** Another change came first (a 409 elsewhere, such as on publishing): autosave stops, as after a stale save. */
+  conflict(failure: TaleDocumentFailure): void {
+    this.clearTimers();
+    this.failure = { kind: 'conflict', failure };
+    this.emit();
+  }
+
   /** Starts over from a document just read, at its revision: nothing to save, no failure. */
   reset(document: TaleDocument, revision: number): void {
     this.clearTimers();

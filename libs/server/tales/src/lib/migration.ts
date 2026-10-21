@@ -149,4 +149,15 @@ export async function migrateTales(db: Db): Promise<void> {
   // is refused, so two editors never overwrite each other silently.
   await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document jsonb');
   await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_revision integer NOT NULL DEFAULT 0');
+
+  // The draft document (user decision 2026-10-22): Tale Studio edits and autosaves the draft, and
+  // `document` above is the published one, which the Delivery API serves, so saving never changes
+  // what visitors see. Each has its own revision. A tale whose draft was never written (every tale
+  // before the draft existed) gets its published document as its draft, at the same revision.
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS draft_document jsonb');
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS draft_revision integer NOT NULL DEFAULT 0');
+  await db.query(
+    `UPDATE tales SET draft_document = document, draft_revision = document_revision
+     WHERE draft_document IS NULL AND document IS NOT NULL`,
+  );
 }

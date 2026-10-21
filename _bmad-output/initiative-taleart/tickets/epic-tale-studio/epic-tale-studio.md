@@ -32,8 +32,9 @@ R1 (parent R13; PRD FR-033; AD-15): **Tale document**
    - Elements are a discriminated union keyed by `type` from an element-type registry.
    - Each element has an `id`, a `box` in fractions of the canvas, `hidden`, `locked` and `a11y` fields.
    - Array order is z-order.
-   - The Management API reads and writes the document. Each write carries the revision it was based on, and a write based on an older revision is refused with 409, so two editors never silently overwrite each other.
-   - The Delivery API returns the document with each published tale, without hidden elements or editor-only fields, and with media keys resolved to public URLs (AD-11).
+   - The tale keeps a **draft** document, which the studio edits and autosaves, and a **published** document, which visitors see, each with its own revision (user decision, 2026-10-22). Publishing copies the draft to the published document; saving never changes what visitors see.
+   - The Management API reads and writes the draft and publishes it. Each write carries the revision it was based on, and a write based on an older revision is refused with 409, so two editors never silently overwrite each other. Publishing compares both revisions.
+   - The Delivery API returns the published document with each published tale, without hidden elements or editor-only fields, and with media keys resolved to public URLs (AD-11).
    Verify: save a document through the API and read it back unchanged; save with an old revision and get 409; the Delivery response for that tale has no hidden element and no `locked` field.
 
 R2 (parent R13; PRD FR-032; digest: safe zone, Fit and Fill): **Canvas with safe areas**
@@ -100,9 +101,10 @@ R8 (parent R13, R4, R10; AD-15): **Interactive components are element types**
 R9 (parent R13; PRD FR-032): **Undo, redo and saving**
    - Every change to the document can be undone and redone, at least 100 steps per editing session, with Ctrl or Cmd+Z, Shift+Ctrl or Cmd+Z, and toolbar buttons.
    - Edits save automatically, debounced, as the draft document. A save indicator shows saved, saving or failed.
+   - Saving never changes what visitors see (user decision, 2026-10-22). "Publish changes" makes the draft the published document, and "Discard draft" returns the draft to the published document after asking; discarding can be undone in the session. Publishing a draft tale also publishes its draft. The studio says whether the tale is a draft that visitors cannot see, published, or has unpublished changes.
    - When a save is refused with 409 (R1), the content manager reloads the latest version or keeps their own copy as a new tale, and nothing is lost silently.
    - Leaving the studio with unsaved changes asks first.
-   Verify: make ten edits, undo all ten and redo them; reload, and the last saved state is shown; edit the same tale in two tabs, and the second save offers reload or keep-as-copy.
+   Verify: make ten edits, undo all ten and redo them; reload, and the last saved state is shown; edit the same tale in two tabs, and the second save offers reload or keep-as-copy; edits to a live tale do not show on the sample page until "Publish changes".
 
 R10 (parent R13; AD-16): **Preview as the SDK renders it**
    The studio preview mounts the Web SDK's own document renderer, imported from `libs/web-sdk`, on the unsaved document. It shows the viewer chrome (progress, close) at phone sizes, and plays the tale for its duration.

@@ -419,6 +419,7 @@ describe('keep a document as a new tale', () => {
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
     expect(insert?.[0]).toMatch(/title \|\| ' \(copy\)'/);
     expect(insert?.[0]).toMatch(/media_key, media_content_type, \$3::jsonb, 1/);
+    expect(insert?.[0]).toMatch(/draft_document, draft_revision\)/);
     expect((insert?.[0] as string).split('RETURNING')[0]).not.toMatch(/status|starts_at/);
     expect(insert?.[1]).toEqual([taleId, 3, JSON.stringify(document)]);
     expect(statements().indexOf('BEGIN')).toBe(0);
@@ -739,7 +740,9 @@ describe('copy to zone', () => {
     expect(insertGroup?.[1]).toEqual([otherProject, 'Summer', new Date('2026-11-01T00:00:00Z'), null, groupId.toUpperCase()]);
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
     // ...and each tale's document (AD-15).
-    expect(insertTales?.[0]).toMatch(/media_key, media_content_type, status, starts_at, ends_at, document FROM tales/);
+    expect(insertTales?.[0]).toMatch(
+      /media_key, media_content_type, status, starts_at, ends_at, document,\s+draft_document FROM tales/,
+    );
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
     expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);
     const order = statements();
@@ -851,6 +854,19 @@ describe('status', () => {
       { rows: [{ ...taleRow, storedStatus: 'live', groupStatus: 'paused' }] },
     ]);
     expect(await setTaleStatus(blocked.db, taleId, 'live')).toMatchObject({ storedStatus: 'live', status: 'blocked-by-group' });
+  });
+
+  it('publishes the draft document when a draft tale goes live, and not when a paused one resumes', async () => {
+    const row = { id: taleId, mediaContentType: null, storedStatus: 'live', groupStatus: 'live' };
+    const first = fakeDb([{ rows: [{ status: 'draft' }] }, { rows: [] }, { rows: [row] }]);
+    await setTaleStatus(first.db, taleId, 'live');
+    const publish = first.statements().findIndex((s) => /SET document = draft_document/.test(s));
+    expect(publish).toBeGreaterThan(-1);
+    expect(first.statements()[publish]).toMatch(/draft_document IS DISTINCT FROM document/);
+    expect(publish).toBeLessThan(first.statements().indexOf('COMMIT'));
+    const resume = fakeDb([{ rows: [{ status: 'paused' }] }, { rows: [row] }]);
+    await setTaleStatus(resume.db, taleId, 'live');
+    expect(resume.statements().some((s) => /draft_document/.test(s))).toBe(false);
   });
 
   it('refuses an unknown tale and a transition the rules do not allow', async () => {

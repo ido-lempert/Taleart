@@ -1,5 +1,5 @@
 import type { TaleDocument } from '@taleart/contract';
-import { HISTORY_LIMIT, MERGE_WINDOW_MS, TaleHistory } from './tale-history';
+import { HISTORY_LIMIT, MERGE_WINDOW_MS, sameDocument, TaleHistory } from './tale-history';
 
 // A document told apart by its background colour; each call makes a new object.
 function doc(n: number): TaleDocument {
@@ -76,5 +76,16 @@ describe('TaleHistory', () => {
     expect(history.depth).toBe(1);
     history.clear();
     expect([history.depth, history.undoLabel, history.redoLabel]).toEqual([0, null, null]);
+  });
+});
+
+describe('sameDocument', () => {
+  it('compares by content, whatever the order of keys, and tells null apart', () => {
+    const a = doc(1);
+    const b = { elements: [], canvas: { background: { color: '#000001', type: 'color' } }, version: 1 } as TaleDocument;
+    expect(sameDocument(a, b)).toBe(true);
+    expect(sameDocument(a, doc(2))).toBe(false);
+    expect(sameDocument(a, null)).toBe(false);
+    expect(sameDocument(null, null)).toBe(true);
   });
 });

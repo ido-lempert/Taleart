@@ -148,13 +148,19 @@ Clients never import `libs/server`. Modules never import `apps/*`.
   - **Text:** plain Unicode strings, never HTML or Markdown.
   - **Styles:** enumerated or range-checked values, such as a colour as `#RRGGBB` or `#RRGGBBAA`. Raw CSS strings are never stored.
   - **Fonts:** a text element's font is a system stack key from the font registry in `libs/contract`, the project theme font, a font-family name that passes the theme's font-list rules (`isFontFamily`) and that the host loads, or the id of a **project font**, each with a fallback system stack. A project font is a row in `project_fonts` (project, family, weight, style, fallback stack, storage key, licence confirmation), owned by the `tales` module. Its file is WOFF2 only, checked by magic bytes, and at most 500 KB. It is media under AD-11: public, served as `font/woff2` with CORS that allows any origin, while a published tale's document references it.
+  - **Draft and published** (user decision, 2026-10-22): each tale keeps two documents of this shape, each with its own revision.
+    - The **draft** is what Tale Studio edits and autosaves. Every save raises the draft revision, and a save based on an older one is refused with 409, so undo, redo, autosave and the conflict flow all work on the draft and never change what visitors see.
+    - The **published** document is what the Delivery API serves. "Publish changes" copies the draft to it in one compare-and-set on both revisions (409 when either is stale), raising the published revision. "Discard draft" resets the draft to the published document the same way.
+    - Publishing a `draft` tale (AD-6, `draft` to `live`) also publishes its draft in the same transaction; resuming a `paused` tale does not.
+    - A tale whose document existed before drafts gets it as both, at the same revision. Keeping a refused version as a new tale stores it as that tale's draft, with nothing published.
+    - Both are columns on the tale row (`draft_document` and `document`), an additive change.
   - **Validation on every write:** the Management API checks the document against the schema, with no additional properties, and then applies semantic rules. A refusal uses the standard error body naming the JSON pointer of the field it refused.
     - The document is at most 128 KB, with at most 60 elements and at most 1,000 characters per text. These are starting values, tuned by story 7.14.
     - Element ids are unique, and numbers are finite and inside their ranges.
     - Link targets are absolute `http` or `https` URLs of at most 2,048 characters. Any other scheme, `javascript:` included, is refused.
     - Every media reference is a storage key that belongs to the tale's project.
     - An image, a video, an image sticker and an image button need alt text unless `decorative` is set.
-  - **Delivery:** the Delivery API returns the document with each published tale, after removing hidden elements and editor-only fields and resolving storage keys to public media URLs. Media is referenced by storage key, never by URL (AD-11), and a key that a published tale's document references counts as referenced and public.
+  - **Delivery:** the Delivery API returns the published document, never the draft, with each published tale, after removing hidden elements and editor-only fields and resolving storage keys to public media URLs. Media is referenced by storage key, never by URL (AD-11), and a key that a published tale's document references counts as referenced and public.
   - **Clients:** they ignore unknown fields and skip element types they do not know, so an older SDK still shows the rest of a tale. Native SDKs render the same document with the same registry (R10).
   - **Migration:** a tale that existed before the document gets a version 1 document with one full-bleed media element for its media.
   - **Later additions:** text locale variants are an additive field keyed by element id, added later.

@@ -26,19 +26,19 @@ deferred: []
 
 **Problem:** Tale Studio saves only on a Save button, has no undo, and loses work on navigation or a 409: a stale save offers only "reload", which discards the person's edits (epic R9, R1). Story 7.2 made Delete immediate because nothing could undo it.
 
-**Approach:** Every document change goes through one history (snapshots of the immutable document, labelled, at least 100 steps, consecutive typing merged) with undo and redo from the keyboard and toolbar buttons. An autosaver saves the document debounced through the existing conditional PUT, one save at a time, retries network failures with backoff and shows saved, saving or failed. A 409 stops autosave and offers "Reload latest version" or "Keep my version as a new tale", a new atomic server operation that creates a draft tale in the same group holding the submitted document. Leaving with unsaved changes asks first (`beforeunload` and a `canDeactivate` guard).
+**Approach:** The tale gets a draft document beside its published one (user decision 2026-10-22): the studio edits and autosaves the draft, Delivery serves only the published one, and "Publish changes" / "Discard draft" move between them with compare-and-set on both revisions. Every document change goes through one history (snapshots of the immutable document, labelled, at least 100 steps, consecutive typing merged) with undo and redo from the keyboard and toolbar buttons. An autosaver saves the document debounced through the existing conditional PUT, one save at a time, retries network failures with backoff and shows saved, saving or failed. A 409 stops autosave and offers "Reload latest version" or "Keep my version as a new tale", a new atomic server operation that creates a draft tale in the same group holding the submitted document. Leaving with unsaved changes asks first (`beforeunload` and a `canDeactivate` guard).
 
 ## Boundaries & Constraints
 
 **Always:**
-- One document per tale (AD-15, epic R1): autosave writes the same document through `PUT /tales/{id}/document` with its revision; no second document, no new publish step (see Implementation Notes).
+- Draft and published (user decision 2026-10-22, AD-15, epic R1/R9): `PUT /tales/{id}/document` writes the draft (`draft_document`, `draft_revision`) and never the published `document`, which Delivery and the SDK read. `POST …/document/publish` and `…/document/discard` take `{ revision, publishedRevision }` and compare-and-set both (409 `stale_revision`). Publishing a `draft` tale (`draft` → `live`) also publishes its draft; resuming a paused tale does not. Existing documents become both, same revision (idempotent migration). Keep-as-copy stores the draft, nothing published.
 - History covers every document change: add, text edits, moves (arrow keys, fields, one step per drag), reorder, hide, lock, duplicate, delete, background colour. Selection, guides and editing state are not history. Limit 200 steps (at least 100), oldest dropped.
 - Shortcuts: Cmd+Z / Shift+Cmd+Z on a Mac, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y elsewhere; letters by `event.key` when it is a Latin letter, else by `event.code` (non-Latin layouts). Handled anywhere in the studio except in a text entry field (input, textarea, contenteditable), where the browser's own text undo stays. Labels with ⌘ ⇧ on a Mac.
 - Delete stays immediate and is undoable; it announces "Text deleted — press ⌘Z to undo" (Ctrl+Z off a Mac). Undo/redo announce what they undid ("Undone: Text moved") and keep focus on the control, else the canvas.
 - Autosave: debounce 1 s, at most 5 s of continuous editing between saves; never two saves of one tale at once (edits during a save are coalesced into one next save of the latest document); network errors, 408, 429 and 5xx retry at 2, 4, 8, 16, 30 s and on the `online` event, with "Retry now"; 400/401/403/404/413 stop until the document changes or "Retry now". Undoing back to the saved document needs no save.
 - Keep-as-copy: `POST /api/v1/tales/{taleId}/document/copy` `{ document }` → 201 `Tale`. One transaction: locks the group row, checks 100 tales per group (409 `tale_group_full`), inserts a `draft` tale at the end of the group with title "<title> (copy)", the source's media key (shared, AD-14), the document validated by the same rules (400/413) at revision 1. Authorized on the source tale's project (403), unknown tale 404.
 
-**Never:** a draft/published document split, collaborative merge, history persisted across sessions, history for selection, new npm packages, auto-retry of a refused (4xx) save, stealing focus when a save fails or conflicts.
+**Never:** autosave changing what visitors see, collaborative merge, history persisted across sessions, history for selection, new npm packages, auto-retry of a refused (4xx) save, stealing focus when a save fails or conflicts.
 
 ## I/O & Edge-Case Matrix
 
@@ -55,13 +55,20 @@ deferred: []
 | Conflict | PUT answers 409 | alert: Reload latest version / Keep my version as a new tale; autosave stops; edits kept | — |
 | Keep-as-copy | POST copy `{document}` | 201 draft tale in the same group, document at revision 1; studio opens it | group full 409; invalid 400; other project 403; unknown 404; >128 KB 413 |
 | Leave | navigate away while dirty | flush save; if it fails or conflicts, confirm before leaving; `beforeunload` while dirty or saving | — |
-| Reload page | after autosave | last saved document shown | — |
+| Reload page | after autosave | last saved draft shown | — |
+| Autosave vs Delivery | live tale, three autosaves | Delivery still serves the published version | — |
+| Publish changes | draft differs; click | flush, then POST publish with draft and published revisions; state reads "Published" | stale either revision → 409 → reload / keep-as-copy choice; invalid draft 400 |
+| Discard draft | confirm | draft = published, draft revision + 1; one undo step that autosaves the old draft back | cancel → nothing; stale 409 |
+| Status publish | draft tale → live | its draft is published in the same transaction | paused → live publishes nothing |
+| Migration | document, no draft | draft = document, same revision | — |
+| Publish state | none / differs / same | "Draft — not visible to visitors" / "Unpublished changes …" / "Published …" (or "not live yet") | — |
 
 </intent-contract>
 
 ## Code Map
 
-- `libs/contract/openapi/openapi.yaml`, `src/index.ts`: copy route, `CopyTaleDocumentRequest`.
+- `libs/contract/openapi/openapi.yaml`, `src/lib/tale-document.ts`: copy, publish and discard routes; `published` in `TaleDocumentRevision`; `TaleDocumentRevisionsRequest`.
+- `libs/server/tales/src/lib/migration.ts`, `tale-document.ts` (+ spec): draft columns and backfill; draft save, publish, discard.
 - `libs/server/tales/src/lib/tales.ts`, `index.ts` (+ spec): `copyTaleWithDocument`.
 - `apps/api/src/app.ts`, `http/tales.router.ts`, `http/errors.ts` (+ `app.spec.ts`): route, body limit, 413 mapping.
 - `apps/dashboard/src/app/pages/tale-history.ts` (new, + spec): the history.
@@ -77,16 +84,18 @@ deferred: []
 - [x] api: route, body parser, 413 mapping, tests for 201/400/403/404/409/413.
 - [x] dashboard: history and autosaver with unit tests (fake timers) for every matrix row.
 - [x] dashboard: studio wiring, toolbar, indicator, conflict choice, guards; component tests.
+- [x] draft and publish (user decision 2026-10-22): contract, migration, storage, status-publish path, routes, studio state and buttons, with tests; AD-15, memlog and epic R1/R9 updated.
 
 **Acceptance Criteria:**
 - Given ten edits (add, move, reorder, hide), when undone ten times and redone ten times, then the document matches the start and the end state, and the autosaved document equals the end state.
 - Given a tale open in two tabs, when both edit, then the second save offers reload or keep-as-copy, and keep-as-copy creates a new draft tale in the same group with that content.
+- Given a live tale, when it is edited and autosaved, then the sample page shows the published version until "Publish changes".
 - Given the full verification run, all projects lint, test and build; `web-sdk:size`, `sdk-sample:a11y` and `sdk-sample:perf` pass unchanged.
 
 ## Implementation Notes
 
 - Assumptions. None is a product decision the epic settles beyond what is cited; each is recorded for review.
-  - **"Draft document" (R9).** The epic and AD-15 say each tale holds **one** document (R1: "Every tale holds one tale document"; AD-15 rule; the ERD's `TALE ||--|| TALE_DOCUMENT`), the Delivery API returns that document with each published tale, and "draft" elsewhere is the tale status `draft` (AD-6; R11 "a new draft"). Stories 7.1 and 7.2 verify a save of a published tale showing on the sample page with no publish step. So autosave writes that one document through the existing conditional PUT, and the phrase is read as "the document being edited", not a second, unpublished copy. Consequence: on a tale that is already live, autosaved edits reach visitors after the debounce (1 s, at most 5 s), as manual saves did in 7.1/7.2. A draft/published split would contradict R1 and AD-15 and needs a product decision (see Residual risks).
+  - **Draft and published (user decision 2026-10-22).** The first build read "draft document" as the single document; the user decided that autosave must not change what visitors see. The `document`/`document_revision` columns stay the published document (so Delivery, its cache key and the SDK are unchanged); `draft_document`/`draft_revision` are added. GET and PUT of `/document` now read and write the draft and also answer `published: { document, revision }` (additive). Publish copies the draft in one conditional UPDATE on both revisions after re-checking the draft; discard copies the other way. The status-publish path is `draft` → `live` only (AD-6's "publish"); resume (`paused` → `live`) keeps the published version, so a resume never shows unreviewed edits. Copy to zone copies both documents. Discard is undoable in the session: the studio records it as a history step, and undo autosaves the old draft back. The studio compares draft and published by content (JSONB returns keys in its own order). "Publish changes" waits for unsaved changes to save first; a 409 on publish or discard opens the same reload / keep-as-copy choice. Discard is offered only when something is published.
   - History is snapshot-based: each step keeps the immutable document before and after, with a label. 200 steps (epic: at least 100), oldest dropped; per editing session (cleared on reload of the latest version and on opening another tale). Merged into one step: typing in one text until a 1 s pause or leaving the field, and a held arrow key (`event.repeat`); each separate key press, field change, drag and command is one step. A change that leaves the document as it was is no step.
   - Undo/redo shortcuts work anywhere in the studio except in text entry fields (inputs other than checkbox/radio/colour/button types, textareas, selects, contenteditable), where the browser's own text undo stays. Off a Mac, Ctrl+Y also redoes. Toolbar buttons use `aria-disabled` (not `disabled`) so focus is not lost when the stack empties; pressing one then says "Nothing to undo".
   - Letter shortcuts now take the Latin letter typed (`event.key`) first and fall back to `event.code` only on non-Latin layouts. This keeps Hebrew working and fixes AZERTY, where `event.code` `KeyQ` is the key labelled A (7.2's Ctrl+A, and Ctrl+Z here, were mismatched there).
@@ -100,6 +109,12 @@ deferred: []
 - Not verified by hand: a browser walk with two real tabs and a screen reader. Component tests cover each matrix row with a mocked API; API tests cover the two-tab conflict and keep-as-copy against the test database.
 
 ## Plan Change Log
+
+### 2026-10-22 — User decision: draft and published documents
+- **Trigger:** the user decided autosave must not change what visitors see (the first build's one-document reading let autosaved edits of a live tale go live).
+- **Amended:** Approach, Always/Never, matrix (six new rows), Code Map, tasks and acceptance; AD-15, the architecture memlog and epic R1/R9 record the decision.
+- **Avoids:** visitors seeing half-finished edits of a live tale.
+- **KEEP:** history, autosaver, conflict flow and keep-as-copy, which now act on the draft unchanged.
 
 ## Review Triage Log
 
@@ -120,7 +135,7 @@ deferred: []
 - `sdk-sample:perf`: cold p75 first content 1,253 ms (≤ 1,500 ms), warm p75 754 ms.
 
 **Residual risks:**
-- On a live tale, autosave publishes edits to visitors within seconds (one-document model, see Implementation Notes). If the product wants edits held back until a publish, that is a draft/published split of the document: a schema/storage and Delivery change, to be decided.
+- "Publish changes" publishes the document only; a tale that is not live stays unseen, and the studio says so. The tale's own status is still set from the zone page.
 - `window.confirm` is the leave prompt inside the app (accessible but plain); browsers show their own generic text for `beforeunload`.
 - History is in memory only; a page reload starts a new session (the autosaved document is shown).
 - The canvas text field's `[value]` binding is rewritten on each keystroke; native text undo inside fields depends on the browser keeping its undo stack when the value is unchanged (unchanged from 7.1).

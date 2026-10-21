@@ -13,7 +13,7 @@ function doc(n: number): TaleDocument {
 }
 
 const ok = (revision: number): TaleDocumentResult => ({
-  value: { document: null, revision },
+  value: { document: null, revision, published: { document: null, revision: 0 } },
   message: '',
   stale: false,
   code: '',
@@ -229,6 +229,21 @@ describe('TaleAutosaver', () => {
     const failing = saver.flush();
     calls[1].answer(failed(0));
     expect(await failing).toBe(false);
+  });
+
+  it('tells the saved revision, and stops on a conflict found elsewhere (such as on publishing)', async () => {
+    const { saver, send, calls, last } = harness(doc(0), 3);
+    expect(saver.savedRevision).toBe(3);
+    saver.changed(doc(1));
+    await vi.advanceTimersByTimeAsync(1000);
+    calls[0].answer(ok(4));
+    await flushPromises();
+    expect(saver.savedRevision).toBe(4);
+    saver.changed(doc(2));
+    saver.conflict({ value: null, message: 'stale', stale: true, code: 'stale_revision', pointer: '', status: 409 });
+    expect(last()).toBe('conflict');
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('stops its timers when disposed', async () => {

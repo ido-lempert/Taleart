@@ -22,6 +22,7 @@ import {
   NEW_TEXT_BOX,
   TALE_SAFE_AREA,
   TEXT_ELEMENT_STYLE,
+  type PublishedTaleDocument,
   type TaleDocument,
   type TaleElement,
   type TaleElementBox,
@@ -30,7 +31,7 @@ import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
-import { TaleHistory } from './tale-history';
+import { sameDocument, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
 import {
   boundsOf,
@@ -276,6 +277,29 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
               <app-icon name="redo" /> Redo
             </button>
             <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()">{{ saveText() }}</p>
+          </div>
+          <div class="studio-publish" [class.is-unpublished]="unpublished()">
+            <p class="studio-publish__state" id="studio-publish-state">{{ publishText() }}</p>
+            <button
+              type="button"
+              class="btn btn--primary btn--sm"
+              id="studio-publish"
+              aria-describedby="studio-publish-state"
+              [attr.aria-disabled]="!unpublished() || publishing() ? 'true' : null"
+              (click)="publishChanges()"
+            >
+              Publish changes
+            </button>
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm"
+              id="studio-discard"
+              aria-describedby="studio-publish-state"
+              [attr.aria-disabled]="!unpublished() || published().document === null || publishing() ? 'true' : null"
+              (click)="discardDraft()"
+            >
+              Discard draft
+            </button>
           </div>
           @if (saveState(); as s) {
             @if (s.kind === 'conflict') {
@@ -702,10 +726,17 @@ export class TaleStudioPage implements OnChanges {
   protected readonly saveError = signal('');
   /** True while the person's version is being kept as a new tale. */
   protected readonly keeping = signal(false);
+  /**
+   * The published document, the one visitors see (user decision 2026-10-22): the studio edits and
+   * autosaves the draft, and only Publish changes, or publishing a draft tale, publishes it.
+   */
+  protected readonly published = signal<PublishedTaleDocument>({ document: null, revision: 0 });
+  /** True while the draft is being published or discarded. */
+  protected readonly publishing = signal(false);
   private readonly autosave = new TaleAutosaver(
     emptyTaleDocument(),
     0,
-    (document, revision) => this.documents.save(this.taleId(), document, revision),
+    (document, revision) => this.saveDraft(document, revision),
     (state) => this.onSaveState(state),
     inject(AUTOSAVE_TIMING),
   );
@@ -788,6 +819,19 @@ export class TaleStudioPage implements OnChanges {
         return 'Not saved';
     }
   });
+  /** True when the draft on screen differs from the published document, or nothing is published yet. */
+  protected readonly unpublished = computed(() => !sameDocument(this.doc(), this.published().document));
+  /** Where the draft stands against what visitors see. */
+  protected readonly publishText = computed(() => {
+    const live = this.tale()?.status === 'live';
+    if (this.published().document === null) {
+      return 'Draft — not visible to visitors. Publish changes, or publish the tale, to make it the published version.';
+    }
+    if (this.unpublished()) return 'Unpublished changes — visitors see the published version until you publish them.';
+    return live
+      ? 'Published — visitors see this version.'
+      : 'Published — up to date. The tale is not live, so visitors do not see it yet.';
+  });
   protected readonly saveFailed = computed(() => !['saved', 'pending', 'saving'].includes(this.saveState().kind));
 
   constructor() {
@@ -818,6 +862,7 @@ export class TaleStudioPage implements OnChanges {
     }
     const doc = result.value.document ?? emptyTaleDocument();
     this.doc.set(doc);
+    this.published.set(result.value.published);
     this.history.clear();
     this.syncHistory();
     this.autosave.reset(doc, result.value.revision);
@@ -853,6 +898,97 @@ export class TaleStudioPage implements OnChanges {
   @HostListener('window:online')
   protected backOnline(): void {
     this.autosave.online();
+  }
+
+  // Autosave's save of the draft; its answer also tells what is published now.
+  private async saveDraft(document: TaleDocument, revision: number) {
+    const taleId = this.taleId();
+    const result = await this.documents.save(taleId, document, revision);
+    if (result.value?.published && taleId === this.taleId()) this.published.set(result.value.published);
+    return result;
+  }
+
+  /**
+   * Publishes the draft (compare-and-set on both revisions), once what is unsaved has saved, so
+   * visitors see what the studio shows. Another change first leads to the stale choice.
+   */
+  protected async publishChanges(): Promise<void> {
+    if (this.publishing() || !this.unpublished()) return;
+    await this.draftAction('publish');
+  }
+
+  /**
+   * Discards the draft back to the published document, after asking. It is a step in the history:
+   * undo brings the draft back (and autosaves it) until the studio closes.
+   */
+  protected async discardDraft(): Promise<void> {
+    if (this.publishing() || this.published().document === null || !this.unpublished()) return;
+    if (
+      !window.confirm(
+        'Discard the draft and go back to the published version? You can undo this until you leave Tale Studio.',
+      )
+    ) {
+      return;
+    }
+    await this.draftAction('discard');
+  }
+
+  private async draftAction(action: 'publish' | 'discard'): Promise<void> {
+    const taleId = this.taleId();
+    this.publishing.set(true);
+    this.error.set('');
+    try {
+      if (!(await this.autosave.flush())) {
+        if (this.saveState().kind !== 'conflict') {
+          this.error.set(
+            `Your latest changes are not saved yet, so the draft was not ${action === 'publish' ? 'published' : 'discarded'}. Try again once they are saved.`,
+          );
+        }
+        return;
+      }
+      const revision = this.autosave.savedRevision;
+      const publishedRevision = this.published().revision;
+      const result =
+        action === 'publish'
+          ? await this.documents.publish(taleId, revision, publishedRevision)
+          : await this.documents.discard(taleId, revision, publishedRevision);
+      if (taleId !== this.taleId()) return;
+      if (result.value === null) {
+        if (result.stale) this.autosave.conflict(result);
+        else if (result.code === ErrorCodes.invalidTaleDocument) {
+          this.error.set(
+            'The draft could not be published because something in it is not valid. Fix it, then try again.',
+          );
+        } else
+          this.error.set(`The draft was not ${action === 'publish' ? 'published' : 'discarded'}. ${result.message}`);
+        return;
+      }
+      this.published.set(result.value.published);
+      if (action === 'publish') {
+        this.say(
+          this.tale()?.status === 'live'
+            ? 'Changes published. Visitors now see this version.'
+            : 'Changes published. Visitors see them once the tale is live.',
+        );
+        return;
+      }
+      const before = this.doc();
+      const after = result.value.document ?? emptyTaleDocument();
+      this.editingId.set(null);
+      this.menu.set(null);
+      if (before) {
+        this.history.seal();
+        this.history.record('Draft discarded', before, after);
+      }
+      this.doc.set(after);
+      const ids = new Set(after.elements.map((e) => e.id));
+      this.selection.set(this.selection().filter((id) => ids.has(id)));
+      this.syncHistory();
+      this.autosave.reset(after, result.value.revision);
+      this.say(`Draft discarded: the published version is back. Press ${this.undoKey} to undo.`);
+    } finally {
+      this.publishing.set(false);
+    }
   }
 
   private onSaveState(state: AutosaveState): void {
