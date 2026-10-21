@@ -4,6 +4,7 @@
 export { migrateTargeting } from './lib/migration';
 export {
   addTaleGroupTagsByName,
+  addTaleGroupTagsByNameIn,
   copyTaleGroupTags,
   createTag,
   ensureTags,

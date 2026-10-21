@@ -80,7 +80,8 @@ describe('migration', () => {
     const { db, statements } = fakeDb();
     await migrateImporter(db);
     const sql = statements().join('\n');
-    expect(sql.match(/project_id uuid NOT NULL REFERENCES projects\(id\)/g)).toHaveLength(3);
+    expect(sql.match(/project_id uuid NOT NULL REFERENCES projects\(id\)/g)).toHaveLength(4);
+    expect(sql).toMatch(/PRIMARY KEY \(target_type, target_id\)/);
     expect(sql).toMatch(/tale_id uuid PRIMARY KEY/);
     // Source ids live only in import_links (AD-7).
     expect(sql.match(/source_id text/g)).toHaveLength(1);
@@ -157,8 +158,15 @@ describe('importContent: zones', () => {
       notes: ['Zone "Home page": frame type unknown'],
       differences: [],
       notImportedByDesign: ['Conversion records', 'Stats'],
+      changes: {
+        zones: { created: 1, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
+        taleGroups: { created: 0, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
+        tales: { created: 0, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
+      },
     });
     expect(statements().some((s) => /INSERT INTO import_links/.test(s))).toBe(true);
+    // What the import wrote is recorded with the zone, for re-imports (AD-7): its name, never a source id.
+    expect(statements().some((s) => /INSERT INTO import_records/.test(s))).toBe(true);
   });
 
   it('does not create a zone again for a linked instance, and skips a repeated id', async () => {
@@ -290,11 +298,100 @@ function contentDb() {
   const tagNames = new Map<string, string>();
   const groupTags = new Map<string, Set<string>>();
   // When set, the targeting module finds no tale group: as if it was deleted during the import.
-  const state = { groupsGoneForTags: false };
+  // talesGoneForUpdate: a tale found through its link is gone when its update reads it.
+  const state = { groupsGoneForTags: false, talesGoneForUpdate: false };
+  // What the import recorded per record for re-imports, by `type:id`.
+  const records = new Map<string, Record<string, unknown>>();
   // Called when a link is read; a test can create a competing link there.
   let onLinkRead: (key: string) => void = () => undefined;
   const { db, statements } = fakeDb((sql, params) => {
     const p = params as string[];
+    if (/INSERT INTO import_records[\s\S]*DO NOTHING RETURNING fields/.test(sql)) {
+      const key = `${p[0]}:${p[1]}`;
+      if (records.has(key)) return { rows: [] };
+      records.set(key, {});
+      return { rows: [{ fields: {} }] };
+    }
+    if (/SELECT fields FROM import_records/.test(sql)) {
+      const fields = records.get(`${p[0]}:${p[1]}`);
+      return { rows: fields ? [{ fields }] : [] };
+    }
+    if (/INSERT INTO import_records/.test(sql)) {
+      const key = `${p[0]}:${p[1]}`;
+      records.set(key, { ...(records.get(key) ?? {}), ...JSON.parse(p[3]) });
+      return { rows: [], rowCount: 1 };
+    }
+    if (/DELETE FROM import_records/.test(sql)) {
+      records.delete(`${p[0]}:${p[1]}`);
+      return { rows: [], rowCount: 1 };
+    }
+    if (/FROM import_records/.test(sql)) {
+      const ids = params[1] as string[];
+      return {
+        rows: ids.flatMap((id) => {
+          const name = records.get(`${p[0]}:${id}`)?.['name'];
+          return typeof name === 'string' ? [{ id, name }] : [];
+        }),
+      };
+    }
+    if (/SELECT name FROM zones WHERE id = \$1 FOR NO KEY UPDATE/.test(sql)) {
+      return { rows: zones.has(p[0]) ? [{ name: zones.get(p[0]) }] : [] };
+    }
+    if (/UPDATE zones SET name/.test(sql)) {
+      zones.set(p[0], p[1]);
+      return { rows: [], rowCount: 1 };
+    }
+    if (/SELECT name FROM tale_groups WHERE id = \$1 FOR NO KEY UPDATE/.test(sql)) {
+      const group = groups.get(p[0]);
+      return { rows: group ? [{ name: group.name }] : [] };
+    }
+    if (/UPDATE tale_groups SET name/.test(sql)) {
+      const group = groups.get(p[0]);
+      if (group) group.name = p[1];
+      return { rows: [], rowCount: group ? 1 : 0 };
+    }
+    if (/SELECT title, tale_group_id/.test(sql) && state.talesGoneForUpdate) return { rows: [] };
+    if (/SELECT title, tale_group_id/.test(sql)) {
+      const tale = tales.get(p[0]);
+      return { rows: tale ? [{ title: tale.title, taleGroupId: tale.groupId }] : [] };
+    }
+    if (/UPDATE tales SET title/.test(sql)) {
+      const tale = tales.get(p[0]);
+      if (tale) tale.title = p[1];
+      return { rows: [], rowCount: tale ? 1 : 0 };
+    }
+    if (/SELECT id FROM tales WHERE tale_group_id = \$1 ORDER BY position/.test(sql)) {
+      const ids = [...tales].filter(([, t]) => t.groupId === p[0]).sort(([, a], [, b]) => a.position - b.position);
+      return { rows: ids.map(([id]) => ({ id })) };
+    }
+    if (/UPDATE tales SET position/.test(sql)) {
+      (params[1] as string[]).forEach((id, index) => {
+        const tale = tales.get(id);
+        if (tale) tale.position = index;
+      });
+      return { rows: [], rowCount: 1 };
+    }
+    if (/SELECT tale_group_id AS id FROM zone_tale_groups/.test(sql)) {
+      const ids = [...groups].filter(([, g]) => g.zoneId === p[0]).sort(([, a], [, b]) => a.position - b.position);
+      return { rows: ids.map(([id]) => ({ id })) };
+    }
+    if (/UPDATE zone_tale_groups SET position/.test(sql)) {
+      (params[1] as string[]).forEach((id, index) => {
+        const group = groups.get(id);
+        if (group) group.position = index;
+      });
+      return { rows: [], rowCount: 1 };
+    }
+    if (/FROM tale_group_tags links JOIN tags/.test(sql)) {
+      const rows = (params[0] as string[]).flatMap((groupId) =>
+        [...(groupTags.get(groupId) ?? [])].map((tagId) => ({
+          taleGroupId: groupId,
+          id: tagId,
+          name: tagNames.get(tagId.replace(/^tag-/, '')) ?? tagId,
+        })),
+      );
+      return { rows };
+    }
     if (/FROM import_links/.test(sql)) {
       const key = `${p[2]}:${p[3]}`;
       onLinkRead(key);
@@ -382,6 +479,7 @@ function contentDb() {
     zoneContent,
     tagNames,
     groupTags,
+    records,
     state,
     setOnLinkRead: (f: (key: string) => void) => {
       onLinkRead = f;
@@ -445,7 +543,7 @@ describe('importContent: tale groups and tales', () => {
     expect(sql.indexOf('COMMIT', link)).toBeGreaterThan(link);
   });
 
-  it('creates nothing again on a re-run, and adds a new source story after the others', async () => {
+  it('creates nothing again on a re-run, and puts a new source story at its source place', async () => {
     const fake = contentDb();
     await importContent(fake.db, projectId, home, source(groups, stories));
     const counts = [fake.groups.size, fake.tales.size, fake.links.size];
@@ -453,11 +551,15 @@ describe('importContent: tale groups and tales', () => {
     expect([fake.groups.size, fake.tales.size, fake.links.size]).toEqual(counts);
     expect(again.taleGroups).toEqual({ source: 3, imported: 3, skipped: 0 });
     expect(again.tales).toEqual({ source: 3, imported: 3, skipped: 0 });
+    expect(again.changes?.tales).toMatchObject({ created: 0, updated: 0, unchanged: 3 });
 
+    // Created at the end of its group, then moved to its source place, since nobody re-ordered the group.
     const more = { ...stories, g1: [...stories.g1, { id: 's9', name: 'First at source', sortOrder: -1 }] };
     const third = await importContent(fake.db, projectId, home, source(groups, more));
     expect(third.tales).toEqual({ source: 4, imported: 4, skipped: 0 });
-    expect(fake.zoneContent('Home page')[2]).toEqual({ name: 'Summer', tales: ['A', 'B', 'First at source'] });
+    expect(fake.zoneContent('Home page')[2]).toEqual({ name: 'Summer', tales: ['First at source', 'A', 'B'] });
+    expect(third.changes?.tales).toMatchObject({ created: 1, unchanged: 3 });
+    expect(third.changes?.taleGroups).toMatchObject({ updated: 1, unchanged: 2 });
   });
 
   it('places records without a source position last and notes them, and names blank titles', async () => {
@@ -1414,6 +1516,11 @@ describe('importContent: label limits and errors (review fixes)', () => {
       'Tags: 100 label(s) with 100 more name(s) were not imported, ' +
         `since one import makes at most ${MAX_IMPORT_TAGS} tags`,
     );
+    // The refused names are not remembered as given, so a later run can still add them.
+    const last = [...fake.groups].find(([, g]) => g.name === 'G10')?.[0] as string;
+    expect(fake.records.get(`taleGroup:${last}`)?.['tags']).toEqual([]);
+    const ninth = [...fake.groups].find(([, g]) => g.name === 'G9')?.[0] as string;
+    expect(fake.records.get(`taleGroup:${ninth}`)?.['tags']).toEqual(names('g8-', 100));
   });
 
   it(`writes at most ${MAX_MERGE_NOTES} merge notes and counts the rest in one`, async () => {
@@ -1426,5 +1533,219 @@ describe('importContent: label limits and errors (review fixes)', () => {
     });
     expect(report.notes.filter((n) => n.includes('became one tag'))).toHaveLength(MAX_MERGE_NOTES);
     expect(report.notes).toContain('Tags: 2 more tag(s) each carry labels that differ only in case');
+  });
+});
+
+describe('importContent: re-import updates (AD-7)', () => {
+  type Group = Rec & { segments?: unknown };
+  type Tale = { groupId: string; title: string; position: number };
+  const zoneOf = (name: string) => [{ id: '2001', name }];
+  const content = (groups: Group[], stories: Record<string, Rec[]>): ContentSource => ({
+    listStoryGroups: async () => groups,
+    listStories: async (groupId) => stories[groupId] ?? [],
+  });
+  const groups: Group[] = [
+    { id: 'g1', name: 'Summer', sortOrder: 0, segments: ['summer', 'vip'] },
+    { id: 'g2', name: 'New', sortOrder: 1, segments: ['new'] },
+  ];
+  const stories: Record<string, Rec[]> = {
+    g1: [
+      { id: 's1', name: 'A', sortOrder: 0 },
+      { id: 's2', name: 'B', sortOrder: 1 },
+      { id: 's3', name: 'C', sortOrder: 2 },
+    ],
+    g2: [{ id: 's4', name: 'D', sortOrder: 0 }],
+  };
+  const labels = { labels: async () => [] as SourceLabel[] };
+  const run = (fake: ReturnType<typeof contentDb>, g = groups, s = stories, zone = 'Home page') =>
+    importContent(fake.db, projectId, zoneOf(zone), content(g, s), undefined, labels);
+  const taleIdOf = (fake: ReturnType<typeof contentDb>, title: string) =>
+    [...fake.tales].find(([, t]) => t.title === title)?.[0] as string;
+  const groupIdOf = (fake: ReturnType<typeof contentDb>, name: string) =>
+    [...fake.groups].find(([, g]) => g.name === name)?.[0] as string;
+  const tagsOf = (fake: ReturnType<typeof contentDb>, name: string) =>
+    [...(fake.groupTags.get(groupIdOf(fake, name)) ?? [])].map((id) => fake.tagNames.get(id.slice('tag-'.length)));
+  const kept = (report: ImportReport) =>
+    (report.differences ?? [])
+      .filter((d) => d.kind === 'keptLocalEdit')
+      .map((d) => [d.entity, d.record.sourceId, d.field]);
+
+  it('records what it created and counts every record unchanged on a second run', async () => {
+    const fake = contentDb();
+    const first = await run(fake);
+    expect(first.changes).toEqual({
+      zones: { created: 1, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
+      taleGroups: { created: 2, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
+      tales: { created: 4, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
+    });
+    expect(fake.records.get(`tale:${taleIdOf(fake, 'A')}`)).toEqual({ name: 'A', group: groupIdOf(fake, 'Summer') });
+    // Baselines hold TaleArt values only: names and TaleArt ids, never a source id (AD-7).
+    expect(JSON.stringify([...fake.records.values()])).not.toMatch(/"(g1|g2|s1|s2|s3|s4|2001)"/);
+    const second = await run(fake);
+    expect(second.changes).toEqual({
+      zones: { created: 0, updated: 0, unchanged: 1, keptLocalEdit: 0, removedAtSource: 0 },
+      taleGroups: { created: 0, updated: 0, unchanged: 2, keptLocalEdit: 0, removedAtSource: 0 },
+      tales: { created: 0, updated: 0, unchanged: 4, keptLocalEdit: 0, removedAtSource: 0 },
+    });
+    expect(kept(second)).toEqual([]);
+  });
+
+  it('updates titles and names changed at the source', async () => {
+    const fake = contentDb();
+    await run(fake);
+    const renamed = groups.map((g) => (g.id === 'g1' ? { ...g, name: 'Summer sale' } : g));
+    const retitled = { ...stories, g1: stories['g1'].map((s) => (s.id === 's1' ? { ...s, name: 'A2' } : s)) };
+    const report = await run(fake, renamed, retitled, 'Home');
+    expect([...fake.zones.values()]).toEqual(['Home']);
+    expect(groupIdOf(fake, 'Summer sale')).toBeDefined();
+    expect(taleIdOf(fake, 'A2')).toBeDefined();
+    expect(report.changes?.zones).toMatchObject({ updated: 1 });
+    expect(report.changes?.taleGroups).toMatchObject({ updated: 1, unchanged: 1 });
+    expect(report.changes?.tales).toMatchObject({ updated: 1, unchanged: 3 });
+  });
+
+  it('keeps a title a person changed; a kept local edit only when the source changed it too', async () => {
+    const fake = contentDb();
+    await run(fake);
+    (fake.tales.get(taleIdOf(fake, 'A')) as Tale).title = 'Mine';
+    (fake.tales.get(taleIdOf(fake, 'B')) as Tale).title = 'Also mine';
+    const quiet = await run(fake);
+    expect(quiet.changes?.tales).toMatchObject({ updated: 0, unchanged: 4, keptLocalEdit: 0 });
+    expect(kept(quiet)).toEqual([]);
+
+    const retitled = { ...stories, g1: stories['g1'].map((s) => (s.id === 's1' ? { ...s, name: 'A2' } : s)) };
+    const report = await run(fake, groups, retitled);
+    expect(taleIdOf(fake, 'Mine')).toBeDefined();
+    expect(taleIdOf(fake, 'A2')).toBeUndefined();
+    expect(report.changes?.tales).toMatchObject({ updated: 0, unchanged: 4, keptLocalEdit: 1 });
+    expect(report.differences).toContainEqual({
+      entity: 'tale',
+      record: { sourceId: 's1', name: 'A2', within: 'Summer', withinSourceId: 'g1', position: 1 },
+      kind: 'keptLocalEdit',
+      field: 'title',
+      sourceField: null,
+    });
+  });
+
+  it("follows the source's order, and keeps an order a person changed", async () => {
+    const fake = contentDb();
+    await run(fake);
+    const reversed = { ...stories, g1: stories['g1'].map((s) => ({ ...s, sortOrder: -(s.sortOrder ?? 0) })) };
+    const report = await run(fake, groups, reversed);
+    expect(fake.zoneContent('Home page')[0].tales).toEqual(['C', 'B', 'A']);
+    expect(report.changes?.taleGroups).toMatchObject({ updated: 1, unchanged: 1 });
+
+    // A person moves A first; the source then changes the order again: the person's order stays.
+    const [a, b, c] = ['A', 'B', 'C'].map((title) => fake.tales.get(taleIdOf(fake, title)) as Tale);
+    [a.position, c.position, b.position] = [0, 1, 2];
+    const again = await run(fake, groups, stories);
+    expect(fake.zoneContent('Home page')[0].tales).toEqual(['A', 'C', 'B']);
+    expect(kept(again)).toEqual([['taleGroup', 'g1', 'sort_order']]);
+    expect(again.changes?.taleGroups).toMatchObject({ keptLocalEdit: 1, unchanged: 2 });
+
+    // The zone's order of its groups follows the source the same way.
+    const swapped = groups.map((g) => ({ ...g, sortOrder: g.id === 'g1' ? 5 : 0 }));
+    await run(fake, swapped, stories);
+    expect(fake.zoneContent('Home page').map((g) => g.name)).toEqual(['New', 'Summer']);
+  });
+
+  it('adds labels new at the source, never re-adds a tag a person removed, and reports labels the source dropped', async () => {
+    const fake = contentDb();
+    await run(fake);
+    expect(tagsOf(fake, 'Summer')).toEqual(['summer', 'vip']);
+    // A person removes "vip" and adds "manual".
+    const summer = fake.groupTags.get(groupIdOf(fake, 'Summer')) as Set<string>;
+    summer.delete('tag-vip');
+    fake.tagNames.set('manual', 'manual');
+    summer.add('tag-manual');
+    const relabeled = groups.map((g) => (g.id === 'g1' ? { ...g, segments: ['vip', 'fresh'] } : g));
+    const report = await run(fake, relabeled, stories);
+    expect(tagsOf(fake, 'Summer')).toEqual(['summer', 'manual', 'fresh']);
+    expect(report.changes?.taleGroups).toMatchObject({ updated: 1, unchanged: 1 });
+    expect((report.differences ?? []).filter((d) => d.kind === 'removedAtSource')).toEqual([
+      {
+        entity: 'tag',
+        record: { sourceId: null, name: 'summer', within: 'Summer', withinSourceId: 'g1', position: null },
+        kind: 'removedAtSource',
+        field: 'segments',
+        sourceField: null,
+      },
+    ]);
+  });
+
+  it('keeps a differing name of a record imported before baselines, and reports it', async () => {
+    const fake = contentDb();
+    await run(fake);
+    fake.records.clear();
+    const retitled = { ...stories, g2: [{ id: 's4', name: 'D2', sortOrder: 0 }] };
+    const report = await run(fake, groups, retitled);
+    expect(taleIdOf(fake, 'D')).toBeDefined();
+    expect(kept(report)).toEqual([['tale', 's4', 'title']]);
+    expect(fake.records.get(`tale:${taleIdOf(fake, 'D')}`)).toEqual({ name: 'D2', group: groupIdOf(fake, 'New') });
+  });
+
+  it('leaves a record deleted before its update uncounted as changed, without failing', async () => {
+    const fake = contentDb();
+    await run(fake);
+    fake.state.talesGoneForUpdate = true;
+    const retitled = { ...stories, g2: [{ id: 's4', name: 'D2', sortOrder: 0 }] };
+    const report = await run(fake, groups, retitled);
+    expect(report.changes?.tales).toMatchObject({ updated: 0, unchanged: 4 });
+    expect(taleIdOf(fake, 'D')).toBeDefined();
+    // The tale was gone when its update read it: what the import recorded about it is gone too, no empty row stays.
+    expect(fake.records.has(`tale:${taleIdOf(fake, 'D')}`)).toBe(false);
+  });
+
+  it('names a zone without a title "Untitled zone" with a note, never after its source id (AD-7)', async () => {
+    const fake = contentDb();
+    const report = await importContent(fake.db, projectId, [{ id: '2001', name: '  ' }], content([], {}));
+    expect([...fake.zones.values()]).toEqual(['Untitled zone']);
+    expect(report.notes).toContain('Zone 1 of the source has no title, so it is named "Untitled zone"');
+    expect(JSON.stringify([...fake.records.values()])).not.toContain('2001');
+  });
+
+  it('lists a story the source moved to another group, and keeps the tale where it is', async () => {
+    const fake = contentDb();
+    await run(fake);
+    // The source moves C (s3) from Summer (g1) to New (g2).
+    const moved = { g1: stories['g1'].filter((s) => s.id !== 's3'), g2: [...stories['g2'], stories['g1'][2]] };
+    const report = await run(fake, groups, moved);
+    expect(fake.zoneContent('Home page')[0].tales).toEqual(['A', 'B', 'C']);
+    expect(fake.tales.size).toBe(4);
+    expect((report.differences ?? []).filter((d) => d.kind !== 'notHeld')).toEqual([
+      {
+        entity: 'tale',
+        record: { sourceId: 's3', name: 'C', within: 'New', withinSourceId: 'g2', position: 2 },
+        kind: 'movedAtSource',
+        field: 'story_group_id',
+        sourceField: null,
+      },
+    ]);
+  });
+
+  it("tells a person's move from the source's: a note, and a kept local edit only when the source moved it too", async () => {
+    const fake = contentDb();
+    await run(fake);
+    // A person moves C (s3) into New (g2).
+    (fake.tales.get(taleIdOf(fake, 'C')) as Tale).groupId = groupIdOf(fake, 'New');
+    const quiet = await run(fake);
+    expect(quiet.notes).toContain(
+      'Tale "C" in "Summer": a person moved it to another tale group in TaleArt, so it stays there',
+    );
+    expect(quiet.differences ?? []).toEqual([]);
+    // The source then moves it to New too: nothing is left to report.
+    const moved = { g1: stories['g1'].filter((s) => s.id !== 's3'), g2: [...stories['g2'], stories['g1'][2]] };
+    const report = await run(fake, groups, moved);
+    expect(kept(report)).toEqual([]);
+    expect((report.differences ?? []).filter((d) => d.kind === 'movedAtSource')).toEqual([]);
+
+    // Elsewhere: a person moves C into a group of their own, and the source moves it to New.
+    const other = contentDb();
+    await run(other);
+    other.groups.set('00000000-0000-4000-8000-0000000000f9', { name: 'Mine', zoneId: '', position: 9 });
+    (other.tales.get(taleIdOf(other, 'C')) as Tale).groupId = '00000000-0000-4000-8000-0000000000f9';
+    const again = await run(other, groups, moved);
+    expect(kept(again)).toEqual([['tale', 's3', 'story_group_id']]);
+    expect((again.differences ?? []).filter((d) => d.kind === 'movedAtSource')).toEqual([]);
   });
 });

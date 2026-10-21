@@ -78,4 +78,28 @@ export async function migrateImporter(db: Db): Promise<void> {
     );
   `);
   await db.query('CREATE INDEX IF NOT EXISTS import_media_media_key_idx ON import_media (media_key)');
+  // A fingerprint of the source media (SHA-256 of its URL and type), so a re-import downloads only media
+  // that changed at the source; the URL itself is never stored. NULL for media copied before re-imports.
+  await db.query('ALTER TABLE import_media ADD COLUMN IF NOT EXISTS source_digest text');
+
+  // The source app a link came from, so a re-import of that app can tell which of its records the source
+  // no longer lists. NULL for links saved before re-imports; filled when the record is seen again.
+  await db.query('ALTER TABLE import_links ADD COLUMN IF NOT EXISTS source_app_id text');
+  await db.query(
+    'CREATE INDEX IF NOT EXISTS import_links_app_idx ON import_links (project_id, source_system, source_app_id)',
+  );
+
+  // What an import last wrote to each record it holds, in TaleArt terms (names, orders as TaleArt ids, tag
+  // names), keyed by the TaleArt record: never a source id (AD-7). A re-import compares the current record
+  // with it to tell a person's edit (kept) from a value nobody changed (updated from the source).
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS import_records (
+      target_type text NOT NULL,
+      target_id uuid NOT NULL,
+      project_id uuid NOT NULL REFERENCES projects(id),
+      fields jsonb NOT NULL DEFAULT '{}'::jsonb,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (target_type, target_id)
+    );
+  `);
 }

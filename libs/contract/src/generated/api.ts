@@ -1575,6 +1575,22 @@ export interface components {
             notImportedByDesign?: string[];
             /** @description What was left out because it was not picked. Absent when the import took everything. */
             notSelected?: components["schemas"]["ImportNotSelected"];
+            changes?: components["schemas"]["ImportChanges"];
+        };
+        /** @description What one import changed in TaleArt for one entity type. created + updated + unchanged is the imported count. keptLocalEdit counts records (or tale media) where a value changed at the source was not written because a person had changed it in TaleArt; they are also counted updated or unchanged (media: skipped). removedAtSource counts records an earlier import of the same app brought across that the source no longer lists; they stay in TaleArt. */
+        ImportChangeCount: {
+            created: number;
+            updated: number;
+            unchanged: number;
+            keptLocalEdit: number;
+            removedAtSource: number;
+        };
+        /** @description Per entity type, what this import created, updated or left unchanged in TaleArt. Absent in reports of imports made before re-imports updated records. */
+        ImportChanges: {
+            zones: components["schemas"]["ImportChangeCount"];
+            taleGroups: components["schemas"]["ImportChangeCount"];
+            tales: components["schemas"]["ImportChangeCount"];
+            media?: components["schemas"]["ImportChangeCount"];
         };
         /**
          * @description What the source record becomes in TaleArt (the app is the project; a label is a tag).
@@ -1582,10 +1598,10 @@ export interface components {
          */
         ImportDifferenceEntity: "app" | "zone" | "taleGroup" | "tale" | "tag";
         /**
-         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason).
+         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason); keptLocalEdit: the field changed at the source, but a person had changed it in TaleArt, so their value was kept; removedAtSource: an earlier import brought the record (or label) across and the source no longer lists it, so it stays in TaleArt unchanged (listed again on every run while it is there); movedAtSource: the source lists the record under another parent than the one the import put it in; an import moves nothing, so it stays where it is.
          * @enum {string}
          */
-        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported" | "tagNotImported";
+        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported" | "tagNotImported" | "keptLocalEdit" | "removedAtSource" | "movedAtSource";
         /**
          * @description Why a label did not become a tag. blank: it holds no text; tooLong: longer than a tag name may be; notText: the value is not text; invalidCharacters: it holds control characters, which a tag name may not.
          * @enum {string}
@@ -1606,8 +1622,8 @@ export interface components {
             within: string | null;
             /** @description The source id of the record it belongs to; null for top-level records. */
             withinSourceId: string | null;
-            /** @description The record's place in its source list, from 1. */
-            position: number;
+            /** @description The record's place in its source list, from 1; null for a record the source no longer lists. */
+            position: number | null;
         };
         ImportDifference: {
             entity: components["schemas"]["ImportDifferenceEntity"];
@@ -3356,7 +3372,7 @@ export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["sc
 export const importEntityChoiceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportEntityChoice"]> = ["taleGroups", "media", "tags"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale", "tag"];
-export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported"];
+export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];

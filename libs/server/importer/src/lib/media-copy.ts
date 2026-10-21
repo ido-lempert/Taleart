@@ -10,7 +10,13 @@ import {
 } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
-import { getTaleMedia, isMediaKeyInUse, setTaleMediaIfNone, TaleNotFoundError } from '@taleart/server-tales';
+import {
+  getTaleMedia,
+  isMediaKeyInUse,
+  replaceTaleMediaIf,
+  setTaleMediaIfNone,
+  TaleNotFoundError,
+} from '@taleart/server-tales';
 import {
   MediaFetchError,
   MEDIA_FETCH_TIMEOUT_MS,
@@ -172,14 +178,21 @@ export type MediaCopier = (url: string, mimeType: unknown) => Promise<CopiedMedi
 export type TaleMediaOutcome =
   /** The story names no media: nothing to copy, and story 6's check lists it. */
   | { kind: 'none' }
-  /** The tale holds the story's media: copied now, or kept from an earlier import. */
-  | { kind: 'imported' }
-  /** The tale holds media set in TaleArt, which an import does not replace. */
-  | { kind: 'keptOwn' }
+  /**
+   * The tale holds the story's media: copied for the first time (`created`),
+   * replaced because the source's media changed (`updated`), or kept from an
+   * earlier import (`unchanged`).
+   */
+  | { kind: 'imported'; change: 'created' | 'updated' | 'unchanged' }
+  /**
+   * The tale holds media set in TaleArt, which an import does not replace;
+   * `sourceChanged` when the source's media changed since the import last copied it.
+   */
+  | { kind: 'keptOwn'; sourceChanged: boolean }
   /** The tale was deleted while the import ran. */
   | { kind: 'taleGone' }
-  /** The media could not be copied; the tale stays without it. */
-  | { kind: 'failed'; reason: ImportMediaFailure };
+  /** The media could not be copied; the tale stays without it, or keeps what an earlier import copied. */
+  | { kind: 'failed'; reason: ImportMediaFailure; keptEarlier: boolean };
 
 /** What {@link importTaleMedia} needs. */
 export interface TaleMediaImport {
@@ -196,46 +209,80 @@ export interface MediaSourceStory {
 }
 
 /**
- * The storage key an earlier import stored on this tale, or null. The row is
- * keyed by the tale: the story it came from is known only through
- * `import_links` (AD-7).
+ * What an earlier import copied onto this tale, or null. The row is keyed by
+ * the tale: the story it came from is known only through `import_links`
+ * (AD-7). `digest` is null for media copied before re-imports kept one.
  */
-async function importedMediaKey(db: Db, taleId: string): Promise<string | null> {
-  const { rows } = await db.query<{ media_key: string }>('SELECT media_key FROM import_media WHERE tale_id = $1', [
-    taleId,
-  ]);
-  return rows[0]?.media_key ?? null;
+interface ImportedMedia {
+  key: string;
+  sha256: string;
+  digest: string | null;
 }
 
-async function saveImportedMedia(db: Db, projectId: string, taleId: string, media: CopiedMedia): Promise<void> {
+async function importedMedia(db: Db, taleId: string): Promise<ImportedMedia | null> {
+  const { rows } = await db.query<ImportedMedia>(
+    'SELECT content_sha256 AS sha256, media_key AS key, source_digest AS digest FROM import_media WHERE tale_id = $1',
+    [taleId],
+  );
+  return rows[0] ?? null;
+}
+
+async function saveImportedMedia(
+  db: Db,
+  projectId: string,
+  taleId: string,
+  media: CopiedMedia,
+  digest: string,
+): Promise<void> {
   await db.query(
-    `INSERT INTO import_media (tale_id, project_id, media_key, content_type, content_sha256)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO import_media (tale_id, project_id, media_key, content_type, content_sha256, source_digest)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (tale_id) DO UPDATE
        SET media_key = EXCLUDED.media_key, content_type = EXCLUDED.content_type,
-           content_sha256 = EXCLUDED.content_sha256, updated_at = now()`,
-    [taleId, projectId, media.key, media.contentType, media.sha256],
+           content_sha256 = EXCLUDED.content_sha256, source_digest = EXCLUDED.source_digest, updated_at = now()`,
+    [taleId, projectId, media.key, media.contentType, media.sha256, digest],
   );
 }
 
-// What the tale holds now, against what an import stored on it; null when it holds no media.
-async function currentOutcome(db: Db, taleId: string): Promise<TaleMediaOutcome | null> {
+/**
+ * A fingerprint of a story's media as the source names it: SHA-256 of its
+ * type and URL. The URL itself is never stored (story 5); a changed
+ * fingerprint means the source points at other media, or at the same media
+ * under another URL, which a download then tells apart.
+ */
+export function sourceMediaDigest(url: string, mimeType: unknown): string {
+  return createHash('sha256')
+    .update(`${typeof mimeType === 'string' ? mimeType : ''}\n${url}`)
+    .digest('hex');
+}
+
+// What the tale holds now, against what an import copied onto it; null when it holds no media.
+async function currentOutcome(db: Db, taleId: string, digest: string): Promise<TaleMediaOutcome | null> {
   const current = await getTaleMedia(db, taleId);
   if (current === null) return null;
-  return (await importedMediaKey(db, taleId)) === current.key ? { kind: 'imported' } : { kind: 'keptOwn' };
+  const imported = await importedMedia(db, taleId);
+  if (imported !== null && imported.key === current.key) return { kind: 'imported', change: 'unchanged' };
+  // Media set in TaleArt is kept; it is a kept local edit when the source's media changed since the import copied it.
+  const sourceChanged = imported !== null && imported.digest !== null && imported.digest !== digest;
+  return { kind: 'keptOwn', sourceChanged };
 }
 
 /**
  * Gives an imported tale its story's media (AD-11): downloads it through
  * `copy`, then, in one transaction under the tale's import lock, sets the
  * tale's media through the tales module only if the tale still holds none, and
- * records which key the import stored on it. A tale that already holds media
- * (set before, or by a person while this download ran) is never overwritten:
- * the copy is deleted, and its media counts as imported when an import stored
- * it, else as kept. No other file is ever deleted. A source failure leaves the
- * tale without media; database and storage failures are passed on. When the
- * commit's outcome is unknown, the copy is kept (the tale may point at it);
- * {@link sweepImportedMedia} removes it later if nothing does.
+ * records which key the import stored on it with the source's fingerprint
+ * ({@link sourceMediaDigest}). On a re-run, a tale still holding the media an
+ * import copied is left alone while the fingerprint is the same (nothing is
+ * downloaded); when it changed (or was never recorded) the media is downloaded
+ * again and, if its bytes differ, replaces the tale's media only while the tale
+ * still holds the import's copy. Media set in TaleArt (before, or by a person
+ * while this download ran) is never overwritten: the copy is deleted, and the
+ * outcome is `keptOwn`. No other file is deleted here: a replaced copy is left
+ * to {@link sweepImportedMedia}, since copies of the tale may share it (AD-14).
+ * A source failure leaves the tale as it was; database and storage failures
+ * are passed on. When the commit's outcome is unknown, the copy is kept (the
+ * tale may point at it); the sweep removes it later if nothing does.
  */
 export async function importTaleMedia(
   db: TransactionalDb,
@@ -246,10 +293,15 @@ export async function importTaleMedia(
 ): Promise<TaleMediaOutcome> {
   const url = story.media;
   if (url === undefined || url === null || (typeof url === 'string' && url.trim() === '')) return { kind: 'none' };
-  if (typeof url !== 'string') return { kind: 'failed', reason: 'invalidUrl' };
+  if (typeof url !== 'string') return { kind: 'failed', reason: 'invalidUrl', keptEarlier: false };
+  const digest = sourceMediaDigest(url.trim(), story.mimeType);
+  let earlier: ImportedMedia | null;
   try {
-    const before = await currentOutcome(db, taleId);
-    if (before !== null) return before;
+    const before = await currentOutcome(db, taleId, digest);
+    if (before !== null && before.kind !== 'imported') return before;
+    earlier = before === null ? null : await importedMedia(db, taleId);
+    // The import's copy is in place and the source names the same media: nothing to download.
+    if (earlier !== null && earlier.digest === digest) return { kind: 'imported', change: 'unchanged' };
   } catch (err) {
     if (err instanceof TaleNotFoundError) return { kind: 'taleGone' };
     throw err;
@@ -259,7 +311,7 @@ export async function importTaleMedia(
   try {
     copied = await media.copy(url.trim(), story.mimeType);
   } catch (err) {
-    if (err instanceof MediaFetchError) return { kind: 'failed', reason: err.reason };
+    if (err instanceof MediaFetchError) return { kind: 'failed', reason: err.reason, keptEarlier: earlier !== null };
     throw err;
   }
 
@@ -268,12 +320,30 @@ export async function importTaleMedia(
   try {
     result = await inTransaction(db, async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('import_media:' || $1, 0))", [taleId]);
-      // Only a tale that still holds no media takes the copy: a person's upload meanwhile wins.
-      if (await setTaleMediaIfNone(tx, taleId, { key: copied.key, contentType: copied.contentType })) {
-        await saveImportedMedia(tx, projectId, taleId, copied);
-        return { outcome: { kind: 'imported' } as const, used: true };
+      const stored = { key: copied.key, contentType: copied.contentType };
+      if (earlier === null) {
+        // Only a tale that still holds no media takes the copy: a person's upload meanwhile wins.
+        if (await setTaleMediaIfNone(tx, taleId, stored)) {
+          await saveImportedMedia(tx, projectId, taleId, copied, digest);
+          return { outcome: { kind: 'imported', change: 'created' } as const, used: true };
+        }
+      } else if (earlier.sha256 === copied.sha256) {
+        // The same bytes under another URL: the copy in place stays, and the new fingerprint is recorded, but
+        // only while the tale still holds it (a person may have set media while the download ran).
+        if ((await getTaleMedia(tx, taleId))?.key === earlier.key) {
+          await tx.query(
+            'UPDATE import_media SET source_digest = $3, updated_at = now() WHERE tale_id = $1 AND media_key = $2',
+            [taleId, earlier.key, digest],
+          );
+          return { outcome: { kind: 'imported', change: 'unchanged' } as const, used: false };
+        }
+      } else if (await replaceTaleMediaIf(tx, taleId, earlier.key, stored)) {
+        // Replaced only while the tale still holds the import's earlier copy: a person's media meanwhile wins.
+        await saveImportedMedia(tx, projectId, taleId, copied, digest);
+        return { outcome: { kind: 'imported', change: 'updated' } as const, used: true };
       }
-      return { outcome: (await currentOutcome(tx, taleId)) ?? { kind: 'keptOwn' }, used: false };
+      const now = await currentOutcome(tx, taleId, digest);
+      return { outcome: now ?? { kind: 'keptOwn', sourceChanged: false }, used: false };
     });
   } catch (err) {
     if (err instanceof CommitUncertainError) throw err;
