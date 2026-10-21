@@ -237,3 +237,17 @@ Decisions made by the autopilot, open for the user to change:
 - A zone holds one playbook; applying a different playbook is refused, and a playbook cannot be removed.
 - Labels that differ only in case merge into one tag.
 - A tag a person removes from an imported group is added back on the next import (story 7 may change this).
+
+## Seventh parallel batch (2026-10-21)
+
+| Story | Merge | Review |
+|---|---|---|
+| Importer 2.9: pick what to import before starting | `0f3401f` | Security-focused review, 7 findings, all patched: one overall preview deadline (30 s) enforced on reads already in flight; previews abort when the client disconnects and are capped (1 per user, 4 per process, 429 `preview_busy`); `selection: null` is refused; the key encoding must be canonical; progress labels types that were not picked; "and N more"; a long line. The signed selection key (HKDF-derived HMAC) held up |
+| Web zones 3.11: first content within 1.5 s on Fast 4G | `fd7b9b8` | 12 findings, all patched: first-content work can be cancelled per render; marks only for content on the page; the zone mark once per element; canvas and motion-swapped covers go through the hold; a 1 s cap for still video covers; banner listeners; perf script cleanup and signals; a `_test` guard on the parsed connection string; seeded rows deleted after a run; serve.mjs 400 on a bad escape. Measured cold p75 is about 1.25 s (budget 1.5 s), and Delivery `GET /zone` is now private, no-cache, with an ETag |
+| Importer 2.7: re-import updates instead of duplicating | `2da2db8` | 10 findings, all patched: lock order and `FOR NO KEY UPDATE` (deadlocks with manual create, place, copy and tag set); compare-and-set on tags; tag baseline vs caps; no removals reported after unreadable lists; current TaleArt names; "Untitled zone" instead of a source id; media same-bytes CAS; `movedAtSource`; removed labels reported on every run; no orphan baseline rows |
+
+Verification on the merged tree: `nx run-many -t lint test build` passed for 12 projects (api 356, importer 229, web-sdk 246 tests). The import picker was screenshot in Chromium.
+
+Decisions made by the autopilot, open for the user to change: an import never deletes anything; a person's edit always wins; a new source story takes its source position; a tag a person removed is not added again.
+
+User decision (2026-10-21): add a **Tale Studio** epic to the MVP, so tales are edited with text, images, shapes, stickers, buttons and interactive components. The SDK renders them as live elements, not flattened images.
