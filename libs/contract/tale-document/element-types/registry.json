@@ -1,3 +1,7 @@
 {
-  "types": [{ "key": "text", "label": "Text", "schema": "text.schema.json" }]
+  "types": [
+    { "key": "text", "label": "Text", "schema": "text.schema.json" },
+    { "key": "image", "label": "Image", "schema": "image.schema.json" },
+    { "key": "video", "label": "Video", "schema": "video.schema.json" }
+  ]
 }

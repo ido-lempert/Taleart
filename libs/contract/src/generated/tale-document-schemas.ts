@@ -23,7 +23,7 @@ export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
       "$ref": "#/$defs/Canvas"
     },
     "durationMs": {
-      "description": "How long the tale shows, in milliseconds, when it has no video.",
+      "description": "How long the tale shows, in milliseconds, when it has no video; 7000 when left out. With a video element the tale plays for the video's length.",
       "type": "integer",
       "minimum": 3000,
       "maximum": 15000
@@ -52,7 +52,14 @@ export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
       ],
       "properties": {
         "background": {
-          "$ref": "#/$defs/ColorBackground"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ColorBackground"
+            },
+            {
+              "$ref": "#/$defs/MediaBackground"
+            }
+          ]
         }
       }
     },
@@ -68,6 +75,39 @@ export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
         "type": {
           "type": "string",
           "const": "color"
+        },
+        "color": {
+          "$ref": "#/$defs/Color"
+        }
+      }
+    },
+    "MediaBackground": {
+      "description": "An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "mediaKey",
+        "fit",
+        "color"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "media"
+        },
+        "mediaKey": {
+          "description": "The storage key of an image of the tale's project, as the server made it.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+        },
+        "fit": {
+          "type": "string",
+          "enum": [
+            "cover",
+            "contain"
+          ]
         },
         "color": {
           "$ref": "#/$defs/Color"
@@ -379,6 +419,92 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "description": "The box or highlight colour as #RRGGBB or #RRGGBBAA.",
           "type": "string",
           "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        }
+      }
+    }
+  },
+  {
+    "key": "image",
+    "label": "Image",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ImageElementProps",
+      "description": "The props of an image element (epic Tale Studio R5): an image (GIF included) of the tale's project, by its storage key (AD-11), never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mediaKey",
+        "fit"
+      ],
+      "properties": {
+        "mediaKey": {
+          "description": "The storage key of an image of the tale's project, as the server made it.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+        },
+        "fit": {
+          "description": "How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.",
+          "type": "string",
+          "enum": [
+            "cover",
+            "contain"
+          ]
+        },
+        "radius": {
+          "description": "The corner radius as a fraction of the canvas height; 0 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        },
+        "opacity": {
+          "description": "From 0 (transparent) to 1 (opaque); 1 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    }
+  },
+  {
+    "key": "video",
+    "label": "Video",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "VideoElementProps",
+      "description": "The props of a video element (epic Tale Studio R5): an MP4 or WebM video of the tale's project, by its storage key (AD-11), never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mediaKey",
+        "fit"
+      ],
+      "properties": {
+        "mediaKey": {
+          "description": "The storage key of a video of the tale's project, as the server made it.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+        },
+        "fit": {
+          "description": "How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.",
+          "type": "string",
+          "enum": [
+            "cover",
+            "contain"
+          ]
+        },
+        "radius": {
+          "description": "The corner radius as a fraction of the canvas height; 0 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        },
+        "opacity": {
+          "description": "From 0 (transparent) to 1 (opaque); 1 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     }

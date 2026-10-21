@@ -17,6 +17,8 @@ export type IconName =
   | 'tag'
   | 'settings'
   | 'text'
+  | 'image'
+  | 'video'
   | 'eye'
   | 'eye-off'
   | 'lock'
@@ -100,6 +102,15 @@ export type IconName =
         }
         @case ('text') {
           <path d="M5 6V4h14v2M12 4v16M9 20h6" />
+        }
+        @case ('image') {
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <circle cx="9" cy="10" r="2" />
+          <path d="M21 17l-5-5-9 8" />
+        }
+        @case ('video') {
+          <rect x="3" y="5" width="13" height="14" rx="2" />
+          <path d="M16 10l5-3v10l-5-3" />
         }
         @case ('eye') {
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

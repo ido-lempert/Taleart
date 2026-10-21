@@ -9,6 +9,7 @@ import {
   type ImportWorker,
 } from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
+import { DEFAULT_PROJECT_MEDIA_LIMITS } from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
@@ -93,7 +94,15 @@ async function start(): Promise<void> {
   // Delivery media URLs are absolute and start with the API's public origin.
   const publicApiUrl = process.env['PUBLIC_API_URL'] || 'http://localhost:3333';
   log('info', `Public media at ${publicApiUrl}${PUBLIC_MEDIA_BASE}`);
-  const server = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer).listen(port, () => {
+  // A project's media caps (Tale Studio R5): PROJECT_MEDIA_MAX_FILES (500) and PROJECT_MEDIA_MAX_BYTES (2 GB).
+  const media = {
+    limits: {
+      maxFiles: positive('PROJECT_MEDIA_MAX_FILES') ?? DEFAULT_PROJECT_MEDIA_LIMITS.maxFiles,
+      maxBytes: positive('PROJECT_MEDIA_MAX_BYTES') ?? DEFAULT_PROJECT_MEDIA_LIMITS.maxBytes,
+    },
+  };
+  log('info', `Project media at most ${media.limits.maxFiles} files and ${media.limits.maxBytes} bytes each`);
+  const server = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media).listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
     log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
   });

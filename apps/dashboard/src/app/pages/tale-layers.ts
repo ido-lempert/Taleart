@@ -2,6 +2,7 @@
 // elements, whose array order is the z-order, first at the bottom (AD-15).
 import {
   elementBounds,
+  mediaElementName,
   TALE_SAFE_AREA,
   type CanvasRect,
   type TaleElement,
@@ -27,8 +28,16 @@ export type ReorderCommand = 'forward' | 'backward' | 'front' | 'back';
 export const round = (value: number): number => Math.round(value * 10000) / 10000;
 export const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
-/** A short name for a layer, from its content: a text's first 40 characters on one line. */
-export function layerName(element: TaleElement): string {
+/**
+ * A short name for a layer, from its content: a text's first 40 characters on one line; an image's
+ * or video's alt text, else its type and place among its kind ("Image 2", R5), which needs the
+ * document's `elements` (without them it is the first of its kind).
+ */
+export function layerName(element: TaleElement, elements: readonly TaleElement[] = [element]): string {
+  if (element.type !== 'text') {
+    const index = elements.indexOf(element);
+    return index < 0 ? mediaElementName([element], 0) : mediaElementName(elements, index);
+  }
   const characters = [...element.props.text.trim().replace(/\s+/g, ' ')];
   if (characters.length === 0) return 'Empty text';
   return characters.length > 40 ? `${characters.slice(0, 40).join('')}…` : characters.join('');
@@ -89,7 +98,7 @@ export function duplicateElement(element: TaleElement, id: string): TaleElement 
     },
     a11y: { ...element.a11y },
     props: { ...element.props },
-  };
+  } as TaleElement;
 }
 
 /** The smallest rectangle around the boxes or rectangles. */

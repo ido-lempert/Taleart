@@ -596,7 +596,9 @@ export class DashboardStore {
     await this.refresh();
     // Going live publishes the tale's studio draft when nothing is published yet, unless it no longer passes (AD-15).
     const warning = tale.draftNotPublished
-      ? "Tale is live; its studio draft has problems and wasn't published. Open Tale Studio to fix and publish it."
+      ? "Tale is live; its studio draft has problems and wasn't published. " +
+        (tale.draftNotPublishedReason ? `${tale.draftNotPublishedReason} ` : '') +
+        'Open Tale Studio to fix and publish it.'
       : '';
     return { tale, message: '', warning };
   }

@@ -1,15 +1,20 @@
 import { readingOrder, type DeliveryTaleDocument, type DeliveryTaleElement } from '@taleart/contract';
+import { mediaFit, mediaUrl, renderImage, renderVideo, stillImage, type RenderContext } from './media';
 import { renderText } from './text';
 
 /** Renders one element of its type as DOM, or null to render nothing. */
-export type ElementRenderer = (element: DeliveryTaleElement) => HTMLElement | null;
+export type ElementRenderer = (element: DeliveryTaleElement, context: RenderContext) => HTMLElement | null;
 
 /**
  * One renderer per element type, keyed by the element-type registry's keys (AD-16). A type that
  * is not here renders nothing, so an older SDK still shows the rest of a tale (AD-15). A Map, so
  * a type such as `constructor` or `__proto__` is unknown rather than an inherited property.
  */
-export const ELEMENT_RENDERERS: ReadonlyMap<string, ElementRenderer> = new Map([['text', renderText]]);
+export const ELEMENT_RENDERERS: ReadonlyMap<string, ElementRenderer> = new Map<string, ElementRenderer>([
+  ['text', renderText],
+  ['image', renderImage],
+  ['video', renderVideo],
+]);
 
 /**
  * The document stage's look. The area fills its parent inside the device's safe-area insets (the
@@ -47,6 +52,8 @@ export const DOCUMENT_STYLES = `
   pointer-events: none;
 }
 .ta-line { display: block; }
+.ta-media { display: block; pointer-events: none; -webkit-user-drag: none; }
+.ta-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .ta-hl {
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -90,6 +97,30 @@ export interface DocumentRenderOptions {
   label?: string;
   /** Paints the canvas's background colour; off when the tale's media lies below the canvas. */
   background?: boolean;
+  /** The visitor prefers reduced motion: media does not move by itself (R12). */
+  reducedMotion?: boolean;
+}
+
+// The canvas's media background (R2): the image filling the canvas with its fit, over its band
+// colour; decorative, so hidden from assistive technology. Null for a colour background.
+function backgroundMedia(doc: DeliveryTaleDocument, reducedMotion: boolean): HTMLElement | null {
+  const background = doc.canvas?.background as { type?: unknown; url?: unknown; fit?: unknown } | undefined;
+  const url = background?.type === 'media' ? mediaUrl(background.url) : null;
+  if (!url) return null;
+  let node: HTMLElement;
+  if (reducedMotion && /\.(gif|webp|png)$/i.test(new URL(url).pathname)) node = stillImage(url);
+  else {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.decoding = 'async';
+    img.draggable = false;
+    img.src = url;
+    node = img;
+  }
+  node.className = 'ta-bg';
+  node.setAttribute('aria-hidden', 'true');
+  node.style.objectFit = mediaFit(background?.fit);
+  return node;
 }
 
 /**
@@ -105,7 +136,11 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   const canvas = document.createElement('div');
   canvas.className = 'ta-canvas';
   const color = canvasColor(doc);
-  if (options.background && color) canvas.style.backgroundColor = color;
+  const context: RenderContext = { reducedMotion: options.reducedMotion === true };
+  const media = backgroundMedia(doc, context.reducedMotion);
+  // A media background paints its band colour with it, over the tale's media too.
+  if ((options.background || media) && color) canvas.style.backgroundColor = color;
+  if (media) canvas.appendChild(media);
   if (options.label) {
     canvas.setAttribute('role', 'group');
     canvas.setAttribute('aria-label', options.label);
@@ -124,7 +159,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
       }
       continue;
     }
-    const node = render(element);
+    const node = render(element, context);
     if (!node) continue;
     const { x, y, w, h, rotation } = element.box;
     const style = node.style;

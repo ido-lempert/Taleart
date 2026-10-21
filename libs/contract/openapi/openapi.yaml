@@ -394,6 +394,133 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /projects/{projectId}/media:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listProjectMedia
+      summary: The project's media (epic Tale Studio R5), which Tale Studio's image and video elements pick from.
+      description: >-
+        The project's uploads (newest first), then its tales' media, then
+        media its tales' documents use (such as a copied group's), each key
+        once. Unknown project 404 `project_not_found`.
+      responses:
+        '200':
+          description: The project's media.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectMedia'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: uploadProjectMedia
+      summary: Upload an image (GIF included) or a video to the project's media.
+      description: >-
+        The body is the file's bytes, with its type declared as one of the
+        tale media types. The server checks the bytes' magic number against
+        the declared type and stores the file through the storage port
+        without transcoding it (AD-11), streaming it to storage. Images are
+        at most 10 MB, videos 100 MB; a project holds at most 500 files and
+        2 GB (PROJECT_MEDIA_MAX_FILES, PROJECT_MEDIA_MAX_BYTES). Admins and
+        content managers upload. Checked in this order, all but the last
+        three before the body is read (with `Connection: close`): too many
+        uploads at once in this process 429 `upload_busy`; unknown project
+        404 `project_not_found`; another declared type 415
+        `unsupported_media_type`; a compressed body 415; no valid
+        `Content-Length` 411 `length_required`; empty 400
+        `validation_failed`; over the type's limit 413 `media_too_large`;
+        a full project 409 `media_limit_reached` or 413
+        `media_storage_full`; then, while it streams, first bytes of another
+        type 415, and a body other than its declared length 400; the caps
+        again when the row is inserted.
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: { type: string, contentMediaType: image/png }
+          image/jpeg:
+            schema: { type: string, contentMediaType: image/jpeg }
+          image/gif:
+            schema: { type: string, contentMediaType: image/gif }
+          image/webp:
+            schema: { type: string, contentMediaType: image/webp }
+          video/mp4:
+            schema: { type: string, contentMediaType: video/mp4 }
+          video/webm:
+            schema: { type: string, contentMediaType: video/webm }
+      responses:
+        '201':
+          description: The uploaded media.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMedia'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '411':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '415':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /projects/{projectId}/media/file:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: key
+        in: query
+        required: true
+        description: The media's storage key, as the list names it.
+        schema:
+          type: string
+    get:
+      operationId: getProjectMediaFile
+      summary: A file of the project's media, with a session (for Tale Studio).
+      description: >-
+        Answers one byte range (206) for videos. A key that is not the
+        project's media answers 404 `media_not_found`.
+      responses:
+        '200':
+          description: The file.
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+            video/*:
+              schema: { type: string, format: binary }
+        '206':
+          description: One byte range of the file.
+        '304':
+          description: Not modified.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects/{projectId}/fonts:
     parameters:
       - name: projectId
@@ -1854,7 +1981,8 @@ paths:
         (AD-15) in the same transaction, after checking it again; a tale that
         already has a published document keeps it. When the draft no longer
         passes the check, the status still changes, the draft is not
-        published, and the answer says so with `draftNotPublished: true`.
+        published, and the answer says so with `draftNotPublished: true` and
+        why in `draftNotPublishedReason`.
       requestBody:
         required: true
         content:
@@ -2087,7 +2215,10 @@ paths:
         changes and it answers 409 `stale_revision`. A tale with no draft
         answers 409 `nothing_to_publish`; publishing never empties the
         published document. The draft is checked
-        again first (400 `invalid_tale_document` with `pointer`). The tale's
+        again first (400 `invalid_tale_document` with `pointer`), with the
+        publish rule too: every visible image and video needs alt text
+        (`a11y.label`) or `a11y.decorative` (epic Tale Studio R12), refused
+        with a message naming the element. The tale's
         status is not changed: a tale that is not `live` stays unseen. A body
         without integer revisions: 400 `validation_failed`. Unknown tale: 404
         `tale_not_found`.
@@ -3031,7 +3162,7 @@ components:
         version:
           type: integer
         canvas:
-          $ref: '../tale-document/v1.schema.json#/$defs/Canvas'
+          $ref: '#/components/schemas/DeliveryCanvas'
         durationMs:
           type: integer
         elements:
@@ -3047,18 +3178,91 @@ components:
           type: string
         type:
           type: string
-          description: A key of the element-type registry; `text` in version 1.
+          description: A key of the element-type registry, such as `text`, `image` or `video`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
           $ref: '../tale-document/v1.schema.json#/$defs/A11y'
         props:
           type: object
-          description: The type's props, as its schema in `tale-document/element-types/` defines them.
+          description: >-
+            The type's props, as its schema in `tale-document/element-types/`
+            defines them, except that an image's or video's `mediaKey` is
+            replaced by `url`, its public URL (AD-11).
     TaleDocument:
       $ref: '../tale-document/v1.schema.json'
     TextElementProps:
       $ref: '../tale-document/element-types/text.schema.json'
+    ImageElementProps:
+      $ref: '../tale-document/element-types/image.schema.json'
+    VideoElementProps:
+      $ref: '../tale-document/element-types/video.schema.json'
+    MediaBackground:
+      $ref: '../tale-document/v1.schema.json#/$defs/MediaBackground'
+    ColorBackground:
+      $ref: '../tale-document/v1.schema.json#/$defs/ColorBackground'
+    DeliveryCanvas:
+      type: object
+      description: >-
+        The canvas as delivered: a colour background as stored; a media
+        background with its storage key replaced by the public `url` (AD-11).
+      required: [background]
+      properties:
+        background:
+          oneOf:
+            - $ref: '../tale-document/v1.schema.json#/$defs/ColorBackground'
+            - $ref: '#/components/schemas/DeliveryMediaBackground'
+    DeliveryMediaBackground:
+      type: object
+      required: [type, url, fit, color]
+      properties:
+        type:
+          type: string
+          enum: [media]
+        url:
+          type: string
+          format: uri
+          description: The public URL of the image (AD-11).
+        fit:
+          type: string
+          enum: [cover, contain]
+        color:
+          type: string
+          description: The band colour, as `#RRGGBB` or `#RRGGBBAA`.
+    ProjectMedia:
+      type: object
+      description: >-
+        An image or video of a project (epic Tale Studio R5): one of its
+        uploads, a tale's media, or media its tales' documents use. A tale
+        document references it by `key`.
+      required: [key, kind, contentType, url, source]
+      properties:
+        key:
+          type: string
+          description: The storage key a document's `mediaKey` names.
+        kind:
+          $ref: '#/components/schemas/MediaKind'
+        contentType:
+          $ref: '#/components/schemas/MediaContentType'
+        url:
+          type: string
+          description: Where the Management API serves the file, with a session.
+        source:
+          type: string
+          enum: [upload, tale, document]
+          description: >-
+            `upload` for a file uploaded to the project's media, `tale` for a
+            tale's media, `document` for media only documents use.
+        taleTitle:
+          type: string
+          description: For `tale`, the title of a tale holding it.
+        sizeBytes:
+          type: integer
+          description: For `upload`, the file's size.
+        createdAt:
+          type: string
+          format: date-time
+          description: For `upload`, when it was uploaded.
     ProjectFont:
       type: object
       description: A font face uploaded to a project (epic Tale Studio R18).
@@ -3129,6 +3333,11 @@ components:
               description: >-
                 Present and true when the tale went live with nothing published yet and its draft
                 document no longer passes the checks, so the draft was not published (AD-15).
+            draftNotPublishedReason:
+              type: string
+              description: >-
+                With `draftNotPublished`, why the draft was not published, such as an image
+                without alt text, named as Tale Studio names it.
     PublishedTaleDocument:
       type: object
       required: [document, revision]
@@ -3788,6 +3997,10 @@ components:
         - font_in_use
         - font_limit_reached
         - font_storage_full
+        - media_limit_reached
+        - media_storage_full
+        - upload_busy
+        - length_required
         - internal_error
     ErrorBody:
       type: object

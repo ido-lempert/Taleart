@@ -12,6 +12,7 @@ import { projectFontsRouter } from './http/fonts.router';
 import { frameTypesRouter } from './http/frame-types.router';
 import { importsRouter, type ImporterConfig } from './http/imports.router';
 import { errorHandler, notFoundHandler } from './http/errors';
+import { projectMediaRouter, type ProjectMediaOptions } from './http/project-media.router';
 import { projectsRouter } from './http/projects.router';
 import { publicMediaRouter } from './http/public-media.router';
 import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
@@ -24,8 +25,8 @@ import { zonesRouter } from './http/zones.router';
 /** Management API base path (AD-2, versioned per the spine conventions). */
 export const MANAGEMENT_API_BASE = '/api/v1';
 
-// `POST /api/v1/projects/<id>/fonts`, in any case and with or without a trailing slash, as routers match.
-const FONT_UPLOAD_PATH = /^\/api\/v1\/projects\/[^/]+\/fonts\/?$/i;
+// `POST /api/v1/projects/<id>/fonts` and `/media`, in any case and with or without a trailing slash, as routers match.
+const UPLOAD_PATH = /^\/api\/v1\/projects\/[^/]+\/(fonts|media)\/?$/i;
 
 /** How the API handles sign-in. */
 export interface AppAuth {
@@ -44,6 +45,7 @@ export interface AppUrls {
 }
 
 export type { ImporterConfig } from './http/imports.router';
+export type { ProjectMediaOptions } from './http/project-media.router';
 
 // Builds the API. Takes its pool, frame-type registry, media storage, passkey
 // verifier and importer settings so tests can point it at a real database,
@@ -56,6 +58,7 @@ export function createApp(
   auth: AppAuth,
   urls: AppUrls = {},
   importer: ImporterConfig = { tokenKey: null, storylyApiUrl: DEFAULT_STORYLY_API_URL },
+  media: ProjectMediaOptions = {},
 ): express.Express {
   const app = express();
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
@@ -64,11 +67,9 @@ export function createApp(
   app.put(`${MANAGEMENT_API_BASE}/tales/:taleId/document`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
   // Keeping a document as a new tale (after a stale save) takes the same body.
   app.post(`${MANAGEMENT_API_BASE}/tales/:taleId/document/copy`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
-  // A font upload's body is the file, whatever type it declares (R18): its route reads it raw.
+  // A font or media upload's body is the file, whatever type it declares (R18, R5): its route reads it raw.
   const json = express.json();
-  app.use((req, res, next) =>
-    req.method === 'POST' && FONT_UPLOAD_PATH.test(req.path) ? next() : json(req, res, next),
-  );
+  app.use((req, res, next) => (req.method === 'POST' && UPLOAD_PATH.test(req.path) ? next() : json(req, res, next)));
 
   // The dashboard reaches the API through its dev proxy, on its own origin, so
   // cookies are same-origin. CORS stays open for other callers, never with credentials.
@@ -95,6 +96,7 @@ export function createApp(
   v1.use('/projects', importsRouter(pool, importer));
   v1.use('/projects', projectThemeRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));
+  v1.use('/projects', projectMediaRouter(pool, storage, media));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));

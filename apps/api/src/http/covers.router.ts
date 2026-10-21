@@ -10,10 +10,10 @@ import {
 import type { MediaStorage } from '@taleart/server-storage';
 import {
   getTaleGroupCover,
-  isMediaKeyInUse,
   setTaleGroupCover,
   taleGroupExists,
   TaleGroupNotFoundError,
+  withMediaKeyDeletionGuard,
 } from '@taleart/server-tales';
 import express, { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
@@ -43,9 +43,10 @@ function logError(msg: string, err: unknown): void {
 // such as a copy's, still references it (AD-11, AD-14). Failures are logged.
 async function deleteIfUnused(pool: Pool, storage: MediaStorage, key: string | null, keep?: string): Promise<void> {
   if (key === null || key === keep) return;
-  await isMediaKeyInUse(pool, key)
-    .then((inUse) => (inUse ? undefined : storage.delete(key)))
-    .catch((err) => logError('could not delete replaced cover', err));
+  // Decided and deleted under the key's lock, so no document write can start using it meanwhile.
+  await withMediaKeyDeletionGuard(pool, key, async (inUse) => {
+    if (!inUse) await storage.delete(key);
+  }).catch((err) => logError('could not delete replaced cover', err));
 }
 
 const ANIMATED_TOO_LARGE = `An animated cover is at most ${MAX_ANIMATED_COVER_BYTES / 1024} KB`;

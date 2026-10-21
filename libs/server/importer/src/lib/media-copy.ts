@@ -12,7 +12,7 @@ import type { Db, TransactionalDb } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
 import {
   getTaleMedia,
-  isMediaKeyInUse,
+  withMediaKeyDeletionGuard,
   replaceTaleMediaIf,
   setTaleMediaIfNone,
   TaleNotFoundError,
@@ -708,7 +708,7 @@ export const MEDIA_SWEEP_MIN_AGE_MS = 60 * 60_000;
  * many files it removed. The worker runs it when it starts.
  */
 export async function sweepImportedMedia(
-  db: Db,
+  db: TransactionalDb,
   storage: SweepableStorage,
   now = Date.now(),
 ): Promise<{ temporary: number; imported: number }> {
@@ -716,11 +716,15 @@ export async function sweepImportedMedia(
   let imported = 0;
   for (const { key, modifiedAt } of await storage.listKeys('tales')) {
     if (!key.startsWith(IMPORTED_MEDIA_PREFIX) || now - modifiedAt.getTime() < MEDIA_SWEEP_MIN_AGE_MS) continue;
-    if (await isMediaKeyInUse(db, key)) continue;
-    const { rows } = await db.query('SELECT 1 FROM import_media WHERE media_key = $1 LIMIT 1', [key]);
-    if (rows.length > 0) continue;
-    await storage.delete(key);
-    imported++;
+    // Decided and deleted under the key's lock, so no document write can start using it meanwhile.
+    const removed = await withMediaKeyDeletionGuard(db, key, async (inUse) => {
+      if (inUse) return false;
+      const { rows } = await db.query('SELECT 1 FROM import_media WHERE media_key = $1 LIMIT 1', [key]);
+      if (rows.length > 0) return false;
+      await storage.delete(key);
+      return true;
+    });
+    if (removed) imported++;
   }
   return { temporary, imported };
 }
