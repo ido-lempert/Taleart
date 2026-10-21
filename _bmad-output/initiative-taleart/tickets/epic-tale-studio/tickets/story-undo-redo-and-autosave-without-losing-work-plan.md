@@ -154,6 +154,10 @@ deferred: []
 - `web-sdk:size`: 13.88 KB gzipped (unchanged).
 - `sdk-sample:a11y`: WCAG 2.2 AA scan, no violations.
 - `sdk-sample:perf`: cold p75 first content 1,255 ms (≤ 1,500 ms), warm p75 754 ms.
+- After the review fixes, on the merge with `autopilot/foundation` 00894d4 (`--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes. Test counts: api 396, dashboard 305, server-tales 105, contract 109. Dashboard initial bundle 493.9 KB; lazy studio chunk 57.9 KB.
+- `web-sdk:size`: 14.54 KB gzipped (the foundation's 3.12 viewer changes; this story adds nothing to the SDK).
+- `sdk-sample:a11y`: WCAG 2.2 AA scan, no violations.
+- `sdk-sample:perf`: cold p75 first content 1,261 ms (≤ 1,500 ms), warm p75 769 ms.
 
 **Residual risks:**
 - "Publish changes" publishes the document only; a tale that is not live stays unseen, and the studio says so. The tale's own status is still set from the zone page.
