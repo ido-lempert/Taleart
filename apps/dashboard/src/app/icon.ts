@@ -14,7 +14,8 @@ export type IconName =
   | 'up'
   | 'down'
   | 'grip'
-  | 'tag';
+  | 'tag'
+  | 'settings';
 
 /** Inline SVG icons (24px grid, 2px stroke). Decorative: the control around an icon carries the label. */
 @Component({
@@ -83,6 +84,11 @@ export type IconName =
         @case ('tag') {
           <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" />
           <circle cx="8" cy="8" r="1.5" />
+        }
+        @case ('settings') {
+          <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+          <circle cx="16" cy="7" r="2" />
+          <circle cx="8" cy="17" r="2" />
         }
         @case ('tales') {
           <rect x="7" y="3" width="10" height="18" rx="2" />

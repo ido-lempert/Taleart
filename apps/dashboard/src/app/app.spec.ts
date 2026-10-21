@@ -10,9 +10,28 @@ import { PasskeyClient, unauthorizedInterceptor } from './auth';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
 import { IMPORT_POLL_INTERVAL_MS } from './import.service';
 
+// The shape of the shipped bar schema (libs/contract/frame-types/bar.schema.json) as GET /frame-types sends it.
+const barSchema = {
+  type: 'object',
+  properties: {
+    shape: { title: 'Shape', type: 'string', enum: ['circle', 'rounded-square'], default: 'circle' },
+    size: { title: 'Size', type: 'string', enum: ['small', 'medium', 'large'], default: 'medium' },
+    showTitles: { title: 'Show titles', type: 'boolean', default: true },
+    alignment: { title: 'Alignment', type: 'string', enum: ['start', 'center'], default: 'start' },
+    gap: {
+      title: 'Gap',
+      description: 'Space between items, in pixels, from 4 to 24.',
+      type: 'integer',
+      minimum: 4,
+      maximum: 24,
+      default: 12,
+    },
+  },
+  additionalProperties: false,
+};
 const frameTypes = [
-  { key: 'bar', label: 'Bar' },
-  { key: 'banner', label: 'Banner' },
+  { key: 'bar', label: 'Bar', schema: barSchema },
+  { key: 'banner', label: 'Banner', schema: { type: 'object', properties: {}, additionalProperties: false } },
 ];
 const acme = { id: 'p1', name: 'Acme' };
 const globex = { id: 'p2', name: 'Globex' };
@@ -361,6 +380,190 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/zones/z1/frames`, 'validation_failed', 'type is required');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('type is required');
+    });
+
+    describe('frame settings', () => {
+      const frameBanner = { id: 'f2', zoneId: 'z1', projectId: 'p1', type: 'banner', settings: {} };
+      const withFrames: Data = { ...oneZone, frames: { z1: [frameBar, frameBanner] } };
+      const field = <T extends Element>(id: string) => drawer()?.querySelector<T>(`#frame-settings-${id}`) ?? null;
+
+      async function openSettings(data: Data = withFrames) {
+        const opened = await open('/zones/z1', data);
+        opened.root.querySelector<HTMLButtonElement>('[aria-label="Settings of frame 1, Bar"]')?.click();
+        await settle(opened.fixture);
+        return opened;
+      }
+
+      it('offers settings only for frame types whose schema has fields', async () => {
+        const { root } = await open('/zones/z1', withFrames);
+        const rows = [...root.querySelectorAll('[aria-label="Frames in Home bar"] li')];
+        expect(rows.map((r) => r.querySelector('.pill')?.textContent?.trim())).toEqual(['Bar', 'Banner']);
+        expect(rows.map((r) => r.querySelector('button')?.getAttribute('aria-label') ?? null)).toEqual([
+          'Settings of frame 1, Bar',
+          null,
+        ]);
+      });
+
+      it('builds the form from the schema, showing defaults for unset fields', async () => {
+        await openSettings();
+
+        expect(drawer()?.querySelector('h2')?.textContent).toContain('Bar settings');
+        expect(drawer()?.textContent).toContain('In zone Home bar');
+        const labels = [...(drawer()?.querySelectorAll('.field__label, .checkbox') ?? [])].map((l) =>
+          l.textContent?.trim(),
+        );
+        expect(labels).toEqual(['Shape', 'Size', 'Show titles', 'Alignment', 'Gap']);
+        const shape = field<HTMLSelectElement>('shape');
+        expect([...(shape?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Circle', 'Rounded square']);
+        expect(shape?.value).toBe('circle');
+        expect(field<HTMLSelectElement>('size')?.value).toBe('medium');
+        expect(field<HTMLInputElement>('showTitles')?.checked).toBe(true);
+        expect(field<HTMLSelectElement>('alignment')?.value).toBe('start');
+        const gap = field<HTMLInputElement>('gap');
+        expect(gap?.value).toBe('12');
+        expect(gap?.min).toBe('4');
+        expect(gap?.max).toBe('24');
+        expect(gap?.getAttribute('aria-describedby')).toBe('frame-settings-gap-hint');
+        expect(drawer()?.querySelector('#frame-settings-gap-hint')?.textContent).toContain('from 4 to 24');
+      });
+
+      it('saves every field and shows the saved values when opened again', async () => {
+        const { fixture, root } = await openSettings();
+        const settings = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
+
+        choose(field<HTMLSelectElement>('shape'), 'rounded-square');
+        choose(field<HTMLSelectElement>('size'), 'large');
+        field<HTMLInputElement>('showTitles')?.click();
+        choose(field<HTMLSelectElement>('alignment'), 'center');
+        type(field<HTMLInputElement>('gap'), '20');
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
+        expect(req.request.method).toBe('PATCH');
+        expect(req.request.body).toEqual({ settings });
+        req.flush({ ...frameBar, settings });
+        await settle(fixture);
+
+        expect(drawer()).toBeNull();
+        root.querySelector<HTMLButtonElement>('[aria-label="Settings of frame 1, Bar"]')?.click();
+        await settle(fixture);
+        expect(field<HTMLSelectElement>('shape')?.value).toBe('rounded-square');
+        expect(field<HTMLInputElement>('showTitles')?.checked).toBe(false);
+        expect(field<HTMLInputElement>('gap')?.value).toBe('20');
+      });
+
+      it('keeps the drawer open with the API message and marks the refused field', async () => {
+        const { fixture } = await openSettings();
+
+        type(field<HTMLInputElement>('gap'), '40');
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
+        expect(req.request.body.settings.gap).toBe(40);
+        req.flush(
+          { error: { code: 'invalid_frame_settings', message: 'settings.gap must be at most 24' } },
+          { status: 400, statusText: 'Bad Request' },
+        );
+        await settle(fixture);
+
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('settings.gap must be at most 24');
+        const gap = field<HTMLInputElement>('gap');
+        expect(gap?.getAttribute('aria-invalid')).toBe('true');
+        expect(gap?.getAttribute('aria-describedby')).toBe('frame-settings-gap-hint create-error');
+        expect(field<HTMLSelectElement>('shape')?.getAttribute('aria-invalid')).toBeNull();
+      });
+
+      it('keeps the last number while a number field is empty, and puts the default back when it is left empty', async () => {
+        const { fixture } = await openSettings();
+        const gap = field<HTMLInputElement>('gap') as HTMLInputElement;
+
+        type(gap, '20');
+        // Each input event is followed by change detection, as in the browser.
+        await settle(fixture);
+        type(gap, '');
+        await settle(fixture);
+        // Not rebound while typing.
+        expect(gap.value).toBe('');
+        gap.dispatchEvent(new Event('blur'));
+        await settle(fixture);
+        expect(gap.value).toBe('12');
+
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
+        expect(req.request.body.settings).toEqual({
+          shape: 'circle',
+          size: 'medium',
+          showTitles: true,
+          alignment: 'start',
+          gap: 12,
+        });
+        req.flush(frameBar);
+        await settle(fixture);
+      });
+
+      it('saves the last typed number when the field is emptied but not left', async () => {
+        const { fixture } = await openSettings();
+        const gap = field<HTMLInputElement>('gap') as HTMLInputElement;
+
+        type(gap, '20');
+        type(gap, '');
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
+        expect(req.request.body.settings.gap).toBe(20);
+        req.flush(frameBar);
+        await settle(fixture);
+      });
+
+      it('shows and saves defaults for stored values the schema does not allow', async () => {
+        const broken = { ...frameBar, settings: { shape: 'star', size: 'large', showTitles: 'no', gap: 40 } };
+        const { fixture } = await openSettings({ ...oneZone, frames: { z1: [broken] } });
+
+        expect(field<HTMLSelectElement>('shape')?.value).toBe('circle');
+        expect(field<HTMLSelectElement>('size')?.value).toBe('large');
+        expect(field<HTMLInputElement>('showTitles')?.checked).toBe(true);
+        expect(field<HTMLInputElement>('gap')?.value).toBe('12');
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
+        expect(req.request.body.settings).toEqual({
+          shape: 'circle',
+          size: 'large',
+          showTitles: true,
+          alignment: 'start',
+          gap: 12,
+        });
+        req.flush(frameBar);
+        await settle(fixture);
+      });
+
+      it('clears the refused field mark when that field changes, and sets it again on the next refusal', async () => {
+        const { fixture } = await openSettings();
+        const refuseGap = async () => {
+          buttonNamed(drawer() as HTMLElement, 'Save').click();
+          http
+            .expectOne(`${API_BASE}/zones/z1/frames/f1`)
+            .flush(
+              { error: { code: 'invalid_frame_settings', message: 'settings.gap must be at most 24' } },
+              { status: 400, statusText: 'Bad Request' },
+            );
+          await settle(fixture);
+        };
+
+        type(field<HTMLInputElement>('gap'), '40');
+        await refuseGap();
+        const gap = field<HTMLInputElement>('gap') as HTMLInputElement;
+        expect(gap.getAttribute('aria-invalid')).toBe('true');
+
+        // Another field changing leaves the mark.
+        choose(field<HTMLSelectElement>('shape'), 'rounded-square');
+        await settle(fixture);
+        expect(gap.getAttribute('aria-invalid')).toBe('true');
+
+        type(gap, '30');
+        await settle(fixture);
+        expect(gap.getAttribute('aria-invalid')).toBeNull();
+        expect(gap.getAttribute('aria-describedby')).toBe('frame-settings-gap-hint');
+
+        await refuseGap();
+        expect(gap.getAttribute('aria-invalid')).toBe('true');
+      });
     });
 
     it('creates a tale group, then adds tales A then B, shown in that order', async () => {
