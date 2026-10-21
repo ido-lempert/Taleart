@@ -71,6 +71,12 @@ function isPlaceable(element: unknown): element is DeliveryTaleElement {
   );
 }
 
+/** The document's canvas colour when it is a valid `#RRGGBB` or `#RRGGBBAA`, else null. */
+export function canvasColor(doc: DeliveryTaleDocument): string | null {
+  const color = doc.canvas?.background?.color;
+  return typeof color === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(color) ? color : null;
+}
+
 /** How a document is rendered over its tale. */
 export interface DocumentRenderOptions {
   /**
@@ -94,15 +100,16 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   area.className = 'ta-area';
   const canvas = document.createElement('div');
   canvas.className = 'ta-canvas';
-  const color = doc.canvas?.background?.color;
-  if (options.background && typeof color === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) {
-    canvas.style.backgroundColor = color;
-  }
+  const color = canvasColor(doc);
+  if (options.background && color) canvas.style.backgroundColor = color;
   if (options.label) {
     canvas.setAttribute('role', 'group');
     canvas.setAttribute('aria-label', options.label);
   }
-  const elements = Array.isArray(doc.elements) ? doc.elements.filter(isPlaceable) : [];
+  // Delivered documents hold no hidden element; one that does (such as an editor's unsaved copy) skips it.
+  const elements = Array.isArray(doc.elements)
+    ? doc.elements.filter((e) => isPlaceable(e) && (e as { hidden?: unknown }).hidden !== true)
+    : [];
   const layer = new Map(elements.map((element, i) => [element, i + 1]));
   for (const element of readingOrder(elements)) {
     const render = ELEMENT_RENDERERS.get(element.type);

@@ -15,7 +15,13 @@ export type IconName =
   | 'down'
   | 'grip'
   | 'tag'
-  | 'settings';
+  | 'settings'
+  | 'text'
+  | 'eye'
+  | 'eye-off'
+  | 'lock'
+  | 'unlock'
+  | 'more';
 
 /** Inline SVG icons (24px grid, 2px stroke). Decorative: the control around an icon carries the label. */
 @Component({
@@ -89,6 +95,31 @@ export type IconName =
           <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
           <circle cx="16" cy="7" r="2" />
           <circle cx="8" cy="17" r="2" />
+        }
+        @case ('text') {
+          <path d="M5 6V4h14v2M12 4v16M9 20h6" />
+        }
+        @case ('eye') {
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+          <circle cx="12" cy="12" r="3" />
+        }
+        @case ('eye-off') {
+          <path
+            d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"
+          />
+        }
+        @case ('lock') {
+          <rect x="5" y="11" width="14" height="10" rx="2" />
+          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+        }
+        @case ('unlock') {
+          <rect x="5" y="11" width="14" height="10" rx="2" />
+          <path d="M8 11V7a4 4 0 0 1 7.7-1.5" />
+        }
+        @case ('more') {
+          <circle cx="5" cy="12" r="1" />
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="19" cy="12" r="1" />
         }
         @case ('tales') {
           <rect x="7" y="3" width="10" height="18" rx="2" />

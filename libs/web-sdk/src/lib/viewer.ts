@@ -1,5 +1,5 @@
 import type { DeliveryTale, DeliveryTaleGroup } from '@taleart/contract';
-import { DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
+import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
 
 /** How long an image, or a tale without playable media, shows when its document sets no duration. */
 export const IMAGE_DURATION_MS = 5000;
@@ -479,6 +479,9 @@ export class TaleViewer {
     // tale's name.
     this.media = doc && !current.media ? null : this.renderMedia(current);
     if (this.media) stage.prepend(this.media);
+    // Behind a document tale's media, its canvas colour fills the stage, such as the bands a
+    // contained image leaves; without a document the stage stays the viewer's black.
+    stage.style.backgroundColor = (current.media && doc && canvasColor(doc)) || '';
     if (doc) {
       // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
       this.layer = renderTaleDocument(doc, {
