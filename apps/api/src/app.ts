@@ -6,6 +6,7 @@ import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { authRouter, requireSession } from './http/auth.router';
+import { coversRouter } from './http/covers.router';
 import { deliveryRouter } from './http/delivery.router';
 import { frameTypesRouter } from './http/frame-types.router';
 import { importsRouter, type ImporterConfig } from './http/imports.router';
@@ -82,6 +83,7 @@ export function createApp(
   v1.use('/zones', zoneTaleGroupsRouter(pool));
   v1.use('/zones', zoneKeysRouter(pool));
   v1.use('/tale-groups', taleGroupsRouter(pool));
+  v1.use('/tale-groups', coversRouter(pool, storage));
   v1.use('/tales', talesRouter(pool, storage));
   app.use(MANAGEMENT_API_BASE, v1);
 

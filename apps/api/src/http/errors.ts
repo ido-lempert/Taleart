@@ -101,10 +101,12 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     return;
   }
   // A body parser rejects a body over its limit this way: express.raw() on the
-  // media upload (100 MB), express.json() elsewhere.
+  // media upload (100 MB) and the cover upload (10 MB), express.json() elsewhere.
   if ((err as { type?: string })?.type === 'entity.too.large') {
     if (/\/media$/.test(req.path)) {
       res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 100 MB'));
+    } else if (/\/cover$/.test(req.path)) {
+      res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 10 MB'));
     } else {
       res.status(413).json(errorBody(ErrorCodes.validationFailed, 'Request body is too large'));
     }

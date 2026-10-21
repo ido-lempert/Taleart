@@ -1,5 +1,5 @@
 import type { DeliveryZone } from '@taleart/contract';
-import { BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
+import { applyCoverMotion, BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
 import { fetchZone } from './delivery-client';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
@@ -29,6 +29,9 @@ export class TaleartElement extends HTMLElement {
   private viewer: TaleViewer | null = null;
   // The group whose item takes focus after a reload that closed an open viewer.
   private pendingFocus: string | null = null;
+  // The visitor's reduced-motion setting, watched while connected so animated covers follow it (R11, R12).
+  private motionQuery: MediaQueryList | null = null;
+  private readonly onMotionChange = (event: MediaQueryListEvent): void => applyCoverMotion(this.root, event.matches);
 
   /** The TaleArt API origin, such as `https://api.example.com`. */
   get apiUrl(): string {
@@ -47,6 +50,10 @@ export class TaleartElement extends HTMLElement {
   }
 
   connectedCallback(): void {
+    if (typeof matchMedia === 'function') {
+      this.motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+      this.motionQuery.addEventListener?.('change', this.onMotionChange);
+    }
     this.scheduleLoad();
   }
 
@@ -55,6 +62,8 @@ export class TaleartElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    this.motionQuery?.removeEventListener?.('change', this.onMotionChange);
+    this.motionQuery = null;
     this.loadId++;
     this.closeViewer();
   }

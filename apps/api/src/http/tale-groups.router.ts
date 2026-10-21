@@ -43,7 +43,7 @@ import { requiredSchedule, requiredSettableStatus, requiredString, requiredStrin
  * Tale groups with their tags. The tales module stores groups and the
  * targeting module their tags; the API composes the two (AD-1).
  */
-async function withTags<G extends StoredTaleGroup>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
+export async function withTags<G extends StoredTaleGroup>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
   const tags = await tagsForTaleGroups(pool, groups.map((g) => g.id));
   return groups.map((group) => ({ ...group, tags: tags.get(group.id) ?? [] }));
 }

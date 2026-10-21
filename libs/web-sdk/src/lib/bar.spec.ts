@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DeliveryTaleGroup } from '@taleart/contract';
 import {
+  applyCoverMotion,
   BAR_CHOICES,
   BAR_DEFAULTS,
   BAR_GAP_RANGE,
@@ -12,8 +13,8 @@ import {
 } from './bar';
 
 const groups: DeliveryTaleGroup[] = [
-  { id: 'ga', name: 'Summer', tales: [] },
-  { id: 'gb', name: 'Winter', tales: [] },
+  { id: 'ga', name: 'Summer', cover: null, tales: [] },
+  { id: 'gb', name: 'Winter', cover: null, tales: [] },
 ];
 
 function bar(settings?: unknown): HTMLElement {
@@ -83,5 +84,86 @@ describe('renderBar', () => {
     // Auto margins centre the row without clipping the first item when it overflows.
     expect(BAR_STYLES).toContain('.bar[data-align="center"] > li:first-child { margin-inline-start: auto; }');
     expect(BAR_STYLES).toContain('.bar[data-align="center"] > li:last-child { margin-inline-end: auto; }');
+  });
+});
+
+describe('covers', () => {
+  const API = 'https://api.example.com';
+  const tale = (id: string, kind: 'image' | 'video', url: string) => ({
+    id,
+    title: id,
+    media: { kind, contentType: kind === 'image' ? ('image/png' as const) : ('video/mp4' as const), url },
+  });
+  const withCover = (
+    cover: DeliveryTaleGroup['cover'],
+    tales = [tale('t1', 'image', `${API}/media/tales/first.png`)],
+  ): DeliveryTaleGroup[] => [{ id: 'g', name: 'G', cover, tales }];
+  const coverOf = (list: HTMLElement) => list.querySelector<HTMLElement>('.cover');
+  const still = { kind: 'image', contentType: 'image/jpeg', animated: false, url: `${API}/media/covers/s.jpg` } as const;
+  const clip = { kind: 'video', contentType: 'video/webm', animated: true, url: `${API}/media/covers/c.webm` } as const;
+  const gif = { kind: 'image', contentType: 'image/gif', animated: true, url: `${API}/media/covers/a.gif` } as const;
+
+  it("shows the group's cover instead of its first tale's media", () => {
+    const img = coverOf(renderBar(withCover(still), new Set(), {}, false));
+    expect(img?.tagName).toBe('IMG');
+    expect(img?.getAttribute('src')).toBe(still.url);
+    expect(img?.getAttribute('alt')).toBe('');
+    expect(img?.hasAttribute('data-animated')).toBe(false);
+  });
+
+  it("falls back to the first tale's image, or a video's first frame, without a cover", () => {
+    expect(coverOf(renderBar(withCover(null), new Set(), {}, false))?.getAttribute('src')).toBe(`${API}/media/tales/first.png`);
+    const video = coverOf(renderBar(withCover(null, [tale('t1', 'video', `${API}/media/tales/v.mp4`)]), new Set(), {}, false));
+    expect(video?.tagName).toBe('VIDEO');
+    expect((video as HTMLVideoElement).autoplay).toBe(false);
+    expect(video?.getAttribute('src')).toBe(`${API}/media/tales/v.mp4#t=0.001`);
+  });
+
+  it('plays an animated video cover muted, looping and inline', () => {
+    const video = coverOf(renderBar(withCover(clip), new Set(), {}, false)) as HTMLVideoElement;
+    expect(video.tagName).toBe('VIDEO');
+    expect([video.autoplay, video.loop, video.muted, video.playsInline]).toEqual([true, true, true, true]);
+    expect(video.getAttribute('src')).toBe(clip.url);
+    expect(video.getAttribute('aria-hidden')).toBe('true');
+    expect(video.dataset).toMatchObject({ animated: '', kind: 'video', src: clip.url });
+  });
+
+  it('keeps an animated video cover on its first frame under reduced motion', () => {
+    const video = coverOf(renderBar(withCover(clip), new Set(), {}, true)) as HTMLVideoElement;
+    expect([video.autoplay, video.loop]).toEqual([false, false]);
+    expect(video.preload).toBe('metadata');
+    expect(video.getAttribute('src')).toBe(`${clip.url}#t=0.001`);
+  });
+
+  it('draws an animated image cover to a still canvas under reduced motion', () => {
+    const list = renderBar(withCover(gif), new Set(), {}, true);
+    expect(coverOf(list)?.tagName).toBe('CANVAS');
+    expect(list.querySelector('img')).toBeNull();
+    expect(coverOf(renderBar(withCover(gif), new Set(), {}, false))?.tagName).toBe('IMG');
+  });
+
+  it('reads the reduced-motion setting when none is passed', () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)' })));
+    try {
+      expect((coverOf(renderBar(withCover(clip))) as HTMLVideoElement).autoplay).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect((coverOf(renderBar(withCover(clip))) as HTMLVideoElement).autoplay).toBe(true);
+  });
+
+  it('redraws animated covers when the setting changes, leaving still ones', () => {
+    const list = renderBar([...withCover(clip), { ...withCover(gif)[0], id: 'g2' }, { ...withCover(still)[0], id: 'g3' }], new Set(), {}, false);
+    const stillImg = list.querySelectorAll('.cover')[2];
+    applyCoverMotion(list, true);
+    const [video, canvas, kept] = [...list.querySelectorAll<HTMLElement>('.cover')];
+    expect((video as HTMLVideoElement).autoplay).toBe(false);
+    expect(canvas.tagName).toBe('CANVAS');
+    expect(kept).toBe(stillImg);
+    applyCoverMotion(list, false);
+    const [moving, img] = [...list.querySelectorAll<HTMLElement>('.cover')];
+    expect((moving as HTMLVideoElement).autoplay).toBe(true);
+    expect(img.tagName).toBe('IMG');
+    expect(img.getAttribute('src')).toBe(gif.url);
   });
 });

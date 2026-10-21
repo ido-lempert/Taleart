@@ -134,4 +134,13 @@ export async function migrateTales(db: Db): Promise<void> {
       $$;
     `);
   }
+
+  // A tale group's optional cover, still or animated (epic web zones R12): the
+  // storage key and uploaded content type, never a path or URL (AD-11), and
+  // whether it moves, decided from the bytes when it was uploaded. A cover
+  // key may be shared by copies (AD-14), so it is looked up by key.
+  await db.query('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_key text');
+  await db.query('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_content_type text');
+  await db.query('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_animated boolean NOT NULL DEFAULT false');
+  await db.query('CREATE INDEX IF NOT EXISTS tale_groups_cover_key_idx ON tale_groups (cover_key)');
 }

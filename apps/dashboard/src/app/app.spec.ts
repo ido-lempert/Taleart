@@ -7,6 +7,7 @@ import { provideRouter, Router, withComponentInputBinding } from '@angular/route
 import { App, API_BASE, API_ORIGIN } from './app';
 import { appRoutes } from './app.routes';
 import { PasskeyClient, unauthorizedInterceptor } from './auth';
+import { CoverCapture } from './cover-capture';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
 import { IMPORT_POLL_INTERVAL_MS } from './import.service';
 
@@ -110,6 +111,13 @@ function drawer(): HTMLElement | null {
   return document.querySelector('[role=dialog]');
 }
 
+// Stands in for drawing and recording video in the browser, which jsdom cannot do.
+const capture = {
+  canRecord: vi.fn(() => true),
+  captureFrame: vi.fn<(video: HTMLVideoElement) => Promise<Blob>>(),
+  recordClip: vi.fn<(video: HTMLVideoElement, start: number, seconds: number) => Promise<Blob>>(),
+};
+
 // Stands in for the browser's WebAuthn calls.
 const passkeys = {
   supported: vi.fn(() => true),
@@ -129,6 +137,7 @@ describe('App', () => {
         provideHttpClient(withInterceptors([unauthorizedInterceptor])),
         provideHttpClientTesting(),
         { provide: PasskeyClient, useValue: passkeys },
+        { provide: CoverCapture, useValue: capture },
         provideRouter(appRoutes, withComponentInputBinding()),
       ],
     }).compileComponents();
@@ -2014,6 +2023,238 @@ describe('App', () => {
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale');
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Unsupported');
       expect(root.querySelectorAll('[aria-label="Tales in Summer"] li')).toHaveLength(1);
+    });
+  });
+
+  describe('tale group cover', () => {
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'cover.png', { type: 'image/png' });
+    const stillCover = { kind: 'image', contentType: 'image/png', animated: false, url: '/api/v1/tale-groups/g1/cover' };
+    const videoTale = { ...taleB, media: mp4Media };
+    const withVideo: Data = { ...oneZone, groups: { z1: [{ ...group, cover: null, tales: [taleA, videoTale] }] } };
+
+    async function openCover(data: Data) {
+      const opened = await open('/zones/z1', data);
+      buttonNamed(opened.root, 'Cover').click();
+      await settle(opened.fixture);
+      return opened;
+    }
+
+    function radio(name: string): HTMLInputElement {
+      const label = [...(drawer()?.querySelectorAll('label.checkbox') ?? [])].find((l) => l.textContent?.trim() === name);
+      const input = label?.querySelector<HTMLInputElement>('input[type=radio]');
+      if (!input) throw new Error(`No ${name} option`);
+      return input;
+    }
+
+    async function chooseSource(fixture: ComponentFixture<unknown>, name: string): Promise<void> {
+      const input = radio(name);
+      input.checked = true;
+      input.dispatchEvent(new Event('change'));
+      await settle(fixture);
+    }
+
+    // Gives the drawer's source video a length, as the browser does once its metadata loads.
+    async function loadVideo(fixture: ComponentFixture<unknown>, seconds: number): Promise<HTMLVideoElement> {
+      const video = drawer()?.querySelector<HTMLVideoElement>('video.cover-source');
+      if (!video) throw new Error('No source video');
+      Object.defineProperty(video, 'duration', { value: seconds, configurable: true });
+      Object.defineProperty(video, 'videoWidth', { value: 640, configurable: true });
+      Object.defineProperty(video, 'videoHeight', { value: 360, configurable: true });
+      video.dispatchEvent(new Event('loadedmetadata'));
+      await settle(fixture);
+      return video;
+    }
+
+    async function moveKnob(fixture: ComponentFixture<unknown>, value: string): Promise<HTMLInputElement> {
+      const knob = drawer()?.querySelector<HTMLInputElement>('input[type=range]') ?? null;
+      type(knob, value);
+      await settle(fixture);
+      return knob as HTMLInputElement;
+    }
+
+    // Answers the cover PUT and the refresh after it.
+    async function answerCover(fixture: ComponentFixture<unknown>, contentType: string, after: Data) {
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/cover`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.headers.get('Content-Type')).toBe(contentType);
+      const body = req.request.body as Blob;
+      req.flush({ ...group, cover: stillCover, tales: [] });
+      await settle(fixture);
+      await flushRefresh(fixture, after);
+      await settle(fixture);
+      return body;
+    }
+
+    beforeEach(() => {
+      capture.canRecord.mockReturnValue(true);
+      capture.captureFrame.mockReset();
+      capture.recordClip.mockReset();
+    });
+
+    it("shows the group's cover in its ring, and the default when it has none", async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, cover: stillCover, tales: [] }] },
+      });
+      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe('/api/v1/tale-groups/g1/cover');
+
+      buttonNamed(root, 'Cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Cover');
+      expect(drawer()?.textContent).toContain('Still cover');
+      expect(drawer()?.textContent).toContain('Tale group Summer');
+    });
+
+    it('uploads a picked image as the cover and shows it in the ring', async () => {
+      const { fixture, root } = await openCover({ ...oneZone, groups: { z1: [{ ...group, cover: null, tales: [] }] } });
+      expect(drawer()?.textContent).toContain("No cover. The bar shows the first tale's image.");
+      // Without a video tale, only an upload is offered.
+      expect(radio('Frame of a video tale').disabled).toBe(true);
+      expect(radio('Animated, from a video tale').disabled).toBe(true);
+      expect(drawer()?.textContent).toContain('Add a video tale to this group');
+
+      const input = drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null;
+      expect(input?.accept).toBe('image/jpeg,image/png,image/webp,image/gif');
+      pick(input, png);
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      const body = await answerCover(fixture, 'image/png', {
+        ...oneZone,
+        groups: { z1: [{ ...group, cover: stillCover, tales: [] }] },
+      });
+
+      expect(body).toBe(png);
+      expect(drawer()).toBeNull();
+      expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe(
+        '/api/v1/tale-groups/g1/cover?v=1',
+      );
+    });
+
+    it('asks for an image when Save is pressed without one', async () => {
+      const { fixture } = await openCover({ ...oneZone, groups: { z1: [{ ...group, cover: null, tales: [] }] } });
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Choose an image to upload.');
+    });
+
+    it('picks a video frame with the timeline knob and uploads it as a still JPEG', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Frame of a video tale');
+      const video = await loadVideo(fixture, 8);
+      expect(video.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t2/media`);
+      expect(video.muted).toBe(true);
+      const knob = await moveKnob(fixture, '2.5');
+      expect(drawer()?.querySelector('label[for=cover-time]')?.textContent).toContain('Frame time');
+      expect(knob.max).toBe('8');
+      expect(video.currentTime).toBe(2.5);
+      expect(knob.getAttribute('aria-valuetext')).toBe('2.5 s of 8.0 s');
+
+      const frame = new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' });
+      capture.captureFrame.mockResolvedValue(frame);
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(capture.captureFrame).toHaveBeenCalledWith(video);
+      const body = await answerCover(fixture, 'image/jpeg', withVideo);
+      expect(body).toBe(frame);
+      expect(drawer()).toBeNull();
+    });
+
+    it('shows why a frame could not be captured', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Frame of a video tale');
+      await loadVideo(fixture, 8);
+      capture.captureFrame.mockRejectedValue(new Error('The video has not loaded yet.'));
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The video has not loaded yet.');
+    });
+
+    it('makes an animated cover from the knob time and length, previews it and uploads it', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      const video = await loadVideo(fixture, 8);
+      await moveKnob(fixture, '1.5');
+      expect(drawer()?.querySelector('label[for=cover-time]')?.textContent).toContain('Start time');
+      choose(drawer()?.querySelector<HTMLSelectElement>('#cover-length') ?? null, '3');
+      await settle(fixture);
+
+      const clip = new Blob([new Uint8Array(200 * 1024)], { type: 'video/webm' });
+      capture.recordClip.mockResolvedValue(clip);
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      expect(capture.recordClip).toHaveBeenCalledWith(video, 1.5, 3);
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toContain('Animated cover ready, 200 KB');
+      expect(drawer()?.querySelector('video.cover-preview')).not.toBeNull();
+
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(await answerCover(fixture, 'video/webm', withVideo)).toBe(clip);
+      expect(drawer()).toBeNull();
+    });
+
+    it('refuses an animated cover above 300 KB before uploading it', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      await loadVideo(fixture, 8);
+      capture.recordClip.mockResolvedValue(new Blob([new Uint8Array(400 * 1024)], { type: 'video/webm' }));
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+        'This animated cover is 400 KB, above the 300 KB limit. Choose a shorter length.',
+      );
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('above the 300 KB limit');
+      http.expectNone(`${API_BASE}/tale-groups/g1/cover`);
+    });
+
+    it("asks for the clip first, and shows the API's refusal", async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      await loadVideo(fixture, 8);
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Make the animated cover first.');
+
+      capture.recordClip.mockResolvedValue(new Blob([new Uint8Array(10)], { type: 'video/webm' }));
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1/cover`)
+        .flush(
+          { error: { code: 'media_too_large', message: 'An animated cover is at most 300 KB' } },
+          { status: 413, statusText: 'Payload Too Large' },
+        );
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('An animated cover is at most 300 KB');
+    });
+
+    it('offers no animated cover where the browser cannot record one', async () => {
+      capture.canRecord.mockReturnValue(false);
+      await openCover(withVideo);
+      expect(radio('Frame of a video tale').disabled).toBe(false);
+      expect(radio('Animated, from a video tale').disabled).toBe(true);
+      expect(drawer()?.textContent).toContain('This browser cannot record an animated cover.');
+    });
+
+    it('removes the cover at once and closes the drawer', async () => {
+      const { fixture, root } = await openCover({
+        ...oneZone,
+        groups: { z1: [{ ...group, cover: stillCover, tales: [] }] },
+      });
+      buttonNamed(drawer() as HTMLElement, 'Remove cover').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/cover`);
+      expect(req.request.method).toBe('DELETE');
+      req.flush({ ...group, cover: null, tales: [] });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, cover: null, tales: [] }] } });
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(root.querySelector('.group .ring img')).toBeNull();
+      expect(root.querySelector('.group .ring')?.textContent?.trim()).toBe('S');
     });
   });
 

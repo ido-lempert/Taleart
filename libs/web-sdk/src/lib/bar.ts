@@ -118,33 +118,79 @@ export const BAR_STYLES = `
 }
 `;
 
-// The group's cover: the first tale with media: its image, or that video's first frame
-// (metadata only, never autoplayed); a neutral placeholder with no media.
-function cover(group: DeliveryTaleGroup): HTMLElement {
-  const media = group.tales.find((tale) => tale.media)?.media;
+/** True when the visitor asks for reduced motion (R11): animated covers then stay still. */
+export function prefersReducedMotion(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * One cover element. A still image is an `<img>`; a still video shows its
+ * first frame (metadata only, never played). An animated video (R12) is a
+ * muted, looping, inline video that autoplays; an animated image is an
+ * `<img>`. Under reduced motion an animated video stays on its first frame and
+ * an animated image is drawn once to a canvas (its first frame). Animated
+ * covers carry `data-animated`, `data-kind` and `data-src`, so
+ * {@link applyCoverMotion} can redraw them when the setting changes.
+ */
+function coverMedia(kind: 'image' | 'video', url: string, animated: boolean, reduced: boolean): HTMLElement {
   let el: HTMLElement;
-  if (media?.kind === 'image') {
+  if (kind === 'video') {
+    const video = document.createElement('video');
+    const moving = animated && !reduced;
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('aria-hidden', 'true');
+    video.autoplay = moving;
+    video.loop = moving;
+    video.preload = moving ? 'auto' : 'metadata';
+    // The fragment makes Safari and iOS paint the first frame with metadata-only preload.
+    video.src = moving ? url : `${url}#t=0.001`;
+    el = video;
+  } else if (animated && reduced) {
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('aria-hidden', 'true');
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d')?.drawImage(img, 0, 0);
+    };
+    img.src = url;
+    el = canvas;
+  } else {
     const img = document.createElement('img');
-    img.src = media.url;
+    img.src = url;
     img.alt = '';
     img.decoding = 'async';
     el = img;
-  } else if (media?.kind === 'video') {
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.muted = true;
-    video.playsInline = true;
-    video.autoplay = false;
-    video.setAttribute('aria-hidden', 'true');
-    // The fragment makes Safari and iOS paint the first frame with metadata-only preload.
-    video.src = `${media.url}#t=0.001`;
-    el = video;
-  } else {
-    el = document.createElement('span');
-    el.setAttribute('data-placeholder', '');
+  }
+  if (animated) {
+    el.dataset['animated'] = '';
+    el.dataset['kind'] = kind;
+    el.dataset['src'] = url;
   }
   el.className = 'cover';
   return el;
+}
+
+// The group's cover (R12) when it has one; else the first tale with media: its image, or that
+// video's first frame; a neutral placeholder with no media.
+function cover(group: DeliveryTaleGroup, reduced: boolean): HTMLElement {
+  if (group.cover) return coverMedia(group.cover.kind, group.cover.url, group.cover.animated === true, reduced);
+  const media = group.tales.find((tale) => tale.media)?.media;
+  if (media) return coverMedia(media.kind, media.url, false, reduced);
+  const el = document.createElement('span');
+  el.setAttribute('data-placeholder', '');
+  el.className = 'cover';
+  return el;
+}
+
+/** Redraws every animated cover under `root` for the visitor's current motion setting. */
+export function applyCoverMotion(root: ParentNode, reduced: boolean): void {
+  for (const el of root.querySelectorAll<HTMLElement>('.cover[data-animated]')) {
+    const kind = el.dataset['kind'] === 'video' ? 'video' : 'image';
+    el.replaceWith(coverMedia(kind, el.dataset['src'] ?? '', true, reduced));
+  }
 }
 
 /**
@@ -160,12 +206,14 @@ export function setItemSeen(button: HTMLElement, name: string, seen: boolean): v
  * One bar item per tale group, in order, as buttons named by the group; the
  * groups in `seen` show the seen ring. `settings` (the frame's, as delivered)
  * set the shape, size, titles, alignment and gap; a hidden title leaves the
- * item's accessible name as it is.
+ * item's accessible name as it is. Animated covers stay still when
+ * `reducedMotion` is true.
  */
 export function renderBar(
   groups: readonly DeliveryTaleGroup[],
   seen: ReadonlySet<string> = new Set(),
   settings: unknown = {},
+  reducedMotion = prefersReducedMotion(),
 ): HTMLElement {
   const { shape, size, showTitles, alignment, gap } = readBarSettings(settings);
   const list = document.createElement('ul');
@@ -184,7 +232,7 @@ export function renderBar(
     setItemSeen(button, group.name, seen.has(group.id));
     const ring = document.createElement('span');
     ring.className = 'ring';
-    ring.appendChild(cover(group));
+    ring.appendChild(cover(group, reducedMotion));
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = group.name;
