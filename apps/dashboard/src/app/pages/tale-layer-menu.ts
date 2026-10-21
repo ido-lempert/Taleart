@@ -5,10 +5,11 @@ import type { LayerCommand } from './tale-layers';
 export interface LayerMenuItem {
   command: LayerCommand;
   label: string;
-  /** The shortcut as people read it, shown beside the label. */
+  /**
+   * The shortcut as people read it, shown beside the label. It works on the canvas and in the
+   * layers list, not in the menu, so the item carries no `aria-keyshortcuts`.
+   */
   shortcut?: string;
-  /** The shortcut for `aria-keyshortcuts`. */
-  aria?: string;
 }
 
 /**
@@ -21,22 +22,20 @@ export interface LayerMenuItem {
   selector: 'app-tale-layer-menu',
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Keys are read on the host: focus is always on one of the items (a WAI-ARIA menu).
-  host: { '(document:pointerdown)': 'outside($event)', '(keydown)': 'onKey($event)' },
+  host: {
+    '(document:pointerdown)': 'outside($event)',
+    '(keydown)': 'onKey($event)',
+    // No browser menu over the studio's own.
+    '(contextmenu)': '$event.preventDefault()',
+  },
   template: `
-    <div
-      class="layer-menu"
-      role="menu"
-      [attr.aria-label]="label()"
-      [style.left.px]="x()"
-      [style.top.px]="y()"
-    >
+    <div class="layer-menu" role="menu" [attr.aria-label]="label()" [style.left.px]="x()" [style.top.px]="y()">
       @for (item of items(); track item.command) {
         <button
           type="button"
           role="menuitem"
           tabindex="-1"
           class="layer-menu__item"
-          [attr.aria-keyshortcuts]="item.aria ?? null"
           (click)="chosen.emit(item.command)"
         >
           <span>{{ item.label }}</span>
@@ -56,6 +55,8 @@ export class TaleLayerMenu {
   /** Where the menu opens, in viewport pixels; it is kept inside the viewport. */
   readonly x = input(0);
   readonly y = input(0);
+  /** The DOM id of the button that opened the menu: a press on it is left to the button, which toggles the menu. */
+  readonly anchorId = input('');
   readonly chosen = output<LayerCommand>();
   /** The menu closes without a choice: `true` when focus should return to what opened it (Escape, Tab). */
   readonly closed = output<boolean>();
@@ -82,7 +83,10 @@ export class TaleLayerMenu {
   /** A press outside the menu closes it, and focus stays where the press put it. */
   protected outside(event: Event): void {
     const menu = this.host.nativeElement.querySelector('.layer-menu');
-    if (menu && !menu.contains(event.target as Node)) this.closed.emit(false);
+    const target = event.target as Element | null;
+    const anchor = this.anchorId() ? document.getElementById(this.anchorId()) : null;
+    if (anchor && target && anchor.contains(target)) return;
+    if (menu && !menu.contains(target)) this.closed.emit(false);
   }
 
   protected onKey(event: KeyboardEvent): void {

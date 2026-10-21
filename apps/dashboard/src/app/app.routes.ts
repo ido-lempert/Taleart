@@ -5,7 +5,6 @@ import { ImportJobPage } from './pages/import-job';
 import { InvitePage } from './pages/invite';
 import { SetupPage } from './pages/setup';
 import { SignInPage } from './pages/sign-in';
-import { TaleStudioPage } from './pages/tale-studio';
 import { ProjectsPage } from './pages/projects';
 import { TaleGroupsPage } from './pages/tale-groups';
 import { ThemePage } from './pages/theme';
@@ -73,9 +72,9 @@ export const appRoutes: Route[] = [
         data: { heading: 'Tale groups' } satisfies ShellData,
       },
       {
-        // Tale Studio: a tale's document on a 9:16 canvas (epic Tale Studio, AD-15).
+        // Tale Studio: a tale's document on a 9:16 canvas (epic Tale Studio, AD-15), loaded on first visit.
         path: 'tales/:taleId/studio',
-        component: TaleStudioPage,
+        loadComponent: () => import('./pages/tale-studio').then((m) => m.TaleStudioPage),
         title: 'Tale Studio · TaleArt',
         data: { heading: 'Tale Studio' } satisfies ShellData,
       },
