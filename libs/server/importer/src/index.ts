@@ -16,6 +16,7 @@ export {
   type SourceStory,
 } from './lib/storyly-client';
 export { StorylyTokenInvalidError, StorylyUnavailableError } from './lib/errors';
+export { DEFAULT_RETRY_POLICY, INTERACTIVE_RETRY_POLICY, type RetryPolicy } from './lib/retry';
 export {
   previewApp,
   signSelectionKey,
@@ -31,6 +32,7 @@ export {
   type SelectionScope,
 } from './lib/preview';
 export {
+  claimNextJob,
   createImportJob,
   getImportJob,
   listImportJobs,
@@ -42,6 +44,8 @@ export {
 export {
   startImportWorker,
   runImportJob,
+  DEFAULT_IMPORT_CONCURRENCY,
+  type ImportConcurrency,
   IMPORT_POLL_INTERVAL_MS,
   IMPORT_HEARTBEAT_MS,
   IMPORT_STALE_AFTER_MS,

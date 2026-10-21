@@ -10,6 +10,7 @@ import { PasskeyClient, unauthorizedInterceptor } from './auth';
 import { CoverCapture } from './cover-capture';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
 import { IMPORT_POLL_INTERVAL_MS } from './import.service';
+import { importDurationText } from './pages/import-shared';
 
 // The shape of the shipped bar schema (libs/contract/frame-types/bar.schema.json) as GET /frame-types sends it.
 const barSchema = {
@@ -3765,6 +3766,30 @@ describe('App', () => {
         'media: not imported (its link leads to a private address), so the tale has no media',
       ]);
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('shows how long a finished import took, and nothing for a report without it', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('done', { report: { ...report, elapsedSeconds: 252 }, finishedAt: '2026-10-20T12:04:13.000Z' }),
+      );
+      const took = () =>
+        [...root.querySelectorAll('dt')].find((dt) => dt.textContent?.trim() === 'Took')?.nextElementSibling
+          ?.textContent;
+      expect(took()?.trim()).toBe('4 min 12 s');
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('writes durations in seconds, minutes and hours', () => {
+      expect([0, 42, 60, 252, 3600, 3780].map(importDurationText)).toEqual([
+        '0 s',
+        '42 s',
+        '1 min',
+        '4 min 12 s',
+        '1 h',
+        '1 h 3 min',
+      ]);
     });
 
     it('shows the tags row and why a label did not become a tag, after the other entities', async () => {

@@ -9,7 +9,9 @@
 // IMPORT_MEDIA_ALLOWED_ADDRESSES=127.0.0.1:4400.
 // FAKE_STORYLY_DELAY_MS slows every answer, so an import's progress can be
 // watched; FAKE_STORYLY_FAIL (instances, story-groups or stories) answers that
-// list with a 500, so a failed import can be seen.
+// list with a 500, so a failed import can be seen. FAKE_STORYLY_SCALE (a time
+// factor, such as 1 or 0.1) also serves the Scale shop: 1,000 stories with
+// media, latency and occasional 429 and 500 replies (fixtures/scale-profile.json).
 import { FAKE_STORYLY_TOKEN, startFakeStoryly } from './fake-storyly.mjs';
 
 const FAIL_SWITCHES = { instances: 'failInstances', 'story-groups': 'failStoryGroups', stories: 'failStories' };
@@ -19,11 +21,14 @@ const fake = await startFakeStoryly({ port, host: '127.0.0.1' });
 fake.control.delayMs = Math.max(0, Number(process.env.FAKE_STORYLY_DELAY_MS) || 0);
 const fail = FAIL_SWITCHES[process.env.FAKE_STORYLY_FAIL ?? ''];
 if (fail) fake.control[fail] = 'status';
+const scale = process.env.FAKE_STORYLY_SCALE ? Number(process.env.FAKE_STORYLY_SCALE) : null;
+if (scale !== null && Number.isFinite(scale) && scale >= 0) fake.control.useScale({ factor: scale });
 console.log(
   JSON.stringify({
     level: 'info',
     msg: `Fake Storyly at ${fake.url}; test token ${FAKE_STORYLY_TOKEN}`,
     delayMs: fake.control.delayMs,
     fail: fail ?? null,
+    scale,
   }),
 );

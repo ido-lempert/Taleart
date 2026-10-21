@@ -30,6 +30,13 @@
       "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
       "executor": "nx:noop"
     },
+    "import-scale": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "vitest run --config apps/api/vitest.scale.config.mts"
+      }
+    },
     "serve": {
       "continuous": true,
       "executor": "@nx/js:node",

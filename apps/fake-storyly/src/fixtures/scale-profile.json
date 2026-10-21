@@ -1,0 +1,24 @@
+{
+  "about": "The Scale shop app of the fake: a generated account for the importer's throughput target. The latency, bandwidth, size and failure figures are assumptions until importer story 3 records the live External API; replace them with the recorded ones then.",
+  "app": { "id": 9001, "title": "Scale shop" },
+  "instances": 5,
+  "groupsPerInstance": 40,
+  "storiesPerGroup": 5,
+  "labels": 20,
+  "labelsPerGroup": 2,
+  "api": { "latencyMs": [200, 600] },
+  "media": {
+    "ttfbMs": [50, 250],
+    "bytesPerSecond": 2097152,
+    "videoShare": 0.15,
+    "imageBytes": [150000, 1000000],
+    "videoBytes": [2000000, 8000000]
+  },
+  "failures": {
+    "api429": 0.03,
+    "api500": 0.02,
+    "media429": 0.01,
+    "media503": 0.01,
+    "retryAfterSeconds": 1
+  }
+}

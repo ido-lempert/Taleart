@@ -12,6 +12,7 @@ import {
   createImportJob,
   encryptToken,
   getImportJob,
+  INTERACTIVE_RETRY_POLICY,
   listImportJobs,
   previewApp,
   PREVIEW_REQUEST_TIMEOUT_MS,
@@ -140,7 +141,12 @@ export function importsRouter(pool: Pool, importer: ImporterConfig): Router {
       await requireProject(pool, req.params.projectId);
       const input: FindStorylyAppsRequest = { token: requiredString(req.body, 'token') };
       // Only reads the app list; the token is neither stored nor logged.
-      const client = new StorylyClient({ baseUrl: importer.storylyApiUrl, token: input.token, fetch: importer.fetch });
+      const client = new StorylyClient({
+        baseUrl: importer.storylyApiUrl,
+        token: input.token,
+        fetch: importer.fetch,
+        retry: INTERACTIVE_RETRY_POLICY,
+      });
       // An app the check could not read cannot be picked; one without a title shows its id.
       const apps: StorylyApp[] = (await client.listApps()).entries.flatMap(({ record }) =>
         record === null ? [] : [{ id: record.id, name: record.name.trim() || record.id }],
@@ -166,6 +172,7 @@ export function importsRouter(pool: Pool, importer: ImporterConfig): Router {
         token: input.token,
         fetch: importer.fetch,
         timeoutMs: PREVIEW_REQUEST_TIMEOUT_MS,
+        retry: INTERACTIVE_RETRY_POLICY,
       });
       const userId = caller(res).id;
       if (!slots.take(userId)) {
