@@ -25,6 +25,7 @@ import {
 } from '@taleart/server-importer';
 import { DEFAULT_THEME, PLAYBOOKS, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
+import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { createApp, type ImporterConfig } from './app';
@@ -54,10 +55,12 @@ interface Fakeanother tool {
     failInstances: 'status' | 'shape' | null;
     failStoryGroups: 'status' | 'shape' | null;
     failStories: 'status' | 'shape' | null;
+    failSegments: 'status' | 'shape' | null;
     delayMs: number;
     data: {
       storyGroups: Record<string, { data: Record<string, unknown>[] }>;
       stories: Record<string, { data: Record<string, unknown>[] }>;
+      segments: Record<string, { data: unknown[] }>;
     };
     reset(): void;
   };
@@ -4221,6 +4224,7 @@ describe('Management API v1: projects and zones', () => {
         { id: '1002', name: 'Odd shop' },
         { id: '1003', name: 'Clean shop' },
         { id: '1004', name: 'Media shop' },
+        { id: '1005', name: 'Label shop' },
       ]);
       expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(0);
     });
@@ -4249,10 +4253,13 @@ describe('Management API v1: projects and zones', () => {
           taleGroups: { source: 6, imported: 6, skipped: 0 },
           tales: { source: 15, imported: 15, skipped: 0 },
           media: { source: 15, imported: 15, skipped: 0 },
+          // Four labels in the app's list and five on story groups, counted per occurrence.
+          tags: { source: 9, imported: 9, skipped: 0 },
           notes: [
             'Zone "Home page": frame type unknown',
             'Zone "Product page": frame type unknown',
             'Zone "Checkout": frame type unknown',
+            'Tags: whether labels combine with AND or OR is not imported',
           ],
           // Each instance's per-platform token and each story group's cover are not held in TaleArt.
           // In reading order: the instance list, then each instance's story groups as read.
@@ -4445,6 +4452,7 @@ describe('Management API v1: projects and zones', () => {
         taleGroups: { source: 1, imported: 1, skipped: 0 },
         tales: { source: 2, imported: 2, skipped: 0 },
         media: { source: 2, imported: 2, skipped: 0 },
+        tags: { source: 0, imported: 0, skipped: 0 },
         notes: ['Zone "Clean home": frame type unknown'],
         differences: [],
         notImportedByDesign: ['Conversion records', 'Stats'],
@@ -4593,6 +4601,242 @@ describe('Management API v1: projects and zones', () => {
     }
 
     const mediaRequests = () => fake.control.requests.filter((r) => r.path.startsWith('/media/'));
+
+    describe('labels as tags', () => {
+      // Each tale group of the project with its tags' names, as the zone pages list them.
+      async function groupTags(projectId: string): Promise<Record<string, string[]>> {
+        const tags: Record<string, string[]> = {};
+        for (const zone of await projectZones(projectId)) {
+          const groups: { id: string; name: string; tags: { name: string }[] }[] = await (
+            await fetch(`${base}/zones/${zone.id}/tale-groups`)
+          ).json();
+          for (const g of groups) tags[g.name] = g.tags.map((t) => t.name);
+        }
+        return tags;
+      }
+
+      // The project's tags by name, as its tag list answers them.
+      async function projectTagNames(projectId: string): Promise<string[]> {
+        const tags: { name: string }[] = await (await fetch(`${base}/projects/${projectId}/tags`)).json();
+        return tags.map((t) => t.name);
+      }
+
+      // How many tags and tale-group tags the project holds.
+      async function tagCounts(projectId: string): Promise<{ tags: number; links: number }> {
+        const count = async (table: string) =>
+          Number((await pool.query(`SELECT count(*) FROM ${table} WHERE project_id = $1`, [projectId])).rows[0].count);
+        return { tags: await count('tags'), links: await count('tale_group_tags') };
+      }
+
+      const demoShopTags = {
+        'New arrivals': ['new'],
+        'Gift ideas': [],
+        'Summer sale': ['summer', 'vip'],
+        Reviews: [],
+        'How to wear it': ['vip'],
+        'Free shipping': ['summer'],
+      };
+
+      it("makes the app's labels tags of the project and gives each tale group its source group's tags", async () => {
+        const project = await createProject();
+        startWorker();
+        const job = await importOnce(project.id);
+        expect(job['status']).toBe('done');
+        // Per occurrence: four labels in the list, five on the story groups.
+        expect((job['report'] as { tags: unknown }).tags).toEqual({ source: 9, imported: 9, skipped: 0 });
+        expect(await projectTagNames(project.id)).toEqual(['new', 'returning', 'summer', 'vip']);
+        expect(await groupTags(project.id)).toEqual(demoShopTags);
+        // Tags carry no import links: source ids live only in import_links, for zones, groups and stories (AD-7).
+        const types = await pool.query(
+          'SELECT DISTINCT source_type FROM import_links WHERE project_id = $1 ORDER BY 1',
+          [project.id],
+        );
+        expect(types.rows.map((r) => r.source_type)).toEqual(['instance', 'story', 'story_group']);
+      });
+
+      it('reuses a tag the project already has under the same name in another case', async () => {
+        const project = await createProject();
+        const created = await post(`/projects/${project.id}/tags`, { name: 'VIP' });
+        expect(created.status).toBe(201);
+        const vip: { id: string } = await created.json();
+        startWorker();
+        const job = await importOnce(project.id);
+        expect((job['report'] as { tags: unknown }).tags).toEqual({ source: 9, imported: 9, skipped: 0 });
+        expect(await projectTagNames(project.id)).toEqual(['new', 'returning', 'summer', 'VIP']);
+        const tags = await groupTags(project.id);
+        expect(tags['Summer sale']).toEqual(['summer', 'VIP']);
+        expect(tags['How to wear it']).toEqual(['VIP']);
+        const vipLinks = await pool.query('SELECT count(*) FROM tale_group_tags WHERE tag_id = $1', [vip.id]);
+        expect(Number(vipLinks.rows[0].count)).toBe(2);
+      });
+
+      it('creates no tag or tag link twice when imported again, and keeps tags added in TaleArt', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const manual: { id: string } = await (await post(`/projects/${project.id}/tags`, { name: 'manual' })).json();
+        const summerSale = (
+          await pool.query(
+            "SELECT target_id FROM import_links WHERE project_id = $1 AND source_type = 'story_group' " +
+              "AND source_id = '3001'",
+            [project.id],
+          )
+        ).rows[0].target_id as string;
+        const current = (await pool.query('SELECT tag_id FROM tale_group_tags WHERE tale_group_id = $1', [summerSale]))
+          .rows.map((r) => r.tag_id as string);
+        const res = await fetch(`${base}/tale-groups/${summerSale}/tags`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tagIds: [...current, manual.id] }),
+        });
+        expect(res.status).toBe(200);
+        const before = await tagCounts(project.id);
+        expect(before).toEqual({ tags: 5, links: 6 });
+
+        const again = await importOnce(project.id);
+        expect(again['status']).toBe('done');
+        expect((again['report'] as { tags: unknown }).tags).toEqual({ source: 9, imported: 9, skipped: 0 });
+        expect(await tagCounts(project.id)).toEqual(before);
+        expect((await groupTags(project.id))['Summer sale']).toEqual(['manual', 'summer', 'vip']);
+      });
+
+      it('imports odd labels as far as they go and lists each one that cannot become a tag', async () => {
+        const project = await createProject();
+        startWorker();
+        const job = await importApp(project.id, '1005');
+        expect(job['status']).toBe('done');
+        const report = job['report'] as {
+          tags: unknown;
+          notes: string[];
+          differences: { entity: string; kind: string; reason?: string; record: { name: string | null } }[];
+        };
+        // Per occurrence: 8 in the list and 14 on the groups; each skipped one is one difference.
+        expect(report.tags).toEqual({ source: 22, imported: 11, skipped: 11 });
+        expect(await projectTagNames(project.id)).toEqual([
+          'From object',
+          'json-label',
+          'Loyal',
+          'No id',
+          'Renamed label',
+          // Of labels differing only in case, the one first by lower(name), then name, names the tag.
+          'summer',
+          'vip',
+        ]);
+        expect(await groupTags(project.id)).toEqual({
+          'Case twins': ['summer', 'vip'],
+          'Odd labels': ['From object'],
+          'JSON labels': ['json-label', 'vip'],
+          'Bad segments': [],
+          'No labels': [],
+        });
+        expect(differenceLines(report)).toEqual([
+          // The labels list, as it is read.
+          'tag 5102 renamed name <- title',
+          'tag 5103 wrongType name',
+          'tag #5 invalidRecord',
+          'tag 5104 tagNotImported name',
+          'tag 5105 tagNotImported name',
+          'tag #8 tagNotImported name',
+          // Each story group's labels, with the group list.
+          'tag #1 in Odd labels (3402) tagNotImported segments',
+          'tag #2 in Odd labels (3402) tagNotImported segments',
+          'tag #3 in Odd labels (3402) tagNotImported segments',
+          'tag #4 in Odd labels (3402) tagNotImported segments',
+          'tag #5 in Odd labels (3402) tagNotImported segments',
+          'tag #7 in Odd labels (3402) tagNotImported segments',
+          'tag #8 in Odd labels (3402) tagNotImported segments',
+          'taleGroup 3404 in Label wall (2401) wrongType segments',
+        ]);
+        expect(report.differences.filter((d) => d.kind === 'tagNotImported').map((d) => d.reason)).toEqual([
+          'blank',
+          'tooLong',
+          'blank',
+          'blank',
+          'blank',
+          'tooLong',
+          'notText',
+          'notText',
+          'notText',
+          'notText',
+        ]);
+        // A long label is named, cut to the report's limit; a blank one is not.
+        expect(report.differences[4].record.name).toBe('A label far too long to be a TaleArt tag name, sixty chars');
+        expect(report.differences[3].record.name).toBeNull();
+        expect(report.notes).toEqual([
+          'Zone "Label wall": frame type unknown',
+          'Tag "summer": labels "Summer", "summer", "SUMMER" became one tag, since tag names ignore case',
+          'Tags: whether labels combine with AND or OR is not imported',
+        ]);
+      });
+
+      for (const [mode, reason] of [
+        ['status', 'another tool answered 500 when listing labels'],
+        ['shape', "another tool's labels response has an unexpected shape: no list of records"],
+      ] as const) {
+        it(`finishes with the story groups' labels when the labels list fails (${mode})`, async () => {
+          const project = await createProject();
+          fake.control.failSegments = mode;
+          startWorker();
+          const job = await importOnce(project.id);
+          expect(job['status']).toBe('done');
+          const report = job['report'] as { tags: unknown; notes: string[] };
+          // "returning" is only in the list.
+          expect(report.tags).toEqual({ source: 5, imported: 5, skipped: 0 });
+          expect(report.notes).toContain(
+            `Tags: the labels list could not be read (${reason}), so tags come from story groups only`,
+          );
+          expect(await groupTags(project.id)).toEqual(demoShopTags);
+        });
+      }
+
+      it('finishes the job when a label holds NUL or other control characters, and refuses them in a tag', async () => {
+        const project = await createProject();
+        const home = fake.control.data.storyGroups['2001'].data;
+        home[0] = { ...home[0], segments: ['summer', 'nul\u0000inside', 'bell\u0007'] };
+        fake.control.data.segments['1001'].data.push({ id: 5098, name: 'del\u007f' });
+        startWorker();
+        const job = await importOnce(project.id);
+        expect(job['status']).toBe('done');
+        const report = job['report'] as { tags: unknown; differences: { kind: string; reason?: string }[] };
+        expect(report.tags).toEqual({ source: 11, imported: 8, skipped: 3 });
+        expect(report.differences.filter((d) => d.kind === 'tagNotImported').map((d) => d.reason)).toEqual([
+          'invalidCharacters',
+          'invalidCharacters',
+          'invalidCharacters',
+        ]);
+        const res = await post(`/projects/${project.id}/tags`, { name: 'a\u0000b' });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      });
+
+      it('finds or creates the same tags from concurrent imports in reversed orders without a deadlock', async () => {
+        const project = await createProject();
+        const names = Array.from({ length: 60 }, (_, i) => `Tag ${String(i).padStart(2, '0')}`);
+        for (let round = 0; round < 5; round++) {
+          const ordered = names.map((n) => `${n} r${round}`);
+          const reversed = [...ordered].reverse().map((n) => n.toUpperCase());
+          const results = await Promise.all([
+            ensureTags(pool, project.id, ordered),
+            ensureTags(pool, project.id, reversed),
+            ensureTags(pool, project.id, ordered),
+          ]);
+          expect(results.map((r) => r.size)).toEqual([60, 60, 60]);
+        }
+        expect((await tagCounts(project.id)).tags).toBe(300);
+      });
+
+      it('never stores the token in the report, also when a label holds it', async () => {
+        const project = await createProject();
+        const label = `${FAKE_another tool_TOKEN} ${'x'.repeat(40)}`;
+        fake.control.data.segments['1001'].data.push({ id: 5099, name: label });
+        startWorker();
+        const job = await importOnce(project.id);
+        expect(job['status']).toBe('done');
+        const text = JSON.stringify(job);
+        expect(text).not.toContain(FAKE_another tool_TOKEN);
+        expect(text).toContain(`[token] ${'x'.repeat(40)}`);
+      });
+    });
 
     describe('tale media', () => {
       beforeEach(() => {
@@ -5035,6 +5279,7 @@ describe('Management API v1: projects and zones', () => {
       const taleId = await target('story', '4001');
       await pool.query('DELETE FROM tales WHERE id = $1 OR tale_group_id = $2', [taleId, groupId]);
       await pool.query('DELETE FROM zone_tale_groups WHERE tale_group_id = $1', [groupId]);
+      await pool.query('DELETE FROM tale_group_tags WHERE tale_group_id = $1', [groupId]);
       await pool.query('DELETE FROM tale_groups WHERE id = $1', [groupId]);
 
       const job = await importOnce(project.id);

@@ -321,7 +321,7 @@ export interface paths {
         put?: never;
         /**
          * Create a tag in a project.
-         * @description The name is trimmed and holds 1 to 40 characters (400 `validation_failed` otherwise). Names are unique per project ignoring case; a taken name answers 409 `tag_exists`. Unknown project 404 `project_not_found`.
+         * @description The name is trimmed and holds 1 to 40 characters and no control characters (400 `validation_failed` otherwise). Names are unique per project ignoring case; a taken name answers 409 `tag_exists`. Unknown project 404 `project_not_found`.
          */
         post: operations["createTag"];
         delete?: never;
@@ -1477,6 +1477,8 @@ export interface components {
             tales?: components["schemas"]["ImportCount"];
             /** @description Tale media: the imported tales whose story names media, how many hold it now, and how many do not (each listed as a difference or a note). Absent in reports of imports made before media was copied. */
             media?: components["schemas"]["ImportCount"];
+            /** @description Labels as tags, counted per occurrence: every label read (each entry of the labels list and each value of a story group's segments), how many are carried by a tag of the project now, and how many are not. Each skipped label is listed as a difference, counted in differencesOmitted when its record or the report is full, or counted in a note (a repeated list record, or a label past an import limit). Absent in reports of imports made before labels were imported. */
+            tags?: components["schemas"]["ImportCount"];
             /** @description What did not come across, such as "frame type unknown" for each zone or a skipped tale. */
             notes: string[];
             /** @description Each difference between a source record and the shape the import expects, or a field TaleArt does not hold, in reading order, once per record. Holds field names, never field values. Absent in reports of imports made before records were checked. */
@@ -1487,15 +1489,20 @@ export interface components {
             notImportedByDesign?: string[];
         };
         /**
-         * @description What the source record becomes in TaleArt (the app is the project).
+         * @description What the source record becomes in TaleArt (the app is the project; a label is a tag).
          * @enum {string}
          */
-        ImportDifferenceEntity: "app" | "zone" | "taleGroup" | "tale";
+        ImportDifferenceEntity: "app" | "zone" | "taleGroup" | "tale" | "tag";
         /**
-         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported without it (see reason).
+         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason).
          * @enum {string}
          */
-        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported";
+        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported" | "tagNotImported";
+        /**
+         * @description Why a label did not become a tag. blank: it holds no text; tooLong: longer than a tag name may be; notText: the value is not text; invalidCharacters: it holds control characters, which a tag name may not.
+         * @enum {string}
+         */
+        ImportTagFailure: "blank" | "tooLong" | "notText" | "invalidCharacters";
         /**
          * @description Why media was not copied. invalidUrl: not an http or https URL; blockedAddress: it leads to a private, loopback, link-local or otherwise non-public address; unreachable: no connection or the transfer broke off; timeout: it took too long; tooManyRedirects: more redirects than allowed; httpError: the media host answered an error status; tooLarge: over the size limit of its type; unsupportedType: not an accepted image or video type, or its bytes do not match the type; jobBudgetExceeded: the import had already copied as many bytes, or spent as long on media, as one import may.
          * @enum {string}
@@ -1522,8 +1529,8 @@ export interface components {
             field: string | null;
             /** @description For a rename, the name the source used; null otherwise. */
             sourceField: string | null;
-            /** @description For mediaNotImported, why the media was not copied; absent otherwise. */
-            reason?: components["schemas"]["ImportMediaFailure"];
+            /** @description For mediaNotImported, why the media was not copied; for tagNotImported, why the label did not become a tag; absent otherwise. */
+            reason?: components["schemas"]["ImportMediaFailure"] | components["schemas"]["ImportTagFailure"];
         };
         /** @description Records read from the source so far, and records in TaleArt so far (already linked ones included). */
         ImportProgressCount: {
@@ -3217,7 +3224,8 @@ export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<compone
 export const ringStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["RingStyle"]> = ["gradient", "solid", "none"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
-export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale"];
-export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported"];
+export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale", "tag"];
+export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported"];
+export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];

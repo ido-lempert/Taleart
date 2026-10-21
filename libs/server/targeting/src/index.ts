@@ -2,5 +2,13 @@
 // `tale_group_tags` tables, and reaches tale groups only through
 // @taleart/server-tales. Later targeting stories add audiences here.
 export { migrateTargeting } from './lib/migration';
-export { copyTaleGroupTags, createTag, listTags, setTaleGroupTags, tagsForTaleGroups } from './lib/tags';
-export { InvalidTagNameError, TagExistsError, TagNotFoundError } from './lib/errors';
+export {
+  addTaleGroupTagsByName,
+  copyTaleGroupTags,
+  createTag,
+  ensureTags,
+  listTags,
+  setTaleGroupTags,
+  tagsForTaleGroups,
+} from './lib/tags';
+export { InvalidTagNameError, TagExistsError, TagNotFoundError, TagProjectNotFoundError } from './lib/errors';
