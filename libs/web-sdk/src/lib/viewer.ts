@@ -1,5 +1,6 @@
 import type { DeliveryTale, DeliveryTaleGroup } from '@taleart/contract';
 import { prefersReducedMotion } from './bar';
+import { loadTaleFonts } from './document/fonts';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
 
 /** How long an image, or a tale without playable media, shows when its document sets no duration. */
@@ -510,6 +511,8 @@ export class TaleViewer {
     // contained image leaves; without a document the stage stays the viewer's black.
     stage.style.backgroundColor = (current.media && doc && canvasColor(doc)) || '';
     if (doc) {
+      // Its project fonts load now that it opens (R18); its text shows the fallback stack until then.
+      loadTaleFonts(current);
       // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
       this.layer = renderTaleDocument(doc, {
         background: !current.media,

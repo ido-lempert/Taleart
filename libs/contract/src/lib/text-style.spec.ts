@@ -32,6 +32,8 @@ describe('text style schema', () => {
     expect(prop('fallback')['enum']).toEqual(SYSTEM_FONT_STACK_KEYS);
     expect(font['family']['pattern']).toBe(FONT_FAMILY_PATTERN.source);
     expect(font['family']['maxLength']).toBe(200);
+    expect(font['source']['enum']).toEqual(['system', 'theme', 'name', 'project']);
+    expect(new RegExp(font['fontId']['pattern'] as string).test('0f0e0d0c-0000-4000-8000-00000000000a')).toBe(true);
     expect(prop('size')).toMatchObject({ minimum: TEXT_SIZE_RANGE.min, maximum: TEXT_SIZE_RANGE.max });
     expect(prop('lineHeight')).toMatchObject({
       minimum: TEXT_LINE_HEIGHT_RANGE.min,
@@ -140,6 +142,28 @@ describe('resolveTextStyle', () => {
       family: '"Open Sans", Arial',
     });
     expect(readTextFont(null)).toBeNull();
+  });
+
+  it('reads a project font by its id, in lower case (story 7.17)', () => {
+    const id = '0F0E0D0C-0000-4000-8000-00000000000A';
+    expect(readTextFont({ source: 'project', fontId: id })).toEqual({ source: 'project', fontId: id.toLowerCase() });
+    expect(resolveTextStyle({ text: 'x', font: { source: 'project', fontId: id, family: 'x' } }).font).toEqual({
+      source: 'project',
+      fontId: id.toLowerCase(),
+    });
+  });
+});
+
+describe('textFontFamily with a project font', () => {
+  it('draws it under its alias, quoted, before the fallback stack; never under its family name', () => {
+    const fontId = '0f0e0d0c-0000-4000-8000-00000000000a';
+    expect(textFontFamily({ font: { source: 'project', fontId }, fallback: 'serif' })).toBe(
+      `"taleart-font-${fontId}", ${SYSTEM_FONT_STACKS.serif}`,
+    );
+    // An id that is not one never reaches CSS.
+    expect(textFontFamily({ font: { source: 'project', fontId: '"x"; color: red' }, fallback: 'sans' })).toBe(
+      SYSTEM_FONT_STACKS.sans,
+    );
   });
 });
 

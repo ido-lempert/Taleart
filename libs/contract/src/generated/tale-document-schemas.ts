@@ -201,7 +201,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "maxLength": 1000
         },
         "font": {
-          "description": "Where the font comes from: a system stack of the font registry, the project theme's font, or a font-family list the host page loads (the theme's font-list rules, `isFontFamily`). Project fonts join later as another source.",
+          "description": "Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project (story 7.17), by its id.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -213,7 +213,8 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
               "enum": [
                 "system",
                 "theme",
-                "name"
+                "name",
+                "project"
               ]
             },
             "stack": {
@@ -228,7 +229,12 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
             "family": {
               "type": "string",
               "maxLength": 200,
-              "pattern": "^(?!.*(?:^|[\\s,\"'])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\\s,\"']))\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*(?:,\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*)*$"
+              "pattern": "^(?!.*(?:^|[\\s,\"'])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\\s,\"']))(?!.*(?:^|[\\s,\"'])[tT][aA][lL][eE][aA][rR][tT]-[fF][oO][nN][tT]-)\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*(?:,\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*)*$"
+            },
+            "fontId": {
+              "description": "The id of a font of the tale's project (`project_fonts`).",
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
             }
           },
           "allOf": [
@@ -245,7 +251,8 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
                   "stack"
                 ],
                 "properties": {
-                  "family": false
+                  "family": false,
+                  "fontId": false
                 }
               }
             },
@@ -260,7 +267,8 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
               "then": {
                 "properties": {
                   "stack": false,
-                  "family": false
+                  "family": false,
+                  "fontId": false
                 }
               }
             },
@@ -277,7 +285,26 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
                   "family"
                 ],
                 "properties": {
-                  "stack": false
+                  "stack": false,
+                  "fontId": false
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "source": {
+                    "const": "project"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "fontId"
+                ],
+                "properties": {
+                  "stack": false,
+                  "family": false
                 }
               }
             }

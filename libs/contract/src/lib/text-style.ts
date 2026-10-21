@@ -3,6 +3,7 @@
 // share, so both draw a text the same way. `tale-document/element-types/text.schema.json` states
 // the same rules for validators; a contract test keeps the two in step.
 import type { components } from '../generated/api';
+import { isFontId, projectFontAlias } from './project-fonts';
 import { contrastRatio, isFontFamily, TEXT_CONTRAST_MIN } from './theme';
 
 type Props = components['schemas']['TextElementProps'];
@@ -11,13 +12,14 @@ type Props = components['schemas']['TextElementProps'];
 export type SystemFontStack = NonNullable<Props['fallback']>;
 
 /**
- * Where a text's font comes from (R4): a system stack, the project theme's font, or a font-family
- * list the host page loads.
+ * Where a text's font comes from (R4): a system stack, the project theme's font, a font-family list
+ * the host page loads, or a font uploaded to the tale's project (R18, story 7.17), by its id.
  */
 export type TextFont =
   | { source: 'system'; stack: SystemFontStack }
   | { source: 'theme' }
-  | { source: 'name'; family: string };
+  | { source: 'name'; family: string }
+  | { source: 'project'; fontId: string };
 
 /** A text's weight. */
 export type TextWeight = NonNullable<Props['weight']>;
@@ -37,6 +39,14 @@ export const SYSTEM_FONT_STACKS: Readonly<Record<SystemFontStack, string>> = /* 
   serif: 'Georgia, Cambria, "Times New Roman", Times, serif',
   rounded: 'ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", Nunito, Quicksand, system-ui, sans-serif',
   monospace: 'ui-monospace, Menlo, Consolas, "Cascadia Mono", "Liberation Mono", monospace',
+});
+
+/** The names people read for each system stack. */
+export const SYSTEM_FONT_STACK_NAMES: Readonly<Record<SystemFontStack, string>> = /* @__PURE__ */ Object.freeze({
+  sans: 'Sans',
+  serif: 'Serif',
+  rounded: 'Rounded',
+  monospace: 'Monospace',
 });
 
 /** The system stack keys, in the order editors list them. */
@@ -127,6 +137,10 @@ export function readTextFont(value: unknown, fallback?: unknown): TextFont | nul
       return { source: 'theme' };
     case 'name':
       return isFontFamily(font['family']) ? { source: 'name', family: font['family'] } : null;
+    case 'project':
+      if (isFontId(font['fontId'])) return { source: 'project', fontId: font['fontId'].toLowerCase() };
+      // A project font without a usable id draws in the fallback stack, as an unknown source does.
+      return oneOf(STACKS, fallback) ? { source: 'system', stack: fallback as SystemFontStack } : null;
     default:
       return oneOf(STACKS, fallback) ? { source: 'system', stack: fallback as SystemFontStack } : null;
   }
@@ -203,7 +217,9 @@ export const THEME_FONT_PROPERTY = '--ta-font';
  * `themeFont` is the project theme's font-family list, or null when the theme sets none (the
  * fallback stack alone); left out, the value reads the theme's custom property, as the Web SDK
  * renders it. A named font comes first, before the fallback, which shows until the host page
- * has loaded it. Every part is a registry stack or a list that passed the font-list rules.
+ * has loaded it. A project font comes first under its internal alias (`taleart-font-<id>`, never
+ * its family name), which names no font until the face is added, so the fallback shows until then.
+ * Every part is a registry stack, a list that passed the font-list rules, or an alias made of an id.
  */
 export function textFontFamily(style: Pick<TextStyle, 'font' | 'fallback'>, themeFont?: string | null): string {
   const fallback = SYSTEM_FONT_STACKS[style.fallback];
@@ -212,6 +228,10 @@ export function textFontFamily(style: Pick<TextStyle, 'font' | 'fallback'>, them
       return SYSTEM_FONT_STACKS[style.font.stack];
     case 'name':
       return `${cssFontFamilyList(style.font.family)}, ${fallback}`;
+    case 'project': {
+      const alias = projectFontAlias(style.font.fontId);
+      return alias === null ? fallback : `"${alias}", ${fallback}`;
+    }
     default:
       if (themeFont === undefined) return `var(${THEME_FONT_PROPERTY}, ${fallback}), ${fallback}`;
       return themeFont !== null && isFontFamily(themeFont) ? `${cssFontFamilyList(themeFont)}, ${fallback}` : fallback;

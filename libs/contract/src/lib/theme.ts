@@ -51,15 +51,25 @@ const anyCase = (word: string) => word.replace(/[a-z]/g, (c) => `[${c}${c.toUppe
 // Built by a function marked pure, so bundlers drop it where nothing reads the pattern.
 const noKeyword = () => `(?!.*(?:^|[\\s,"'])(?:${FONT_FAMILY_KEYWORDS.map(anyCase).join('|')})(?=$|[\\s,"']))`;
 const FONT_NAME = `(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|'[A-Za-z0-9 -]+')`;
+
+/**
+ * The start of the internal names project fonts are registered under (`taleart-font-<id>`, epic
+ * Tale Studio R18). No font-family list may name one, in any letter case, bare or quoted, so a
+ * theme or a font name cannot draw text in another project's font.
+ */
+export const RESERVED_FONT_PREFIX = 'taleart-font-';
+const noReserved = () => `(?!.*(?:^|[\\s,"'])${anyCase(RESERVED_FONT_PREFIX)})`;
+
 /**
  * A CSS font-family list: comma-separated names of letters, digits, spaces and
  * hyphens, each bare (starting with a letter) or in single or double quotes,
- * and no CSS-wide keyword or `default` as a word anywhere. No other character
+ * no CSS-wide keyword or `default` as a word anywhere, and no name starting with
+ * the reserved project font prefix ({@link RESERVED_FONT_PREFIX}). No other character
  * (`;`, `{`, `(`, a backslash, `/`, `:` …) is accepted, so the value cannot leave a
  * `font-family` declaration.
  */
 export const FONT_FAMILY_PATTERN = /* @__PURE__ */ new RegExp(
-  `^${/* @__PURE__ */ noKeyword()}\\s*${FONT_NAME}\\s*(?:,\\s*${FONT_NAME}\\s*)*$`,
+  `^${/* @__PURE__ */ noKeyword()}${/* @__PURE__ */ noReserved()}\\s*${FONT_NAME}\\s*(?:,\\s*${FONT_NAME}\\s*)*$`,
 );
 
 /** The background value that lets the host page show through. */
@@ -137,7 +147,7 @@ function fieldError(field: ThemeField, value: unknown): string | null {
       if (value.length > MAX_FONT_FAMILY_LENGTH) return `${at} must be at most ${MAX_FONT_FAMILY_LENGTH} characters`;
       return FONT_FAMILY_PATTERN.test(value)
         ? null
-        : `${at} must be a list of font names separated by commas (letters, digits, spaces, hyphens and quotes; a bare name starts with a letter; no CSS-wide keyword or "default")`;
+        : `${at} must be a list of font names separated by commas (letters, digits, spaces, hyphens and quotes; a bare name starts with a letter; no CSS-wide keyword or "default"; no name starting with ${RESERVED_FONT_PREFIX})`;
     case 'titleColor':
       return value === null || isThemeColor(value) ? null : `${at} must be a colour as #rrggbb, or null for the host page's`;
     case 'backgroundColor':

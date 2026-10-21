@@ -6,7 +6,13 @@
 // throttled to Fast 4G with a 4x slower CPU. Each load reads the `taleart:first-content` performance
 // mark the Web SDK sets once the first frame is on the page with the covers in view loaded. Prints
 // every run, p50, p75 and max for cold loads (empty cache) and warm loads (a reload), and the SDK's
-// gzipped size. Exits 1 when cold p75 is over the budget or the bundle over 50 KB gzipped.
+// gzipped size. Exits 1 when cold p75 is over the budget, the bundle over 50 KB gzipped, or the page
+// (whose tales use no project font) requests a font file (epic Tale Studio R15).
+//
+// A second zone holds a text tale of 20 elements in a project font (story 7.17): its page must
+// request no font until the tale opens; then the first tale frame (all 20 texts on the stage, in
+// their fallback) and the font swap are timed from the tap. Exits 1 when the font is requested
+// before the tale opens, or p75 first tale frame is over FRAME_BUDGET_MS.
 //
 // Run through `nx run sdk-sample:perf`, which builds the API and the SDK first.
 // Environment: TEST_DATABASE_URL (a database whose name ends in _test; the rows the run adds are
@@ -29,6 +35,12 @@ const RUNS = Math.max(1, Number(process.env.PERF_RUNS) || 10);
 const BUDGET_MS = Number(process.env.PERF_BUDGET_MS) || 1500;
 const BUNDLE_LIMIT_BYTES = 50 * 1024;
 const MARK = 'taleart:first-content';
+// The first tale frame's budget (epic Tale Studio R15; a starting value, tuned by story 7.14).
+const FRAME_BUDGET_MS = Number(process.env.PERF_FRAME_BUDGET_MS) || 1000;
+// A WOFF2 font the workspace already has, uploaded as the project font.
+const FONT_FILE = join(ROOT, 'node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2');
+// A font file's request: the public font route (`/media/fonts/<uuid>.woff2`) or any WOFF2.
+const isFontRequest = (name) => /\/media\/fonts\/|\.woff2(\?|$)/.test(name);
 
 // Chrome DevTools' "Fast 4G" preset (download 9 Mbps, upload 1.5 Mbps, 60 ms RTT, with DevTools'
 // own adjustments: 90 % of the throughput, latency x 2.75) and its mid-tier mobile CPU (4x slower).
@@ -231,6 +243,8 @@ async function removeSeeded(databaseUrl, { userId, projectId }) {
     await client.query('BEGIN');
     if (projectId) {
       for (const table of [
+        'tale_fonts',
+        'project_fonts',
         'zone_keys',
         'zone_tale_groups',
         'tale_group_tags',
@@ -286,7 +300,38 @@ async function seed(apiUrl, cookie, media, seeded) {
     else if (index !== 2) await call('PUT', `/tale-groups/${group.id}/cover`, media.covers[index], 'image/jpeg');
     await call('PUT', `/tale-groups/${group.id}/status`, { status: 'live' });
   }
-  return (await call('POST', `/zones/${zone.id}/key`)).key;
+  const key = (await call('POST', `/zones/${zone.id}/key`)).key;
+
+  // A second zone, with one group whose tale is 20 texts, every other one in the project font.
+  const font = await call(
+    'POST',
+    `/projects/${project.id}/fonts?family=Brand%20Sans&weight=400&style=normal&fallback=sans&licence=confirmed`,
+    readFileSync(FONT_FILE),
+    'application/octet-stream',
+  );
+  const fontZone = await call('POST', '/zones', { name: 'Fonts', projectId: project.id });
+  await call('POST', `/zones/${fontZone.id}/frames`, { type: 'bar', settings: {} });
+  const group = await call('POST', `/zones/${fontZone.id}/tale-groups`, { name: 'Brand' });
+  const tale = await call('POST', `/tale-groups/${group.id}/tales`, { title: 'Brand story' });
+  const elements = Array.from({ length: 20 }, (_, i) => ({
+    id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`,
+    type: 'text',
+    box: { x: 0.08, y: 0.12 + i * 0.037, w: 0.84, h: 0.035, rotation: 0 },
+    hidden: false,
+    locked: false,
+    a11y: {},
+    props: {
+      text: `Line ${i + 1}: new arrivals this week`,
+      size: 0.025,
+      ...(i % 2 === 0 && { font: { source: 'project', fontId: font.id }, fallback: 'sans' }),
+    },
+  }));
+  const document = { version: 1, canvas: { background: { type: 'color', color: '#1f3a5f' } }, elements };
+  await call('PUT', `/tales/${tale.id}/document`, { document, revision: 0 });
+  await call('PUT', `/tales/${tale.id}/status`, { status: 'live' });
+  await call('PUT', `/tale-groups/${group.id}/status`, { status: 'live' });
+  const fontKey = (await call('POST', `/zones/${fontZone.id}/key`)).key;
+  return { key, fontKey };
 }
 
 // One load of the sample page in a fresh, throttled context: a cold load, then a warm reload.
@@ -333,10 +378,67 @@ async function measure(browser, url) {
     };
     await page.goto(url, { waitUntil: 'commit' });
     const cold = await read();
+    // Let the page settle (covers, the banner's next slide) before listing what it requested.
+    await page.waitForTimeout(1500);
+    const fontRequests = (
+      await page.evaluate(() => performance.getEntriesByType('resource').map((r) => r.name))
+    ).filter(isFontRequest);
     await page.reload({ waitUntil: 'commit' });
     const warm = await read();
     if (errors.length) throw new Error(`The page logged errors: ${errors.join('; ')}`);
-    return { cold, warm };
+    return { cold, warm, fontRequests };
+  } finally {
+    await context.close();
+  }
+}
+
+// The font zone in a fresh, throttled context: no font before the tale opens; then, from the tap on
+// its bar item, the first tale frame (20 texts on the stage) and the moment the project font is in use.
+async function measureFontTale(browser, url) {
+  const context = await browser.newContext(DEVICE);
+  try {
+    const page = await context.newPage();
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', FAST_4G);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU_SLOWDOWN });
+    const fontRequests = [];
+    page.on('request', (req) => isFontRequest(req.url()) && fontRequests.push(req.url()));
+    const errors = [];
+    page.on('pageerror', (err) => errors.push(String(err)));
+    await page.goto(url, { waitUntil: 'commit' });
+    await page.waitForFunction((mark) => performance.getEntriesByName(mark).length > 0, MARK, { timeout: 20_000 });
+    await page.waitForTimeout(1000);
+    const beforeOpen = fontRequests.length;
+    await page.evaluate(() => {
+      const host = document.querySelector('taleart-view');
+      const times = (window.__taleartFont = { start: 0, frame: NaN, font: NaN });
+      host.addEventListener('click', () => (times.start = performance.now()), { capture: true, once: true });
+      let painting = false;
+      const check = () => {
+        if (times.start) {
+          const texts = host.shadowRoot.querySelectorAll('dialog[open] .ta-text');
+          if (!painting && texts.length >= 20) {
+            // Painted on the next frame.
+            painting = true;
+            requestAnimationFrame(() => (times.frame = performance.now() - times.start));
+          }
+          const loaded = [...document.fonts].some((f) => f.family.includes('taleart-font-') && f.status === 'loaded');
+          if (Number.isNaN(times.font) && loaded) times.font = performance.now() - times.start;
+        }
+        if (Number.isNaN(times.frame) || Number.isNaN(times.font)) requestAnimationFrame(check);
+      };
+      requestAnimationFrame(check);
+    });
+    await page.locator('taleart-view button.item').first().click();
+    await page.waitForFunction(
+      () => !Number.isNaN(window.__taleartFont.frame) && !Number.isNaN(window.__taleartFont.font),
+      null,
+      { timeout: 20_000, polling: 50 },
+    );
+    const { frame, font } = await page.evaluate(() => window.__taleartFont);
+    if (errors.length) throw new Error(`The page logged errors: ${errors.join('; ')}`);
+    return { beforeOpen, afterOpen: fontRequests.length, frame, font };
   } finally {
     await context.close();
   }
@@ -403,17 +505,20 @@ async function main() {
     console.log(
       `Seeded media: tale images ${media.tales.map(kb).join(', ')}; still covers ~${kb(media.covers[1])}; animated cover ${kb(media.animated)}`,
     );
-    const key = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
+    const { key, fontKey } = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
     const url = `http://127.0.0.1:${samplePort}/?key=${encodeURIComponent(key)}&api=${encodeURIComponent(apiUrl)}`;
+    const fontUrl = `http://127.0.0.1:${samplePort}/?key=${encodeURIComponent(fontKey)}&api=${encodeURIComponent(apiUrl)}`;
     console.log(
       `Profile: Fast 4G (${FAST_4G.latency} ms latency, 9 Mbps x 0.9 down), CPU ${CPU_SLOWDOWN}x slower, ${DEVICE.viewport.width} x ${DEVICE.viewport.height}`,
     );
     const cold = [];
     const warm = [];
+    const fontRequests = [];
     for (let run = 1; run <= RUNS; run++) {
       const result = await measure(browser, url);
       cold.push(result.cold.firstContent);
       warm.push(result.warm.firstContent);
+      fontRequests.push(...result.fontRequests);
       const r = (v) => Math.round(v);
       console.log(
         `run ${run}: cold ${r(result.cold.firstContent)} ms (document ${r(result.cold.document)}, zone ${r(result.cold.zone)}, ` +
@@ -425,16 +530,47 @@ async function main() {
     }
     console.log(summary('First content, cold', cold));
     console.log(summary('First content, warm', warm));
+    console.log(`Font files requested by the page whose tales use no project font: ${fontRequests.length}`);
+
+    // The project font tale (story 7.17).
+    const frames = [];
+    const swaps = [];
+    let earlyFonts = 0;
+    let fetchedFonts = 0;
+    for (let run = 1; run <= RUNS; run++) {
+      const result = await measureFontTale(browser, fontUrl);
+      frames.push(result.frame);
+      swaps.push(result.font);
+      earlyFonts += result.beforeOpen;
+      fetchedFonts += result.afterOpen - result.beforeOpen;
+      const r = (v) => Math.round(v);
+      console.log(
+        `font tale run ${run}: font requests before opening ${result.beforeOpen}, after ${result.afterOpen}; ` +
+          `first tale frame ${r(result.frame)} ms, project font in use ${r(result.font)} ms after the tap`,
+      );
+    }
+    console.log(summary('First tale frame (20 texts, project font)', frames));
+    console.log(summary('Project font swapped in', swaps));
     console.log(`Web SDK bundle: ${(gzipped / 1024).toFixed(2)} KB gzipped (budget 50 KB)`);
     const p75 = percentile(cold, 75);
+    const frameP75 = percentile(frames, 75);
     const failures = [];
     if (!(p75 <= BUDGET_MS)) failures.push(`cold p75 first content ${Math.round(p75)} ms is over ${BUDGET_MS} ms`);
     if (gzipped > BUNDLE_LIMIT_BYTES) failures.push('the bundle is over 50 KB gzipped');
+    if (fontRequests.length > 0) failures.push(`a page whose tales use no project font requested ${fontRequests[0]}`);
+    if (earlyFonts > 0) failures.push('the font zone requested its font before the tale opened');
+    if (fetchedFonts < RUNS) failures.push('opening the font tale did not request its font');
+    if (!(frameP75 <= FRAME_BUDGET_MS)) {
+      failures.push(`p75 first tale frame ${Math.round(frameP75)} ms is over ${FRAME_BUDGET_MS} ms`);
+    }
     if (failures.length) {
       console.error(`FAIL: ${failures.join('; ')}`);
       process.exitCode = 1;
     } else {
-      console.log(`PASS: cold p75 first content ${Math.round(p75)} ms <= ${BUDGET_MS} ms`);
+      console.log(
+        `PASS: cold p75 first content ${Math.round(p75)} ms <= ${BUDGET_MS} ms; no font request without a project ` +
+          `font; p75 first tale frame ${Math.round(frameP75)} ms <= ${FRAME_BUDGET_MS} ms`,
+      );
     }
   } finally {
     await cleanup();

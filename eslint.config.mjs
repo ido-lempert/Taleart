@@ -59,6 +59,7 @@ export default [
               group: [
                 '@taleart/*/**',
                 '!@taleart/contract/core',
+                '!@taleart/contract/project-fonts',
                 '!@taleart/contract/tale-document',
                 '!@taleart/contract/text-style',
                 '!@taleart/contract/theme',

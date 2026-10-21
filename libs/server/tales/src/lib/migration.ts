@@ -1,4 +1,6 @@
 import type { Db } from '@taleart/server-access';
+import { recordTaleFonts } from './project-fonts';
+import { checkTaleDocument } from './tale-document';
 
 /** The status keys that are stored (AD-6); the others are computed when content is read. */
 const STORED_STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'] as const;
@@ -160,4 +162,68 @@ export async function migrateTales(db: Db): Promise<void> {
     `UPDATE tales SET draft_document = document, draft_revision = document_revision
      WHERE draft_document IS NULL AND document IS NOT NULL`,
   );
+
+  // Project fonts (epic Tale Studio R18, AD-15): a WOFF2 face uploaded to one project (AD-4), its
+  // file through the storage port by key (AD-11), and the uploader's confirmation that they may use
+  // and distribute it, kept with their id and name and the time. The uploader is not a foreign key,
+  // so the confirmation stays when the user is removed. A project has one face per family (in any
+  // letter case), weight and style.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS project_fonts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id uuid NOT NULL REFERENCES projects(id),
+      family text NOT NULL CHECK (char_length(family) BETWEEN 1 AND 100),
+      weight integer NOT NULL CHECK (weight BETWEEN 100 AND 900 AND weight % 100 = 0),
+      style text NOT NULL CHECK (style IN ('normal', 'italic')),
+      fallback text NOT NULL CHECK (fallback IN ('sans', 'serif', 'rounded', 'monospace')),
+      storage_key text NOT NULL UNIQUE,
+      size_bytes integer NOT NULL CHECK (size_bytes > 0),
+      uploaded_by uuid,
+      uploaded_by_name text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query(
+    'CREATE UNIQUE INDEX IF NOT EXISTS project_fonts_face_key ON project_fonts (project_id, lower(family), weight, style)',
+  );
+
+  // Which tale's draft or published document references which project font, written in the same
+  // transaction as the document, so "in use", deletion and the public lookup read this, not the
+  // documents. A published row is `delivered` when a visible element uses the font and the
+  // document passed the document check. The font key is restrictive: a referenced font cannot go.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tale_fonts (
+      tale_id uuid NOT NULL REFERENCES tales(id) ON DELETE CASCADE,
+      font_id uuid NOT NULL REFERENCES project_fonts(id),
+      document text NOT NULL CHECK (document IN ('draft', 'published')),
+      project_id uuid NOT NULL REFERENCES projects(id),
+      delivered boolean NOT NULL DEFAULT false,
+      PRIMARY KEY (tale_id, document, font_id)
+    );
+  `);
+  await db.query('CREATE INDEX IF NOT EXISTS tale_fonts_font_id_idx ON tale_fonts (font_id, document)');
+  await db.query('CREATE INDEX IF NOT EXISTS tales_project_id_idx ON tales (project_id)');
+
+  // Documents written before `tale_fonts` existed get their rows once: tales whose draft or
+  // published document names a project font and that have none recorded.
+  const { rows } = await db.query<{ id: string; document: unknown; draft: unknown }>(
+    `SELECT id, document, draft_document AS draft FROM tales t
+     WHERE (document @> $1::jsonb OR draft_document @> $1::jsonb)
+       AND NOT EXISTS (SELECT 1 FROM tale_fonts tf WHERE tf.tale_id = t.id)`,
+    [JSON.stringify({ elements: [{ props: { font: { source: 'project' } } }] })],
+  );
+  for (const row of rows) {
+    await recordTaleFonts(db, row.id, 'draft', row.draft, false);
+    await recordTaleFonts(db, row.id, 'published', row.document, isValidDocument(row.document));
+  }
+}
+
+// True when a stored document passes the document check, as the Delivery API requires.
+function isValidDocument(doc: unknown): boolean {
+  try {
+    checkTaleDocument(doc);
+    return true;
+  } catch {
+    return false;
+  }
 }

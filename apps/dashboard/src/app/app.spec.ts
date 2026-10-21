@@ -2352,6 +2352,10 @@ describe('App', () => {
       http
         .expectOne(`${API_BASE}/projects/p1/theme`)
         .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 500, statusText: 'Down' });
+      // ...and the project's fonts, for the font select (story 7.17); a failure leaves the list out.
+      http
+        .expectOne(`${API_BASE}/projects/p1/fonts`)
+        .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 500, statusText: 'Down' });
       await settle(fixture);
       expect(root.querySelector('h2.page-header__title')?.textContent).toContain('Tale Studio');
       expect(root.querySelector('.canvas')).not.toBeNull();
