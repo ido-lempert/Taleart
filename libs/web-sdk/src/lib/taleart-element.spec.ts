@@ -99,6 +99,22 @@ describe('TaleartElement', () => {
     expect(logSpy).not.toHaveBeenCalled();
   });
 
+  it("applies the bar frame's settings from the Delivery API", async () => {
+    const settings = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
+    fetchMock.mockImplementation(async () =>
+      respond(200, { ...zone, frames: [{ id: 'f1', type: 'bar', settings }] }),
+    );
+    const el = await mount();
+    const bar = el.shadowRoot?.querySelector<HTMLElement>('.bar');
+    expect(bar?.dataset).toMatchObject({ shape: 'rounded-square', align: 'center', titles: 'hidden' });
+    expect(bar?.style.getPropertyValue('--ta-size')).toBe('80px');
+    expect(bar?.style.gap).toBe('20px');
+    // Hidden titles keep each item's name.
+    expect(items(el).map((b) => b.getAttribute('aria-label'))).toEqual(['Summer', 'Winter', 'Empty']);
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it("covers with the first tale's image, a video's first frame without autoplay, or a placeholder", async () => {
     const el = await mount();
     const [image, video, empty] = items(el).map((b) => b.querySelector('.cover'));

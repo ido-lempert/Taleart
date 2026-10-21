@@ -1,8 +1,44 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "bar frame settings",
-  "description": "Settings for the bar frame type. No fields yet; they arrive with the web zones epic.",
+  "description": "Settings for the bar frame type (epic web zones R2). A missing field takes its default.",
   "type": "object",
-  "properties": {},
+  "properties": {
+    "shape": {
+      "title": "Shape",
+      "description": "The shape of each tale group's cover.",
+      "type": "string",
+      "enum": ["circle", "rounded-square"],
+      "default": "circle"
+    },
+    "size": {
+      "title": "Size",
+      "description": "How large each cover is.",
+      "type": "string",
+      "enum": ["small", "medium", "large"],
+      "default": "medium"
+    },
+    "showTitles": {
+      "title": "Show titles",
+      "description": "Show each tale group's title under its cover.",
+      "type": "boolean",
+      "default": true
+    },
+    "alignment": {
+      "title": "Alignment",
+      "description": "Where the items sit when they do not fill the row.",
+      "type": "string",
+      "enum": ["start", "center"],
+      "default": "start"
+    },
+    "gap": {
+      "title": "Gap",
+      "description": "Space between items, in pixels, from 4 to 24.",
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 24,
+      "default": 12
+    }
+  },
   "additionalProperties": false
 }

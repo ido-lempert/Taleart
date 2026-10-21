@@ -6,26 +6,79 @@ import {
   loadFrameTypeRegistry,
   UnknownFrameTypeError,
 } from './frame-types';
-import { createFrame, findZone, listFrames, ZoneNotFoundError } from './frames';
+import { createFrame, findZone, FrameNotFoundError, listFrames, updateFrameSettings, ZoneNotFoundError } from './frames';
 
 const shippedDir = join(__dirname, '../../../../contract/frame-types');
 const zoneId = '00000000-0000-4000-8000-000000000001';
 const projectId = '00000000-0000-4000-8000-000000000002';
 
 describe('frame-type registry', () => {
-  it('ships bar and banner', () => {
-    expect(loadFrameTypeRegistry(shippedDir).list()).toEqual([
+  it('ships bar and banner, each with its settings schema', () => {
+    const types = loadFrameTypeRegistry(shippedDir).list();
+    expect(types.map(({ key, label }) => ({ key, label }))).toEqual([
       { key: 'bar', label: 'Bar' },
       { key: 'banner', label: 'Banner' },
     ]);
+    expect(Object.keys((types[0].schema as { properties: object }).properties)).toEqual([
+      'shape',
+      'size',
+      'showTitles',
+      'alignment',
+      'gap',
+    ]);
+    expect(types[1].schema).toMatchObject({ type: 'object', properties: {} });
   });
 
-  it('gives bar and banner no settings fields yet', () => {
+  it('refuses unknown settings fields on bar and banner', () => {
     const registry = loadFrameTypeRegistry(shippedDir);
     for (const type of ['bar', 'banner']) {
       expect(() => registry.validate(type, {})).not.toThrow();
       expect(() => registry.validate(type, { color: 'red' })).toThrow(/color/);
     }
+  });
+
+  describe('bar settings', () => {
+    const registry = loadFrameTypeRegistry(shippedDir);
+
+    it('accepts every R2 value', () => {
+      const valid = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
+      expect(() => registry.validate('bar', valid)).not.toThrow();
+      for (const gap of [4, 24]) expect(() => registry.validate('bar', { gap })).not.toThrow();
+      for (const size of ['small', 'medium']) expect(() => registry.validate('bar', { size })).not.toThrow();
+    });
+
+    it.each([
+      [{ gap: 40 }, 'settings.gap must be at most 24'],
+      [{ gap: 3 }, 'settings.gap must be at least 4'],
+      [{ gap: 12.5 }, 'settings.gap must be integer'],
+      [{ gap: '12' }, 'settings.gap must be integer'],
+      [{ shape: 'star' }, 'settings.shape must be one of: circle, rounded-square'],
+      [{ size: 'huge' }, 'settings.size must be one of: small, medium, large'],
+      [{ alignment: 'end' }, 'settings.alignment must be one of: start, center'],
+      [{ showTitles: 'no' }, 'settings.showTitles must be boolean'],
+    ])('refuses %j with "%s"', (settings, message) => {
+      expect(() => registry.validate('bar', settings)).toThrow(new InvalidFrameSettingsError(message));
+    });
+
+    it('fills each missing field with its schema default, keeping stored values', () => {
+      expect(registry.withDefaults('bar', {})).toEqual({
+        shape: 'circle',
+        size: 'medium',
+        showTitles: true,
+        alignment: 'start',
+        gap: 12,
+      });
+      expect(registry.withDefaults('bar', { gap: 20, showTitles: false })).toMatchObject({
+        gap: 20,
+        showTitles: false,
+        shape: 'circle',
+      });
+    });
+
+    it('leaves settings of an unknown or field-less type as they are', () => {
+      expect(registry.withDefaults('feed', { a: 1 })).toEqual({ a: 1 });
+      expect(registry.withDefaults('banner', {})).toEqual({});
+    });
   });
 
   it('refuses an unknown type', () => {
@@ -94,6 +147,56 @@ describe('frames', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'f1' }] });
     await createFrame({ query } as unknown as Db, registry, { zoneId, type: 'bar' });
     expect(query.mock.calls[1][1]).toEqual([zoneId, projectId, 'bar', '{}']);
+  });
+
+  describe('updateFrameSettings', () => {
+    const frameId = '00000000-0000-4000-8000-000000000003';
+    const zoneRow = { rows: [{ project_id: projectId }] };
+
+    it('refuses an unknown zone', async () => {
+      const query = vi.fn().mockResolvedValue({ rows: [] });
+      await expect(
+        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: {} }),
+      ).rejects.toBeInstanceOf(ZoneNotFoundError);
+    });
+
+    it('refuses a malformed frame id without querying for it', async () => {
+      const query = vi.fn().mockResolvedValue(zoneRow);
+      await expect(
+        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId: 'nope', settings: {} }),
+      ).rejects.toBeInstanceOf(FrameNotFoundError);
+      expect(query).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a frame that is not in the zone', async () => {
+      const query = vi.fn().mockResolvedValueOnce(zoneRow).mockResolvedValueOnce({ rows: [] });
+      await expect(
+        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: {} }),
+      ).rejects.toBeInstanceOf(FrameNotFoundError);
+      expect(query.mock.calls[1][1]).toEqual([frameId, zoneId]);
+    });
+
+    it('refuses invalid settings without updating', async () => {
+      const query = vi.fn().mockResolvedValueOnce(zoneRow).mockResolvedValueOnce({ rows: [{ type: 'bar' }] });
+      await expect(
+        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: { color: 'red' } }),
+      ).rejects.toBeInstanceOf(InvalidFrameSettingsError);
+      expect(query).toHaveBeenCalledTimes(2);
+    });
+
+    it('stores valid settings and returns the frame', async () => {
+      const frame = { id: frameId, zoneId, projectId, type: 'bar', settings: {} };
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce({ rows: [{ type: 'bar' }] })
+        .mockResolvedValueOnce({ rows: [frame] });
+      expect(await updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: {} })).toBe(
+        frame,
+      );
+      expect(query.mock.calls[2][0]).toMatch(/UPDATE frames/);
+      expect(query.mock.calls[2][1]).toEqual([frameId, zoneId, '{}']);
+    });
   });
 
   it('finds a zone by id, and null for an unknown or malformed id', async () => {

@@ -617,6 +617,48 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /zones/{zoneId}/frames/{frameId}:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: frameId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateZoneFrame
+      summary: Replace a frame's settings.
+      description: >-
+        `settings` replaces the frame's settings and is validated against the
+        JSON Schema of the frame's type (AD-5): an invalid value answers 400
+        `invalid_frame_settings` naming the field, and nothing is stored. A
+        missing `settings` answers 400 `validation_failed`. Unknown zone: 404
+        `zone_not_found`; a frame that is not in the zone: 404 `frame_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFrameRequest'
+      responses:
+        '200':
+          description: The frame with its new settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Frame'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /zones/{zoneId}/key:
     parameters:
       - name: zoneId
@@ -1341,13 +1383,20 @@ components:
           format: uuid
     FrameType:
       type: object
-      required: [key, label]
+      required: [key, label, schema]
       properties:
         key:
           type: string
           description: Registry key stored on each frame as `type`.
         label:
           type: string
+        schema:
+          type: object
+          additionalProperties: true
+          description: >-
+            The JSON Schema (draft 2020-12) of the type's `settings`, from
+            `libs/contract/frame-types/`. Each field's `title`, `description`
+            and `default` drive the dashboard's settings form.
     Frame:
       type: object
       required: [id, zoneId, projectId, type, settings]
@@ -1378,6 +1427,14 @@ components:
         settings:
           type: object
           additionalProperties: true
+    UpdateFrameRequest:
+      type: object
+      required: [settings]
+      properties:
+        settings:
+          type: object
+          additionalProperties: true
+          description: The frame's new settings, valid against its type's JSON Schema.
     TaleGroup:
       type: object
       description: >-
@@ -1663,6 +1720,9 @@ components:
         settings:
           type: object
           additionalProperties: true
+          description: >-
+            The frame's settings, with every field the stored settings leave
+            out filled with its default from the type's JSON Schema.
     DeliveryZone:
       type: object
       required: [id, name, frames, taleGroups]
@@ -1934,6 +1994,7 @@ components:
         - zone_not_found
         - unknown_frame_type
         - invalid_frame_settings
+        - frame_not_found
         - tale_group_not_found
         - tale_group_full
         - tale_not_found

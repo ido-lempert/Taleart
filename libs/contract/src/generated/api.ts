@@ -432,6 +432,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/zones/{zoneId}/frames/{frameId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                frameId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Replace a frame's settings.
+         * @description `settings` replaces the frame's settings and is validated against the JSON Schema of the frame's type (AD-5): an invalid value answers 400 `invalid_frame_settings` naming the field, and nothing is stored. A missing `settings` answers 400 `validation_failed`. Unknown zone: 404 `zone_not_found`; a frame that is not in the zone: 404 `frame_not_found`.
+         */
+        patch: operations["updateZoneFrame"];
+        trace?: never;
+    };
     "/zones/{zoneId}/key": {
         parameters: {
             query?: never;
@@ -789,6 +812,10 @@ export interface components {
             /** @description Registry key stored on each frame as `type`. */
             key: string;
             label: string;
+            /** @description The JSON Schema (draft 2020-12) of the type's `settings`, from `libs/contract/frame-types/`. Each field's `title`, `description` and `default` drive the dashboard's settings form. */
+            schema: {
+                [key: string]: unknown;
+            };
         };
         Frame: {
             /** Format: uuid */
@@ -807,6 +834,12 @@ export interface components {
         CreateFrameRequest: {
             type: string;
             settings?: {
+                [key: string]: unknown;
+            };
+        };
+        UpdateFrameRequest: {
+            /** @description The frame's new settings, valid against its type's JSON Schema. */
+            settings: {
                 [key: string]: unknown;
             };
         };
@@ -944,6 +977,7 @@ export interface components {
             id: string;
             /** @description A frame type key; clients skip types they don't know (AD-5). */
             type: string;
+            /** @description The frame's settings, with every field the stored settings leave out filled with its default from the type's JSON Schema. */
             settings: {
                 [key: string]: unknown;
             };
@@ -1093,7 +1127,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "invalid_status_transition" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "invalid_status_transition" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -1738,6 +1772,37 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    updateZoneFrame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                frameId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFrameRequest"];
+            };
+        };
+        responses: {
+            /** @description The frame with its new settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Frame"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getZoneKey: {
         parameters: {
             query?: never;
@@ -2326,4 +2391,4 @@ export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["s
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "internal_error"];
