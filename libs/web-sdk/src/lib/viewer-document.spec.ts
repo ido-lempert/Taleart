@@ -127,6 +127,31 @@ describe('TaleViewer with tale documents (AD-16)', () => {
     empty.close();
   });
 
+  it("paints a document tale's canvas colour behind its media, and leaves other tales black", () => {
+    const colored = new TaleViewer(host, [
+      {
+        id: 'c',
+        name: 'C',
+        cover: null,
+        tales: [
+          tale('c1', doc('x', { canvas: { background: { type: 'color', color: '#112233' } } })),
+          tale('c2', null),
+          tale('c3', doc('x', { canvas: { background: { type: 'color', color: 'red;x' } } })),
+        ],
+      },
+    ]);
+    colored.open('c');
+    const stage = () => host.querySelector('dialog .stage') as HTMLElement;
+    expect(stage().style.backgroundColor).toBe('rgb(17, 34, 51)');
+    // Behind the media, which stays on top of it.
+    expect(stage().querySelector('img.media')).not.toBeNull();
+    colored.next();
+    expect(stage().style.backgroundColor).toBe('');
+    colored.next();
+    expect(stage().style.backgroundColor).toBe('');
+    colored.close();
+  });
+
   it('renders a tale without a document exactly as before, and removes the canvas when it moves on', () => {
     viewer.open('g');
     viewer.next();
