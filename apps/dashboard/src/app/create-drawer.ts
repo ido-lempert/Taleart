@@ -1,4 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  input,
+  OnInit,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
@@ -12,7 +22,7 @@ import {
 } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
-import { describeWindow, fromLocalInput, localTimeZone, toLocalInput } from './schedule';
+import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 
 /**
@@ -156,24 +166,65 @@ export class CreateDrawer implements OnInit {
     this.loadSchedule(tale);
   }
 
+  // What each field showed when loaded, with the stored ISO time behind it. The field holds minutes only,
+  // so an untouched field sends its stored time unchanged, seconds included.
+  private loadedStart = { text: '', iso: null as string | null };
+  private loadedEnd = { text: '', iso: null as string | null };
+
+  private readonly startInput = viewChild<ElementRef<HTMLInputElement>>('scheduleStart');
+  private readonly endInput = viewChild<ElementRef<HTMLInputElement>>('scheduleEnd');
+
   // Fills the schedule fields from a stored window, in the browser's time zone.
   private loadSchedule(window: { startsAt: string | null; endsAt: string | null } | undefined): void {
-    this.startText = toLocalInput(window?.startsAt ?? null);
-    this.endText = toLocalInput(window?.endsAt ?? null);
+    const startsAt = window?.startsAt ?? null;
+    const endsAt = window?.endsAt ?? null;
+    this.loadedStart = { text: toLocalInput(startsAt), iso: startsAt };
+    this.loadedEnd = { text: toLocalInput(endsAt), iso: endsAt };
+    this.startText = this.loadedStart.text;
+    this.endText = this.loadedEnd.text;
   }
 
-  /** Empties both schedule fields: saving then clears the window. */
-  protected clearSchedule(): void {
-    this.startText = '';
-    this.endText = '';
+  /** Removes the item's start and end time at once: saves no window and closes the drawer. */
+  protected async removeSchedule(): Promise<void> {
+    const request = this.request();
+    if (request.kind !== 'schedule' || this.saving()) return;
+    this.saving.set(true);
     this.error.set('');
+    const message = await this.store.setSchedule(request.target, request.id, { startsAt: null, endsAt: null });
+    this.saving.set(false);
+    this.error.set(message);
+    if (!message) this.close();
+  }
+
+  // One field's bound in UTC, or the message that refuses it.
+  private scheduleBound(
+    label: string,
+    text: string,
+    loaded: { text: string; iso: string | null },
+    input: ElementRef<HTMLInputElement> | undefined,
+  ): { iso: string | null } | { message: string } {
+    // A half-typed date-time field reports '' as its value; only its validity tells it apart from an empty one.
+    if (input?.nativeElement.validity?.badInput) {
+      return { message: 'Enter a complete date and time, or leave it empty.' };
+    }
+    if (text === loaded.text) return { iso: loaded.iso };
+    const result = parseLocalInput(text);
+    if ('iso' in result) return result;
+    return result.error === 'nonexistent'
+      ? {
+          message: `${label} ${text.replace('T', ' ')} does not exist in ${this.timeZone} because of a daylight-saving change. Pick another time.`,
+        }
+      : { message: 'Enter a complete date and time, or leave it empty.' };
   }
 
   // The window the schedule fields hold, in UTC, or the message that refuses it.
   private scheduleInput(): { schedule: SetScheduleRequest } | { message: string } {
-    const startsAt = fromLocalInput(this.startText);
-    const endsAt = fromLocalInput(this.endText);
-    if (startsAt === undefined || endsAt === undefined) return { message: 'Enter a date and time, or leave it empty.' };
+    const start = this.scheduleBound('Start time', this.startText, this.loadedStart, this.startInput());
+    if ('message' in start) return start;
+    const end = this.scheduleBound('End time', this.endText, this.loadedEnd, this.endInput());
+    if ('message' in end) return end;
+    const startsAt = start.iso;
+    const endsAt = end.iso;
     if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) {
       return { message: 'The end time must be later than the start time.' };
     }

@@ -1387,17 +1387,83 @@ describe('App', () => {
       await settle(fixture);
       expect(drawer()?.textContent).toContain('Tale A');
       expect(field('schedule-end').value).toBe(localStart);
-      buttonNamed(drawer() as HTMLElement, 'Clear both').click();
-      await settle(fixture);
-      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      // "Remove schedule" saves no window at once, without Save.
+      buttonNamed(drawer() as HTMLElement, 'Remove schedule').click();
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tales/t1/schedule`);
+      expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual({ startsAt: null, endsAt: null });
       req.flush({ ...taleA });
       await settle(fixture);
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } });
       await settle(fixture);
       expect(drawer()).toBeNull();
+      expect(groupRow(root, 'Summer').querySelector('.group__schedule')?.textContent).toContain('No schedule');
+    });
+
+    it('says "No schedule" for a group and a tale without a window', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } });
+
+      expect(groupRow(root, 'Summer').querySelector('.group__schedule')?.textContent?.trim()).toBe('Schedule: No schedule');
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('.schedule-summary')?.textContent).toContain('No schedule');
+    });
+
+    it('refuses a half-typed date and time instead of clearing the bound', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      await settle(fixture);
+      // A partly filled datetime-local field reports '' as its value and badInput in its validity.
+      const end = field('schedule-end');
+      Object.defineProperty(end, 'validity', { value: { badInput: true }, configurable: true });
+      type(end, '');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+
+      http.expectNone(`${API_BASE}/tale-groups/g1/schedule`);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+        'Enter a complete date and time, or leave it empty.',
+      );
+    });
+
+    it('sends an untouched bound as stored, seconds included, so an unchanged sub-minute window saves', async () => {
+      const startsAt = '2030-01-01T10:00:15.000Z';
+      const endsAt = '2030-01-01T10:00:45.000Z';
+      const tight = { ...scheduled, startsAt, endsAt };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [tight] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      await settle(fixture);
+      // Both fields show the same minute; unchanged, they still send the stored times.
+      expect(field('schedule-start').value).toBe(field('schedule-end').value);
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/schedule`);
+      expect(req.request.body).toEqual({ startsAt, endsAt });
+      req.flush(tight);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [tight] } });
+      await settle(fixture);
+    });
+
+    it('sends the edited bound from its field and keeps the untouched one as stored', async () => {
+      const startsAt = '2030-01-01T10:00:15.000Z';
+      const tight = { ...scheduled, startsAt, endsAt: null };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [tight] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      await settle(fixture);
+      type(field('schedule-end'), localEnd);
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/schedule`);
+      expect(req.request.body).toEqual({ startsAt, endsAt: utc(localEnd) });
+      req.flush({ ...tight, endsAt: utc(localEnd) });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...tight, endsAt: utc(localEnd) }] } });
+      await settle(fixture);
     });
   });
 

@@ -2670,6 +2670,39 @@ describe('Management API v1: projects and zones', () => {
           expect(rows.every((r) => r.ends_at === null)).toBe(true);
         });
 
+        it('keeps a key copies share public while one copy is in its window, and 404 once neither is', async () => {
+          const { zone, group, l1, urls } = await liveZone();
+          const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
+          const copy: Scheduled = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id })).json();
+          await publish('tale-groups', copy.id);
+          const copiedL1 = copy.tales[0].id;
+          // The source tale's window has ended; the copy's tale is open: the shared file stays public.
+          await schedule('tales', l1.id, null, at(-minute));
+          expect((await getPublic(urls[0])).status).toBe(200);
+          // The copy's group starts later: no published tale uses the key now.
+          await schedule('tale-groups', copy.id, at(minute), null);
+          expect((await getPublic(urls[0])).status).toBe(404);
+          // Its tale's own window reopening does not help while the copy's group is scheduled.
+          await schedule('tales', copiedL1, null, null);
+          expect((await getPublic(urls[0])).status).toBe(404);
+        });
+
+        it('answers 404, not 304, to a revalidation of media that is scheduled or expired', async () => {
+          const { group, l1, urls } = await liveZone();
+          const etag = (await getPublic(urls[0])).headers.get('etag') ?? '';
+          expect(etag).toMatch(/^"tales\//);
+          expect((await getPublic(urls[0], { 'If-None-Match': etag })).status).toBe(304);
+
+          await schedule('tales', l1.id, null, at(-minute));
+          const expired = await getPublic(urls[0], { 'If-None-Match': etag });
+          expect(expired.status).toBe(404);
+          expect(await expired.json()).toEqual({ error: { code: 'media_not_found', message: expect.any(String) } });
+
+          await schedule('tales', l1.id, null, null);
+          await schedule('tale-groups', group.id, at(minute), null);
+          expect((await getPublic(urls[0], { 'If-None-Match': etag })).status).toBe(404);
+        });
+
         it('copies the windows of a group and its tales', async () => {
           const { zone, group, l1 } = await liveZone();
           await schedule('tale-groups', group.id, '2030-01-01T00:00:00.000Z', null);
