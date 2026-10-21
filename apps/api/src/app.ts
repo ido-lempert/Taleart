@@ -87,7 +87,7 @@ export function createApp(
 
   // The Delivery API serves SDKs with zone keys only (AD-2): its own open CORS
   // and key middleware, never the session middleware.
-  app.use(DELIVERY_API_BASE, deliveryRouter(pool, { publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333' }));
+  app.use(DELIVERY_API_BASE, deliveryRouter(pool, { publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333', frameTypes }));
 
   // Published media is public at unguessable URLs (AD-11): no session, no zone key.
   app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));

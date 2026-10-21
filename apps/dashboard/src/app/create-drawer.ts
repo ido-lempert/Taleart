@@ -10,6 +10,7 @@ import {
 } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
+import { initialSettings, SettingsForm, type Settings } from './settings-form';
 import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 
 /**
@@ -20,7 +21,7 @@ import { STATUS_LABELS, StatusBadge, statusActions } from './status';
  */
 @Component({
   selector: 'app-create-drawer',
-  imports: [FormsModule, RouterLink, Drawer, StatusBadge],
+  imports: [FormsModule, RouterLink, Drawer, StatusBadge, SettingsForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './create-drawer.html',
 })
@@ -112,6 +113,25 @@ export class CreateDrawer implements OnInit {
     () => this.zoneKeyRequest()?.action === 'revoke' || this.request().kind === 'removeTaleGroup',
   );
 
+  /** The frame a settings drawer edits. */
+  protected readonly settingsFrame = computed(() => {
+    const request = this.request();
+    if (request.kind !== 'frameSettings') return undefined;
+    return this.store.framesOf(request.zoneId).find((f) => f.id === request.frameId);
+  });
+
+  /** The JSON Schema of that frame's type, which builds the form. */
+  protected readonly settingsSchema = computed(() => {
+    const frame = this.settingsFrame();
+    return frame ? this.store.frameType(frame.type)?.schema : undefined;
+  });
+
+  /** The settings being edited: the stored ones, with schema defaults for missing fields. */
+  protected readonly settings = signal<Settings>({});
+
+  /** The field the API named when it refused the settings, as in "settings.gap must be at most 24". */
+  protected readonly invalidSetting = computed(() => /^settings\.([A-Za-z0-9_]+)\b/.exec(this.error())?.[1] ?? '');
+
   /** The tale group a tags drawer is for. */
   protected readonly tagGroup = computed(() => {
     const request = this.request();
@@ -146,6 +166,7 @@ export class CreateDrawer implements OnInit {
         return 'Create link';
       case 'tags':
       case 'renameTaleGroup':
+      case 'frameSettings':
         return 'Save';
       case 'placeTaleGroup':
         return 'Add';
@@ -195,6 +216,10 @@ export class CreateDrawer implements OnInit {
         return 'New zone';
       case 'frame':
         return 'Add frame';
+      case 'frameSettings': {
+        const frame = this.settingsFrame();
+        return `${frame ? this.store.frameTypeLabel(frame.type) : 'Frame'} settings`;
+      }
       case 'taleGroup':
         return 'New tale group';
       case 'tale':
@@ -226,7 +251,7 @@ export class CreateDrawer implements OnInit {
   /** The zone or tale group the new item goes into, for the drawer's context line. */
   protected readonly context = computed(() => {
     const request = this.request();
-    if (request.kind === 'frame' || request.kind === 'taleGroup') {
+    if (request.kind === 'frame' || request.kind === 'frameSettings' || request.kind === 'taleGroup') {
       const zone = this.store.zone(request.zoneId);
       return zone ? `In zone ${zone.name}` : '';
     }
@@ -266,6 +291,8 @@ export class CreateDrawer implements OnInit {
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
+    const frame = this.settingsFrame();
+    if (frame) this.settings.set(initialSettings(this.settingsSchema(), frame.settings));
   }
 
   /** Picks the project of a copy; its zone has to be picked again. */
@@ -394,6 +421,11 @@ export class CreateDrawer implements OnInit {
         break;
       case 'frame':
         message = await this.store.createFrame(request.zoneId, this.frameType);
+        break;
+      case 'frameSettings':
+        message = this.settingsFrame()
+          ? await this.store.updateFrameSettings(request.zoneId, request.frameId, this.settings())
+          : 'This frame no longer exists.';
         break;
       case 'taleGroup':
         message = await this.store.createTaleGroup(request.zoneId, this.text);

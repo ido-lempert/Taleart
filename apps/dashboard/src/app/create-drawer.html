@@ -61,6 +61,19 @@
             </select>
           </div>
         }
+        @case ('frameSettings') {
+          @if (settingsFrame()) {
+            <app-settings-form
+              idPrefix="frame-settings"
+              errorId="create-error"
+              [schema]="settingsSchema()"
+              [invalidField]="invalidSetting()"
+              [(value)]="settings"
+            />
+          } @else {
+            <p class="muted">This frame no longer exists.</p>
+          }
+        }
         @case ('taleGroup') {
           <div class="field">
             <label class="field__label" for="create-text">Tale group name</label>

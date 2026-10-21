@@ -17,6 +17,16 @@ export class ZoneNotFoundError extends Error {
   }
 }
 
+/** Thrown when a frame id does not match a frame of the zone. */
+export class FrameNotFoundError extends Error {
+  readonly code = ErrorCodes.frameNotFound;
+
+  constructor(readonly frameId: string) {
+    super('frameId does not match a frame of this zone');
+    this.name = 'FrameNotFoundError';
+  }
+}
+
 /**
  * The zone's project, or null when the zone does not exist. Ids that are not
  * UUIDs never match. Other modules read a zone's project only through this.
@@ -71,5 +81,34 @@ export async function createFrame(
      RETURNING ${FRAME_COLUMNS}`,
     [input.zoneId, projectId, input.type, JSON.stringify(settings)],
   );
+  return rows[0];
+}
+
+/**
+ * Replaces a frame's settings. They must match the schema of the frame's type
+ * (AD-5); nothing is stored otherwise. A frame of another zone is not found.
+ */
+export async function updateFrameSettings(
+  db: Db,
+  registry: FrameTypeRegistry,
+  input: { zoneId: string; frameId: string; settings: unknown },
+): Promise<Frame> {
+  if ((await zoneProjectId(db, input.zoneId)) === null) throw new ZoneNotFoundError(input.zoneId);
+  if (!UUID.test(input.frameId)) throw new FrameNotFoundError(input.frameId);
+  const found = await db.query<{ type: string }>('SELECT type FROM frames WHERE id = $1 AND zone_id = $2', [
+    input.frameId,
+    input.zoneId,
+  ]);
+  const frame = found.rows[0];
+  if (!frame) throw new FrameNotFoundError(input.frameId);
+
+  registry.validate(frame.type, input.settings);
+
+  const { rows } = await db.query<Frame>(
+    `UPDATE frames SET settings = $3 WHERE id = $1 AND zone_id = $2 RETURNING ${FRAME_COLUMNS}`,
+    [input.frameId, input.zoneId, JSON.stringify(input.settings)],
+  );
+  // Deleted between the read and the write.
+  if (!rows[0]) throw new FrameNotFoundError(input.frameId);
   return rows[0];
 }

@@ -90,6 +90,19 @@ type Direction = 'earlier' | 'later';
     .zone-section {
       min-width: 0;
     }
+    .frame-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2) var(--space-4);
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .frame-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
     .key-info {
       display: flex;
       flex-wrap: wrap;
