@@ -218,31 +218,18 @@ export function maxMediaBytes(contentType: MediaContentType): number {
   return mediaKind(contentType) === 'video' ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
 }
 
-function startsWithBytes(
-  data: Uint8Array,
-  bytes: readonly number[],
-  offset = 0,
-): boolean {
-  return (
-    data.length >= offset + bytes.length &&
-    bytes.every((b, i) => data[offset + i] === b)
-  );
+function startsWithBytes(data: Uint8Array, bytes: readonly number[], offset = 0): boolean {
+  return data.length >= offset + bytes.length && bytes.every((b, i) => data[offset + i] === b);
 }
 
-const asciiBytes = (text: string): number[] =>
-  [...text].map((c) => c.charCodeAt(0));
+const asciiBytes = (text: string): number[] => [...text].map((c) => c.charCodeAt(0));
 
 // Magic numbers: the leading bytes each accepted type must start with.
-const MEDIA_SIGNATURES: Record<
-  MediaContentType,
-  (data: Uint8Array) => boolean
-> = {
+const MEDIA_SIGNATURES: Record<MediaContentType, (data: Uint8Array) => boolean> = {
   'image/png': (d) => startsWithBytes(d, [0x89, 0x50, 0x4e, 0x47]),
   'image/jpeg': (d) => startsWithBytes(d, [0xff, 0xd8, 0xff]),
   'image/gif': (d) => startsWithBytes(d, asciiBytes('GIF8')),
-  'image/webp': (d) =>
-    startsWithBytes(d, asciiBytes('RIFF')) &&
-    startsWithBytes(d, asciiBytes('WEBP'), 8),
+  'image/webp': (d) => startsWithBytes(d, asciiBytes('RIFF')) && startsWithBytes(d, asciiBytes('WEBP'), 8),
   'video/mp4': (d) => startsWithBytes(d, asciiBytes('ftyp'), 4),
   'video/webm': (d) => startsWithBytes(d, [0x1a, 0x45, 0xdf, 0xa3]),
 };
@@ -254,10 +241,7 @@ export const MEDIA_MAGIC_BYTES = 12;
  * True when the file's leading bytes match the declared type: the rule every
  * stored tale media passes, whether uploaded or imported.
  */
-export function matchesMagicNumber(
-  contentType: MediaContentType,
-  data: Uint8Array,
-): boolean {
+export function matchesMagicNumber(contentType: MediaContentType, data: Uint8Array): boolean {
   return MEDIA_SIGNATURES[contentType](data);
 }
 

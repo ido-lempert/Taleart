@@ -1363,10 +1363,10 @@ export interface components {
          */
         ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported";
         /**
-         * @description Why media was not copied. invalidUrl: not an http or https URL; blockedAddress: it leads to a private, loopback, link-local or otherwise non-public address; unreachable: no connection or the transfer broke off; timeout: it took too long; tooManyRedirects: more redirects than allowed; httpError: the media host answered an error status; tooLarge: over the size limit of its type; unsupportedType: not an accepted image or video type, or its bytes do not match the type.
+         * @description Why media was not copied. invalidUrl: not an http or https URL; blockedAddress: it leads to a private, loopback, link-local or otherwise non-public address; unreachable: no connection or the transfer broke off; timeout: it took too long; tooManyRedirects: more redirects than allowed; httpError: the media host answered an error status; tooLarge: over the size limit of its type; unsupportedType: not an accepted image or video type, or its bytes do not match the type; jobBudgetExceeded: the import had already copied as many bytes, or spent as long on media, as one import may.
          * @enum {string}
          */
-        ImportMediaFailure: "invalidUrl" | "blockedAddress" | "unreachable" | "timeout" | "tooManyRedirects" | "httpError" | "tooLarge" | "unsupportedType";
+        ImportMediaFailure: "invalidUrl" | "blockedAddress" | "unreachable" | "timeout" | "tooManyRedirects" | "httpError" | "tooLarge" | "unsupportedType" | "jobBudgetExceeded";
         /** @description The source record a difference belongs to. */
         ImportDifferenceRecord: {
             /** @description The record's id at the source; null when it has none. */
@@ -2998,5 +2998,5 @@ export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["sc
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale"];
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported"];
-export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType"];
+export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "internal_error"];

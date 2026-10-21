@@ -22,6 +22,7 @@ import {
   setTaleGroupSchedule,
   setTaleGroupStatus,
   setTaleMedia,
+  setTaleMediaIfNone,
   setTaleSchedule,
   setTaleStatus,
   taleExists,
@@ -127,7 +128,7 @@ describe('placements', () => {
   const otherProject = '00000000-0000-4000-8000-000000000009';
   const placedRow = { id: groupId, projectId, name: 'A', position: 1 };
 
-  it('places a group of the zone\'s project at the end of the zone, under the zone lock', async () => {
+  it("places a group of the zone's project at the end of the zone, under the zone lock", async () => {
     const { db, query, statements } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{ project_id: projectId }] },
@@ -410,6 +411,21 @@ describe('tale media', () => {
     });
   });
 
+  it('sets media only on a tale without media, never replacing what another writer stored', async () => {
+    const { db, query } = fakeDb([{ rows: [], rowCount: 1 }, { rows: [], rowCount: 0 }, { rows: [{}] }]);
+    expect(await setTaleMediaIfNone(db, taleId, { key: 'tales/a.png', contentType: 'image/png' })).toBe(true);
+    expect(query.mock.calls[0][0]).toMatch(/WHERE id = \$1 AND media_key IS NULL/);
+    expect(query.mock.calls[0][1]).toEqual([taleId, 'tales/a.png', 'image/png']);
+    expect(await setTaleMediaIfNone(db, taleId, { key: 'tales/b.png', contentType: 'image/png' })).toBe(false);
+  });
+
+  it('refuses to set media if none on an unknown tale', async () => {
+    const { db } = fakeDb([{ rows: [], rowCount: 0 }, { rows: [] }]);
+    await expect(setTaleMediaIfNone(db, taleId, { key: 'k', contentType: 'image/png' })).rejects.toBeInstanceOf(
+      TaleNotFoundError,
+    );
+  });
+
   it('refuses to set media on an unknown tale', async () => {
     const { db } = fakeDb([{ rows: [] }]);
     await expect(setTaleMedia(db, taleId, { key: 'k', contentType: 'image/png' })).rejects.toBeInstanceOf(
@@ -465,7 +481,7 @@ describe('order', () => {
   it.each([
     ['omits a group', [a]],
     ['repeats a group', [a, a]],
-    ['names another parent\'s group', [a, c]],
+    ["names another parent's group", [a, c]],
     ['adds a group', [a, b, c]],
   ])('refuses a group list that %s and rolls back', async (_, ids) => {
     const { db, statements } = fakeDb([
@@ -719,7 +735,7 @@ describe('status', () => {
     expect(bad.query).not.toHaveBeenCalled();
   });
 
-  it("pauses a tale and reads a live tale of a paused group as blocked-by-group", async () => {
+  it('pauses a tale and reads a live tale of a paused group as blocked-by-group', async () => {
     const taleRow = {
       id: taleId,
       taleGroupId: groupId,

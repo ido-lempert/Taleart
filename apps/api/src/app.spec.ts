@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -14,6 +14,10 @@ import {
 } from '@taleart/server-access';
 import {
   encryptToken,
+  importTaleMedia,
+  IMPORTED_MEDIA_PREFIX,
+  MEDIA_SWEEP_MIN_AGE_MS,
+  sweepImportedMedia,
   recoverStaleJobs,
   runImportJob,
   startImportWorker,
@@ -43,6 +47,7 @@ const FAKE_another tool_TOKEN = 'fake-another tool-token';
 interface Fakeanother tool {
   url: string;
   mediaUrl: string;
+  port: number;
   control: {
     requests: { method: string; path: string }[];
     failInstances: 'status' | 'shape' | null;
@@ -579,7 +584,11 @@ describe('Management API v1: projects and zones', () => {
     }
 
     // A zone with a bar and a banner frame.
-    async function setup(): Promise<{ zone: { id: string; projectId: string }; bar: { id: string }; banner: { id: string } }> {
+    async function setup(): Promise<{
+      zone: { id: string; projectId: string };
+      bar: { id: string };
+      banner: { id: string };
+    }> {
       const zone = await createZone();
       const bar = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
       const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
@@ -951,7 +960,7 @@ describe('Management API v1: projects and zones', () => {
         return (await fetch(`${base}/zones/${zoneId}/tale-groups`)).json();
       }
 
-      it('reorders a zone\'s tale groups to positions 0..n-1', async () => {
+      it("reorders a zone's tale groups to positions 0..n-1", async () => {
         const zone = await createZone();
         const a = await createGroup(zone.id, 'A');
         const b = await createGroup(zone.id, 'B');
@@ -965,7 +974,7 @@ describe('Management API v1: projects and zones', () => {
         expect(body[0]).toEqual({ ...b, position: 0, tales: [] });
       });
 
-      it('reorders a tale group\'s tales', async () => {
+      it("reorders a tale group's tales", async () => {
         const zone = await createZone();
         const group = await createGroup(zone.id);
         const x = await addTale(group.id, 'X');
@@ -1897,10 +1906,7 @@ describe('Management API v1: projects and zones', () => {
       media_key: string | null;
       media_content_type: string | null;
     }> {
-      const { rows } = await pool.query(
-        'SELECT media_key, media_content_type FROM tales WHERE id = $1',
-        [taleId],
-      );
+      const { rows } = await pool.query('SELECT media_key, media_content_type FROM tales WHERE id = $1', [taleId]);
       return rows[0];
     }
 
@@ -3397,7 +3403,7 @@ describe('Management API v1: projects and zones', () => {
           expect(listed[0]).toMatchObject({ status: 'live', storedStatus: 'live', startsAt: null, endsAt: null });
         });
 
-        it("hides a group whose start is ahead, and shows it once the start passes; its media is public only then", async () => {
+        it('hides a group whose start is ahead, and shows it once the start passes; its media is public only then', async () => {
           const { zone, group, key, urls } = await liveZone();
           await schedule('tale-groups', group.id, at(minute), null);
           expect(await delivered(key)).toEqual([]);
@@ -3411,7 +3417,7 @@ describe('Management API v1: projects and zones', () => {
           expect((await zoneGroups(zone.id))[0].status).toBe('live');
         });
 
-        it("skips a tale past its end: the group starts with its next tale, the tale reads expired and its media answers 404", async () => {
+        it('skips a tale past its end: the group starts with its next tale, the tale reads expired and its media answers 404', async () => {
           const { zone, l1, key, urls } = await liveZone();
           await schedule('tales', l1.id, null, at(minute));
           expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L1', 'L2']);
@@ -3427,7 +3433,7 @@ describe('Management API v1: projects and zones', () => {
           ]);
         });
 
-        it("hides every tale of an expired group, even tales inside their own window", async () => {
+        it('hides every tale of an expired group, even tales inside their own window', async () => {
           const { group, l1, key, urls } = await liveZone();
           await schedule('tales', l1.id, at(-minute), at(60 * minute));
           await schedule('tale-groups', group.id, at(-60 * minute), at(-minute));
@@ -3675,7 +3681,7 @@ describe('Management API v1: projects and zones', () => {
       expect((await deliver(issued.key)).status).toBe(200);
     });
 
-    it("refuses a zone key route in a project the caller cannot access", async () => {
+    it('refuses a zone key route in a project the caller cannot access', async () => {
       const zone = await createZone();
       const other = await createProject('Beta');
       await signInAsContentManager(other.id);
@@ -3714,11 +3720,11 @@ describe('Management API v1: projects and zones', () => {
     }
 
     // Media goes to the test MEDIA_DIR. The fake serves media on 127.0.0.1, so
-    // exactly that address is allowed, as IMPORT_MEDIA_ALLOWED_ADDRESSES would.
+    // exactly its endpoint is exempted, as IMPORT_MEDIA_ALLOWED_ADDRESSES would.
     function workerMedia() {
       return {
         storage: new LocalDiskStorage(mediaDir),
-        mediaPolicy: { allowedAddresses: ['127.0.0.1'] },
+        mediaPolicy: { allowedAddresses: [`127.0.0.1:${fake.port}`] },
       };
     }
 
@@ -4089,23 +4095,11 @@ describe('Management API v1: projects and zones', () => {
         { source_type: 'story_group', target_type: 'tale_group', n: 6 },
       ]);
       // Each tale holds its copied media's storage key (AD-11); source ids live only in import_links.
-      const tales = await pool.query(
-        'SELECT media_key FROM tales WHERE project_id = $1',
-        [project.id],
-      );
-      expect(
-        tales.rows.every((t) =>
-          /^tales\/[0-9a-f-]{36}\.jpg$/.test(t.media_key),
-        ),
-      ).toBe(true);
-      const home = (await projectZones(project.id)).find(
-        (z) => z.name === 'Home page',
-      );
-      const values = leafValues(
-        await (await fetch(`${base}/zones/${home?.id}/tale-groups`)).json(),
-      );
-      for (const sourceId of ['3001', '3002', '3003', '4001', '4005', '4008'])
-        expect(values).not.toContain(sourceId);
+      const tales = await pool.query('SELECT media_key FROM tales WHERE project_id = $1', [project.id]);
+      expect(tales.rows.every((t) => /^tales\/imported-[0-9a-f-]{36}\.jpg$/.test(t.media_key))).toBe(true);
+      const home = (await projectZones(project.id)).find((z) => z.name === 'Home page');
+      const values = leafValues(await (await fetch(`${base}/zones/${home?.id}/tale-groups`)).json());
+      for (const sourceId of ['3001', '3002', '3003', '4001', '4005', '4008']) expect(values).not.toContain(sourceId);
     });
 
     it('creates no tale group, placement, tale or link twice when the app is imported again', async () => {
@@ -4183,18 +4177,13 @@ describe('Management API v1: projects and zones', () => {
     async function projectTales(projectId: string): Promise<ListedTale[]> {
       const tales: ListedTale[] = [];
       for (const zone of await projectZones(projectId)) {
-        const groups: { tales: ListedTale[] }[] = await (
-          await fetch(`${base}/zones/${zone.id}/tale-groups`)
-        ).json();
+        const groups: { tales: ListedTale[] }[] = await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json();
         tales.push(...groups.flatMap((g) => g.tales));
       }
       return tales;
     }
 
-    async function importApp(
-      projectId: string,
-      appId: string,
-    ): Promise<Record<string, unknown>> {
+    async function importApp(projectId: string, appId: string): Promise<Record<string, unknown>> {
       const res = await send('POST', `/projects/${projectId}/imports`, {
         token: FAKE_another tool_TOKEN,
         appId,
@@ -4203,8 +4192,7 @@ describe('Management API v1: projects and zones', () => {
       return waitForEnd(projectId, ((await res.json()) as { id: string }).id);
     }
 
-    const mediaRequests = () =>
-      fake.control.requests.filter((r) => r.path.startsWith('/media/'));
+    const mediaRequests = () => fake.control.requests.filter((r) => r.path.startsWith('/media/'));
 
     describe('tale media', () => {
       beforeEach(() => {
@@ -4234,15 +4222,10 @@ describe('Management API v1: projects and zones', () => {
           const res = await fetch(`${base}/tales/${tale.id}/media`);
           expect(res.status).toBe(200);
           expect(res.headers.get('content-type')).toBe('image/jpeg');
-          expect([
-            ...new Uint8Array(await res.arrayBuffer()).subarray(0, 3),
-          ]).toEqual([0xff, 0xd8, 0xff]);
+          expect([...new Uint8Array(await res.arrayBuffer()).subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
         }
         // The importer's own record holds the key and the bytes' hash, never the URL.
-        const { rows } = await pool.query(
-          'SELECT * FROM import_media WHERE project_id = $1',
-          [project.id],
-        );
+        const { rows } = await pool.query('SELECT * FROM import_media WHERE project_id = $1', [project.id]);
         expect(rows).toHaveLength(15);
         expect(JSON.stringify(rows)).not.toContain('/media/story-');
       });
@@ -4306,10 +4289,7 @@ describe('Management API v1: projects and zones', () => {
 
         // Every tale exists; only the five good ones hold media, of their own types.
         const tales = Object.fromEntries(
-          (await projectTales(project.id)).map((t) => [
-            t.title,
-            t.media?.contentType ?? null,
-          ]),
+          (await projectTales(project.id)).map((t) => [t.title, t.media?.contentType ?? null]),
         );
         expect(tales).toEqual({
           Animated: 'image/gif',
@@ -4330,18 +4310,11 @@ describe('Management API v1: projects and zones', () => {
         // No file is left behind by a failed download.
         expect(storedMediaFiles().length - before).toBe(5);
         // The loop was cut after 3 redirects: the first request and 3 more.
-        expect(
-          mediaRequests().filter((r) => r.path === '/media/redirect-loop.jpg'),
-        ).toHaveLength(4);
+        expect(mediaRequests().filter((r) => r.path === '/media/redirect-loop.jpg')).toHaveLength(4);
 
         // No media URL and no token in the report, the job row or the logs.
         const stored = JSON.stringify(
-          (
-            await pool.query(
-              'SELECT * FROM import_jobs WHERE project_id = $1',
-              [project.id],
-            )
-          ).rows,
+          (await pool.query('SELECT * FROM import_jobs WHERE project_id = $1', [project.id])).rows,
         );
         const logged = JSON.stringify(log.mock.calls);
         for (const text of [JSON.stringify(job), stored, logged]) {
@@ -4376,9 +4349,7 @@ describe('Management API v1: projects and zones', () => {
           differences: { kind: string; reason?: string }[];
         };
         expect(report.media).toEqual({ source: 15, imported: 0, skipped: 15 });
-        const reasons = report.differences
-          .filter((d) => d.kind === 'mediaNotImported')
-          .map((d) => d.reason);
+        const reasons = report.differences.filter((d) => d.kind === 'mediaNotImported').map((d) => d.reason);
         expect(reasons).toEqual(Array(15).fill('blockedAddress'));
         expect(mediaRequests()).toEqual([]);
         expect(storedMediaFiles().length).toBe(before);
@@ -4390,10 +4361,7 @@ describe('Management API v1: projects and zones', () => {
         await importOnce(project.id);
         const files = storedMediaFiles().length;
         const keys = (
-          await pool.query(
-            'SELECT id, media_key FROM tales WHERE project_id = $1 ORDER BY id',
-            [project.id],
-          )
+          await pool.query('SELECT id, media_key FROM tales WHERE project_id = $1 ORDER BY id', [project.id])
         ).rows;
         fake.control.requests.length = 0;
 
@@ -4405,27 +4373,18 @@ describe('Management API v1: projects and zones', () => {
         expect(mediaRequests()).toEqual([]);
         expect(storedMediaFiles().length).toBe(files);
         expect(
-          (
-            await pool.query(
-              'SELECT id, media_key FROM tales WHERE project_id = $1 ORDER BY id',
-              [project.id],
-            )
-          ).rows,
+          (await pool.query('SELECT id, media_key FROM tales WHERE project_id = $1 ORDER BY id', [project.id])).rows,
         ).toEqual(keys);
-        const recorded = await pool.query(
-          'SELECT count(*)::int AS n FROM import_media WHERE project_id = $1',
-          [project.id],
-        );
+        const recorded = await pool.query('SELECT count(*)::int AS n FROM import_media WHERE project_id = $1', [
+          project.id,
+        ]);
         expect(recorded.rows[0].n).toBe(15);
       });
 
       it('retries a failed download on the next import, and keeps media a person set in TaleArt', async () => {
         const project = await createProject();
         const stories = fake.control.data.stories['3001'].data;
-        const [failing, replaced] = [
-          String(stories[0]['title']),
-          String(stories[1]['title']),
-        ];
+        const [failing, replaced] = [String(stories[0]['title']), String(stories[1]['title'])];
         const media = stories[0]['media'];
         stories[0]['media'] = 'https://media.example/fake/missing.jpg';
         startWorker();
@@ -4435,12 +4394,8 @@ describe('Management API v1: projects and zones', () => {
         });
 
         // A person replaces another tale's media in TaleArt.
-        const own = (await projectTales(project.id)).find(
-          (t) => t.title === replaced,
-        );
-        const png = Buffer.from([
-          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
-        ]);
+        const own = (await projectTales(project.id)).find((t) => t.title === replaced);
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
         const upload = await fetch(`${base}/tales/${own?.id}/media`, {
           method: 'PUT',
           headers: { 'Content-Type': 'image/png' },
@@ -4456,27 +4411,113 @@ describe('Management API v1: projects and zones', () => {
         expect((second['report'] as { notes: string[] }).notes).toContain(
           `Tale "${replaced}" in "Summer sale": its media was set in TaleArt, so it was not replaced`,
         );
-        const after = Object.fromEntries(
-          (await projectTales(project.id)).map((t) => [
-            t.title,
-            t.media?.contentType,
-          ]),
-        );
+        const after = Object.fromEntries((await projectTales(project.id)).map((t) => [t.title, t.media?.contentType]));
         expect(after[failing]).toBe('image/jpeg');
         expect(after[replaced]).toBe('image/png');
+      });
+
+      it('lists media past the per-import budget as not imported, without requesting it', async () => {
+        const project = await createProject();
+        workers.push(
+          startImportWorker(pool, {
+            ...workerMedia(),
+            mediaPolicy: { ...workerMedia().mediaPolicy, maxBytesPerJob: 1 },
+            tokenKey,
+            another toolApiUrl: fake.url,
+            pollIntervalMs: 50,
+          }),
+        );
+        const job = await importOnce(project.id);
+        expect(job['status']).toBe('done');
+        const report = job['report'] as { media: unknown; differences: { kind: string; reason?: string }[] };
+        expect(report.media).toEqual({ source: 15, imported: 0, skipped: 15 });
+        const reasons = report.differences.filter((d) => d.kind === 'mediaNotImported').map((d) => d.reason);
+        expect(reasons).toEqual(Array(15).fill('jobBudgetExceeded'));
+        // The first download was refused on its declared length; the rest were not requested.
+        expect(mediaRequests()).toHaveLength(1);
+      });
+
+      it('never replaces media a person uploads while the import downloads, and deletes only its own copy', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const [tale] = await projectTales(project.id);
+        // The tale starts without media, as if its download were still to come.
+        await pool.query('UPDATE tales SET media_key = NULL, media_content_type = NULL WHERE id = $1', [tale.id]);
+        await pool.query('DELETE FROM import_media WHERE tale_id = $1', [tale.id]);
+        const storage = new LocalDiskStorage(mediaDir);
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+        let copyKey = '';
+        const outcome = await importTaleMedia(
+          pool,
+          {
+            storage,
+            // The upload lands between the importer's check and its update.
+            copy: async () => {
+              const upload = await fetch(`${base}/tales/${tale.id}/media`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'image/png' },
+                body: png,
+              });
+              expect(upload.status).toBe(200);
+              copyKey = `${IMPORTED_MEDIA_PREFIX}${randomUUID()}.jpg`;
+              await storage.put(copyKey, Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+              return { key: copyKey, contentType: 'image/jpeg', sha256: 'x' };
+            },
+          },
+          project.id,
+          tale.id,
+          { media: 'https://media.example/fake/story-1.jpg' },
+        );
+        expect(outcome).toEqual({ kind: 'keptOwn' });
+        const media = (await pool.query('SELECT media_key, media_content_type FROM tales WHERE id = $1', [tale.id]))
+          .rows[0];
+        expect(media.media_content_type).toBe('image/png');
+        expect(await storage.get(media.media_key)).toEqual(png);
+        expect(await storage.get(copyKey)).toBeNull();
+        expect((await pool.query('SELECT 1 FROM import_media WHERE tale_id = $1', [tale.id])).rowCount).toBe(0);
+      });
+
+      it('sweeps old imported files nothing references, and keeps everything else', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const storage = new LocalDiskStorage(mediaDir);
+        const referenced = (await pool.query('SELECT media_key FROM tales WHERE project_id = $1 LIMIT 1', [project.id]))
+          .rows[0].media_key as string;
+        const orphan = `${IMPORTED_MEDIA_PREFIX}${randomUUID()}.jpg`;
+        const young = `${IMPORTED_MEDIA_PREFIX}${randomUUID()}.jpg`;
+        const upload = `tales/${randomUUID()}.jpg`;
+        for (const key of [orphan, young, upload]) await storage.put(key, Buffer.from('x'));
+        const dir = join(mediaDir, 'tales');
+        writeFileSync(join(dir, 'stale.jpg.1234.tmp'), 'x');
+        const old = (Date.now() - 2 * MEDIA_SWEEP_MIN_AGE_MS) / 1000;
+        for (const name of [
+          referenced.slice('tales/'.length),
+          orphan.slice('tales/'.length),
+          upload.slice('tales/'.length),
+          'stale.jpg.1234.tmp',
+        ]) {
+          utimesSync(join(dir, name), old, old);
+        }
+        const swept = await sweepImportedMedia(pool, storage);
+        expect(swept.temporary).toBeGreaterThanOrEqual(1);
+        expect(await storage.get(orphan)).toBeNull();
+        expect(existsSync(join(dir, 'stale.jpg.1234.tmp'))).toBe(false);
+        expect(await storage.get(referenced)).not.toBeNull();
+        expect(await storage.get(young)).not.toBeNull();
+        expect(await storage.get(upload)).not.toBeNull();
       });
 
       it('fails the job, with the generic message, when the storage port fails', async () => {
         const project = await createProject();
         const storage = new LocalDiskStorage(mediaDir);
-        vi.spyOn(storage, 'putStream').mockRejectedValue(
-          new Error('disk full'),
-        );
+        vi.spyOn(storage, 'putStream').mockRejectedValue(new Error('disk full'));
         const log = vi.fn();
         workers.push(
           startImportWorker(pool, {
             storage,
-            mediaPolicy: { allowedAddresses: ['127.0.0.1'] },
+            mediaPolicy: workerMedia().mediaPolicy,
             tokenKey,
             another toolApiUrl: fake.url,
             pollIntervalMs: 50,
@@ -4485,9 +4526,7 @@ describe('Management API v1: projects and zones', () => {
         );
         const job = await importOnce(project.id);
         expect(job['status']).toBe('failed');
-        expect(job['error']).toBe(
-          'The import stopped on an internal error. Try again.',
-        );
+        expect(job['error']).toBe('The import stopped on an internal error. Try again.');
         expect(log).toHaveBeenCalledWith(
           'error',
           expect.stringMatching(/failed$/),
@@ -4738,18 +4777,12 @@ describe('Management API v1: projects and zones', () => {
       expect(await projectZones(project.id)).toEqual([]);
     });
 
-    it("does not let a stale runner overwrite a job another worker took over", async () => {
+    it('does not let a stale runner overwrite a job another worker took over', async () => {
       const project = await createProject();
       const id = await runningJob(project.id, 'new-worker', 'now()');
       await runImportJob(
         pool,
-        {
-          id,
-          projectId: project.id,
-          sourceAppId: '1001',
-          tokenCiphertext: encryptToken(FAKE_another tool_TOKEN, tokenKey),
-          lockedBy: 'stale-worker',
-        },
+        { id, projectId: project.id, sourceAppId: '1001', tokenCiphertext: encryptToken(FAKE_another tool_TOKEN, tokenKey), lockedBy: 'stale-worker' },
         { ...workerMedia(), tokenKey, another toolApiUrl: fake.url },
       );
       const row = await jobRow(id);
