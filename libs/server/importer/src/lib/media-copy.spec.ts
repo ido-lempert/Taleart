@@ -715,6 +715,118 @@ describe('copyMedia: retries and downloads at once (story 10)', () => {
     expect(many).toEqual(one);
   });
 
+  // A PNG declaring its length, answered after `delayMs` and sent over `sendMs`.
+  const slowFile =
+    (delayMs: number, sendMs = 0): Handler =>
+    (_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(PNG.length) });
+        res.write(PNG.subarray(0, 20));
+        setTimeout(() => res.end(PNG.subarray(20)), sendMs);
+      }, delayMs);
+    };
+  const outcomeOf = (copy: Promise<unknown>) =>
+    copy.then(
+      () => 'copied',
+      (err: MediaFetchError) => err.reason,
+    );
+
+  it('counts the download deadline from when it holds its host slot, not while it queues', async () => {
+    routes['/slow.png'] = slowFile(0, 150);
+    // Eight downloads, two at a time against the host, each taking 150 ms; each may take 300 ms once it runs.
+    const policy: MediaFetchPolicy = { ...local(), timeoutMs: 300, hostSlots: new HostLimiter(2) };
+    const run = async (budget?: { bytesLeft: number; deadline: number }) => {
+      const turns = new BudgetTurns();
+      const tickets = Array.from({ length: 8 }, () => turns.ticket());
+      return Promise.all(
+        tickets.map((ticket) =>
+          outcomeOf(copyMedia(storage, `${origin}/slow.png`, null, policy, budget, undefined, ticket)),
+        ),
+      );
+    };
+    expect(await run()).toEqual(Array(8).fill('copied'));
+    // With a binding budget, the same media is refused as one at a time: the first five fit.
+    const many = await run({ bytesLeft: PNG.length * 5 + 3, deadline: Date.now() + 60_000 });
+    const budget = { bytesLeft: PNG.length * 5 + 3, deadline: Date.now() + 60_000 };
+    const one: string[] = [];
+    for (let i = 0; i < 8; i++) one.push(await outcomeOf(copyMedia(storage, `${origin}/slow.png`, null, local(), budget)));
+    expect(many).toEqual(one);
+    expect(one.filter((o) => o === 'copied')).toHaveLength(5);
+  });
+
+  it('waits for earlier downloads to give back unread bytes before refusing a later one', async () => {
+    // The first breaks off after 20 of its declared bytes, slowly; the second answers at once.
+    routes['/breaks.png'] = (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(PNG.length) });
+      res.write(PNG.subarray(0, 20));
+      setTimeout(() => res.destroy(), 80);
+    };
+    routes['/next.png'] = file('image/png', PNG);
+    const outcome = async (concurrent: boolean) => {
+      const budget = { bytesLeft: PNG.length + 20, deadline: Date.now() + 60_000 };
+      const turns = new BudgetTurns();
+      const first = turns.ticket();
+      const second = turns.ticket();
+      const a = () => outcomeOf(copyMedia(storage, `${origin}/breaks.png`, null, local(), budget, undefined, first));
+      const b = () => outcomeOf(copyMedia(storage, `${origin}/next.png`, null, local(), budget, undefined, second));
+      const results = concurrent ? await Promise.all([a(), b()]) : [await a(), await b()];
+      return { results, spent: budget.spent ?? false };
+    };
+    const one = await outcome(false);
+    expect(one).toEqual({ results: ['unreachable', 'copied'], spent: false });
+    expect(await outcome(true)).toEqual(one);
+  });
+
+  it('never refuses an earlier download for a later one: a later file too large spends the budget from its place', async () => {
+    routes['/early.png'] = slowFile(80);
+    routes['/big.png'] = (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(PNG.length * 10) });
+      res.end(Buffer.concat(Array(10).fill(PNG)));
+    };
+    const budget = { bytesLeft: PNG.length * 2, deadline: Date.now() + 60_000 };
+    const turns = new BudgetTurns();
+    const [t0, t1, t2] = [turns.ticket(), turns.ticket(), turns.ticket()];
+    const results = await Promise.all([
+      outcomeOf(copyMedia(storage, `${origin}/early.png`, null, local(), budget, undefined, t0)),
+      outcomeOf(copyMedia(storage, `${origin}/big.png`, null, local(), budget, undefined, t1)),
+      outcomeOf(copyMedia(storage, `${origin}/early.png`, null, local(), budget, undefined, t2)),
+    ]);
+    expect(results).toEqual(['copied', 'jobBudgetExceeded', 'jobBudgetExceeded']);
+    expect(budget).toMatchObject({ spent: true, spentFrom: 1 });
+  });
+
+  it('after its turn, refuses without a request when an earlier download spent the budget', async () => {
+    routes['/first.png'] = slowFile(100);
+    routes['/second.png'] = file('image/png', PNG);
+    const budget = { bytesLeft: 40, deadline: Date.now() + 60_000 };
+    const turns = new BudgetTurns();
+    const [t0, t1] = [turns.ticket(), turns.ticket()];
+    const results = await Promise.all([
+      outcomeOf(copyMedia(storage, `${origin}/first.png`, null, local(), budget, undefined, t0)),
+      outcomeOf(copyMedia(storage, `${origin}/second.png`, null, local(), budget, undefined, t1)),
+    ]);
+    expect(results).toEqual(['jobBudgetExceeded', 'jobBudgetExceeded']);
+    // Opened once, before its turn; not again after it.
+    expect(hits.filter((h) => h === '/second.png')).toHaveLength(1);
+  });
+
+  it('refuses for the media deadline only what has not started, as one at a time, and spends nothing', async () => {
+    routes['/long.png'] = slowFile(0, 200);
+    const run = async (concurrent: boolean) => {
+      const budget = { bytesLeft: 1e9, deadline: Date.now() + 100 };
+      const policy: MediaFetchPolicy = { ...local(), hostSlots: new HostLimiter(1) };
+      const turns = new BudgetTurns();
+      const [t0, t1] = [turns.ticket(), turns.ticket()];
+      const a = () => outcomeOf(copyMedia(storage, `${origin}/long.png`, null, policy, budget, undefined, t0));
+      const b = () => outcomeOf(copyMedia(storage, `${origin}/long.png`, null, policy, budget, undefined, t1));
+      const results = concurrent ? await Promise.all([a(), b()]) : [await a(), await b()];
+      return { results, spent: budget.spent ?? false };
+    };
+    const one = await run(false);
+    expect(one).toEqual({ results: ['copied', 'jobBudgetExceeded'], spent: false });
+    expect(await run(true)).toEqual(one);
+  });
+
   it('limits connections per host on every hop, so many hosts redirecting to one stay within its limit', async () => {
     let open = 0;
     let most = 0;

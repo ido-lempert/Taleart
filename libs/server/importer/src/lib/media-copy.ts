@@ -41,13 +41,16 @@ export const IMPORTED_MEDIA_PREFIX = 'tales/imported-';
 
 /**
  * What one import may still spend on media: bytes left, and the time after
- * which no download starts. Shared by every download of the import. `spent`
- * is set once a download was refused for the bytes: no later one starts.
+ * which no download starts its transfer. Shared by every download of the
+ * import. `spentFrom` is the reading-order place of the first download refused
+ * for the bytes (-1 without places): it and every later one are refused, never
+ * an earlier one. `spent` says that some download was.
  */
 export interface MediaJobBudget {
   bytesLeft: number;
   deadline: number;
   spent?: boolean;
+  spentFrom?: number;
 }
 
 /** A fresh budget for one import, from the policy's per-job limits. */
@@ -62,49 +65,100 @@ export function mediaJobBudget(policy: MediaFetchPolicy = {}, now = Date.now()):
 const MAX_FILE_BYTES = Math.max(maxMediaBytes('image/jpeg'), maxMediaBytes('video/mp4'));
 
 /**
- * One download's place in its import's reading order, for the byte budget: a
- * download with a declared length reserves it only once every earlier one has
- * reserved its own (or ended), unless the budget is large enough that their
- * order cannot matter. So which media the budget refuses is the same as one
- * download at a time, for files that declare their length.
+ * One download's place in its import's reading order, for the job budget. A
+ * download decides against the budget (reserves a declared length, or is
+ * refused) only once every earlier one has decided, unless the budget is large
+ * enough that their order cannot matter; and it is refused for the bytes only
+ * once every earlier one has ended (and given back what it did not read). So
+ * which media the budget refuses is the same as one download at a time, for
+ * files that declare their length.
  */
 export interface BudgetTicket {
-  /** Resolves once every earlier ticket is done. */
-  turn(): Promise<void>;
-  /** How many earlier tickets are not done yet. */
+  /** Its place in reading order, from 0. */
+  readonly index: number;
+  /** Resolves once every earlier ticket has decided; rejects when `signal` aborts. */
+  turn(signal?: AbortSignal): Promise<void>;
+  /** Resolves once every earlier ticket has ended; rejects when `signal` aborts. */
+  earlierEnded(signal?: AbortSignal): Promise<void>;
+  /** How many earlier tickets have not decided yet. */
   earlierOpen(): number;
-  /** This download reserved its bytes, streams without a length, or ended; idempotent. */
+  /** How many earlier tickets have not ended yet. */
+  earlierRunning(): number;
+  /** This download decided (reserved, streams without a length, or was refused); idempotent. */
   done(): void;
+  /** This download ended, whatever its outcome; implies `done`; idempotent. */
+  finish(): void;
+}
+
+// Waits for `work` until `signal` aborts.
+function abortable(work: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    });
+  });
 }
 
 /** Hands out {@link BudgetTicket}s in the order the import reads its tales. */
 export class BudgetTurns {
-  private last: Promise<void> = Promise.resolve();
+  private decided: Promise<void> = Promise.resolve();
+  private ended: Promise<void> = Promise.resolve();
   private next = 0;
   private readonly open = new Set<number>();
+  private readonly running = new Set<number>();
 
   ticket(): BudgetTicket {
     const index = this.next++;
     this.open.add(index);
-    const before = this.last;
-    let settle: () => void = () => undefined;
-    const mine = new Promise<void>((resolve) => {
-      settle = resolve;
+    this.running.add(index);
+    const beforeDecided = this.decided;
+    const beforeEnded = this.ended;
+    let decide: () => void = () => undefined;
+    let end: () => void = () => undefined;
+    const myDecision = new Promise<void>((resolve) => {
+      decide = resolve;
     });
-    this.last = Promise.all([before, mine]).then(() => undefined);
+    const myEnd = new Promise<void>((resolve) => {
+      end = resolve;
+    });
+    this.decided = Promise.all([beforeDecided, myDecision]).then(() => undefined);
+    this.ended = Promise.all([beforeEnded, myEnd]).then(() => undefined);
+    const done = () => {
+      if (this.open.delete(index)) decide();
+    };
     return {
-      turn: () => before,
+      index,
+      turn: (signal) => abortable(beforeDecided, signal),
+      earlierEnded: (signal) => abortable(beforeEnded, signal),
       earlierOpen: () => [...this.open].filter((other) => other < index).length,
-      done: () => {
-        if (!this.open.delete(index)) return;
-        settle();
+      earlierRunning: () => [...this.running].filter((other) => other < index).length,
+      done,
+      finish: () => {
+        done();
+        if (this.running.delete(index)) end();
       },
     };
   }
 }
 
-const budgetSpent = () =>
-  new MediaFetchError('jobBudgetExceeded', 'The import already copied as much media as one import may');
+/** True when an earlier (or this) download was refused for the bytes: this one is refused too. */
+const refusedBefore = (budget: MediaJobBudget, ticket: BudgetTicket | undefined): boolean =>
+  budget.spentFrom !== undefined && (ticket === undefined || ticket.index >= budget.spentFrom);
+
+// Refused for the bytes: this download's place and every later one's are spent.
+class BytesSpent extends MediaFetchError {
+  constructor() {
+    super('jobBudgetExceeded', 'The import already copied as much media as one import may');
+  }
+}
+
+// Refused because the import's media time is up: it marks nothing spent, since an earlier download may still run.
+const timeUp = () => new MediaFetchError('jobBudgetExceeded', 'The import already spent as long on media as it may');
 
 // Its turn came after the download had opened: open it again, now that its reservation is decided in order.
 class TurnTaken extends Error {}
@@ -113,6 +167,8 @@ class TurnTaken extends Error {}
 const GENERIC_TYPES = new Set(['application/octet-stream', 'binary/octet-stream']);
 
 const unsupported = () => new MediaFetchError('unsupportedType', 'The media is not an accepted image or video');
+
+const stopped = () => new MediaFetchError('timeout', 'The media download took too long');
 
 // The declared type, by the upload's rule: the response's Content-Type, or the
 // story's mime_type when the response names none or only a generic one.
@@ -123,24 +179,64 @@ function declaredType(header: string | null, mimeType: unknown): MediaContentTyp
 }
 
 /**
+ * The per-download deadline: it starts when the download takes its host slot
+ * (its transfer starts), not while it queues, and starts again when the
+ * download opens again after its budget turn.
+ */
+class TransferClock {
+  private controller = new AbortController();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  /** When the running transfer must end (epoch ms); undefined before it starts. */
+  until: number | undefined;
+
+  constructor(private readonly timeoutMs: number) {}
+
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+
+  start(): void {
+    if (this.timer !== undefined) return;
+    this.until = Date.now() + this.timeoutMs;
+    const controller = this.controller;
+    this.timer = setTimeout(() => controller.abort(), this.timeoutMs);
+  }
+
+  restart(): void {
+    this.stop();
+    this.controller = new AbortController();
+    this.until = undefined;
+  }
+
+  stop(): void {
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+}
+
+/**
  * Downloads one source media file under the fetch policy and streams it into
  * storage under a new key (`tales/imported-<uuid>.<ext>`), with the upload's
  * rules: an accepted type whose leading bytes match it, and no more bytes than
  * its kind allows. The body is never held whole in memory.
  *
- * A reply 429 or 5xx is tried again with backoff (or after its `Retry-After`)
- * when the wait fits in the download's deadline, else it fails at once as
- * `httpError`; every try goes through the guard again.
+ * The per-download deadline (120 s by default) counts from when the download
+ * holds its host slot; waiting for a slot or a budget turn is bounded by the
+ * job's media deadline and `abort` instead. A reply 429 or 5xx is tried again
+ * with backoff (or after its `Retry-After`) when the wait fits in the
+ * download's deadline, else it fails at once as `httpError`; every try goes
+ * through the guard again.
  *
- * With a job budget: no download starts once the budget is spent or its
- * deadline has passed (a download already running finishes within its own
- * deadline). A declared length is reserved before the body is read, in the
- * ticket's turn when the budget is close to binding, and what is not read is
- * given back; a body without a length is taken from the budget as it arrives
+ * With a job budget, a download that has not started its transfer by the job's
+ * media deadline is refused, in its turn; one that has started is never
+ * refused by it. A declared length is reserved before the body is read, in
+ * the ticket's turn when the budget is close to binding (after the turn, a
+ * spent budget is refused without a request), and what is not read is given
+ * back. A body without a length is taken from the budget as it arrives
  * (downloads running at once may then be refused in another order than one at
- * a time). A download refused for the budget gives back what it read and
- * marks the budget spent. `abort` stops the download (the job stopped). A
- * source failure is a {@link MediaFetchError} and leaves nothing stored; a
+ * a time). A download refused for the bytes gives back what it read and spends
+ * the budget from its place on. `abort` stops the download (the job stopped).
+ * A source failure is a {@link MediaFetchError} and leaves nothing stored; a
  * storage failure is passed on as it is.
  */
 export async function copyMedia(
@@ -152,38 +248,94 @@ export async function copyMedia(
   abort?: AbortSignal,
   ticket?: BudgetTicket,
 ): Promise<CopiedMedia> {
+  const clock = new TransferClock(policy.timeoutMs ?? MEDIA_FETCH_TIMEOUT_MS);
   try {
-    if (budget && (budget.spent || budget.bytesLeft <= 0 || Date.now() >= budget.deadline)) throw budgetSpent();
-    const timeoutMs = policy.timeoutMs ?? MEDIA_FETCH_TIMEOUT_MS;
-    const until = Date.now() + timeoutMs;
-    const perDownload = AbortSignal.timeout(timeoutMs);
-    const signal = abort ? AbortSignal.any([perDownload, abort]) : perDownload;
+    if (budget) await startInTurn(budget, ticket, abort);
+    // Waiting for a host slot is bounded by the job's media deadline (and the stop), not the transfer's.
+    const timeLeft = budget ? budget.deadline - Date.now() : Infinity;
+    const jobDeadline = Number.isFinite(timeLeft) ? AbortSignal.timeout(Math.max(1, timeLeft)) : undefined;
     const retry = retryPolicy(policy.retry);
     for (let attempt = 1; ; ) {
+      const waiting = AbortSignal.any([clock.signal, ...(abort ? [abort] : []), ...(jobDeadline ? [jobDeadline] : [])]);
+      const hostSlots = policy.hostSlots;
+      const opened: MediaFetchPolicy = hostSlots
+        ? {
+            ...policy,
+            hostSlots: {
+              acquire: async (host: string) => {
+                // The transfer has started once a hop holds its slot; until then the job deadline bounds the wait.
+                const signal =
+                  clock.until === undefined ? waiting : AbortSignal.any([clock.signal, ...(abort ? [abort] : [])]);
+                let release: () => void;
+                try {
+                  release = await hostSlots.acquire(host, signal);
+                } catch {
+                  throw clock.until === undefined && jobDeadline?.aborted && !abort?.aborted ? timeUp() : stopped();
+                }
+                clock.start();
+                return release;
+              },
+            },
+          }
+        : policy;
+      if (!hostSlots) clock.start();
+      const signal = AbortSignal.any([clock.signal, ...(abort ? [abort] : [])]);
       try {
-        return await copyOnce(storage, url, mimeType, policy, budget, signal, ticket);
+        return await copyOnce(storage, url, mimeType, opened, budget, signal, ticket, abort);
       } catch (err) {
-        if (err instanceof TurnTaken) continue;
+        if (err instanceof TurnTaken) {
+          clock.restart();
+          continue;
+        }
         const reply = err instanceof MediaFetchError && err.reason === 'httpError' ? err.reply : undefined;
         if (!reply || !isRetryableStatus(reply.status) || attempt >= retry.attempts) throw err;
         const wait = retryDelayMs(attempt - 1, reply.retryAfterMs, retry);
-        // A wait that cannot end before the deadline is not waited: the reply stands.
-        if (Date.now() + wait >= until) throw err;
+        // A wait that cannot end before the transfer's deadline is not waited: the reply stands.
+        if (clock.until !== undefined && Date.now() + wait >= clock.until) throw err;
         try {
           await sleep(wait, signal);
         } catch {
-          throw new MediaFetchError('timeout', 'The media download took too long');
+          throw stopped();
         }
         attempt++;
       }
     }
   } catch (err) {
-    // Once a download is refused for the budget, the budget is spent: the rest is not requested.
-    if (budget && err instanceof MediaFetchError && err.reason === 'jobBudgetExceeded') budget.spent = true;
+    // Refused for the bytes: the budget is spent from this download's place on, never for an earlier one.
+    if (budget && err instanceof BytesSpent) {
+      budget.spent = true;
+      const place = ticket?.index ?? -1;
+      budget.spentFrom = budget.spentFrom === undefined ? place : Math.min(budget.spentFrom, place);
+    }
     throw err;
   } finally {
-    ticket?.done();
+    clock.stop();
+    ticket?.finish();
   }
+}
+
+/**
+ * Before a download starts: refused when an earlier one spent the budget; when
+ * the media time is up or no bytes are left, it decides only in its turn (and,
+ * for the bytes, once the earlier ones have given back what they did not
+ * read), so a later download never decides for an earlier one.
+ */
+async function startInTurn(
+  budget: MediaJobBudget,
+  ticket: BudgetTicket | undefined,
+  abort: AbortSignal | undefined,
+): Promise<void> {
+  if (refusedBefore(budget, ticket)) throw new BytesSpent();
+  if (Date.now() < budget.deadline && budget.bytesLeft > 0) return;
+  try {
+    await ticket?.turn(abort);
+    if (budget.bytesLeft <= 0 && Date.now() < budget.deadline) await ticket?.earlierEnded(abort);
+  } catch {
+    throw stopped();
+  }
+  if (refusedBefore(budget, ticket)) throw new BytesSpent();
+  if (Date.now() >= budget.deadline) throw timeUp();
+  if (budget.bytesLeft <= 0) throw new BytesSpent();
 }
 
 // One try of copyMedia: opens the URL and streams its checked bytes into storage.
@@ -195,6 +347,7 @@ async function copyOnce(
   budget: MediaJobBudget | undefined,
   signal: AbortSignal,
   ticket: BudgetTicket | undefined,
+  abort: AbortSignal | undefined,
 ): Promise<CopiedMedia> {
   const res = await openMedia(url, policy, signal);
   const { body } = res;
@@ -202,7 +355,19 @@ async function copyOnce(
   let reserved = 0;
   let taken = 0;
   let read = 0;
-
+  // Closes this try and waits for `work` (a turn), holding no host slot; then the download opens again.
+  const reopenAfter = async (work: (signal?: AbortSignal) => Promise<void>): Promise<never> => {
+    body.destroy();
+    res.release();
+    try {
+      await work(abort);
+    } catch {
+      throw stopped();
+    }
+    // An earlier download spent the budget meanwhile: refused without a request.
+    if (budget && refusedBefore(budget, ticket)) throw new BytesSpent();
+    throw new TurnTaken();
+  };
   try {
     const contentType = declaredType(res.contentType, mimeType);
     if (contentType === null) throw unsupported();
@@ -211,25 +376,18 @@ async function copyOnce(
       throw new MediaFetchError('tooLarge', 'The media is larger than its type allows');
     }
     if (budget) {
-      if (budget.spent) throw budgetSpent();
-      if (res.contentLength !== null) {
+      if (refusedBefore(budget, ticket)) throw new BytesSpent();
+      const length = res.contentLength;
+      if (length !== null) {
         // The earlier downloads may still take up to a whole file each: only when that cannot matter does this
-        // one reserve out of turn. Otherwise it closes the connection (holding no host slot), waits, and opens again.
+        // one reserve out of turn. Otherwise it waits for its turn, and when the bytes left are too few then, for
+        // the earlier downloads to end and give back what they did not read.
         const room = budget.bytesLeft - (ticket ? ticket.earlierOpen() * MAX_FILE_BYTES : 0);
-        if (ticket && room < res.contentLength && ticket.earlierOpen() > 0) {
-          body.destroy();
-          res.release();
-          try {
-            await ticket.turn();
-          } catch {
-            // turn() never rejects.
-          }
-          if (signal.aborted) throw new MediaFetchError('timeout', 'The media download took too long');
-          throw new TurnTaken();
-        }
-        if (budget.spent || res.contentLength > budget.bytesLeft) throw budgetSpent();
-        budget.bytesLeft -= res.contentLength;
-        reserved = res.contentLength;
+        if (ticket && room < length && ticket.earlierOpen() > 0) await reopenAfter(ticket.turn);
+        if (ticket && length > budget.bytesLeft && ticket.earlierRunning() > 0) await reopenAfter(ticket.earlierEnded);
+        if (length > budget.bytesLeft) throw new BytesSpent();
+        budget.bytesLeft -= length;
+        reserved = length;
       }
     }
     ticket?.done();
@@ -247,7 +405,7 @@ async function copyOnce(
             const more = read - reserved - taken;
             budget.bytesLeft -= more;
             taken += more;
-            if (budget.bytesLeft < 0) throw budgetSpent();
+            if (budget.bytesLeft < 0) throw new BytesSpent();
           }
           hash.update(chunk);
           if (headChecked) {
@@ -268,9 +426,7 @@ async function copyOnce(
         if (err instanceof MediaFetchError) throw err;
         throw (
           res.failure() ??
-          (signal.aborted
-            ? new MediaFetchError('timeout', 'The media download took too long')
-            : new MediaFetchError('unreachable', 'The media transfer broke off'))
+          (signal.aborted ? stopped() : new MediaFetchError('unreachable', 'The media transfer broke off'))
         );
       }
       if (!headChecked) {
@@ -283,11 +439,10 @@ async function copyOnce(
     }
     const key = `${IMPORTED_MEDIA_PREFIX}${randomUUID()}.${mediaExtension(contentType)}`;
     await storage.putStream(key, checkedBytes());
-
     return { key, contentType, sha256: hash.digest('hex') };
   } catch (err) {
-    if (budget && err instanceof MediaFetchError && err.reason === 'jobBudgetExceeded') {
-      // Refused for the budget: what it took goes back, so the downloads before it in reading order keep their room.
+    if (budget && err instanceof BytesSpent) {
+      // Refused for the bytes: what it took goes back, so the downloads before it in reading order keep their room.
       budget.bytesLeft += taken;
       taken = 0;
     }
@@ -445,7 +600,7 @@ export async function importTaleMedia(
     return await importTaleMediaWith(db, media, projectId, taleId, story, signal, ticket);
   } finally {
     // No download, or one that ended early: its place in the budget's order passes on.
-    ticket?.done();
+    ticket?.finish();
   }
 }
 

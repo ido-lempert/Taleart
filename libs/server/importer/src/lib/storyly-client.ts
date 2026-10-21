@@ -255,8 +255,8 @@ export class StorylyClient {
    * without a usable id still names its label (tags need no source id). At
    * most {@link MAX_LABEL_LIST_ENTRIES} entries are checked; `beyond` counts the rest.
    */
-  async listLabels(appId: string): Promise<CheckedLabelList> {
-    const all = listOf(await this.get('/segment', { app_id: appId }, 'labels'), 'labels');
+  async listLabels(appId: string, signal?: AbortSignal): Promise<CheckedLabelList> {
+    const all = listOf(await this.get('/segment', { app_id: appId }, 'labels', signal), 'labels');
     const text = (value: string) => storedText(value, this.options.token);
     const budget = this.options.budget;
     const entries = all.slice(0, MAX_LABEL_LIST_ENTRIES).map((raw, index): CheckedEntry<SourceLabel> => {

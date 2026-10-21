@@ -210,7 +210,12 @@ export interface ImportContentOptions {
    * group's `segments`) become tags of the project on its tale groups, and the
    * report counts them; without it, labels are not imported.
    */
-  labels?: () => Promise<SourceList<SourceLabel>>;
+  labels?: (signal?: AbortSignal) => Promise<SourceList<SourceLabel>>;
+  /**
+   * Throws when this run no longer holds its job (the claim check); run before
+   * tags are written, which happens outside the per-record heartbeat.
+   */
+  claimCheck?: () => Promise<void>;
   /**
    * The source app's id. Links remember it, so a re-import of the app lists
    * the records an earlier import brought across that the source no longer
@@ -651,6 +656,10 @@ async function importContentWith(
   });
   // Saves labels as tags; an error the labels' own text causes is a note, never a failed job.
   const saveLabels = async (save: () => Promise<void>, where: string) => {
+    // Tags are written only while the import runs and still holds its job.
+    stop.signal.throwIfAborted();
+    await options.claimCheck?.();
+    stop.signal.throwIfAborted();
     try {
       await save();
     } catch (err) {
@@ -662,7 +671,7 @@ async function importContentWith(
     // The app's labels list. Its path and shape are guesses until the real run, so a list that cannot be read
     // leaves the tags to the story groups' labels instead of failing the import.
     try {
-      const labelList = await options.labels();
+      const labelList = await options.labels(stop.signal);
       const checked = checkedOf(labelList);
       const beyond = Array.isArray(labelList) ? 0 : ((labelList as Partial<CheckedLabelList>).beyond ?? 0);
       // Each record listed once by id, like every other list.
@@ -703,6 +712,8 @@ async function importContentWith(
       if (repeated > 0) note(`Tags: ${repeated} repeated label record(s) of the labels list were skipped`);
       await saveLabels(() => labels.ensure([...new Set(names)]), 'Tags');
     } catch (err) {
+      // A read the stop cut off ends the import, not only the labels list.
+      stop.signal.throwIfAborted();
       if (!(err instanceof StorylyUnavailableError || err instanceof StorylyTokenInvalidError)) throw err;
       note(`Tags: the labels list could not be read (${text(err.message)}), so tags come from story groups only`);
     }
@@ -1024,7 +1035,7 @@ async function importContentWith(
               stop.signal.throwIfAborted();
               return importTaleMedia(db, media, projectId, taleId, story, stop.signal, ticket);
             }, stop.signal)
-            .finally(() => ticket?.done());
+            .finally(() => ticket?.finish());
           order.after(copy, (outcome) => {
             if (outcome.kind === 'none') return;
             counts.source++;
@@ -1400,7 +1411,8 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
         concurrency,
         signal: stop.signal,
         appId: app.id,
-        labels: picks('tags') ? () => client.listLabels(app.id) : undefined,
+        labels: picks('tags') ? (signal) => client.listLabels(app.id, signal) : undefined,
+        claimCheck: () => beat(),
         media: !picks('media')
           ? undefined
           : {

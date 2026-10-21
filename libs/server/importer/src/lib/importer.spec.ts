@@ -2307,3 +2307,41 @@ describe('StorylyClient: the 429 hold (story 10 review)', () => {
     expect(bAt).toBeGreaterThanOrEqual(2250);
   });
 });
+
+describe('importContent: labels and the stop (story 10 follow-up review)', () => {
+  const home = [{ id: '2001', name: 'Home page' }];
+  const tagWrites = (statements: () => string[]) => statements().filter((sql) => /INSERT INTO tags/.test(sql)).length;
+
+  it('passes its stop to the labels read, and writes no tag from a read that ends after the stop', async () => {
+    const content = contentDb();
+    const claim = new AbortController();
+    let seen: AbortSignal | undefined;
+    await expect(
+      importContent(content.db, projectId, home, noContent, async () => undefined, {
+        signal: claim.signal,
+        labels: async (signal) => {
+          seen = signal;
+          claim.abort(new Error('claim lost'));
+          return [{ id: 's1', text: 'summer', reported: false }];
+        },
+      }),
+    ).rejects.toThrow('claim lost');
+    expect(seen).toBeInstanceOf(AbortSignal);
+    expect(seen?.aborted).toBe(true);
+    expect(tagWrites(content.statements)).toBe(0);
+  });
+
+  it('checks the claim before writing tags', async () => {
+    const content = contentDb();
+    const lost = new Error('claim lost');
+    await expect(
+      importContent(content.db, projectId, home, noContent, async () => undefined, {
+        labels: async () => [{ id: 's1', text: 'summer', reported: false }],
+        claimCheck: async () => {
+          throw lost;
+        },
+      }),
+    ).rejects.toBe(lost);
+    expect(tagWrites(content.statements)).toBe(0);
+  });
+});

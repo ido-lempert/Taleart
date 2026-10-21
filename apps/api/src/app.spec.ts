@@ -7018,38 +7018,92 @@ describe('Management API v1: projects and zones', () => {
         expect(databasePoolMax({ DATABASE_POOL_MAX: 'many' })).toBe(20);
       });
 
-      it('keeps answering progress polls quickly while eight copies run', async () => {
-        const project = await createProject();
-        fake.control.useScale({
-          ...small,
-          storiesPerGroup: 6,
-          factor: 1,
-          failures: false,
-          api: { latencyMs: [0, 0] },
-          media: { ...small.media, ttfbMs: [400, 400] },
-        });
-        workers.push(
-          startImportWorker(pool, {
-            ...workerMedia(),
-            tokenKey,
-            storylyApiUrl: fake.url,
-            pollIntervalMs: 50,
-            dbConcurrency: 2,
-          }),
-        );
-        const res = await send('POST', `/projects/${project.id}/imports`, { token: FAKE_STORYLY_TOKEN, appId: '9001' });
-        const { id } = (await res.json()) as { id: string };
-        const slowest: number[] = [];
-        for (;;) {
-          const started = Date.now();
-          const job = await (await send('GET', `/projects/${project.id}/imports/${id}`)).json();
-          slowest.push(Date.now() - started);
-          if (job.status !== 'queued' && job.status !== 'running') break;
-          await new Promise((resolve) => setTimeout(resolve, 20));
+      it('keeps answering progress polls while eight copies hold database connections, on a small pool', async () => {
+        // A pool of 8 (DATABASE_POOL_MAX=8) shared by the API and the worker, as in main.ts.
+        const tight = createPool(testDatabaseUrl, databasePoolMax({ DATABASE_POOL_MAX: '8' }));
+        // The worker's database: each copy's first media read holds its connection for 2.5 s (a slow database). Without
+        // the limit, eight such reads would hold every connection of the pool and the polls would wait.
+        const slow = async (sql: string) => {
+          if (/SELECT media_key AS key/.test(sql)) await new Promise((resolve) => setTimeout(resolve, 2500));
+        };
+        const workerDb = {
+          query: async (sql: string, params?: unknown[]) => {
+            const client = await tight.connect();
+            try {
+              await slow(sql);
+              return await client.query(sql, params);
+            } finally {
+              client.release();
+            }
+          },
+          connect: async () => {
+            const client = await tight.connect();
+            return {
+              query: async (sql: string, params?: unknown[]) => {
+                await slow(sql);
+                return client.query(sql, params);
+              },
+              release: (err?: Error) => client.release(err),
+            };
+          },
+        } as unknown as Pool;
+        const app = createApp(
+          tight,
+          loadFrameTypeRegistry(frameTypesDir),
+          new LocalDiskStorage(mediaDir),
+          { verifier: fakeVerifier },
+          { publicApiUrl },
+          { tokenKey, storylyApiUrl: fake.url, wake: () => undefined },
+        ).listen(0);
+        await new Promise<void>((resolve) => app.once('listening', () => resolve()));
+        const at = `http://127.0.0.1:${(app.address() as AddressInfo).port}/api/v1`;
+        try {
+          const project = await createProject();
+          fake.control.useScale({
+            ...small,
+            groupsPerInstance: 1,
+            storiesPerGroup: 8,
+            factor: 0,
+            failures: false,
+            media: { ttfbMs: [0, 0], bytesPerSecond: 1_000_000_000, videoShare: 0, imageBytes: [2_000, 4_000] },
+          });
+          workers.push(
+            startImportWorker(workerDb, {
+              ...workerMedia(),
+              tokenKey,
+              storylyApiUrl: fake.url,
+              pollIntervalMs: 50,
+              dbConcurrency: 8 - 6,
+            }),
+          );
+          const res = await send(
+            'POST',
+            `/projects/${project.id}/imports`,
+            { token: FAKE_STORYLY_TOKEN, appId: '9001' },
+            at,
+          );
+          const { id } = (await res.json()) as { id: string };
+          const took: number[] = [];
+          for (const until = Date.now() + 30_000; ; ) {
+            const started = Date.now();
+            const job = await (await send('GET', `/projects/${project.id}/imports/${id}`, undefined, at)).json();
+            took.push(Date.now() - started);
+            if (job.status !== 'queued' && job.status !== 'running') {
+              expect(job.status).toBe('done');
+              break;
+            }
+            if (Date.now() > until) throw new Error(`Import still ${job.status}`);
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+          expect(took.length).toBeGreaterThan(3);
+          expect(Math.max(...took)).toBeLessThan(2000);
+        } finally {
+          await Promise.all(workers.map((w) => w.stop()));
+          workers = [];
+          await new Promise<void>((resolve) => app.close(() => resolve()));
+          await tight.end();
         }
-        expect(fake.control.stats.maxMediaOpen).toBeGreaterThan(4);
-        expect(Math.max(...slowest)).toBeLessThan(500);
-      });
+      }, 60_000);
 
       it('resumes a job whose worker stopped mid-run, creating nothing twice and copying no media again', async () => {
         const project = await createProject();

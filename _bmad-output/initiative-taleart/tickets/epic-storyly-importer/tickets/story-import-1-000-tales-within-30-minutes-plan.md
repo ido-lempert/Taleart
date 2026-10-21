@@ -112,6 +112,7 @@ deferred: []
 - Not optimised, by measurement: database work. At SCALE_FACTOR 0.01 (network nearly free), 1,000 tales take about 10 s locally, against a 30-minute target. So there is no batching across records: story 7's per-record transactions and lock order stay as they were. The per-record heartbeat also stays.
 - The scale target lives in `api` because it needs every module's migrations (`apps/api/src/db.ts`). `*.scale.ts` is excluded from the app build and from `api:test`. `claimNextJob` is now exported for it.
 - The fake's `stats.maxMediaOpen` counts a media request from its arrival to the end of its answer.
+- Merged `autopilot/foundation` ea6f5bf (Tale Studio 7.2) before the follow-up review fixes.
 - Merged `autopilot/foundation` 52287b8 (Tale Studio 7.1) before committing. It merged with no conflicts, and the contract was regenerated with no change. Merged it again (45e087a, Tale Studio 7.4) before the review fixes.
 - Review fixes (see Review Triage Log), as decisions:
   - Budget order: a download reserves out of turn when the bytes left exceed the earlier open downloads' worst case (100 MB each). So the 5 GB default never makes downloads wait for turns until near exhaustion.
@@ -169,6 +170,27 @@ deferred: []
     - The worker runs media copies' database phases under a limit of `min(media, max − 6)` (`dbConcurrency`).
     - Tests: the pool size, and progress polls answering within 500 ms while eight copies run.
 
+### 2026-10-21 — Coordinator follow-up review
+- verdicts: 5 findings, all patched, none rejected; no deadlocks or leaks found
+- findings:
+  - `[patch]` Queueing used up the per-download deadline. Fixed:
+    - The 120 s transfer clock starts only when the download holds its host slot, and starts again on a reopen after its budget turn.
+    - Waiting for a slot is bounded by the job's media deadline (refused as `jobBudgetExceeded`, nothing spent) and the stop signal.
+    - `ticket.turn()` and `earlierEnded()` take the stop signal.
+    - The 429 "fits the deadline" check uses the transfer clock.
+    - Test: eight copies, two at a time against one host, each slower than half the deadline. None times out while queued, and a binding budget refuses the same media as one at a time.
+  - `[patch]` `spent` could be set by a later download for earlier ones. Fixed:
+    - The budget records `spentFrom`, the reading-order place of the first download refused for bytes. Only it and later ones are refused.
+    - A download that finds the media time up or no bytes left decides only in its turn. For bytes, it also waits until the earlier downloads have ended and given back what they did not read.
+    - The media deadline refuses only downloads not yet started, and marks nothing spent.
+    - Tests: a refund an earlier download gives back lets a later one fit (as at concurrency 1); a later too-large file spends from its own place and the earlier one copies; the deadline variant matches concurrency 1 and spends nothing.
+  - `[patch]` After its turn a download reopened even when the budget was spent. Fixed: it is refused without a request. Test: the second URL is opened once only.
+  - `[patch]` The labels read ignored the stop, and tags were written without a claim check. Fixed:
+    - `labels(signal)` and `StorylyClient.listLabels(appId, signal)`.
+    - The stop is checked, and the `claimCheck` option (the heartbeat in `runImportJob`) runs, before tags are written.
+    - Tests: a labels read ending after the stop writes no tag; a failing claim check writes no tag.
+  - `[patch]` The progress-poll test proved nothing. Fixed: it runs the API and the worker on a pool of 8 (`DATABASE_POOL_MAX=8`), with each copy's first media read holding its connection 2.5 s. Polls must answer within 2 s. The test fails without the limit (a 2.5 s poll at `dbConcurrency: 8`) and passes with `8 − 6`.
+
 ## Verification
 
 **Commands:**
@@ -202,6 +224,8 @@ A job resumed after a worker stops creates nothing twice and downloads no media 
 **Verification (review fixes):** after merging `autopilot/foundation` 45e087a, the run-many command passed for all 12 projects against `taleart_w2_test`: api 381, server-importer 269, web-sdk 262, dashboard 223, contract 106, server-tales 96, server-zones 67, fake-storyly 18 tests. The only warning is the dashboard bundle budget warning, which was already there. `api:import-scale` (factor 0.1) passed:
 - with 429/500/503 replies: 25.0 s, an upper bound of 4.2 min, `elapsedSeconds` 25, a re-run of 4.4 s, at most 6 media requests open at once, and a peak RSS of 227 MB;
 - without failures: 14.7 s, an upper bound of 2.4 min.
+
+**Verification (follow-up review fixes):** after merging `autopilot/foundation` ea6f5bf (Tale Studio 7.2), the run-many command passed for all 12 projects: api 382, server-importer 276, web-sdk 264, dashboard 253, contract 109, fake-storyly 18 tests. The only warning is the dashboard bundle budget warning, which was already there. `api:import-scale` (factor 0.1) passed: 25.4 s with failures (upper bound 4.2 min, re-run 4.8 s, at most 6 open, peak 196 MB), and 14.8 s without failures (upper bound 2.5 min).
 
 **Follow-up review recommended:** true. The ordered byte budget (tickets, reopening on its turn) and the stop paths are new concurrency code.
 

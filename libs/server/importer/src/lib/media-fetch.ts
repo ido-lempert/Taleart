@@ -399,7 +399,9 @@ export async function openMedia(rawUrl: string, policy: MediaFetchPolicy, signal
       if (policy.hostSlots) {
         try {
           release = await policy.hostSlots.acquire(url.host.toLowerCase(), signal);
-        } catch {
+        } catch (err) {
+          // A slot keeper may say why it gave up (such as the import's media time); else the wait was stopped.
+          if (err instanceof MediaFetchError) throw err;
           throw new MediaFetchError('timeout', 'The media download took too long');
         }
       }
