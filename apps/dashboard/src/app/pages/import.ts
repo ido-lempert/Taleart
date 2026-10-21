@@ -7,7 +7,7 @@ import {
   type ImportPreview,
   type ImportPreviewZone,
   type StorylyApp,
-} from '@taleart/contract';
+} from '@taleart/contract/core';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';

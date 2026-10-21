@@ -1,4 +1,4 @@
-import type { TaleElement } from '@taleart/contract';
+import type { TaleElement } from '@taleart/contract/tale-document';
 import {
   clampMove,
   duplicateElement,

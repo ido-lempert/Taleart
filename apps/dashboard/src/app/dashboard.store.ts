@@ -15,13 +15,13 @@ import {
   type Stage,
   type Tag,
   type Tale,
-  type TaleStatusResult,
   type TaleGroup,
   type TaleGroupCover,
   type Zone,
   type ZoneKeyInfo,
   type ZoneTaleGroup,
-} from '@taleart/contract';
+} from '@taleart/contract/core';
+import type { TaleStatusResult } from '@taleart/contract/tale-document';
 import { firstValueFrom } from 'rxjs';
 
 // The Management API, on the dashboard's own origin: the dev server proxies

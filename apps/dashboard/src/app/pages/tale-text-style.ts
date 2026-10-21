@@ -8,9 +8,8 @@ import {
   signal,
   type WritableSignal,
 } from '@angular/core';
+import type { TextElementProps } from '@taleart/contract/tale-document';
 import {
-  isFontFamily,
-  MAX_FONT_FAMILY_LENGTH,
   resolveTextStyle,
   SYSTEM_FONT_STACK_KEYS,
   TEXT_COLOR_PATTERN,
@@ -25,10 +24,10 @@ import {
   type TextBackground,
   type TextContrast,
   type TextDirection,
-  type TextElementProps,
   type TextSizePreset,
   type TextWeight,
-} from '@taleart/contract';
+} from '@taleart/contract/text-style';
+import { isFontFamily, MAX_FONT_FAMILY_LENGTH } from '@taleart/contract/theme';
 
 /** A style change the inspector asks for: one history step, with what the live region says. */
 export interface TextStyleChange {

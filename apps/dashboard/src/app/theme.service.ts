@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { isErrorBody, type ProjectTheme, type ThemeSettings } from '@taleart/contract';
+import { isErrorBody, type ProjectTheme } from '@taleart/contract/core';
+import type { ThemeSettings } from '@taleart/contract/theme';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
 

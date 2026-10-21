@@ -11,7 +11,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { MAX_ANIMATED_COVER_BYTES } from '@taleart/contract';
+import { MAX_ANIMATED_COVER_BYTES } from '@taleart/contract/core';
 import { CLIP_LENGTHS, CoverCapture, formatBytes } from './cover-capture';
 import { DashboardStore } from './dashboard.store';
 

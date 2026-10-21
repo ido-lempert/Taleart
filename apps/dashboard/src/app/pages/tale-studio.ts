@@ -12,17 +12,24 @@ import {
   untracked,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { ErrorCodes } from '@taleart/contract/core';
 import {
   cleanText,
   ELEMENT_TEXT_RULE,
   emptyTaleDocument,
-  ErrorCodes,
   elementBounds,
   isOutsideSafeArea,
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
   NEW_TEXT_BOX,
   TALE_SAFE_AREA,
+  type PublishedTaleDocument,
+  type TaleDocument,
+  type TaleElement,
+  type TaleElementBox,
+  type TextElementProps,
+} from '@taleart/contract/tale-document';
+import {
   DEFAULT_TEXT_STYLE,
   resolveTextStyle,
   TEXT_BOX_PADDING_EM,
@@ -30,13 +37,8 @@ import {
   textCssWeight,
   textContrast,
   textFontFamily,
-  type PublishedTaleDocument,
-  type TaleDocument,
-  type TaleElement,
-  type TaleElementBox,
   type TextBackdrop,
-  type TextElementProps,
-} from '@taleart/contract';
+} from '@taleart/contract/text-style';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';

@@ -11,7 +11,7 @@ import {
   untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { isImportActive, type ImportJob } from '@taleart/contract';
+import { isImportActive, type ImportJob } from '@taleart/contract/core';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
