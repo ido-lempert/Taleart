@@ -454,13 +454,28 @@ describe('TaleartElement', () => {
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it('renders nothing and warns once for an unknown stage, or a stage whose frame is missing', async () => {
-      for (const key of ['nope', 'gone', 'ROUND']) {
+    it('renders nothing and warns once that the zone has no such stage for an unknown key', async () => {
+      for (const key of ['nope', 'ROUND']) {
         warnSpy.mockClear();
         const el = await withStage(key);
         expect(el.shadowRoot?.childNodes).toHaveLength(0);
         expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(String(warnSpy.mock.calls[0][0])).toContain(`"${key}"`);
+        expect(String(warnSpy.mock.calls[0][0])).toBe(`TaleArt: the zone has no stage "${key}"; nothing is rendered for it`);
+      }
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('renders nothing and warns once, distinctly, for a stage that points to a missing frame', async () => {
+      const broken = { ...staged, stages: [...(staged.stages ?? []), { key: 'odd', frameId: 7 }, { key: 'bare' }] };
+      fetchMock.mockImplementation(async () => respond(200, broken));
+      for (const key of ['gone', 'odd', 'bare']) {
+        warnSpy.mockClear();
+        const el = await withStage(key);
+        expect(el.shadowRoot?.childNodes).toHaveLength(0);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(String(warnSpy.mock.calls[0][0])).toBe(
+          `TaleArt: stage "${key}" points to a frame the zone does not have; nothing is rendered for it`,
+        );
       }
       expect(errorSpy).not.toHaveBeenCalled();
     });
@@ -472,17 +487,19 @@ describe('TaleartElement', () => {
     });
 
     it('treats a missing, malformed or junk stages list as no stages', async () => {
-      const junk: unknown[] = [
-        { ...staged, stages: undefined },
-        { ...staged, stages: 'round' },
-        { ...staged, stages: [null, 7, 'round', { key: 'round' }, { key: 'round', frameId: 1 }, { key: ['round'], frameId: 'f1' }] },
+      const junk: [unknown, string][] = [
+        [{ ...staged, stages: undefined }, 'has no stage'],
+        [{ ...staged, stages: 'round' }, 'has no stage'],
+        [{ ...staged, stages: [null, 7, 'round', { key: ['round'], frameId: 'f1' }] }, 'has no stage'],
+        [{ ...staged, stages: [{ key: 'round', frameId: 1 }, { key: 'round', frameId: 'f1' }] }, 'points to a frame'],
       ];
-      for (const body of junk) {
+      for (const [body, message] of junk) {
         fetchMock.mockImplementation(async () => respond(200, body));
         warnSpy.mockClear();
         const el = await withStage('round');
         expect(el.shadowRoot?.childNodes).toHaveLength(0);
         expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(String(warnSpy.mock.calls[0][0])).toContain(message);
         // With no stage named, the same response renders every frame.
         expect(bars(await mount())).toHaveLength(2);
       }

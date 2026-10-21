@@ -3,7 +3,7 @@ title: 'Place a zone on a page with stages'
 type: 'feature'
 ticket: '7'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'ba22a80bb6a2a17e17aad34fcf0f2ad164b13c6a'
 route: 'full'
 route_source: 'auto'
@@ -100,7 +100,7 @@ deferred: []
 
 ## Implementation Notes
 
-- Assumptions (the epic leaves these open; recorded for review, none blocked the build): the content manager types the key on create, prefilled from the name (`stageKeyFromName`) until edited; the key is lowercase letters, digits and single hyphens, at most 64 characters, and never changes (a rename changes only the name), since host pages name it; a stage's frame is picked on create and cannot be changed later (delete and re-create instead); several stages may show the same frame; key matching in the SDK is exact and case-sensitive after trimming the attribute; an empty `stage` attribute means no stage; a stage whose frame type the SDK does not know renders nothing silently (AD-5), while an unknown key or a stage pointing at a missing frame warns once per load; the Delivery API sends only `{ key, frameId }` per stage; changing `stage` refetches the zone (two elements on one page fetch the zone twice).
+- Assumptions (the epic leaves these open; recorded for review, none blocked the build): the content manager types the key on create, prefilled from the name (`stageKeyFromName`) until the key field is edited at all (an emptied key stays empty and is refused on save); the key is lowercase letters, digits and single hyphens, at most 64 characters, and never changes (a rename changes only the name), since host pages name it; a stage's frame is picked on create and cannot be changed later (delete and re-create instead); several stages may show the same frame; key matching in the SDK is exact and case-sensitive after trimming the attribute; an empty `stage` attribute means no stage; a stage whose frame type the SDK does not know renders nothing silently (AD-5), while an unknown key, or a stage pointing at a missing frame, warns once per load with a distinct message for each; the Delivery API sends only `{ key, frameId }` per stage; changing `stage` refetches the zone (two elements on one page fetch the zone twice).
 - Contract: `Stage`, `CreateStageRequest`, `RenameStageRequest`, `DeliveryStage`, `DeliveryZone.stages` (required), routes `/zones/{zoneId}/stages` and `/zones/{zoneId}/stages/{stageId}`, error codes `stage_not_found` (404) and `stage_key_taken` (409); `STAGE_KEY_PATTERN`, `MAX_STAGE_KEY_LENGTH`, `isStageKey`, `stageKeyFromName`. Regenerated with `contract:generate`.
 - Zones module: `stages` table with `project_id NOT NULL`, `(zone_id, project_id)` FK to zones, `(frame_id, zone_id)` FK to frames `ON DELETE CASCADE` (new unique index `frames_id_zone_id_key`), `UNIQUE (zone_id, key)`; `listStages`, `createStage`, `renameStage`, `deleteStage`, `listDeliveryStages` and four errors. A frame of another zone is 400 `frame_not_found` (as a body reference, like `tale_group_not_found` on placement).
 - API: routes in `zones.router.ts` behind the existing zone authorization; errors mapped in `errors.ts`; Delivery adds `stages`. The API spec's TRUNCATE gains `stages`, and the one full-body Delivery assertion gains `stages: []`.
@@ -112,6 +112,13 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- verdicts: 2 findings, both patched.
+- findings:
+  - `[patch]` Emptying the key in the new stage drawer refilled it with the name's suggestion, so backspacing and then typing appended to the suggestion -- any edit of the key field now stops it following the name; an empty key stays empty and is refused on save with "Enter a key: lowercase letters, digits and hyphens." without a request; the spec now checks an emptied key stays empty and a backspace-then-type sequence sends exactly the typed key.
+  - `[patch]` A stage whose frame is missing (or whose frameId is not a string) warned as if the stage did not exist -- it now warns `TaleArt: stage "<key>" points to a frame the zone does not have; nothing is rendered for it`, distinct from `the zone has no stage "<key>"`; tests check both exact messages, including junk entries.
+- Merged `autopilot/foundation` (already up to date). Reran: `run-many -t lint test build` for the 12 projects passed (api 271, dashboard 177, web-sdk 145); `web-sdk:size` 9.30 KB gzipped; `sdk-sample:a11y` 0 violations, all checks ok.
 
 ## Verification
 

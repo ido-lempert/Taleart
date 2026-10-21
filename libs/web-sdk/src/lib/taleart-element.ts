@@ -142,8 +142,9 @@ export class TaleartElement extends HTMLElement {
   }
 
   // The frames this element shows: the zone's, or only the named stage's (R7). Null, with one
-  // warning, when the zone has no such stage. The response is untrusted: a `stages` that is not
-  // an array, and entries that are not objects with a matching string key, are ignored.
+  // warning, when the zone has no such stage or the stage points to a frame the zone does not
+  // have. The response is untrusted: a `stages` that is not an array, and entries that are not
+  // objects with a matching string key, are ignored.
   private framesToRender(zone: DeliveryZone): DeliveryFrame[] | null {
     const stageKey = this.stage.trim();
     if (!stageKey) return zone.frames;
@@ -151,10 +152,14 @@ export class TaleartElement extends HTMLElement {
     const stage: unknown = Array.isArray(stages)
       ? stages.find((s: unknown) => typeof s === 'object' && s !== null && (s as { key?: unknown }).key === stageKey)
       : undefined;
-    const frameId = (stage as { frameId?: unknown } | undefined)?.frameId;
+    if (!stage) {
+      console.warn(`TaleArt: the zone has no stage "${stageKey}"; nothing is rendered for it`);
+      return null;
+    }
+    const frameId = (stage as { frameId?: unknown }).frameId;
     const frame = typeof frameId === 'string' ? zone.frames.find((f) => f?.id === frameId) : undefined;
     if (!frame) {
-      console.warn(`TaleArt: the zone has no stage "${stageKey}"; nothing is rendered for it`);
+      console.warn(`TaleArt: stage "${stageKey}" points to a frame the zone does not have; nothing is rendered for it`);
       return null;
     }
     return [frame];

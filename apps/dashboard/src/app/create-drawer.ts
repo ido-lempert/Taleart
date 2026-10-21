@@ -99,10 +99,9 @@ export class CreateDrawer implements OnInit {
     if (!this.stageKeyEdited) this.stageKey = stageKeyFromName(name);
   }
 
-  /** A key edited by hand stops following the name; emptied, it follows it again. */
-  protected stageKeyChanged(key: string): void {
-    this.stageKeyEdited = key !== '';
-    if (!this.stageKeyEdited) this.stageKey = stageKeyFromName(this.text);
+  /** Any edit of the key by hand stops it following the name, even when it is emptied. */
+  protected stageKeyChanged(): void {
+    this.stageKeyEdited = true;
   }
 
   /** The tale group an "Add to zone…", "Copy to zone…", "Rename" or "Remove from this zone" drawer is for. */
@@ -653,13 +652,15 @@ export class CreateDrawer implements OnInit {
         message = await this.store.renameTaleGroup(request.taleGroupId, this.text);
         break;
       case 'stage':
-        message = this.stageFrameId
-          ? await this.store.createStage(request.zoneId, {
-              name: this.text,
-              key: this.stageKey.trim(),
-              frameId: this.stageFrameId,
-            })
-          : 'Choose a frame.';
+        message = !this.stageKey.trim()
+          ? 'Enter a key: lowercase letters, digits and hyphens.'
+          : this.stageFrameId
+            ? await this.store.createStage(request.zoneId, {
+                name: this.text,
+                key: this.stageKey.trim(),
+                frameId: this.stageFrameId,
+              })
+            : 'Choose a frame.';
         break;
       case 'renameStage':
         message = this.editedStage()
