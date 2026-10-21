@@ -35,10 +35,22 @@ export type TaleElementType = TaleElement['type'];
 // openapi-typescript keeps the schema file's `$defs` as a property; it is no field of a document.
 export type TaleDocument = Omit<Schemas['TaleDocument'], '$defs' | 'elements'> & { elements: TaleElement[] };
 
-/** A tale's document with its revision, as `GET` and `PUT /tales/{taleId}/document` answer. */
-export type TaleDocumentRevision = Omit<Schemas['TaleDocumentRevision'], 'document'> & {
+/** A tale's published document with its revision: what the Delivery API serves (AD-15). */
+export type PublishedTaleDocument = Omit<Schemas['PublishedTaleDocument'], 'document'> & {
   document: TaleDocument | null;
 };
+
+/**
+ * A tale's draft document with its revision, and its published document with its own, as `GET`
+ * and `PUT /tales/{taleId}/document`, publish and discard answer.
+ */
+export type TaleDocumentRevision = Omit<Schemas['TaleDocumentRevision'], 'document' | 'published'> & {
+  document: TaleDocument | null;
+  published: PublishedTaleDocument;
+};
+
+/** The body of publish and discard: the draft and published revisions they are based on. */
+export type TaleDocumentRevisionsRequest = Schemas['TaleDocumentRevisionsRequest'];
 
 /** The body of `PUT /tales/{taleId}/document`: the document and the revision it was based on. */
 export type SaveTaleDocumentRequest = Omit<Schemas['SaveTaleDocumentRequest'], 'document'> & {

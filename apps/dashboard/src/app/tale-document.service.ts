@@ -8,6 +8,7 @@ import {
   type Tale,
   type TaleDocument,
   type TaleDocumentRevision,
+  type TaleDocumentRevisionsRequest,
 } from '@taleart/contract';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
@@ -71,6 +72,37 @@ export class TaleDocumentService {
       return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
     } catch (err) {
       return failure(err, 'The tale was not saved. Try again.');
+    }
+  }
+
+  /**
+   * Publishes the draft, based on its `revision` and the `publishedRevision` (compare-and-set on
+   * both; a newer change elsewhere makes it `stale`). Visitors then see it once the tale is live.
+   */
+  publish(taleId: string, revision: number, publishedRevision: number): Promise<TaleDocumentResult> {
+    return this.act(taleId, 'publish', revision, publishedRevision, 'The changes were not published. Try again.');
+  }
+
+  /** Discards the draft back to the published document, compare-and-set as {@link publish}. */
+  discard(taleId: string, revision: number, publishedRevision: number): Promise<TaleDocumentResult> {
+    return this.act(taleId, 'discard', revision, publishedRevision, 'The draft was not discarded. Try again.');
+  }
+
+  private async act(
+    taleId: string,
+    action: 'publish' | 'discard',
+    revision: number,
+    publishedRevision: number,
+    fallback: string,
+  ): Promise<TaleDocumentResult> {
+    try {
+      const body: TaleDocumentRevisionsRequest = { revision, publishedRevision };
+      const value = await firstValueFrom(
+        this.http.post<TaleDocumentRevision>(`${documentUrl(taleId)}/${action}`, body),
+      );
+      return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
+    } catch (err) {
+      return failure(err, fallback);
     }
   }
 

@@ -63,6 +63,8 @@ export {
   pointerSegment,
   getTaleDocument,
   saveTaleDocument,
+  publishTaleDocument,
+  discardTaleDraft,
   InvalidTaleDocumentError,
   StaleRevisionError,
   TaleDocumentTooLargeError,

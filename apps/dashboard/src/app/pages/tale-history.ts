@@ -109,3 +109,23 @@ export class TaleHistory {
     this.sealed = false;
   }
 }
+
+// The value as JSON with object keys sorted, so two documents compare by content, whatever order
+// their keys came in (the database returns JSONB keys in its own order).
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** True when two documents hold the same content (null for none), whatever the order of their keys. */
+export function sameDocument(a: TaleDocument | null, b: TaleDocument | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return canonical(a) === canonical(b);
+}

@@ -1657,7 +1657,9 @@ paths:
         other, 400 `validation_failed` for a status other than `live`,
         `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only
         `live` tales of `live` groups reach the Delivery API, and only their
-        media is public (AD-11).
+        media is public (AD-11). Publishing a `draft` tale (`draft` to `live`)
+        also publishes its draft document (AD-15) in the same transaction;
+        resuming a `paused` tale does not.
       requestBody:
         required: true
         content:
@@ -1807,10 +1809,13 @@ paths:
           type: string
     get:
       operationId: getTaleDocument
-      summary: Read a tale's document.
+      summary: Read a tale's draft document, with its published one.
       description: >-
-        The tale document (AD-15) and its revision. A tale without a document
-        answers `document: null` and revision 0; it shows its media only.
+        The tale's draft document (AD-15), the one Tale Studio edits, with its
+        revision, and the published document with its own revision, the one
+        the Delivery API serves. A tale without a draft answers `document:
+        null` and revision 0; without a published document, `published:
+        { document: null, revision: 0 }`, and it shows its media only.
         Unknown tale: 404 `tale_not_found`.
       responses:
         '200':
@@ -1827,10 +1832,12 @@ paths:
           $ref: '#/components/responses/Error'
     put:
       operationId: saveTaleDocument
-      summary: Save a tale's document.
+      summary: Save a tale's draft document.
       description: >-
-        Replaces the document when `revision` is the tale's current revision,
-        and answers the document with the next revision. A write based on an
+        Replaces the draft document when `revision` is the draft's current
+        revision, and answers it with the next revision and the published
+        document. The published document, and so what visitors see, does not
+        change. A write based on an
         older revision changes nothing and answers 409 `stale_revision`, so
         two editors never overwrite each other silently. The document is
         checked against `tale-document/v1.schema.json` (no additional
@@ -1867,6 +1874,89 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tales/{taleId}/document/publish:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: publishTaleDocument
+      summary: Publish a tale's draft document.
+      description: >-
+        Copies the draft document to the published one, which the Delivery
+        API serves, raising the published revision, when `revision` is the
+        draft's current revision and `publishedRevision` the published one's
+        (compare-and-set on both, in one statement); otherwise nothing
+        changes and it answers 409 `stale_revision`. The draft is checked
+        again first (400 `invalid_tale_document` with `pointer`). The tale's
+        status is not changed: a tale that is not `live` stays unseen. A body
+        without integer revisions: 400 `validation_failed`. Unknown tale: 404
+        `tale_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaleDocumentRevisionsRequest'
+      responses:
+        '200':
+          description: The draft and the newly published document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleDocumentRevision'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tales/{taleId}/document/discard:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: discardTaleDraft
+      summary: Discard a tale's draft, back to the published document.
+      description: >-
+        Replaces the draft with the published document (null when nothing is
+        published), raising the draft's revision, when `revision` and
+        `publishedRevision` are the current ones (compare-and-set on both);
+        otherwise nothing changes and it answers 409 `stale_revision`. A body
+        without integer revisions: 400 `validation_failed`. Unknown tale: 404
+        `tale_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaleDocumentRevisionsRequest'
+      responses:
+        '200':
+          description: The draft, now the published document, and the published document.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleDocumentRevision'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tales/{taleId}/document/copy:
     parameters:
       - name: taleId
@@ -1882,7 +1972,8 @@ paths:
         version as a new tale instead of dropping it. In one transaction,
         creates a `draft` tale at the end of the source tale's group, titled
         after the source with " (copy)", sharing the source's media storage
-        key (AD-11, AD-14), and holding `document` at revision 1. The document
+        key (AD-11, AD-14), and holding `document` as its draft at revision 1,
+        with nothing published (revision 0). The document
         is checked as a save checks it: 400 `invalid_tale_document` with
         `pointer`, 413 `tale_document_too_large`. A tale group holds at most
         100 tales: 409 `tale_group_full`, and nothing is created. The caller
@@ -2748,17 +2839,46 @@ components:
       $ref: '../tale-document/element-types/text.schema.json'
     TaleDocumentRevision:
       type: object
-      required: [document, revision]
+      required: [document, revision, published]
       properties:
         document:
-          description: The tale's document, or null when it has none.
+          description: The tale's draft document, the one Tale Studio edits, or null when it has none.
           oneOf:
             - $ref: '#/components/schemas/TaleDocument'
             - type: 'null'
         revision:
           type: integer
           minimum: 0
-          description: Raised by one on every save; 0 before the first save.
+          description: The draft's revision, raised by one on every save; 0 before the first save.
+        published:
+          $ref: '#/components/schemas/PublishedTaleDocument'
+    PublishedTaleDocument:
+      type: object
+      required: [document, revision]
+      properties:
+        document:
+          description: The published document, the one the Delivery API serves, or null when none is published.
+          oneOf:
+            - $ref: '#/components/schemas/TaleDocument'
+            - type: 'null'
+        revision:
+          type: integer
+          minimum: 0
+          description: Raised by one on every publish; 0 before the first.
+    TaleDocumentRevisionsRequest:
+      type: object
+      required: [revision, publishedRevision]
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: The draft revision the request is based on.
+        publishedRevision:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: The published revision the request is based on.
     SaveTaleDocumentRequest:
       type: object
       required: [document, revision]

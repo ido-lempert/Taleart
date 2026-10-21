@@ -923,7 +923,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale.
-         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11).
+         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11). Publishing a `draft` tale (`draft` to `live`) also publishes its draft document (AD-15) in the same transaction; resuming a `paused` tale does not.
          */
         put: operations["setTaleStatus"];
         post?: never;
@@ -991,16 +991,60 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a tale's document.
-         * @description The tale document (AD-15) and its revision. A tale without a document answers `document: null` and revision 0; it shows its media only. Unknown tale: 404 `tale_not_found`.
+         * Read a tale's draft document, with its published one.
+         * @description The tale's draft document (AD-15), the one Tale Studio edits, with its revision, and the published document with its own revision, the one the Delivery API serves. A tale without a draft answers `document: null` and revision 0; without a published document, `published: { document: null, revision: 0 }`, and it shows its media only. Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTaleDocument"];
         /**
-         * Save a tale's document.
-         * @description Replaces the document when `revision` is the tale's current revision, and answers the document with the next revision. A write based on an older revision changes nothing and answers 409 `stale_revision`, so two editors never overwrite each other silently. The document is checked against `tale-document/v1.schema.json` (no additional properties), each element's `props` against the schema of its registered type, and the rules of AD-15: at most 60 elements, 1,000 characters per text, unique ids, numbers in range, no control characters except a line feed in text. A refused document answers 400 `invalid_tale_document` with `pointer`, the JSON pointer of the field it refused (from the document's root); a document over 128 KB answers 413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647): 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         * Save a tale's draft document.
+         * @description Replaces the draft document when `revision` is the draft's current revision, and answers it with the next revision and the published document. The published document, and so what visitors see, does not change. A write based on an older revision changes nothing and answers 409 `stale_revision`, so two editors never overwrite each other silently. The document is checked against `tale-document/v1.schema.json` (no additional properties), each element's `props` against the schema of its registered type, and the rules of AD-15: at most 60 elements, 1,000 characters per text, unique ids, numbers in range, no control characters except a line feed in text. A refused document answers 400 `invalid_tale_document` with `pointer`, the JSON pointer of the field it refused (from the document's root); a document over 128 KB answers 413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647): 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
          */
         put: operations["saveTaleDocument"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/document/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a tale's draft document.
+         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. The draft is checked again first (400 `invalid_tale_document` with `pointer`). The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         */
+        post: operations["publishTaleDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/document/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard a tale's draft, back to the published document.
+         * @description Replaces the draft with the published document (null when nothing is published), raising the draft's revision, when `revision` and `publishedRevision` are the current ones (compare-and-set on both); otherwise nothing changes and it answers 409 `stale_revision`. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         */
+        post: operations["discardTaleDraft"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1020,7 +1064,7 @@ export interface paths {
         put?: never;
         /**
          * Keep a document as a new tale in the tale's group.
-         * @description For a save refused with 409 `stale_revision`: keeps the editor's own version as a new tale instead of dropping it. In one transaction, creates a `draft` tale at the end of the source tale's group, titled after the source with " (copy)", sharing the source's media storage key (AD-11, AD-14), and holding `document` at revision 1. The document is checked as a save checks it: 400 `invalid_tale_document` with `pointer`, 413 `tale_document_too_large`. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the source tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a body without a document: 400 `validation_failed`.
+         * @description For a save refused with 409 `stale_revision`: keeps the editor's own version as a new tale instead of dropping it. In one transaction, creates a `draft` tale at the end of the source tale's group, titled after the source with " (copy)", sharing the source's media storage key (AD-11, AD-14), and holding `document` as its draft at revision 1, with nothing published (revision 0). The document is checked as a save checks it: 400 `invalid_tale_document` with `pointer`, 413 `tale_document_too_large`. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the source tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a body without a document: 400 `validation_failed`.
          */
         post: operations["copyTaleDocument"];
         delete?: never;
@@ -1451,10 +1495,23 @@ export interface components {
         TaleDocument: components["schemas"]["v1.schema"];
         TextElementProps: components["schemas"]["text.schema"];
         TaleDocumentRevision: {
-            /** @description The tale's document, or null when it has none. */
+            /** @description The tale's draft document, the one Tale Studio edits, or null when it has none. */
             document: components["schemas"]["v1.schema"] | null;
-            /** @description Raised by one on every save; 0 before the first save. */
+            /** @description The draft's revision, raised by one on every save; 0 before the first save. */
             revision: number;
+            published: components["schemas"]["PublishedTaleDocument"];
+        };
+        PublishedTaleDocument: {
+            /** @description The published document, the one the Delivery API serves, or null when none is published. */
+            document: components["schemas"]["v1.schema"] | null;
+            /** @description Raised by one on every publish; 0 before the first. */
+            revision: number;
+        };
+        TaleDocumentRevisionsRequest: {
+            /** @description The draft revision the request is based on. */
+            revision: number;
+            /** @description The published revision the request is based on. */
+            publishedRevision: number;
         };
         SaveTaleDocumentRequest: {
             document: components["schemas"]["v1.schema"];
@@ -3596,6 +3653,68 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             413: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    publishTaleDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaleDocumentRevisionsRequest"];
+            };
+        };
+        responses: {
+            /** @description The draft and the newly published document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleDocumentRevision"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    discardTaleDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaleDocumentRevisionsRequest"];
+            };
+        };
+        responses: {
+            /** @description The draft, now the published document, and the published document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleDocumentRevision"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

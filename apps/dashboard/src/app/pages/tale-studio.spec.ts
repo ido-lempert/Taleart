@@ -38,6 +38,15 @@ const existing: TaleDocument = {
   ],
 };
 
+// A read of the tale's document: the draft, and the published document, the same unless given.
+function draftRead(read: {
+  document: TaleDocument | null;
+  revision: number;
+  published?: { document: TaleDocument | null; revision: number };
+}) {
+  return { ...read, published: read.published ?? { document: read.document, revision: read.revision } };
+}
+
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   await fixture.whenStable();
   await new Promise((resolve) => setTimeout(resolve));
@@ -63,11 +72,11 @@ describe('TaleStudioPage', () => {
   let fixture: ComponentFixture<TaleStudioPage>;
   let root: HTMLElement;
 
-  async function open(read: { document: TaleDocument | null; revision: number }): Promise<void> {
+  async function open(read: Parameters<typeof draftRead>[0]): Promise<void> {
     fixture = TestBed.createComponent(TaleStudioPage);
     fixture.componentRef.setInput('taleId', 't1');
     fixture.detectChanges();
-    http.expectOne(url).flush(read);
+    http.expectOne(url).flush(draftRead(read));
     await settle(fixture);
     root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
@@ -302,7 +311,7 @@ describe('TaleStudioPage', () => {
     buttonNamed(root, 'Reload latest version').click();
     await settle(fixture);
     const changed = { ...existing, elements: [{ ...existing.elements[0], props: { text: 'Theirs' } }] };
-    http.expectOne(url).flush({ document: changed, revision: 2 });
+    http.expectOne(url).flush(draftRead({ document: changed, revision: 2 }));
     await settle(fixture);
     expect(elements()[0].textContent?.trim()).toBe('Theirs');
     expect(root.querySelector('[role=alert]')).toBeNull();
@@ -1023,7 +1032,9 @@ describe('TaleStudioPage', () => {
       // The route's tale changes to the copy: the studio opens it.
       fixture.componentRef.setInput('taleId', 't2');
       fixture.detectChanges();
-      http.expectOne(`${API_BASE}/tales/t2/document`).flush({ document: JSON.parse(mine), revision: 1 });
+      http
+        .expectOne(`${API_BASE}/tales/t2/document`)
+        .flush(draftRead({ document: JSON.parse(mine), revision: 1, published: { document: null, revision: 0 } }));
       await settle(fixture);
       expect(docNow()).toBe(mine);
       expect(status()).toBe('All changes saved');
@@ -1041,7 +1052,7 @@ describe('TaleStudioPage', () => {
       await settle(fixture);
       buttonNamed(root, 'Reload latest version').click();
       await settle(fixture);
-      http.expectOne(url).flush({ document: three, revision: 5 });
+      http.expectOne(url).flush(draftRead({ document: three, revision: 5 }));
       await settle(fixture);
       await settle(fixture);
       expect(docNow()).toBe(JSON.stringify(three));
@@ -1081,6 +1092,108 @@ describe('TaleStudioPage', () => {
       expect(window.confirm).toHaveBeenCalledWith(
         'Your latest changes to this tale are not saved. Leave Tale Studio and lose them?',
       );
+    });
+
+    describe('draft and publish (user decision 2026-10-22)', () => {
+      const publishState = () => root.querySelector('#studio-publish-state')?.textContent?.trim();
+      const publishButton = () => root.querySelector('#studio-publish') as HTMLButtonElement;
+      const discardButton = () => root.querySelector('#studio-discard') as HTMLButtonElement;
+
+      it('says a published, unchanged tale is what visitors see, with nothing to publish or discard', async () => {
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(publishButton().getAttribute('aria-disabled')).toBe('true');
+        expect(discardButton().getAttribute('aria-disabled')).toBe('true');
+        publishButton().click();
+        await settle(fixture);
+        http.expectNone(`${url}/publish`);
+      });
+
+      it('says a tale with nothing published is a draft visitors cannot see', async () => {
+        await open({ document: three, revision: 1, published: { document: null, revision: 0 } });
+        expect(publishState()).toContain('Draft — not visible to visitors');
+        expect(publishButton().hasAttribute('aria-disabled')).toBe(false);
+        expect(discardButton().getAttribute('aria-disabled')).toBe('true');
+      });
+
+      it('publishes changes once they are saved, with both revisions, and then reads published', async () => {
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(publishState()).toBe('Unpublished changes — visitors see the published version until you publish them.');
+        publishButton().click();
+        await settle(fixture);
+        const save = http.expectOne(url);
+        const draft = (save.request.body as { document: TaleDocument }).document;
+        save.flush({ document: draft, revision: 4, published: { document: three, revision: 2 } });
+        await settle(fixture);
+        const publish = http.expectOne(`${url}/publish`);
+        expect(publish.request.method).toBe('POST');
+        expect(publish.request.body).toEqual({ revision: 4, publishedRevision: 2 });
+        // The server answers JSONB with its own key order: still the same document.
+        const reverse = (v: unknown): unknown =>
+          Array.isArray(v)
+            ? v.map(reverse)
+            : v && typeof v === 'object'
+              ? Object.fromEntries(
+                  Object.entries(v)
+                    .reverse()
+                    .map(([k, x]) => [k, reverse(x)]),
+                )
+              : v;
+        const reordered = reverse(draft) as TaleDocument;
+        expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(draft));
+        publish.flush({ document: draft, revision: 4, published: { document: reordered, revision: 3 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(live()).toBe('Changes published. Visitors now see this version.');
+        expect(publishButton().getAttribute('aria-disabled')).toBe('true');
+      });
+
+      it('offers reload or keep-as-copy when publishing finds a newer change', async () => {
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        publishButton().click();
+        await settle(fixture);
+        http
+          .expectOne(`${url}/publish`)
+          .flush({ error: { code: 'stale_revision', message: 'stale' } }, { status: 409, statusText: 'Conflict' });
+        await settle(fixture);
+        expect(alertText()).toContain('Someone saved this tale after you opened it');
+        expect(buttonNamed(root, 'Keep my version as a new tale')).toBeTruthy();
+      });
+
+      it('discards the draft after asking, back to the published version, and undo brings the draft back', async () => {
+        const published = { ...three, canvas: { background: { type: 'color', color: '#ffffff' } } } as TaleDocument;
+        await open({ document: three, revision: 5, published: { document: published, revision: 2 } });
+        discardButton().click();
+        await settle(fixture);
+        expect(window.confirm).toHaveBeenCalledWith(
+          'Discard the draft and go back to the published version? You can undo this until you leave Tale Studio.',
+        );
+        http.expectNone(`${url}/discard`);
+
+        vi.mocked(window.confirm).mockReturnValue(true);
+        discardButton().click();
+        await settle(fixture);
+        const discard = http.expectOne(`${url}/discard`);
+        expect(discard.request.body).toEqual({ revision: 5, publishedRevision: 2 });
+        discard.flush({ document: published, revision: 6, published: { document: published, revision: 2 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(docNow()).toBe(JSON.stringify(published));
+        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(live()).toBe('Draft discarded: the published version is back. Press Ctrl+Z to undo.');
+        expect(status()).toBe('All changes saved');
+
+        undoButton().click();
+        await settle(fixture);
+        expect(docNow()).toBe(JSON.stringify(three));
+        expect(status()).toBe('Unsaved changes');
+        const restored = await saveNow(7);
+        expect(restored.revision).toBe(6);
+        expect(JSON.stringify(restored.document)).toBe(JSON.stringify(three));
+      });
     });
 
     it('guards the studio route with the page’s leave check', async () => {

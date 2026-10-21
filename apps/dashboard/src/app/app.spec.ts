@@ -2328,7 +2328,9 @@ describe('App', () => {
       await settle(fixture);
       expect(TestBed.inject(Router).url).toBe('/tales/t1/studio');
       expect(drawer()).toBeNull();
-      http.expectOne(`${API_BASE}/tales/t1/document`).flush({ document: null, revision: 0 });
+      http
+        .expectOne(`${API_BASE}/tales/t1/document`)
+        .flush({ document: null, revision: 0, published: { document: null, revision: 0 } });
       await settle(fixture);
       expect(root.querySelector('h2.page-header__title')?.textContent).toContain('Tale Studio');
       expect(root.querySelector('.canvas')).not.toBeNull();
