@@ -1210,7 +1210,7 @@ export interface components {
         ThemeColor: string;
         /** @enum {string} */
         RingStyle: "gradient" | "solid" | "none";
-        /** @description The fields of a theme a project sets (epic web zones R9); a field left out takes TaleArt's default. Validated by `themeSettingsError` in `libs/contract`. */
+        /** @description The fields of a theme a project sets (epic web zones R9); a field left out takes TaleArt's default, which keeps the look host pages had before themes: a transparent background, and the title colour, font and corner radius of the host page or the frame (`null`). Validated by `themeSettingsError` in `libs/contract`. */
         ThemeSettings: {
             /** @default gradient */
             ringStyle: components["schemas"]["RingStyle"];
@@ -1231,35 +1231,41 @@ export interface components {
              */
             ringWidth: number;
             /**
-             * @description Corner radius in px of rounded-square bar items and banner slides.
-             * @default 12
+             * @description Corner radius in px of rounded-square bar items and banner slides; null keeps the frame's own (a quarter of the item size, 12 px on a banner).
+             * @default null
              */
-            cornerRadius: number;
+            cornerRadius: number | null;
             /**
-             * @description A CSS font-family list; the host page loads the font.
-             * @default system-ui, sans-serif
+             * @description A CSS font-family list (the host page loads the font): names of letters, digits, spaces and hyphens, bare (starting with a letter) or quoted, never a CSS-wide keyword or `default`. Null inherits the host page's font.
+             * @default null
              */
-            fontFamily: string;
-            /** @default #111827 */
-            titleColor: components["schemas"]["ThemeColor"];
-            /** @default #ffffff */
-            backgroundColor: components["schemas"]["ThemeColor"];
+            fontFamily: string | null;
             /**
-             * @description The viewer's progress and button icons, on the viewer's black.
+             * @description Titles and banner dots as `#rrggbb`; null inherits the host page's text colour.
+             * @default null
+             */
+            titleColor: string | null;
+            /**
+             * @description Behind the bar and the banner, as `#rrggbb` or `transparent` (the host page shows through).
+             * @default transparent
+             */
+            backgroundColor: string;
+            /**
+             * @description The viewer's progress and button icons.
              * @default #ffffff
              */
             accentColor: components["schemas"]["ThemeColor"];
         };
-        /** @description A complete theme, every field filled (TaleArt's default where the project sets none). */
+        /** @description A complete theme, every field present (TaleArt's default where the project sets none); `null` takes the host page's or the frame's own value. */
         Theme: {
             ringStyle: components["schemas"]["RingStyle"];
             ringColors: components["schemas"]["ThemeColor"][];
             seenRingColor: components["schemas"]["ThemeColor"];
             ringWidth: number;
-            cornerRadius: number;
-            fontFamily: string;
-            titleColor: components["schemas"]["ThemeColor"];
-            backgroundColor: components["schemas"]["ThemeColor"];
+            cornerRadius: number | null;
+            fontFamily: string | null;
+            titleColor: string | null;
+            backgroundColor: string;
             accentColor: components["schemas"]["ThemeColor"];
         };
         ProjectTheme: {

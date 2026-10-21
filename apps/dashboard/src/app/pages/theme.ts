@@ -1,29 +1,58 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
+  checkThemeContrast,
   CORNER_RADIUS_RANGE,
   DEFAULT_THEME,
   isThemeColor,
+  isValidThemeValue,
   RING_COLORS_RANGE,
   RING_STYLES,
   RING_WIDTH_RANGE,
-  themeContrastIssues,
+  THEME_FIELDS,
   themeSettingsError,
+  TRANSPARENT,
   type RingStyle,
   type Theme,
   type ThemeField,
+  type ThemeSettings,
 } from '@taleart/contract';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { ThemeService } from '../theme.service';
 
+type ColorKey = 'seenRingColor' | 'titleColor' | 'backgroundColor' | 'accentColor';
+type NumberKey = 'ringWidth' | 'cornerRadius';
+
+interface ColorField {
+  key: ColorKey;
+  label: string;
+  hint: string;
+  /** For a field that can come from the host page: the checkbox label and the colour set when it is cleared. */
+  host?: { label: string; explicit: string };
+}
+
 /** The single-colour fields, with their labels and hints, in display order. */
-const COLOR_FIELDS: readonly { key: 'seenRingColor' | 'titleColor' | 'backgroundColor' | 'accentColor'; label: string; hint: string }[] = [
+const COLOR_FIELDS: readonly ColorField[] = [
   { key: 'seenRingColor', label: 'Seen ring colour', hint: 'The ring of a tale group the visitor has viewed.' },
-  { key: 'titleColor', label: 'Title colour', hint: 'Tale group titles in the bar and the banner dots.' },
-  { key: 'backgroundColor', label: 'Background colour', hint: 'Behind the bar and the banner.' },
-  { key: 'accentColor', label: 'Accent colour', hint: "The viewer's progress and buttons, on black." },
+  {
+    key: 'titleColor',
+    label: 'Title colour',
+    hint: 'Tale group titles in the bar and the banner dots.',
+    host: { label: "Host page's text colour", explicit: '#111827' },
+  },
+  {
+    key: 'backgroundColor',
+    label: 'Background colour',
+    hint: 'Behind the bar and the banner.',
+    host: { label: "Transparent: the host page's background shows through", explicit: '#ffffff' },
+  },
+  { key: 'accentColor', label: 'Accent colour', hint: "The viewer's progress and buttons." },
 ];
+
+/** The value a field takes when it is set explicitly after coming from the host page or the frame. */
+const EXPLICIT_FONT = 'system-ui, sans-serif';
+const EXPLICIT_RADIUS = 12;
 
 const RING_STYLE_LABELS: Readonly<Record<RingStyle, string>> = { gradient: 'Gradient', solid: 'Solid', none: 'None' };
 
@@ -36,12 +65,23 @@ function copy(theme: Theme): Theme {
   return { ...theme, ringColors: [...theme.ringColors] };
 }
 
+function isDefault(field: ThemeField, value: unknown): boolean {
+  const fallback = DEFAULT_THEME[field];
+  return Array.isArray(fallback) && Array.isArray(value)
+    ? fallback.length === value.length && fallback.every((c, i) => c.toLowerCase() === String(value[i]).toLowerCase())
+    : typeof value === 'string' && typeof fallback === 'string'
+      ? value.toLowerCase() === fallback.toLowerCase()
+      : value === fallback;
+}
+
 /**
  * A project's theme (epic web zones R9): one per project, styling every
  * zone's bar, banner and viewer through the Web SDK. Colour pickers with a hex
- * field each, the ring style and width, the corner radius and the font; a
- * warning names every colour pair that fails WCAG 2.2 AA contrast. Saving
- * replaces the theme; "Reset to TaleArt default" clears it.
+ * field each, the ring style and width, the corner radius and the font. The
+ * title colour, font, corner radius and background can come from the host
+ * page or the frame, as before themes. A warning names every colour pair that
+ * fails WCAG 2.2 AA contrast and the pairs it cannot check. Saving sends only
+ * the fields the project sets; "Reset to TaleArt default" clears them all.
  */
 @Component({
   selector: 'app-theme-page',
@@ -108,6 +148,11 @@ function copy(theme: Theme): Theme {
       border-radius: var(--radius-control);
       background: #fffaeb;
       color: #93370d;
+    }
+    .contrast--note {
+      border-color: var(--border);
+      background: var(--surface-sunken);
+      color: var(--text-secondary);
     }
     .contrast ul {
       margin: 0;
@@ -212,30 +257,43 @@ function copy(theme: Theme): Theme {
                     [attr.min]="ringWidthRange.min"
                     [attr.max]="ringWidthRange.max"
                     step="1"
-                    [value]="t.ringWidth"
+                    [value]="numberText().ringWidth"
                     [attr.aria-invalid]="invalid('ringWidth')"
                     [attr.aria-describedby]="describedBy('ringWidth', 'theme-ringWidth-hint')"
                     (input)="setNumber('ringWidth', $any($event.target).value)"
+                    (blur)="settleNumber('ringWidth', $any($event.target))"
                   />
                   <span class="field__hint" id="theme-ringWidth-hint">From {{ ringWidthRange.min }} to {{ ringWidthRange.max }}.</span>
                 </div>
                 <div class="field">
-                  <label class="field__label" for="theme-cornerRadius">Corner radius (px)</label>
-                  <input
-                    id="theme-cornerRadius"
-                    class="input"
-                    type="number"
-                    inputmode="numeric"
-                    [attr.min]="cornerRadiusRange.min"
-                    [attr.max]="cornerRadiusRange.max"
-                    step="1"
-                    [value]="t.cornerRadius"
-                    [attr.aria-invalid]="invalid('cornerRadius')"
-                    [attr.aria-describedby]="describedBy('cornerRadius', 'theme-cornerRadius-hint')"
-                    (input)="setNumber('cornerRadius', $any($event.target).value)"
-                  />
+                  <label class="field__label" [for]="t.cornerRadius === null ? 'theme-cornerRadius-host' : 'theme-cornerRadius'">Corner radius (px)</label>
+                  <label class="checkbox">
+                    <input
+                      type="checkbox"
+                      id="theme-cornerRadius-host"
+                      [checked]="t.cornerRadius === null"
+                      (change)="setHost('cornerRadius', $any($event.target).checked)"
+                    />
+                    Frame's own (a quarter of the item size, 12 px on a banner)
+                  </label>
+                  @if (t.cornerRadius !== null) {
+                    <input
+                      id="theme-cornerRadius"
+                      class="input"
+                      type="number"
+                      inputmode="numeric"
+                      [attr.min]="cornerRadiusRange.min"
+                      [attr.max]="cornerRadiusRange.max"
+                      step="1"
+                      [value]="numberText().cornerRadius"
+                      [attr.aria-invalid]="invalid('cornerRadius')"
+                      [attr.aria-describedby]="describedBy('cornerRadius', 'theme-cornerRadius-hint')"
+                      (input)="setNumber('cornerRadius', $any($event.target).value)"
+                      (blur)="settleNumber('cornerRadius', $any($event.target))"
+                    />
+                  }
                   <span class="field__hint" id="theme-cornerRadius-hint">
-                    Rounded-square bar items and banner slides, {{ cornerRadiusRange.min }} to {{ cornerRadiusRange.max }}.
+                    Rounded-square bar items and banner slides, {{ cornerRadiusRange.min }} to {{ cornerRadiusRange.max }} px.
                   </span>
                 </div>
               </div>
@@ -246,27 +304,40 @@ function copy(theme: Theme): Theme {
               <div class="theme-grid">
                 @for (field of colorFields; track field.key) {
                   <div class="field">
-                    <label class="field__label" [for]="'theme-' + field.key">{{ field.label }}</label>
-                    <div class="color-field">
-                      <input
-                        type="color"
-                        class="color-swatch"
-                        [attr.aria-label]="field.label + ' picker'"
-                        [value]="swatch(t[field.key])"
-                        (input)="set(field.key, $any($event.target).value)"
-                      />
-                      <input
-                        class="input"
-                        type="text"
-                        spellcheck="false"
-                        autocomplete="off"
-                        [id]="'theme-' + field.key"
-                        [value]="t[field.key]"
-                        [attr.aria-invalid]="invalid(field.key)"
-                        [attr.aria-describedby]="describedBy(field.key, 'theme-' + field.key + '-hint')"
-                        (input)="set(field.key, $any($event.target).value)"
-                      />
-                    </div>
+                    <label class="field__label" [for]="'theme-' + field.key + (fromHost(field.key) ? '-host' : '')">{{ field.label }}</label>
+                    @if (field.host) {
+                      <label class="checkbox">
+                        <input
+                          type="checkbox"
+                          [id]="'theme-' + field.key + '-host'"
+                          [checked]="fromHost(field.key)"
+                          (change)="setHost($any(field.key), $any($event.target).checked)"
+                        />
+                        {{ field.host.label }}
+                      </label>
+                    }
+                    @if (!fromHost(field.key)) {
+                      <div class="color-field">
+                        <input
+                          type="color"
+                          class="color-swatch"
+                          [attr.aria-label]="field.label + ' picker'"
+                          [value]="swatch(t[field.key])"
+                          (input)="set(field.key, $any($event.target).value)"
+                        />
+                        <input
+                          class="input"
+                          type="text"
+                          spellcheck="false"
+                          autocomplete="off"
+                          [id]="'theme-' + field.key"
+                          [value]="t[field.key]"
+                          [attr.aria-invalid]="invalid(field.key)"
+                          [attr.aria-describedby]="describedBy(field.key, 'theme-' + field.key + '-hint')"
+                          (input)="set(field.key, $any($event.target).value)"
+                        />
+                      </div>
+                    }
                     <span class="field__hint" [id]="'theme-' + field.key + '-hint'">{{ field.hint }}</span>
                   </div>
                 }
@@ -274,33 +345,55 @@ function copy(theme: Theme): Theme {
             </fieldset>
 
             <div class="field">
-              <label class="field__label" for="theme-fontFamily">Font</label>
-              <input
-                id="theme-fontFamily"
-                class="input"
-                type="text"
-                spellcheck="false"
-                autocomplete="off"
-                [value]="t.fontFamily"
-                [attr.aria-invalid]="invalid('fontFamily')"
-                [attr.aria-describedby]="describedBy('fontFamily', 'theme-fontFamily-hint')"
-                (input)="set('fontFamily', $any($event.target).value)"
-              />
+              <label class="field__label" [for]="t.fontFamily === null ? 'theme-fontFamily-host' : 'theme-fontFamily'">Font</label>
+              <label class="checkbox">
+                <input
+                  type="checkbox"
+                  id="theme-fontFamily-host"
+                  [checked]="t.fontFamily === null"
+                  (change)="setHost('fontFamily', $any($event.target).checked)"
+                />
+                Host page's font
+              </label>
+              @if (t.fontFamily !== null) {
+                <input
+                  id="theme-fontFamily"
+                  class="input"
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  [value]="t.fontFamily"
+                  [attr.aria-invalid]="invalid('fontFamily')"
+                  [attr.aria-describedby]="describedBy('fontFamily', 'theme-fontFamily-hint')"
+                  (input)="set('fontFamily', $any($event.target).value)"
+                />
+              }
               <span class="field__hint" id="theme-fontFamily-hint">
                 A CSS font-family list, such as Georgia, serif. The host page loads the font.
               </span>
             </div>
 
             <div role="status">
-              @if (contrastIssues().length > 0) {
+              @if (contrast().issues.length > 0) {
                 <div class="contrast">
                   <strong>Some colours fail WCAG 2.2 AA contrast:</strong>
                   <ul>
-                    @for (issue of contrastIssues(); track issue.pair) {
+                    @for (issue of contrast().issues; track issue.pair) {
                       <li>{{ issue.pair }}: {{ issue.ratio.toFixed(2) }}:1, needs {{ issue.minimum }}:1</li>
                     }
                   </ul>
                   <span>You can still save; visitors may find these hard to see.</span>
+                </div>
+              }
+              @if (contrast().skipped.length > 0) {
+                <div class="contrast contrast--note">
+                  <strong>Not checked, because a colour comes from the host page:</strong>
+                  <ul>
+                    @for (note of contrast().skipped; track note) {
+                      <li>{{ note }}</li>
+                    }
+                  </ul>
+                  <span>Check these on the host page.</span>
                 </div>
               }
             </div>
@@ -333,8 +426,14 @@ export class ThemePage implements OnInit {
   /** The project whose theme this is, bound from the route's `:projectId`. */
   readonly projectId = input.required<string>();
 
-  /** The theme being edited, every field filled; null until read. */
+  /** The theme being edited, every field present; null until read. */
   protected readonly theme = signal<Theme | null>(null);
+  /** The fields the project sets: stored ones, and the ones changed to other than TaleArt's default. */
+  private readonly touched = signal<ReadonlySet<ThemeField>>(new Set());
+  /** What each number field shows: the text as typed, kept while it is not a number. */
+  protected readonly numberText = signal<Record<NumberKey, string>>({ ringWidth: '', cornerRadius: '' });
+  // The last valid value of each number field, restored when one is left invalid.
+  private readonly lastValid: Record<NumberKey, number> = { ringWidth: 2, cornerRadius: EXPLICIT_RADIUS };
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   /** The field the last refusal named, marked invalid until it changes. */
@@ -348,12 +447,16 @@ export class ThemePage implements OnInit {
   protected readonly ringWidthRange = RING_WIDTH_RANGE;
   protected readonly cornerRadiusRange = CORNER_RADIUS_RANGE;
 
-  /** The colour pairs that fail WCAG 2.2 AA, once every colour is a valid #rrggbb. */
-  protected readonly contrastIssues = computed(() => {
+  /** The failing colour pairs and the ones not checked, once every colour set is a valid #rrggbb. */
+  protected readonly contrast = computed(() => {
     const t = this.theme();
-    if (!t) return [];
-    const colors = [...t.ringColors, t.seenRingColor, t.titleColor, t.backgroundColor, t.accentColor];
-    return colors.every(isThemeColor) ? themeContrastIssues(t) : [];
+    if (!t) return { issues: [], skipped: [] };
+    const valid =
+      t.ringColors.every(isThemeColor) &&
+      ['seenRingColor', 'titleColor', 'backgroundColor', 'accentColor'].every((key) =>
+        isValidThemeValue(key as ThemeField, t[key as ColorKey]),
+      );
+    return valid ? checkThemeContrast(t) : { issues: [], skipped: [] };
   });
 
   ngOnInit(): void {
@@ -367,12 +470,27 @@ export class ThemePage implements OnInit {
       this.error.set(message);
       return;
     }
-    this.theme.set(copy(value.resolved));
+    this.show(value.resolved, value.theme);
   }
 
-  /** The colour picker's value: the field's colour, lowercased, or the default while the hex field is not a colour. */
-  protected swatch(color: string): string {
+  // Shows a theme read from or saved to the API.
+  private show(resolved: Theme, stored: ThemeSettings): void {
+    this.theme.set(copy(resolved));
+    this.touched.set(new Set(Object.keys(stored) as ThemeField[]));
+    this.lastValid.ringWidth = resolved.ringWidth;
+    if (resolved.cornerRadius !== null) this.lastValid.cornerRadius = resolved.cornerRadius;
+    this.numberText.set({ ringWidth: String(resolved.ringWidth), cornerRadius: String(resolved.cornerRadius ?? this.lastValid.cornerRadius) });
+  }
+
+  /** The colour picker's value: the field's colour, lowercased, or black while the hex field is not a colour. */
+  protected swatch(color: string | null): string {
     return isThemeColor(color) ? color.toLowerCase() : '#000000';
+  }
+
+  /** True when a colour field takes the host page's value. */
+  protected fromHost(key: ColorKey): boolean {
+    const value = this.theme()?.[key];
+    return value === null || value === TRANSPARENT;
   }
 
   protected invalid(field: ThemeField): 'true' | null {
@@ -384,10 +502,16 @@ export class ThemePage implements OnInit {
     return ids.filter(Boolean).join(' ') || null;
   }
 
+  // Changes one field; it counts as set unless it is back at TaleArt's default.
   private update(field: ThemeField, change: (theme: Theme) => Theme): void {
     const t = this.theme();
     if (!t) return;
-    this.theme.set(change(copy(t)));
+    const next = change(copy(t));
+    this.theme.set(next);
+    const touched = new Set(this.touched());
+    if (isDefault(field, next[field])) touched.delete(field);
+    else touched.add(field);
+    this.touched.set(touched);
     this.saved.set('');
     if (this.errorField() === field) {
       this.errorField.set('');
@@ -395,13 +519,43 @@ export class ThemePage implements OnInit {
     }
   }
 
-  protected set(field: 'ringStyle' | 'fontFamily' | (typeof COLOR_FIELDS)[number]['key'], value: string): void {
+  protected set(field: 'ringStyle' | 'fontFamily' | ColorKey, value: string): void {
     this.update(field, (t) => ({ ...t, [field]: value }));
   }
 
-  // A number field keeps what was typed; the save check names a value out of range or not whole.
-  protected setNumber(field: 'ringWidth' | 'cornerRadius', value: string): void {
-    this.update(field, (t) => ({ ...t, [field]: value.trim() === '' ? Number.NaN : Number(value) }));
+  /** Takes a value from the host page or the frame (checked), or sets an explicit one to edit. */
+  protected setHost(field: 'titleColor' | 'backgroundColor' | 'fontFamily' | 'cornerRadius', host: boolean): void {
+    const explicit: Record<typeof field, string | number> = {
+      titleColor: COLOR_FIELDS[1].host?.explicit ?? '#111827',
+      backgroundColor: COLOR_FIELDS[2].host?.explicit ?? '#ffffff',
+      fontFamily: EXPLICIT_FONT,
+      cornerRadius: this.lastValid.cornerRadius,
+    };
+    const value = host ? DEFAULT_THEME[field] : explicit[field];
+    this.update(field, (t) => ({ ...t, [field]: value }));
+    if (field === 'cornerRadius' && !host) this.numberText.update((text) => ({ ...text, cornerRadius: String(value) }));
+  }
+
+  // The typed text stays as it is. A number, even out of range, goes to the theme (the save check names it);
+  // text that is not a number leaves the theme at its last value.
+  protected setNumber(field: NumberKey, text: string): void {
+    this.numberText.update((all) => ({ ...all, [field]: text }));
+    const n = text.trim() === '' ? Number.NaN : Number(text);
+    if (!Number.isFinite(n)) return;
+    if (isValidThemeValue(field, n)) this.lastValid[field] = n;
+    this.update(field, (t) => ({ ...t, [field]: n }));
+  }
+
+  // Leaving a number field with a value that is not valid restores its last valid number.
+  protected settleNumber(field: NumberKey, input: HTMLInputElement): void {
+    const t = this.theme();
+    const text = this.numberText()[field];
+    const n = text.trim() === '' ? Number.NaN : Number(text);
+    if (t && Number.isFinite(n) && isValidThemeValue(field, n) && t[field] === n) return;
+    const restore = this.lastValid[field];
+    this.update(field, (theme) => ({ ...theme, [field]: restore }));
+    this.numberText.update((all) => ({ ...all, [field]: String(restore) }));
+    input.value = String(restore);
   }
 
   protected setRingColor(index: number, value: string): void {
@@ -419,16 +573,23 @@ export class ThemePage implements OnInit {
     this.update('ringColors', (t) => ({ ...t, ringColors: t.ringColors.filter((_, i) => i !== index) }));
   }
 
+  /** Only the fields the project sets, in schema order. */
+  private settings(t: Theme): ThemeSettings {
+    const touched = this.touched();
+    return Object.fromEntries(THEME_FIELDS.filter((f) => touched.has(f)).map((f) => [f, t[f]])) as ThemeSettings;
+  }
+
   protected async save(): Promise<void> {
     const t = this.theme();
     if (!t || this.busy()) return;
+    const settings = this.settings(t);
     // The same check as the API's, so an invalid value is named before anything is sent.
-    const problem = themeSettingsError(t);
+    const problem = themeSettingsError(settings);
     if (problem) {
       this.refuse(problem);
       return;
     }
-    await this.send(t, 'Theme saved. Reload a page with the Web SDK to see it.');
+    await this.send(settings, 'Theme saved. Reload a page with the Web SDK to see it.');
   }
 
   protected async reset(): Promise<void> {
@@ -442,7 +603,7 @@ export class ThemePage implements OnInit {
     this.saved.set('');
   }
 
-  private async send(theme: Partial<Theme>, done: string): Promise<void> {
+  private async send(theme: ThemeSettings, done: string): Promise<void> {
     this.busy.set(true);
     this.error.set('');
     this.errorField.set('');
@@ -453,7 +614,7 @@ export class ThemePage implements OnInit {
       this.refuse(message);
       return;
     }
-    this.theme.set(copy(value.resolved));
+    this.show(value.resolved, value.theme);
     this.saved.set(done);
   }
 }

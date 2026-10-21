@@ -2791,9 +2791,14 @@ describe('Management API v1: projects and zones', () => {
     });
 
     it.each([
-      [{ titleColor: 'red' }, 'theme.titleColor must be a colour as #rrggbb'],
-      [{ titleColor: '#12345' }, 'theme.titleColor must be a colour as #rrggbb'],
-      [{ backgroundColor: '#123456;x' }, 'theme.backgroundColor must be a colour as #rrggbb'],
+      [{ titleColor: 'red' }, "theme.titleColor must be a colour as #rrggbb, or null for the host page's"],
+      [{ titleColor: '#12345' }, "theme.titleColor must be a colour as #rrggbb, or null for the host page's"],
+      [{ backgroundColor: '#123456;x' }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
+      [{ backgroundColor: null }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
+      [{ accentColor: 'transparent' }, 'theme.accentColor must be a colour as #rrggbb'],
+      [{ fontFamily: 'inherit' }, expect.stringMatching(/^theme\.fontFamily /)],
+      [{ fontFamily: 'Georgia, revert-layer' }, expect.stringMatching(/^theme\.fontFamily /)],
+      [{ fontFamily: '-apple-system' }, expect.stringMatching(/^theme\.fontFamily /)],
       [{ ringColors: [] }, 'theme.ringColors must hold 1 to 3 colours'],
       [{ ringColors: ['#000000', '#000000', '#000000', '#000000'] }, 'theme.ringColors must hold 1 to 3 colours'],
       [{ ringWidth: 5 }, 'theme.ringWidth must be at most 4'],
@@ -3039,7 +3044,34 @@ describe('Management API v1: projects and zones', () => {
         headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
         body: JSON.stringify({ titleColor: '#000000' }),
       });
-      expect((await (await deliver(key)).json()).theme.titleColor).toBe(DEFAULT_THEME.titleColor);
+      expect((await (await deliver(key)).json()).theme.titleColor).toBeNull();
+    });
+
+    it('saves a theme with PUT and delivers it resolved: explicit values, host-page nulls and transparent', async () => {
+      const zone = await createZone();
+      const { key } = await issue(zone.id);
+      const put = (body: unknown) =>
+        globalThis.fetch(`${base}/projects/${zone.projectId}/theme`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+          body: JSON.stringify(body),
+        });
+
+      // Nothing set: the look before themes.
+      const before = (await (await deliver(key)).json()).theme;
+      expect(before).toEqual(DEFAULT_THEME);
+      expect(before).toMatchObject({ titleColor: null, fontFamily: null, cornerRadius: null, backgroundColor: 'transparent' });
+
+      const explicit = { titleColor: '#000000', backgroundColor: '#fafafa', fontFamily: 'Georgia, serif', cornerRadius: 4 };
+      expect((await put(explicit)).status).toBe(200);
+      expect((await (await deliver(key)).json()).theme).toEqual({ ...DEFAULT_THEME, ...explicit });
+
+      // Back to the host page's values, explicitly.
+      const host = { titleColor: null, backgroundColor: 'transparent', fontFamily: null, cornerRadius: null };
+      const saved = await put(host);
+      expect(saved.status).toBe(200);
+      expect((await saved.json()).theme).toEqual(host);
+      expect((await (await deliver(key)).json()).theme).toEqual(DEFAULT_THEME);
     });
 
     it('delivers only valid theme fields when the stored row is invalid', async () => {

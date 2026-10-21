@@ -149,9 +149,12 @@ describe('TaleartElement', () => {
       fetchMock.mockImplementation(async () => respond(200, { ...zone, theme }));
       const el = await mount();
       const themed = el.shadowRoot?.querySelector<HTMLElement>('.taleart');
-      expect(themed?.style.getPropertyValue('--ta-title')).toBe('#111827');
+      // Unset: the host page's title colour and font, the frame's radius, a transparent background.
+      expect(themed?.style.getPropertyValue('--ta-title')).toBe('');
+      expect(themed?.style.getPropertyValue('--ta-font')).toBe('');
+      expect(themed?.style.getPropertyValue('--ta-radius')).toBe('');
+      expect(themed?.style.getPropertyValue('--ta-bg')).toBe('transparent');
       expect(themed?.style.getPropertyValue('--ta-ring-width')).toBe('2px');
-      expect(themed?.style.getPropertyValue('--ta-font')).toBe('system-ui, sans-serif');
       el.remove();
     }
     expect(errorSpy).not.toHaveBeenCalled();
