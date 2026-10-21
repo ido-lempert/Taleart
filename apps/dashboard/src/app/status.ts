@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { nextStatuses, type ContentStatus, type SettableStatus } from '@taleart/contract';
+import { nextStatuses, type ContentStatus, type SettableStatus } from '@taleart/contract/core';
 
 /** What the dashboard calls each status key (AD-6). */
 export const STATUS_LABELS: Readonly<Record<ContentStatus, string>> = {

@@ -17,6 +17,10 @@
     "paths": {
       "@taleart/web-sdk": ["./libs/web-sdk/src/index.ts"],
       "@taleart/contract": ["./libs/contract/src/index.ts"],
+      "@taleart/contract/core": ["./libs/contract/src/lib/core.ts"],
+      "@taleart/contract/tale-document": ["./libs/contract/src/lib/tale-document.ts"],
+      "@taleart/contract/text-style": ["./libs/contract/src/lib/text-style.ts"],
+      "@taleart/contract/theme": ["./libs/contract/src/lib/theme.ts"],
       "@taleart/server-access": ["./libs/server/access/src/index.ts"],
       "@taleart/server-importer": ["./libs/server/importer/src/index.ts"],
       "@taleart/server-storage": ["./libs/server/storage/src/index.ts"],

@@ -6,7 +6,7 @@ import {
   type CanvasRect,
   type TaleElement,
   type TaleElementBox,
-} from '@taleart/contract';
+} from '@taleart/contract/tale-document';
 
 /** A layer action, from the layers list, the actions menu or a keyboard shortcut. */
 export type LayerCommand =

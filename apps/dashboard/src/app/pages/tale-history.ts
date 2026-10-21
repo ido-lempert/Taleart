@@ -1,7 +1,7 @@
 // Tale Studio's history (epic Tale Studio R9): every change to the document is one step, kept as
 // the document before and after it. Documents are immutable values, so a step costs only the
 // parts that changed, and undoing back to a saved document gives that very object again.
-import type { TaleDocument } from '@taleart/contract';
+import type { TaleDocument } from '@taleart/contract/tale-document';
 
 /** How many steps the history keeps; the oldest is dropped past it (the epic asks for at least 100). */
 export const HISTORY_LIMIT = 200;

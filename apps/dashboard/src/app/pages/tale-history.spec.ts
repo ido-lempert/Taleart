@@ -1,4 +1,4 @@
-import type { TaleDocument } from '@taleart/contract';
+import type { TaleDocument } from '@taleart/contract/tale-document';
 import { HISTORY_LIMIT, MERGE_WINDOW_MS, sameDocument, TaleHistory } from './tale-history';
 
 // A document told apart by its background colour; each call makes a new object.

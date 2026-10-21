@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import type { InvitationPreview } from '@taleart/contract';
+import type { InvitationPreview } from '@taleart/contract/core';
 import { AuthStore, PasskeyClient } from '../auth';
 import { Mark } from '../icon';
 

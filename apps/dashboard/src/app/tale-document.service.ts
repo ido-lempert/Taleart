@@ -1,15 +1,13 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import {
-  ErrorCodes,
-  isErrorBody,
-  type CopyTaleDocumentRequest,
-  type SaveTaleDocumentRequest,
-  type Tale,
-  type TaleDocument,
-  type TaleDocumentRevision,
-  type TaleDocumentRevisionsRequest,
-} from '@taleart/contract';
+import { ErrorCodes, isErrorBody, type Tale } from '@taleart/contract/core';
+import type {
+  CopyTaleDocumentRequest,
+  SaveTaleDocumentRequest,
+  TaleDocument,
+  TaleDocumentRevision,
+  TaleDocumentRevisionsRequest,
+} from '@taleart/contract/tale-document';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
 
