@@ -10,8 +10,14 @@ export const TALEART_ELEMENT_TAG = 'taleart-view';
 const API_URL_ATTR = 'api-url';
 const ZONE_KEY_ATTR = 'zone-key';
 
+interface FocusTarget {
+  groupId: string;
+  frameId: string | null;
+}
+
 // A rendered frame: its element, and how it takes focus back for a group (its first item for null).
 interface FrameView {
+  readonly frameId: string;
   readonly element: HTMLElement;
   focus(groupId: string | null): boolean;
   destroy?(): void;
@@ -37,8 +43,10 @@ export class TaleartElement extends HTMLElement {
   private scheduled = false;
   private viewer: TaleViewer | null = null;
   private views: FrameView[] = [];
-  // The group whose item takes focus after a reload that closed an open viewer.
-  private pendingFocus: string | null = null;
+  // The group, and the frame that opened the viewer, that take focus after a reload that closed an open viewer.
+  private pendingFocus: FocusTarget | null = null;
+  // The frame whose item or slide opened the viewer, kept across reloads.
+  private openerFrameId: string | null = null;
 
   /** The TaleArt API origin, such as `https://api.example.com`. */
   get apiUrl(): string {
@@ -70,13 +78,13 @@ export class TaleartElement extends HTMLElement {
     this.destroyViews();
   }
 
-  // Closes the viewer; returns the group it showed, or null when it was not open.
-  private closeViewer(): string | null {
+  // Closes the viewer; returns the group it showed and the frame that opened it, or null when it was not open.
+  private closeViewer(): FocusTarget | null {
     const viewer = this.viewer;
     this.viewer = null;
     const groupId = viewer?.groupId ?? null;
     viewer?.close();
-    return groupId;
+    return groupId === null ? null : { groupId, frameId: this.openerFrameId };
   }
 
   // Setting both attributes in one task loads once.
@@ -92,7 +100,7 @@ export class TaleartElement extends HTMLElement {
   private async load(): Promise<void> {
     const id = ++this.loadId;
     const { apiUrl, zoneKey } = this;
-    // A reload while the viewer is open puts focus back on the new bar once it renders.
+    // A reload while the viewer is open puts focus back on the opening frame once it renders.
     const focusGroup = this.closeViewer() ?? this.pendingFocus;
     this.pendingFocus = focusGroup;
     this.destroyViews();
@@ -110,7 +118,7 @@ export class TaleartElement extends HTMLElement {
   }
 
   // Renders every frame type the SDK knows, in the zone's frame order; unknown types are skipped (AD-5).
-  private render(zone: DeliveryZone, focusGroup: string | null): void {
+  private render(zone: DeliveryZone, focusTarget: FocusTarget | null): void {
     this.pendingFocus = null;
     const names = new Map(zone.taleGroups.map((group) => [group.id, group.name]));
     const seen = seenGroupIds();
@@ -130,7 +138,10 @@ export class TaleartElement extends HTMLElement {
       onClose: (groupId) => opener?.focus(groupId),
     });
     const openFrom = (view: FrameView, groupId: string) => {
-      if (this.viewer === viewer && viewer.open(groupId)) opener = view;
+      if (this.viewer === viewer && viewer.open(groupId)) {
+        opener = view;
+        this.openerFrameId = view.frameId;
+      }
     };
 
     for (const frame of zone.frames) {
@@ -141,6 +152,7 @@ export class TaleartElement extends HTMLElement {
           items.set(button.dataset['taleGroupId'] ?? '', button);
         }
         const view: FrameView = {
+          frameId: frame.id,
           element: bar,
           focus: (groupId) => {
             const item = groupId === null ? bar.querySelector<HTMLButtonElement>('button.item') : items.get(groupId);
@@ -159,7 +171,15 @@ export class TaleartElement extends HTMLElement {
         const banner = renderBanner(zone.taleGroups, frame.settings, (groupId) => {
           if (view) openFrom(view, groupId);
         });
-        if (banner) views.push((view = banner));
+        if (banner) {
+          view = {
+            frameId: frame.id,
+            element: banner.element,
+            focus: (groupId) => banner.focus(groupId),
+            destroy: () => banner.destroy(),
+          };
+          views.push(view);
+        }
       }
     }
     this.views = views;
@@ -168,7 +188,14 @@ export class TaleartElement extends HTMLElement {
     style.textContent = BAR_STYLES + BANNER_STYLES + VIEWER_STYLES;
     this.viewer = viewer;
     this.root.replaceChildren(style, ...views.map((view) => view.element));
-    if (focusGroup !== null && !views.some((view) => view.focus(focusGroup))) views[0].focus(null);
+    if (focusTarget) {
+      // The frame that opened the viewer first, then any frame with the group, then the opener's (or the first) frame as it is.
+      const { groupId, frameId } = focusTarget;
+      const preferred = views.find((view) => view.frameId === frameId);
+      if (!preferred?.focus(groupId) && !views.some((view) => view !== preferred && view.focus(groupId))) {
+        (preferred ?? views[0]).focus(null);
+      }
+    }
   }
 
   // Stops the timers of the rendered frames.

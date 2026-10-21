@@ -253,6 +253,38 @@ try {
   check((await transform()) === 'translateX(0%)', 'with reduced motion the banner does not autoplay');
   violations += await scan(still, 'banner with reduced motion', axe);
   await reduced.close();
+
+  // A 3:1 banner on a 390 px phone with autoplay: no control overlaps another, targets are 44 px.
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const narrow = await phone.newPage();
+  await narrow.route(`${API}/delivery/v1/zone`, (route) =>
+    route.fulfill({
+      json: { ...ZONE, frames: [{ id: 'f2', type: 'banner', settings: { aspectRatio: '3:1', intervalSeconds: 3 } }] },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+    }),
+  );
+  await narrow.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+  await narrow.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  const narrowBanner = narrow.locator('taleart-view section.banner');
+  await narrowBanner.waitFor();
+  const boxes = {
+    rotate: await narrowBanner.locator('.b-rotate').boundingBox(),
+    prev: await narrowBanner.locator('.b-prev').boundingBox(),
+    next: await narrowBanner.locator('.b-next').boundingBox(),
+    dots: await narrowBanner.locator('.b-dots').boundingBox(),
+  };
+  const overlap = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  const names = Object.keys(boxes);
+  const clashes = names.flatMap((a, i) => names.slice(i + 1).filter((b) => overlap(boxes[a], boxes[b])).map((b) => `${a}/${b}`));
+  check(clashes.length === 0, `no banner controls overlap at 390 px on 3:1${clashes.length ? `: ${clashes.join(', ')}` : ''}`);
+  check(
+    ['rotate', 'prev', 'next'].every((k) => boxes[k].width >= 44 && boxes[k].height >= 44),
+    'banner buttons are at least 44 px',
+  );
+  violations += await scan(narrow, 'phone 3:1 banner', axe);
+  await phone.close();
 } finally {
   await browser.close();
   server.kill();

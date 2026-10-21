@@ -339,6 +339,54 @@ describe('TaleartElement', () => {
       expect(slideButtons(el)[1].closest('.b-slide')?.hasAttribute('inert')).toBe(false);
     });
 
+    it('renders two bar frames of one zone, each opening the viewer and taking focus back', async () => {
+      withBanner([
+        { id: 'f1', type: 'bar', settings: {} },
+        { id: 'f3', type: 'bar', settings: { size: 'large' } },
+      ]);
+      const el = await mount();
+      const bars = [...(el.shadowRoot?.querySelectorAll<HTMLElement>('.bar') ?? [])];
+      expect(bars).toHaveLength(2);
+      expect(bars[1].style.getPropertyValue('--ta-size')).toBe('80px');
+      const second = bars[1].querySelectorAll<HTMLButtonElement>('button.item');
+      second[0].click();
+      const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
+      expect(dialog.getAttribute('aria-label')).toBe('Summer');
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(el.shadowRoot?.activeElement).toBe(second[0]);
+      // Both bars show the seen ring.
+      expect(bars.map((bar) => bar.querySelector('button.item')?.hasAttribute('data-seen'))).toEqual([true, true]);
+    });
+
+    it('restores focus to the opener frame after a reload, not the first frame with the group', async () => {
+      withBanner([
+        { id: 'f2', type: 'banner', settings: {} },
+        { id: 'f1', type: 'bar', settings: {} },
+      ]);
+      const el = await mount();
+      items(el)[1].click();
+      expect(el.shadowRoot?.querySelector('dialog')?.hasAttribute('open')).toBe(true);
+      el.zoneKey = 'tak_other';
+      await settle();
+      expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
+      expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
+    });
+
+    it('restores focus to the opener banner slide after a reload, without stopping its autoplay', async () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: false }));
+      withBanner([
+        { id: 'f1', type: 'bar', settings: {} },
+        { id: 'f2', type: 'banner', settings: {} },
+      ]);
+      const el = await mount();
+      slideButtons(el)[1].click();
+      el.zoneKey = 'tak_other';
+      await settle();
+      expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
+      // Focus moved by the SDK is not the visitor interacting: the new banner still rotates.
+      expect(el.shadowRoot?.querySelector('.b-track')?.getAttribute('aria-live')).toBe('off');
+    });
+
     it("stops the banner's autoplay timer when the element is removed or reloads", async () => {
       vi.stubGlobal('matchMedia', () => ({ matches: false }));
       withBanner([{ id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } }]);
