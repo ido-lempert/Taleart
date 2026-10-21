@@ -2244,8 +2244,10 @@ components:
       type: object
       description: >-
         The fields of a theme a project sets (epic web zones R9); a field left
-        out takes TaleArt's default. Validated by `themeSettingsError` in
-        `libs/contract`.
+        out takes TaleArt's default, which keeps the look host pages had before
+        themes: a transparent background, and the title colour, font and
+        corner radius of the host page or the frame (`null`). Validated by
+        `themeSettingsError` in `libs/contract`.
       additionalProperties: false
       properties:
         ringStyle:
@@ -2269,30 +2271,42 @@ components:
           default: 2
           description: The ring's width in px.
         cornerRadius:
-          type: integer
+          type: [integer, 'null']
           minimum: 0
           maximum: 32
-          default: 12
-          description: Corner radius in px of rounded-square bar items and banner slides.
+          default: null
+          description: >-
+            Corner radius in px of rounded-square bar items and banner slides;
+            null keeps the frame's own (a quarter of the item size, 12 px on a banner).
         fontFamily:
-          type: string
+          type: [string, 'null']
           maxLength: 200
-          pattern: '^\s*(?:[A-Za-z0-9-][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*(?:,\s*(?:[A-Za-z0-9-][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*)*$'
-          default: 'system-ui, sans-serif'
-          description: A CSS font-family list; the host page loads the font.
+          pattern: '^(?!.*(?:^|[\s,"''])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\s,"'']))\s*(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*(?:,\s*(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*)*$'
+          default: null
+          description: >-
+            A CSS font-family list (the host page loads the font): names of
+            letters, digits, spaces and hyphens, bare (starting with a letter)
+            or quoted, never a CSS-wide keyword or `default`. Null inherits the
+            host page's font.
         titleColor:
-          $ref: '#/components/schemas/ThemeColor'
-          default: '#111827'
+          type: [string, 'null']
+          pattern: '^#[0-9a-fA-F]{6}$'
+          default: null
+          description: Titles and banner dots as `#rrggbb`; null inherits the host page's text colour.
         backgroundColor:
-          $ref: '#/components/schemas/ThemeColor'
-          default: '#ffffff'
+          type: string
+          pattern: '^(?:#[0-9a-fA-F]{6}|transparent)$'
+          default: transparent
+          description: Behind the bar and the banner, as `#rrggbb` or `transparent` (the host page shows through).
         accentColor:
           $ref: '#/components/schemas/ThemeColor'
           default: '#ffffff'
-          description: The viewer's progress and button icons, on the viewer's black.
+          description: The viewer's progress and button icons.
     Theme:
       type: object
-      description: A complete theme, every field filled (TaleArt's default where the project sets none).
+      description: >-
+        A complete theme, every field present (TaleArt's default where the
+        project sets none); `null` takes the host page's or the frame's own value.
       required: [ringStyle, ringColors, seenRingColor, ringWidth, cornerRadius, fontFamily, titleColor, backgroundColor, accentColor]
       additionalProperties: false
       properties:
@@ -2311,15 +2325,15 @@ components:
           minimum: 1
           maximum: 4
         cornerRadius:
-          type: integer
+          type: [integer, 'null']
           minimum: 0
           maximum: 32
         fontFamily:
-          type: string
+          type: [string, 'null']
         titleColor:
-          $ref: '#/components/schemas/ThemeColor'
+          type: [string, 'null']
         backgroundColor:
-          $ref: '#/components/schemas/ThemeColor'
+          type: string
         accentColor:
           $ref: '#/components/schemas/ThemeColor'
     ProjectTheme:

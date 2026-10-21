@@ -54,7 +54,9 @@ export function readBarSettings(raw: unknown): BarSettings {
  * `data-shape`, `data-align` and `data-titles` on the list; the project's
  * theme (R9) sets the ring, seen ring, ring width, rounded-square radius,
  * title colour, font and background through the `--ta-*` custom properties
- * of the themed wrapper (see `theme.ts`).
+ * of the themed wrapper (see `theme.ts`). A property the theme leaves unset
+ * falls back to the look before themes: the host page's title colour and
+ * font, a transparent background, a radius of a quarter of the item size.
  */
 export const BAR_STYLES = `
 :host { display: block; }
@@ -69,16 +71,18 @@ export const BAR_STYLES = `
   padding: 4px;
   margin: 0;
   list-style: none;
-  background: var(--ta-bg);
-  font-family: var(--ta-font);
+  background: var(--ta-bg, transparent);
+  font-family: var(--ta-font, inherit);
 }
 .bar::-webkit-scrollbar { display: none; }
 .bar > li { flex: none; }
 .bar[data-align="center"] > li:first-child { margin-inline-start: auto; }
 .bar[data-align="center"] > li:last-child { margin-inline-end: auto; }
 .bar[data-titles="hidden"] .title { display: none; }
-.bar[data-shape="rounded-square"] .ring { border-radius: var(--ta-radius); }
-.bar[data-shape="rounded-square"] .cover { border-radius: max(0px, calc(var(--ta-radius) - var(--ta-ring-width))); }
+.bar[data-shape="rounded-square"] .ring { border-radius: var(--ta-radius, calc(var(--ta-size) / 4)); }
+.bar[data-shape="rounded-square"] .cover {
+  border-radius: max(0px, calc(var(--ta-radius, calc(var(--ta-size) / 4)) - var(--ta-ring-width, 2px)));
+}
 .item {
   display: flex;
   flex-direction: column;
@@ -88,27 +92,28 @@ export const BAR_STYLES = `
   padding: 0;
   border: 0;
   background: none;
-  color: var(--ta-title);
+  color: var(--ta-title, inherit);
   font: inherit;
   cursor: pointer;
 }
-.item:focus-visible { outline: 2px solid #1a56db; outline-offset: 2px; border-radius: 8px; }
+/* Two colours, so the focus ring shows on any background: white inside, dark outside. */
+.item:focus-visible { outline: 2px solid #111827; outline-offset: 2px; box-shadow: 0 0 0 2px #fff; border-radius: 8px; }
 .ring {
   box-sizing: border-box;
   width: var(--ta-size);
   height: var(--ta-size);
   border-radius: 50%;
-  padding: var(--ta-ring-width);
-  background: var(--ta-ring);
+  padding: var(--ta-ring-width, 2px);
+  background: var(--ta-ring, linear-gradient(45deg, #ea580c, #db2777, #7c3aed));
 }
-.item[data-seen] .ring { background: var(--ta-seen); }
+.item[data-seen] .ring { background: var(--ta-seen, #6b7280); }
 .cover {
   display: block;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  border: 2px solid var(--ta-bg);
+  border: 2px solid var(--ta-gap, #fff);
   object-fit: cover;
   background: #e5e7eb;
 }

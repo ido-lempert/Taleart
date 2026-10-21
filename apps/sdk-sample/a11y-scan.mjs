@@ -26,16 +26,17 @@ const API = 'http://taleart-api.test';
 // A grey 9:16 SVG, served for every media URL.
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="160"><rect width="90" height="160" fill="#6b7280"/></svg>';
 const image = (id, title) => ({ id, title, media: { kind: 'image', contentType: 'image/svg+xml', url: `${API}/media/tales/${id}.svg` } });
-// TaleArt's default theme, as the Delivery API sends it for a project with none (DEFAULT_THEME).
+// TaleArt's default theme, as the Delivery API sends it for a project with none (DEFAULT_THEME):
+// the host page's title colour and font, the frame's radius, a transparent background.
 const DEFAULT_THEME = {
   ringStyle: 'gradient',
   ringColors: ['#ea580c', '#db2777', '#7c3aed'],
   seenRingColor: '#6b7280',
   ringWidth: 2,
-  cornerRadius: 12,
-  fontFamily: 'system-ui, sans-serif',
-  titleColor: '#111827',
-  backgroundColor: '#ffffff',
+  cornerRadius: null,
+  fontFamily: null,
+  titleColor: null,
+  backgroundColor: 'transparent',
   accentColor: '#ffffff',
 };
 const ZONE = {
@@ -144,6 +145,21 @@ try {
   const items = page.locator('taleart-view button.item');
   await items.first().waitFor();
   violations += await scan(page, 'bar', axe);
+  // With the default theme the frames keep the look before themes: the host page's text colour and font, no background.
+  const looks = await page.evaluate(() => {
+    const root = document.querySelector('taleart-view').shadowRoot;
+    const title = getComputedStyle(root.querySelector('.title'));
+    const body = getComputedStyle(document.body);
+    return {
+      color: title.color === body.color,
+      font: title.fontFamily === body.fontFamily,
+      background: getComputedStyle(root.querySelector('.bar')).backgroundColor,
+      bannerRadius: getComputedStyle(root.querySelector('.b-viewport')).borderTopLeftRadius,
+    };
+  });
+  check(looks.color && looks.font, "by default bar titles take the host page's text colour and font");
+  check(looks.background === 'rgba(0, 0, 0, 0)', 'by default the bar background is transparent');
+  check(looks.bannerRadius === '12px', 'by default the banner keeps its 12 px radius');
 
   await items.first().click();
   const dialog = page.locator('taleart-view dialog.viewer');

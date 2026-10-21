@@ -33,7 +33,7 @@ describe('project theme', () => {
   it('refuses an invalid theme without writing', async () => {
     const query = vi.fn();
     await expect(setProjectTheme({ query } as unknown as Db, projectId, { titleColor: 'red' })).rejects.toThrow(
-      new InvalidThemeError('theme.titleColor must be a colour as #rrggbb'),
+      new InvalidThemeError("theme.titleColor must be a colour as #rrggbb, or null for the host page's"),
     );
     expect(query).not.toHaveBeenCalled();
   });
