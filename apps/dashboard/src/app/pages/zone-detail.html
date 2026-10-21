@@ -144,7 +144,7 @@
                       <app-icon name="grip" />
                     </span>
                   }
-                  <span class="ring" aria-hidden="true">
+                  <span class="ring" [class.ring--cover]="!!group.cover" aria-hidden="true">
                     @if (group.cover; as cover) {
                       @if (cover.kind === 'video') {
                         <video class="ring__cover" [src]="store.coverSrc(group) + '#t=0.001'" [muted]="true" playsinline preload="metadata"></video>

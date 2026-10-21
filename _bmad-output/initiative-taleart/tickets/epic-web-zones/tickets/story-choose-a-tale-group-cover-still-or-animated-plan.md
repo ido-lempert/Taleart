@@ -3,14 +3,14 @@ title: 'Choose a tale group cover, still or animated'
 type: 'feature'
 ticket: '14'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '69a48ecb7cd61f0426acdeb459a9e349b748413d'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -109,6 +109,21 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- verdicts: 11 findings, all patched.
+- findings:
+  - `[patch]` The public cover lookup did not match Delivery: a live group with a live tale but no zone placement still served its cover — one `deliveredGroup` SQL predicate (live in window, a live tale in window, placed in a zone) now drives both `listDeliveryTaleGroups` and the cover branch of `findPublishedMedia`; tests: never placed and removed from its last zone answer 404, also with `If-None-Match` (no 304).
+  - `[patch]` A video cover was buffered up to 10 MB before the 300 KB check — a declared video type over 300 KB is refused from `Content-Length` before reading, and video bodies use an `express.raw` limit of 300 KB mapped to "An animated cover is at most 300 KB"; the post-sniff check stays for animated images; tests for 300 KB + 1 and 10 MB + 1.
+  - `[patch]` Save took whatever frame the video showed (a recording moves it) — Save and "Use this frame" seek to the knob time first; test after a clip moved the video.
+  - `[patch]` Controls stayed live during recording — knob, length, tale select and source radios are disabled while busy; `seekTo` times out (5 s) and rejects on `emptied`/`abort`/`error`; state resets in `finally`; tests.
+  - `[patch]` No cancellation — `recordClip` takes an `AbortSignal`; the editor aborts on destroy and on source or tale change, and an aborted recording emits nothing and makes no object URL; URLs are revoked on destroy; tests.
+  - `[patch]` `recordClip` could leave the recorder running or wait on rAF in a hidden tab — `start()` inside `try`, `stop()` only when not inactive, tracks always stopped, a `setTimeout` deadline; unit tests with a fake recorder.
+  - `[patch]` Clip size only announced — shown next to the preview ("84 KB of 300 KB"), marked when over.
+  - `[patch]` UI differed from the plan — with no cover the preview shows the first tale's media with "First tale's image (default)"; "Use this frame" captures into a preview that Save uploads (Save without it captures at the knob time).
+  - `[patch]` SDK needed `MediaQueryList.addEventListener` — falls back to `addListener`/`removeListener`; test.
+  - `[patch]` GET cover read storage before `If-None-Match` and compared it literally — checked first with `etagMatches` (lists, `W/`, `*`); tests.
+  - `[patch]` `.ring { overflow: hidden }` applied to every ring — moved to `.ring--cover`, set only where a cover shows.
 
 ## Verification
 

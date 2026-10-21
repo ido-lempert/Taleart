@@ -903,8 +903,26 @@ select {
 }
 
 /* ---------- Cover drawer ---------- */
-.ring {
+/* Only a ring that shows a cover clips it to the circle; the letter rings keep their layout. */
+.ring--cover {
   overflow: hidden;
+}
+
+.cover-made {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.cover-size {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.cover-size--over {
+  color: var(--danger-text);
+  font-weight: 600;
 }
 
 .ring__cover {
