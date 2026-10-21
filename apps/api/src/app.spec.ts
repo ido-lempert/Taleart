@@ -3795,6 +3795,47 @@ describe('Management API v1: projects and zones', () => {
         expect(media.media.url).toMatch(mediaUrl);
       });
 
+      it('delivers the arranged order, the background colour and only the shown layers (Tale Studio story 2)', async () => {
+        const zone = await createZone();
+        const group = await addGroup(zone.id, 'A');
+        const tale = await addTale(group.id, 'A1', ['image/png', png]);
+        const id = (n: number) => `00000000-0000-4000-8000-0000000000b${n}`;
+        const element = (n: number, hidden: boolean, locked: boolean) => ({
+          id: id(n),
+          type: 'text',
+          box: { x: 0.1, y: 0.4 + n / 100, w: 0.8, h: 0.1, rotation: 0 },
+          hidden,
+          locked,
+          a11y: {},
+          props: { text: `T${n}` },
+        });
+        const put = (elements: object[], revision: number, color = '#112233') =>
+          fetch(`${base}/tales/${tale.id}/document`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              document: { version: 1, canvas: { background: { type: 'color', color } }, elements },
+              revision,
+            }),
+          });
+        expect(
+          (await put([element(1, false, false), element(2, false, false), element(3, false, false)], 0)).status,
+        ).toBe(200);
+        // Reordered (2 to the front), 1 hidden, 3 locked: saved as the next revision.
+        expect(
+          (await put([element(3, false, true), element(1, true, false), element(2, false, false)], 1)).status,
+        ).toBe(200);
+        const { key } = await issue(zone.id);
+        const delivered = (await (await deliver(key)).json()).taleGroups[0].tales[0].document;
+        expect(delivered.canvas).toEqual({ background: { type: 'color', color: '#112233' } });
+        expect(delivered.elements.map((e: { id: string }) => e.id)).toEqual([id(3), id(2)]);
+        expect(delivered.elements[0]).not.toHaveProperty('locked');
+        // A colour that is not hex is refused, naming its pointer.
+        const bad = await put([], 2, 'red; background:url(x)');
+        expect(bad.status).toBe(400);
+        expect((await bad.json()).error.pointer).toBe('/canvas/background/color');
+      });
+
       it('serves published media publicly: stored type, revalidated cache, CORS, nosniff, no key or session', async () => {
         const zone = await createZone();
         const group = await addGroup(zone.id, 'A');
