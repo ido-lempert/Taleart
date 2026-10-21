@@ -6,6 +6,7 @@ import type {
   ImportMediaFailure,
   ImportProgressCount,
   ImportStatus,
+  ImportTagFailure,
 } from '@taleart/contract';
 
 // What the Import from Storyly pages share: state labels and pills, counts and times.
@@ -65,9 +66,10 @@ const ENTITY_LABELS: Record<ImportDifferenceEntity, string> = {
   zone: 'Zones',
   taleGroup: 'Tale groups',
   tale: 'Tales',
+  tag: 'Tags',
 };
 
-const ENTITY_ORDER: readonly ImportDifferenceEntity[] = ['app', 'zone', 'taleGroup', 'tale'];
+const ENTITY_ORDER: readonly ImportDifferenceEntity[] = ['app', 'zone', 'taleGroup', 'tale', 'tag'];
 
 /** Groups with up to this many differences start open. */
 export const IMPORT_DIFFERENCES_OPEN_LIMIT = 20;
@@ -87,6 +89,12 @@ const MEDIA_FAILURE_LABELS: Record<ImportMediaFailure, string> = {
   jobBudgetExceeded: 'the import reached its media limit',
 };
 
+const TAG_FAILURE_LABELS: Record<ImportTagFailure, string> = {
+  blank: 'blank',
+  tooLong: 'longer than 40 characters',
+  notText: 'not text',
+};
+
 /** One difference as a line under its record. */
 export function importDifferenceText(difference: ImportDifference): string {
   const field = difference.field ?? '';
@@ -104,8 +112,12 @@ export function importDifferenceText(difference: ImportDifference): string {
     case 'invalidRecord':
       return 'could not be read, so it was skipped';
     case 'mediaNotImported': {
-      const reason = difference.reason ? ` (${MEDIA_FAILURE_LABELS[difference.reason]})` : '';
-      return `${field}: not imported${reason}, so the tale has no media`;
+      const label = difference.reason && MEDIA_FAILURE_LABELS[difference.reason as ImportMediaFailure];
+      return `${field}: not imported${label ? ` (${label})` : ''}, so the tale has no media`;
+    }
+    case 'tagNotImported': {
+      const label = difference.reason && TAG_FAILURE_LABELS[difference.reason as ImportTagFailure];
+      return `${field}: label not imported${label ? ` (${label})` : ''}`;
     }
   }
 }

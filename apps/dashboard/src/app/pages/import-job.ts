@@ -201,6 +201,9 @@ import {
                 @if (report.media; as media) {
                   <li>Media: {{ countText(media) }}</li>
                 }
+                @if (report.tags; as tags) {
+                  <li>Tags: {{ countText(tags) }}</li>
+                }
               </ul>
               @if (report.notes.length > 0) {
                 <ul class="import-notes" aria-label="Notes">

@@ -26,8 +26,27 @@ export interface SourceOrderedRecord extends SourceRecord {
   sortOrder: number | null;
 }
 
-/** A Storyly story group: it becomes a tale group placed in its instance's zone. */
-export type SourceStoryGroup = SourceOrderedRecord;
+/**
+ * A Storyly story group: it becomes a tale group placed in its instance's
+ * zone. `segments` (its labels) is the source's value, unchecked: the label
+ * import reads it.
+ */
+export interface SourceStoryGroup extends SourceOrderedRecord {
+  segments?: unknown;
+}
+
+/**
+ * A label of the app's labels list (Storyly's segments): a record with an id,
+ * or a bare string with none. `label` is its name as the source gave it,
+ * unchecked: the label import reads it, and a record's name that is absent or
+ * not text is already a difference of the record.
+ */
+export interface SourceLabel {
+  id: string | null;
+  label: unknown;
+  /** True for a bare string, whose text was not checked as a record. */
+  bare: boolean;
+}
 
 /**
  * A Storyly story: it becomes a tale of its group's tale group. `media` (the
@@ -132,6 +151,22 @@ export class StorylyClient {
   /** The story groups of one instance, in response order, checked. */
   async listStoryGroups(instanceId: string): Promise<CheckedList<SourceStoryGroup>> {
     return this.checked('/story-group', { instance_id: instanceId }, 'story groups', 'taleGroup');
+  }
+
+  /**
+   * The app's labels (Storyly's segments list), in response order: records
+   * checked as the `tag` entity, bare strings taken as they are.
+   */
+  async listLabels(appId: string): Promise<CheckedList<SourceLabel>> {
+    const body = await this.get('/segment', { app_id: appId }, 'labels');
+    const text = (value: string) => storedText(value, this.options.token);
+    return {
+      entries: listOf(body, 'labels').map((raw, index): CheckedEntry<SourceLabel> => {
+        if (typeof raw === 'string') return { record: { id: null, label: raw, bare: true }, differences: [], omitted: 0 };
+        const { record, differences, omitted } = checkRecord('tag', raw, index + 1, { text, budget: this.options.budget });
+        return { record: record === null ? null : { id: record.id, label: record.label, bare: false }, differences, omitted };
+      }),
+    };
   }
 
   /** The stories of one story group, in response order, checked. */

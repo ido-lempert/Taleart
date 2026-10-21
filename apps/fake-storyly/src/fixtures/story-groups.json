@@ -10,7 +10,10 @@
         "status": 1,
         "sort_order": 2,
         "pinned": false,
-        "segments": [],
+        "segments": [
+          "summer",
+          "vip"
+        ],
         "settings": {},
         "media": "https://media.example/fake/group-3001.png",
         "ts_start": null,
@@ -27,7 +30,9 @@
         "status": 1,
         "sort_order": 0,
         "pinned": false,
-        "segments": [],
+        "segments": [
+          "new"
+        ],
         "settings": {},
         "media": "https://media.example/fake/group-3002.png",
         "ts_start": null,
@@ -65,7 +70,9 @@
         "status": 1,
         "sort_order": 1,
         "pinned": false,
-        "segments": [],
+        "segments": [
+          "vip"
+        ],
         "settings": {},
         "media": "https://media.example/fake/group-3004.png",
         "ts_start": null,
@@ -103,7 +110,9 @@
         "status": 1,
         "sort_order": 0,
         "pinned": false,
-        "segments": [],
+        "segments": [
+          "summer"
+        ],
         "settings": {},
         "media": "https://media.example/fake/group-3006.png",
         "ts_start": null,
@@ -185,6 +194,114 @@
         "sort_order": 0,
         "pinned": false,
         "segments": [],
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
+  },
+  "2401": {
+    "data": [
+      {
+        "id": 3401,
+        "app_id": 1005,
+        "instance_id": 2401,
+        "account_id": 501,
+        "title": "Case twins",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": false,
+        "segments": [
+          "Summer",
+          "summer",
+          "SUMMER ",
+          "vip"
+        ],
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 3402,
+        "app_id": 1005,
+        "instance_id": 2401,
+        "account_id": 501,
+        "title": "Odd labels",
+        "status": 1,
+        "sort_order": 1,
+        "pinned": false,
+        "segments": [
+          "",
+          "   ",
+          "A label far too long to be a TaleArt tag name, sixty chars",
+          42,
+          null,
+          {
+            "name": "From object"
+          },
+          {
+            "weird": true
+          },
+          [
+            "nested"
+          ]
+        ],
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 3403,
+        "app_id": 1005,
+        "instance_id": 2401,
+        "account_id": 501,
+        "title": "JSON labels",
+        "status": 1,
+        "sort_order": 2,
+        "pinned": false,
+        "segments": "[\"json-label\", \"vip\"]",
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 3404,
+        "app_id": 1005,
+        "instance_id": 2401,
+        "account_id": 501,
+        "title": "Bad segments",
+        "status": 1,
+        "sort_order": 3,
+        "pinned": false,
+        "segments": {
+          "include": [
+            "members"
+          ]
+        },
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 3405,
+        "app_id": 1005,
+        "instance_id": 2401,
+        "account_id": 501,
+        "title": "No labels",
+        "status": 1,
+        "sort_order": 4,
+        "pinned": false,
+        "segments": null,
         "settings": {},
         "ts_start": null,
         "ts_end": null,

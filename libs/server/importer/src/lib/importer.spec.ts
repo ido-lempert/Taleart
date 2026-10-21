@@ -282,6 +282,11 @@ function contentDb() {
   const zones = new Map<string, string>();
   const groups = new Map<string, { name: string; zoneId: string; position: number }>();
   const tales = new Map<string, { groupId: string; title: string; position: number }>();
+  // The project's tags by name ignoring case, and each tale group's tag ids, as the targeting module keeps them.
+  const tagNames = new Map<string, string>();
+  const groupTags = new Map<string, Set<string>>();
+  // When set, the targeting module finds no tale group: as if it was deleted during the import.
+  const state = { groupsGoneForTags: false };
   // Called when a link is read; a test can create a competing link there.
   let onLinkRead: (key: string) => void = () => undefined;
   const { db, statements } = fakeDb((sql, params) => {
@@ -314,6 +319,24 @@ function contentDb() {
       return { rows: [{ position }] };
     }
     if (/SELECT 1 FROM tale_groups/.test(sql)) return { rows: groups.has(p[0]) ? [{}] : [] };
+    if (/INSERT INTO tags /.test(sql)) {
+      for (const name of params[1] as string[]) if (!tagNames.has(name.toLowerCase())) tagNames.set(name.toLowerCase(), name);
+      return { rows: [], rowCount: 1 };
+    }
+    if (/AS requested\(name\)/.test(sql)) {
+      const rows = (params[1] as string[]).flatMap((requested) => {
+        const name = tagNames.get(requested.toLowerCase());
+        return name === undefined ? [] : [{ requested, id: `tag-${name.toLowerCase()}`, projectId, name }];
+      });
+      return { rows };
+    }
+    if (/INSERT INTO tale_group_tags/.test(sql)) {
+      const set = groupTags.get(p[0]) ?? new Set<string>();
+      for (const tagId of params[2] as string[]) set.add(tagId);
+      groupTags.set(p[0], set);
+      return { rows: [], rowCount: 1 };
+    }
+    if (/SELECT project_id FROM tale_groups WHERE id = \$1$/.test(sql) && state.groupsGoneForTags) return { rows: [] };
     if (/SELECT project_id FROM tale_groups/.test(sql)) {
       return { rows: groups.has(p[0]) ? [{ project_id: projectId }] : [] };
     }
@@ -351,6 +374,9 @@ function contentDb() {
     groups,
     tales,
     zoneContent,
+    tagNames,
+    groupTags,
+    state,
     setOnLinkRead: (f: (key: string) => void) => {
       onLinkRead = f;
     },
@@ -987,5 +1013,204 @@ describe('runImportJob: stored text', () => {
     const report = JSON.stringify(done?.[1]);
     expect(report).toContain('[token]');
     expect(report).not.toContain(TOKEN);
+  });
+});
+
+describe('importContent: labels as tags', () => {
+  const home = [{ id: '2001', name: 'Home page' }];
+  type Group = Rec & { segments?: unknown };
+  const labelSource = (groups: Group[], stories: Record<string, Rec[]> = {}): ContentSource => ({
+    listStoryGroups: async () => groups,
+    listStories: async (groupId) => stories[groupId] ?? [],
+  });
+  const list = (...labels: unknown[]) => async () => ({
+    entries: labels.map((label, index) => ({
+      record: typeof label === 'string' ? { id: null, label, bare: true } : { id: String(index), label, bare: false },
+      differences: [],
+      omitted: 0,
+    })),
+  });
+  // The tag names each tale group carries, by group name.
+  const tagsOf = (fake: ReturnType<typeof contentDb>) =>
+    Object.fromEntries(
+      [...fake.groups].map(([id, g]) => [
+        g.name,
+        [...(fake.groupTags.get(id) ?? [])].map((tagId) => fake.tagNames.get(tagId.slice('tag-'.length))),
+      ]),
+    );
+
+  it('makes each label a tag of the project and adds the group labels to their tale groups', async () => {
+    const fake = contentDb();
+    const groups: Group[] = [
+      { id: 'g1', name: 'Summer', sortOrder: 0, segments: ['summer', 'vip'] },
+      { id: 'g2', name: 'New', sortOrder: 1, segments: '["new"]' },
+      { id: 'g3', name: 'Plain', sortOrder: 2, segments: null },
+    ];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups), undefined, {
+      labels: list('summer', 'returning'),
+    });
+    expect(report.tags).toEqual({ source: 4, imported: 4, skipped: 0 });
+    expect([...fake.tagNames.values()]).toEqual(['summer', 'returning', 'vip', 'new']);
+    expect(tagsOf(fake)).toEqual({ Summer: ['summer', 'vip'], New: ['new'], Plain: [] });
+    expect(report.differences).toEqual([]);
+    expect(report.notes).toContain('Tags: whether labels combine with AND or OR is not imported');
+  });
+
+  it('has no tag count, and reads no labels, without the labels option', async () => {
+    const fake = contentDb();
+    const groups: Group[] = [{ id: 'g1', name: 'Summer', sortOrder: 0, segments: ['summer'] }];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups));
+    expect(report.tags).toBeUndefined();
+    expect(fake.tagNames.size).toBe(0);
+  });
+
+  it('counts labels differing only in case once each, imports them as one tag, and notes it', async () => {
+    const fake = contentDb();
+    const many = ['Sale', 'sale', 'SALE', 'sAle', 'saLe', 'salE', 'SAle'];
+    const groups: Group[] = [{ id: 'g1', name: 'Summer', sortOrder: 0, segments: [...many, ' sale '] }];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups), undefined, { labels: list() });
+    expect(report.tags).toEqual({ source: 7, imported: 7, skipped: 0 });
+    expect([...fake.tagNames.values()]).toEqual(['Sale']);
+    expect(report.notes).toContain(
+      'Tag "Sale": labels "Sale", "sale", "SALE", "sAle", "saLe", 2 more became one tag, since tag names ignore case',
+    );
+  });
+
+  it('skips a blank, too long or non-text label with a difference, and a segments value that is not a list', async () => {
+    const fake = contentDb();
+    const long = 'x'.repeat(41);
+    const groups: Group[] = [
+      { id: 'g1', name: 'Odd', sortOrder: 0, segments: ['', long, 7, { title: 'From title' }, { other: 1 }] },
+      { id: 'g2', name: 'Bad', sortOrder: 1, segments: { include: ['a'] } },
+      { id: 'g3', name: 'Broken JSON', sortOrder: 2, segments: '[not json' },
+    ];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups), undefined, {
+      labels: list('  '),
+    });
+    expect(report.tags).toEqual({ source: 5, imported: 1, skipped: 4 });
+    expect(tagsOf(fake)).toEqual({ Odd: ['From title'], Bad: [], 'Broken JSON': [] });
+    const parent = { within: 'Odd', withinSourceId: 'g1' };
+    const tag = (position: number, name: string | null, reason: string, field = 'segments', at = parent) => ({
+      entity: 'tag',
+      record: { sourceId: null, name, ...at, position },
+      kind: 'tagNotImported',
+      field,
+      sourceField: null,
+      reason,
+    });
+    const group = (sourceId: string, name: string, position: number) => ({
+      entity: 'taleGroup',
+      record: { sourceId, name, within: 'Home page', withinSourceId: '2001', position },
+      kind: 'wrongType',
+      field: 'segments',
+      sourceField: null,
+    });
+    expect(report.differences).toEqual([
+      tag(1, null, 'blank', 'name', { within: null, withinSourceId: null } as never),
+      tag(1, null, 'blank'),
+      tag(2, long, 'tooLong'),
+      tag(3, null, 'notText'),
+      tag(5, null, 'notText'),
+      group('g2', 'Bad', 2),
+      group('g3', 'Broken JSON', 3),
+    ]);
+  });
+
+  it('notes a labels list that cannot be read and goes on with the groups, but fails on other errors', async () => {
+    const fake = contentDb();
+    const groups: Group[] = [{ id: 'g1', name: 'Summer', sortOrder: 0, segments: ['summer'] }];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups), undefined, {
+      labels: async () => {
+        throw new StorylyUnavailableError('Storyly answered 404 when listing labels');
+      },
+    });
+    expect(report.tags).toEqual({ source: 1, imported: 1, skipped: 0 });
+    expect(report.notes).toContain(
+      'Tags: the labels list could not be read (Storyly answered 404 when listing labels), so tags come from story groups only',
+    );
+    const refused = await importContent(contentDb().db, projectId, home, labelSource(groups), undefined, {
+      labels: async () => {
+        throw new StorylyTokenInvalidError();
+      },
+    });
+    expect(refused.notes.some((note) => note.startsWith('Tags: the labels list could not be read'))).toBe(true);
+    await expect(
+      importContent(contentDb().db, projectId, home, labelSource(groups), undefined, {
+        labels: async () => {
+          throw new Error('database down');
+        },
+      }),
+    ).rejects.toThrow('database down');
+  });
+
+  it('notes a tale group deleted before its tags are added, and still counts its labels', async () => {
+    const fake = contentDb();
+    fake.state.groupsGoneForTags = true;
+    const groups: Group[] = [{ id: 'g1', name: 'Summer', sortOrder: 0, segments: ['summer'] }];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups), undefined, { labels: list() });
+    expect(report.tags).toEqual({ source: 1, imported: 1, skipped: 0 });
+    expect(report.notes).toContain('Tale group "Summer": it was deleted during the import, so its tags were not added');
+    expect(fake.groupTags.size).toBe(0);
+  });
+
+  it("reads a repeated group's labels once", async () => {
+    const fake = contentDb();
+    const groups: Group[] = [
+      { id: 'g1', name: 'Summer', sortOrder: 0, segments: ['', 'summer'] },
+      { id: 'g1', name: 'Summer', sortOrder: 1, segments: ['', 'summer'] },
+    ];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups), undefined, {
+      labels: list(),
+    });
+    expect(report.tags).toEqual({ source: 2, imported: 1, skipped: 1 });
+    expect(report.differences?.filter((d) => d.kind === 'tagNotImported')).toHaveLength(1);
+    expect([...fake.tagNames.values()]).toEqual(['summer']);
+  });
+
+  it('removes the token from the labels it quotes', async () => {
+    const fake = contentDb();
+    const label = `${TOKEN} ${'x'.repeat(40)}`;
+    const groups: Group[] = [{ id: 'g1', name: 'Summer', sortOrder: 0, segments: [label, 'a', 'A'] }];
+    const report = await importContent(fake.db, projectId, home, labelSource(groups), undefined, {
+      labels: list(),
+      text: (value) => storedText(value, TOKEN),
+    });
+    const text = JSON.stringify(report);
+    expect(text).not.toContain(TOKEN);
+    expect(text).toContain(`[token] ${'x'.repeat(40)}`);
+  });
+});
+
+describe('StorylyClient: labels', () => {
+  it('reads the labels list of an app: records checked as tags, bare strings as they are', async () => {
+    const fetch = vi.fn(async () =>
+      json(200, { data: ['Loyal', { id: 5, name: 'vip', app_id: 1 }, { id: 6, title: 'Renamed' }, { name: 'No id' }] }),
+    );
+    const client = new StorylyClient({ baseUrl: 'http://fake', token: TOKEN, fetch });
+    const labels = await client.listLabels('1001');
+    expect(String((fetch.mock.calls[0] as unknown as [URL])[0])).toBe('http://fake/segment?app_id=1001');
+    expect(labels.entries.map((e) => e.record)).toEqual([
+      { id: null, label: 'Loyal', bare: true },
+      { id: '5', label: 'vip', bare: false },
+      { id: '6', label: 'Renamed', bare: false },
+      null,
+    ]);
+    expect(labels.entries[2].differences.map((d) => [d.entity, d.kind, d.field, d.sourceField])).toEqual([
+      ['tag', 'renamed', 'name', 'title'],
+    ]);
+    expect(labels.entries[3].differences.map((d) => d.kind)).toEqual(['invalidRecord']);
+  });
+
+  it('reports a label record whose name is not text', async () => {
+    const client = new StorylyClient({ baseUrl: 'http://fake', token: TOKEN, fetch: vi.fn(async () => json(200, [{ id: 1, name: 42 }])) });
+    const [entry] = (await client.listLabels('1')).entries;
+    expect(entry.record).toEqual({ id: '1', label: 42, bare: false });
+    expect(entry.differences.map((d) => [d.kind, d.field])).toEqual([['wrongType', 'name']]);
+  });
+
+  it('carries a story group\'s segments value unchecked', async () => {
+    const fetch = vi.fn(async () => json(200, [{ id: 1, title: 'G', sort_order: 0, status: 1, segments: ['a'] }]));
+    const client = new StorylyClient({ baseUrl: 'http://fake', token: TOKEN, fetch });
+    expect((await client.listStoryGroups('2')).entries[0].record).toMatchObject({ segments: ['a'] });
   });
 });
