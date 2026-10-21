@@ -5,7 +5,7 @@
 // Then the banner frame of the same zone: rotating and stopped, its controls, swipe, opening the
 // viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
 // Then a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
-// the bar, the banner, the seen ring and the viewer.
+// the bar, the banner, the seen ring and the viewer; then the zone's SDK theme override wins over it.
 // Last, stages: two <taleart-view stage> elements show their own frames, and an unknown stage
 // key renders nothing and logs a warning.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
@@ -449,6 +449,70 @@ try {
   );
   violations += await scan(themed, 'themed bar and banner', axe);
   await themedContext.close();
+
+  // The zone's SDK theme override (R9): a red project ring, overridden in blue for the zone in the
+  // sample page's configuration, on a bar stage and a banner stage; an invalid ringWidth is ignored
+  // with a warning; without the override the project's values return.
+  const overrideContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const overridden = await overrideContext.newPage();
+  const overrideWarnings = [];
+  const overrideErrors = [];
+  overridden.on('console', (msg) => {
+    if (msg.type() === 'warning') overrideWarnings.push(msg.text());
+    if (msg.type() === 'error') overrideErrors.push(msg.text());
+  });
+  overridden.on('pageerror', (err) => overrideErrors.push(String(err)));
+  await overridden.route(`${API}/delivery/v1/zone`, (route) =>
+    route.fulfill({
+      json: {
+        ...ZONE,
+        theme: { ...DEFAULT_THEME, ringStyle: 'solid', ringColors: ['#ff0000'], ringWidth: 3, cornerRadius: 16 },
+        frames: [
+          { id: 'f1', type: 'bar', settings: {} },
+          { id: 'f2', type: 'banner', settings: { autoplay: false } },
+        ],
+        stages: [
+          { key: 'top', frameId: 'f1' },
+          { key: 'hero', frameId: 'f2' },
+        ],
+      },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+    }),
+  );
+  await overridden.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+  const sdkTheme = encodeURIComponent(JSON.stringify({ ringColors: ['#0000ff'], cornerRadius: 0, ringWidth: 9 }));
+  const stagedUrl = `http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}&stages=top,hero`;
+  const overrideLooks = async () => {
+    const bar = overridden.locator('taleart-view[stage="top"] .bar');
+    const banner = overridden.locator('taleart-view[stage="hero"] section.banner');
+    await bar.waitFor();
+    await banner.waitFor();
+    return {
+      ring: await css(bar.locator('button.item .ring').first(), 'background-color'),
+      width: (await css(bar, '--ta-ring-width')).trim(),
+      bannerRing: (await css(banner, '--ta-ring')).trim(),
+      bannerRadius: await css(banner.locator('.b-viewport'), 'border-top-left-radius'),
+    };
+  };
+  await overridden.goto(`${stagedUrl}&theme=${sdkTheme}`);
+  const withOverride = await overrideLooks();
+  check(withOverride.ring === 'rgb(0, 0, 255)', "the zone's SDK ring colour wins over the project's in the bar stage");
+  check(withOverride.bannerRing === '#0000ff', 'the banner stage takes the zone override too');
+  check(withOverride.bannerRadius === '0px', "the banner stage takes the zone's SDK corner radius");
+  check(withOverride.width === '3px', "an invalid SDK ringWidth is ignored and the project's width applies");
+  check(
+    overrideWarnings.length === 1 && overrideWarnings[0].includes('"ringWidth"'),
+    'the invalid SDK ringWidth logs one warning naming the field',
+  );
+  violations += await scan(overridden, 'SDK theme override', axe);
+  await overridden.goto(stagedUrl);
+  const withoutOverride = await overrideLooks();
+  check(withoutOverride.ring === 'rgb(255, 0, 0)', "without the SDK value the project's ring colour returns");
+  check(withoutOverride.bannerRadius === '16px', "without the SDK value the project's corner radius returns");
+  check(overrideErrors.length === 0, `no console errors with an override${overrideErrors.length ? `: ${overrideErrors.join('; ')}` : ''}`);
+  await overrideContext.close();
 } finally {
   await browser.close();
   server.kill();

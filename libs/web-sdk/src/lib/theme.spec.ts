@@ -1,5 +1,5 @@
 import { DEFAULT_THEME, isFontFamily, resolveTheme } from '@taleart/contract';
-import { applyTheme, readTheme, THEME_DEFAULTS, themeProperties } from './theme';
+import { applyTheme, readTheme, readThemeOverride, THEME_DEFAULTS, themeProperties } from './theme';
 import { BANNER_STYLES } from './banner';
 import { BAR_STYLES } from './bar';
 import { VIEWER_STYLES } from './viewer';
@@ -106,6 +106,78 @@ describe('theme', () => {
     expect(el.hasAttribute('data-title')).toBe(false);
     applyTheme(el, { titleColor: '#000000' });
     expect(el.getAttribute('data-title')).toBe('');
+  });
+
+  describe('SDK configuration overrides', () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('keeps the valid fields, copied, and reads null or undefined as no override', () => {
+      const ringColors = ['#0000ff'];
+      const fields = readThemeOverride({ ringColors, titleColor: null, cornerRadius: undefined }, 'x');
+      expect(fields).toEqual({ ringColors: ['#0000ff'], titleColor: null });
+      ringColors.push('#ff0000');
+      expect(fields.ringColors).toEqual(['#0000ff']);
+      expect(readThemeOverride(null, 'x')).toEqual({});
+      expect(readThemeOverride(undefined, 'x')).toEqual({});
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('ignores each invalid or unknown field with one warning naming it and the source', () => {
+      const fields = readThemeOverride(
+        { ringWidth: 9, fontFamily: 'a;}b{', backgroundColor: 'url(x)', size: 1, accentColor: '#ffcc00' },
+        "the element's theme",
+      );
+      expect(fields).toEqual({ accentColor: '#ffcc00' });
+      expect(warn).toHaveBeenCalledTimes(4);
+      for (const field of ['ringWidth', 'fontFamily', 'backgroundColor', 'size']) {
+        expect(warn).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`the element's theme .*"${field}"`)));
+      }
+    });
+
+    it('checks overrides with the same rules as the delivered theme', () => {
+      const raw = { ringWidth: 9, titleColor: '#fff', fontFamily: 'inherit', ringColors: [], cornerRadius: 0 };
+      expect(readThemeOverride(raw, 'x')).toEqual({ cornerRadius: 0 });
+      expect({ ...readTheme(raw) }).toEqual({ ...DEFAULT_THEME, cornerRadius: 0 });
+    });
+
+    it.each(['blue', 3, ['#0000ff'], true])('ignores %j, not an object, with one warning', (raw) => {
+      expect(readThemeOverride(raw, 'x')).toEqual({});
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves each field from the element, then the zone, then the project, then the default', () => {
+      const project = { ringStyle: 'solid', ringColors: ['#ff0000'], ringWidth: 3, accentColor: '#00ff00' };
+      const zone = { ringColors: ['#0000ff'], ringWidth: 1 };
+      const element = { ringWidth: 4 };
+      expect(themeProperties(project, zone, element)).toMatchObject({
+        '--ta-ring': '#0000ff',
+        '--ta-ring-width': '4px',
+        '--ta-accent': '#00ff00',
+        '--ta-seen': '#6b7280',
+      });
+    });
+
+    it('lets an override clear what the project set, and applying again removes stale properties', () => {
+      const el = document.createElement('div');
+      const project = { titleColor: '#000000', fontFamily: 'Georgia', cornerRadius: 4, backgroundColor: '#fafafa' };
+      applyTheme(el, project);
+      expect(el.style.getPropertyValue('--ta-title')).toBe('#000000');
+      applyTheme(el, project, {
+        titleColor: null,
+        fontFamily: null,
+        cornerRadius: null,
+        backgroundColor: 'transparent',
+      });
+      for (const name of ['--ta-title', '--ta-font', '--ta-radius', '--ta-gap']) {
+        expect(el.style.getPropertyValue(name)).toBe('');
+      }
+      expect(el.style.getPropertyValue('--ta-bg')).toBe('transparent');
+      expect(el.hasAttribute('data-title')).toBe(false);
+    });
   });
 
   it('falls back in CSS to the look before themes when a property is unset', () => {

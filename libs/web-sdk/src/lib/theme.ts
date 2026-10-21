@@ -32,41 +32,71 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 const intIn = (value: unknown, min: number, max: number): value is number =>
   Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
 
+/** Each theme field's rule (R9), as the contract's `themeSettingsError`. */
+const CHECKS: { readonly [K in keyof Theme]: (value: unknown) => boolean } = {
+  ringStyle: (v) => v === 'gradient' || v === 'solid' || v === 'none',
+  ringColors: (v) => Array.isArray(v) && v.length >= 1 && v.length <= 3 && v.every(isColor),
+  seenRingColor: isColor,
+  ringWidth: (v) => intIn(v, 1, 4),
+  cornerRadius: (v) => v === null || intIn(v, 0, 32),
+  fontFamily: (v) => v === null || (typeof v === 'string' && v.length <= 200 && FONT.test(v)),
+  titleColor: (v) => v === null || isColor(v),
+  backgroundColor: (v) => v === 'transparent' || isColor(v),
+  accentColor: isColor,
+};
+
+const isRecord = (raw: unknown): raw is Record<string, unknown> =>
+  typeof raw === 'object' && raw !== null && !Array.isArray(raw);
+
+/**
+ * The fields of `raw` that pass the theme's rules (arrays copied), and the
+ * names of the fields that do not: unknown keys and values that fail. A field
+ * that is absent or `undefined` is neither.
+ */
+function themeFields(raw: unknown): { fields: Partial<Theme>; invalid: string[] } {
+  const fields: Record<string, unknown> = {};
+  const invalid: string[] = [];
+  if (!isRecord(raw)) return { fields, invalid };
+  for (const key of Object.keys(raw)) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (Object.prototype.hasOwnProperty.call(CHECKS, key) && CHECKS[key as keyof Theme](value)) {
+      fields[key] = Array.isArray(value) ? [...value] : value;
+    } else invalid.push(key);
+  }
+  return { fields: fields as Partial<Theme>, invalid };
+}
+
 /**
  * The theme to render: each field the Delivery API sent when it passes the
  * theme's rules (strict `#rrggbb` colours, `transparent` for the background,
  * bounded integers, a safe font-family list, `null` where the host page's or
  * the frame's own value applies), else TaleArt's default. The API validates on
  * write and fills defaults; the SDK checks again because the values reach CSS.
- * It never logs (story 9 warns about the SDK configuration's own values).
+ * It never logs: only the SDK configuration's own values warn
+ * ({@link readThemeOverride}).
  */
 export function readTheme(raw: unknown): Theme {
-  const t = (typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
-  const d = THEME_DEFAULTS;
-  const has = (key: string) => Object.prototype.hasOwnProperty.call(t, key);
-  const color = (key: 'seenRingColor' | 'accentColor') => (isColor(t[key]) ? (t[key] as string) : d[key]);
-  const ring = t['ringColors'];
-  const font = t['fontFamily'];
-  const radius = t['cornerRadius'];
-  const title = t['titleColor'];
-  const bg = t['backgroundColor'];
-  return {
-    ringStyle: ['gradient', 'solid', 'none'].includes(t['ringStyle'] as string)
-      ? (t['ringStyle'] as Theme['ringStyle'])
-      : d.ringStyle,
-    ringColors:
-      Array.isArray(ring) && ring.length >= 1 && ring.length <= 3 && ring.every(isColor) ? [...ring] : [...d.ringColors],
-    seenRingColor: color('seenRingColor'),
-    ringWidth: intIn(t['ringWidth'], 1, 4) ? t['ringWidth'] : d.ringWidth,
-    cornerRadius: intIn(radius, 0, 32) || (has('cornerRadius') && radius === null) ? radius : d.cornerRadius,
-    fontFamily:
-      (typeof font === 'string' && font.length <= 200 && FONT.test(font)) || (has('fontFamily') && font === null)
-        ? font
-        : d.fontFamily,
-    titleColor: isColor(title) || (has('titleColor') && title === null) ? title : d.titleColor,
-    backgroundColor: isColor(bg) || bg === 'transparent' ? bg : d.backgroundColor,
-    accentColor: color('accentColor'),
-  };
+  return { ...THEME_DEFAULTS, ringColors: [...THEME_DEFAULTS.ringColors], ...themeFields(raw).fields };
+}
+
+/**
+ * A theme override from the host page's SDK configuration (R9), named by
+ * `source` in warnings (such as `the theme of zone "tak_…"`): the fields that
+ * pass the theme's rules, copied, so later changes to `raw` do not leak in.
+ * Each invalid or unknown field is ignored with one console warning naming it;
+ * an override that is not an object is ignored with one warning. `null` and
+ * `undefined` mean no override.
+ */
+export function readThemeOverride(raw: unknown, source: string): Partial<Theme> {
+  if (raw === null || raw === undefined) return {};
+  if (!isRecord(raw)) {
+    console.warn(`TaleArt: ${source} must be an object of theme fields; it is ignored`);
+    return {};
+  }
+  const { fields, invalid } = themeFields(raw);
+  for (const key of invalid) console.warn(`TaleArt: ${source} has an invalid or unknown field "${key}"; it is ignored`);
+  return fields;
 }
 
 /**
@@ -77,10 +107,12 @@ export function readTheme(raw: unknown): Theme {
  * the theme sets them, `--ta-radius`, `--ta-font`, `--ta-title` and
  * `--ta-gap` (the cover's edge in the background colour). A property left out
  * lets the CSS fall back to the host page's value or the frame's own. With
- * ring style `none` no ring shows, seen or not.
+ * ring style `none` no ring shows, seen or not. `overrides` are checked fields
+ * from the SDK configuration ({@link readThemeOverride}), lowest precedence
+ * first; each field one sets replaces the delivered theme's.
  */
-export function themeProperties(raw: unknown): Record<string, string> {
-  const theme = readTheme(raw);
+export function themeProperties(raw: unknown, ...overrides: Partial<Theme>[]): Record<string, string> {
+  const theme: Theme = Object.assign(readTheme(raw), ...overrides);
   const none = theme.ringStyle === 'none';
   const [first] = theme.ringColors;
   const ring =
@@ -101,13 +133,19 @@ export function themeProperties(raw: unknown): Record<string, string> {
   return props;
 }
 
+// The properties a theme may leave out, cleared when a new theme does.
+const OPTIONAL = ['--ta-gap', '--ta-radius', '--ta-font', '--ta-title'];
+
 /**
- * Applies a theme to `target` (a wrapper inside the Shadow DOM that holds the
- * frames and the viewer) as CSS custom properties, through
+ * Applies a theme, with the SDK configuration's checked overrides (lowest
+ * precedence first), to `target` (a wrapper inside the Shadow DOM that holds
+ * the frames and the viewer) as CSS custom properties, through
  * `style.setProperty` only: no theme value is ever written into style text.
+ * Applying again replaces the previous theme.
  */
-export function applyTheme(target: HTMLElement, raw: unknown): void {
-  const props = themeProperties(raw);
+export function applyTheme(target: HTMLElement, raw: unknown, ...overrides: Partial<Theme>[]): void {
+  const props = themeProperties(raw, ...overrides);
+  for (const name of OPTIONAL) if (!(name in props)) target.style.removeProperty(name);
   for (const [name, value] of Object.entries(props)) target.style.setProperty(name, value);
   // Marks a theme title colour, which turns the banner dots into rings of it.
   target.toggleAttribute('data-title', '--ta-title' in props);

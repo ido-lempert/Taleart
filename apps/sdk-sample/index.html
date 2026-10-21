@@ -24,16 +24,32 @@
       <code>http://localhost:3333</code>. Add <code>&amp;stages=&lt;key&gt;,&lt;key&gt;</code> to place one
       <code>&lt;taleart-view stage="…"&gt;</code> per stage key instead of the whole zone.
     </p>
+    <p>
+      Add <code>&amp;theme=&lt;JSON&gt;</code> to override the project's theme for the zone in the SDK configuration,
+      for example <code>&amp;theme={"ringStyle":"solid","ringColors":["#0000ff"]}</code>. The page passes it to
+      <code>configureZone(key, { theme })</code>; a field set there wins over the project's theme, and an invalid one is
+      ignored with a console warning. One element can also take its own <code>theme</code> property or JSON attribute,
+      which wins over the zone's. See the web-sdk README for every field.
+    </p>
 
     <div id="views"><taleart-view id="zone"></taleart-view></div>
 
     <!-- The built SDK, served from dist/libs/web-sdk. Loading it registers <taleart-view>. -->
     <script type="module">
-      import '/sdk/index.js';
+      import { configureZone } from '/sdk/index.js';
 
       const params = new URLSearchParams(location.search);
       const apiUrl = params.get('api') || 'http://localhost:3333';
       const key = params.get('key');
+      // The zone's SDK theme override (R9), before the elements load so they render with it.
+      const theme = params.get('theme');
+      if (key && theme) {
+        try {
+          configureZone(key, { theme: JSON.parse(theme) });
+        } catch {
+          console.warn('Sample page: the theme parameter is not valid JSON; it is ignored');
+        }
+      }
       const stages = (params.get('stages') || '').split(',').map((s) => s.trim()).filter(Boolean);
       // One element per named stage (R7), each under its own heading; else one element for the whole zone.
       const views = stages.length
