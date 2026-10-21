@@ -65,6 +65,11 @@ describe('renderTaleDocument', () => {
     expect(texts(area).map((p) => p.textContent)).toEqual(['pay x', 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦']);
   });
 
+  it('lets each text take its direction from its own first strong character', () => {
+    const area = renderTaleDocument(doc([text('a', 'מבצע: 50% off', 0.1, 0.1), text('b', 'Free — חינם', 0.1, 0.5)]));
+    expect(texts(area).map((p) => p.getAttribute('dir'))).toEqual(['auto', 'auto']);
+  });
+
   it('treats inherited property names as unknown types', () => {
     const area = renderTaleDocument(
       doc([

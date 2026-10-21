@@ -1,4 +1,5 @@
 import type { DeliveryZone } from '@taleart/contract';
+import { COVER_MOTION_MS } from './bar';
 import { FIRST_CONTENT_MARK, ZONE_MARK } from './first-content';
 import { configureZone, defineTaleartElement, TALEART_ELEMENT_TAG, TaleartElement } from './taleart-element';
 
@@ -897,6 +898,52 @@ describe('TaleartElement', () => {
 
     el.remove();
     expect(listeners.size).toBe(0);
+  });
+
+  it('stills an animated cover after COVER_MOTION_MS (WCAG 2.2.2), and again after reduced motion turns off', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let reduced = false;
+    const listeners = new Set<(event: { matches: boolean }) => void>();
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        get matches() {
+          return query === '(prefers-reduced-motion: reduce)' && reduced;
+        },
+        addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => listeners.add(listener),
+        removeEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => listeners.delete(listener),
+      })),
+    );
+    const url = `${API}/media/covers/c.webm`;
+    fetchMock.mockImplementation(async () =>
+      respond(200, {
+        ...zone,
+        taleGroups: [{ ...zone.taleGroups[0], cover: { kind: 'video', contentType: 'video/webm', animated: true, url } }],
+      }),
+    );
+    const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+    el.setAttribute('api-url', API);
+    el.setAttribute('zone-key', KEY);
+    document.body.appendChild(el);
+    await vi.advanceTimersByTimeAsync(10);
+    const cover = () => el.shadowRoot?.querySelector<HTMLVideoElement>('video.cover');
+    expect(cover()?.autoplay).toBe(true);
+    await vi.advanceTimersByTimeAsync(COVER_MOTION_MS - 20);
+    expect(cover()?.autoplay).toBe(true);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(cover()?.autoplay).toBe(false);
+    expect(cover()?.getAttribute('src')).toBe(`${url}#t=0.001`);
+
+    reduced = true;
+    for (const listener of listeners) listener({ matches: true });
+    reduced = false;
+    for (const listener of listeners) listener({ matches: false });
+    expect(cover()?.autoplay).toBe(true);
+    await vi.advanceTimersByTimeAsync(COVER_MOTION_MS);
+    expect(cover()?.autoplay).toBe(false);
+
+    el.remove();
+    vi.useRealTimers();
   });
 
   it('follows the reduced-motion setting through addListener where addEventListener is missing', async () => {
