@@ -5,7 +5,10 @@ import {
   deliverableTaleDocument,
   getTaleDocument,
   InvalidTaleDocumentError,
+  NothingToPublishError,
   saveTaleDocument,
+  publishTaleDocument,
+  discardTaleDraft,
   StaleRevisionError,
   TaleDocumentTooLargeError,
 } from './tale-document';
@@ -224,9 +227,15 @@ function fakeDb(answers: { rows: unknown[] }[]) {
 }
 
 describe('tale document storage', () => {
-  it('reads a tale without a document as null at revision 0', async () => {
-    const { db } = fakeDb([{ rows: [{ document: null, revision: 0 }] }]);
-    expect(await getTaleDocument(db, taleId)).toEqual({ document: null, revision: 0 });
+  const NONE = { publishedDocument: null, publishedRevision: 0 };
+
+  it('reads a tale without a document as null at revision 0, draft and published', async () => {
+    const { db } = fakeDb([{ rows: [{ document: null, revision: 0, ...NONE }] }]);
+    expect(await getTaleDocument(db, taleId)).toEqual({
+      document: null,
+      revision: 0,
+      published: { document: null, revision: 0 },
+    });
   });
 
   it('refuses an unknown tale without querying for a malformed id', async () => {
@@ -236,13 +245,74 @@ describe('tale document storage', () => {
     await expect(getTaleDocument(db, taleId)).rejects.toBeInstanceOf(TaleNotFoundError);
   });
 
-  it('saves only when the revision matches, and answers the next one', async () => {
-    const { db, query } = fakeDb([{ rows: [{ revision: 4 }] }]);
+  it('saves the draft only when its revision matches, never the published document', async () => {
+    const published = doc([text(9)]);
+    const { db, query } = fakeDb([
+      { rows: [{ document: {}, revision: 4, publishedDocument: published, publishedRevision: 2 }] },
+    ]);
     const value = doc();
-    expect(await saveTaleDocument(db, taleId, value, 3)).toEqual({ document: value, revision: 4 });
+    expect(await saveTaleDocument(db, taleId, value, 3)).toEqual({
+      document: value,
+      revision: 4,
+      published: { document: published, revision: 2 },
+    });
     const [sql, params] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toMatch(/WHERE id = \$1 AND document_revision = \$3/);
+    expect(sql).toMatch(/SET draft_document = \$2::jsonb, draft_revision = draft_revision \+ 1/);
+    expect(sql).toMatch(/WHERE id = \$1 AND draft_revision = \$3/);
+    expect(sql.split('RETURNING')[0]).not.toMatch(/SET document|document_revision =/);
     expect(params).toEqual([taleId, JSON.stringify(value), 3]);
+  });
+
+  it('publishes the checked draft with compare-and-set on both revisions', async () => {
+    const draft = doc();
+    const { db, query } = fakeDb([
+      { rows: [{ document: draft, revision: 4, ...NONE }] },
+      { rows: [{ document: draft, revision: 4, publishedDocument: draft, publishedRevision: 1 }] },
+    ]);
+    expect(await publishTaleDocument(db, taleId, 4, 0)).toEqual({
+      document: draft,
+      revision: 4,
+      published: { document: draft, revision: 1 },
+    });
+    const [sql, params] = query.mock.calls[1] as unknown as [string, unknown[]];
+    expect(sql).toMatch(/SET document = draft_document, document_revision = document_revision \+ 1/);
+    expect(sql).toMatch(/WHERE id = \$1 AND draft_revision = \$2 AND document_revision = \$3/);
+    expect(sql).toMatch(/AND draft_document IS NOT NULL/);
+    expect(params).toEqual([taleId, 4, 0]);
+  });
+
+  it('refuses to publish on a stale revision, a draft that no longer passes, or an unknown tale', async () => {
+    const stale = fakeDb([
+      { rows: [{ document: doc(), revision: 4, ...NONE }] },
+      { rows: [] },
+      { rows: [{ revision: 6 }] },
+    ]);
+    const err = await publishTaleDocument(stale.db, taleId, 4, 0).catch((e: unknown) => e);
+    expect((err as StaleRevisionError).currentRevision).toBe(6);
+    const invalid = fakeDb([{ rows: [{ document: doc([{ ...text(1), type: 'poll' }]), revision: 1, ...NONE }] }]);
+    await expect(publishTaleDocument(invalid.db, taleId, 1, 0)).rejects.toBeInstanceOf(InvalidTaleDocumentError);
+    expect(invalid.query).toHaveBeenCalledTimes(1);
+    await expect(publishTaleDocument(fakeDb([{ rows: [] }]).db, taleId, 0, 0)).rejects.toBeInstanceOf(
+      TaleNotFoundError,
+    );
+    // No draft: nothing is published, and the published document is never emptied.
+    const none = fakeDb([{ rows: [{ document: null, revision: 0, ...NONE }] }]);
+    await expect(publishTaleDocument(none.db, taleId, 0, 0)).rejects.toBeInstanceOf(NothingToPublishError);
+    expect(none.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards the draft back to the published document with compare-and-set on both revisions', async () => {
+    const published = doc();
+    const { db, query } = fakeDb([
+      { rows: [{ document: published, revision: 5, publishedDocument: published, publishedRevision: 2 }] },
+    ]);
+    expect((await discardTaleDraft(db, taleId, 4, 2)).revision).toBe(5);
+    const [sql, params] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toMatch(/SET draft_document = document, draft_revision = draft_revision \+ 1/);
+    expect(sql).toMatch(/AND draft_revision = \$2 AND document_revision = \$3/);
+    expect(params).toEqual([taleId, 4, 2]);
+    const stale = fakeDb([{ rows: [] }, { rows: [{ revision: 7 }] }]);
+    await expect(discardTaleDraft(stale.db, taleId, 4, 1)).rejects.toBeInstanceOf(StaleRevisionError);
   });
 
   it('refuses a stale revision with the current one, and an unknown tale', async () => {

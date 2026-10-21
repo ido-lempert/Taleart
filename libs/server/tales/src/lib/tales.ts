@@ -21,7 +21,12 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
-import { deliverableTaleDocument } from './tale-document';
+import {
+  checkTaleDocument,
+  deliverableTaleDocument,
+  InvalidTaleDocumentError,
+  TaleDocumentTooLargeError,
+} from './tale-document';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -494,11 +499,12 @@ export async function copyTaleGroup(
     // this copy to commit, so its "still referenced" check sees the copy's
     // tales and never deletes a file the copy now uses (AD-11).
     await tx.query('SELECT 1 FROM tales WHERE tale_group_id = $1 FOR SHARE', [taleGroupId]);
-    // Each copy keeps its tale's document (AD-15), starting its own revisions.
+    // Each copy keeps its tale's published and draft documents (AD-15), starting their own revisions.
     await tx.query(
       `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status,
-         starts_at, ends_at, document)
-       SELECT $2, $3, title, position, media_key, media_content_type, status, starts_at, ends_at, document FROM tales
+         starts_at, ends_at, document, draft_document)
+       SELECT $2, $3, title, position, media_key, media_content_type, status, starts_at, ends_at, document,
+              draft_document FROM tales
        WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId, group.id, projectId],
     );
@@ -749,19 +755,44 @@ export async function setTaleGroupStatus(
 
 /**
  * Sets a tale's stored status (AD-6), with the same rules as
- * {@link setTaleGroupStatus}. Returns the tale with its status as read.
+ * {@link setTaleGroupStatus}. Setting `live` on a tale that has nothing
+ * published yet (no published document, or published revision 0), from any
+ * status, also publishes its draft document in the same transaction (AD-15),
+ * after checking it again; a tale that already has a published document keeps
+ * it. A draft that no longer passes is not published: the status still
+ * changes, and the answer carries `draftNotPublished: true`. Returns the tale
+ * with its status as read.
  * Throws {@link TaleNotFoundError} and {@link InvalidStatusTransitionError}.
  */
-export async function setTaleStatus(db: TransactionalDb, taleId: string, status: SettableStatus): Promise<Tale> {
+export async function setTaleStatus(
+  db: TransactionalDb,
+  taleId: string,
+  status: SettableStatus,
+): Promise<Tale & { draftNotPublished?: true }> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
 
   return inTransaction(db, async (tx) => {
-    const current = await tx.query<{ status: ContentStatus }>('SELECT status FROM tales WHERE id = $1 FOR UPDATE', [
-      taleId,
-    ]);
+    const current = await tx.query<{ status: ContentStatus; draft: unknown; unpublished: boolean }>(
+      `SELECT status, draft_document AS draft, (document IS NULL OR document_revision = 0) AS unpublished
+       FROM tales WHERE id = $1 FOR UPDATE`,
+      [taleId],
+    );
     if (current.rows.length === 0) throw new TaleNotFoundError(taleId);
-    const from = current.rows[0].status;
+    const { status: from, draft, unpublished } = current.rows[0];
     if (!canSetStatus(from, status)) throw new InvalidStatusTransitionError(from, status);
+    let draftNotPublished = false;
+    if (from !== 'live' && status === 'live' && unpublished && draft !== null && draft !== undefined) {
+      try {
+        checkTaleDocument(draft);
+        await tx.query(
+          `UPDATE tales SET document = draft_document, document_revision = document_revision + 1 WHERE id = $1`,
+          [taleId],
+        );
+      } catch (err) {
+        if (!(err instanceof InvalidTaleDocumentError || err instanceof TaleDocumentTooLargeError)) throw err;
+        draftNotPublished = true;
+      }
+    }
     const { rows } =
       from === status
         ? await tx.query<TaleRow>(`SELECT ${TALE_COLUMNS} FROM tales WHERE id = $1`, [taleId])
@@ -769,7 +800,7 @@ export async function setTaleStatus(db: TransactionalDb, taleId: string, status:
             taleId,
             status,
           ]);
-    return toTale(rows[0]);
+    return draftNotPublished ? { ...toTale(rows[0]), draftNotPublished: true } : toTale(rows[0]);
   });
 }
 
@@ -883,6 +914,53 @@ export async function createTale(
       [input.taleGroupId, projectId, input.title, next],
     );
     if (withTale) await withTale(tx, { taleId: rows[0].id, projectId });
+    return toTale(rows[0]);
+  });
+}
+
+/**
+ * Keeps a document as a new tale in the source tale's group (epic Tale Studio R9): for an editor
+ * whose save was refused as stale, so their version is not lost. The document is checked as a
+ * save checks it ({@link checkTaleDocument}) before anything is written. In one transaction the
+ * group row is locked, so the {@link MAX_TALES_PER_GROUP} check and the position hold under
+ * concurrent adds; the new tale is a `draft` at the end of the group, titled after the source
+ * with " (copy)", sharing the source's media key (AD-14), holding the document as its draft at
+ * revision 1, with nothing published yet: publishing the tale publishes it.
+ * Throws {@link TaleNotFoundError}, {@link TaleGroupFullError} and the document's errors.
+ */
+export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, value: unknown): Promise<Tale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const document = checkTaleDocument(value);
+
+  return inTransaction(db, async (tx) => {
+    const groupOf = await tx.query<{ groupId: string }>('SELECT tale_group_id AS "groupId" FROM tales WHERE id = $1', [
+      taleId,
+    ]);
+    const groupId = groupOf.rows[0]?.groupId;
+    if (groupId === undefined) throw new TaleNotFoundError(taleId);
+    await tx.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [groupId]);
+    // The source is read under a share lock, after the group's, as copyTaleGroup does.
+    const source = await tx.query('SELECT 1 FROM tales WHERE id = $1 FOR SHARE', [taleId]);
+    if (source.rows.length === 0) throw new TaleNotFoundError(taleId);
+
+    const stats = await tx.query<{ count: number; next: number }>(
+      `SELECT count(*)::int AS count, COALESCE(MAX(position), -1) + 1 AS next
+       FROM tales WHERE tale_group_id = $1`,
+      [groupId],
+    );
+    const { count, next } = stats.rows[0];
+    if (count >= MAX_TALES_PER_GROUP) throw new TaleGroupFullError(groupId);
+
+    // The status, schedule and position are the new row's own: a draft, unscheduled, last.
+    const { rows } = await tx.query<TaleRow>(
+      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type,
+                          draft_document, draft_revision)
+       SELECT tale_group_id, project_id, title || ' (copy)', $2, media_key, media_content_type, $3::jsonb, 1
+       FROM tales WHERE id = $1
+       RETURNING ${TALE_COLUMNS}`,
+      [taleId, next, JSON.stringify(document)],
+    );
+    if (rows.length === 0) throw new TaleNotFoundError(taleId);
     return toTale(rows[0]);
   });
 }

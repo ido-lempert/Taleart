@@ -19,6 +19,7 @@ export {
   setTaleSchedule,
   removeTaleGroup,
   createTale,
+  copyTaleWithDocument,
   taleGroupExists,
   taleExists,
   taleGroupName,
@@ -62,7 +63,10 @@ export {
   pointerSegment,
   getTaleDocument,
   saveTaleDocument,
+  publishTaleDocument,
+  discardTaleDraft,
   InvalidTaleDocumentError,
   StaleRevisionError,
+  NothingToPublishError,
   TaleDocumentTooLargeError,
 } from './lib/tale-document';

@@ -595,17 +595,20 @@ export class CreateDrawer implements OnInit {
   protected readonly statusActions = statusActions;
   /** What the polite live region in the tale drawer last announced. */
   protected readonly statusAnnouncement = signal('');
+  /** Why going live did not publish the tale's studio draft, shown under the status actions; '' for none. */
+  protected readonly statusWarning = signal('');
 
   /** Publishes, pauses, archives or restores the drawer's tale; the drawer stays open and shows its new status. */
   protected async changeTaleStatus(taleId: string, status: SettableStatus): Promise<void> {
     if (this.saving()) return;
     this.saving.set(true);
     this.error.set('');
-    const { tale, message } = await this.store.setTaleStatus(taleId, status);
+    const { tale, message, warning } = await this.store.setTaleStatus(taleId, status);
     this.saving.set(false);
     this.error.set(message);
+    this.statusWarning.set(warning);
     // The saved tale's status as read, from the API's answer, not the list that may still be loading.
-    if (tale) this.statusAnnouncement.set(`Status: ${STATUS_LABELS[tale.status]}`);
+    if (tale) this.statusAnnouncement.set(`Status: ${STATUS_LABELS[tale.status]}${warning ? `. ${warning}` : ''}`);
   }
 
   protected pickFile(event: Event): void {

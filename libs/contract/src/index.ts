@@ -491,6 +491,7 @@ export const ErrorCodes = {
   invalidTaleDocument: 'invalid_tale_document',
   taleDocumentTooLarge: 'tale_document_too_large',
   staleRevision: 'stale_revision',
+  nothingToPublish: 'nothing_to_publish',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

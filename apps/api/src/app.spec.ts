@@ -2154,6 +2154,12 @@ describe('Management API v1: projects and zones', () => {
       return fetch(`${base}/tales/${taleId}/document`);
     }
 
+    // The draft document and its revision, as the studio edits it.
+    async function readDraft(taleId: string): Promise<{ document: unknown; revision: number }> {
+      const { document, revision } = await (await read(taleId)).json();
+      return { document, revision };
+    }
+
     function save(taleId: string, body: unknown): Promise<Response> {
       return fetch(`${base}/tales/${taleId}/document`, {
         method: 'PUT',
@@ -2169,14 +2175,14 @@ describe('Management API v1: projects and zones', () => {
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toEqual({ code: 'invalid_tale_document', message: expect.any(String), pointer });
-      expect(await (await read(tale.id)).json()).toEqual({ document: null, revision: 0 });
+      expect(await readDraft(tale.id)).toEqual({ document: null, revision: 0 });
     }
 
     it('reads a tale without a document as null at revision 0', async () => {
       const tale = await createTale();
       const res = await read(tale.id);
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ document: null, revision: 0 });
+      expect(await res.json()).toEqual({ document: null, revision: 0, published: { document: null, revision: 0 } });
     });
 
     it('saves a document and reads it back unchanged, raising the revision', async () => {
@@ -2186,11 +2192,11 @@ describe('Management API v1: projects and zones', () => {
       });
       const saved = await save(tale.id, { document, revision: 0 });
       expect(saved.status).toBe(200);
-      expect(await saved.json()).toEqual({ document, revision: 1 });
-      expect(await (await read(tale.id)).json()).toEqual({ document, revision: 1 });
+      expect(await saved.json()).toEqual({ document, revision: 1, published: { document: null, revision: 0 } });
+      expect(await readDraft(tale.id)).toEqual({ document, revision: 1 });
 
       const next = doc([text(2, 'Two')]);
-      expect(await (await save(tale.id, { document: next, revision: 1 })).json()).toEqual({
+      expect(await (await save(tale.id, { document: next, revision: 1 })).json()).toMatchObject({
         document: next,
         revision: 2,
       });
@@ -2202,7 +2208,7 @@ describe('Management API v1: projects and zones', () => {
       const stale = await save(tale.id, { document: doc([text(1, 'Second')]), revision: 0 });
       expect(stale.status).toBe(409);
       expect((await stale.json()).error.code).toBe('stale_revision');
-      expect(await (await read(tale.id)).json()).toEqual({ document: doc([text(1, 'First')]), revision: 1 });
+      expect(await readDraft(tale.id)).toEqual({ document: doc([text(1, 'First')]), revision: 1 });
       // A revision from the future is just as stale.
       expect((await save(tale.id, { document: doc(), revision: 7 })).status).toBe(409);
     });
@@ -2268,7 +2274,7 @@ describe('Management API v1: projects and zones', () => {
       const huge = await save(tale.id, { document: doc([text(1, 'x'.repeat(400 * 1024))]), revision: 0 });
       expect(huge.status).toBe(413);
       expect((await huge.json()).error.code).toBe('tale_document_too_large');
-      expect(await (await read(tale.id)).json()).toEqual({ document: null, revision: 0 });
+      expect(await readDraft(tale.id)).toEqual({ document: null, revision: 0 });
     });
 
     it('accepts a document between 100 KB and 128 KB, over the default body limit', async () => {
@@ -2360,7 +2366,274 @@ describe('Management API v1: projects and zones', () => {
       const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
       expect((await save(tale.id, { document: doc(), revision: 0 })).status).toBe(200);
       const copy = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: zone.id })).json();
-      expect(await (await read(copy.tales[0].id)).json()).toEqual({ document: doc(), revision: 0 });
+      expect(await readDraft(copy.tales[0].id)).toEqual({ document: doc(), revision: 0 });
+    });
+
+    describe('draft and published documents (story 7.3, user decision 2026-10-22)', () => {
+      function action(taleId: string, name: 'publish' | 'discard', body: unknown): Promise<Response> {
+        return fetch(`${base}/tales/${taleId}/document/${name}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }
+
+      async function state(taleId: string) {
+        return (await read(taleId)).json();
+      }
+
+      it('saves only the draft; publishing copies it with compare-and-set on both revisions', async () => {
+        const tale = await createTale();
+        expect((await save(tale.id, { document: doc([text(1, 'One')]), revision: 0 })).status).toBe(200);
+        expect((await state(tale.id)).published).toEqual({ document: null, revision: 0 });
+
+        // Based on a stale draft revision, or a stale published one: refused, nothing changes.
+        for (const body of [
+          { revision: 0, publishedRevision: 0 },
+          { revision: 1, publishedRevision: 3 },
+        ]) {
+          const res = await action(tale.id, 'publish', body);
+          expect([res.status, (await res.json()).error.code]).toEqual([409, 'stale_revision']);
+        }
+        expect((await state(tale.id)).published).toEqual({ document: null, revision: 0 });
+
+        const res = await action(tale.id, 'publish', { revision: 1, publishedRevision: 0 });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({
+          document: doc([text(1, 'One')]),
+          revision: 1,
+          published: { document: doc([text(1, 'One')]), revision: 1 },
+        });
+
+        // The next save changes the draft only; publishing again raises the published revision.
+        expect((await save(tale.id, { document: doc([text(1, 'Two')]), revision: 1 })).status).toBe(200);
+        expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'One')]), revision: 1 });
+        const again = await action(tale.id, 'publish', { revision: 2, publishedRevision: 1 });
+        expect((await again.json()).published).toEqual({ document: doc([text(1, 'Two')]), revision: 2 });
+      });
+
+      it('discards the draft back to the published document, with compare-and-set on both revisions', async () => {
+        const tale = await createTale();
+        await save(tale.id, { document: doc([text(1, 'Live')]), revision: 0 });
+        await action(tale.id, 'publish', { revision: 1, publishedRevision: 0 });
+        await save(tale.id, { document: doc([text(1, 'Draft')]), revision: 1 });
+        const stale = await action(tale.id, 'discard', { revision: 1, publishedRevision: 1 });
+        expect([stale.status, (await stale.json()).error.code]).toEqual([409, 'stale_revision']);
+        expect(await readDraft(tale.id)).toEqual({ document: doc([text(1, 'Draft')]), revision: 2 });
+
+        const res = await action(tale.id, 'discard', { revision: 2, publishedRevision: 1 });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({
+          document: doc([text(1, 'Live')]),
+          revision: 3,
+          published: { document: doc([text(1, 'Live')]), revision: 1 },
+        });
+      });
+
+      it('publishes the draft when a tale with nothing published goes live, and not on a later resume', async () => {
+        const tale = await createTale();
+        await save(tale.id, { document: doc([text(1, 'First')]), revision: 0 });
+        await publish('tales', tale.id);
+        expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'First')]), revision: 1 });
+
+        expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
+        await save(tale.id, { document: doc([text(1, 'Later')]), revision: 1 });
+        await publish('tales', tale.id);
+        expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'First')]), revision: 1 });
+      });
+
+      it('publishes the draft of a never-published tale going archived, paused, then live', async () => {
+        const tale = await createTale();
+        await save(tale.id, { document: doc([text(1, 'Kept')]), revision: 0 });
+        expect((await setStatus('tales', tale.id, 'archived')).status).toBe(200);
+        expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
+        expect((await state(tale.id)).published).toEqual({ document: null, revision: 0 });
+        const live = await setStatus('tales', tale.id, 'live');
+        expect(live.status).toBe(200);
+        expect(await live.json()).not.toHaveProperty('draftNotPublished');
+        expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'Kept')]), revision: 1 });
+      });
+
+      it('goes live without publishing a draft that no longer passes, and says so', async () => {
+        const tale = await createTale();
+        await pool.query(
+          `UPDATE tales SET draft_document = '{"version": 1}'::jsonb, draft_revision = 1 WHERE id = $1`,
+          [tale.id],
+        );
+        const res = await setStatus('tales', tale.id, 'live');
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({ storedStatus: 'live', draftNotPublished: true });
+        expect((await state(tale.id)).published).toEqual({ document: null, revision: 0 });
+      });
+
+      it('refuses to publish a tale with no draft, never emptying the published document', async () => {
+        const tale = await createTale();
+        const res = await action(tale.id, 'publish', { revision: 0, publishedRevision: 0 });
+        expect([res.status, (await res.json()).error.code]).toEqual([409, 'nothing_to_publish']);
+        await save(tale.id, { document: doc([text(1, 'Live')]), revision: 0 });
+        await action(tale.id, 'publish', { revision: 1, publishedRevision: 0 });
+        await pool.query('UPDATE tales SET draft_document = NULL WHERE id = $1', [tale.id]);
+        const again = await action(tale.id, 'publish', { revision: 1, publishedRevision: 1 });
+        expect([again.status, (await again.json()).error.code]).toEqual([409, 'nothing_to_publish']);
+        expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'Live')]), revision: 1 });
+      });
+
+      it('refuses publish and discard without integer revisions, for an unknown tale, and for another project', async () => {
+        const tale = await createTale();
+        const bodies = [
+          {},
+          { revision: 0 },
+          { revision: 0, publishedRevision: '0' },
+          { revision: -1, publishedRevision: 0 },
+        ];
+        for (const body of bodies) {
+          for (const name of ['publish', 'discard'] as const) {
+            const res = await action(tale.id, name, body);
+            expect([res.status, (await res.json()).error.code]).toEqual([400, 'validation_failed']);
+          }
+        }
+        expect((await action(unknownId, 'publish', { revision: 0, publishedRevision: 0 })).status).toBe(404);
+        const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+        sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+        expect((await action(tale.id, 'publish', { revision: 0, publishedRevision: 0 })).status).toBe(403);
+        expect((await action(tale.id, 'discard', { revision: 0, publishedRevision: 0 })).status).toBe(403);
+      });
+
+      it('gives a document written before drafts existed the same draft, at the same revision', async () => {
+        const tale = await createTale();
+        await pool.query(
+          `UPDATE tales SET document = $2::jsonb, document_revision = 4, draft_document = NULL, draft_revision = 0
+           WHERE id = $1`,
+          [tale.id, JSON.stringify(doc([text(1, 'Old')]))],
+        );
+        await migrate(pool);
+        expect(await state(tale.id)).toEqual({
+          document: doc([text(1, 'Old')]),
+          revision: 4,
+          published: { document: doc([text(1, 'Old')]), revision: 4 },
+        });
+      });
+    });
+
+    describe('keep a document as a new tale (story 7.3)', () => {
+      function keep(taleId: string, body: unknown): Promise<Response> {
+        return fetch(`${base}/tales/${taleId}/document/copy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: typeof body === 'string' ? body : JSON.stringify(body),
+        });
+      }
+
+      async function groupOf(taleId: string): Promise<{ groupId: string; projectId: string }> {
+        const { rows } = await pool.query(
+          'SELECT tale_group_id AS "groupId", project_id AS "projectId" FROM tales WHERE id = $1',
+          [taleId],
+        );
+        return rows[0];
+      }
+
+      it('keeps the second tab’s version as a new draft tale in the same group, sharing the media', async () => {
+        const tale = await createTale();
+        await pool.query(`UPDATE tales SET media_key = 'tales/a.png', media_content_type = 'image/png' WHERE id = $1`, [
+          tale.id,
+        ]);
+        await publish('tales', tale.id);
+        // Two tabs read revision 0; the first saves, the second is refused.
+        expect((await save(tale.id, { document: doc([text(1, 'Tab one')]), revision: 0 })).status).toBe(200);
+        const mine = doc([text(1, 'Tab two')]);
+        expect((await save(tale.id, { document: mine, revision: 0 })).status).toBe(409);
+
+        const res = await keep(tale.id, { document: mine });
+        expect(res.status).toBe(201);
+        const copy = await res.json();
+        const { groupId, projectId } = await groupOf(tale.id);
+        expect(copy).toMatchObject({
+          taleGroupId: groupId,
+          projectId,
+          title: 'Beach (copy)',
+          position: 1,
+          storedStatus: 'draft',
+          startsAt: null,
+          endsAt: null,
+          media: { kind: 'image', contentType: 'image/png', url: `/api/v1/tales/${copy.id}/media` },
+        });
+        // The copy holds the draft; nothing of it is published until the copy is.
+        expect(await (await read(copy.id)).json()).toEqual({
+          document: mine,
+          revision: 1,
+          published: { document: null, revision: 0 },
+        });
+        // The original keeps the first tab's save, and both tales share the media file (AD-14).
+        expect(await readDraft(tale.id)).toEqual({ document: doc([text(1, 'Tab one')]), revision: 1 });
+        const { rows } = await pool.query('SELECT media_key FROM tales WHERE tale_group_id = $1 ORDER BY position', [
+          groupId,
+        ]);
+        expect(rows).toEqual([{ media_key: 'tales/a.png' }, { media_key: 'tales/a.png' }]);
+        // The copy saves on from revision 1.
+        expect((await save(copy.id, { document: doc([text(1, 'More')]), revision: 1 })).status).toBe(200);
+      });
+
+      it('refuses a full group with 409 tale_group_full, creating nothing', async () => {
+        const tale = await createTale();
+        const { groupId, projectId } = await groupOf(tale.id);
+        await pool.query(
+          `INSERT INTO tales (tale_group_id, project_id, title, position)
+           SELECT $1, $2, 'Tale ' || n, n FROM generate_series(1, 99) AS n`,
+          [groupId, projectId],
+        );
+        const res = await keep(tale.id, { document: doc() });
+        expect(res.status).toBe(409);
+        expect(await res.json()).toEqual({ error: { code: 'tale_group_full', message: expect.any(String) } });
+        const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales WHERE tale_group_id = $1', [groupId]);
+        expect(rows).toEqual([{ n: 100 }]);
+      });
+
+      it('never passes 100 tales when keeps race', async () => {
+        const tale = await createTale();
+        const { groupId, projectId } = await groupOf(tale.id);
+        await pool.query(
+          `INSERT INTO tales (tale_group_id, project_id, title, position)
+           SELECT $1, $2, 'Tale ' || n, n FROM generate_series(1, 97) AS n`,
+          [groupId, projectId],
+        );
+        const statuses = await Promise.all(
+          [1, 2, 3, 4].map(() => keep(tale.id, { document: doc() }).then((r) => r.status)),
+        );
+        expect(statuses.sort()).toEqual([201, 201, 409, 409]);
+        const { rows } = await pool.query(
+          'SELECT count(*)::int AS n, count(DISTINCT position)::int AS positions FROM tales WHERE tale_group_id = $1',
+          [groupId],
+        );
+        expect(rows).toEqual([{ n: 100, positions: 100 }]);
+      });
+
+      it('checks the document as a save does, and needs one', async () => {
+        const tale = await createTale();
+        const refused = await keep(tale.id, { document: doc([text(1), { ...text(2), type: 'poll' }]) });
+        expect(refused.status).toBe(400);
+        expect((await refused.json()).error).toEqual({
+          code: 'invalid_tale_document',
+          message: expect.any(String),
+          pointer: '/elements/1/type',
+        });
+        expect((await keep(tale.id, {})).status).toBe(400);
+        expect((await keep(tale.id, '{"document":')).status).toBe(400);
+        const huge = await keep(tale.id, { document: doc([text(1, 'x'.repeat(300 * 1024))]) });
+        expect([huge.status, (await huge.json()).error.code]).toEqual([413, 'tale_document_too_large']);
+        const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales');
+        expect(rows).toEqual([{ n: 1 }]);
+      });
+
+      it('answers 404 for an unknown tale and 403 for a tale of another project', async () => {
+        expect((await keep(unknownId, { document: doc() })).status).toBe(404);
+        const tale = await createTale();
+        const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+        sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+        const res = await keep(tale.id, { document: doc() });
+        expect([res.status, (await res.json()).error.code]).toEqual([403, 'forbidden']);
+        const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales');
+        expect(rows).toEqual([{ n: 1 }]);
+      });
     });
   });
 
@@ -3778,6 +4051,14 @@ describe('Management API v1: projects and zones', () => {
         });
         expect(saved.status).toBe(200);
         const { key } = await issue(zone.id);
+        // Saved as the draft only: visitors see nothing of it until it is published.
+        expect((await (await deliver(key)).json()).taleGroups[0].tales[0].document).toBeNull();
+        const published = await fetch(`${base}/tales/${tale.id}/document/publish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revision: 1, publishedRevision: 0 }),
+        });
+        expect(published.status).toBe(200);
         const text = await (await deliver(key)).text();
         expect(JSON.parse(text).taleGroups[0].tales[0].document).toEqual({
           version: 1,
@@ -3825,6 +4106,12 @@ describe('Management API v1: projects and zones', () => {
         expect(
           (await put([element(3, false, true), element(1, true, false), element(2, false, false)], 1)).status,
         ).toBe(200);
+        const publish = await fetch(`${base}/tales/${tale.id}/document/publish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revision: 2, publishedRevision: 0 }),
+        });
+        expect(publish.status).toBe(200);
         const { key } = await issue(zone.id);
         const delivered = (await (await deliver(key)).json()).taleGroups[0].tales[0].document;
         expect(delivered.canvas).toEqual({ background: { type: 'color', color: '#112233' } });
@@ -3834,6 +4121,51 @@ describe('Management API v1: projects and zones', () => {
         const bad = await put([], 2, 'red; background:url(x)');
         expect(bad.status).toBe(400);
         expect((await bad.json()).error.pointer).toBe('/canvas/background/color');
+      });
+
+      it('never changes what visitors see on a save: only publishing does (story 7.3)', async () => {
+        const zone = await createZone();
+        const group = await addGroup(zone.id, 'A');
+        const tale = await addTale(group.id, 'A1', ['image/png', png]);
+        const document = (text: string) => ({
+          version: 1,
+          canvas: { background: { type: 'color', color: '#000000' } },
+          elements: [
+            {
+              id: '00000000-0000-4000-8000-0000000000c1',
+              type: 'text',
+              box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+              hidden: false,
+              locked: false,
+              a11y: {},
+              props: { text },
+            },
+          ],
+        });
+        const call = (path: string, method: string, body: unknown) =>
+          fetch(`${base}/tales/${tale.id}/document${path}`, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        const { key } = await issue(zone.id);
+        const deliveredText = async () =>
+          (await (await deliver(key)).json()).taleGroups[0].tales[0].document?.elements[0]?.props.text ?? null;
+
+        expect((await call('', 'PUT', { document: document('Live'), revision: 0 })).status).toBe(200);
+        expect((await call('/publish', 'POST', { revision: 1, publishedRevision: 0 })).status).toBe(200);
+        expect(await deliveredText()).toBe('Live');
+        // Autosaves of a live tale: the visitor still sees the published version.
+        for (let revision = 1; revision <= 3; revision++) {
+          expect((await call('', 'PUT', { document: document(`Draft ${revision}`), revision })).status).toBe(200);
+          expect(await deliveredText()).toBe('Live');
+        }
+        // Discarding the draft does not change it either; publishing does.
+        expect((await call('/publish', 'POST', { revision: 4, publishedRevision: 1 })).status).toBe(200);
+        expect(await deliveredText()).toBe('Draft 3');
+        expect((await call('', 'PUT', { document: document('Oops'), revision: 4 })).status).toBe(200);
+        expect((await call('/discard', 'POST', { revision: 5, publishedRevision: 2 })).status).toBe(200);
+        expect(await deliveredText()).toBe('Draft 3');
       });
 
       it('serves published media publicly: stored type, revalidated cache, CORS, nosniff, no key or session', async () => {
