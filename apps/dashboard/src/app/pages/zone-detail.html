@@ -148,9 +148,9 @@
                     <p class="muted">
                       <span class="visually-hidden">Tales: </span>{{ group.tales.length }} / {{ maxTales }}
                     </p>
-                    @if (describeWindow(group); as window) {
-                      <p class="group__schedule muted"><span class="visually-hidden">Schedule: </span>{{ window }}</p>
-                    }
+                    <p class="group__schedule muted">
+                      <span class="visually-hidden">Schedule: </span>{{ describeWindow(group) || 'No schedule' }}
+                    </p>
                     @if (otherZones(group); as others) {
                       @if (others.length > 0) {
                         <p class="group__zones muted">

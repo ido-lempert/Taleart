@@ -328,6 +328,7 @@
             <div class="field">
               <label class="field__label" for="schedule-start">Start time</label>
               <input
+                #scheduleStart
                 id="schedule-start"
                 class="input"
                 type="datetime-local"
@@ -340,6 +341,7 @@
             <div class="field">
               <label class="field__label" for="schedule-end">End time</label>
               <input
+                #scheduleEnd
                 id="schedule-end"
                 class="input"
                 type="datetime-local"
@@ -349,8 +351,8 @@
                 [attr.aria-describedby]="error() ? 'schedule-hint create-error' : 'schedule-hint'"
               />
             </div>
-            <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="clearSchedule()">
-              Clear both
+            <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="removeSchedule()">
+              Remove schedule
             </button>
           } @else {
             <p class="muted">This item no longer exists.</p>
@@ -388,7 +390,7 @@
             }
             <div class="schedule-summary">
               <p class="muted">
-                <span class="visually-hidden">Schedule: </span>{{ describeWindow(tale) || 'No start or end time' }}
+                <span class="visually-hidden">Schedule: </span>{{ describeWindow(tale) || 'No schedule' }}
               </p>
               <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="openTaleSchedule(tale)">
                 Schedule…

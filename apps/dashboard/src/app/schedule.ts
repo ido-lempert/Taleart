@@ -16,19 +16,46 @@ export function toLocalInput(iso: string | null): string {
   );
 }
 
+/** A `datetime-local` value read as UTC: the ISO time (null for an empty field), or why it is refused. */
+export type LocalInputResult = { iso: string | null } | { error: 'invalid' | 'nonexistent' };
+
+/**
+ * A `datetime-local` value, read in the browser's time zone, as ISO 8601 UTC.
+ * A time the clocks skip at a daylight-saving change (the spring-forward gap)
+ * is refused as `nonexistent` instead of shifting silently. A time that
+ * happens twice (fall back) is read as its first occurrence, as the browser
+ * does `[ASSUMPTION]`.
+ */
+export function parseLocalInput(value: string): LocalInputResult {
+  const text = value.trim();
+  if (!text) return { iso: null };
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/.exec(text);
+  if (!match) return { error: 'invalid' };
+  const [year, month, day, hours, minutes, seconds] = match.slice(1).map((part) => Number(part ?? 0));
+  if (month < 1 || month > 12 || day < 1 || hours > 23 || minutes > 59 || seconds > 59) return { error: 'invalid' };
+  // The calendar day must exist (no 30 February), whatever the time zone.
+  const calendar = new Date(Date.UTC(year, month - 1, day));
+  if (calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== day) return { error: 'invalid' };
+  const date = new Date(year, month - 1, day, hours, minutes, seconds);
+  if (Number.isNaN(date.getTime())) return { error: 'invalid' };
+  // A skipped local time comes back as another local time.
+  const same =
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day &&
+    date.getHours() === hours &&
+    date.getMinutes() === minutes &&
+    date.getSeconds() === seconds;
+  return same ? { iso: date.toISOString() } : { error: 'nonexistent' };
+}
+
 /**
  * A `datetime-local` value, read in the browser's time zone, as ISO 8601 UTC;
- * null for an empty field, undefined when the value is not a time.
+ * null for an empty field, undefined when it is not a time that exists there.
  */
 export function fromLocalInput(value: string): string | null | undefined {
-  const text = value.trim();
-  if (!text) return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(text);
-  if (!match) return undefined;
-  const [year, month, day, hours, minutes, seconds] = match.slice(1).map((part) => Number(part ?? 0));
-  const date = new Date(year, month - 1, day, hours, minutes, seconds);
-  if (Number.isNaN(date.getTime()) || date.getMonth() !== month - 1 || date.getDate() !== day) return undefined;
-  return date.toISOString();
+  const result = parseLocalInput(value);
+  return 'iso' in result ? result.iso : undefined;
 }
 
 /** A time in the browser's time zone, such as "21 Oct 2026, 14:30". */
