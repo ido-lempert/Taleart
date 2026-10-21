@@ -2163,7 +2163,7 @@ components:
         read and was skipped.
     ImportDifferenceRecord:
       type: object
-      required: [sourceId, name, within, position]
+      required: [sourceId, name, within, withinSourceId, position]
       description: The source record a difference belongs to.
       properties:
         sourceId:
@@ -2175,6 +2175,9 @@ components:
         within:
           type: [string, 'null']
           description: The title of the record it belongs to, such as a story's group; null for top-level records.
+        withinSourceId:
+          type: [string, 'null']
+          description: The source id of the record it belongs to; null for top-level records.
         position:
           type: integer
           minimum: 1

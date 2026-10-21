@@ -2603,13 +2603,14 @@ describe('App', () => {
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
+    // A report difference; the parent's source id defaults to its name, for brevity.
     const difference = (
       entity: string,
-      record: { sourceId: string | null; name: string | null; within: string | null; position: number },
+      record: { sourceId: string | null; name: string | null; within: string | null; withinSourceId?: string | null; position: number },
       kind: string,
       field: string | null,
       sourceField: string | null = null,
-    ) => ({ entity, record, kind, field, sourceField });
+    ) => ({ entity, record: { ...record, withinSourceId: record.withinSourceId ?? record.within }, kind, field, sourceField });
 
     it('lists the differences by entity and record, and what is not imported by design', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
@@ -2676,20 +2677,56 @@ describe('App', () => {
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
-    it('keeps a long list of differences closed, scrolling inside its group, with the omitted count', async () => {
+    it('renders a closed group empty, and an open one 100 records at a time with "Show more"', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
-      const many = Array.from({ length: 25 }, (_, i) =>
+      const many = Array.from({ length: 250 }, (_, i) =>
         difference('tale', { sourceId: String(5000 + i), name: `Tale ${i}`, within: 'Big group', position: i + 1 }, 'notHeld', 'outlink'),
       );
       await answerPoll(
         fixture,
         job('done', { report: { ...report, differences: many, differencesOmitted: 3 }, finishedAt: '2026-10-20T12:00:09.000Z' }),
       );
-      expect(root.querySelector('#import-differences-title')?.textContent?.trim()).toBe('Differences (28)');
+      expect(root.querySelector('#import-differences-title')?.textContent?.trim()).toBe('Differences (253)');
+      expect(root.textContent).toContain('3 more differences were found and are not listed.');
       const details = root.querySelector('details') as HTMLDetailsElement;
       expect(details.open).toBe(false);
-      expect(details.querySelectorAll('.import-difference-records > li')).toHaveLength(25);
-      expect(root.textContent).toContain('3 more differences were found and are not listed.');
+      // Closed: not one record is rendered.
+      expect(details.querySelectorAll('.import-difference-records > li')).toHaveLength(0);
+
+      details.open = true;
+      details.dispatchEvent(new Event('toggle'));
+      fixture.detectChanges();
+      const shown = () => details.querySelectorAll('.import-difference-records > li').length;
+      expect(shown()).toBe(100);
+      buttonNamed(root, 'Show more (150 more records)').click();
+      fixture.detectChanges();
+      expect(shown()).toBe(200);
+      buttonNamed(root, 'Show more (50 more records)').click();
+      fixture.detectChanges();
+      expect(shown()).toBe(250);
+      expect(details.querySelector('.import-difference-more')).toBeNull();
+
+      // Closing it renders nothing again.
+      details.open = false;
+      details.dispatchEvent(new Event('toggle'));
+      fixture.detectChanges();
+      expect(shown()).toBe(0);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('keeps apart records whose names or ids could be confused', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const differences = [
+        // Two groups both called "Sale": the same story id under each is two records.
+        difference('tale', { sourceId: '7', name: 'A', within: 'Sale', withinSourceId: '31', position: 1 }, 'notHeld', 'outlink'),
+        difference('tale', { sourceId: '7', name: 'A', within: 'Sale', withinSourceId: '32', position: 1 }, 'notHeld', 'outlink'),
+        // A record whose id reads "#3" and an unreadable record at place 3.
+        difference('tale', { sourceId: '#3', name: 'B', within: 'Sale', withinSourceId: '31', position: 2 }, 'unexpected', 'x'),
+        difference('tale', { sourceId: null, name: null, within: 'Sale', withinSourceId: '31', position: 3 }, 'invalidRecord', null),
+      ];
+      await answerPoll(fixture, job('done', { report: { ...report, differences }, finishedAt: '2026-10-20T12:00:09.000Z' }));
+      expect(root.querySelector('summary')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tales: 4 differences in 4 records');
+      expect(root.querySelectorAll('.import-difference-records > li')).toHaveLength(4);
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
