@@ -4,6 +4,8 @@
 // that focus returns to the bar item and the viewed group shows the seen ring after a reload.
 // Then the banner frame of the same zone: rotating and stopped, its controls, swipe, opening the
 // viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
+// Last, a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
+// the bar, the banner, the seen ring and the viewer.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 //
 // axe-core is not a workspace dependency yet: a pinned build is fetched from cdnjs and checked
@@ -22,9 +24,22 @@ const API = 'http://taleart-api.test';
 // A grey 9:16 SVG, served for every media URL.
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="160"><rect width="90" height="160" fill="#6b7280"/></svg>';
 const image = (id, title) => ({ id, title, media: { kind: 'image', contentType: 'image/svg+xml', url: `${API}/media/tales/${id}.svg` } });
+// TaleArt's default theme, as the Delivery API sends it for a project with none (DEFAULT_THEME).
+const DEFAULT_THEME = {
+  ringStyle: 'gradient',
+  ringColors: ['#ea580c', '#db2777', '#7c3aed'],
+  seenRingColor: '#6b7280',
+  ringWidth: 2,
+  cornerRadius: 12,
+  fontFamily: 'system-ui, sans-serif',
+  titleColor: '#111827',
+  backgroundColor: '#ffffff',
+  accentColor: '#ffffff',
+};
 const ZONE = {
   id: 'z1',
   name: 'Home',
+  theme: DEFAULT_THEME,
   frames: [
     { id: 'f1', type: 'bar', settings: {} },
     { id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } },
@@ -291,6 +306,66 @@ try {
   );
   violations += await scan(narrow, 'phone 3:1 banner', axe);
   await phone.close();
+
+  // The project's theme (R9), as the dashboard saves it: every frame and the viewer follow.
+  const themedContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const themed = await themedContext.newPage();
+  const THEME = {
+    ...DEFAULT_THEME,
+    ringStyle: 'solid',
+    ringColors: ['#0055ff'],
+    seenRingColor: '#4b5563',
+    cornerRadius: 0,
+    fontFamily: 'Georgia, serif',
+    accentColor: '#ffcc00',
+  };
+  await themed.route(`${API}/delivery/v1/zone`, (route) =>
+    route.fulfill({
+      json: {
+        ...ZONE,
+        theme: THEME,
+        frames: [
+          { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } },
+          { id: 'f2', type: 'banner', settings: { autoplay: false } },
+        ],
+      },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+    }),
+  );
+  await themed.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+  await themed.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  const themedItems = themed.locator('taleart-view button.item');
+  await themedItems.first().waitFor();
+  const css = (locator, prop) => locator.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
+  const unseenRing = themedItems.nth(1).locator('.ring');
+  check((await css(unseenRing, 'background-color')) === 'rgb(0, 85, 255)', 'the solid ring takes the theme colour');
+  check((await css(unseenRing, 'border-top-left-radius')) === '0px', 'a rounded-square item takes corner radius 0');
+  check((await css(themedItems.nth(1).locator('.title'), 'font-family')).startsWith('Georgia'), 'the bar title takes the serif font');
+  const themedBanner = themed.locator('taleart-view section.banner');
+  check((await css(themedBanner.locator('.b-viewport'), 'border-top-left-radius')) === '0px', 'the banner takes corner radius 0');
+  check((await css(themedBanner, 'font-family')).startsWith('Georgia'), 'the banner takes the serif font');
+  await themedItems.first().click();
+  const themedDialog = themed.locator('taleart-view dialog.viewer');
+  await themedDialog.waitFor();
+  await themed.keyboard.press(' ');
+  check((await css(themedDialog, 'font-family')).startsWith('Georgia'), 'the viewer takes the serif font');
+  check(
+    (await css(themedDialog.locator('.fill').first(), 'background-color')) === 'rgb(255, 204, 0)',
+    'the viewer progress takes the accent',
+  );
+  check((await css(themedDialog.locator('.control.close'), 'color')) === 'rgb(255, 204, 0)', 'the viewer buttons take the accent');
+  violations += await scan(themed, 'themed viewer', axe);
+  await themed.keyboard.press('Escape');
+  await themed.reload();
+  await themedItems.first().waitFor();
+  check(
+    (await css(themedItems.first().locator('.ring'), 'background-color')) === 'rgb(75, 85, 99)',
+    'after a reload the seen ring takes the theme colour',
+  );
+  violations += await scan(themed, 'themed bar and banner', axe);
+  await themedContext.close();
 } finally {
   await browser.close();
   server.kill();

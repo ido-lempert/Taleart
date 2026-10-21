@@ -338,6 +338,62 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /projects/{projectId}/theme:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getProjectTheme
+      summary: The project's theme (epic web zones R9).
+      description: >-
+        One theme per project styles every zone's frames and the viewer.
+        `theme` holds the fields the project sets; `resolved` fills the rest
+        with TaleArt's default theme. Unknown project 404 `project_not_found`.
+      responses:
+        '200':
+          description: The project's theme.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectTheme'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: setProjectTheme
+      summary: Replace the project's theme.
+      description: >-
+        The body replaces the stored theme; a field left out takes TaleArt's
+        default (`{}` resets the theme). A value outside its pattern or range,
+        or an unknown field, answers 400 `invalid_theme` naming the field, and
+        nothing is stored. Low contrast is not refused; the dashboard warns.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThemeSettings'
+      responses:
+        '200':
+          description: The project's new theme.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectTheme'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects/{projectId}/tags:
     parameters:
       - name: projectId
@@ -2011,6 +2067,106 @@ components:
         createdAt:
           type: string
           format: date-time
+    ThemeColor:
+      type: string
+      pattern: '^#[0-9a-fA-F]{6}$'
+      description: A colour as `#rrggbb`; nothing else is accepted, so no value can inject CSS.
+    RingStyle:
+      type: string
+      enum: [gradient, solid, none]
+    ThemeSettings:
+      type: object
+      description: >-
+        The fields of a theme a project sets (epic web zones R9); a field left
+        out takes TaleArt's default. Validated by `themeSettingsError` in
+        `libs/contract`.
+      additionalProperties: false
+      properties:
+        ringStyle:
+          $ref: '#/components/schemas/RingStyle'
+          default: gradient
+        ringColors:
+          type: array
+          description: The unseen ring's colours; a gradient runs through them, `solid` uses the first.
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/ThemeColor'
+          default: ['#ea580c', '#db2777', '#7c3aed']
+        seenRingColor:
+          $ref: '#/components/schemas/ThemeColor'
+          default: '#6b7280'
+        ringWidth:
+          type: integer
+          minimum: 1
+          maximum: 4
+          default: 2
+          description: The ring's width in px.
+        cornerRadius:
+          type: integer
+          minimum: 0
+          maximum: 32
+          default: 12
+          description: Corner radius in px of rounded-square bar items and banner slides.
+        fontFamily:
+          type: string
+          maxLength: 200
+          pattern: '^\s*(?:[A-Za-z0-9-][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*(?:,\s*(?:[A-Za-z0-9-][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|''[A-Za-z0-9 -]+'')\s*)*$'
+          default: 'system-ui, sans-serif'
+          description: A CSS font-family list; the host page loads the font.
+        titleColor:
+          $ref: '#/components/schemas/ThemeColor'
+          default: '#111827'
+        backgroundColor:
+          $ref: '#/components/schemas/ThemeColor'
+          default: '#ffffff'
+        accentColor:
+          $ref: '#/components/schemas/ThemeColor'
+          default: '#ffffff'
+          description: The viewer's progress and button icons, on the viewer's black.
+    Theme:
+      type: object
+      description: A complete theme, every field filled (TaleArt's default where the project sets none).
+      required: [ringStyle, ringColors, seenRingColor, ringWidth, cornerRadius, fontFamily, titleColor, backgroundColor, accentColor]
+      additionalProperties: false
+      properties:
+        ringStyle:
+          $ref: '#/components/schemas/RingStyle'
+        ringColors:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/ThemeColor'
+        seenRingColor:
+          $ref: '#/components/schemas/ThemeColor'
+        ringWidth:
+          type: integer
+          minimum: 1
+          maximum: 4
+        cornerRadius:
+          type: integer
+          minimum: 0
+          maximum: 32
+        fontFamily:
+          type: string
+        titleColor:
+          $ref: '#/components/schemas/ThemeColor'
+        backgroundColor:
+          $ref: '#/components/schemas/ThemeColor'
+        accentColor:
+          $ref: '#/components/schemas/ThemeColor'
+    ProjectTheme:
+      type: object
+      required: [projectId, theme, resolved]
+      properties:
+        projectId:
+          type: string
+          format: uuid
+        theme:
+          $ref: '#/components/schemas/ThemeSettings'
+        resolved:
+          $ref: '#/components/schemas/Theme'
     DeliveryFrame:
       type: object
       required: [id, type, settings]
@@ -2029,13 +2185,18 @@ components:
             out filled with its default from the type's JSON Schema.
     DeliveryZone:
       type: object
-      required: [id, name, frames, taleGroups]
+      required: [id, name, theme, frames, taleGroups]
       properties:
         id:
           type: string
           format: uuid
         name:
           type: string
+        theme:
+          $ref: '#/components/schemas/Theme'
+          description: >-
+            The zone's project theme (R9), every field filled with TaleArt's
+            default where the project sets none.
         frames:
           type: array
           items:
@@ -2445,6 +2606,7 @@ components:
         - zone_not_found
         - unknown_frame_type
         - invalid_frame_settings
+        - invalid_theme
         - frame_not_found
         - tale_group_not_found
         - tale_group_full

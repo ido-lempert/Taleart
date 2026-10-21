@@ -3,6 +3,7 @@ import { ErrorCodes } from '@taleart/contract';
 import {
   FrameNotFoundError,
   InvalidFrameSettingsError,
+  InvalidThemeError,
   ProjectNotFoundError,
   UnknownFrameTypeError,
   ZoneNotFoundError,
@@ -86,6 +87,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof ProjectNotFoundError ||
     err instanceof UnknownFrameTypeError ||
     err instanceof InvalidFrameSettingsError ||
+    err instanceof InvalidThemeError ||
     err instanceof InvalidTagNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||
