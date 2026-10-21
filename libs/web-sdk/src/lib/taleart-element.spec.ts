@@ -115,6 +115,49 @@ describe('TaleartElement', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  it("styles the frames and the viewer with the zone's project theme (R9)", async () => {
+    const theme = { ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0, fontFamily: 'Georgia, serif' };
+    fetchMock.mockImplementation(async () =>
+      respond(200, {
+        ...zone,
+        theme,
+        frames: [
+          { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } },
+          { id: 'f2', type: 'banner', settings: {} },
+        ],
+      }),
+    );
+    const el = await mount();
+    const themed = el.shadowRoot?.querySelector<HTMLElement>('.taleart');
+    expect(themed?.style.getPropertyValue('--ta-ring')).toBe('#0055ff');
+    expect(themed?.style.getPropertyValue('--ta-radius')).toBe('0px');
+    expect(themed?.style.getPropertyValue('--ta-font')).toBe('Georgia, serif');
+    expect(themed?.style.getPropertyValue('--ta-seen')).toBe('#6b7280');
+    // Both frames and, once open, the viewer sit inside the themed wrapper, so they inherit it.
+    expect(themed?.querySelector('.bar')).not.toBeNull();
+    expect(themed?.querySelector('.banner')).not.toBeNull();
+    items(el)[0].click();
+    expect(themed?.querySelector('dialog.viewer')).not.toBeNull();
+    // The style text holds only the SDK's own rules, never a theme value.
+    expect(el.shadowRoot?.querySelector('style')?.textContent).not.toContain('#0055ff');
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders the default theme when the theme is missing or invalid, without logging', async () => {
+    for (const theme of [undefined, { titleColor: 'red;}</style>', ringWidth: 9, fontFamily: 'a{b}' }]) {
+      fetchMock.mockImplementation(async () => respond(200, { ...zone, theme }));
+      const el = await mount();
+      const themed = el.shadowRoot?.querySelector<HTMLElement>('.taleart');
+      expect(themed?.style.getPropertyValue('--ta-title')).toBe('#111827');
+      expect(themed?.style.getPropertyValue('--ta-ring-width')).toBe('2px');
+      expect(themed?.style.getPropertyValue('--ta-font')).toBe('system-ui, sans-serif');
+      el.remove();
+    }
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it("covers with the first tale's image, a video's first frame without autoplay, or a placeholder", async () => {
     const el = await mount();
     const [image, video, empty] = items(el).map((b) => b.querySelector('.cover'));
@@ -289,7 +332,7 @@ describe('TaleartElement', () => {
         { id: 'f1', type: 'bar', settings: {} },
       ]);
       const el = await mount();
-      const frames = [...(el.shadowRoot?.children ?? [])].filter((node) => node.tagName !== 'STYLE');
+      const frames = [...(el.shadowRoot?.querySelector('.taleart')?.children ?? [])];
       expect(frames.map((node) => node.className)).toEqual(['banner', 'bar']);
       const banner = el.shadowRoot?.querySelector<HTMLElement>('.banner');
       expect(banner?.dataset['ratio']).toBe('3:1');

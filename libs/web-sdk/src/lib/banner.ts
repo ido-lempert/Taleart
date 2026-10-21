@@ -52,16 +52,19 @@ export function readBannerSettings(raw: unknown): BannerSettings {
 }
 
 /**
- * The banner's look (WAI-ARIA carousel pattern). Colours are TaleArt's
- * defaults until the theme story; controls are 44 px, dots 24 px targets.
+ * The banner's look (WAI-ARIA carousel pattern). The project's theme (R9)
+ * sets the background, font, slide corner radius and dot colour through the
+ * `--ta-*` custom properties; the previous, next and rotation buttons keep
+ * their own light fill so they read on any slide. Controls are 44 px, dots
+ * 24 px targets.
  */
 export const BANNER_STYLES = `
-.banner { position: relative; margin: 8px 0; }
+.banner { position: relative; margin: 8px 0; background: var(--ta-bg); font-family: var(--ta-font); }
 .b-viewport {
   position: relative;
   overflow: hidden;
   aspect-ratio: 16 / 9;
-  border-radius: 12px;
+  border-radius: var(--ta-radius);
   background: #e5e7eb;
   touch-action: pan-y;
   user-select: none;
@@ -127,8 +130,15 @@ span.b-media { background: #e5e7eb; }
   background: none;
   cursor: pointer;
 }
-.b-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
-.b-dot[aria-current="true"]::before { width: 12px; height: 12px; background: #111827; }
+.b-dot::before {
+  content: "";
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ta-title);
+  border-radius: 50%;
+}
+.b-dot[aria-current="true"]::before { width: 12px; height: 12px; background: var(--ta-title); }
 .b-dot:focus-visible { outline: 2px solid #1a56db; outline-offset: -2px; border-radius: 50%; }
 `;
 

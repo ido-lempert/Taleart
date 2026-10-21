@@ -51,8 +51,10 @@ export function readBarSettings(raw: unknown): BarSettings {
 
 /**
  * The bar's look. Its settings (R2) set `--ta-size` and the gap inline and
- * `data-shape`, `data-align` and `data-titles` on the list; colours stay the
- * defaults until the theme story.
+ * `data-shape`, `data-align` and `data-titles` on the list; the project's
+ * theme (R9) sets the ring, seen ring, ring width, rounded-square radius,
+ * title colour, font and background through the `--ta-*` custom properties
+ * of the themed wrapper (see `theme.ts`).
  */
 export const BAR_STYLES = `
 :host { display: block; }
@@ -67,14 +69,16 @@ export const BAR_STYLES = `
   padding: 4px;
   margin: 0;
   list-style: none;
+  background: var(--ta-bg);
+  font-family: var(--ta-font);
 }
 .bar::-webkit-scrollbar { display: none; }
 .bar > li { flex: none; }
 .bar[data-align="center"] > li:first-child { margin-inline-start: auto; }
 .bar[data-align="center"] > li:last-child { margin-inline-end: auto; }
 .bar[data-titles="hidden"] .title { display: none; }
-.bar[data-shape="rounded-square"] .ring { border-radius: calc(var(--ta-size) / 4); }
-.bar[data-shape="rounded-square"] .cover { border-radius: calc(var(--ta-size) / 4 - 2px); }
+.bar[data-shape="rounded-square"] .ring { border-radius: var(--ta-radius); }
+.bar[data-shape="rounded-square"] .cover { border-radius: max(0px, calc(var(--ta-radius) - var(--ta-ring-width))); }
 .item {
   display: flex;
   flex-direction: column;
@@ -84,7 +88,7 @@ export const BAR_STYLES = `
   padding: 0;
   border: 0;
   background: none;
-  color: inherit;
+  color: var(--ta-title);
   font: inherit;
   cursor: pointer;
 }
@@ -94,17 +98,17 @@ export const BAR_STYLES = `
   width: var(--ta-size);
   height: var(--ta-size);
   border-radius: 50%;
-  padding: 2px;
-  background: linear-gradient(45deg, #f59e0b, #db2777, #7c3aed);
+  padding: var(--ta-ring-width);
+  background: var(--ta-ring);
 }
-.item[data-seen] .ring { background: #6b7280; }
+.item[data-seen] .ring { background: var(--ta-seen); }
 .cover {
   display: block;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  border: 2px solid #fff;
+  border: 2px solid var(--ta-bg);
   object-fit: cover;
   background: #e5e7eb;
 }

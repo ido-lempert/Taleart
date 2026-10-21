@@ -9,6 +9,7 @@ import {
   mediaContentTypeValues,
   userRoleValues,
 } from './generated/api';
+import type { ThemeSettings } from './lib/theme';
 
 export type { paths, operations, components } from './generated/api';
 
@@ -81,6 +82,14 @@ export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
 export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
+/**
+ * A project's theme (epic web zones R9): the fields it sets and the complete
+ * theme. The generator marks fields with a default as required, so `theme`
+ * is typed as the partial {@link ThemeSettings} here.
+ */
+export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: ThemeSettings };
+
+export * from './lib/theme';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
@@ -343,6 +352,7 @@ export const ErrorCodes = {
   zoneNotFound: 'zone_not_found',
   unknownFrameType: 'unknown_frame_type',
   invalidFrameSettings: 'invalid_frame_settings',
+  invalidTheme: 'invalid_theme',
   frameNotFound: 'frame_not_found',
   taleGroupNotFound: 'tale_group_not_found',
   taleGroupFull: 'tale_group_full',
