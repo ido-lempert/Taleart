@@ -21,20 +21,37 @@
     <p>
       A host page for trying the SDK. Open it as
       <code>?key=&lt;zone key&gt;&amp;api=&lt;API URL&gt;</code>; the API URL defaults to
-      <code>http://localhost:3333</code>.
+      <code>http://localhost:3333</code>. Add <code>&amp;stages=&lt;key&gt;,&lt;key&gt;</code> to place one
+      <code>&lt;taleart-view stage="…"&gt;</code> per stage key instead of the whole zone.
     </p>
 
-    <taleart-view id="zone"></taleart-view>
+    <div id="views"><taleart-view id="zone"></taleart-view></div>
 
     <!-- The built SDK, served from dist/libs/web-sdk. Loading it registers <taleart-view>. -->
     <script type="module">
       import '/sdk/index.js';
 
       const params = new URLSearchParams(location.search);
-      const view = document.getElementById('zone');
-      view.apiUrl = params.get('api') || 'http://localhost:3333';
+      const apiUrl = params.get('api') || 'http://localhost:3333';
       const key = params.get('key');
-      if (key) view.zoneKey = key;
+      const stages = (params.get('stages') || '').split(',').map((s) => s.trim()).filter(Boolean);
+      // One element per named stage (R7), each under its own heading; else one element for the whole zone.
+      const views = stages.length
+        ? stages.map((stage) => {
+            const section = document.createElement('section');
+            const heading = document.createElement('h2');
+            heading.textContent = `Stage ${stage}`;
+            const view = document.createElement('taleart-view');
+            view.stage = stage;
+            section.append(heading, view);
+            return { section, view };
+          })
+        : [{ section: null, view: document.getElementById('zone') }];
+      if (stages.length) document.getElementById('views').replaceChildren(...views.map((v) => v.section));
+      for (const { view } of views) {
+        view.apiUrl = apiUrl;
+        if (key) view.zoneKey = key;
+      }
     </script>
   </body>
 </html>
