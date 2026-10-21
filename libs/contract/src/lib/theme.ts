@@ -114,7 +114,11 @@ function fieldError(field: ThemeField, value: unknown): string | null {
       if (!Array.isArray(value) || value.length < RING_COLORS_RANGE.min || value.length > RING_COLORS_RANGE.max) {
         return `${at} must hold ${RING_COLORS_RANGE.min} to ${RING_COLORS_RANGE.max} colours`;
       }
-      return value.every(isThemeColor) ? null : `${at} must hold colours as #rrggbb`;
+      // By index, not `every`, so a hole in a sparse array is checked (and refused) too.
+      for (let i = 0; i < value.length; i++) {
+        if (!isThemeColor(value[i])) return `${at} must hold colours as #rrggbb`;
+      }
+      return null;
     case 'cornerRadius':
     case 'ringWidth': {
       if (field === 'cornerRadius' && value === null) return null;
@@ -174,10 +178,9 @@ export function resolveTheme(settings: unknown): Theme {
       : {};
   const theme = { ...DEFAULT_THEME, ringColors: [...DEFAULT_THEME.ringColors] } as Record<string, unknown>;
   for (const field of THEME_FIELDS) {
-    const value = stored[field];
-    if (Object.prototype.hasOwnProperty.call(stored, field) && isValidThemeValue(field, value)) {
-      theme[field] = Array.isArray(value) ? [...value] : value;
-    }
+    if (!Object.prototype.hasOwnProperty.call(stored, field)) continue;
+    const value = copyValue(stored[field]);
+    if (isValidThemeValue(field, value)) theme[field] = value;
   }
   return theme as Theme;
 }
@@ -190,11 +193,19 @@ export function cleanThemeSettings(settings: unknown): ThemeSettings {
       : {};
   const clean: Record<string, unknown> = {};
   for (const field of THEME_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(stored, field) && isValidThemeValue(field, stored[field])) {
-      clean[field] = stored[field];
-    }
+    if (!Object.prototype.hasOwnProperty.call(stored, field)) continue;
+    const value = copyValue(stored[field]);
+    if (isValidThemeValue(field, value)) clean[field] = value;
   }
   return clean as ThemeSettings;
+}
+
+// A plain copy of an array, read by index (at most one more than the colours allowed, so an
+// over-long one still fails), checked after copying so the checked value is the one kept.
+function copyValue(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  const length = Math.min(value.length, RING_COLORS_RANGE.max + 1);
+  return Array.from({ length }, (_, i) => value[i]);
 }
 
 // The relative luminance of a #rrggbb colour (WCAG 2.2).
