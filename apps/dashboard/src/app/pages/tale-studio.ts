@@ -285,7 +285,7 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
               class="btn btn--primary btn--sm"
               id="studio-publish"
               aria-describedby="studio-publish-state"
-              [attr.aria-disabled]="!unpublished() || publishing() ? 'true' : null"
+              [attr.aria-disabled]="!canPublish() || publishing() ? 'true' : null"
               (click)="publishChanges()"
             >
               Publish changes
@@ -323,13 +323,25 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                   </button>
                 </div>
               </div>
-            } @else if (s.kind === 'retrying' || s.kind === 'refused') {
-              <div class="form-error studio-alert" role="alert">
+            } @else if (recovering()) {
+              <!-- Stays while saving is failing, through each retry, so "Retry now" keeps its focus. -->
+              <div class="form-error studio-alert" id="studio-save-problem">
                 <p>{{ saveError() }}</p>
-                <button type="button" class="btn btn--secondary btn--sm" (click)="retrySave()">Retry now</button>
+                <p class="studio-retry">{{ retryText() }}</p>
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  id="studio-retry"
+                  [attr.aria-disabled]="s.kind === 'saving' ? 'true' : null"
+                  (click)="retrySave()"
+                >
+                  Retry now
+                </button>
               </div>
             }
           }
+          <!-- One live region for save failures: the first failure and nothing per retry. -->
+          <p class="visually-hidden" role="alert">{{ saveAlert() }}</p>
           @if (error()) {
             <p class="form-error studio-alert" role="alert">{{ error() }}</p>
           }
@@ -740,8 +752,22 @@ export class TaleStudioPage implements OnChanges {
     (state) => this.onSaveState(state),
     inject(AUTOSAVE_TIMING),
   );
-  // A save failed: its recovery is announced.
-  private recovering = false;
+  // A save failed and has not succeeded since: the failure block stays, and the recovery is announced.
+  protected readonly recovering = signal(false);
+  /** The first failure of a failing run of saves, for the alert region; cleared when saving recovers. */
+  protected readonly saveAlert = signal('');
+  /** Now, ticking each second while a retry waits, for its countdown. */
+  private readonly now = signal(Date.now());
+  private ticker: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Editing is held: while the draft is discarded, or once the version is kept as a new tale until
+   * that tale opens. Changes are refused with a message instead of going to the wrong place.
+   */
+  private readonly held = signal('');
+  // Leaving to open the kept copy: nothing here is to be saved any more.
+  private leavingForCopy = false;
+  /** True once the server holds a draft: after a read of one, or after any save. */
+  private readonly draftStored = signal(false);
   /** The element the last refused save named, marked invalid until it changes. */
   protected readonly invalidId = signal<string | null>(null);
   /** Why the text just typed was changed: cut at the limit, or characters removed. */
@@ -825,22 +851,42 @@ export class TaleStudioPage implements OnChanges {
   protected readonly publishText = computed(() => {
     const live = this.tale()?.status === 'live';
     if (this.published().document === null) {
-      return 'Draft — not visible to visitors. Publish changes, or publish the tale, to make it the published version.';
+      return live
+        ? "Live — visitors see the tale's media; studio changes aren't published yet."
+        : 'Draft — not visible to visitors. Publish changes, or publish the tale, to make it the published version.';
     }
     if (this.unpublished()) return 'Unpublished changes — visitors see the published version until you publish them.';
     return live
       ? 'Published — visitors see this version.'
       : 'Published — up to date. The tale is not live, so visitors do not see it yet.';
   });
+  /** True when there is something to publish: a draft that differs from the published document. */
+  protected readonly canPublish = computed(
+    () => this.unpublished() && (this.draftStored() || this.saveState().kind !== 'saved'),
+  );
+  /** When the next automatic retry comes. */
+  protected readonly retryText = computed(() => {
+    const state = this.saveState();
+    if (state.kind === 'saving') return 'Trying again now…';
+    if (state.kind !== 'retrying') return 'It is not tried again until you change something or press Retry now.';
+    const seconds = Math.max(0, Math.ceil((state.retryAt - this.now()) / 1000));
+    return seconds > 0 ? `Trying again in ${seconds} s.` : 'Trying again now…';
+  });
   protected readonly saveFailed = computed(() => !['saved', 'pending', 'saving'].includes(this.saveState().kind));
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.autosave.dispose());
+    inject(DestroyRef).onDestroy(() => {
+      this.autosave.dispose();
+      this.stopTicker();
+    });
   }
 
   // The route's tale changed (on opening, or after keeping a version as a new tale, where the
   // page stays and its tale changes): start over with that tale's document.
   ngOnChanges(): void {
+    this.held.set('');
+    this.leavingForCopy = false;
+    this.draftStored.set(false);
     this.doc.set(null);
     this.selection.set([]);
     this.editingId.set(null);
@@ -863,6 +909,7 @@ export class TaleStudioPage implements OnChanges {
     const doc = result.value.document ?? emptyTaleDocument();
     this.doc.set(doc);
     this.published.set(result.value.published);
+    this.draftStored.set(result.value.document !== null);
     this.history.clear();
     this.syncHistory();
     this.autosave.reset(doc, result.value.revision);
@@ -876,7 +923,7 @@ export class TaleStudioPage implements OnChanges {
    * is asked whether to leave without them.
    */
   async canLeave(): Promise<boolean> {
-    if (!this.autosave.unsaved) return true;
+    if (this.leavingForCopy || !this.autosave.unsaved) return true;
     const saved = await Promise.race([
       this.autosave.flush(),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), LEAVE_WAIT_MS)),
@@ -887,11 +934,31 @@ export class TaleStudioPage implements OnChanges {
   /** Closing or reloading the browser tab with unsaved changes asks first; a save is tried meanwhile. */
   @HostListener('window:beforeunload', ['$event'])
   protected beforeUnload(event: BeforeUnloadEvent): void {
-    if (!this.autosave.unsaved) return;
+    if (this.leavingForCopy || !this.autosave.unsaved) return;
     void this.autosave.flush();
     event.preventDefault();
     // Older browsers ask only when a return value is set.
     event.returnValue = '';
+  }
+
+  /** Back to the page (focus, or the tab shown again): what is published may have changed meanwhile. */
+  @HostListener('window:focus')
+  @HostListener('document:visibilitychange')
+  protected backToPage(): void {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    void this.refreshPublished();
+  }
+
+  // Reads what is published now, such as after the tale was published from the zone page. The draft
+  // on screen is not touched; its revision is returned for a publish to compare.
+  private async refreshPublished(): Promise<number | null> {
+    const taleId = this.taleId();
+    if (!this.doc() || this.publishing() || this.held()) return null;
+    const result = await this.documents.load(taleId);
+    if (result.value === null || taleId !== this.taleId()) return null;
+    this.published.set(result.value.published);
+    if (result.value.document !== null) this.draftStored.set(true);
+    return result.value.revision;
   }
 
   /** Back online: a save that failed on the network is tried again at once. */
@@ -904,7 +971,10 @@ export class TaleStudioPage implements OnChanges {
   private async saveDraft(document: TaleDocument, revision: number) {
     const taleId = this.taleId();
     const result = await this.documents.save(taleId, document, revision);
-    if (result.value?.published && taleId === this.taleId()) this.published.set(result.value.published);
+    if (result.value !== null && taleId === this.taleId()) {
+      if (result.value.published) this.published.set(result.value.published);
+      this.draftStored.set(true);
+    }
     return result;
   }
 
@@ -913,7 +983,7 @@ export class TaleStudioPage implements OnChanges {
    * visitors see what the studio shows. Another change first leads to the stale choice.
    */
   protected async publishChanges(): Promise<void> {
-    if (this.publishing() || !this.unpublished()) return;
+    if (this.publishing() || this.held() || !this.canPublish()) return;
     await this.draftAction('publish');
   }
 
@@ -922,7 +992,7 @@ export class TaleStudioPage implements OnChanges {
    * undo brings the draft back (and autosaves it) until the studio closes.
    */
   protected async discardDraft(): Promise<void> {
-    if (this.publishing() || this.published().document === null || !this.unpublished()) return;
+    if (this.publishing() || this.held() || this.published().document === null || !this.unpublished()) return;
     if (
       !window.confirm(
         'Discard the draft and go back to the published version? You can undo this until you leave Tale Studio.',
@@ -933,34 +1003,55 @@ export class TaleStudioPage implements OnChanges {
     await this.draftAction('discard');
   }
 
+  /**
+   * Publishes or discards the draft, compare-and-set on both revisions. Unsaved changes save first;
+   * then autosave pauses, so no save of the draft is on its way while the server compares its
+   * revision. Changes made while publishing are kept and saved after it; while discarding, editing
+   * is held. A 409 reads what is published now: when only the published revision moved (the tale
+   * was published elsewhere, such as from the zone page) it tries once more with it; otherwise the
+   * stale choice opens.
+   */
   private async draftAction(action: 'publish' | 'discard'): Promise<void> {
     const taleId = this.taleId();
+    const verb = action === 'publish' ? 'published' : 'discarded';
     this.publishing.set(true);
     this.error.set('');
+    if (action === 'discard') this.held.set('Wait until the draft is discarded.');
     try {
       if (!(await this.autosave.flush())) {
         if (this.saveState().kind !== 'conflict') {
           this.error.set(
-            `Your latest changes are not saved yet, so the draft was not ${action === 'publish' ? 'published' : 'discarded'}. Try again once they are saved.`,
+            `Your latest changes are not saved yet, so the draft was not ${verb}. Try again once they are saved.`,
           );
         }
         return;
       }
+      this.autosave.pause();
       const revision = this.autosave.savedRevision;
-      const publishedRevision = this.published().revision;
-      const result =
+      const send = (publishedRevision: number) =>
         action === 'publish'
-          ? await this.documents.publish(taleId, revision, publishedRevision)
-          : await this.documents.discard(taleId, revision, publishedRevision);
+          ? this.documents.publish(taleId, revision, publishedRevision)
+          : this.documents.discard(taleId, revision, publishedRevision);
+      let result = await send(this.published().revision);
       if (taleId !== this.taleId()) return;
+      if (result.value === null && result.stale) {
+        const fresh = await this.documents.load(taleId);
+        if (taleId !== this.taleId()) return;
+        if (fresh.value !== null) this.published.set(fresh.value.published);
+        if (fresh.value !== null && fresh.value.revision === revision) {
+          result = await send(fresh.value.published.revision);
+          if (taleId !== this.taleId()) return;
+        }
+      }
       if (result.value === null) {
         if (result.stale) this.autosave.conflict(result);
         else if (result.code === ErrorCodes.invalidTaleDocument) {
           this.error.set(
             'The draft could not be published because something in it is not valid. Fix it, then try again.',
           );
-        } else
-          this.error.set(`The draft was not ${action === 'publish' ? 'published' : 'discarded'}. ${result.message}`);
+        } else if (result.code === ErrorCodes.nothingToPublish) {
+          this.error.set('There is nothing to publish yet: change the tale first.');
+        } else this.error.set(`The draft was not ${verb}. ${result.message}`);
         return;
       }
       this.published.set(result.value.published);
@@ -988,6 +1079,9 @@ export class TaleStudioPage implements OnChanges {
       this.say(`Draft discarded: the published version is back. Press ${this.undoKey} to undo.`);
     } finally {
       this.publishing.set(false);
+      if (action === 'discard') this.held.set('');
+      // Changes kept while it was on its way now save, on the draft revision it left.
+      this.autosave.resume();
     }
   }
 
@@ -996,17 +1090,35 @@ export class TaleStudioPage implements OnChanges {
     this.saveState.set(state);
     if (state.kind === 'retrying' || state.kind === 'refused') {
       if (previous.kind !== state.kind) this.saveError.set(this.refusal(state.failure, state.kind === 'retrying'));
-      this.recovering = true;
-    } else if (state.kind === 'saved') {
-      this.invalidId.set(null);
+      // Only the first failure of a run is announced; retries change the visible text only.
+      if (!this.recovering()) this.saveAlert.set(this.saveError());
+      this.recovering.set(true);
+    } else if (state.kind === 'saved' || state.kind === 'conflict') {
+      if (state.kind === 'saved') {
+        this.invalidId.set(null);
+        if (this.recovering()) this.say('All changes saved');
+      }
       this.saveError.set('');
-      if (this.recovering) this.say('All changes saved');
-      this.recovering = false;
+      this.saveAlert.set('');
+      this.recovering.set(false);
     }
+    if (state.kind === 'retrying') this.startTicker();
+    else this.stopTicker();
   }
 
   protected retrySave(): void {
+    if (this.saveState().kind === 'saving') return;
     this.autosave.retryNow();
+  }
+
+  private startTicker(): void {
+    this.now.set(Date.now());
+    this.ticker ??= setInterval(() => this.now.set(Date.now()), 1000);
+  }
+
+  private stopTicker(): void {
+    if (this.ticker !== null) clearInterval(this.ticker);
+    this.ticker = null;
   }
 
   /** Undo or redo, from the keyboard (outside text fields, whose undo is the browser's) anywhere in the studio. */
@@ -1026,6 +1138,10 @@ export class TaleStudioPage implements OnChanges {
   protected runHistory(command: HistoryCommand): void {
     const current = this.doc();
     if (!current || this.drag) return;
+    if (this.held()) {
+      this.say(this.held());
+      return;
+    }
     const step = command === 'undo' ? this.history.undo() : this.history.redo();
     if (!step) {
       this.say(command === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
@@ -1067,11 +1183,17 @@ export class TaleStudioPage implements OnChanges {
   protected async keepAsNewTale(): Promise<void> {
     const doc = this.doc();
     if (!doc || this.keeping()) return;
+    const taleId = this.taleId();
     this.keeping.set(true);
     this.error.set('');
-    const result = await this.documents.keepAsNewTale(this.taleId(), doc);
+    // Nothing more goes to the original tale: autosave stops, and editing is held until the copy opens.
+    this.autosave.pause();
+    this.held.set('Wait until your version is kept as a new tale.');
+    const result = await this.documents.keepAsNewTale(taleId, doc);
     this.keeping.set(false);
     if (result.value === null) {
+      this.held.set('');
+      this.autosave.resume();
       this.error.set(
         result.code === ErrorCodes.taleGroupFull
           ? 'The tale group already holds the most tales it can, so your version cannot be kept there. ' +
@@ -1081,11 +1203,22 @@ export class TaleStudioPage implements OnChanges {
       return;
     }
     const tale = result.value;
-    // Saved as the new tale: nothing is left to save here, so leaving does not ask.
-    this.autosave.reset(doc, 1);
     await this.store.refresh();
+    // Saved as the new tale: leaving for it does not ask, and nothing more is saved here.
+    this.leavingForCopy = true;
+    const opened = await this.router.navigate(['/tales', tale.id, 'studio']).catch(() => false);
+    if (!opened || this.taleId() === taleId) {
+      // Still on the original: it stays in the stale choice, with the version on screen.
+      this.leavingForCopy = false;
+      this.held.set('');
+      this.autosave.resume();
+      this.error.set(
+        `Your version is kept as a new draft tale, “${tale.title}”, in the same group, but it could not be opened. ` +
+          'Open it from the zone page.',
+      );
+      return;
+    }
     const notice = `Your version is kept as a new draft tale, “${tale.title}”, in the same group. The original keeps the other version.`;
-    await this.router.navigate(['/tales', tale.id, 'studio']).catch(() => false);
     this.notice.set(notice);
     this.say(notice);
   }
@@ -1130,6 +1263,12 @@ export class TaleStudioPage implements OnChanges {
   private commit(label: string, next: TaleDocument, mergeKey: string | null = null): void {
     const before = this.doc();
     if (!before || next === before || JSON.stringify(next) === JSON.stringify(before)) return;
+    if (this.held()) {
+      // The change does not go through; the canvas shows the document as it is.
+      this.doc.set({ ...before });
+      this.say(this.held());
+      return;
+    }
     this.history.record(label, before, next, mergeKey);
     this.doc.set(next);
     this.notice.set('');
@@ -1194,7 +1333,15 @@ export class TaleStudioPage implements OnChanges {
     else this.selectOnly(id);
   }
 
+  // True, after saying why, while editing is held (see `held`).
+  private isHeld(): boolean {
+    if (!this.held()) return false;
+    this.say(this.held());
+    return true;
+  }
+
   protected addText(): void {
+    if (this.isHeld()) return;
     const element: TaleElement = {
       id: crypto.randomUUID(),
       type: 'text',
@@ -1212,6 +1359,7 @@ export class TaleStudioPage implements OnChanges {
 
   /** Types in place: the element becomes a text field at its place on the canvas. A locked one is not edited. */
   protected edit(id: string): void {
+    if (this.isHeld()) return;
     this.selectOnly(id);
     const element = this.element(id);
     if (!element || element.hidden) return;
@@ -1243,9 +1391,9 @@ export class TaleStudioPage implements OnChanges {
   protected typeText(id: string, field: HTMLTextAreaElement): void {
     const element = this.element(id);
     if (!element) return;
-    if (element.locked) {
+    if (element.locked || this.held()) {
       field.value = element.props.text;
-      this.say(LOCKED);
+      this.say(this.held() || LOCKED);
       return;
     }
     let text = cleanText(field.value, ELEMENT_TEXT_RULE);
@@ -1273,6 +1421,10 @@ export class TaleStudioPage implements OnChanges {
   protected setPosition(id: string, axis: 'x' | 'y', field: HTMLInputElement): void {
     const element = this.element(id);
     if (!element) return;
+    if (this.isHeld()) {
+      field.value = String(this.percent(element.box[axis]));
+      return;
+    }
     const name = axis === 'x' ? 'left' : 'top';
     if (element.locked) {
       field.value = String(this.percent(element.box[axis]));
@@ -1306,6 +1458,7 @@ export class TaleStudioPage implements OnChanges {
    * else the one up, else the Add text button.
    */
   private removeLayers(ids: readonly string[], origin: Origin): void {
+    if (this.isHeld()) return;
     const elements = this.doc()?.elements ?? [];
     const gone = new Set(ids);
     const indexes = elements.map((e, i) => (gone.has(e.id) ? i : -1)).filter((i) => i >= 0);
@@ -1333,6 +1486,7 @@ export class TaleStudioPage implements OnChanges {
    * the control that asked, which the list may have moved.
    */
   protected run(command: LayerCommand, origin: Origin, returnId: string, target?: string): void {
+    if (command !== 'select-all' && this.isHeld()) return;
     const doc = this.doc();
     if (!doc) return;
     const one = target ?? this.selectedId();
@@ -1482,6 +1636,7 @@ export class TaleStudioPage implements OnChanges {
    * hidden ones stay where they are.
    */
   private moveSelection(dx: number, dy: number, repeat = false): void {
+    if (this.isHeld()) return;
     // Hidden layers are not on the canvas: they neither move nor hold the group back, as when dragging.
     const selected = (this.doc()?.elements ?? []).filter((e) => this.isSelected(e.id) && !e.hidden);
     const movable = selected.filter((e) => !e.locked);
@@ -1511,6 +1666,7 @@ export class TaleStudioPage implements OnChanges {
   }
 
   protected dragStart(event: PointerEvent, element: TaleElement): void {
+    if (this.held()) return;
     this.dragged = false;
     if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey) return;
     const canvas = (event.currentTarget as HTMLElement).parentElement?.getBoundingClientRect();
@@ -1670,6 +1826,7 @@ export class TaleStudioPage implements OnChanges {
 
   /** Sets the canvas background colour, from the colour picker or the hex field. */
   protected setBackground(color: string): void {
+    if (this.isHeld()) return;
     this.hexError.set('');
     const doc = this.doc();
     if (!doc || doc.canvas.background.color === color) return;
@@ -1733,6 +1890,10 @@ export class TaleStudioPage implements OnChanges {
     this.editingId.set(null);
     this.menu.set(null);
     await this.load();
-    if (!this.error()) this.say('Latest version loaded');
+    if (!this.error()) {
+      this.say('Latest version loaded');
+      // The stale choice that had focus is gone: focus goes to the canvas.
+      this.focusSoon('studio-canvas');
+    }
   }
 }

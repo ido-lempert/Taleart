@@ -1657,9 +1657,12 @@ paths:
         other, 400 `validation_failed` for a status other than `live`,
         `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only
         `live` tales of `live` groups reach the Delivery API, and only their
-        media is public (AD-11). Publishing a `draft` tale (`draft` to `live`)
-        also publishes its draft document (AD-15) in the same transaction;
-        resuming a `paused` tale does not.
+        media is public (AD-11). Setting `live` on a tale that has nothing
+        published yet (from any status) also publishes its draft document
+        (AD-15) in the same transaction, after checking it again; a tale that
+        already has a published document keeps it. When the draft no longer
+        passes the check, the status still changes, the draft is not
+        published, and the answer says so with `draftNotPublished: true`.
       requestBody:
         required: true
         content:
@@ -1672,7 +1675,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Tale'
+                $ref: '#/components/schemas/TaleStatusResult'
         '400':
           $ref: '#/components/responses/Error'
         '403':
@@ -1889,7 +1892,9 @@ paths:
         API serves, raising the published revision, when `revision` is the
         draft's current revision and `publishedRevision` the published one's
         (compare-and-set on both, in one statement); otherwise nothing
-        changes and it answers 409 `stale_revision`. The draft is checked
+        changes and it answers 409 `stale_revision`. A tale with no draft
+        answers 409 `nothing_to_publish`; publishing never empties the
+        published document. The draft is checked
         again first (400 `invalid_tale_document` with `pointer`). The tale's
         status is not changed: a tale that is not `live` stays unseen. A body
         without integer revisions: 400 `validation_failed`. Unknown tale: 404
@@ -2852,6 +2857,17 @@ components:
           description: The draft's revision, raised by one on every save; 0 before the first save.
         published:
           $ref: '#/components/schemas/PublishedTaleDocument'
+    TaleStatusResult:
+      description: A tale as a status change answers it.
+      allOf:
+        - $ref: '#/components/schemas/Tale'
+        - type: object
+          properties:
+            draftNotPublished:
+              type: boolean
+              description: >-
+                Present and true when the tale went live with nothing published yet and its draft
+                document no longer passes the checks, so the draft was not published (AD-15).
     PublishedTaleDocument:
       type: object
       required: [document, revision]
@@ -3505,6 +3521,7 @@ components:
         - invalid_tale_document
         - tale_document_too_large
         - stale_revision
+        - nothing_to_publish
         - internal_error
     ErrorBody:
       type: object

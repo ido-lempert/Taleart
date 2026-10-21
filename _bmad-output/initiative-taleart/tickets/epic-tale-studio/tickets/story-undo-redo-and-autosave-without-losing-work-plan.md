@@ -3,7 +3,7 @@ title: 'Undo, redo and autosave without losing work'
 type: 'feature'
 ticket: '3'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'ea6f5bf'
 route: 'full'
 route_source: 'auto'
@@ -31,7 +31,7 @@ deferred: []
 ## Boundaries & Constraints
 
 **Always:**
-- Draft and published (user decision 2026-10-22, AD-15, epic R1/R9): `PUT /tales/{id}/document` writes the draft (`draft_document`, `draft_revision`) and never the published `document`, which Delivery and the SDK read. `POST …/document/publish` and `…/document/discard` take `{ revision, publishedRevision }` and compare-and-set both (409 `stale_revision`). Publishing a `draft` tale (`draft` → `live`) also publishes its draft; resuming a paused tale does not. Existing documents become both, same revision (idempotent migration). Keep-as-copy stores the draft, nothing published.
+- Draft and published (user decision 2026-10-22, AD-15, epic R1/R9): `PUT /tales/{id}/document` writes the draft (`draft_document`, `draft_revision`) and never the published `document`, which Delivery and the SDK read. `POST …/document/publish` and `…/document/discard` take `{ revision, publishedRevision }` and compare-and-set both (409 `stale_revision`). Setting a tale `live` while nothing of it is published yet (from any status) also publishes its draft after re-checking it (a failing draft is not published and the answer flags `draftNotPublished`); a tale with a published document keeps it on resume. Publishing a tale with no draft is refused (409 `nothing_to_publish`). Existing documents become both, same revision (idempotent migration). Keep-as-copy stores the draft, nothing published.
 - History covers every document change: add, text edits, moves (arrow keys, fields, one step per drag), reorder, hide, lock, duplicate, delete, background colour. Selection, guides and editing state are not history. Limit 200 steps (at least 100), oldest dropped.
 - Shortcuts: Cmd+Z / Shift+Cmd+Z on a Mac, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y elsewhere; letters by `event.key` when it is a Latin letter, else by `event.code` (non-Latin layouts). Handled anywhere in the studio except in a text entry field (input, textarea, contenteditable), where the browser's own text undo stays. Labels with ⌘ ⇧ on a Mac.
 - Delete stays immediate and is undoable; it announces "Text deleted — press ⌘Z to undo" (Ctrl+Z off a Mac). Undo/redo announce what they undid ("Undone: Text moved") and keep focus on the control, else the canvas.
@@ -59,7 +59,10 @@ deferred: []
 | Autosave vs Delivery | live tale, three autosaves | Delivery still serves the published version | — |
 | Publish changes | draft differs; click | flush, then POST publish with draft and published revisions; state reads "Published" | stale either revision → 409 → reload / keep-as-copy choice; invalid draft 400 |
 | Discard draft | confirm | draft = published, draft revision + 1; one undo step that autosaves the old draft back | cancel → nothing; stale 409 |
-| Status publish | draft tale → live | its draft is published in the same transaction | paused → live publishes nothing |
+| Status publish | never-published tale → live (from draft, or archived → paused → live) | its checked draft is published in the same transaction | already published: resume publishes nothing; failing draft: live, not published, `draftNotPublished` shown in the drawer |
+| Nothing to publish | no draft stored, nothing changed | "Publish changes" disabled; server answers 409 `nothing_to_publish`, published document untouched | — |
+| Publish vs autosave | edit while publish is on its way | autosave paused, edit kept, saved after on the same draft revision | discard holds editing ("Wait until the draft is discarded.") |
+| Published elsewhere | publish 409, draft revision unchanged | reads state, retries once with the fresh published revision | draft moved → stale choice; focus/visibility refresh `published` |
 | Migration | document, no draft | draft = document, same revision | — |
 | Publish state | none / differs / same | "Draft — not visible to visitors" / "Unpublished changes …" / "Published …" (or "not live yet") | — |
 
@@ -117,6 +120,22 @@ deferred: []
 - **KEEP:** history, autosaver, conflict flow and keep-as-copy, which now act on the draft unchanged.
 
 ## Review Triage Log
+
+### 2026-10-22 — Coordinator review (draft and publish)
+- **Verdicts:** 12 findings, all patched. `autopilot/foundation` merged first (already at fe8c9b6; 00894d4 merged before the final verification).
+- **Findings:**
+  1. `[patch]` Keep-as-copy could autosave to the original while it was on its way. Autosave pauses and editing is held from the first await until the copy's studio opens (`ngOnChanges` resets it); if opening fails the page stays in the stale choice. Tested: an edit while keeping is refused and no PUT reaches the original; a failed navigation keeps the choice.
+  2. `[patch]` Publish and discard raced autosave. After the flush, autosave pauses (edits are kept, nothing is sent) and resumes after on the draft revision left; discard holds editing. Tested: an edit during publish saves after it on the same revision, no self-conflict.
+  3. `[patch]` Publishing with no draft could empty the published document. The server refuses with 409 `nothing_to_publish` (also in the conditional UPDATE); the studio disables "Publish changes" until a draft is stored or changed. Tested (server, API, studio).
+  4. `[patch]` A tale published from the zone page made the studio's publish stale. A publish/discard 409 reads the state; when only the published revision moved it retries once; the studio also refreshes `published` on window focus and visibility. Tested.
+  5. `[patch]` Status-path publish did not re-check the draft. It runs `checkTaleDocument`; a failing draft is not published, the status still changes, and the answer carries `draftNotPublished`, which the drawer shows ("Tale is live; its studio draft has problems and wasn't published"). Tested.
+  6. `[patch]` The status rule keyed on `draft` → `live`. It now keys on nothing published yet (`document IS NULL OR document_revision = 0`) from any status. Tested archive → paused → live of a never-published tale, and a resume with a published document.
+  7. `[patch]` `copyTaleWithDocument` now share-locks the source tale after the group lock. SQL-order unit test.
+  8. `[patch]` Returning to a refused document cleared the refusal. It is refused again (alert block, Retry now, marked element) and not resent. Tested (autosaver and studio).
+  9. `[patch]` `flush()` resent a refused document. It returns false for it, so leaving asks. Tested.
+  10. `[patch]` The retry alert was re-inserted each cycle. One always-present alert region announces the first failure only; the visible block (no role) stays through retries with a countdown and a "Retry now" that stays in the DOM (aria-disabled while saving), keeping focus; recovery is announced once; `reload()` focuses the canvas. Tested.
+  11. `[patch]` A live tale with nothing published read as a draft. It now says "Live — visitors see the tale's media; studio changes aren't published yet." Tested.
+  12. `[patch]` Epic R1's Verify line now includes the publish step; AD-15, the memlog and R9 record findings 3, 5 and 6.
 
 ## Auto Run Result
 

@@ -49,6 +49,9 @@ export type TaleDocumentRevision = Omit<Schemas['TaleDocumentRevision'], 'docume
   published: PublishedTaleDocument;
 };
 
+/** A tale as a status change answers it: `draftNotPublished` when going live could not publish its draft. */
+export type TaleStatusResult = Schemas['TaleStatusResult'];
+
 /** The body of publish and discard: the draft and published revisions they are based on. */
 export type TaleDocumentRevisionsRequest = Schemas['TaleDocumentRevisionsRequest'];
 

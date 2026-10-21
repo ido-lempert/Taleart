@@ -15,6 +15,7 @@ import {
   type Stage,
   type Tag,
   type Tale,
+  type TaleStatusResult,
   type TaleGroup,
   type TaleGroupCover,
   type Zone,
@@ -580,17 +581,24 @@ export class DashboardStore {
   }
 
   /** Publishes, pauses, archives or restores a tale (AD-6). Returns the saved tale, or the message to show. */
-  async setTaleStatus(taleId: string, status: SettableStatus): Promise<{ tale: Tale | null; message: string }> {
-    let tale: Tale;
+  async setTaleStatus(
+    taleId: string,
+    status: SettableStatus,
+  ): Promise<{ tale: Tale | null; message: string; warning: string }> {
+    let tale: TaleStatusResult;
     try {
       tale = await firstValueFrom(
-        this.http.put<Tale>(`${API_BASE}/tales/${encodeURIComponent(taleId)}/status`, { status }),
+        this.http.put<TaleStatusResult>(`${API_BASE}/tales/${encodeURIComponent(taleId)}/status`, { status }),
       );
     } catch (err) {
-      return { tale: null, message: apiErrorMessage(err, 'The status was not changed. Try again.') };
+      return { tale: null, message: apiErrorMessage(err, 'The status was not changed. Try again.'), warning: '' };
     }
     await this.refresh();
-    return { tale, message: '' };
+    // Going live publishes the tale's studio draft when nothing is published yet, unless it no longer passes (AD-15).
+    const warning = tale.draftNotPublished
+      ? "Tale is live; its studio draft has problems and wasn't published. Open Tale Studio to fix and publish it."
+      : '';
+    return { tale, message: '', warning };
   }
 
   /**

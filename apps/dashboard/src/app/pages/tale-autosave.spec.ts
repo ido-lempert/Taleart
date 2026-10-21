@@ -246,6 +246,38 @@ describe('TaleAutosaver', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a refused document refused when the content comes back to it, and flush does not resend it', async () => {
+    const { saver, send, calls, last } = harness();
+    const bad = doc(1);
+    saver.changed(bad);
+    await vi.advanceTimersByTimeAsync(1000);
+    calls[0].answer(failed(400, 'invalid_tale_document'));
+    await flushPromises();
+    saver.changed(doc(2));
+    expect(last()).toBe('pending');
+    // Undone back to the refused document: refused again, with its reason, and not sent.
+    saver.changed(bad);
+    expect(saver.state).toMatchObject({ kind: 'refused', failure: { code: 'invalid_tale_document' } });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(await saver.flush()).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends nothing while paused, keeping changes, and saves them on resume on the same revision', async () => {
+    const { saver, send, calls, last } = harness(doc(0), 6);
+    saver.pause();
+    const kept = doc(1);
+    saver.changed(kept);
+    expect(last()).toBe('pending');
+    saver.retryNow();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(send).not.toHaveBeenCalled();
+    saver.resume();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls[0]).toMatchObject({ document: kept, revision: 6 });
+  });
+
   it('stops its timers when disposed', async () => {
     const { saver, send } = harness();
     saver.changed(doc(1));

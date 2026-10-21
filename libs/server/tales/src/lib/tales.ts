@@ -21,7 +21,12 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
-import { checkTaleDocument, deliverableTaleDocument } from './tale-document';
+import {
+  checkTaleDocument,
+  deliverableTaleDocument,
+  InvalidTaleDocumentError,
+  TaleDocumentTooLargeError,
+} from './tale-document';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -750,28 +755,43 @@ export async function setTaleGroupStatus(
 
 /**
  * Sets a tale's stored status (AD-6), with the same rules as
- * {@link setTaleGroupStatus}. Publishing a draft tale (`draft` to `live`) also
- * publishes its draft document in the same transaction (AD-15), so what the
- * studio shows is what goes live; resuming a paused tale does not. Returns the
- * tale with its status as read.
+ * {@link setTaleGroupStatus}. Setting `live` on a tale that has nothing
+ * published yet (no published document, or published revision 0), from any
+ * status, also publishes its draft document in the same transaction (AD-15),
+ * after checking it again; a tale that already has a published document keeps
+ * it. A draft that no longer passes is not published: the status still
+ * changes, and the answer carries `draftNotPublished: true`. Returns the tale
+ * with its status as read.
  * Throws {@link TaleNotFoundError} and {@link InvalidStatusTransitionError}.
  */
-export async function setTaleStatus(db: TransactionalDb, taleId: string, status: SettableStatus): Promise<Tale> {
+export async function setTaleStatus(
+  db: TransactionalDb,
+  taleId: string,
+  status: SettableStatus,
+): Promise<Tale & { draftNotPublished?: true }> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
 
   return inTransaction(db, async (tx) => {
-    const current = await tx.query<{ status: ContentStatus }>('SELECT status FROM tales WHERE id = $1 FOR UPDATE', [
-      taleId,
-    ]);
+    const current = await tx.query<{ status: ContentStatus; draft: unknown; unpublished: boolean }>(
+      `SELECT status, draft_document AS draft, (document IS NULL OR document_revision = 0) AS unpublished
+       FROM tales WHERE id = $1 FOR UPDATE`,
+      [taleId],
+    );
     if (current.rows.length === 0) throw new TaleNotFoundError(taleId);
-    const from = current.rows[0].status;
+    const { status: from, draft, unpublished } = current.rows[0];
     if (!canSetStatus(from, status)) throw new InvalidStatusTransitionError(from, status);
-    if (from === 'draft' && status === 'live') {
-      await tx.query(
-        `UPDATE tales SET document = draft_document, document_revision = document_revision + 1
-         WHERE id = $1 AND draft_document IS DISTINCT FROM document`,
-        [taleId],
-      );
+    let draftNotPublished = false;
+    if (from !== 'live' && status === 'live' && unpublished && draft !== null && draft !== undefined) {
+      try {
+        checkTaleDocument(draft);
+        await tx.query(
+          `UPDATE tales SET document = draft_document, document_revision = document_revision + 1 WHERE id = $1`,
+          [taleId],
+        );
+      } catch (err) {
+        if (!(err instanceof InvalidTaleDocumentError || err instanceof TaleDocumentTooLargeError)) throw err;
+        draftNotPublished = true;
+      }
     }
     const { rows } =
       from === status
@@ -780,7 +800,7 @@ export async function setTaleStatus(db: TransactionalDb, taleId: string, status:
             taleId,
             status,
           ]);
-    return toTale(rows[0]);
+    return draftNotPublished ? { ...toTale(rows[0]), draftNotPublished: true } : toTale(rows[0]);
   });
 }
 
@@ -919,6 +939,9 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
     const groupId = groupOf.rows[0]?.groupId;
     if (groupId === undefined) throw new TaleNotFoundError(taleId);
     await tx.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [groupId]);
+    // The source is read under a share lock, after the group's, as copyTaleGroup does.
+    const source = await tx.query('SELECT 1 FROM tales WHERE id = $1 FOR SHARE', [taleId]);
+    if (source.rows.length === 0) throw new TaleNotFoundError(taleId);
 
     const stats = await tx.query<{ count: number; next: number }>(
       `SELECT count(*)::int AS count, COALESCE(MAX(position), -1) + 1 AS next

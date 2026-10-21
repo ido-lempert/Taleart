@@ -401,7 +401,12 @@ describe('keep a document as a new tale', () => {
   });
 
   it('refuses when the group already holds 100 tales, after locking it', async () => {
-    const { db, statements } = fakeDb([{ rows: [{ groupId }] }, { rows: [] }, { rows: [{ count: 100, next: 100 }] }]);
+    const { db, statements } = fakeDb([
+      { rows: [{ groupId }] },
+      { rows: [] },
+      { rows: [{}] },
+      { rows: [{ count: 100, next: 100 }] },
+    ]);
     await expect(copyTaleWithDocument(db, taleId, document)).rejects.toBeInstanceOf(TaleGroupFullError);
     expect(statements().some((s) => /FROM tale_groups WHERE id = \$1 FOR UPDATE/.test(s))).toBe(true);
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
@@ -412,6 +417,7 @@ describe('keep a document as a new tale', () => {
     const { db, query, statements } = fakeDb([
       { rows: [{ groupId }] },
       { rows: [] },
+      { rows: [{}] },
       { rows: [{ count: 3, next: 3 }] },
       { rows: [{ id: 't2', mediaContentType: 'image/png', storedStatus: 'draft', groupStatus: 'live' }] },
     ]);
@@ -424,6 +430,12 @@ describe('keep a document as a new tale', () => {
     expect(insert?.[1]).toEqual([taleId, 3, JSON.stringify(document)]);
     expect(statements().indexOf('BEGIN')).toBe(0);
     expect(statements()).toContain('COMMIT');
+    // The group is locked first, then the source tale is share-locked, as copyTaleGroup does.
+    const groupLock = statements().findIndex((s) => /FROM tale_groups WHERE id = \$1 FOR UPDATE/.test(s));
+    const taleLock = statements().findIndex((s) => /FROM tales WHERE id = \$1 FOR SHARE/.test(s));
+    expect(groupLock).toBeGreaterThan(-1);
+    expect(taleLock).toBeGreaterThan(groupLock);
+    expect(taleLock).toBeLessThan(statements().findIndex((s) => /INSERT/.test(s)));
     expect(tale.id).toBe('t2');
     expect(tale.media?.url).toBe('/api/v1/tales/t2/media');
   });
@@ -856,17 +868,40 @@ describe('status', () => {
     expect(await setTaleStatus(blocked.db, taleId, 'live')).toMatchObject({ storedStatus: 'live', status: 'blocked-by-group' });
   });
 
-  it('publishes the draft document when a draft tale goes live, and not when a paused one resumes', async () => {
+  it('publishes the checked draft when a tale with nothing published goes live, from any status', async () => {
     const row = { id: taleId, mediaContentType: null, storedStatus: 'live', groupStatus: 'live' };
-    const first = fakeDb([{ rows: [{ status: 'draft' }] }, { rows: [] }, { rows: [row] }]);
-    await setTaleStatus(first.db, taleId, 'live');
-    const publish = first.statements().findIndex((s) => /SET document = draft_document/.test(s));
-    expect(publish).toBeGreaterThan(-1);
-    expect(first.statements()[publish]).toMatch(/draft_document IS DISTINCT FROM document/);
-    expect(publish).toBeLessThan(first.statements().indexOf('COMMIT'));
-    const resume = fakeDb([{ rows: [{ status: 'paused' }] }, { rows: [row] }]);
+    const draft = {
+      version: 1,
+      canvas: { background: { type: 'color', color: '#000000' } },
+      elements: [],
+    };
+    const publishes = (statements: string[]) => statements.some((s) => /SET document = draft_document/.test(s));
+    for (const from of ['draft', 'paused']) {
+      const first = fakeDb([{ rows: [{ status: from, draft, unpublished: true }] }, { rows: [] }, { rows: [row] }]);
+      const tale = await setTaleStatus(first.db, taleId, 'live');
+      expect(publishes(first.statements())).toBe(true);
+      expect(first.statements().findIndex((s) => /SET document = draft_document/.test(s))).toBeLessThan(
+        first.statements().indexOf('COMMIT'),
+      );
+      expect(tale).not.toHaveProperty('draftNotPublished');
+    }
+    // A resume of a tale that already has a published document keeps it.
+    const resume = fakeDb([{ rows: [{ status: 'paused', draft, unpublished: false }] }, { rows: [row] }]);
     await setTaleStatus(resume.db, taleId, 'live');
-    expect(resume.statements().some((s) => /draft_document/.test(s))).toBe(false);
+    expect(publishes(resume.statements())).toBe(false);
+  });
+
+  it('goes live but keeps a draft that no longer passes unpublished, and says so', async () => {
+    const row = { id: taleId, mediaContentType: null, storedStatus: 'live', groupStatus: 'live' };
+    const bad = { version: 1, canvas: { background: { type: 'color', color: 'red' } }, elements: [] };
+    const { db, statements } = fakeDb([
+      { rows: [{ status: 'draft', draft: bad, unpublished: true }] },
+      { rows: [row] },
+    ]);
+    expect(await setTaleStatus(db, taleId, 'live')).toMatchObject({ storedStatus: 'live', draftNotPublished: true });
+    expect(statements().some((s) => /SET document = draft_document/.test(s))).toBe(false);
+    expect(statements().some((s) => /SET status = \$2/.test(s))).toBe(true);
+    expect(statements()).toContain('COMMIT');
   });
 
   it('refuses an unknown tale and a transition the rules do not allow', async () => {

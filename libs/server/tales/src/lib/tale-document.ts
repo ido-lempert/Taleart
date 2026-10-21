@@ -52,6 +52,16 @@ export class StaleRevisionError extends Error {
   }
 }
 
+/** Thrown when a tale with no draft document is published: publishing never empties the published document. */
+export class NothingToPublishError extends Error {
+  readonly code = ErrorCodes.nothingToPublish;
+
+  constructor() {
+    super('This tale has no draft to publish.');
+    this.name = 'NothingToPublishError';
+  }
+}
+
 /** A key as a JSON pointer segment (RFC 6901): `~` becomes `~0` and `/` becomes `~1`. */
 export function pointerSegment(key: string | number): string {
   return String(key).replace(/~/g, '~0').replace(/\//g, '~1');
@@ -319,7 +329,9 @@ export async function saveTaleDocument(
  * raising the published revision. Compare-and-set on both revisions, in one statement: when
  * `draftRevision` or `publishedRevision` is no longer current nothing changes and it throws
  * {@link StaleRevisionError}. The draft is checked again first, as rules may have changed since
- * it was saved ({@link InvalidTaleDocumentError}). The tale's status does not change.
+ * it was saved ({@link InvalidTaleDocumentError}). A tale with no draft throws
+ * {@link NothingToPublishError}: publishing never empties the published document. The tale's
+ * status does not change.
  */
 export async function publishTaleDocument(
   db: Db,
@@ -331,10 +343,11 @@ export async function publishTaleDocument(
   const read = await db.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
   if (read.rows.length === 0) throw new TaleNotFoundError(taleId);
   const draft = read.rows[0].document;
-  if (draft !== null) checkTaleDocument(draft);
+  if (draft === null) throw new NothingToPublishError();
+  checkTaleDocument(draft);
   const { rows } = await db.query<StateRow>(
     `UPDATE tales SET document = draft_document, document_revision = document_revision + 1
-     WHERE id = $1 AND draft_revision = $2 AND document_revision = $3
+     WHERE id = $1 AND draft_revision = $2 AND document_revision = $3 AND draft_document IS NOT NULL
      RETURNING ${STATE_COLUMNS}`,
     [taleId, draftRevision, publishedRevision],
   );

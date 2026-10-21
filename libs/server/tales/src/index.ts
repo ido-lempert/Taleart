@@ -67,5 +67,6 @@ export {
   discardTaleDraft,
   InvalidTaleDocumentError,
   StaleRevisionError,
+  NothingToPublishError,
   TaleDocumentTooLargeError,
 } from './lib/tale-document';
