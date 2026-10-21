@@ -2235,6 +2235,40 @@ describe('Management API v1: projects and zones', () => {
       await expectRefused(doc(undefined, { css: 'body{}' }), '/css');
     });
 
+    it('saves a styled text and reads it back unchanged (story 7.4)', async () => {
+      const tale = await createTale();
+      const props = {
+        text: 'שלום world',
+        font: { source: 'name', family: 'Inter' },
+        fallback: 'serif',
+        size: 0.06,
+        weight: 'medium',
+        italic: true,
+        color: '#ffcc00',
+        align: 'start',
+        direction: 'auto',
+        lineHeight: 1.4,
+        background: 'box',
+        backgroundColor: '#000000cc',
+      };
+      const document = doc([{ ...text(1), props }]);
+      expect((await save(tale.id, { document, revision: 0 })).status).toBe(200);
+      expect(await readDraft(tale.id)).toEqual({ document, revision: 1 });
+    });
+
+    it('refuses unsafe font names, colours and out-of-range sizes (story 7.4)', async () => {
+      const styled = (style: Record<string, unknown>) => doc([{ ...text(1), props: { text: 'x', ...style } }]);
+      const at = '/elements/0/props';
+      await expectRefused(styled({ font: { source: 'name', family: 'inherit' } }), `${at}/font/family`);
+      await expectRefused(styled({ font: { source: 'name', family: 'x;color:red' } }), `${at}/font/family`);
+      await expectRefused(styled({ color: 'red; background:url(x)' }), `${at}/color`);
+      await expectRefused(styled({ backgroundColor: 'red; background:url(x)' }), `${at}/backgroundColor`);
+      await expectRefused(styled({ size: 0.005 }), `${at}/size`);
+      await expectRefused(styled({ size: 0.5 }), `${at}/size`);
+      await expectRefused(styled({ lineHeight: 4 }), `${at}/lineHeight`);
+      await expectRefused(styled({ direction: 'up' }), `${at}/direction`);
+    });
+
     it('refuses more than 60 elements', async () => {
       await expectRefused(doc(Array.from({ length: 61 }, (_, i) => text(i + 1))), '/elements');
     });

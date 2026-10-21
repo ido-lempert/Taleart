@@ -3,11 +3,13 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   HostListener,
   inject,
   input,
   OnChanges,
   signal,
+  untracked,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
@@ -21,15 +23,25 @@ import {
   MAX_TEXT_LENGTH,
   NEW_TEXT_BOX,
   TALE_SAFE_AREA,
-  TEXT_ELEMENT_STYLE,
+  DEFAULT_TEXT_STYLE,
+  resolveTextStyle,
+  TEXT_BOX_PADDING_EM,
+  TEXT_HIGHLIGHT_PADDING_EM,
+  TEXT_WEIGHTS,
+  textContrast,
+  textFontFamily,
   type PublishedTaleDocument,
   type TaleDocument,
   type TaleElement,
   type TaleElementBox,
+  type TextBackdrop,
+  type TextElementProps,
 } from '@taleart/contract';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
+import { ThemeService } from '../theme.service';
+import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
 import { sameDocument, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
@@ -104,6 +116,54 @@ const REORDERED: Record<ReorderCommand, [string, string]> = {
 };
 const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
 
+/** How the canvas draws a text, as the Web SDK renders it: each value from the contract's `resolveTextStyle`. */
+export interface TextView {
+  dir: string;
+  family: string;
+  size: string;
+  weight: number;
+  fontStyle: string;
+  color: string;
+  lineHeight: number;
+  align: string;
+  /** A solid box's colour and inline padding, or null. */
+  boxColor: string | null;
+  boxPadding: string | null;
+  /** A per-line highlight's colour and inline padding, or null. */
+  lineColor: string | null;
+  linePadding: string | null;
+}
+
+/** The canvas look of a text's props; `themeFont` is the project theme's font-family list, or null. */
+export function textView(props: unknown, themeFont: string | null): TextView {
+  const look = resolveTextStyle(props);
+  const box = look.background === 'box';
+  const line = look.background === 'highlight';
+  return {
+    dir: look.direction,
+    family: textFontFamily(look, themeFont),
+    size: `${look.size * 100}cqh`,
+    weight: TEXT_WEIGHTS[look.weight],
+    fontStyle: look.italic ? 'italic' : 'normal',
+    color: look.color,
+    lineHeight: look.lineHeight,
+    align: look.align,
+    boxColor: box ? look.backgroundColor : null,
+    boxPadding: box ? `${TEXT_BOX_PADDING_EM}em` : null,
+    lineColor: line ? look.backgroundColor : null,
+    linePadding: line ? `${TEXT_HIGHLIGHT_PADDING_EM}em` : null,
+  };
+}
+
+/**
+ * The props of a new text: its text and every style setting stored explicitly (story 7.4), the
+ * direction `auto` included, so what it looks like does not depend on defaults.
+ */
+export function newTextProps(text: string): TextElementProps {
+  const { font, ...style } = DEFAULT_TEXT_STYLE;
+  return { text, font: { ...font }, ...style };
+}
+
 /**
  * Tale Studio (epic Tale Studio stories 1 to 3): a tale on a 9:16 canvas with its media over the
  * canvas colour, where a content manager adds text elements, types their text in place, moves
@@ -117,7 +177,7 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
  */
 @Component({
   selector: 'app-tale-studio-page',
-  imports: [RouterLink, Icon, TaleLayerMenu],
+  imports: [RouterLink, Icon, TaleLayerMenu, TaleTextStyle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .studio {
@@ -160,8 +220,17 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
       overflow-wrap: anywhere;
     }
     .el {
+      flex-direction: column;
+      align-items: stretch;
       cursor: move;
       touch-action: none;
+    }
+    .el__line {
+      display: block;
+    }
+    .el__glyphs.is-highlight {
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
     }
     .el.is-selected {
       border: 2px solid var(--ember);
@@ -373,6 +442,7 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                 }
               }
               @for (el of d.elements; track el.id; let i = $index) {
+                @let v = view(el);
                 @if (el.hidden) {
                   <!-- A hidden layer is not drawn; it stays in the layers list. -->
                 } @else if (editingId() === el.id) {
@@ -386,11 +456,14 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                     [style.height.%]="el.box.h * 100"
                     [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
                     [style.z-index]="i + 1"
-                    [style.font-size]="fontSize"
-                    [style.line-height]="textStyle.lineHeight"
-                    [style.font-weight]="textStyle.fontWeight"
-                    [style.color]="textStyle.color"
-                    [style.font-family]="textStyle.fontFamily"
+                    [attr.dir]="v.dir"
+                    [style.font-family]="v.family"
+                    [style.font-size]="v.size"
+                    [style.line-height]="v.lineHeight"
+                    [style.font-weight]="v.weight"
+                    [style.font-style]="v.fontStyle"
+                    [style.color]="v.color"
+                    [style.text-align]="v.align"
                     [value]="el.props.text"
                     (input)="typeText(el.id, $any($event.target))"
                     (blur)="stopEditing()"
@@ -408,18 +481,22 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                     [attr.aria-label]="'Text: ' + name(el)"
                     [attr.aria-describedby]="'layer-state-' + el.id"
                     [attr.aria-keyshortcuts]="keyShortcuts"
-                    [textContent]="el.props.text"
                     [style.left.%]="el.box.x * 100"
                     [style.top.%]="el.box.y * 100"
                     [style.width.%]="el.box.w * 100"
                     [style.height.%]="el.box.h * 100"
                     [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
                     [style.z-index]="i + 1"
-                    [style.font-size]="fontSize"
-                    [style.line-height]="textStyle.lineHeight"
-                    [style.font-weight]="textStyle.fontWeight"
-                    [style.color]="textStyle.color"
-                    [style.font-family]="textStyle.fontFamily"
+                    [attr.dir]="v.dir"
+                    [style.font-family]="v.family"
+                    [style.font-size]="v.size"
+                    [style.line-height]="v.lineHeight"
+                    [style.font-weight]="v.weight"
+                    [style.font-style]="v.fontStyle"
+                    [style.color]="v.color"
+                    [style.text-align]="v.align"
+                    [style.background-color]="v.boxColor"
+                    [style.padding-inline]="v.boxPadding"
                     (click)="pick($event, el.id)"
                     (dblclick)="edit(el.id)"
                     (contextmenu)="openMenuAt($event, el, 'canvas')"
@@ -428,7 +505,18 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                     (pointermove)="dragMove($event)"
                     (pointerup)="dragEnd($event)"
                     (pointercancel)="dragEnd($event)"
-                  ></button>
+                  >
+                    <!-- As the Web SDK renders it: a block line holding the inline glyphs, highlighted per line. -->
+                    <span class="el__line"
+                      ><span
+                        class="el__glyphs"
+                        [class.is-highlight]="v.lineColor !== null"
+                        [style.background-color]="v.lineColor"
+                        [style.padding-inline]="v.linePadding"
+                        [textContent]="el.props.text"
+                      ></span
+                    ></span>
+                  </button>
                 }
               }
               @if (guides()) {
@@ -520,6 +608,9 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                             }
                             @if (row.outside) {
                               <span class="layer__warning"><app-icon name="alert" /> Outside safe area</span>
+                            }
+                            @if (row.lowContrast) {
+                              <span class="layer__warning"><app-icon name="alert" /> Low contrast</span>
                             }
                           </span>
                         </div>
@@ -631,6 +722,15 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                       />
                     </div>
                   </div>
+                  <app-tale-text-style
+                    [elementId]="el.id"
+                    [props]="el.props"
+                    [locked]="el.locked"
+                    [themeFont]="themeFont()"
+                    [backdrop]="backdrop()"
+                    (changed)="restyle(el.id, $event)"
+                    (refused)="say($event)"
+                  />
                   <div class="row">
                     <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">Delete text</button>
                   </div>
@@ -786,8 +886,6 @@ export class TaleStudioPage implements OnChanges {
 
   protected readonly maxElements = MAX_TALE_ELEMENTS;
   protected readonly maxText = MAX_TEXT_LENGTH;
-  protected readonly textStyle = TEXT_ELEMENT_STYLE;
-  protected readonly fontSize = `${TEXT_ELEMENT_STYLE.fontSize * 100}cqh`;
   protected readonly safeArea = TALE_SAFE_AREA;
   private readonly apple = isApple();
   /** Each layer shortcut as people read it on this platform. */
@@ -811,6 +909,21 @@ export class TaleStudioPage implements OnChanges {
   protected readonly lockedHint = LOCKED;
 
   protected readonly tale = computed(() => this.store.tale(this.taleId()));
+  // The tale's project: the theme is read again only when it changes, not on each store refresh.
+  private readonly projectId = computed(() => this.tale()?.projectId);
+  /**
+   * The project theme's font-family list, for texts in the theme font (web zones R9): null when
+   * the theme sets none; undefined until read, or when it cannot be read (the fallback shows).
+   */
+  protected readonly themeFont = signal<string | null | undefined>(undefined);
+  private readonly themes = inject(ThemeService);
+  /** What lies behind texts, for their contrast checks (R12): the canvas colour, and whether media covers it. */
+  protected readonly backdrop = computed<TextBackdrop>(() => ({
+    canvasColor: this.doc()?.canvas.background.color ?? '#000000',
+    overMedia: !!this.tale()?.media,
+  }));
+  // Each text's canvas look, kept per props object, so unchanged texts keep their view.
+  private readonly views = new WeakMap<object, { themeFont: string | null; view: TextView }>();
   /** The one selected layer's id, or null when none or several are selected. */
   protected readonly selectedId = computed(() => (this.selection().length === 1 ? this.selection()[0] : null));
   protected readonly selected = computed(() => this.doc()?.elements.find((e) => e.id === this.selectedId()) ?? null);
@@ -818,7 +931,12 @@ export class TaleStudioPage implements OnChanges {
   /** The layers list: top of the z-order first, each with its name and whether it reaches outside the safe area. */
   protected readonly layerRows = computed(() =>
     (this.doc()?.elements ?? [])
-      .map((el) => ({ el, name: layerName(el), outside: isOutsideSafeArea(el.box) }))
+      .map((el) => ({
+        el,
+        name: layerName(el),
+        outside: isOutsideSafeArea(el.box),
+        lowContrast: textContrast(resolveTextStyle(el.props), this.backdrop()).kind === 'low',
+      }))
       .reverse(),
   );
   /** The zone page the tale was opened from, or the zones list. */
@@ -879,6 +997,42 @@ export class TaleStudioPage implements OnChanges {
       this.autosave.dispose();
       this.stopTicker();
     });
+    // The project's theme font, read once the tale (and so its project) is known.
+    effect(() => {
+      const projectId = this.projectId();
+      if (projectId) void untracked(() => this.loadThemeFont(projectId));
+    });
+  }
+
+  private async loadThemeFont(projectId: string): Promise<void> {
+    const result = await this.themes.load(projectId);
+    if (this.tale()?.projectId !== projectId) return;
+    this.themeFont.set(result.value === null ? undefined : result.value.resolved.fontFamily);
+  }
+
+  /** How the canvas draws a text: as the Web SDK renders it, with the theme font read here. */
+  protected view(element: TaleElement): TextView {
+    const themeFont = this.themeFont() ?? null;
+    const kept = this.views.get(element.props);
+    if (kept && kept.themeFont === themeFont) return kept.view;
+    const view = textView(element.props, themeFont);
+    this.views.set(element.props, { themeFont, view });
+    return view;
+  }
+
+  /** Applies a change from the text style inspector as one step in the history, and says what changed. */
+  protected restyle(id: string, change: TextStyleChange): void {
+    if (this.isHeld()) return;
+    const element = this.element(id);
+    if (!element) return;
+    if (element.locked) {
+      this.say(LOCKED);
+      return;
+    }
+    this.change(change.label, (elements) =>
+      elements.map((e) => (e.id === id ? { ...e, props: { ...e.props, ...change.patch } } : e)),
+    );
+    this.say(change.said);
   }
 
   // The route's tale changed (on opening, or after keeping a version as a new tale, where the
@@ -1235,7 +1389,7 @@ export class TaleStudioPage implements OnChanges {
     return this.percent(1 - size);
   }
 
-  private say(text: string): void {
+  protected say(text: string): void {
     // Cleared first, so the same message twice is announced twice.
     this.announcement.set('');
     setTimeout(() => this.announcement.set(text), 0);
@@ -1349,7 +1503,7 @@ export class TaleStudioPage implements OnChanges {
       hidden: false,
       locked: false,
       a11y: {},
-      props: { text: 'Text' },
+      props: newTextProps('Text'),
     };
     this.change('Text added', (elements) => [...elements, element]);
     this.selectOnly(element.id);

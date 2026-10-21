@@ -1,0 +1,264 @@
+// How a text element looks (epic Tale Studio R4, R12; AD-15, AD-16): the font registry, the
+// style props' presets and ranges, their defaults, and the helpers Tale Studio and the Web SDK
+// share, so both draw a text the same way. `tale-document/element-types/text.schema.json` states
+// the same rules for validators; a contract test keeps the two in step.
+import type { components } from '../generated/api';
+import { contrastRatio, isFontFamily, TEXT_CONTRAST_MIN } from './theme';
+
+type Props = components['schemas']['TextElementProps'];
+
+/** A key of the font registry's system stacks. */
+export type SystemFontStack = NonNullable<Props['fallback']>;
+
+/** Where a text's font comes from (R4): a system stack, the project theme's font, or a font-family list the host page loads. */
+export type TextFont =
+  | { source: 'system'; stack: SystemFontStack }
+  | { source: 'theme' }
+  | { source: 'name'; family: string };
+
+/** A text's weight. */
+export type TextWeight = NonNullable<Props['weight']>;
+/** Where a text's lines sit: `start` and `end` follow its direction. */
+export type TextAlign = NonNullable<Props['align']>;
+/** A text's direction: `auto` takes it from its first strong character. */
+export type TextDirection = NonNullable<Props['direction']>;
+/** What is drawn behind a text. */
+export type TextBackground = NonNullable<Props['background']>;
+
+/**
+ * The font registry's system stacks (R4): fonts every platform has, so no font file is loaded.
+ * `sans` is the stack text had before styling. Each is a fixed, safe `font-family` value.
+ */
+export const SYSTEM_FONT_STACKS: Readonly<Record<SystemFontStack, string>> = /* @__PURE__ */ Object.freeze({
+  sans: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  serif: 'Georgia, Cambria, "Times New Roman", Times, serif',
+  rounded: 'ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", Nunito, Quicksand, system-ui, sans-serif',
+  monospace: 'ui-monospace, Menlo, Consolas, "Cascadia Mono", "Liberation Mono", monospace',
+});
+
+/** The system stack keys, in the order editors list them. */
+export const SYSTEM_FONT_STACK_KEYS: readonly SystemFontStack[] = ['sans', 'serif', 'rounded', 'monospace'];
+
+/** The CSS weight of each text weight. */
+export const TEXT_WEIGHTS: Readonly<Record<TextWeight, number>> = /* @__PURE__ */ Object.freeze({
+  regular: 400,
+  medium: 500,
+  bold: 700,
+});
+
+/** The size presets, as fractions of the canvas height (R4). */
+export const TEXT_SIZE_PRESETS = /* @__PURE__ */ Object.freeze({ small: 0.03, medium: 0.04, large: 0.06 } as const);
+/** A size preset's name. */
+export type TextSizePreset = keyof typeof TEXT_SIZE_PRESETS;
+
+/** The font size's range, as a fraction of the canvas height. */
+export const TEXT_SIZE_RANGE = /* @__PURE__ */ Object.freeze({ min: 0.01, max: 0.2 } as const);
+/** The line height's range, as a multiple of the font size. */
+export const TEXT_LINE_HEIGHT_RANGE = /* @__PURE__ */ Object.freeze({ min: 0.8, max: 3 } as const);
+
+/** A text's colour or background colour: `#RRGGBB` or `#RRGGBBAA`. */
+export const TEXT_COLOR_PATTERN = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/** Every style prop of a text element, filled. */
+export interface TextStyle {
+  font: TextFont;
+  fallback: SystemFontStack;
+  size: number;
+  weight: TextWeight;
+  italic: boolean;
+  color: string;
+  align: TextAlign;
+  direction: TextDirection;
+  lineHeight: number;
+  background: TextBackground;
+  backgroundColor: string;
+}
+
+/**
+ * The style of a text whose props leave a field out: how text looked before styling (system sans
+ * at 4 % of the canvas height, 1.25 line height, white, centred, its direction from its text),
+ * except the weight, which was 600 and is now `bold` (700), the nearest of the three weights.
+ */
+export const DEFAULT_TEXT_STYLE: Readonly<TextStyle> = /* @__PURE__ */ Object.freeze({
+  font: /* @__PURE__ */ Object.freeze({ source: 'system', stack: 'sans' }) as TextFont,
+  fallback: 'sans',
+  size: TEXT_SIZE_PRESETS.medium,
+  weight: 'bold',
+  italic: false,
+  color: '#ffffff',
+  align: 'center',
+  direction: 'auto',
+  lineHeight: 1.25,
+  background: 'none',
+  backgroundColor: '#000000',
+});
+
+const STACKS = SYSTEM_FONT_STACK_KEYS as readonly unknown[];
+const oneOf = <T>(values: readonly T[], value: unknown): value is T => (values as readonly unknown[]).includes(value);
+const inRange = (value: unknown, range: { min: number; max: number }): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= range.min && value <= range.max;
+const isColor = (value: unknown): value is string => typeof value === 'string' && TEXT_COLOR_PATTERN.test(value);
+
+/** The font of `value` when it is a valid font source, else null. */
+export function readTextFont(value: unknown): TextFont | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const font = value as Record<string, unknown>;
+  const keys = Object.keys(font);
+  switch (font['source']) {
+    case 'system':
+      return keys.length === 2 && oneOf(STACKS, font['stack'])
+        ? { source: 'system', stack: font['stack'] as SystemFontStack }
+        : null;
+    case 'theme':
+      return keys.length === 1 ? { source: 'theme' } : null;
+    case 'name':
+      return keys.length === 2 && isFontFamily(font['family']) ? { source: 'name', family: font['family'] } : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The complete style of a text element's props: each field that passes its rule as it is, every
+ * missing or invalid one from {@link DEFAULT_TEXT_STYLE}. The server refuses invalid props on
+ * write; renderers read through this, so a value that reaches CSS is always a checked one.
+ */
+export function resolveTextStyle(props: unknown): TextStyle {
+  const p = typeof props === 'object' && props !== null ? (props as Record<string, unknown>) : {};
+  const d = DEFAULT_TEXT_STYLE;
+  return {
+    font: readTextFont(p['font']) ?? d.font,
+    fallback: oneOf(SYSTEM_FONT_STACK_KEYS, p['fallback']) ? p['fallback'] : d.fallback,
+    size: inRange(p['size'], TEXT_SIZE_RANGE) ? p['size'] : d.size,
+    weight: oneOf<TextWeight>(['regular', 'medium', 'bold'], p['weight']) ? p['weight'] : d.weight,
+    italic: typeof p['italic'] === 'boolean' ? p['italic'] : d.italic,
+    color: isColor(p['color']) ? p['color'] : d.color,
+    align: oneOf<TextAlign>(['start', 'center', 'end'], p['align']) ? p['align'] : d.align,
+    direction: oneOf<TextDirection>(['auto', 'rtl', 'ltr'], p['direction']) ? p['direction'] : d.direction,
+    lineHeight: inRange(p['lineHeight'], TEXT_LINE_HEIGHT_RANGE) ? p['lineHeight'] : d.lineHeight,
+    background: oneOf<TextBackground>(['none', 'box', 'highlight'], p['background']) ? p['background'] : d.background,
+    backgroundColor: isColor(p['backgroundColor']) ? p['backgroundColor'] : d.backgroundColor,
+  };
+}
+
+/** The inline padding of a solid box, in em of the text: the text does not touch the box's sides. */
+export const TEXT_BOX_PADDING_EM = 0.5;
+/** The inline padding of a per-line highlight, in em of the text. */
+export const TEXT_HIGHLIGHT_PADDING_EM = 0.25;
+
+/** The CSS custom property the Web SDK sets to the project theme's font (web zones R9). */
+export const THEME_FONT_PROPERTY = '--ta-font';
+
+/**
+ * The `font-family` value of a text style, ending in its fallback stack. For the theme font,
+ * `themeFont` is the project theme's font-family list, or null when the theme sets none (the
+ * fallback stack alone); left out, the value reads the theme's custom property, as the Web SDK
+ * renders it. A named font comes first, before the fallback, which shows until the host page
+ * has loaded it. Every part is a registry stack or a list that passed the font-list rules.
+ */
+export function textFontFamily(style: Pick<TextStyle, 'font' | 'fallback'>, themeFont?: string | null): string {
+  const fallback = SYSTEM_FONT_STACKS[style.fallback];
+  switch (style.font.source) {
+    case 'system':
+      return SYSTEM_FONT_STACKS[style.font.stack];
+    case 'name':
+      return `${style.font.family}, ${fallback}`;
+    default:
+      if (themeFont === undefined) return `var(${THEME_FONT_PROPERTY}, ${fallback}), ${fallback}`;
+      return themeFont !== null && isFontFamily(themeFont) ? `${themeFont}, ${fallback}` : fallback;
+  }
+}
+
+/** The size preset a size matches, or `custom`. */
+export function textSizePreset(size: number): TextSizePreset | 'custom' {
+  const match = (Object.keys(TEXT_SIZE_PRESETS) as TextSizePreset[]).find(
+    (preset) => Math.abs(TEXT_SIZE_PRESETS[preset] - size) < 1e-9,
+  );
+  return match ?? 'custom';
+}
+
+/**
+ * The canvas height the contrast check takes, in CSS pixels, to tell large text: the canvas of a
+ * 360 px wide phone (640 px high). Larger screens draw text larger, so a text large here is large
+ * on every phone.
+ */
+export const CONTRAST_CANVAS_HEIGHT_PX = 640;
+/** WCAG 2.2 large text: 18 pt (24 px), or 14 pt (about 18.67 px) when bold. */
+export const LARGE_TEXT_PX = 24;
+export const LARGE_BOLD_TEXT_PX = 18.67;
+/** The minimum contrast of large text (WCAG 2.2 1.4.3). */
+export const LARGE_TEXT_CONTRAST_MIN = 3;
+
+/** True when a text style counts as large text for WCAG 1.4.3 on {@link CONTRAST_CANVAS_HEIGHT_PX}. */
+export function isLargeText(style: Pick<TextStyle, 'size' | 'weight'>): boolean {
+  const px = style.size * CONTRAST_CANVAS_HEIGHT_PX;
+  return px >= LARGE_TEXT_PX || (TEXT_WEIGHTS[style.weight] >= 700 && px >= LARGE_BOLD_TEXT_PX);
+}
+
+// A #RRGGBB or #RRGGBBAA colour as channels from 0 to 255 and an alpha from 0 to 1.
+function rgba(color: string): [number, number, number, number] {
+  const n = (i: number) => parseInt(color.slice(i, i + 2), 16);
+  return [n(1), n(3), n(5), color.length === 9 ? n(7) / 255 : 1];
+}
+
+const hex = (channels: number[]) =>
+  `#${channels
+    .map((c) =>
+      Math.round(Math.min(255, Math.max(0, c)))
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+
+/** True when a `#RRGGBB` or `#RRGGBBAA` colour is fully opaque. */
+export function isOpaqueColor(color: string): boolean {
+  return rgba(color)[3] === 1;
+}
+
+/** `top` (which may be translucent) drawn over the opaque `bottom`, as an opaque `#rrggbb`. */
+export function compositeColor(top: string, bottom: string): string {
+  const [r, g, b, a] = rgba(top);
+  const [R, G, B] = rgba(bottom);
+  return hex([r * a + R * (1 - a), g * a + G * (1 - a), b * a + B * (1 - a)]);
+}
+
+/** What lies behind a text, for its contrast check. */
+export interface TextBackdrop {
+  /** The canvas colour (`#RRGGBB` or `#RRGGBBAA`). */
+  canvasColor: string;
+  /** True when the tale's media lies under the text, so its backdrop cannot be known. */
+  overMedia: boolean;
+}
+
+/** The viewer's stage behind a translucent canvas colour. */
+export const STAGE_COLOR = '#000000';
+
+/** A text's contrast check (R12): a warning only, never a reason to refuse a save or a publish. */
+export type TextContrast =
+  | { kind: 'ok' | 'low'; ratio: number; minimum: number; against: 'box' | 'highlight' | 'canvas' }
+  | { kind: 'unknown'; reason: 'media' };
+
+/**
+ * Checks a text's colour against what lies behind it (R12, WCAG 2.2 1.4.3): 4.5:1, or 3:1 for
+ * large text. The backdrop is the text's own box or highlight when its colour is opaque; else
+ * the canvas colour (a translucent box or highlight drawn over it), drawn over the viewer's
+ * black stage when translucent. When the tale's media is behind the text and no opaque box or
+ * highlight covers it, the contrast cannot be checked here.
+ */
+export function textContrast(style: TextStyle, backdrop: TextBackdrop): TextContrast {
+  const own = style.background !== 'none' ? style.backgroundColor : null;
+  let behind: string;
+  let against: 'box' | 'highlight' | 'canvas';
+  if (own !== null && isOpaqueColor(own)) {
+    behind = own;
+    against = style.background as 'box' | 'highlight';
+  } else {
+    if (backdrop.overMedia) return { kind: 'unknown', reason: 'media' };
+    const canvas = compositeColor(backdrop.canvasColor, STAGE_COLOR);
+    behind = own !== null ? compositeColor(own, canvas) : canvas;
+    against = own !== null ? (style.background as 'box' | 'highlight') : 'canvas';
+  }
+  const ratio = contrastRatio(compositeColor(style.color, behind), behind);
+  const minimum = isLargeText(style) ? LARGE_TEXT_CONTRAST_MIN : TEXT_CONTRAST_MIN;
+  return { kind: ratio < minimum ? 'low' : 'ok', ratio, minimum, against };
+}

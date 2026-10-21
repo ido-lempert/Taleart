@@ -1192,6 +1192,164 @@ try {
     await axe(page, 'stages: a bar stage and a banner stage');
     await context.close();
   }
+
+  // 11. Styled text (Tale Studio 7.4): fonts, sizes, colours, boxes and highlights, alignment and
+  //     direction, at two phone widths; contrast (1.4.3), right-to-left text (1.3.2) and text spacing (1.4.12).
+  {
+    const styled = (n, y, props) => ({ ...text(n, y, props.text), props });
+    const STYLED = [
+      styled(1, 0.14, {
+        text: 'קיץ: 50% off',
+        font: { source: 'system', stack: 'serif' },
+        size: 0.06,
+        weight: 'bold',
+        italic: true,
+        color: '#ffcc00',
+        align: 'start',
+        direction: 'auto',
+        lineHeight: 1.2,
+        background: 'box',
+        backgroundColor: '#000000',
+      }),
+      styled(2, 0.34, {
+        text: 'Free shipping on every order this week',
+        font: { source: 'name', family: '"Sample Serif"' },
+        fallback: 'serif',
+        size: 0.04,
+        weight: 'regular',
+        color: '#111111',
+        align: 'end',
+        lineHeight: 1.4,
+        background: 'highlight',
+        backgroundColor: '#ffffff',
+      }),
+      styled(3, 0.54, { text: 'Theme font', font: { source: 'theme' }, fallback: 'monospace', size: 0.03 }),
+      styled(4, 0.7, { text: 'שלום world', direction: 'ltr', align: 'start', weight: 'medium' }),
+    ];
+    const z = zone({
+      theme: { ...DEFAULT_THEME, fontFamily: 'Georgia, serif' },
+      taleGroups: [
+        {
+          id: 'gs',
+          name: 'Styled',
+          cover: null,
+          tales: [
+            {
+              id: 's1',
+              title: 'Styled text',
+              media: null,
+              document: { version: 1, canvas: { background: { type: 'color', color: '#1f3a5f' } }, elements: STYLED },
+            },
+          ],
+        },
+      ],
+    });
+    // The host page loads the font the second text names, from a font the system has.
+    const host =
+      '@font-face { font-family: "Sample Serif"; src: local("Georgia"), local("DejaVu Serif"), local("Times New Roman"); }';
+    const read = (page) =>
+      page.evaluate(() =>
+        [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('dialog .ta-text')].map((p) => {
+          const s = getComputedStyle(p);
+          const g = p.querySelector('.ta-glyphs');
+          const gs = getComputedStyle(g);
+          const box = p.getBoundingClientRect();
+          const glyphs = g.getBoundingClientRect();
+          const canvas = p.closest('.ta-canvas').getBoundingClientRect();
+          return {
+            text: p.textContent,
+            dirAttr: p.getAttribute('dir'),
+            direction: s.direction,
+            family: s.fontFamily,
+            size: parseFloat(s.fontSize) / canvas.height,
+            weight: s.fontWeight,
+            italic: s.fontStyle,
+            color: s.color,
+            align: s.textAlign,
+            boxBg: s.backgroundColor,
+            lineBg: gs.backgroundColor,
+            clone: gs.boxDecorationBreak || gs.webkitBoxDecorationBreak,
+            leftGap: glyphs.left - box.left,
+            rightGap: box.right - glyphs.right,
+            inside:
+              glyphs.top >= canvas.top - 1 &&
+              glyphs.bottom <= canvas.bottom + 1 &&
+              glyphs.left >= canvas.left - 1 &&
+              glyphs.right <= canvas.right + 1,
+          };
+        }),
+      );
+    const near = (a, b) => Math.abs(a - b) < 0.002;
+    for (const width of [390, 360]) {
+      const context = await browser.newContext({ viewport: { width, height: 844 } });
+      const page = await openSample(context, { zone: z, host });
+      await view(page).locator('button.item').first().click();
+      await dialogOf(page).waitFor();
+      await page.keyboard.press(' ');
+      const [hebrew, named, themed, ltr] = await read(page);
+      const at = `${width} px`;
+      check(
+        '1.4.4',
+        near(hebrew.size, 0.06) && near(named.size, 0.04) && near(themed.size, 0.03),
+        `${at}: text sizes are fractions of the canvas height (6 %, 4 %, 3 %)`,
+      );
+      check(
+        '1.3.1',
+        /Georgia/.test(hebrew.family) && hebrew.weight === '700' && hebrew.italic === 'italic',
+        `${at}: the serif stack, bold and italic apply`,
+      );
+      check(
+        '1.3.1',
+        /^"Sample Serif", Georgia/.test(named.family) && named.weight === '400',
+        `${at}: a font name the page loads comes first, before its fallback stack (${named.family.slice(0, 40)}…)`,
+      );
+      check(
+        '1.3.1',
+        /^Georgia, serif, ui-monospace/.test(themed.family),
+        `${at}: the theme font applies, then the fallback stack (${themed.family.slice(0, 40)}…)`,
+      );
+      check(
+        '1.3.2',
+        hebrew.dirAttr === 'auto' && hebrew.direction === 'rtl' && hebrew.rightGap < hebrew.leftGap,
+        `${at}: Hebrew-first text with automatic direction reads right to left and aligns to its start, the right ` +
+          `(${hebrew.direction}, gaps ${Math.round(hebrew.leftGap)} / ${Math.round(hebrew.rightGap)} px)`,
+      );
+      check(
+        '1.3.2',
+        ltr.dirAttr === 'ltr' && ltr.direction === 'ltr' && ltr.leftGap < ltr.rightGap,
+        `${at}: an explicit left-to-right direction keeps Hebrew text left-aligned at its start`,
+      );
+      check('1.3.2', named.align === 'end' && named.leftGap > named.rightGap, `${at}: end alignment on LTR is right`);
+      const boxRatio = contrast(parse(hebrew.color), parse(hebrew.boxBg));
+      const lineRatio = contrast(parse(named.color), parse(named.lineBg));
+      check(
+        '1.4.3',
+        boxRatio >= 4.5 && lineRatio >= 4.5,
+        `${at}: text on its box (${boxRatio.toFixed(1)}:1) and on its highlight (${lineRatio.toFixed(1)}:1) contrasts`,
+      );
+      check(
+        '1.4.3',
+        named.clone === 'clone' && parse(named.boxBg)?.a === 0,
+        `${at}: the highlight is drawn behind each line, not the box`,
+      );
+      await axe(page, `${at}: viewer on a styled text tale`);
+      if (width === 390) await shot(page, '17-styled-text-tale');
+      // Text spacing (1.4.12) on styled text: every line stays on the canvas.
+      await page.evaluate((css) => {
+        const style = document.createElement('style');
+        style.textContent = css;
+        document.querySelector('taleart-view').shadowRoot.appendChild(style);
+      }, '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }');
+      const spaced = await read(page);
+      check(
+        '1.4.12',
+        spaced.every((t) => t.inside),
+        `${at}: styled text stays within the canvas with text spacing`,
+      );
+      check('4.1.2', page.errors.length === 0, `${at}: no console errors on the styled text tale`);
+      await context.close();
+    }
+  }
 } finally {
   await browser.close();
   server.kill();

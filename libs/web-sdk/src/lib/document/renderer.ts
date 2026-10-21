@@ -40,12 +40,16 @@ export const DOCUMENT_STYLES = `
 .ta-el { position: absolute; box-sizing: border-box; margin: 0; }
 .ta-text {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: center;
-  text-align: center;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+.ta-line { display: block; }
+.ta-hl {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .ta-glyphs {
   pointer-events: auto;

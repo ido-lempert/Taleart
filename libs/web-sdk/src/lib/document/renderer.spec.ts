@@ -1,5 +1,10 @@
-import type { DeliveryTaleDocument, DeliveryTaleElement } from '@taleart/contract';
-import { renderTaleDocument } from './renderer';
+import {
+  SYSTEM_FONT_STACKS,
+  textFontFamily,
+  type DeliveryTaleDocument,
+  type DeliveryTaleElement,
+} from '@taleart/contract';
+import { DOCUMENT_STYLES, renderTaleDocument } from './renderer';
 
 const box = (x: number, y: number, extra: Partial<DeliveryTaleElement['box']> = {}) => ({
   x,
@@ -49,8 +54,11 @@ describe('renderTaleDocument', () => {
     const area = renderTaleDocument(doc([text('a', '<b>x</b>\n<img src=x onerror=alert(1)>')]));
     const [p] = texts(area);
     expect(p.tagName).toBe('P');
-    const span = p.firstElementChild as HTMLElement;
+    const line = p.firstElementChild as HTMLElement;
     expect(p.children).toHaveLength(1);
+    expect(line.className).toBe('ta-line');
+    expect(line.children).toHaveLength(1);
+    const span = line.firstElementChild as HTMLElement;
     expect(span.className).toBe('ta-glyphs');
     expect(span.childNodes).toHaveLength(1);
     expect(span.firstChild?.nodeType).toBe(Node.TEXT_NODE);
@@ -150,5 +158,110 @@ describe('renderTaleDocument', () => {
     const shown = texts(area);
     expect(shown.map((p) => p.textContent)).toEqual(['Bottom', 'Top']);
     expect(shown.map((p) => p.style.zIndex)).toEqual(['1', '2']);
+  });
+});
+
+describe('text style (story 7.4)', () => {
+  const styled = (props: Record<string, unknown>, value = 'Styled') =>
+    texts(renderTaleDocument(doc([text('a', value, 0.1, 0.2, { props: { text: value, ...props } as never })])))[0];
+  const sans = SYSTEM_FONT_STACKS.sans;
+  const serif = SYSTEM_FONT_STACKS.serif;
+
+  it('renders a text without style as before: sans, 4 % of the canvas, white, centred, its own direction', () => {
+    const p = styled({});
+    expect(p.style.fontFamily).toBe(sans);
+    expect(p.style.fontSize).toBe('4cqh');
+    expect(p.style.lineHeight).toBe('1.25');
+    expect(p.style.color).toBe('rgb(255, 255, 255)');
+    expect(p.style.textAlign).toBe('center');
+    expect(p.style.fontStyle).toBe('normal');
+    expect(p.style.backgroundColor).toBe('');
+    expect(p.getAttribute('dir')).toBe('auto');
+  });
+
+  it('applies every setting through CSSOM', () => {
+    const p = styled({
+      font: { source: 'system', stack: 'serif' },
+      size: 0.12,
+      weight: 'regular',
+      italic: true,
+      color: '#ff0000',
+      align: 'end',
+      direction: 'rtl',
+      lineHeight: 1.6,
+      background: 'box',
+      backgroundColor: '#000000',
+    });
+    expect(p.style.fontFamily).toBe(serif);
+    expect(p.style.fontSize).toBe('12cqh');
+    expect(p.style.fontWeight).toBe('400');
+    expect(p.style.fontStyle).toBe('italic');
+    expect(p.style.color).toBe('rgb(255, 0, 0)');
+    expect(p.style.textAlign).toBe('end');
+    expect(p.getAttribute('dir')).toBe('rtl');
+    expect(p.style.lineHeight).toBe('1.6');
+    expect(p.style.backgroundColor).toBe('rgb(0, 0, 0)');
+    expect(p.querySelector<HTMLElement>('.ta-glyphs')?.style.backgroundColor).toBe('');
+  });
+
+  it.each([
+    ['regular', '400'],
+    ['medium', '500'],
+    ['bold', '700'],
+  ])('maps the %s weight to %s', (weight, css) => {
+    expect(styled({ weight }).style.fontWeight).toBe(css);
+  });
+
+  it.each(['auto', 'rtl', 'ltr'])('sets the %s direction as the dir attribute', (direction) => {
+    expect(styled({ direction }, 'שלום world').getAttribute('dir')).toBe(direction);
+  });
+
+  it('aligns start and end logically, so they follow the direction', () => {
+    expect(styled({ align: 'start' }).style.textAlign).toBe('start');
+    expect(DOCUMENT_STYLES).not.toMatch(/text-align: (left|right)/);
+  });
+
+  it('highlights each line of the glyphs, not the box', () => {
+    const p = styled({ background: 'highlight', backgroundColor: '#ffcc00' });
+    const glyphs = p.querySelector<HTMLElement>('.ta-glyphs') as HTMLElement;
+    expect(p.style.backgroundColor).toBe('');
+    expect(glyphs.classList.contains('ta-hl')).toBe(true);
+    expect(glyphs.style.backgroundColor).toBe('rgb(255, 204, 0)');
+    expect(DOCUMENT_STYLES).toMatch(/\.ta-hl \{[^}]*box-decoration-break: clone;/);
+  });
+
+  it('puts a named font before its fallback stack', () => {
+    expect(styled({ font: { source: 'name', family: 'Inter' }, fallback: 'serif' }).style.fontFamily).toBe(
+      `Inter, ${serif}`,
+    );
+  });
+
+  it("reads the theme's font from the theme's custom property, with the fallback stack", () => {
+    const value = textFontFamily({ font: { source: 'theme' }, fallback: 'sans' });
+    expect(value).toBe(`var(--ta-font, ${sans}), ${sans}`);
+    expect(styled({ font: { source: 'theme' } }).style.getPropertyValue('font-family')).toBe(value);
+  });
+
+  it.each([
+    ['font', { source: 'name', family: 'inherit' }, 'fontFamily', sans],
+    ['font', { source: 'name', family: 'x;color:red' }, 'fontFamily', sans],
+    ['color', 'red; background:url(x)', 'color', 'rgb(255, 255, 255)'],
+    ['backgroundColor', 'url(x)', 'backgroundColor', 'rgb(0, 0, 0)'],
+    ['size', 0.5, 'fontSize', '4cqh'],
+    ['lineHeight', 40, 'lineHeight', '1.25'],
+    ['align', 'left', 'textAlign', 'center'],
+  ])('falls back to the default for an invalid %s (%j)', (field, value, css, expected) => {
+    const props: Record<string, unknown> = { [field]: value };
+    if (field === 'backgroundColor') props['background'] = 'box';
+    const p = styled(props);
+    expect((p.style as unknown as Record<string, string>)[css]).toBe(expected);
+  });
+
+  it('keeps an invalid direction at auto, and never writes a style attribute from content', () => {
+    const setAttribute = vi.spyOn(Element.prototype, 'setAttribute');
+    const p = styled({ direction: 'up;x', color: '#00ff00' });
+    expect(p.getAttribute('dir')).toBe('auto');
+    expect(setAttribute.mock.calls.some(([name]) => name === 'style')).toBe(false);
+    setAttribute.mockRestore();
   });
 });
