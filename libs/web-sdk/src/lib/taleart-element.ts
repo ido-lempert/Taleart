@@ -1,4 +1,4 @@
-import type { DeliveryFrame, DeliveryZone, Theme } from '@taleart/contract';
+import type { DeliveryFrame, DeliveryZone } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
@@ -6,11 +6,13 @@ import {
   BAR_STYLES,
   COVER_MOTION_MS,
   prefersReducedMotion,
+  REDUCED_MOTION_QUERY,
   renderBar,
   setItemSeen,
 } from './bar';
 import { fetchZone } from './delivery-client';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
+import type { Theme } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
@@ -178,7 +180,7 @@ export class TaleartElement extends HTMLElement {
   connectedCallback(): void {
     connected.add(this);
     if (typeof matchMedia === 'function') {
-      const query = matchMedia('(prefers-reduced-motion: reduce)');
+      const query = matchMedia(REDUCED_MOTION_QUERY);
       this.motionQuery = query;
       // Safari before 14 has only the older addListener.
       if (typeof query.addEventListener === 'function') query.addEventListener('change', this.onMotionChange);

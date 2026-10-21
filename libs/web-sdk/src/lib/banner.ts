@@ -1,5 +1,5 @@
 import type { BannerSettings, DeliveryTaleGroup } from '@taleart/contract';
-import { coverMedia } from './bar';
+import { coverMedia, REDUCED_MOTION_QUERY } from './bar';
 import { coverSettled } from './first-content';
 import { isRtl, setIcon, SWIPE_MIN_PX } from './viewer';
 
@@ -20,8 +20,6 @@ export const BANNER_RATIOS = ['16:9', '3:1', '1:1'] as const;
 
 /** The autoplay interval's range in seconds, as the schema sets it. */
 export const BANNER_INTERVAL_RANGE = { min: 3, max: 15 } as const;
-
-const PREFERS_REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
 
 /** How long after a swipe's pointerup a pointer click still belongs to the swipe. */
 export const SWIPE_CLICK_WINDOW_MS = 300;
@@ -203,7 +201,7 @@ export function renderBanner(
   if (slides.length === 0) return null;
   const { aspectRatio, autoplay, intervalSeconds, showDots, loop } = readBannerSettings(settings);
   const count = slides.length;
-  const motion = typeof matchMedia === 'function' ? matchMedia(PREFERS_REDUCED_MOTION) : null;
+  const motion = typeof matchMedia === 'function' ? matchMedia(REDUCED_MOTION_QUERY) : null;
 
   const root = document.createElement('section');
   root.className = 'banner';
