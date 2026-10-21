@@ -13,7 +13,8 @@ export default [
             '{projectRoot}/vite.config.{js,ts,mjs,mts}',
           ],
           // The SDK has no runtime dependencies: it imports only types from the
-          // contract (`import type`), so nothing of it ends up in the bundle.
+          // contract (`import type`), so nothing of it ends up in the bundle, and the
+          // build inlines those types into the published index.d.ts.
           ignoredDependencies: ['@taleart/contract'],
         },
       ],

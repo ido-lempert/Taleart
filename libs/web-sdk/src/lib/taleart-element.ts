@@ -6,6 +6,7 @@ import {
   BAR_STYLES,
   COVER_MOTION_MS,
   prefersReducedMotion,
+  REDUCED_MOTION_QUERY,
   renderBar,
   setItemSeen,
 } from './bar';
@@ -178,7 +179,7 @@ export class TaleartElement extends HTMLElement {
   connectedCallback(): void {
     connected.add(this);
     if (typeof matchMedia === 'function') {
-      const query = matchMedia('(prefers-reduced-motion: reduce)');
+      const query = matchMedia(REDUCED_MOTION_QUERY);
       this.motionQuery = query;
       // Safari before 14 has only the older addListener.
       if (typeof query.addEventListener === 'function') query.addEventListener('change', this.onMotionChange);
