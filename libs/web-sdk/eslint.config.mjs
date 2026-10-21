@@ -11,9 +11,13 @@ export default [
           ignoredFiles: [
             '{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}',
             '{projectRoot}/vite.config.{js,ts,mjs,mts}',
+            '{projectRoot}/src/**/*.spec-d.ts',
           ],
-          // The SDK has no runtime dependencies: it imports only types from the
-          // contract (`import type`), so nothing of it ends up in the bundle.
+          // The published package has no dependencies: the few runtime values the SDK
+          // takes from the contract (`cleanText`, `ELEMENT_TEXT_RULE`,
+          // `TEXT_ELEMENT_STYLE`, `readingOrder`) are bundled into it, the rest are
+          // types, and its public declarations use its own types (`public-types.ts`).
+          // `web-sdk:types-check` fails if a published .d.ts names the contract.
           ignoredDependencies: ['@taleart/contract'],
         },
       ],
