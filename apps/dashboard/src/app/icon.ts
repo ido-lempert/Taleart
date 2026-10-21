@@ -21,7 +21,9 @@ export type IconName =
   | 'eye-off'
   | 'lock'
   | 'unlock'
-  | 'more';
+  | 'more'
+  | 'undo'
+  | 'redo';
 
 /** Inline SVG icons (24px grid, 2px stroke). Decorative: the control around an icon carries the label. */
 @Component({
@@ -120,6 +122,14 @@ export type IconName =
           <circle cx="5" cy="12" r="1" />
           <circle cx="12" cy="12" r="1" />
           <circle cx="19" cy="12" r="1" />
+        }
+        @case ('undo') {
+          <path d="M9 14L4 9l5-5" />
+          <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+        }
+        @case ('redo') {
+          <path d="M15 14l5-5-5-5" />
+          <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
         }
         @case ('tales') {
           <rect x="7" y="3" width="10" height="18" rx="2" />

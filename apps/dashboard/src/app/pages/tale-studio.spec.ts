@@ -1,9 +1,11 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { elementBounds, type TaleDocument, type ZoneTaleGroup } from '@taleart/contract';
 import { API_BASE, DashboardStore } from '../dashboard.store';
+import { appRoutes } from '../app.routes';
+import { AUTOSAVE_TIMING } from './tale-autosave';
 import { TaleStudioPage } from './tale-studio';
 
 const url = `${API_BASE}/tales/t1/document`;
@@ -52,6 +54,10 @@ function key(target: Element, k: string, init: KeyboardEventInit = {}): void {
   target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
 }
 
+// Autosave waits for the test to ask; tests of its timing shorten it.
+const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
+const timing = { ...WAIT_FOR_TEST };
+
 describe('TaleStudioPage', () => {
   let http: HttpTestingController;
   let fixture: ComponentFixture<TaleStudioPage>;
@@ -68,22 +74,44 @@ describe('TaleStudioPage', () => {
   }
 
   const elements = () => [...root.querySelectorAll<HTMLButtonElement>('button.el')];
-  const status = () => root.querySelector('[role=status]')?.textContent?.trim();
+  const status = () => root.querySelector('#studio-save')?.textContent?.trim();
+
+  // Saves what is unsaved now, as leaving the studio does, and answers the save with `revision`.
+  async function saveNow(revision: number): Promise<{ document: TaleDocument; revision: number }> {
+    const leaving = fixture.componentInstance.canLeave();
+    await settle(fixture);
+    const req = http.expectOne(url);
+    expect(req.request.method).toBe('PUT');
+    const body = req.request.body as { document: TaleDocument; revision: number };
+    req.flush({ document: body.document, revision });
+    expect(await leaving).toBe(true);
+    await settle(fixture);
+    return body;
+  }
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [TaleStudioPage],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        // Autosave waits for the test to ask, unless a test sets its own timing.
+        { provide: AUTOSAVE_TIMING, useValue: timing },
+      ],
     }).compileComponents();
     http = TestBed.inject(HttpTestingController);
     const store = TestBed.inject(DashboardStore);
     store.taleGroups.set({ z1: [group] });
     store.loaded.set(true);
+    // Leaving with changes that could not be saved asks; tests answer "stay" unless they say otherwise.
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
   });
 
   afterEach(() => {
     http.verify();
     document.body.replaceChildren();
+    vi.restoreAllMocks();
   });
 
   it('shows a tale without a document on an empty 9:16 canvas with its media as the background', async () => {
@@ -129,11 +157,7 @@ describe('TaleStudioPage', () => {
     expect((root.querySelector('#studio-y') as HTMLInputElement).value).toBe('21');
     expect(root.querySelector('[aria-live=polite]')?.textContent).toContain('Text moved');
 
-    buttonNamed(root, 'Save').click();
-    await settle(fixture);
-    const req = http.expectOne(url);
-    expect(req.request.method).toBe('PUT');
-    const body = req.request.body as { document: TaleDocument; revision: number };
+    const body = await saveNow(1);
     expect(body.revision).toBe(0);
     expect(body.document.elements).toEqual([
       {
@@ -146,17 +170,13 @@ describe('TaleStudioPage', () => {
         props: { text: 'Hello' },
       },
     ]);
-    req.flush({ document: body.document, revision: 1 });
-    await settle(fixture);
-    expect(status()).toBe('Saved');
+    expect(status()).toBe('All changes saved');
 
     // The next save is based on the new revision.
-    buttonNamed(root, 'Save').click();
+    key(elements()[0], 'ArrowDown');
     await settle(fixture);
-    const next = http.expectOne(url);
-    expect((next.request.body as { revision: number }).revision).toBe(1);
-    next.flush({ document: body.document, revision: 2 });
-    await settle(fixture);
+    expect(status()).toBe('Unsaved changes');
+    expect((await saveNow(2)).revision).toBe(1);
   });
 
   const live = () => root.querySelector('[aria-live=polite]')?.textContent;
@@ -206,7 +226,7 @@ describe('TaleStudioPage', () => {
     await settle(fixture);
     expect(elements()).toHaveLength(0);
     expect(document.activeElement).toBe(root.querySelector('.canvas'));
-    expect(live()).toBe('Text deleted');
+    expect(live()).toBe('Text deleted — press Ctrl+Z to undo');
   });
 
   it('shows text without added whitespace, and keeps the rotation while typing in place', async () => {
@@ -271,7 +291,8 @@ describe('TaleStudioPage', () => {
 
   it('offers to reload when the save is refused as stale', async () => {
     await open({ document: existing, revision: 1 });
-    buttonNamed(root, 'Save').click();
+    key(elements()[0], 'ArrowDown');
+    void fixture.componentInstance.canLeave();
     await settle(fixture);
     http
       .expectOne(url)
@@ -289,7 +310,8 @@ describe('TaleStudioPage', () => {
 
   it('explains a refused save in plain words and marks the element its pointer names', async () => {
     await open({ document: existing, revision: 1 });
-    buttonNamed(root, 'Save').click();
+    key(elements()[0], 'ArrowDown');
+    void fixture.componentInstance.canLeave();
     await settle(fixture);
     http.expectOne(url).flush(
       {
@@ -309,7 +331,7 @@ describe('TaleStudioPage', () => {
     expect(elements()[0].getAttribute('aria-pressed')).toBe('true');
     expect(status()).toBe('Not saved');
 
-    buttonNamed(root, 'Save').click();
+    buttonNamed(root, 'Retry now').click();
     await settle(fixture);
     http
       .expectOne(url)
@@ -338,13 +360,7 @@ describe('TaleStudioPage', () => {
     const state = (n: number) => root.querySelector(`#layer-state-${ID(n)}`)?.textContent?.trim();
 
     async function saved(): Promise<TaleDocument> {
-      buttonNamed(root, 'Save').click();
-      await settle(fixture);
-      const req = http.expectOne(url);
-      const body = req.request.body as { document: TaleDocument };
-      req.flush({ document: body.document, revision: 2 });
-      await settle(fixture);
-      return body.document;
+      return (await saveNow(2)).document;
     }
 
     it('lists every layer top first, with its type and a name from its text', async () => {
@@ -457,7 +473,7 @@ describe('TaleStudioPage', () => {
       key(row(3), 'Delete');
       await settle(fixture);
       expect(rowNames()).toEqual(['B']);
-      expect(live()).toBe('2 layers deleted');
+      expect(live()).toBe('2 layers deleted — press Ctrl+Z to undo');
       expect(document.activeElement).toBe(row(2));
     });
 
@@ -820,6 +836,322 @@ describe('TaleStudioPage', () => {
       expect(root.querySelector('#studio-bg-error')).toBeNull();
       expect(picker.value).toBe('#aabbcc');
       expect((await saved()).canvas).toEqual({ background: { type: 'color', color: '#AABBCC80' } });
+    });
+  });
+
+  describe('undo, redo and autosave (story 3)', () => {
+    const ID = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+    const at = (n: number, text: string, y: number) => ({
+      ...existing.elements[0],
+      id: ID(n),
+      box: { x: 0.1, y, w: 0.8, h: 0.1, rotation: 0 },
+      props: { text },
+    });
+    const three: TaleDocument = { ...existing, elements: [at(1, 'A', 0.4), at(2, 'B', 0.42), at(3, 'C', 0.2)] };
+    const row = (n: number) => root.querySelector(`#layer-${ID(n)}`) as HTMLElement;
+    const canvasEl = (n: number) => root.querySelector(`#studio-el-${ID(n)}`) as HTMLElement;
+    const canvas = () => root.querySelector('#studio-canvas') as HTMLElement;
+    const undoButton = () => root.querySelector('#studio-undo') as HTMLButtonElement;
+    const redoButton = () => root.querySelector('#studio-redo') as HTMLButtonElement;
+    const docNow = () => JSON.stringify((fixture.componentInstance as unknown as { doc(): TaleDocument }).doc());
+    const alertText = () => [...root.querySelectorAll('[role=alert]')].map((a) => a.textContent).join(' ');
+    const copyUrl = `${url}/copy`;
+
+    it('undoes ten edits (add, move, reorder, hide…) one by one and redoes them, then saves the last state', async () => {
+      await open({ document: three, revision: 1 });
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+      expect(undoButton().getAttribute('aria-keyshortcuts')).toBe('Control+Z');
+      expect(redoButton().getAttribute('aria-keyshortcuts')).toBe('Control+Shift+Z Control+Y');
+      const states = [docNow()];
+      const step = async (act: () => void) => {
+        act();
+        await settle(fixture);
+        states.push(docNow());
+      };
+      await step(() => buttonNamed(root, 'Add text').click());
+      key(root.querySelector('textarea.el-edit') as HTMLElement, 'Escape');
+      await settle(fixture);
+      await step(() => key(canvasEl(1), 'ArrowDown'));
+      await step(() => key(canvasEl(1), 'ArrowUp', { altKey: true }));
+      await step(() => key(canvasEl(2), 'h', { code: 'KeyH' }));
+      await step(() => key(row(3), 'l', { code: 'KeyL' }));
+      await step(() => key(row(1), 'd', { code: 'KeyD' }));
+      await step(() => {
+        const hex = root.querySelector('#studio-bg-hex') as HTMLInputElement;
+        hex.value = '#112233';
+        hex.dispatchEvent(new Event('change'));
+      });
+      await step(() => key(row(3), 'ArrowDown', { altKey: true }));
+      canvasEl(1).click();
+      await settle(fixture);
+      await step(() => {
+        const y = root.querySelector('#studio-y') as HTMLInputElement;
+        y.value = '55';
+        y.dispatchEvent(new Event('change'));
+      });
+      await step(() => key(canvasEl(1), 'Delete'));
+      expect(new Set(states).size).toBe(11);
+      expect(undoButton().title).toBe('Undo Text deleted (Ctrl+Z)');
+
+      for (let i = 9; i >= 0; i--) {
+        key(canvas(), 'z', { ctrlKey: true });
+        await settle(fixture);
+        expect(docNow()).toBe(states[i]);
+      }
+      expect(live()).toBe('Undone: Text added');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+      undoButton().click();
+      await settle(fixture);
+      expect(live()).toBe('Nothing to undo');
+      expect(docNow()).toBe(states[0]);
+
+      for (let i = 1; i <= 10; i++) {
+        if (i % 2) key(canvas(), 'Z', { ctrlKey: true, shiftKey: true });
+        else redoButton().click();
+        await settle(fixture);
+        expect(docNow()).toBe(states[i]);
+      }
+      expect(redoButton().getAttribute('aria-disabled')).toBe('true');
+      expect(live()).toBe('Redone: Text deleted');
+      expect(JSON.stringify((await saveNow(2)).document)).toBe(states[10]);
+    });
+
+    it('undoes a delete, bringing the layer back selected, with Ctrl+Y redoing it', async () => {
+      await open({ document: three, revision: 1 });
+      key(canvasEl(2), 'Delete');
+      await settle(fixture);
+      expect(canvasEl(2)).toBeNull();
+      expect(live()).toBe('Text deleted — press Ctrl+Z to undo');
+      key(canvas(), 'z', { ctrlKey: true });
+      await settle(fixture);
+      expect(canvasEl(2)?.getAttribute('aria-pressed')).toBe('true');
+      expect(live()).toBe('Undone: Text deleted');
+      // Focus stays where the delete put it, on the next layer.
+      expect(document.activeElement).toBe(canvasEl(3));
+      key(canvas(), 'y', { ctrlKey: true });
+      await settle(fixture);
+      expect(canvasEl(2)).toBeNull();
+    });
+
+    it('leaves Ctrl+Z in a text field to the browser, and makes typing one step', async () => {
+      await open({ document: three, revision: 1 });
+      canvasEl(1).click();
+      await settle(fixture);
+      const field = root.querySelector('#studio-text') as HTMLTextAreaElement;
+      for (const value of ['A1', 'A12', 'A123']) {
+        field.value = value;
+        field.dispatchEvent(new Event('input'));
+      }
+      await settle(fixture);
+      const typed = docNow();
+      const press = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+      field.dispatchEvent(press);
+      await settle(fixture);
+      expect(press.defaultPrevented).toBe(false);
+      expect(docNow()).toBe(typed);
+      // Outside the field, one undo takes the whole word back.
+      undoButton().click();
+      await settle(fixture);
+      expect(canvasEl(1).textContent).toBe('A');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('makes a whole drag one step', async () => {
+      await open({ document: three, revision: 1 });
+      canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 600 }) as DOMRect;
+      const el = canvasEl(3);
+      const pointer = (type: string, y: number) =>
+        el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: 100, clientY: y }));
+      pointer('pointerdown', 100);
+      for (const y of [120, 160, 220]) pointer('pointermove', y);
+      pointer('pointerup', 220);
+      await settle(fixture);
+      expect(canvasEl(3).style.top).not.toBe('20%');
+      expect(undoButton().title).toBe('Undo Text moved (Ctrl+Z)');
+      undoButton().click();
+      await settle(fixture);
+      expect(canvasEl(3).style.top).toBe('20%');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('offers keep-as-copy on a stale save, and keeps the version as a new tale in the same group', async () => {
+      await open({ document: three, revision: 1 });
+      const store = TestBed.inject(DashboardStore);
+      const refresh = vi.spyOn(store, 'refresh').mockResolvedValue();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      key(canvasEl(1), 'ArrowDown');
+      const leaving = fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush({ error: { code: 'stale_revision', message: 'stale' } }, { status: 409, statusText: 'Conflict' });
+      // Leaving now asks, since the changes are not saved; the person stays.
+      expect(await leaving).toBe(false);
+      expect(window.confirm).toHaveBeenCalledTimes(1);
+      await settle(fixture);
+      expect(alertText()).toContain('Someone saved this tale after you opened it');
+      expect(status()).toBe('Not saved: a newer version exists');
+      // Edits go on, kept on the page; autosave stays stopped.
+      key(canvasEl(1), 'ArrowDown');
+      await settle(fixture);
+      http.expectNone(url);
+      const mine = docNow();
+
+      // A full group refuses; the version stays and the choice is still offered.
+      buttonNamed(root, 'Keep my version as a new tale').click();
+      await settle(fixture);
+      const full = http.expectOne(copyUrl);
+      expect(full.request.method).toBe('POST');
+      full.flush({ error: { code: 'tale_group_full', message: 'full' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      expect(alertText()).toContain('already holds the most tales it can');
+      expect(docNow()).toBe(mine);
+      expect(navigate).not.toHaveBeenCalled();
+
+      buttonNamed(root, 'Keep my version as a new tale').click();
+      await settle(fixture);
+      const keep = http.expectOne(copyUrl);
+      expect(JSON.stringify((keep.request.body as { document: TaleDocument }).document)).toBe(mine);
+      keep.flush({ ...tale, id: 't2', title: 'Beach (copy)', position: 1, status: 'draft', storedStatus: 'draft' });
+      await settle(fixture);
+      expect(refresh).toHaveBeenCalled();
+      expect(navigate).toHaveBeenCalledWith(['/tales', 't2', 'studio']);
+      expect(root.querySelector('.studio-notice')?.textContent).toContain('kept as a new draft tale, “Beach (copy)”');
+      // Nothing is left unsaved here, so leaving does not ask.
+      expect(await fixture.componentInstance.canLeave()).toBe(true);
+
+      // The route's tale changes to the copy: the studio opens it.
+      fixture.componentRef.setInput('taleId', 't2');
+      fixture.detectChanges();
+      http.expectOne(`${API_BASE}/tales/t2/document`).flush({ document: JSON.parse(mine), revision: 1 });
+      await settle(fixture);
+      expect(docNow()).toBe(mine);
+      expect(status()).toBe('All changes saved');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('reloads the latest version on request, starting the history over', async () => {
+      await open({ document: three, revision: 1 });
+      key(canvasEl(1), 'ArrowDown');
+      void fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush({ error: { code: 'stale_revision', message: 'stale' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      buttonNamed(root, 'Reload latest version').click();
+      await settle(fixture);
+      http.expectOne(url).flush({ document: three, revision: 5 });
+      await settle(fixture);
+      await settle(fixture);
+      expect(docNow()).toBe(JSON.stringify(three));
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+      expect(alertText()).toBe('');
+      expect(live()).toBe('Latest version loaded');
+      key(canvasEl(1), 'ArrowDown');
+      expect((await saveNow(6)).revision).toBe(5);
+    });
+
+    it('asks before the tab closes with unsaved changes, and tries to save them', async () => {
+      await open({ document: three, revision: 1 });
+      const quiet = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(quiet);
+      expect(quiet.defaultPrevented).toBe(false);
+      key(canvasEl(1), 'ArrowDown');
+      const closing = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(closing);
+      expect(closing.defaultPrevented).toBe(true);
+      await settle(fixture);
+      http.expectOne(url).flush({ document: three, revision: 2 });
+      await settle(fixture);
+      expect(status()).toBe('All changes saved');
+    });
+
+    it('leaves at once when everything is saved, and asks when a save fails', async () => {
+      await open({ document: three, revision: 1 });
+      expect(await fixture.componentInstance.canLeave()).toBe(true);
+      key(canvasEl(1), 'ArrowDown');
+      vi.mocked(window.confirm).mockReturnValue(true);
+      const leaving = fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 500, statusText: 'Error' });
+      expect(await leaving).toBe(true);
+      expect(window.confirm).toHaveBeenCalledWith(
+        'Your latest changes to this tale are not saved. Leave Tale Studio and lose them?',
+      );
+    });
+
+    it('guards the studio route with the page’s leave check', async () => {
+      const studio = appRoutes
+        .flatMap((r) => [r, ...(r.children ?? [])])
+        .find((r) => r.path === 'tales/:taleId/studio');
+      const guard = studio?.canDeactivate?.[0] as (page: { canLeave(): Promise<boolean> }) => Promise<boolean>;
+      const page = { canLeave: vi.fn(async () => false) };
+      expect(await guard(page)).toBe(false);
+      expect(page.canLeave).toHaveBeenCalledTimes(1);
+    });
+
+    describe('with autosave timing', () => {
+      beforeEach(() => Object.assign(timing, { debounceMs: 20, maxWaitMs: 200, retryDelaysMs: [40] }));
+      afterEach(() => Object.assign(timing, WAIT_FOR_TEST));
+      const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      it('saves by itself after a pause, one save at a time, and shows saving and saved', async () => {
+        await open({ document: three, revision: 1 });
+        expect(status()).toBe('All changes saved');
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(status()).toBe('Unsaved changes');
+        await wait(40);
+        fixture.detectChanges();
+        expect(status()).toBe('Saving…');
+        const first = http.expectOne(url);
+        expect((first.request.body as { revision: number }).revision).toBe(1);
+        key(canvasEl(1), 'ArrowDown');
+        await wait(40);
+        // No second save while the first is on its way.
+        http.expectNone(url);
+        first.flush({ document: three, revision: 2 });
+        await settle(fixture);
+        const second = http.expectOne(url);
+        expect((second.request.body as { revision: number }).revision).toBe(2);
+        expect(JSON.stringify((second.request.body as { document: TaleDocument }).document)).toBe(docNow());
+        second.flush({ document: three, revision: 3 });
+        await settle(fixture);
+        expect(status()).toBe('All changes saved');
+      });
+
+      it('shows a failed save, retries it by itself, and says when everything is saved again', async () => {
+        await open({ document: three, revision: 1 });
+        key(canvasEl(1), 'ArrowDown');
+        await wait(40);
+        http.expectOne(url).error(new ProgressEvent('error'));
+        await settle(fixture);
+        expect(status()).toBe('Not saved');
+        expect(alertText()).toContain('the connection failed. Trying again automatically.');
+        expect(buttonNamed(root, 'Retry now')).toBeTruthy();
+        await wait(60);
+        http.expectOne(url).flush({ document: three, revision: 2 });
+        await settle(fixture);
+        await settle(fixture);
+        expect(status()).toBe('All changes saved');
+        expect(alertText()).toBe('');
+        expect(live()).toBe('All changes saved');
+      });
+
+      it('retries at once when the browser is back online', async () => {
+        await open({ document: three, revision: 1 });
+        key(canvasEl(1), 'ArrowDown');
+        await wait(40);
+        http.expectOne(url).error(new ProgressEvent('error'));
+        await settle(fixture);
+        window.dispatchEvent(new Event('online'));
+        http.expectOne(url).flush({ document: three, revision: 2 });
+        await settle(fixture);
+        expect(status()).toBe('All changes saved');
+      });
     });
   });
 });

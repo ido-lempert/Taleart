@@ -1,5 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  HostListener,
+  inject,
+  input,
+  OnChanges,
+  signal,
+} from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import {
   cleanText,
   ELEMENT_TEXT_RULE,
@@ -18,14 +28,20 @@ import {
 } from '@taleart/contract';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
-import { TaleDocumentService } from '../tale-document.service';
+import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
+import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
+import { TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
 import {
   boundsOf,
   clamp,
   clampMove,
   duplicateElement,
+  historyKeyShortcuts,
+  historyLabel,
+  historyShortcut,
   isApple,
+  isTextEntry,
   LAYER_KEYSHORTCUTS,
   layerName,
   layerShortcut,
@@ -36,6 +52,7 @@ import {
   SNAP_DISTANCE_PX,
   shortcutLabel,
   snapTargets,
+  type HistoryCommand,
   type LayerCommand,
   type ReorderCommand,
   type SnapTargets,
@@ -43,6 +60,9 @@ import {
 
 /** How far an arrow key moves an element, as a fraction of the canvas; Shift moves ten times as far. */
 export const MOVE_STEP = 0.01;
+
+/** How long leaving the studio waits for unsaved changes to save before it asks (ms). */
+export const LEAVE_WAIT_MS = 5000;
 
 /** Where a layer command came from: focus returns there, to the canvas element or to the layer row. */
 type Origin = 'canvas' | 'list';
@@ -61,6 +81,8 @@ interface Drag {
   moved: boolean;
   /** The element is locked: the drag only says so. */
   locked: boolean;
+  /** The document when the drag began: the whole drag is one step in the history. */
+  before: TaleDocument;
 }
 
 interface OpenMenu {
@@ -82,14 +104,15 @@ const REORDERED: Record<ReorderCommand, [string, string]> = {
 const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
 
 /**
- * Tale Studio (epic Tale Studio stories 1 and 2): a tale on a 9:16 canvas with its media over the
+ * Tale Studio (epic Tale Studio stories 1 to 3): a tale on a 9:16 canvas with its media over the
  * canvas colour, where a content manager adds text elements, types their text in place, moves
  * them by dragging (snapping to the centre, the safe-area edges and other elements), by the arrow
  * keys (Shift for larger steps) or by position fields, arranges them in a layers list (select,
  * reorder, hide, lock, duplicate, delete, from the row, an actions menu or the keyboard), sets
- * the background colour and shows the safe areas, and saves the tale document (AD-15). A save
- * based on an older revision is refused by the API, and the page offers to reload the latest
- * version.
+ * the background colour and shows the safe areas. Every change is a step in the history (undo and
+ * redo from the keyboard or the toolbar), and the tale document (AD-15) saves itself. A save
+ * based on an older revision is refused by the API; the page then offers to reload the latest
+ * version or to keep this version as a new tale in the same group.
  */
 @Component({
   selector: 'app-tale-studio-page',
@@ -225,6 +248,70 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
       @if (doc(); as d) {
         <section class="card section" aria-labelledby="studio-title">
           <h3 class="section__title visually-hidden" id="studio-title">Edit {{ tale()?.title ?? 'tale' }}</h3>
+          <div class="studio-bar">
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm"
+              id="studio-undo"
+              [attr.aria-disabled]="historyState().undo === null ? 'true' : null"
+              [attr.aria-keyshortcuts]="undoKeys"
+              [title]="
+                historyState().undo === null ? 'Nothing to undo' : 'Undo ' + historyState().undo + ' (' + undoKey + ')'
+              "
+              (click)="runHistory('undo')"
+            >
+              <app-icon name="undo" /> Undo
+            </button>
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm"
+              id="studio-redo"
+              [attr.aria-disabled]="historyState().redo === null ? 'true' : null"
+              [attr.aria-keyshortcuts]="redoKeys"
+              [title]="
+                historyState().redo === null ? 'Nothing to redo' : 'Redo ' + historyState().redo + ' (' + redoKey + ')'
+              "
+              (click)="runHistory('redo')"
+            >
+              <app-icon name="redo" /> Redo
+            </button>
+            <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()">{{ saveText() }}</p>
+          </div>
+          @if (saveState(); as s) {
+            @if (s.kind === 'conflict') {
+              <div class="form-error studio-alert" role="alert">
+                <p>
+                  Someone saved this tale after you opened it, so your latest changes are not saved. They are still
+                  here. Reload the latest version, which discards your changes, or keep your version as a new draft tale
+                  in the same group.
+                </p>
+                <div class="row">
+                  <button type="button" class="btn btn--secondary btn--sm" (click)="reload()">
+                    Reload latest version
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--primary btn--sm"
+                    [attr.aria-disabled]="keeping() ? 'true' : null"
+                    (click)="keepAsNewTale()"
+                  >
+                    Keep my version as a new tale
+                  </button>
+                </div>
+              </div>
+            } @else if (s.kind === 'retrying' || s.kind === 'refused') {
+              <div class="form-error studio-alert" role="alert">
+                <p>{{ saveError() }}</p>
+                <button type="button" class="btn btn--secondary btn--sm" (click)="retrySave()">Retry now</button>
+              </div>
+            }
+          }
+          @if (error()) {
+            <p class="form-error studio-alert" role="alert">{{ error() }}</p>
+          }
+          @if (notice()) {
+            <p class="studio-notice" role="status">{{ notice() }}</p>
+          }
           <div class="studio">
             <div
               class="canvas"
@@ -345,7 +432,8 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                 On the canvas and in the layers list: {{ keys.forward }} and {{ keys.backward }} reorder,
                 {{ keys.front }} and {{ keys.back }} bring to the front or the back, H hides, L locks, D duplicates,
                 {{ keys.delete }} deletes, {{ keys['select-all'] }} selects all, and the context-menu key or Shift+F10
-                opens the actions.
+                opens the actions. Outside text fields, {{ undoKey }} undoes and {{ redoKey }} redoes. Changes save
+                automatically.
               </p>
               <section class="field" aria-labelledby="layers-title">
                 <h4 class="field__label" id="layers-title">Layers</h4>
@@ -471,6 +559,7 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                       [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
                       [value]="el.props.text"
                       (input)="typeText(el.id, $any($event.target))"
+                      (blur)="sealHistory()"
                     ></textarea>
                     <span class="field__hint" id="studio-text-hint">
                       {{ textNotice() || 'Up to ' + maxText.toLocaleString('en') + ' characters.' }}
@@ -564,20 +653,6 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
                   Show safe areas
                 </label>
               </fieldset>
-              @if (error()) {
-                <div class="form-error" role="alert">
-                  <p>{{ error() }}</p>
-                  @if (stale()) {
-                    <button type="button" class="btn btn--secondary btn--sm" (click)="reload()">
-                      Reload latest version
-                    </button>
-                  }
-                </div>
-              }
-              <div class="row">
-                <button type="button" class="btn btn--primary" [disabled]="saving()" (click)="save()">Save</button>
-              </div>
-              <p class="muted" role="status">{{ saveStatus() }}</p>
             </div>
           </div>
           <p class="visually-hidden" aria-live="polite">{{ announcement() }}</p>
@@ -600,25 +675,42 @@ const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
     </div>
   `,
 })
-export class TaleStudioPage implements OnInit {
+export class TaleStudioPage implements OnChanges {
   protected readonly store = inject(DashboardStore);
   private readonly documents = inject(TaleDocumentService);
+  private readonly router = inject(Router);
   /** The tale being edited, bound from the route's `:taleId`. */
   readonly taleId = input.required<string>();
 
   /** The document being edited; null until read. */
   protected readonly doc = signal<TaleDocument | null>(null);
-  /** The revision the document on screen is based on. */
-  private readonly revision = signal(0);
   /** The ids of the selected layers, in the order they were selected. */
   protected readonly selection = signal<readonly string[]>([]);
   protected readonly editingId = signal<string | null>(null);
-  protected readonly saving = signal(false);
+  /** Why the tale could not be read, or kept as a new tale. */
   protected readonly error = signal('');
-  /** True when the last save was refused because another save came first (409). */
-  protected readonly stale = signal(false);
-  protected readonly saveStatus = signal('');
+  /** What the person should know after keeping their version as a new tale. */
+  protected readonly notice = signal('');
   protected readonly announcement = signal('');
+  /** Every change to the document, for undo and redo (epic Tale Studio R9). */
+  private readonly history = new TaleHistory();
+  /** What undo and redo would undo and redo now, by label; null for nothing. */
+  protected readonly historyState = signal<{ undo: string | null; redo: string | null }>({ undo: null, redo: null });
+  /** Where saving stands; see {@link TaleAutosaver}. */
+  protected readonly saveState = signal<AutosaveState>({ kind: 'saved' });
+  /** Why the last save failed, in words a person can act on. */
+  protected readonly saveError = signal('');
+  /** True while the person's version is being kept as a new tale. */
+  protected readonly keeping = signal(false);
+  private readonly autosave = new TaleAutosaver(
+    emptyTaleDocument(),
+    0,
+    (document, revision) => this.documents.save(this.taleId(), document, revision),
+    (state) => this.onSaveState(state),
+    inject(AUTOSAVE_TIMING),
+  );
+  // A save failed: its recovery is announced.
+  private recovering = false;
   /** The element the last refused save named, marked invalid until it changes. */
   protected readonly invalidId = signal<string | null>(null);
   /** Why the text just typed was changed: cut at the limit, or characters removed. */
@@ -648,6 +740,10 @@ export class TaleStudioPage implements OnInit {
     ),
   ) as Record<LayerCommand, string>;
   protected readonly keyShortcuts = LAYER_KEYSHORTCUTS;
+  protected readonly undoKey = historyLabel('undo', this.apple);
+  protected readonly redoKey = historyLabel('redo', this.apple);
+  protected readonly undoKeys = historyKeyShortcuts('undo', this.apple);
+  protected readonly redoKeys = historyKeyShortcuts('redo', this.apple);
   protected readonly multiHint = this.apple
     ? 'Shift+click, ⌘+click, or Shift+Space'
     : 'Shift+click, Ctrl+click, or Shift+Space';
@@ -677,20 +773,185 @@ export class TaleStudioPage implements OnInit {
     return zone ? ['/zones', zone[0]] : ['/zones'];
   });
 
-  ngOnInit(): void {
+  /** What the save indicator says. */
+  protected readonly saveText = computed(() => {
+    switch (this.saveState().kind) {
+      case 'saved':
+        return 'All changes saved';
+      case 'pending':
+        return 'Unsaved changes';
+      case 'saving':
+        return 'Saving…';
+      case 'conflict':
+        return 'Not saved: a newer version exists';
+      default:
+        return 'Not saved';
+    }
+  });
+  protected readonly saveFailed = computed(() => !['saved', 'pending', 'saving'].includes(this.saveState().kind));
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.autosave.dispose());
+  }
+
+  // The route's tale changed (on opening, or after keeping a version as a new tale, where the
+  // page stays and its tale changes): start over with that tale's document.
+  ngOnChanges(): void {
+    this.doc.set(null);
+    this.selection.set([]);
+    this.editingId.set(null);
+    this.menu.set(null);
+    this.invalidId.set(null);
+    this.error.set('');
+    this.autosave.reset(emptyTaleDocument(), 0);
     void this.load();
   }
 
+  // Reads the tale's document; the history and autosave start over from it.
   private async load(): Promise<void> {
-    const result = await this.documents.load(this.taleId());
+    const taleId = this.taleId();
+    const result = await this.documents.load(taleId);
+    if (taleId !== this.taleId()) return;
     if (result.value === null) {
       this.error.set(result.message);
       return;
     }
-    this.doc.set(result.value.document ?? emptyTaleDocument());
-    this.revision.set(result.value.revision);
+    const doc = result.value.document ?? emptyTaleDocument();
+    this.doc.set(doc);
+    this.history.clear();
+    this.syncHistory();
+    this.autosave.reset(doc, result.value.revision);
+    this.saveError.set('');
     this.error.set('');
-    this.stale.set(false);
+  }
+
+  /**
+   * Whether the studio may close (the route's `canDeactivate`): at once when everything is saved;
+   * otherwise after the unsaved changes save, waiting up to {@link LEAVE_WAIT_MS}; else the person
+   * is asked whether to leave without them.
+   */
+  async canLeave(): Promise<boolean> {
+    if (!this.autosave.unsaved) return true;
+    const saved = await Promise.race([
+      this.autosave.flush(),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), LEAVE_WAIT_MS)),
+    ]);
+    return saved || window.confirm('Your latest changes to this tale are not saved. Leave Tale Studio and lose them?');
+  }
+
+  /** Closing or reloading the browser tab with unsaved changes asks first; a save is tried meanwhile. */
+  @HostListener('window:beforeunload', ['$event'])
+  protected beforeUnload(event: BeforeUnloadEvent): void {
+    if (!this.autosave.unsaved) return;
+    void this.autosave.flush();
+    event.preventDefault();
+    // Older browsers ask only when a return value is set.
+    event.returnValue = '';
+  }
+
+  /** Back online: a save that failed on the network is tried again at once. */
+  @HostListener('window:online')
+  protected backOnline(): void {
+    this.autosave.online();
+  }
+
+  private onSaveState(state: AutosaveState): void {
+    const previous = this.saveState();
+    this.saveState.set(state);
+    if (state.kind === 'retrying' || state.kind === 'refused') {
+      if (previous.kind !== state.kind) this.saveError.set(this.refusal(state.failure, state.kind === 'retrying'));
+      this.recovering = true;
+    } else if (state.kind === 'saved') {
+      this.invalidId.set(null);
+      this.saveError.set('');
+      if (this.recovering) this.say('All changes saved');
+      this.recovering = false;
+    }
+  }
+
+  protected retrySave(): void {
+    this.autosave.retryNow();
+  }
+
+  /** Undo or redo, from the keyboard (outside text fields, whose undo is the browser's) anywhere in the studio. */
+  @HostListener('keydown', ['$event'])
+  protected onStudioKey(event: KeyboardEvent): void {
+    if (event.defaultPrevented || isTextEntry(event.target)) return;
+    const command = historyShortcut(event, this.apple);
+    if (!command) return;
+    event.preventDefault();
+    this.runHistory(command);
+  }
+
+  /**
+   * Undoes or redoes one step and says which. Layers it brings back are selected; focus stays on
+   * the control that had it, else goes to the canvas.
+   */
+  protected runHistory(command: HistoryCommand): void {
+    const current = this.doc();
+    if (!current || this.drag) return;
+    const step = command === 'undo' ? this.history.undo() : this.history.redo();
+    if (!step) {
+      this.say(command === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
+      return;
+    }
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement.id : '';
+    this.editingId.set(null);
+    this.menu.set(null);
+    this.hexError.set('');
+    this.textNotice.set('');
+    this.doc.set(step.document);
+    const ids = new Set(step.document.elements.map((e) => e.id));
+    const before = new Set(current.elements.map((e) => e.id));
+    const back = step.document.elements.filter((e) => !before.has(e.id)).map((e) => e.id);
+    this.selection.set(back.length ? back : this.selection().filter((id) => ids.has(id)));
+    if (this.invalidId() !== null && !ids.has(this.invalidId() as string)) this.invalidId.set(null);
+    this.syncHistory();
+    this.autosave.changed(step.document);
+    this.say(`${command === 'undo' ? 'Undone' : 'Redone'}: ${step.label}`);
+    setTimeout(() => {
+      const target = (focused && document.getElementById(focused)) || document.getElementById('studio-canvas');
+      if (target !== document.activeElement) target?.focus();
+    }, 0);
+  }
+
+  /** Ends the current text step, so typing after leaving the field is a new step. */
+  protected sealHistory(): void {
+    this.history.seal();
+  }
+
+  private syncHistory(): void {
+    this.historyState.set({ undo: this.history.undoLabel, redo: this.history.redoLabel });
+  }
+
+  /**
+   * Keeps the person's version, refused as stale, as a new draft tale in the same group, then
+   * opens that tale here. Nothing is dropped: on failure the version stays on screen.
+   */
+  protected async keepAsNewTale(): Promise<void> {
+    const doc = this.doc();
+    if (!doc || this.keeping()) return;
+    this.keeping.set(true);
+    this.error.set('');
+    const result = await this.documents.keepAsNewTale(this.taleId(), doc);
+    this.keeping.set(false);
+    if (result.value === null) {
+      this.error.set(
+        result.code === ErrorCodes.taleGroupFull
+          ? 'The tale group already holds the most tales it can, so your version cannot be kept there. ' +
+              'Your changes are still here: remove a tale from the group and try again, or reload the latest version.'
+          : `Your version was not kept as a new tale. ${result.status === 0 ? 'Check the connection and try again.' : result.message}`,
+      );
+      return;
+    }
+    const tale = result.value;
+    // Saved as the new tale: nothing is left to save here, so leaving does not ask.
+    this.autosave.reset(doc, 1);
+    await this.store.refresh();
+    const notice = `Your version is kept as a new draft tale, “${tale.title}”, in the same group. The original keeps the other version.`;
+    await this.router.navigate(['/tales', tale.id, 'studio']).catch(() => false);
+    this.notice.set(notice);
+    this.say(notice);
   }
 
   protected name(element: TaleElement): string {
@@ -715,17 +976,33 @@ export class TaleStudioPage implements OnInit {
     return this.doc()?.elements.find((e) => e.id === id);
   }
 
-  private change(update: (elements: TaleElement[]) => readonly TaleElement[]): void {
+  // Changes the elements as one step in the history, labelled as people read it ("Text moved").
+  private change(
+    label: string,
+    update: (elements: TaleElement[]) => readonly TaleElement[],
+    mergeKey: string | null = null,
+  ): void {
     const doc = this.doc();
     if (!doc) return;
     const elements = update(doc.elements);
     if (elements === doc.elements) return;
-    this.doc.set({ ...doc, elements: [...elements] });
-    this.saveStatus.set('Unsaved changes');
+    this.commit(label, { ...doc, elements: [...elements] }, mergeKey);
+  }
+
+  // Every change to the document comes here: it is recorded in the history, shown, and autosaved.
+  // A change that leaves the document as it was is no step.
+  private commit(label: string, next: TaleDocument, mergeKey: string | null = null): void {
+    const before = this.doc();
+    if (!before || next === before || JSON.stringify(next) === JSON.stringify(before)) return;
+    this.history.record(label, before, next, mergeKey);
+    this.doc.set(next);
+    this.notice.set('');
+    this.syncHistory();
+    this.autosave.changed(next);
   }
 
   private setBox(id: string, box: Partial<TaleElementBox>): void {
-    this.change((elements) =>
+    this.change('Text moved', (elements) =>
       elements.map((e) => {
         if (e.id !== id) return e;
         const next = { ...e.box, ...box };
@@ -791,7 +1068,7 @@ export class TaleStudioPage implements OnInit {
       a11y: {},
       props: { text: 'Text' },
     };
-    this.change((elements) => [...elements, element]);
+    this.change('Text added', (elements) => [...elements, element]);
     this.selectOnly(element.id);
     this.say('Text added');
     this.edit(element.id);
@@ -818,6 +1095,7 @@ export class TaleStudioPage implements OnInit {
     const id = this.editingId();
     if (id === null) return;
     this.editingId.set(null);
+    this.history.seal();
     if (refocus) this.focusSoon(`studio-el-${id}`);
   }
 
@@ -847,7 +1125,12 @@ export class TaleStudioPage implements OnInit {
       if (notice) this.say(notice);
     }
     if (this.invalidId() === id) this.invalidId.set(null);
-    this.change((elements) => elements.map((e) => (e.id === id ? { ...e, props: { ...e.props, text } } : e)));
+    // Typing in one text is one step until a pause or leaving the field; its own undo stays the browser's.
+    this.change(
+      'Text edited',
+      (elements) => elements.map((e) => (e.id === id ? { ...e, props: { ...e.props, text } } : e)),
+      `text:${id}`,
+    );
   }
 
   /** Applies a position field and writes back the value applied, which keeps the box on the canvas. */
@@ -897,13 +1180,15 @@ export class TaleStudioPage implements OnInit {
     const above = elements.slice(last + 1).find(keep);
     const below = [...elements.slice(0, first)].reverse().find(keep);
     const next = (origin === 'canvas' ? (above ?? below) : (below ?? above)) ?? null;
-    this.change((list) => list.filter((e) => !gone.has(e.id)));
+    const done = indexes.length === 1 ? 'Text deleted' : `${indexes.length} layers deleted`;
+    this.change(done, (list) => list.filter((e) => !gone.has(e.id)));
     this.selectOnly(next?.id ?? null);
     if (this.editingId() !== null && gone.has(this.editingId() as string)) this.editingId.set(null);
     if (this.invalidId() !== null && gone.has(this.invalidId() as string)) this.invalidId.set(null);
     const prefix = origin === 'canvas' ? 'studio-el-' : 'layer-';
     this.focusSoon(next ? `${prefix}${next.id}` : origin === 'canvas' ? 'studio-canvas' : 'studio-add');
-    this.say(indexes.length === 1 ? 'Text deleted' : `${indexes.length} layers deleted`);
+    // Deleting is immediate, and undoable.
+    this.say(`${done} — press ${this.undoKey} to undo`);
   }
 
   /**
@@ -926,7 +1211,7 @@ export class TaleStudioPage implements OnInit {
         const [done, already] = REORDERED[command];
         if (next === doc.elements) this.say(already);
         else {
-          this.change(() => next);
+          this.change(`${layers(ids.size)} ${done}`, () => next);
           this.say(`${layers(ids.size)} ${done}`);
         }
         break;
@@ -937,9 +1222,10 @@ export class TaleStudioPage implements OnInit {
         if (!element) return;
         const field = command === 'hide' ? 'hidden' : 'locked';
         const on = !element[field];
-        this.change((elements) => elements.map((e) => (e.id === element.id ? { ...e, [field]: on } : e)));
+        const done = `Layer ${command === 'hide' ? (on ? 'hidden' : 'shown') : on ? 'locked' : 'unlocked'}`;
+        this.change(done, (elements) => elements.map((e) => (e.id === element.id ? { ...e, [field]: on } : e)));
         if (on && this.editingId() === element.id) this.editingId.set(null);
-        this.say(`Layer ${command === 'hide' ? (on ? 'hidden' : 'shown') : on ? 'locked' : 'unlocked'}`);
+        this.say(done);
         // A hidden layer leaves the canvas, so focus goes to its row.
         if (on && command === 'hide' && origin === 'canvas') returnId = `layer-${element.id}`;
         break;
@@ -952,7 +1238,7 @@ export class TaleStudioPage implements OnInit {
           break;
         }
         const copy = duplicateElement(element, crypto.randomUUID());
-        this.change((elements) => {
+        this.change('Layer duplicated', (elements) => {
           const at = elements.findIndex((e) => e.id === element.id);
           return [...elements.slice(0, at + 1), copy, ...elements.slice(at + 1)];
         });
@@ -1006,7 +1292,8 @@ export class TaleStudioPage implements OnInit {
     if (move && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       if (!this.isSelected(element.id)) this.selectOnly(element.id);
-      this.moveSelection(move[0], move[1]);
+      // An arrow held down is one step; each press is a step of its own.
+      this.moveSelection(move[0], move[1], event.repeat);
     } else if (event.key === 'Enter' || event.key === 'F2') {
       event.preventDefault();
       this.edit(element.id);
@@ -1058,7 +1345,7 @@ export class TaleStudioPage implements OnInit {
    * Moves the selected layers together by `dx`, `dy`, kept on the canvas as a group; locked and
    * hidden ones stay where they are.
    */
-  private moveSelection(dx: number, dy: number): void {
+  private moveSelection(dx: number, dy: number, repeat = false): void {
     // Hidden layers are not on the canvas: they neither move nor hold the group back, as when dragging.
     const selected = (this.doc()?.elements ?? []).filter((e) => this.isSelected(e.id) && !e.hidden);
     const movable = selected.filter((e) => !e.locked);
@@ -1072,8 +1359,12 @@ export class TaleStudioPage implements OnInit {
       dy,
     );
     const ids = new Set(movable.map((e) => e.id));
-    this.change((elements) =>
-      elements.map((e) => (ids.has(e.id) ? { ...e, box: moveBox(e.box, step.dx, step.dy) } : e)),
+    const key = `move:${[...ids].join(',')}`;
+    if (!repeat) this.history.seal();
+    this.change(
+      movable.length === 1 ? 'Text moved' : `${movable.length} layers moved`,
+      (elements) => elements.map((e) => (ids.has(e.id) ? { ...e, box: moveBox(e.box, step.dx, step.dy) } : e)),
+      key,
     );
     const locked = selected.length - movable.length;
     const stay = locked ? `; ${locked === 1 ? 'a locked layer stays' : `${locked} locked layers stay`}` : '';
@@ -1087,7 +1378,8 @@ export class TaleStudioPage implements OnInit {
     this.dragged = false;
     if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey) return;
     const canvas = (event.currentTarget as HTMLElement).parentElement?.getBoundingClientRect();
-    if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+    const before = this.doc();
+    if (!canvas || canvas.width === 0 || canvas.height === 0 || !before) return;
     if (!this.isSelected(element.id)) this.selectOnly(element.id);
     const moving = (this.doc()?.elements ?? []).filter((e) => this.isSelected(e.id) && !e.locked && !e.hidden);
     this.drag = {
@@ -1102,6 +1394,7 @@ export class TaleStudioPage implements OnInit {
       moved: false,
       // A locked layer alone stays; pressed in a selection, the unlocked others move.
       locked: moving.length === 0,
+      before,
     };
     try {
       (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
@@ -1135,12 +1428,14 @@ export class TaleStudioPage implements OnInit {
       lines = snapped.x === null && snapped.y === null ? null : { x: snapped.x, y: snapped.y };
     }
     this.snapLines.set(lines);
-    this.change((elements) =>
-      elements.map((e) => {
+    // Shown as it goes; recorded and saved as one step when the drag ends.
+    this.doc.set({
+      ...drag.before,
+      elements: drag.before.elements.map((e) => {
         const origin = drag.boxes.get(e.id);
         return origin ? { ...e, box: moveBox(origin, step.dx, step.dy) } : e;
       }),
-    );
+    });
   }
 
   protected dragEnd(event: PointerEvent): void {
@@ -1149,6 +1444,12 @@ export class TaleStudioPage implements OnInit {
     this.drag = null;
     this.snapLines.set(null);
     if (!drag.moved) return;
+    const moved = this.doc();
+    if (moved) {
+      // The drag's step: from the document before it to the one it shows now.
+      this.doc.set(drag.before);
+      this.commit(drag.boxes.size === 1 ? 'Text moved' : `${drag.boxes.size} layers moved`, moved);
+    }
     this.dragged = true;
     // A click may not follow (the pointer was released elsewhere); it is only ignored straight after.
     setTimeout(() => (this.dragged = false), 0);
@@ -1236,8 +1537,10 @@ export class TaleStudioPage implements OnInit {
     this.hexError.set('');
     const doc = this.doc();
     if (!doc || doc.canvas.background.color === color) return;
-    this.doc.set({ ...doc, canvas: { ...doc.canvas, background: { type: 'color', color } } });
-    this.saveStatus.set('Unsaved changes');
+    this.commit('Background colour changed', {
+      ...doc,
+      canvas: { ...doc.canvas, background: { type: 'color', color } },
+    });
     this.say(`Background colour set to ${color}`);
   }
 
@@ -1262,31 +1565,15 @@ export class TaleStudioPage implements OnInit {
     this.say(on ? 'Safe areas shown' : 'Safe areas hidden');
   }
 
-  protected async save(): Promise<void> {
-    const doc = this.doc();
-    if (!doc || this.saving()) return;
-    this.saving.set(true);
-    this.saveStatus.set('Saving…');
-    const result = await this.documents.save(this.taleId(), doc, this.revision());
-    this.saving.set(false);
-    if (result.value === null) {
-      this.error.set(this.refusal(result));
-      this.stale.set(result.stale);
-      this.saveStatus.set('Not saved');
-      return;
-    }
-    this.invalidId.set(null);
-    this.revision.set(result.value.revision);
-    // Edits made while the save was on its way stay unsaved.
-    this.saveStatus.set(this.doc() === doc ? 'Saved' : 'Unsaved changes');
-    this.error.set('');
-    this.stale.set(false);
-  }
-
-  // A refusal in words a person can act on. A refused element, named by the pointer, is selected and marked.
-  private refusal(result: { message: string; stale: boolean; code: string; pointer: string }): string {
-    if (result.stale) {
-      return 'Someone saved this tale after you opened it. Reload the latest version; your changes here are not saved.';
+  // A failed save in words a person can act on. A refused element, named by the pointer, is selected and marked.
+  private refusal(result: TaleDocumentFailure, retrying: boolean): string {
+    if (retrying) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'You are offline. Your changes are kept on this page and saved when you are back online.';
+      }
+      return result.status === 0
+        ? 'Your latest changes are not saved: the connection failed. Trying again automatically.'
+        : 'Your latest changes are not saved: the server did not answer. Trying again automatically.';
     }
     if (result.code === ErrorCodes.taleDocumentTooLarge) {
       return 'This tale is too large to save. Shorten or remove some text, then save again.';
@@ -1301,17 +1588,15 @@ export class TaleStudioPage implements OnInit {
       }
       return 'The tale could not be saved because something in it is not valid. Reload the page and try again.';
     }
-    return result.message;
+    return `Your latest changes are not saved. ${result.message}`;
   }
 
+  /** After a stale save: reads the latest version, which replaces this one; the history starts over. */
   protected async reload(): Promise<void> {
     this.selectOnly(null);
     this.editingId.set(null);
     this.menu.set(null);
     await this.load();
-    if (!this.error()) {
-      this.saveStatus.set('');
-      this.say('Latest version loaded');
-    }
+    if (!this.error()) this.say('Latest version loaded');
   }
 }

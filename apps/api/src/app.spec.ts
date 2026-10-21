@@ -2358,6 +2358,122 @@ describe('Management API v1: projects and zones', () => {
       const copy = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: zone.id })).json();
       expect(await (await read(copy.tales[0].id)).json()).toEqual({ document: doc(), revision: 0 });
     });
+
+    describe('keep a document as a new tale (story 7.3)', () => {
+      function keep(taleId: string, body: unknown): Promise<Response> {
+        return fetch(`${base}/tales/${taleId}/document/copy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: typeof body === 'string' ? body : JSON.stringify(body),
+        });
+      }
+
+      async function groupOf(taleId: string): Promise<{ groupId: string; projectId: string }> {
+        const { rows } = await pool.query(
+          'SELECT tale_group_id AS "groupId", project_id AS "projectId" FROM tales WHERE id = $1',
+          [taleId],
+        );
+        return rows[0];
+      }
+
+      it('keeps the second tab’s version as a new draft tale in the same group, sharing the media', async () => {
+        const tale = await createTale();
+        await pool.query(`UPDATE tales SET media_key = 'tales/a.png', media_content_type = 'image/png' WHERE id = $1`, [
+          tale.id,
+        ]);
+        await publish('tales', tale.id);
+        // Two tabs read revision 0; the first saves, the second is refused.
+        expect((await save(tale.id, { document: doc([text(1, 'Tab one')]), revision: 0 })).status).toBe(200);
+        const mine = doc([text(1, 'Tab two')]);
+        expect((await save(tale.id, { document: mine, revision: 0 })).status).toBe(409);
+
+        const res = await keep(tale.id, { document: mine });
+        expect(res.status).toBe(201);
+        const copy = await res.json();
+        const { groupId, projectId } = await groupOf(tale.id);
+        expect(copy).toMatchObject({
+          taleGroupId: groupId,
+          projectId,
+          title: 'Beach (copy)',
+          position: 1,
+          storedStatus: 'draft',
+          startsAt: null,
+          endsAt: null,
+          media: { kind: 'image', contentType: 'image/png', url: `/api/v1/tales/${copy.id}/media` },
+        });
+        expect(await (await read(copy.id)).json()).toEqual({ document: mine, revision: 1 });
+        // The original keeps the first tab's save, and both tales share the media file (AD-14).
+        expect(await (await read(tale.id)).json()).toEqual({ document: doc([text(1, 'Tab one')]), revision: 1 });
+        const { rows } = await pool.query('SELECT media_key FROM tales WHERE tale_group_id = $1 ORDER BY position', [
+          groupId,
+        ]);
+        expect(rows).toEqual([{ media_key: 'tales/a.png' }, { media_key: 'tales/a.png' }]);
+        // The copy saves on from revision 1.
+        expect((await save(copy.id, { document: doc([text(1, 'More')]), revision: 1 })).status).toBe(200);
+      });
+
+      it('refuses a full group with 409 tale_group_full, creating nothing', async () => {
+        const tale = await createTale();
+        const { groupId, projectId } = await groupOf(tale.id);
+        await pool.query(
+          `INSERT INTO tales (tale_group_id, project_id, title, position)
+           SELECT $1, $2, 'Tale ' || n, n FROM generate_series(1, 99) AS n`,
+          [groupId, projectId],
+        );
+        const res = await keep(tale.id, { document: doc() });
+        expect(res.status).toBe(409);
+        expect(await res.json()).toEqual({ error: { code: 'tale_group_full', message: expect.any(String) } });
+        const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales WHERE tale_group_id = $1', [groupId]);
+        expect(rows).toEqual([{ n: 100 }]);
+      });
+
+      it('never passes 100 tales when keeps race', async () => {
+        const tale = await createTale();
+        const { groupId, projectId } = await groupOf(tale.id);
+        await pool.query(
+          `INSERT INTO tales (tale_group_id, project_id, title, position)
+           SELECT $1, $2, 'Tale ' || n, n FROM generate_series(1, 97) AS n`,
+          [groupId, projectId],
+        );
+        const statuses = await Promise.all(
+          [1, 2, 3, 4].map(() => keep(tale.id, { document: doc() }).then((r) => r.status)),
+        );
+        expect(statuses.sort()).toEqual([201, 201, 409, 409]);
+        const { rows } = await pool.query(
+          'SELECT count(*)::int AS n, count(DISTINCT position)::int AS positions FROM tales WHERE tale_group_id = $1',
+          [groupId],
+        );
+        expect(rows).toEqual([{ n: 100, positions: 100 }]);
+      });
+
+      it('checks the document as a save does, and needs one', async () => {
+        const tale = await createTale();
+        const refused = await keep(tale.id, { document: doc([text(1), { ...text(2), type: 'poll' }]) });
+        expect(refused.status).toBe(400);
+        expect((await refused.json()).error).toEqual({
+          code: 'invalid_tale_document',
+          message: expect.any(String),
+          pointer: '/elements/1/type',
+        });
+        expect((await keep(tale.id, {})).status).toBe(400);
+        expect((await keep(tale.id, '{"document":')).status).toBe(400);
+        const huge = await keep(tale.id, { document: doc([text(1, 'x'.repeat(300 * 1024))]) });
+        expect([huge.status, (await huge.json()).error.code]).toEqual([413, 'tale_document_too_large']);
+        const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales');
+        expect(rows).toEqual([{ n: 1 }]);
+      });
+
+      it('answers 404 for an unknown tale and 403 for a tale of another project', async () => {
+        expect((await keep(unknownId, { document: doc() })).status).toBe(404);
+        const tale = await createTale();
+        const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+        sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+        const res = await keep(tale.id, { document: doc() });
+        expect([res.status, (await res.json()).error.code]).toEqual([403, 'forbidden']);
+        const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales');
+        expect(rows).toEqual([{ n: 1 }]);
+      });
+    });
   });
 
   describe('tale media', () => {
