@@ -26,7 +26,13 @@ describe('frame-type registry', () => {
       'alignment',
       'gap',
     ]);
-    expect(types[1].schema).toMatchObject({ type: 'object', properties: {} });
+    expect(Object.keys((types[1].schema as { properties: object }).properties)).toEqual([
+      'aspectRatio',
+      'autoplay',
+      'intervalSeconds',
+      'showDots',
+      'loop',
+    ]);
   });
 
   it('refuses unknown settings fields on bar and banner', () => {
@@ -87,10 +93,44 @@ describe('frame-type registry', () => {
       expect(registry.withDefaults('feed', stored)).toEqual({});
     });
 
-    it('leaves object settings of an unknown type as they are, and drops every key of a field-less type', () => {
+    it('leaves object settings of an unknown type as they are', () => {
       expect(registry.withDefaults('feed', { a: 1 })).toEqual({ a: 1 });
-      expect(registry.withDefaults('banner', {})).toEqual({});
-      expect(registry.withDefaults('banner', { stray: true })).toEqual({});
+    });
+  });
+
+  describe('banner settings', () => {
+    const registry = loadFrameTypeRegistry(shippedDir);
+    const defaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
+
+    it('accepts every R3 value', () => {
+      const valid = { aspectRatio: '3:1', autoplay: false, intervalSeconds: 3, showDots: false, loop: false };
+      expect(() => registry.validate('banner', valid)).not.toThrow();
+      for (const intervalSeconds of [3, 15]) expect(() => registry.validate('banner', { intervalSeconds })).not.toThrow();
+      for (const aspectRatio of ['16:9', '1:1']) expect(() => registry.validate('banner', { aspectRatio })).not.toThrow();
+    });
+
+    it.each([
+      [{ intervalSeconds: 16 }, 'settings.intervalSeconds must be at most 15'],
+      [{ intervalSeconds: 2 }, 'settings.intervalSeconds must be at least 3'],
+      [{ intervalSeconds: 4.5 }, 'settings.intervalSeconds must be integer'],
+      [{ aspectRatio: '4:3' }, 'settings.aspectRatio must be one of: 16:9, 3:1, 1:1'],
+      [{ autoplay: 'yes' }, 'settings.autoplay must be boolean'],
+      [{ showDots: 1 }, 'settings.showDots must be boolean'],
+      [{ loop: null }, 'settings.loop must be boolean'],
+    ])('refuses %j with "%s"', (settings, message) => {
+      expect(() => registry.validate('banner', settings)).toThrow(new InvalidFrameSettingsError(message));
+    });
+
+    it('fills defaults, keeps valid stored values, replaces invalid ones and drops unknown keys', () => {
+      expect(registry.withDefaults('banner', {})).toEqual(defaults);
+      expect(registry.withDefaults('banner', { aspectRatio: '3:1', showDots: false })).toEqual({
+        ...defaults,
+        aspectRatio: '3:1',
+        showDots: false,
+      });
+      expect(
+        registry.withDefaults('banner', { intervalSeconds: 40, aspectRatio: '<b>', loop: false, stray: true }),
+      ).toEqual({ ...defaults, loop: false });
     });
   });
 

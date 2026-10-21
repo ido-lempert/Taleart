@@ -386,6 +386,21 @@ export interface BarSettings {
   gap: number;
 }
 
+/**
+ * The settings of a `banner` frame, as `frame-types/banner.schema.json`
+ * defines them (epic web zones R3). The schema is the source of the values
+ * and defaults; the Delivery API returns every field, filled with its default
+ * when unset.
+ */
+export interface BannerSettings {
+  aspectRatio: '16:9' | '3:1' | '1:1';
+  autoplay: boolean;
+  /** Seconds per slide while autoplaying, 3 to 15. */
+  intervalSeconds: number;
+  showDots: boolean;
+  loop: boolean;
+}
+
 /** True when a value has the standard `{ error: { code, message } }` shape. */
 export function isErrorBody(value: unknown): value is ErrorBody {
   if (typeof value !== 'object' || value === null) return false;

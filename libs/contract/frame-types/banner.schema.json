@@ -1,8 +1,42 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "banner frame settings",
-  "description": "Settings for the banner frame type. No fields yet; they arrive with the web zones epic.",
+  "description": "Settings for the banner frame type (epic web zones R3). A missing field takes its default.",
   "type": "object",
-  "properties": {},
+  "properties": {
+    "aspectRatio": {
+      "title": "Aspect ratio",
+      "description": "The banner's width to height.",
+      "type": "string",
+      "enum": ["16:9", "3:1", "1:1"],
+      "default": "16:9"
+    },
+    "autoplay": {
+      "title": "Autoplay",
+      "description": "Move to the next slide by itself. It stops when the visitor interacts with the banner or prefers reduced motion.",
+      "type": "boolean",
+      "default": true
+    },
+    "intervalSeconds": {
+      "title": "Interval",
+      "description": "Seconds each slide shows while autoplaying, from 3 to 15.",
+      "type": "integer",
+      "minimum": 3,
+      "maximum": 15,
+      "default": 5
+    },
+    "showDots": {
+      "title": "Show dots",
+      "description": "Show a dot per slide to jump to it.",
+      "type": "boolean",
+      "default": true
+    },
+    "loop": {
+      "title": "Loop",
+      "description": "After the last slide, go back to the first.",
+      "type": "boolean",
+      "default": true
+    }
+  },
   "additionalProperties": false
 }
