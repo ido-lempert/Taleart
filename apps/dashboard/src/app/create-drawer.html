@@ -319,6 +319,43 @@
             <p class="muted">This tale group no longer exists.</p>
           }
         }
+        @case ('schedule') {
+          @if (scheduleItem()) {
+            <p class="field__hint" id="schedule-hint">
+              Live content shows only from the start time until the end time. Leave a field empty for no start or no
+              end. Times are in {{ timeZone }}.
+            </p>
+            <div class="field">
+              <label class="field__label" for="schedule-start">Start time</label>
+              <input
+                id="schedule-start"
+                class="input"
+                type="datetime-local"
+                name="startsAt"
+                [(ngModel)]="startText"
+                [attr.aria-invalid]="error() ? 'true' : null"
+                [attr.aria-describedby]="error() ? 'schedule-hint create-error' : 'schedule-hint'"
+              />
+            </div>
+            <div class="field">
+              <label class="field__label" for="schedule-end">End time</label>
+              <input
+                id="schedule-end"
+                class="input"
+                type="datetime-local"
+                name="endsAt"
+                [(ngModel)]="endText"
+                [attr.aria-invalid]="error() ? 'true' : null"
+                [attr.aria-describedby]="error() ? 'schedule-hint create-error' : 'schedule-hint'"
+              />
+            </div>
+            <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="clearSchedule()">
+              Clear both
+            </button>
+          } @else {
+            <p class="muted">This item no longer exists.</p>
+          }
+        }
         @case ('removeTaleGroup') {
           @if (placementGroup(); as group) {
             <p>
@@ -349,6 +386,14 @@
             @if (tale.status === 'blocked-by-group') {
               <p class="field__hint">This tale is live, but its tale group is paused, so it does not show.</p>
             }
+            <div class="schedule-summary">
+              <p class="muted">
+                <span class="visually-hidden">Schedule: </span>{{ describeWindow(tale) || 'No start or end time' }}
+              </p>
+              <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="openTaleSchedule(tale)">
+                Schedule…
+              </button>
+            </div>
             <p class="visually-hidden" aria-live="polite">{{ statusAnnouncement() }}</p>
             <div class="media-preview">
               @if (tale.media; as media) {

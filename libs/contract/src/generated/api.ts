@@ -471,7 +471,7 @@ export interface paths {
         };
         /**
          * The zone of the zone key, with its frames and tale groups (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials. Tale groups and their tales come in dashboard order; each tale's media URL is absolute and public (AD-11).
+         * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed (AD-6); each tale's media URL is absolute and public (AD-11).
          */
         get: operations["getDeliveryZone"];
         put?: never;
@@ -494,7 +494,7 @@ export interface paths {
         };
         /**
          * Read a published tale's media file, with no credentials.
-         * @description Serves only keys that a published tale (a `live` tale of a `live` group, AD-6) currently references; any other key, including the key of replaced media or of draft, paused or archived content, answers 404 `media_not_found` (AD-11). The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
+         * @description Serves only keys that a published tale (a `live` tale of a `live` group, each inside its start and end time, AD-6) currently references; any other key, including the key of replaced media or of draft, paused, archived, scheduled or expired content, answers 404 `media_not_found` (AD-11). The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
          */
         get: operations["getPublicMedia"];
         put?: never;
@@ -643,6 +643,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tale-groups/{taleGroupId}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the start and end time of a tale group.
+         * @description Sets or clears the start and end time (AD-6). Live content is delivered only while the current time is at or after `startsAt` and before `endsAt`; before it, it reads `scheduled`, after it `expired`; nothing stores those keys. A bound that is not an ISO 8601 date-time with a time zone, a missing field, or an `endsAt` not later than `startsAt`: 400 `validation_failed`, nothing changes. Unknown tale group: 404 `tale_group_not_found`.
+         */
+        put: operations["setTaleGroupSchedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tale-groups/{taleGroupId}/tales": {
         parameters: {
             query?: never;
@@ -724,6 +746,28 @@ export interface paths {
          * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11).
          */
         put: operations["setTaleStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the start and end time of a tale.
+         * @description Sets or clears the start and end time (AD-6). Live content is delivered only while the current time is at or after `startsAt` and before `endsAt`; before it, it reads `scheduled`, after it `expired`; nothing stores those keys. A bound that is not an ISO 8601 date-time with a time zone, a missing field, or an `endsAt` not later than `startsAt`: 400 `validation_failed`, nothing changes. Unknown tale: 404 `tale_not_found`.
+         */
+        put: operations["setTaleSchedule"];
         post?: never;
         delete?: never;
         options?: never;
@@ -817,8 +861,20 @@ export interface components {
             /** Format: uuid */
             projectId: string;
             name: string;
-            /** @description The status key a person set (AD-6): `draft` for a new group, then `live`, `paused` or `archived`. */
+            /** @description The group's status as read (AD-6): `scheduled` or `expired` when `storedStatus` is `live` and the current time is before `startsAt` or at or after `endsAt`, else `storedStatus`. */
             status: components["schemas"]["ContentStatus"];
+            /** @description The status key a person set (AD-6): `draft` for a new group, then `live`, `paused` or `archived`. */
+            storedStatus: components["schemas"]["ContentStatus"];
+            /**
+             * Format: date-time
+             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered (AD-6).
+             */
+            startsAt: string | null;
+            /**
+             * Format: date-time
+             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered (AD-6).
+             */
+            endsAt: string | null;
             /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
             zoneIds: string[];
             /** @description The group's tales, by position. */
@@ -838,8 +894,20 @@ export interface components {
             /** Format: uuid */
             projectId: string;
             name: string;
-            /** @description The status key a person set (AD-6). */
+            /** @description The group's status as read (AD-6), as on `TaleGroup`. */
             status: components["schemas"]["ContentStatus"];
+            /** @description The status key a person set (AD-6). */
+            storedStatus: components["schemas"]["ContentStatus"];
+            /**
+             * Format: date-time
+             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered (AD-6).
+             */
+            startsAt: string | null;
+            /**
+             * Format: date-time
+             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered (AD-6).
+             */
+            endsAt: string | null;
             taleCount: number;
             /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
             zoneIds: string[];
@@ -886,10 +954,20 @@ export interface components {
             title: string;
             /** @description Order within the tale group; lists are sorted by it. */
             position: number;
-            /** @description The tale's status as read (AD-6): `blocked-by-group` when the tale is `live` and its group is `paused`, else `storedStatus`. */
+            /** @description The tale's status as read (AD-6): `storedStatus` unless it is `live`; then `blocked-by-group` when its group is `paused`, else `scheduled` before `startsAt`, `expired` at or after `endsAt`, else `live`. The group's window does not change the tale's status, but the Delivery API needs both windows to contain the current time. */
             status: components["schemas"]["ContentStatus"];
             /** @description The status key a person set: `draft` for a new tale, then `live`, `paused` or `archived`. */
             storedStatus: components["schemas"]["ContentStatus"];
+            /**
+             * Format: date-time
+             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered (AD-6).
+             */
+            startsAt: string | null;
+            /**
+             * Format: date-time
+             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered (AD-6).
+             */
+            endsAt: string | null;
             /** @description The tale's image, GIF or video, or null when it has none. */
             media: components["schemas"]["TaleMedia"] | null;
         };
@@ -910,6 +988,13 @@ export interface components {
              * @enum {string}
              */
             status: "live" | "paused" | "archived";
+        };
+        /** @description The window in which live content is delivered (AD-6). Each bound is an ISO 8601 date-time with `Z` or an offset, stored and returned in UTC, or null for an open bound. `endsAt` must be later than `startsAt` when both are set. */
+        SetScheduleRequest: {
+            /** Format: date-time */
+            startsAt: string | null;
+            /** Format: date-time */
+            endsAt: string | null;
         };
         /** @enum {string} */
         MediaKind: "image" | "video";
@@ -2121,6 +2206,36 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    setTaleGroupSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The tale group with its new window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     createTale: {
         parameters: {
             query?: never;
@@ -2241,6 +2356,36 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setTaleSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The tale with its new window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

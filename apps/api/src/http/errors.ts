@@ -7,6 +7,7 @@ import {
   ZoneNotFoundError,
 } from '@taleart/server-zones';
 import {
+  InvalidScheduleError,
   InvalidStatusTransitionError,
   OrderMismatchError,
   TaleGroupFullError,
@@ -86,6 +87,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof InvalidTagNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||
+    err instanceof InvalidScheduleError ||
     err instanceof StorylyTokenInvalidError
   ) {
     res.status(400).json(errorBody(err.code, err.message));

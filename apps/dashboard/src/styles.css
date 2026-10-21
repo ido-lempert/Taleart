@@ -327,6 +327,25 @@ select {
   color: #344054;
 }
 
+/* Computed from the start and end time when read (AD-6). */
+.status-badge[data-status='scheduled'] {
+  background: #eff8ff;
+  color: #175cd3;
+}
+
+.status-badge[data-status='expired'] {
+  background: #f2f4f7;
+  color: #475467;
+}
+
+/* A tale's start and end time in its drawer, with the button that edits them. */
+.schedule-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 /* A tale card's status, below its position badge. */
 .tale-card__status {
   position: absolute;

@@ -6,6 +6,7 @@ import {
   type OrderTaleGroupsRequest,
   type OrderTalesRequest,
   type RenameTaleGroupRequest,
+  type SetScheduleRequest,
   type SetStatusRequest,
   type SetTaleGroupTagsRequest,
   type TaleGroup,
@@ -24,6 +25,7 @@ import {
   placeTaleGroup,
   removeTaleGroup,
   renameTaleGroup,
+  setTaleGroupSchedule,
   setTaleGroupStatus,
   taleGroupExists,
   TaleGroupNotFoundError,
@@ -35,7 +37,7 @@ import { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorize, authorizeParam } from './authorize';
 import { HttpError } from './errors';
-import { requiredSettableStatus, requiredString, requiredStringArray } from './validation';
+import { requiredSchedule, requiredSettableStatus, requiredString, requiredStringArray } from './validation';
 
 /**
  * Tale groups with their tags. The tales module stores groups and the
@@ -153,6 +155,19 @@ export function taleGroupsRouter(pool: Pool): Router {
       if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
       const input: SetStatusRequest = { status: requiredSettableStatus(req.body) };
       const [body] = await withTags(pool, [await setTaleGroupStatus(pool, taleGroupId, input.status)]);
+      res.json(body satisfies TaleGroup);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/:taleGroupId/schedule', groupAccess, async (req, res, next) => {
+    try {
+      // Tale group first (404), then the body (400).
+      const { taleGroupId } = req.params;
+      if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
+      const input: SetScheduleRequest = requiredSchedule(req.body);
+      const [body] = await withTags(pool, [await setTaleGroupSchedule(pool, taleGroupId, input)]);
       res.json(body satisfies TaleGroup);
     } catch (err) {
       next(err);
