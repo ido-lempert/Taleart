@@ -858,6 +858,52 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /zones/{zoneId}/playbook:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: applyZonePlaybook
+      summary: Apply a playbook to a zone, creating its frames and a stage per frame.
+      description: >-
+        A playbook is a preset set of frames with their settings and a stage
+        per frame (epic web zones R8), defined in the playbook registry in
+        `libs/contract`. In one transaction the zone gets the playbook's
+        frames and stages, which stay editable, and records its key. Applying
+        the zone's own playbook again creates nothing (`applied: false`). A
+        missing key answers 400 `validation_failed`; a key not in the registry
+        400 `unknown_playbook`; a zone that has another playbook 409
+        `playbook_already_applied`; a stage key of the playbook that the zone
+        already uses 409 `stage_key_taken`, and nothing is created. A
+        concurrent change to the zone that fails the apply twice answers 409
+        `concurrent_change`; nothing is created and it can be tried again.
+        Unknown zone: 404 `zone_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyPlaybookRequest'
+      responses:
+        '200':
+          description: The zone with the playbook applied, and what this call created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppliedPlaybook'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /zones/{zoneId}/key:
     parameters:
       - name: zoneId
@@ -1750,7 +1796,7 @@ components:
           minLength: 1
     Zone:
       type: object
-      required: [id, name, projectId]
+      required: [id, name, projectId, playbookKey]
       properties:
         id:
           type: string
@@ -1760,6 +1806,12 @@ components:
         projectId:
           type: string
           format: uuid
+        playbookKey:
+          type: [string, 'null']
+          description: >-
+            The key of the playbook applied to the zone (epic web zones R8),
+            from the playbook registry in `libs/contract`; null when none was
+            applied. A zone records one playbook.
     CreateZoneRequest:
       type: object
       required: [name, projectId]
@@ -1872,6 +1924,37 @@ components:
         name:
           type: string
           minLength: 1
+    ApplyPlaybookRequest:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          description: A playbook key from the playbook registry in `libs/contract`.
+    AppliedPlaybook:
+      type: object
+      description: >-
+        The outcome of applying a playbook to a zone (epic web zones R8):
+        the zone with its playbook key, and the frames and stages the call
+        created. Applying the zone's own playbook again creates nothing.
+      required: [applied, zone, frames, stages]
+      properties:
+        applied:
+          type: boolean
+          description: True when this call created the playbook's frames and stages; false when the zone already had it.
+        zone:
+          $ref: '#/components/schemas/Zone'
+        frames:
+          type: array
+          description: The frames this call created, in playbook order; empty when `applied` is false.
+          items:
+            $ref: '#/components/schemas/Frame'
+        stages:
+          type: array
+          description: The stages this call created, one per frame; empty when `applied` is false.
+          items:
+            $ref: '#/components/schemas/Stage'
     TaleGroup:
       type: object
       description: >-
@@ -2866,6 +2949,9 @@ components:
         - invalid_status_transition
         - stage_not_found
         - stage_key_taken
+        - unknown_playbook
+        - playbook_already_applied
+        - concurrent_change
         - internal_error
     ErrorBody:
       type: object

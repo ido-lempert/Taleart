@@ -538,6 +538,28 @@ export interface paths {
         patch: operations["renameZoneStage"];
         trace?: never;
     };
+    "/zones/{zoneId}/playbook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Apply a playbook to a zone, creating its frames and a stage per frame.
+         * @description A playbook is a preset set of frames with their settings and a stage per frame (epic web zones R8), defined in the playbook registry in `libs/contract`. In one transaction the zone gets the playbook's frames and stages, which stay editable, and records its key. Applying the zone's own playbook again creates nothing (`applied: false`). A missing key answers 400 `validation_failed`; a key not in the registry 400 `unknown_playbook`; a zone that has another playbook 409 `playbook_already_applied`; a stage key of the playbook that the zone already uses 409 `stage_key_taken`, and nothing is created. A concurrent change to the zone that fails the apply twice answers 409 `concurrent_change`; nothing is created and it can be tried again. Unknown zone: 404 `zone_not_found`.
+         */
+        put: operations["applyZonePlaybook"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zones/{zoneId}/key": {
         parameters: {
             query?: never;
@@ -959,6 +981,8 @@ export interface components {
             name: string;
             /** Format: uuid */
             projectId: string;
+            /** @description The key of the playbook applied to the zone (epic web zones R8), from the playbook registry in `libs/contract`; null when none was applied. A zone records one playbook. */
+            playbookKey: string | null;
         };
         CreateZoneRequest: {
             name: string;
@@ -1025,6 +1049,20 @@ export interface components {
         };
         RenameStageRequest: {
             name: string;
+        };
+        ApplyPlaybookRequest: {
+            /** @description A playbook key from the playbook registry in `libs/contract`. */
+            key: string;
+        };
+        /** @description The outcome of applying a playbook to a zone (epic web zones R8): the zone with its playbook key, and the frames and stages the call created. Applying the zone's own playbook again creates nothing. */
+        AppliedPlaybook: {
+            /** @description True when this call created the playbook's frames and stages; false when the zone already had it. */
+            applied: boolean;
+            zone: components["schemas"]["Zone"];
+            /** @description The frames this call created, in playbook order; empty when `applied` is false. */
+            frames: components["schemas"]["Frame"][];
+            /** @description The stages this call created, one per frame; empty when `applied` is false. */
+            stages: components["schemas"]["Stage"][];
         };
         /** @description A tale group belongs to its project (AD-14). Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
         TaleGroup: {
@@ -1546,7 +1584,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2414,6 +2452,37 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    applyZonePlaybook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyPlaybookRequest"];
+            };
+        };
+        responses: {
+            /** @description The zone with the playbook applied, and what this call created. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppliedPlaybook"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getZoneKey: {
         parameters: {
             query?: never;
@@ -3159,4 +3228,4 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];
