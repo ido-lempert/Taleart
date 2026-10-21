@@ -1,6 +1,5 @@
 /// <reference types='vitest' />
-import { Extractor, ExtractorConfig } from '@microsoft/api-extractor';
-import { copyFileSync, rmSync } from 'node:fs';
+import { copyFileSync } from 'node:fs';
 import * as path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import dts from 'vite-plugin-dts';
@@ -20,38 +19,6 @@ function copyPackageFiles(): Plugin {
   };
 }
 
-/**
- * Rolls the emitted declarations up into one self-contained `index.d.ts`, with the contract types the SDK uses
- * inlined: `@taleart/contract` is not a dependency of the published package. vite-plugin-dts' own `rollupTypes`
- * reads the entry from `package.json` relative to the source folder, which here describes the dist folder.
- */
-function rollupDeclarations(emittedFiles: Map<string, string>): void {
-  const entry = path.join(outDir, 'index.d.ts');
-  const config = ExtractorConfig.prepare({
-    configObject: {
-      projectFolder: import.meta.dirname,
-      mainEntryPointFilePath: entry,
-      bundledPackages: ['@taleart/contract'],
-      compiler: { tsconfigFilePath: path.join(import.meta.dirname, 'tsconfig.lib.json') },
-      apiReport: { enabled: false, reportFileName: '<unscopedPackageName>.api.md' },
-      docModel: { enabled: false },
-      tsdocMetadata: { enabled: false },
-      dtsRollup: { enabled: true, untrimmedFilePath: entry },
-      messages: {
-        extractorMessageReporting: { default: { logLevel: 'none' } },
-        compilerMessageReporting: { default: { logLevel: 'warning' } },
-        tsdocMessageReporting: { default: { logLevel: 'none' } },
-      },
-    },
-    configObjectFullPath: undefined,
-    packageJsonFullPath: path.join(import.meta.dirname, 'package.json'),
-  });
-  const result = Extractor.invoke(config, { localBuild: true, showVerboseMessages: false });
-  if (!result.succeeded) throw new Error(`Rolling up the Web SDK declarations failed (${result.errorCount} errors).`);
-  for (const file of emittedFiles.keys()) if (path.resolve(file) !== entry) rmSync(file);
-  rmSync(path.join(outDir, 'lib'), { recursive: true, force: true });
-}
-
 export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/libs/web-sdk',
@@ -63,12 +30,14 @@ export default defineConfig(() => ({
       entryRoot: 'src',
       tsconfigPath: path.join(import.meta.dirname, 'tsconfig.lib.json'),
       pathsToAliases: false,
-      afterBuild: rollupDeclarations,
+      // Only the public API's declarations: the internal modules' types point into the contract's OpenAPI
+      // schemas, which are not published. `web-sdk:types-check` checks the result.
+      include: ['src/index.ts', 'src/lib/taleart-element.ts', 'src/lib/public-types.ts'],
     }),
   ],
   // See: https://vite.dev/guide/build.html#library-mode
   build: {
-    outDir: '../../dist/libs/web-sdk',
+    outDir,
     emptyOutDir: true,
     reportCompressedSize: true,
     commonjsOptions: {
@@ -91,6 +60,8 @@ export default defineConfig(() => ({
     globals: true,
     environment: 'jsdom',
     include: ['{src,tests}/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    // Type-level tests (`*.spec-d.ts`), e.g. the public types against the contract's schema types.
+    typecheck: { enabled: true, tsconfig: './tsconfig.typetest.json', include: ['src/**/*.spec-d.ts'] },
     reporters: ['default'],
     coverage: {
       reportsDirectory: '../../coverage/libs/web-sdk',
