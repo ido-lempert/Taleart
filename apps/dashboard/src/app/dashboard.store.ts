@@ -11,6 +11,7 @@ import {
   type ProjectTaleGroup,
   type SetScheduleRequest,
   type SettableStatus,
+  type Stage,
   type Tag,
   type Tale,
   type TaleGroup,
@@ -48,7 +49,10 @@ export type DrawerRequest =
   | { kind: 'taleMedia'; taleId: string }
   | { kind: 'cover'; taleGroupId: string }
   | { kind: 'schedule'; target: ScheduleTarget; id: string }
-  | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction };
+  | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction }
+  | { kind: 'stage'; zoneId: string }
+  | { kind: 'renameStage'; zoneId: string; stageId: string }
+  | { kind: 'deleteStage'; zoneId: string; stageId: string };
 
 /** What a schedule drawer sets the start and end time of (AD-6). */
 export type ScheduleTarget = 'taleGroup' | 'tale';
@@ -97,6 +101,8 @@ export class DashboardStore {
   readonly tags = signal<Record<string, Tag[]>>({});
   /** Each zone's active key (prefix and date, never the key), or null; keyed by zone id. */
   readonly zoneKeys = signal<Record<string, ZoneKeyInfo | null>>({});
+  /** Each zone's stages, oldest first, keyed by zone id (epic web zones R7). */
+  readonly stages = signal<Record<string, Stage[]>>({});
   /** True once the first refresh finished, successfully or not. */
   readonly loaded = signal(false);
   readonly apiDown = signal(false);
@@ -208,6 +214,22 @@ export class DashboardStore {
     return this.zones().filter((z) => z.projectId === group.projectId && !group.zoneIds.includes(z.id));
   }
 
+  stagesOf(zoneId: string): Stage[] {
+    return this.stages()[zoneId] ?? [];
+  }
+
+  /** A stage of the zone, if it still exists. */
+  stage(zoneId: string, stageId: string): Stage | undefined {
+    return this.stagesOf(zoneId).find((s) => s.id === stageId);
+  }
+
+  /** How a stage form and the stage list name a frame of its zone: "Frame 2 · Banner". */
+  frameName(zoneId: string, frameId: string): string {
+    const frames = this.framesOf(zoneId);
+    const index = frames.findIndex((f) => f.id === frameId);
+    return index < 0 ? 'Unknown frame' : `Frame ${index + 1} · ${this.frameTypeLabel(frames[index].type)}`;
+  }
+
   /** The zone's active key info, or null when it has none. */
   zoneKey(zoneId: string): ZoneKeyInfo | null {
     return this.zoneKeys()[zoneId] ?? null;
@@ -252,6 +274,7 @@ export class DashboardStore {
     this.projectTaleGroups.set({});
     this.tags.set({});
     this.zoneKeys.set({});
+    this.stages.set({});
     this.loaded.set(false);
     this.apiDown.set(false);
     this.drawer.set(null);
@@ -305,6 +328,13 @@ export class DashboardStore {
       );
       if (!current()) return;
       this.zoneKeys.set(Object.fromEntries(zones.map((zone, i) => [zone.id, keys[i] ?? null])));
+      const stages = await Promise.all(
+        zones.map((zone) =>
+          firstValueFrom(this.http.get<Stage[]>(`${API_BASE}/zones/${encodeURIComponent(zone.id)}/stages`)),
+        ),
+      );
+      if (!current()) return;
+      this.stages.set(Object.fromEntries(zones.map((zone, i) => [zone.id, stages[i]])));
       this.apiDown.set(false);
     } catch (err) {
       // A 401 means the session ended; the auth interceptor sends the user to sign-in.
@@ -401,6 +431,51 @@ export class DashboardStore {
       ...all,
       [zoneId]: (all[zoneId] ?? []).map((frame) => (frame.id === saved.id ? saved : frame)),
     }));
+    return '';
+  }
+
+  /** Adds a stage that shows one of the zone's frames; a page names it by its key (R7). */
+  async createStage(zoneId: string, input: { name: string; key: string; frameId: string }): Promise<string> {
+    let saved: Stage;
+    try {
+      saved = await firstValueFrom(this.http.post<Stage>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/stages`, input));
+    } catch (err) {
+      return apiErrorMessage(err, 'The stage was not saved. Try again.');
+    }
+    this.stages.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), saved] }));
+    return '';
+  }
+
+  /** Renames a stage; its key stays, so pages that name it keep working. */
+  async renameStage(zoneId: string, stageId: string, name: string): Promise<string> {
+    let saved: Stage;
+    try {
+      saved = await firstValueFrom(
+        this.http.patch<Stage>(
+          `${API_BASE}/zones/${encodeURIComponent(zoneId)}/stages/${encodeURIComponent(stageId)}`,
+          { name },
+        ),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The stage was not renamed. Try again.');
+    }
+    this.stages.update((all) => ({
+      ...all,
+      [zoneId]: (all[zoneId] ?? []).map((stage) => (stage.id === saved.id ? saved : stage)),
+    }));
+    return '';
+  }
+
+  /** Deletes a stage; pages that name its key render nothing for it. */
+  async deleteStage(zoneId: string, stageId: string): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.delete<void>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/stages/${encodeURIComponent(stageId)}`),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The stage was not deleted. Try again.');
+    }
+    this.stages.update((all) => ({ ...all, [zoneId]: (all[zoneId] ?? []).filter((stage) => stage.id !== stageId) }));
     return '';
   }
 

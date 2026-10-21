@@ -1,9 +1,20 @@
-import { ErrorCodes, type CreateFrameRequest, type CreateZoneRequest, type UpdateFrameRequest } from '@taleart/contract';
+import {
+  ErrorCodes,
+  type CreateFrameRequest,
+  type CreateStageRequest,
+  type CreateZoneRequest,
+  type RenameStageRequest,
+  type UpdateFrameRequest,
+} from '@taleart/contract';
 import {
   createFrame,
+  createStage,
   createZone,
+  deleteStage,
   listFrames,
+  listStages,
   listZones,
+  renameStage,
   updateFrameSettings,
   zoneExists,
   ZoneNotFoundError,
@@ -76,6 +87,46 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
           settings,
         }),
       );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Stages (epic web zones R7): each shows one of the zone's frames on a host page.
+  router.get('/:zoneId/stages', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+    try {
+      res.json(await listStages(pool, req.params.zoneId));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/:zoneId/stages', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+    try {
+      // Zone first (404), then the body (400), then the frame (400) and the key (409), in the zones module.
+      const body = (req.body ?? {}) as Partial<Record<keyof CreateStageRequest, unknown>>;
+      res.status(201).json(
+        await createStage(pool, { zoneId: req.params.zoneId, name: body.name, key: body.key, frameId: body.frameId }),
+      );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch('/:zoneId/stages/:stageId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+    try {
+      // Only the name changes: a page names the stage by its key, which stays.
+      const body = (req.body ?? {}) as Partial<Record<keyof RenameStageRequest, unknown>>;
+      res.json(await renameStage(pool, { zoneId: req.params.zoneId, stageId: req.params.stageId, name: body.name }));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/:zoneId/stages/:stageId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+    try {
+      await deleteStage(pool, { zoneId: req.params.zoneId, stageId: req.params.stageId });
+      res.sendStatus(204);
     } catch (err) {
       next(err);
     }
