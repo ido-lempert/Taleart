@@ -309,6 +309,15 @@ describe('Management API v1: projects and zones', () => {
         alignment: expect.objectContaining({ title: 'Alignment', enum: ['start', 'center'], default: 'start' }),
         gap: expect.objectContaining({ title: 'Gap', type: 'integer', minimum: 4, maximum: 24, default: 12 }),
       });
+      const banner = types.find((t: { key: string }) => t.key === 'banner');
+      expect(banner.schema.additionalProperties).toBe(false);
+      expect(banner.schema.properties).toEqual({
+        aspectRatio: expect.objectContaining({ title: 'Aspect ratio', enum: ['16:9', '3:1', '1:1'], default: '16:9' }),
+        autoplay: expect.objectContaining({ title: 'Autoplay', type: 'boolean', default: true }),
+        intervalSeconds: expect.objectContaining({ title: 'Interval', type: 'integer', minimum: 3, maximum: 15, default: 5 }),
+        showDots: expect.objectContaining({ title: 'Show dots', type: 'boolean', default: true }),
+        loop: expect.objectContaining({ title: 'Loop', type: 'boolean', default: true }),
+      });
     });
 
     it('adds a bar frame to a zone, copying the zone project', async () => {
@@ -516,6 +525,42 @@ describe('Management API v1: projects and zones', () => {
         }
         const [untouched] = await (await fetch(`${base}/zones/${other.zone.id}/frames`)).json();
         expect(untouched.settings).toEqual({});
+      });
+
+      describe('banner', () => {
+        const bannerEdited = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 3, showDots: false, loop: false };
+
+        async function bannerFrame(): Promise<{ zone: { id: string }; frame: { id: string } }> {
+          const zone = await createZone();
+          const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+          return { zone, frame };
+        }
+
+        it('replaces a banner frame settings and keeps them', async () => {
+          const { zone, frame } = await bannerFrame();
+          const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: bannerEdited });
+          expect(res.status).toBe(200);
+          expect(await res.json()).toEqual({ ...frame, settings: bannerEdited });
+          expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([{ ...frame, settings: bannerEdited }]);
+        });
+
+        it.each([
+          [{ intervalSeconds: 2 }, 'settings.intervalSeconds must be at least 3'],
+          [{ intervalSeconds: 16 }, 'settings.intervalSeconds must be at most 15'],
+          [{ intervalSeconds: 4.5 }, 'settings.intervalSeconds must be integer'],
+          [{ aspectRatio: '4:3' }, 'settings.aspectRatio must be one of: 16:9, 3:1, 1:1'],
+          [{ autoplay: 'yes' }, 'settings.autoplay must be boolean'],
+          [{ speed: 1 }, 'settings has unknown property "speed"'],
+        ])('refuses %j with invalid_frame_settings and stores nothing', async (settings, message) => {
+          const { zone, frame } = await bannerFrame();
+          await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: bannerEdited });
+
+          const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: { ...bannerEdited, ...settings } });
+          expect(res.status).toBe(400);
+          expect(await res.json()).toEqual({ error: { code: 'invalid_frame_settings', message } });
+          const [stored] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
+          expect(stored.settings).toEqual(bannerEdited);
+        });
       });
     });
   });
@@ -2510,6 +2555,7 @@ describe('Management API v1: projects and zones', () => {
   });
   describe('zone keys and the Delivery API', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
+    const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
 
     function send(method: string, path: string, cookie = sessionCookie): Promise<Response> {
       return globalThis.fetch(`${base}${path}`, { method, headers: { Cookie: cookie } });
@@ -2624,7 +2670,25 @@ describe('Management API v1: projects and zones', () => {
           type: 'bar',
           settings: { shape: 'rounded-square', size: 'medium', showTitles: false, alignment: 'start', gap: 20 },
         },
-        { id: banner.id, type: 'banner', settings: {} },
+        // Stored as {}, delivered with every default of the banner schema.
+        { id: banner.id, type: 'banner', settings: bannerDefaults },
+      ]);
+    });
+
+    it('delivers a banner frame with its saved settings over the defaults', async () => {
+      const zone = await createZone();
+      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+      const saved = await globalThis.fetch(`${base}/zones/${zone.id}/frames/${banner.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+        body: JSON.stringify({ settings: { aspectRatio: '3:1', intervalSeconds: 3, showDots: false } }),
+      });
+      expect(saved.status).toBe(200);
+      const { key } = await issue(zone.id);
+
+      const { frames } = await (await deliver(key)).json();
+      expect(frames).toEqual([
+        { id: banner.id, type: 'banner', settings: { ...bannerDefaults, aspectRatio: '3:1', intervalSeconds: 3, showDots: false } },
       ]);
     });
 
@@ -2639,7 +2703,10 @@ describe('Management API v1: projects and zones', () => {
         JSON.stringify({ gap: 40, shape: 'star', size: 'large', color: 'red' }),
       ]);
       await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [listed.id, JSON.stringify(['x'])]);
-      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [banner.id, JSON.stringify({ stray: 1 })]);
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [
+        banner.id,
+        JSON.stringify({ stray: 1, intervalSeconds: 40, aspectRatio: '</style>', loop: false }),
+      ]);
       const { key } = await issue(zone.id);
 
       const res = await deliver(key);
@@ -2648,7 +2715,7 @@ describe('Management API v1: projects and zones', () => {
       expect((await res.json()).frames).toEqual([
         { id: bar.id, type: 'bar', settings: { ...defaults, size: 'large' } },
         { id: listed.id, type: 'bar', settings: defaults },
-        { id: banner.id, type: 'banner', settings: {} },
+        { id: banner.id, type: 'banner', settings: { ...bannerDefaults, loop: false } },
       ]);
     });
 
@@ -3422,6 +3489,19 @@ describe('Management API v1: projects and zones', () => {
       return Object.values(body).flatMap(leafValues);
     }
 
+    // A field TaleArt does not hold, as a report difference.
+    function notHeld(
+      entity: string,
+      sourceId: string,
+      name: string,
+      parent: [string, string] | null,
+      position: number,
+      field: string,
+    ) {
+      const [within, withinSourceId] = parent ?? [null, null];
+      return { entity, record: { sourceId, name, within, withinSourceId, position }, kind: 'notHeld', field, sourceField: null };
+    }
+
     async function storedJob(importId: string): Promise<{ token_ciphertext: string | null; source_app_id: string }> {
       const { rows } = await pool.query('SELECT token_ciphertext, source_app_id FROM import_jobs WHERE id = $1', [importId]);
       return rows[0];
@@ -3466,7 +3546,11 @@ describe('Management API v1: projects and zones', () => {
       const project = await createProject();
       const res = await send('POST', `/projects/${project.id}/imports/storyly/apps`, { token: FAKE_STORYLY_TOKEN });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual([{ id: '1001', name: 'Demo shop' }]);
+      expect(await res.json()).toEqual([
+        { id: '1001', name: 'Demo shop' },
+        { id: '1002', name: 'Odd shop' },
+        { id: '1003', name: 'Clean shop' },
+      ]);
       expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(0);
     });
 
@@ -3498,6 +3582,20 @@ describe('Management API v1: projects and zones', () => {
             'Zone "Product page": frame type unknown',
             'Zone "Checkout": frame type unknown',
           ],
+          // Each instance's per-platform token and each story group's cover are not held in TaleArt.
+          // In reading order: the instance list, then each instance's story groups as read.
+          differences: [
+            notHeld('zone', '2001', 'Home page', null, 1, 'token'),
+            notHeld('zone', '2002', 'Product page', null, 2, 'token'),
+            notHeld('zone', '2003', 'Checkout', null, 3, 'token'),
+            notHeld('taleGroup', '3001', 'Summer sale', ['Home page', '2001'], 1, 'media'),
+            notHeld('taleGroup', '3002', 'New arrivals', ['Home page', '2001'], 2, 'media'),
+            notHeld('taleGroup', '3003', 'Gift ideas', ['Home page', '2001'], 3, 'media'),
+            notHeld('taleGroup', '3004', 'How to wear it', ['Product page', '2002'], 1, 'media'),
+            notHeld('taleGroup', '3005', 'Reviews', ['Product page', '2002'], 2, 'media'),
+            notHeld('taleGroup', '3006', 'Free shipping', ['Checkout', '2003'], 1, 'media'),
+          ],
+          notImportedByDesign: ['Conversion records', 'Stats'],
         },
         progress: {
           zones: { read: 3, written: 3 },
@@ -3577,6 +3675,123 @@ describe('Management API v1: projects and zones', () => {
       ],
       Checkout: [{ name: 'Free shipping', tales: ['Express', 'Over 50'] }],
     };
+
+    // Each report difference as one line: entity, record (source id or position), within, kind and field.
+    function differenceLines(report: unknown): string[] {
+      const { differences } = report as {
+        differences: {
+          entity: string;
+          record: {
+            sourceId: string | null;
+            name: string | null;
+            within: string | null;
+            withinSourceId: string | null;
+            position: number;
+          };
+          kind: string;
+          field: string | null;
+          sourceField: string | null;
+        }[];
+      };
+      return differences.map((d) =>
+        [
+          d.entity,
+          d.record.sourceId ?? `#${d.record.position}`,
+          d.record.within ? `in ${d.record.within} (${d.record.withinSourceId})` : null,
+          d.kind,
+          d.field,
+          d.sourceField ? `<- ${d.sourceField}` : null,
+        ]
+          .filter((part) => part !== null)
+          .join(' '),
+      );
+    }
+
+    it('imports a source of malformed and unmappable records, listing every difference against its record', async () => {
+      const project = await createProject();
+      startWorker();
+      const started = await send('POST', `/projects/${project.id}/imports`, { token: FAKE_STORYLY_TOKEN, appId: '1002' });
+      expect(started.status).toBe(202);
+      const job = await waitForEnd(project.id, ((await started.json()) as { id: string }).id);
+      expect(job['status']).toBe('done');
+      const report = job['report'] as Record<string, unknown>;
+      expect(report).toMatchObject({
+        zones: { source: 3, imported: 1, skipped: 2 },
+        taleGroups: { source: 2, imported: 2, skipped: 0 },
+        tales: { source: 6, imported: 3, skipped: 3 },
+        notImportedByDesign: ['Conversion records', 'Stats'],
+      });
+      expect(differenceLines(report)).toEqual([
+        // In reading order: apps, instances, then each list as it is read, records in response order.
+        'app 1002 notHeld settings',
+        'zone 2101 renamed title <- name',
+        'zone 2101 notHeld token',
+        'zone #2 invalidRecord',
+        'zone #3 invalidRecord',
+        'taleGroup 3101 in Odd home (2101) renamed clicked_target_cap <- click_target_cap',
+        'taleGroup 3101 in Odd home (2101) notHeld media',
+        'taleGroup 3101 in Odd home (2101) notHeld pinned',
+        'taleGroup 3101 in Odd home (2101) notHeld settings',
+        'taleGroup 3101 in Odd home (2101) notHeld clicked_target_cap',
+        'taleGroup 3101 in Odd home (2101) unexpected theme',
+        'taleGroup 3102 in Odd home (2101) wrongType title',
+        'taleGroup 3102 in Odd home (2101) wrongType sort_order',
+        'taleGroup 3102 in Odd home (2101) missing status',
+        'tale 4101 in Odd group (3101) notHeld deep_link',
+        'tale 4101 in Odd group (3101) notHeld button_text',
+        'tale 4102 in Odd group (3101) renamed sort_order <- sortOrder',
+        'tale 4102 in Odd group (3101) notHeld name',
+        'tale 4102 in Odd group (3101) unexpected cta_macro',
+        'tale #3 in Odd group (3101) invalidRecord',
+        'tale #4 in Odd group (3101) invalidRecord',
+        'tale 4105 in Untitled tale group (3102) missing media',
+      ]);
+      // A renamed title names the zone, a renamed sort_order places the tale; a wrong title takes the fallback.
+      expect(await zonePages(project.id)).toEqual({
+        'Odd home': [
+          { name: 'Odd group', tales: ['Deal of the day', 'Odd order'] },
+          { name: 'Untitled tale group', tales: ['No media'] },
+        ],
+      });
+      // Field names only: no source value and no token in the report.
+      const text = JSON.stringify(job);
+      for (const value of ['https://shop.example/deal', 'Shop now', 'fake-instance-token-2101', '{{coupon}}', 'Internal 4102']) {
+        expect(text).not.toContain(value);
+      }
+      expect(text).not.toContain(FAKE_STORYLY_TOKEN);
+      expect((await storedJob(job['id'] as string)).token_ciphertext).toBeNull();
+    });
+
+    it('lists no differences for a source whose records match the expected shape', async () => {
+      const project = await createProject();
+      startWorker();
+      const started = await send('POST', `/projects/${project.id}/imports`, { token: FAKE_STORYLY_TOKEN, appId: '1003' });
+      const job = await waitForEnd(project.id, ((await started.json()) as { id: string }).id);
+      expect(job['status']).toBe('done');
+      expect(job['report']).toEqual({
+        zones: { source: 1, imported: 1, skipped: 0 },
+        taleGroups: { source: 1, imported: 1, skipped: 0 },
+        tales: { source: 2, imported: 2, skipped: 0 },
+        notes: ['Zone "Clean home": frame type unknown'],
+        differences: [],
+        notImportedByDesign: ['Conversion records', 'Stats'],
+      });
+    });
+
+    it('lists a repeated record once, and a record with an unexpected field without failing the job', async () => {
+      const project = await createProject();
+      // 3002 is "New arrivals" on the Home page; its first story is repeated, with an unexpected field.
+      const stories = fake.control.data.stories['3002'].data;
+      stories[0] = { ...stories[0], layout: 'wide' };
+      stories.push(stories[0]);
+      startWorker();
+      const job = await importOnce(project.id);
+      expect(job['status']).toBe('done');
+      expect((job['report'] as { tales: unknown }).tales).toEqual({ source: 16, imported: 15, skipped: 1 });
+      expect(differenceLines(job['report']).filter((line) => line.startsWith('tale '))).toEqual([
+        `tale ${stories[0]['id']} in New arrivals (3002) unexpected layout`,
+      ]);
+    });
 
     it("imports each instance's story groups as tale groups of its zone and their stories as tales, in source order", async () => {
       const project = await createProject();

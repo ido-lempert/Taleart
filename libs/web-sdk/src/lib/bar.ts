@@ -132,7 +132,7 @@ export function prefersReducedMotion(): boolean {
  * covers carry `data-animated`, `data-kind` and `data-src`, so
  * {@link applyCoverMotion} can redraw them when the setting changes.
  */
-function coverMedia(kind: 'image' | 'video', url: string, animated: boolean, reduced: boolean): HTMLElement {
+function coverElement(kind: 'image' | 'video', url: string, animated: boolean, reduced: boolean): HTMLElement {
   let el: HTMLElement;
   if (kind === 'video') {
     const video = document.createElement('video');
@@ -176,9 +176,22 @@ function coverMedia(kind: 'image' | 'video', url: string, animated: boolean, red
 // The group's cover (R12) when it has one; else the first tale with media: its image, or that
 // video's first frame; a neutral placeholder with no media.
 function cover(group: DeliveryTaleGroup, reduced: boolean): HTMLElement {
-  if (group.cover) return coverMedia(group.cover.kind, group.cover.url, group.cover.animated === true, reduced);
+  if (group.cover) return coverElement(group.cover.kind, group.cover.url, group.cover.animated === true, reduced);
   const media = group.tales.find((tale) => tale.media)?.media;
-  if (media) return coverMedia(media.kind, media.url, false, reduced);
+  if (media) return coverElement(media.kind, media.url, false, reduced);
+  const el = document.createElement('span');
+  el.setAttribute('data-placeholder', '');
+  el.className = 'cover';
+  return el;
+}
+
+/**
+ * A banner slide's picture (R3): the group's first tale with media, its image
+ * or that video's first frame (never played); a neutral placeholder with none.
+ */
+export function coverMedia(group: DeliveryTaleGroup): HTMLElement {
+  const media = group.tales.find((tale) => tale.media)?.media;
+  if (media) return coverElement(media.kind, media.url, false, true);
   const el = document.createElement('span');
   el.setAttribute('data-placeholder', '');
   el.className = 'cover';
@@ -189,7 +202,7 @@ function cover(group: DeliveryTaleGroup, reduced: boolean): HTMLElement {
 export function applyCoverMotion(root: ParentNode, reduced: boolean): void {
   for (const el of root.querySelectorAll<HTMLElement>('.cover[data-animated]')) {
     const kind = el.dataset['kind'] === 'video' ? 'video' : 'image';
-    el.replaceWith(coverMedia(kind, el.dataset['src'] ?? '', true, reduced));
+    el.replaceWith(coverElement(kind, el.dataset['src'] ?? '', true, reduced));
   }
 }
 

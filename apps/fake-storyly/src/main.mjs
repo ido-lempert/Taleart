@@ -1,6 +1,9 @@
 // Runs the fake Storyly server for local reviews: `nx run fake-storyly:serve`
 // (port 4400). Point the API at it with STORYLY_API_URL=http://localhost:4400/external
-// and use the token fake-storyly-token.
+// and use the token fake-storyly-token. It serves three apps: Demo shop (the
+// usual account), Odd shop (malformed and unmappable records, whose report
+// lists every difference) and Clean shop (records of the expected shape, no
+// differences).
 // FAKE_STORYLY_DELAY_MS slows every answer, so an import's progress can be
 // watched; FAKE_STORYLY_FAIL (instances, story-groups or stories) answers that
 // list with a 500, so a failed import can be seen.

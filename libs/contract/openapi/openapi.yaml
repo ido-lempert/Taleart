@@ -2290,6 +2290,72 @@ components:
           description: What did not come across, such as "frame type unknown" for each zone or a skipped tale.
           items:
             type: string
+        differences:
+          type: array
+          description: >-
+            Each difference between a source record and the shape the import expects, or a field TaleArt
+            does not hold, in reading order, once per record. Holds field names, never field values. Absent
+            in reports of imports made before records were checked.
+          items:
+            $ref: '#/components/schemas/ImportDifference'
+        differencesOmitted:
+          type: integer
+          minimum: 0
+          description: How many more differences were found than the report stores.
+        notImportedByDesign:
+          type: array
+          description: What the import never brings across, listed once, such as conversion records and stats.
+          items:
+            type: string
+    ImportDifferenceEntity:
+      type: string
+      enum: [app, zone, taleGroup, tale]
+      description: What the source record becomes in TaleArt (the app is the project).
+    ImportDifferenceKind:
+      type: string
+      enum: [missing, renamed, unexpected, wrongType, notHeld, invalidRecord]
+      description: >-
+        missing: a field the import needs is absent; renamed: an expected field came under another name;
+        unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong
+        type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be
+        read and was skipped.
+    ImportDifferenceRecord:
+      type: object
+      required: [sourceId, name, within, withinSourceId, position]
+      description: The source record a difference belongs to.
+      properties:
+        sourceId:
+          type: [string, 'null']
+          description: The record's id at the source; null when it has none.
+        name:
+          type: [string, 'null']
+          description: The record's title at the source, if it has one.
+        within:
+          type: [string, 'null']
+          description: The title of the record it belongs to, such as a story's group; null for top-level records.
+        withinSourceId:
+          type: [string, 'null']
+          description: The source id of the record it belongs to; null for top-level records.
+        position:
+          type: integer
+          minimum: 1
+          description: The record's place in its source list, from 1.
+    ImportDifference:
+      type: object
+      required: [entity, record, kind, field, sourceField]
+      properties:
+        entity:
+          $ref: '#/components/schemas/ImportDifferenceEntity'
+        record:
+          $ref: '#/components/schemas/ImportDifferenceRecord'
+        kind:
+          $ref: '#/components/schemas/ImportDifferenceKind'
+        field:
+          type: [string, 'null']
+          description: The field name the import expects (or the unexpected one); null for an invalid record.
+        sourceField:
+          type: [string, 'null']
+          description: For a rename, the name the source used; null otherwise.
     ImportProgressCount:
       type: object
       required: [read, written]

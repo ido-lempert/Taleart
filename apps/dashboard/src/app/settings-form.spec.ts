@@ -1,3 +1,7 @@
+// The shipped schema the API serves from GET /frame-types (story 6's banner fields): a data file
+// of the contract, read as is in this test only.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import bannerSchema from '../../../../libs/contract/frame-types/banner.schema.json';
 import { humanize, initialSettings, settingsFields } from './settings-form';
 
 describe('settings form schema reading', () => {
@@ -64,5 +68,37 @@ describe('settings form schema reading', () => {
     // A field without a default is left out instead.
     expect(initialSettings(schema, { ratio: 'wide' })).not.toHaveProperty('ratio');
     expect(initialSettings(schema, { ratio: 1.5 })['ratio']).toBe(1.5);
+  });
+
+  it('builds the banner form from the shipped banner schema, with no banner-specific code', () => {
+    expect(settingsFields(bannerSchema)).toEqual([
+      {
+        key: 'aspectRatio',
+        label: 'Aspect ratio',
+        hint: expect.any(String),
+        default: '16:9',
+        kind: 'choice',
+        choices: [
+          { value: '16:9', label: '16:9' },
+          { value: '3:1', label: '3:1' },
+          { value: '1:1', label: '1:1' },
+        ],
+      },
+      { key: 'autoplay', label: 'Autoplay', hint: expect.any(String), default: true, kind: 'toggle' },
+      { key: 'intervalSeconds', label: 'Interval', hint: expect.any(String), default: 5, kind: 'number', min: 3, max: 15, step: 1 },
+      { key: 'showDots', label: 'Show dots', hint: expect.any(String), default: true, kind: 'toggle' },
+      { key: 'loop', label: 'Loop', hint: expect.any(String), default: true, kind: 'toggle' },
+    ]);
+    expect(initialSettings(bannerSchema, {})).toEqual({
+      aspectRatio: '16:9',
+      autoplay: true,
+      intervalSeconds: 5,
+      showDots: true,
+      loop: true,
+    });
+    expect(initialSettings(bannerSchema, { intervalSeconds: 40, aspectRatio: '4:3' })).toMatchObject({
+      aspectRatio: '16:9',
+      intervalSeconds: 5,
+    });
   });
 });

@@ -106,6 +106,9 @@ deferred: []
 - SDK: `bar.ts` renders the group's cover before the first-tale fallback; animated video covers autoplay muted, looping and inline unless reduced motion (then first frame, `#t=0.001`); animated image covers under reduced motion are drawn once to a canvas; `applyCoverMotion` redraws animated covers and the element follows live changes of `prefers-reduced-motion`. Bundle 6.79 KB gzipped.
 - Dashboard: `cover-capture.ts` (canvas frame capture, `MediaRecorder` clip recording, a `CoverCapture` service so tests replace it), `cover-editor.ts` (the Cover drawer body: current cover and Remove cover, then Upload an image / Frame of a video tale / Animated, from a video tale, with a video preview, a range knob "Frame time" or "Start time" with `aria-valuetext`, a length select, Make animated cover with a looping preview and its size), a `cover` drawer kind ("Save cover"), a Cover button per group row, the row ring shows the cover, store `uploadCover` / `removeCover` / `coverSrc` (version query after a change).
 
+- After review: merged `autopilot/foundation` (5f05391: banner 3.6, importer 2.6). The banner's `coverMedia(group)` export keeps its meaning (a slide shows the first tale's media, R3); the cover renderer became `coverElement`; every bar frame renders through `renderBar` with covers, and the reduced-motion watcher redraws animated covers across all frames. The a11y scan's stub zone now has a group with a cover.
+- Verification after the merge: `nx run-many -t lint test build` for the twelve projects passed against `taleart_w1_test` (api 259, dashboard 167, web-sdk 136, server-tales 65 tests); `web-sdk:size` 9.10 KB gzipped; `sdk-sample:a11y` reports no WCAG 2.2 AA violations.
+
 ## Plan Change Log
 
 ## Review Triage Log

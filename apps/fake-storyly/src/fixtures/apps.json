@@ -11,6 +11,32 @@
       "is_inbox_story": false,
       "settings": {},
       "detailed_info": {}
+    },
+    {
+      "id": 1002,
+      "token": "fake-app-token-1002",
+      "title": "Odd shop",
+      "category": "shopping",
+      "store_type": "web",
+      "store_id": "odd-shop.example",
+      "account_id": 501,
+      "is_inbox_story": false,
+      "settings": {
+        "theme": "dark"
+      },
+      "detailed_info": {}
+    },
+    {
+      "id": 1003,
+      "token": "fake-app-token-1003",
+      "title": "Clean shop",
+      "category": "shopping",
+      "store_type": "web",
+      "store_id": "clean-shop.example",
+      "account_id": 501,
+      "is_inbox_story": false,
+      "settings": {},
+      "detailed_info": {}
     }
   ]
 }

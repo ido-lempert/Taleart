@@ -75,6 +75,10 @@ export type ImportJob = Schemas['ImportJob'];
 export type ImportJobSummary = Schemas['ImportJobSummary'];
 export type ImportProgress = Schemas['ImportProgress'];
 export type ImportProgressCount = Schemas['ImportProgressCount'];
+export type ImportDifference = Schemas['ImportDifference'];
+export type ImportDifferenceEntity = Schemas['ImportDifferenceEntity'];
+export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
+export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
@@ -91,6 +95,12 @@ export const IMPORT_STATUSES: readonly ImportStatus[] = importStatusValues;
 export function isImportActive(status: ImportStatus): boolean {
   return status === 'queued' || status === 'running';
 }
+
+/** What an import never brings across, listed once on every report. */
+export const IMPORT_NOT_IMPORTED_BY_DESIGN: readonly string[] = ['Conversion records', 'Stats'];
+
+/** The most differences one import report stores; the rest are only counted. */
+export const MAX_IMPORT_REPORT_DIFFERENCES = 5000;
 
 /** The http-only cookie holding the session token (AD-9). */
 export const SESSION_COOKIE = 'taleart_session';
@@ -393,6 +403,21 @@ export interface BarSettings {
   alignment: 'start' | 'center';
   /** Space between items in px, 4 to 24. */
   gap: number;
+}
+
+/**
+ * The settings of a `banner` frame, as `frame-types/banner.schema.json`
+ * defines them (epic web zones R3). The schema is the source of the values
+ * and defaults; the Delivery API returns every field, filled with its default
+ * when unset.
+ */
+export interface BannerSettings {
+  aspectRatio: '16:9' | '3:1' | '1:1';
+  autoplay: boolean;
+  /** Seconds per slide while autoplaying, 3 to 15. */
+  intervalSeconds: number;
+  showDots: boolean;
+  loop: boolean;
 }
 
 /** True when a value has the standard `{ error: { code, message } }` shape. */
