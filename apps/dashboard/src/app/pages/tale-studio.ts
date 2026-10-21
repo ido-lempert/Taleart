@@ -1,7 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
+  cleanText,
+  ELEMENT_TEXT_RULE,
   emptyTaleDocument,
+  ErrorCodes,
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
   NEW_TEXT_BOX,
@@ -148,6 +151,8 @@ interface Drag {
           <div class="studio">
             <div
               class="canvas"
+              id="studio-canvas"
+              tabindex="-1"
               role="group"
               aria-label="Canvas, 9:16"
               aria-describedby="studio-keys"
@@ -173,11 +178,11 @@ interface Drag {
                     class="el-edit"
                     [id]="'studio-edit-' + el.id"
                     aria-label="Text"
-                    [attr.maxlength]="maxText"
                     [style.left.%]="el.box.x * 100"
                     [style.top.%]="el.box.y * 100"
                     [style.width.%]="el.box.w * 100"
                     [style.height.%]="el.box.h * 100"
+                    [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
                     [style.z-index]="i + 1"
                     [style.font-size]="fontSize"
                     [style.line-height]="textStyle.lineHeight"
@@ -185,7 +190,7 @@ interface Drag {
                     [style.color]="textStyle.color"
                     [style.font-family]="textStyle.fontFamily"
                     [value]="el.props.text"
-                    (input)="setText(el.id, $any($event.target).value)"
+                    (input)="typeText(el.id, $any($event.target))"
                     (blur)="stopEditing()"
                     (keydown.escape)="stopEditing(true)"
                   ></textarea>
@@ -196,7 +201,9 @@ interface Drag {
                     [id]="'studio-el-' + el.id"
                     [class.is-selected]="selectedId() === el.id"
                     [attr.aria-pressed]="selectedId() === el.id"
+                    [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
                     [attr.aria-label]="'Text: ' + name(el)"
+                    [textContent]="el.props.text"
                     [style.left.%]="el.box.x * 100"
                     [style.top.%]="el.box.y * 100"
                     [style.width.%]="el.box.w * 100"
@@ -215,9 +222,7 @@ interface Drag {
                     (pointermove)="dragMove($event)"
                     (pointerup)="dragEnd($event)"
                     (pointercancel)="dragEnd($event)"
-                  >
-                    {{ el.props.text }}
-                  </button>
+                  ></button>
                 }
               }
             </div>
@@ -234,7 +239,7 @@ interface Drag {
               </div>
               <p class="field__hint" id="studio-keys">
                 Select a text to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
-                stops editing, Delete removes it.
+                stops editing, the Delete key removes it.
               </p>
               @if (selected(); as el) {
                 <fieldset class="field selected">
@@ -244,10 +249,14 @@ interface Drag {
                     <textarea
                       id="studio-text"
                       class="input"
-                      [attr.maxlength]="maxText"
+                      aria-describedby="studio-text-hint"
+                      [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
                       [value]="el.props.text"
-                      (input)="setText(el.id, $any($event.target).value)"
+                      (input)="typeText(el.id, $any($event.target))"
                     ></textarea>
+                    <span class="field__hint" id="studio-text-hint">
+                      {{ textNotice() || 'Up to ' + maxText.toLocaleString('en') + ' characters.' }}
+                    </span>
                   </div>
                   <div class="row">
                     <div class="field">
@@ -260,7 +269,7 @@ interface Drag {
                         [attr.max]="maxPercent(el.box.w)"
                         step="1"
                         [value]="percent(el.box.x)"
-                        (change)="setPosition(el.id, 'x', $any($event.target).value)"
+                        (change)="setPosition(el.id, 'x', $any($event.target))"
                       />
                     </div>
                     <div class="field">
@@ -273,7 +282,7 @@ interface Drag {
                         [attr.max]="maxPercent(el.box.h)"
                         step="1"
                         [value]="percent(el.box.y)"
-                        (change)="setPosition(el.id, 'y', $any($event.target).value)"
+                        (change)="setPosition(el.id, 'y', $any($event.target))"
                       />
                     </div>
                   </div>
@@ -326,6 +335,10 @@ export class TaleStudioPage implements OnInit {
   protected readonly stale = signal(false);
   protected readonly saveStatus = signal('');
   protected readonly announcement = signal('');
+  /** The element the last refused save named, marked invalid until it changes. */
+  protected readonly invalidId = signal<string | null>(null);
+  /** Why the text just typed was changed: cut at the limit, or characters removed. */
+  protected readonly textNotice = signal('');
   private drag: Drag | null = null;
 
   protected readonly maxElements = MAX_TALE_ELEMENTS;
@@ -440,21 +453,59 @@ export class TaleStudioPage implements OnInit {
     if (refocus) this.focusSoon(`studio-el-${id}`);
   }
 
-  protected setText(id: string, text: string): void {
+  /**
+   * Takes what was typed or pasted into a text field: characters text may not hold are removed
+   * (line feeds stay), and text past the limit, counted in characters as the server counts them,
+   * is cut. The field shows what was kept, and the notice says why.
+   */
+  protected typeText(id: string, field: HTMLTextAreaElement): void {
+    let text = cleanText(field.value, ELEMENT_TEXT_RULE);
+    let notice = text === field.value ? '' : 'Characters that text cannot hold were removed.';
+    const characters = [...text];
+    if (characters.length > MAX_TEXT_LENGTH) {
+      text = characters.slice(0, MAX_TEXT_LENGTH).join('');
+      notice = `A text holds at most ${MAX_TEXT_LENGTH.toLocaleString('en')} characters.`;
+    }
+    if (text !== field.value) field.value = text;
+    if (notice !== this.textNotice()) {
+      this.textNotice.set(notice);
+      if (notice) this.say(notice);
+    }
+    if (this.invalidId() === id) this.invalidId.set(null);
     this.change((elements) => elements.map((e) => (e.id === id ? { ...e, props: { ...e.props, text } } : e)));
   }
 
-  protected setPosition(id: string, axis: 'x' | 'y', value: string): void {
-    const number = Number(value);
-    if (value.trim() === '' || !Number.isFinite(number)) return;
-    this.setBox(id, { [axis]: number / 100 });
-    this.say('Text moved');
+  /** Applies a position field and writes back the value applied, which keeps the box on the canvas. */
+  protected setPosition(id: string, axis: 'x' | 'y', field: HTMLInputElement): void {
+    const element = this.doc()?.elements.find((e) => e.id === id);
+    if (!element) return;
+    const name = axis === 'x' ? 'left' : 'top';
+    const requested = Number(field.value);
+    if (field.value.trim() === '' || !Number.isFinite(requested)) {
+      field.value = String(this.percent(element.box[axis]));
+      this.say(`Enter a number for ${name}; it stays at ${field.value}%`);
+      return;
+    }
+    this.setBox(id, { [axis]: requested / 100 });
+    const applied = this.percent(this.doc()?.elements.find((e) => e.id === id)?.box[axis] ?? 0);
+    field.value = String(applied);
+    this.say(
+      applied === requested
+        ? `Text moved to ${name} ${applied}%`
+        : `Text moved to ${name} ${applied}%, as far as it goes`,
+    );
   }
 
+  /** Removes an element; focus moves to the next element, else the previous one, else the canvas. */
   protected remove(id: string): void {
-    this.change((elements) => elements.filter((e) => e.id !== id));
-    if (this.selectedId() === id) this.selectedId.set(null);
+    const elements = this.doc()?.elements ?? [];
+    const index = elements.findIndex((e) => e.id === id);
+    const next = elements[index + 1] ?? elements[index - 1] ?? null;
+    this.change((list) => list.filter((e) => e.id !== id));
+    if (this.selectedId() === id) this.selectedId.set(next?.id ?? null);
     if (this.editingId() === id) this.editingId.set(null);
+    if (this.invalidId() === id) this.invalidId.set(null);
+    this.focusSoon(next ? `studio-el-${next.id}` : 'studio-canvas');
     this.say('Text deleted');
   }
 
@@ -478,7 +529,8 @@ export class TaleStudioPage implements OnInit {
     } else if (event.key === 'Enter' || event.key === 'F2') {
       event.preventDefault();
       this.edit(element.id);
-    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+    } else if (event.key === 'Delete') {
+      // Delete only: Backspace is too easy to press by mistake until undo exists (story 7.3).
       event.preventDefault();
       this.remove(element.id);
     }
@@ -531,20 +583,38 @@ export class TaleStudioPage implements OnInit {
     const result = await this.documents.save(this.taleId(), doc, this.revision());
     this.saving.set(false);
     if (result.value === null) {
-      this.error.set(
-        result.stale
-          ? 'Someone saved this tale after you opened it. Reload the latest version; your changes here are not saved.'
-          : result.message,
-      );
+      this.error.set(this.refusal(result));
       this.stale.set(result.stale);
       this.saveStatus.set('Not saved');
       return;
     }
+    this.invalidId.set(null);
     this.revision.set(result.value.revision);
     // Edits made while the save was on its way stay unsaved.
     this.saveStatus.set(this.doc() === doc ? 'Saved' : 'Unsaved changes');
     this.error.set('');
     this.stale.set(false);
+  }
+
+  // A refusal in words a person can act on. A refused element, named by the pointer, is selected and marked.
+  private refusal(result: { message: string; stale: boolean; code: string; pointer: string }): string {
+    if (result.stale) {
+      return 'Someone saved this tale after you opened it. Reload the latest version; your changes here are not saved.';
+    }
+    if (result.code === ErrorCodes.taleDocumentTooLarge) {
+      return 'This tale is too large to save. Shorten or remove some text, then save again.';
+    }
+    if (result.code === ErrorCodes.invalidTaleDocument) {
+      const index = /^\/elements\/(\d+)/.exec(result.pointer)?.[1];
+      const element = index === undefined ? undefined : this.doc()?.elements[Number(index)];
+      if (element) {
+        this.invalidId.set(element.id);
+        this.selectedId.set(element.id);
+        return 'A text could not be saved: it is too long or holds something a text cannot. It is selected on the canvas.';
+      }
+      return 'The tale could not be saved because something in it is not valid. Reload the page and try again.';
+    }
+    return result.message;
   }
 
   protected async reload(): Promise<void> {

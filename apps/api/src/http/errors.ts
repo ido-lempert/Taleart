@@ -138,7 +138,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
       res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 100 MB'));
     } else if (/\/cover$/.test(req.path)) {
       res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 10 MB'));
-    } else if (/\/document$/.test(req.path)) {
+    } else if (/\/document\/?$/i.test(req.path)) {
       res
         .status(413)
         .json(

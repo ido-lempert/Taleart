@@ -1,9 +1,12 @@
 import {
   EDITOR_ONLY_ELEMENT_FIELDS,
+  ELEMENT_TEXT_RULE,
   ErrorCodes,
-  hasControlCharacter,
-  hasTextControlCharacter,
+  hasDisallowedCharacter,
+  LABEL_TEXT_RULE,
+  MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
+  TALE_DOCUMENT_VERSION,
   TALE_DOCUMENT_V1_SCHEMA,
   TALE_ELEMENT_TYPE_REGISTRY,
   type DeliveryTaleDocument,
@@ -49,15 +52,26 @@ export class StaleRevisionError extends Error {
   }
 }
 
-// What one refusal says about the field at `pointer`.
+/** A key as a JSON pointer segment (RFC 6901): `~` becomes `~0` and `/` becomes `~1`. */
+export function pointerSegment(key: string | number): string {
+  return String(key).replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+// What one refusal says about the field at `pointer`. Ajv's instancePath is already a JSON pointer.
 function describe(error: ErrorObject, prefix: string): InvalidTaleDocumentError {
   const params = error.params as Record<string, unknown>;
   const at = `${prefix}${error.instancePath}`;
   switch (error.keyword) {
     case 'additionalProperties':
-      return new InvalidTaleDocumentError(`${at}/${params['additionalProperty'] as string}`, 'is not a known property');
+      return new InvalidTaleDocumentError(
+        `${at}/${pointerSegment(params['additionalProperty'] as string)}`,
+        'is not a known property',
+      );
     case 'required':
-      return new InvalidTaleDocumentError(`${at}/${params['missingProperty'] as string}`, 'is required');
+      return new InvalidTaleDocumentError(
+        `${at}/${pointerSegment(params['missingProperty'] as string)}`,
+        'is required',
+      );
     case 'maxItems':
       return new InvalidTaleDocumentError(at, `holds at most ${params['limit'] as number} items`);
     case 'maxLength':
@@ -74,8 +88,11 @@ type PropsRule = (props: Record<string, unknown>, pointer: string) => void;
 
 const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
   text: (props, pointer) => {
-    if (typeof props['text'] === 'string' && hasTextControlCharacter(props['text'])) {
-      throw new InvalidTaleDocumentError(`${pointer}/text`, 'may not hold control characters other than a line feed');
+    if (typeof props['text'] === 'string' && hasDisallowedCharacter(props['text'], ELEMENT_TEXT_RULE)) {
+      throw new InvalidTaleDocumentError(
+        `${pointer}/text`,
+        'may not hold control characters other than a line feed, lone surrogates or bidi overrides',
+      );
     }
   },
 };
@@ -105,16 +122,17 @@ function checkFinite(value: unknown, pointer: string): void {
     value.forEach((item, i) => checkFinite(item, `${pointer}/${i}`));
   } else if (typeof value === 'object' && value !== null) {
     for (const [key, item] of Object.entries(value)) {
-      checkFinite(item, `${pointer}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`);
+      checkFinite(item, `${pointer}/${pointerSegment(key)}`);
     }
   }
 }
 
 /**
- * Checks a tale document on write (AD-15) and returns it typed: its size, then the envelope
- * schema (no additional properties), then each element's props against its registered type's
- * schema, then the semantic rules: unique ids, finite numbers, no control characters in text
- * (other than a line feed) or labels. Throws {@link TaleDocumentTooLargeError} or
+ * Checks a tale document on write (AD-15) and returns it typed, with its text and labels in
+ * Unicode NFC: its size, then the envelope schema (no additional properties), then each
+ * element's props against its registered type's schema, then the semantic rules: unique ids,
+ * finite numbers, and no control characters (other than a line feed in text), lone surrogates or
+ * bidi embeddings and overrides in text or labels. Throws {@link TaleDocumentTooLargeError} or
  * {@link InvalidTaleDocumentError}, which names the JSON pointer it refused.
  */
 export function checkTaleDocument(value: unknown): TaleDocument {
@@ -128,8 +146,9 @@ export function checkTaleDocument(value: unknown): TaleDocument {
   }
   const doc = value as TaleDocument;
   const ids = new Set<string>();
-  doc.elements.forEach((element, i) => {
+  const elements = doc.elements.map((original, i) => {
     const at = `/elements/${i}`;
+    const element = normalized(original);
     const validate = props.get(element.type);
     if (!validate)
       throw new InvalidTaleDocumentError(`${at}/type`, `"${element.type}" is not a registered element type`);
@@ -139,14 +158,41 @@ export function checkTaleDocument(value: unknown): TaleDocument {
     }
     PROPS_RULES[element.type]?.(element.props as unknown as Record<string, unknown>, `${at}/props`);
     const label = element.a11y.label;
-    if (label !== undefined && hasControlCharacter(label)) {
-      throw new InvalidTaleDocumentError(`${at}/a11y/label`, 'may not hold control characters');
+    if (label !== undefined && [...label].length > MAX_LABEL_LENGTH) {
+      throw new InvalidTaleDocumentError(`${at}/a11y/label`, `holds at most ${MAX_LABEL_LENGTH} characters`);
+    }
+    if (label !== undefined && hasDisallowedCharacter(label, LABEL_TEXT_RULE)) {
+      throw new InvalidTaleDocumentError(
+        `${at}/a11y/label`,
+        'may not hold control characters, lone surrogates or bidi overrides',
+      );
     }
     const id = element.id.toLowerCase();
     if (ids.has(id)) throw new InvalidTaleDocumentError(`${at}/id`, 'is the id of another element');
     ids.add(id);
+    return element;
   });
-  return doc;
+  return { ...doc, elements };
+}
+
+// The element with its label, and a text element's text, in Unicode NFC, so equal text is stored equally.
+function normalized(element: TaleDocument['elements'][number]): TaleDocument['elements'][number] {
+  const label = element.a11y.label;
+  const a11y = typeof label === 'string' ? { ...element.a11y, label: label.normalize('NFC') } : element.a11y;
+  const text = (element.props as { text?: unknown } | null)?.text;
+  const props = typeof text === 'string' ? { ...element.props, text: text.normalize('NFC') } : element.props;
+  return { ...element, a11y, props };
+}
+
+/** The most delivered documents kept checked in memory, by tale and revision. */
+export const DELIVERY_CACHE_SIZE = 1000;
+
+// Delivered documents by `<tale id>:<revision>`, oldest first: a Map keeps insertion order.
+const deliveryCache = new Map<string, DeliveryTaleDocument | null>();
+
+/** Forgets the delivered documents kept in memory (for tests). */
+export function clearDeliveryCache(): void {
+  deliveryCache.clear();
 }
 
 /**
@@ -154,9 +200,35 @@ export function checkTaleDocument(value: unknown): TaleDocument {
  * editor-only fields of the rest. A stored document that no longer passes
  * {@link checkTaleDocument} (written before a rule changed, or by hand) is not delivered: the
  * tale then shows its media only. Null for none.
+ *
+ * Documents are checked in full on write. On read, a document with an unknown `version`, or
+ * stored text over twice the size limit, is refused at once; the full check runs once per
+ * `cacheKey` (the tale's id and revision, which every save raises), and its result is kept in a
+ * bounded in-memory LRU of {@link DELIVERY_CACHE_SIZE} entries, so a zone read again (such as a
+ * revalidation answered 304) does not check every document again.
  */
-export function deliverableTaleDocument(stored: unknown): DeliveryTaleDocument | null {
+export function deliverableTaleDocument(
+  stored: unknown,
+  cacheKey?: string,
+  storedBytes?: number,
+): DeliveryTaleDocument | null {
   if (stored === null || stored === undefined) return null;
+  if ((stored as { version?: unknown }).version !== TALE_DOCUMENT_VERSION) return null;
+  if (storedBytes !== undefined && storedBytes > 2 * MAX_TALE_DOCUMENT_BYTES) return null;
+  if (cacheKey === undefined) return deliver(stored);
+  if (deliveryCache.has(cacheKey)) {
+    const cached = deliveryCache.get(cacheKey) ?? null;
+    deliveryCache.delete(cacheKey);
+    deliveryCache.set(cacheKey, cached);
+    return cached;
+  }
+  const delivered = deliver(stored);
+  deliveryCache.set(cacheKey, delivered);
+  if (deliveryCache.size > DELIVERY_CACHE_SIZE) deliveryCache.delete(deliveryCache.keys().next().value as string);
+  return delivered;
+}
+
+function deliver(stored: unknown): DeliveryTaleDocument | null {
   let doc: TaleDocument;
   try {
     doc = checkTaleDocument(stored);
@@ -176,7 +248,10 @@ export function deliverableTaleDocument(stored: unknown): DeliveryTaleDocument |
   };
 }
 
-/** The tale's document and revision; a tale without one reads `{ document: null, revision: 0 }`. Throws {@link TaleNotFoundError}. */
+/**
+ * The tale's document and revision; a tale without one reads `{ document: null, revision: 0 }`.
+ * Throws {@link TaleNotFoundError}.
+ */
 export async function getTaleDocument(db: Db, taleId: string): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
   const { rows } = await db.query<{ document: TaleDocument | null; revision: number }>(

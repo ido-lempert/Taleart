@@ -1,6 +1,7 @@
 import type { Db } from '@taleart/server-access';
 import {
   checkTaleDocument,
+  clearDeliveryCache,
   deliverableTaleDocument,
   getTaleDocument,
   InvalidTaleDocumentError,
@@ -9,6 +10,7 @@ import {
   TaleDocumentTooLargeError,
 } from './tale-document';
 import { TaleNotFoundError } from './tales';
+import { DELIVERY_CACHE_SIZE } from './tale-document';
 
 const taleId = '00000000-0000-4000-8000-000000000010';
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -46,7 +48,7 @@ describe('checkTaleDocument', () => {
     const value = doc([text(1, 'Hello\nworld', { a11y: { label: 'Greeting', decorative: false } })], {
       durationMs: 7000,
     });
-    expect(checkTaleDocument(value)).toBe(value);
+    expect(checkTaleDocument(value)).toEqual(value);
     expect(checkTaleDocument(doc([]))).toEqual(doc([]));
   });
 
@@ -98,6 +100,11 @@ describe('checkTaleDocument', () => {
     expect(refusal(doc([text(1, 'a\u0007b')]))).toBe('/elements/0/props/text');
     expect(refusal(doc([text(1, 'a\tb')]))).toBe('/elements/0/props/text');
     expect(refusal(doc([text(1, 'x', { a11y: { label: 'a\nb' } })]))).toBe('/elements/0/a11y/label');
+    // Labels follow the same rule as text: C0, DEL and C1 are all refused.
+    for (const c of ['\u007f', '\u0085', '\u009f']) {
+      expect(refusal(doc([text(1, 'x', { a11y: { label: `a${c}b` } })]))).toBe('/elements/0/a11y/label');
+      expect(refusal(doc([text(1, `a${c}b`)]))).toBe('/elements/0/props/text');
+    }
   });
 
   it('refuses a duplicate element id, ignoring case', () => {
@@ -108,6 +115,45 @@ describe('checkTaleDocument', () => {
     // 60 texts of 1,000 three-byte characters: valid in every other way, about 180 KB.
     const big = doc(Array.from({ length: 60 }, (_, i) => text(i + 1, '€'.repeat(1000))));
     expect(() => checkTaleDocument(big)).toThrow(TaleDocumentTooLargeError);
+  });
+
+  it('refuses lone surrogates and bidi embeddings and overrides in text and labels', () => {
+    for (const c of ['\ud800', '\udc00', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e']) {
+      expect(refusal(doc([text(1, `a${c}b`)]))).toBe('/elements/0/props/text');
+      expect(refusal(doc([text(1, 'x', { a11y: { label: `a${c}b` } })]))).toBe('/elements/0/a11y/label');
+    }
+    // Through JSON, as the API receives it.
+    expect(refusal(JSON.parse(JSON.stringify(doc([text(1, 'LONE')])).replace('"LONE"', '"\\ud800"')))).toBe(
+      '/elements/0/props/text',
+    );
+  });
+
+  it('keeps Hebrew and Arabic text, bidi marks and isolates, ZWJ and ZWNJ, and emoji sequences', () => {
+    const texts = [
+      'שלום, עולם! 123',
+      'مرحبا\u200f بالعالم',
+      '\u2067שלום\u2069 and \u2066hello\u2069 \u200e',
+      '👩‍👩‍👧‍👦 👍🏽 🏳️‍🌈 👨‍💻',
+      'می\u200cخواهم',
+    ];
+    for (const value of texts) {
+      expect(checkTaleDocument(doc([text(1, value, { a11y: { label: value } })])).elements[0].props.text).toBe(value);
+    }
+  });
+
+  it('stores text and labels in Unicode NFC', () => {
+    const decomposed = 'Cafe\u0301';
+    const checked = checkTaleDocument(doc([text(1, decomposed, { a11y: { label: decomposed } })]));
+    expect(checked.elements[0].props.text).toBe('Caf\u00e9');
+    expect(checked.elements[0].a11y.label).toBe('Caf\u00e9');
+  });
+
+  it('escapes every key in a refusal pointer (RFC 6901)', () => {
+    expect(refusal(doc(undefined, { 'a/b': 1 }))).toBe('/a~1b');
+    expect(refusal(doc(undefined, { 'c~d': 1 }))).toBe('/c~0d');
+    expect(refusal(doc([{ ...text(1), props: { text: 'x', 'e/f~g': 1 } }]))).toBe('/elements/0/props/e~1f~0g');
+    const body = JSON.stringify(doc()).replace('"elements"', '"x/y":{"z":1e999},"elements"');
+    expect(refusal(JSON.parse(body))).toBe('/x~1y/z');
   });
 
   it('refuses what is not a document', () => {
@@ -141,6 +187,33 @@ describe('deliverableTaleDocument', () => {
   it('delivers nothing for no document or one that no longer validates', () => {
     expect(deliverableTaleDocument(null)).toBeNull();
     expect(deliverableTaleDocument(doc([{ ...text(1), type: 'poll' }]))).toBeNull();
+  });
+
+  it('refuses an unknown version or oversize stored text at once, and checks in full once per tale and revision', () => {
+    clearDeliveryCache();
+    expect(deliverableTaleDocument(doc(undefined, { version: 2 }), 't:1')).toBeNull();
+    expect(deliverableTaleDocument(doc(), 't:1', 300 * 1024)).toBeNull();
+    const first = deliverableTaleDocument(doc([text(1, 'One')]), 't:1');
+    expect(first?.elements[0].props).toEqual({ text: 'One' });
+    // The same tale and revision is not checked again: a changed row with the same key reads as cached.
+    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'poll' }]), 't:1')).toBe(first);
+    // A save raises the revision, and the new key is checked.
+    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'poll' }]), 't:2')).toBeNull();
+    clearDeliveryCache();
+  });
+
+  it('keeps at most DELIVERY_CACHE_SIZE documents, dropping the least recently used', () => {
+    clearDeliveryCache();
+    const kept = deliverableTaleDocument(doc([text(1, 'Kept')]), 'kept:1');
+    for (let i = 0; i < DELIVERY_CACHE_SIZE; i++) {
+      deliverableTaleDocument(doc([text(1, `T${i}`)]), `t${i}:1`);
+      // Read again, so it stays the most recently used.
+      if (i % 100 === 0) deliverableTaleDocument(doc(), 'kept:1');
+    }
+    expect(deliverableTaleDocument(doc(), 'kept:1')).toBe(kept);
+    // The oldest entry other than the one read again is gone, so it is checked again.
+    expect(deliverableTaleDocument(doc([text(1, 'Again')]), 't0:1')?.elements[0].props).toEqual({ text: 'Again' });
+    clearDeliveryCache();
   });
 });
 

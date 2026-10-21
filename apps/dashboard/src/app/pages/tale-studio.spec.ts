@@ -159,19 +159,100 @@ describe('TaleStudioPage', () => {
     await settle(fixture);
   });
 
-  it('moves by the position fields, kept inside the canvas, and deletes from the keyboard', async () => {
+  const live = () => root.querySelector('[aria-live=polite]')?.textContent;
+
+  it('moves by the position fields, writing back the applied value and announcing a clamp', async () => {
     await open({ document: existing, revision: 1 });
     elements()[0].click();
     await settle(fixture);
     const x = root.querySelector('#studio-x') as HTMLInputElement;
     x.value = '95';
     x.dispatchEvent(new Event('change'));
+    // The field shows the value applied at once, even though the box did not move far enough to re-render it.
+    expect(x.value).toBe('20');
     await settle(fixture);
     // The box is 80% wide, so it can start at most at 20%.
     expect(elements()[0].style.left).toBe('20%');
+    expect(live()).toBe('Text moved to left 20%, as far as it goes');
+    // A second clamp to the same place still writes the field back.
+    x.value = '90';
+    x.dispatchEvent(new Event('change'));
+    expect(x.value).toBe('20');
+    const y = root.querySelector('#studio-y') as HTMLInputElement;
+    y.value = '30';
+    y.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    expect(y.value).toBe('30');
+    expect(live()).toBe('Text moved to top 30%');
+    y.value = '';
+    y.dispatchEvent(new Event('change'));
+    expect(y.value).toBe('30');
+    await settle(fixture);
+    expect(live()).toBe('Enter a number for top; it stays at 30%');
+  });
+
+  it('deletes with the Delete key only, then focuses the next element, the previous one, or the canvas', async () => {
+    const second = { ...existing.elements[0], id: '00000000-0000-4000-8000-000000000002', props: { text: 'Two' } };
+    await open({ document: { ...existing, elements: [...existing.elements, second] }, revision: 1 });
+    key(elements()[0], 'Backspace');
+    await settle(fixture);
+    expect(elements()).toHaveLength(2);
+    key(elements()[0], 'Delete');
+    await settle(fixture);
+    expect(elements()).toHaveLength(1);
+    expect(document.activeElement).toBe(elements()[0]);
+    expect(elements()[0].textContent).toBe('Two');
     key(elements()[0], 'Delete');
     await settle(fixture);
     expect(elements()).toHaveLength(0);
+    expect(document.activeElement).toBe(root.querySelector('.canvas'));
+    expect(live()).toBe('Text deleted');
+  });
+
+  it('shows text without added whitespace, and keeps the rotation while typing in place', async () => {
+    const rotated = { ...existing.elements[0], box: { ...existing.elements[0].box, rotation: 15 } };
+    await open({ document: { ...existing, elements: [rotated] }, revision: 1 });
+    expect(elements()[0].textContent).toBe('Hi <b>there</b>');
+    expect(elements()[0].style.transform).toBe('rotate(15deg)');
+    key(elements()[0], 'Enter');
+    await settle(fixture);
+    const field = root.querySelector('textarea.el-edit') as HTMLTextAreaElement;
+    expect(field.style.transform).toBe('rotate(15deg)');
+  });
+
+  it('counts the text limit in characters, emoji included, and stops input past it', async () => {
+    await open({ document: existing, revision: 1 });
+    elements()[0].click();
+    await settle(fixture);
+    const field = root.querySelector('#studio-text') as HTMLTextAreaElement;
+    expect(field.hasAttribute('maxlength')).toBe(false);
+    // 1,000 emoji are 2,000 UTF-16 units but 1,000 characters: all kept.
+    field.value = '😀'.repeat(1000);
+    field.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    expect(elements()[0].textContent).toBe('😀'.repeat(1000));
+    expect(root.querySelector('#studio-text-hint')?.textContent?.trim()).toBe('Up to 1,000 characters.');
+    field.value = '😀'.repeat(1000) + 'ab';
+    field.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    expect(field.value).toBe('😀'.repeat(1000));
+    expect(elements()[0].textContent).toBe('😀'.repeat(1000));
+    expect(root.querySelector('#studio-text-hint')?.textContent?.trim()).toBe('A text holds at most 1,000 characters.');
+  });
+
+  it('removes control characters and bidi overrides from typed or pasted text, keeping line feeds and RTL text', async () => {
+    await open({ document: existing, revision: 1 });
+    elements()[0].click();
+    await settle(fixture);
+    const field = root.querySelector('#studio-text') as HTMLTextAreaElement;
+    field.value = 'שלום\u0007\nworld\u202e 👩‍👩‍👧‍👦\u2067x\u2069';
+    field.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    expect(field.value).toBe('שלום\nworld 👩‍👩‍👧‍👦\u2067x\u2069');
+    expect(elements()[0].textContent).toBe('שלום\nworld 👩‍👩‍👧‍👦\u2067x\u2069');
+    expect(root.querySelector('#studio-text-hint')?.textContent?.trim()).toBe(
+      'Characters that text cannot hold were removed.',
+    );
   });
 
   it('moves an element by dragging it', async () => {
@@ -206,18 +287,34 @@ describe('TaleStudioPage', () => {
     expect(root.querySelector('[role=alert]')).toBeNull();
   });
 
-  it("shows the API's message when a save is refused", async () => {
+  it('explains a refused save in plain words and marks the element its pointer names', async () => {
     await open({ document: existing, revision: 1 });
+    buttonNamed(root, 'Save').click();
+    await settle(fixture);
+    http.expectOne(url).flush(
+      {
+        error: {
+          code: 'invalid_tale_document',
+          message: '/elements/0/props/text holds at most 1000 characters',
+          pointer: '/elements/0/props/text',
+        },
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await settle(fixture);
+    const alert = root.querySelector('[role=alert]')?.textContent ?? '';
+    expect(alert).toContain('A text could not be saved');
+    expect(alert).not.toContain('/elements');
+    expect(elements()[0].getAttribute('aria-invalid')).toBe('true');
+    expect(elements()[0].getAttribute('aria-pressed')).toBe('true');
+    expect(status()).toBe('Not saved');
+
     buttonNamed(root, 'Save').click();
     await settle(fixture);
     http
       .expectOne(url)
-      .flush(
-        { error: { code: 'invalid_tale_document', message: '/elements/0/props/text holds at most 1000 characters' } },
-        { status: 400, statusText: 'Bad Request' },
-      );
+      .flush({ error: { code: 'tale_document_too_large', message: 'x' } }, { status: 413, statusText: 'Too Large' });
     await settle(fixture);
-    expect(root.querySelector('[role=alert]')?.textContent).toContain('holds at most 1000 characters');
-    expect(status()).toBe('Not saved');
+    expect(root.querySelector('[role=alert]')?.textContent).toContain('This tale is too large to save');
   });
 });

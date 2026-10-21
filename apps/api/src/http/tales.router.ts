@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import {
   ErrorCodes,
   maxMediaBytes,
-  MAX_TALE_DOCUMENT_BYTES,
   MAX_VIDEO_BYTES,
   type SetScheduleRequest,
   type SetStatusRequest,
@@ -35,6 +34,9 @@ function logError(msg: string, err: unknown): void {
     }),
   );
 }
+
+/** The largest document revision: the stored column is a PostgreSQL integer. */
+const MAX_REVISION = 2147483647;
 
 /** A tale's media and status: mounted at `/tales`. */
 export function talesRouter(pool: Pool, storage: MediaStorage): Router {
@@ -130,8 +132,8 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
     }
   });
 
-  // The tale's document (AD-15). The body may hold up to 128 KB of document; a larger body is
-  // refused by the parser, and the document's own size is checked when it is saved.
+  // The tale's document (AD-15). Its body is parsed in app.ts with a larger limit than other
+  // routes'; the document's own size is checked when it is saved.
   router.get('/:taleId/document', taleAccess, async (req, res, next) => {
     try {
       res.json(await getTaleDocument(pool, req.params['taleId']));
@@ -140,33 +142,29 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
     }
   });
 
-  router.put(
-    '/:taleId/document',
-    taleAccess,
-    express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }),
-    async (req, res, next) => {
-      try {
-        // Tale first (404), then the body (400), then the revision (409).
-        const { taleId } = req.params;
-        if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
-        const body = req.body as Record<string, unknown> | undefined;
-        const revision = body?.['revision'];
-        if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0) {
-          throw new HttpError(
-            400,
-            ErrorCodes.validationFailed,
-            'revision must be the revision the document was based on',
-          );
-        }
-        if (typeof body !== 'object' || body === null || !('document' in body)) {
-          throw new HttpError(400, ErrorCodes.validationFailed, 'document is required');
-        }
-        res.json(await saveTaleDocument(pool, taleId, body['document'], revision));
-      } catch (err) {
-        next(err);
+  router.put('/:taleId/document', taleAccess, async (req, res, next) => {
+    try {
+      // Tale first (404), then the body (400), then the revision (409).
+      const { taleId } = req.params;
+      if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
+      const body = req.body as Record<string, unknown> | undefined;
+      const revision = body?.['revision'];
+      // The stored revision is a PostgreSQL integer.
+      if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0 || revision > MAX_REVISION) {
+        throw new HttpError(
+          400,
+          ErrorCodes.validationFailed,
+          'revision must be the revision the document was based on',
+        );
       }
-    },
-  );
+      if (typeof body !== 'object' || body === null || !('document' in body)) {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'document is required');
+      }
+      res.json(await saveTaleDocument(pool, taleId, body['document'], revision));
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get('/:taleId/media', taleAccess, async (req, res, next) => {
     try {

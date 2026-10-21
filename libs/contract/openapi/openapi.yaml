@@ -1840,7 +1840,7 @@ paths:
         characters except a line feed in text. A refused document answers 400
         `invalid_tale_document` with `pointer`, the JSON pointer of the field
         it refused (from the document's root); a document over 128 KB answers
-        413 `tale_document_too_large`. A body without a document or revision:
+        413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647):
         400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
       requestBody:
         required: true
@@ -2721,6 +2721,7 @@ components:
         revision:
           type: integer
           minimum: 0
+          maximum: 2147483647
           description: The revision this document was based on, as the last read or save returned it.
     DeliveryMedia:
       type: object

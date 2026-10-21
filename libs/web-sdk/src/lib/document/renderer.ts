@@ -6,15 +6,17 @@ export type ElementRenderer = (element: DeliveryTaleElement) => HTMLElement | nu
 
 /**
  * One renderer per element type, keyed by the element-type registry's keys (AD-16). A type that
- * is not here renders nothing, so an older SDK still shows the rest of a tale (AD-15).
+ * is not here renders nothing, so an older SDK still shows the rest of a tale (AD-15). A Map, so
+ * a type such as `constructor` or `__proto__` is unknown rather than an inherited property.
  */
-export const ELEMENT_RENDERERS: Readonly<Record<string, ElementRenderer>> = { text: renderText };
+export const ELEMENT_RENDERERS: ReadonlyMap<string, ElementRenderer> = new Map([['text', renderText]]);
 
 /**
- * The document stage's look. The area fills its parent inside the device's safe-area insets; the
- * canvas is the largest 9:16 box that fits in it, and a size container, so elements size by its
- * height (`cqh`). Elements take pointer events and text selection only where they are, so taps
- * elsewhere reach the viewer below.
+ * The document stage's look. The area fills its parent inside the device's safe-area insets (the
+ * tale's media stays full-bleed below it, as for a tale without a document); the canvas is the
+ * largest 9:16 box that fits in it, and a size container, so elements size by its height (`cqh`).
+ * Only the glyphs of a text take pointer events and text selection, so taps anywhere else, the
+ * empty part of a text's box included, reach the viewer below.
  */
 export const DOCUMENT_STYLES = `
 .ta-area {
@@ -43,6 +45,9 @@ export const DOCUMENT_STYLES = `
   text-align: center;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.ta-glyphs {
   pointer-events: auto;
   cursor: text;
   user-select: text;
@@ -66,25 +71,41 @@ function isPlaceable(element: unknown): element is DeliveryTaleElement {
   );
 }
 
+/** How a document is rendered over its tale. */
+export interface DocumentRenderOptions {
+  /**
+   * The tale's accessible name, such as its title, for a tale that has no media to carry it: the
+   * canvas becomes a group with that name, so even an empty document names the tale.
+   */
+  label?: string;
+  /** Paints the canvas's background colour; off when the tale's media lies below the canvas. */
+  background?: boolean;
+}
+
 /**
- * Renders a delivered tale document (AD-16) into `area`'s 9:16 canvas, with `background` (such
- * as the tale's media) at the bottom: each element of a known type absolutely placed from its
- * box, stacked in the document's z-order, and in DOM order by reading order (top to bottom, then
- * left to right), which is what screen readers follow. Content is set as text nodes and styles
- * through CSSOM only. An unknown element type is skipped with one console warning per type.
+ * Renders a delivered tale document (AD-16) as an area holding its 9:16 canvas: each element of a
+ * known type absolutely placed from its box, stacked in the document's z-order, and in DOM order
+ * by reading order (top to bottom, then left to right), which is what screen readers follow.
+ * Content is set as text nodes and styles through CSSOM only. An unknown element type is skipped
+ * with one console warning per type.
  */
-export function renderTaleDocument(doc: DeliveryTaleDocument, background?: HTMLElement | null): HTMLElement {
+export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentRenderOptions = {}): HTMLElement {
   const area = document.createElement('div');
   area.className = 'ta-area';
   const canvas = document.createElement('div');
   canvas.className = 'ta-canvas';
   const color = doc.canvas?.background?.color;
-  if (typeof color === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) canvas.style.backgroundColor = color;
-  if (background) canvas.appendChild(background);
+  if (options.background && typeof color === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) {
+    canvas.style.backgroundColor = color;
+  }
+  if (options.label) {
+    canvas.setAttribute('role', 'group');
+    canvas.setAttribute('aria-label', options.label);
+  }
   const elements = Array.isArray(doc.elements) ? doc.elements.filter(isPlaceable) : [];
   const layer = new Map(elements.map((element, i) => [element, i + 1]));
   for (const element of readingOrder(elements)) {
-    const render = ELEMENT_RENDERERS[element.type];
+    const render = ELEMENT_RENDERERS.get(element.type);
     if (!render) {
       if (!warned.has(element.type)) {
         warned.add(element.type);
