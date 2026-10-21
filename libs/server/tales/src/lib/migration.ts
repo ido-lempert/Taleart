@@ -143,4 +143,10 @@ export async function migrateTales(db: Db): Promise<void> {
   await db.query('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_content_type text');
   await db.query('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_animated boolean NOT NULL DEFAULT false');
   await db.query('CREATE INDEX IF NOT EXISTS tale_groups_cover_key_idx ON tale_groups (cover_key)');
+
+  // A tale's document (AD-15): versioned JSON, checked on every write, null for a tale that shows
+  // its media only. Every save raises the revision by one, and a save based on an older revision
+  // is refused, so two editors never overwrite each other silently.
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document jsonb');
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_revision integer NOT NULL DEFAULT 0');
 }

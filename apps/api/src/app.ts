@@ -1,4 +1,4 @@
-import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, type Health } from '@taleart/contract';
+import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, type Health } from '@taleart/contract';
 import { DEFAULT_STORYLY_API_URL } from '@taleart/server-importer';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
@@ -54,6 +54,10 @@ export function createApp(
   importer: ImporterConfig = { tokenKey: null, storylyApiUrl: DEFAULT_STORYLY_API_URL },
 ): express.Express {
   const app = express();
+  // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
+  // reads its body first, with a larger limit, and the parser below then leaves that body as it is.
+  // Being a route, it matches as the routers do: in any case, with or without a trailing slash.
+  app.put(`${MANAGEMENT_API_BASE}/tales/:taleId/document`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
   app.use(express.json());
 
   // The dashboard reaches the API through its dev proxy, on its own origin, so

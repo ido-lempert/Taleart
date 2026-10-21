@@ -71,6 +71,8 @@ export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
 export type DeliveryTale = Schemas['DeliveryTale'];
 export type DeliveryMedia = Schemas['DeliveryMedia'];
 export type DeliveryCover = Schemas['DeliveryCover'];
+export type DeliveryTaleDocument = Schemas['DeliveryTaleDocument'];
+export type DeliveryTaleElement = Schemas['DeliveryTaleElement'];
 export type FindStorylyAppsRequest = Schemas['FindStorylyAppsRequest'];
 export type StorylyApp = Schemas['StorylyApp'];
 export type StartImportRequest = Schemas['StartImportRequest'];
@@ -108,6 +110,7 @@ export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: The
 
 export * from './lib/theme';
 export * from './lib/playbooks';
+export * from './lib/tale-document';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
@@ -485,6 +488,9 @@ export const ErrorCodes = {
   unknownPlaybook: 'unknown_playbook',
   playbookAlreadyApplied: 'playbook_already_applied',
   concurrentChange: 'concurrent_change',
+  invalidTaleDocument: 'invalid_tale_document',
+  taleDocumentTooLarge: 'tale_document_too_large',
+  staleRevision: 'stale_revision',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

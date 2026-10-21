@@ -1,5 +1,5 @@
 import type { ErrorBody, ErrorCode } from '@taleart/contract';
-import { ErrorCodes } from '@taleart/contract';
+import { ErrorCodes, MAX_TALE_DOCUMENT_BYTES } from '@taleart/contract';
 import {
   FrameNotFoundError,
   InvalidFrameSettingsError,
@@ -19,6 +19,9 @@ import {
 import {
   InvalidScheduleError,
   InvalidStatusTransitionError,
+  InvalidTaleDocumentError,
+  StaleRevisionError,
+  TaleDocumentTooLargeError,
   OrderMismatchError,
   TaleGroupFullError,
   TaleGroupNotFoundError,
@@ -48,8 +51,9 @@ export class HttpError extends Error {
   }
 }
 
-export function errorBody(code: ErrorCode, message: string): ErrorBody {
-  return { error: { code, message } };
+/** The standard error body; `pointer` names the refused field of a tale document (AD-15). */
+export function errorBody(code: ErrorCode, message: string, pointer?: string): ErrorBody {
+  return { error: pointer === undefined ? { code, message } : { code, message, pointer } };
 }
 
 /** Responds 404 with the standard body for any route nothing else handled. */
@@ -76,6 +80,14 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     res.status(404).json(errorBody(err.code, err.message));
     return;
   }
+  if (err instanceof InvalidTaleDocumentError) {
+    res.status(400).json(errorBody(err.code, err.message, err.pointer));
+    return;
+  }
+  if (err instanceof TaleDocumentTooLargeError) {
+    res.status(413).json(errorBody(err.code, err.message));
+    return;
+  }
   if (err instanceof InvitationInvalidError) {
     res.status(410).json(errorBody(err.code, err.message));
     return;
@@ -89,7 +101,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof StageKeyTakenError ||
     err instanceof PlaybookAlreadyAppliedError ||
     err instanceof PlaybookConcurrentChangeError ||
-    err instanceof InvalidStatusTransitionError
+    err instanceof InvalidStatusTransitionError ||
+    err instanceof StaleRevisionError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;
@@ -125,6 +138,15 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
       res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 100 MB'));
     } else if (/\/cover$/.test(req.path)) {
       res.status(413).json(errorBody(ErrorCodes.mediaTooLarge, 'The file is larger than 10 MB'));
+    } else if (/\/document\/?$/i.test(req.path)) {
+      res
+        .status(413)
+        .json(
+          errorBody(
+            ErrorCodes.taleDocumentTooLarge,
+            `A tale document holds at most ${MAX_TALE_DOCUMENT_BYTES / 1024} KB`,
+          ),
+        );
     } else {
       res.status(413).json(errorBody(ErrorCodes.validationFailed, 'Request body is too large'));
     }

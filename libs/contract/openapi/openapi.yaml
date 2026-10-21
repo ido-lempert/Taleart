@@ -1798,6 +1798,75 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tales/{taleId}/document:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getTaleDocument
+      summary: Read a tale's document.
+      description: >-
+        The tale document (AD-15) and its revision. A tale without a document
+        answers `document: null` and revision 0; it shows its media only.
+        Unknown tale: 404 `tale_not_found`.
+      responses:
+        '200':
+          description: The document and its revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleDocumentRevision'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: saveTaleDocument
+      summary: Save a tale's document.
+      description: >-
+        Replaces the document when `revision` is the tale's current revision,
+        and answers the document with the next revision. A write based on an
+        older revision changes nothing and answers 409 `stale_revision`, so
+        two editors never overwrite each other silently. The document is
+        checked against `tale-document/v1.schema.json` (no additional
+        properties), each element's `props` against the schema of its
+        registered type, and the rules of AD-15: at most 60 elements, 1,000
+        characters per text, unique ids, numbers in range, no control
+        characters except a line feed in text. A refused document answers 400
+        `invalid_tale_document` with `pointer`, the JSON pointer of the field
+        it refused (from the document's root); a document over 128 KB answers
+        413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647):
+        400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveTaleDocumentRequest'
+      responses:
+        '200':
+          description: The saved document and its new revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleDocumentRevision'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     session:
@@ -2572,7 +2641,7 @@ components:
             $ref: '#/components/schemas/DeliveryTale'
     DeliveryTale:
       type: object
-      required: [id, title, media]
+      required: [id, title, media, document]
       properties:
         id:
           type: string
@@ -2584,6 +2653,76 @@ components:
           oneOf:
             - $ref: '#/components/schemas/DeliveryMedia'
             - type: 'null'
+        document:
+          description: >-
+            The tale's document (AD-15) as SDKs render it over the media, or
+            null when the tale has none: then it shows its media only.
+          oneOf:
+            - $ref: '#/components/schemas/DeliveryTaleDocument'
+            - type: 'null'
+    DeliveryTaleDocument:
+      type: object
+      description: >-
+        A tale document as delivered (AD-15): hidden elements are removed, and
+        so are the editor-only fields `hidden` and `locked`. Clients ignore
+        fields they do not know and skip element types they do not know.
+      required: [version, canvas, elements]
+      properties:
+        version:
+          type: integer
+        canvas:
+          $ref: '../tale-document/v1.schema.json#/$defs/Canvas'
+        durationMs:
+          type: integer
+        elements:
+          type: array
+          description: The visible elements, first at the bottom of the z-order.
+          items:
+            $ref: '#/components/schemas/DeliveryTaleElement'
+    DeliveryTaleElement:
+      type: object
+      required: [id, type, box, a11y, props]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: A key of the element-type registry; `text` in version 1.
+        box:
+          $ref: '../tale-document/v1.schema.json#/$defs/Box'
+        a11y:
+          $ref: '../tale-document/v1.schema.json#/$defs/A11y'
+        props:
+          type: object
+          description: The type's props, as its schema in `tale-document/element-types/` defines them.
+    TaleDocument:
+      $ref: '../tale-document/v1.schema.json'
+    TextElementProps:
+      $ref: '../tale-document/element-types/text.schema.json'
+    TaleDocumentRevision:
+      type: object
+      required: [document, revision]
+      properties:
+        document:
+          description: The tale's document, or null when it has none.
+          oneOf:
+            - $ref: '#/components/schemas/TaleDocument'
+            - type: 'null'
+        revision:
+          type: integer
+          minimum: 0
+          description: Raised by one on every save; 0 before the first save.
+    SaveTaleDocumentRequest:
+      type: object
+      required: [document, revision]
+      properties:
+        document:
+          $ref: '#/components/schemas/TaleDocument'
+        revision:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+          description: The revision this document was based on, as the last read or save returned it.
     DeliveryMedia:
       type: object
       required: [kind, contentType, url]
@@ -3184,6 +3323,9 @@ components:
         - unknown_playbook
         - playbook_already_applied
         - concurrent_change
+        - invalid_tale_document
+        - tale_document_too_large
+        - stale_revision
         - internal_error
     ErrorBody:
       type: object
@@ -3197,3 +3339,8 @@ components:
               $ref: '#/components/schemas/ErrorCode'
             message:
               type: string
+            pointer:
+              type: string
+              description: >-
+                For `invalid_tale_document`: the JSON pointer (RFC 6901) of the
+                document field that was refused, such as `/elements/0/box/x`.
