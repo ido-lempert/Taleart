@@ -202,3 +202,22 @@ Waiting for the user:
 - banner slides have no visible caption; a slide shows the group's first tale's media.
 
 Operational note: the dashboard dev server starts its own API with the default database when none is running, so the e2e API must start first.
+
+## Fifth parallel batch (2026-10-21)
+
+Built in parallel worktrees, reviewed, patched and merged into `autopilot/foundation`:
+
+| Story | Merge | Review |
+|---|---|---|
+| Web zones 3.7: place a zone on a page with stages | `fbe2ef0` | 2 findings, both patched: an emptied key refilled itself; a stage pointing to a missing frame got the wrong warning |
+| Web zones 3.8: set the project theme in the dashboard | `b736f45` | 7 findings, all patched. The main one: the defaults changed every existing embed (white background, system font). Unset values now keep the previous look: transparent background, the host page's font and text colour, and the old corner radius. Also patched: font keywords; the viewer's font shorthand; contrast pairs for the progress track and buttons; two-colour focus rings; save stores only changed fields; number fields; an end-to-end API test |
+| Importer 2.5: copy tale media through the storage port | `779ec94` | Security review, 12 findings, all patched: an upload race that could delete a user's file; AD-7 (source ids only in `import_links`); dual-stack pinning; the guard now fails closed; IPv6 allows only `2000::/3` minus special ranges; allow-list entries must be `address:port`; DNS deadline; per-import budgets (5 GB, 60 min); full writes and fsync; handling when the commit outcome is unknown, plus a sweep; HTTPS tests; `.prettierrc` printWidth set to 120 |
+
+Verification on the merged tree: `nx run-many -t lint test build` passed for 12 projects (api 306, importer 143, dashboard 187 tests). In real Chromium: the Theme page shows the contrast warning; the sample page with `stages=top,hero` shows the themed bar (solid blue ring, Georgia) and the banner; the Demo shop import copied Media 15/15. Screenshots were sent to the user.
+
+Decisions made by the autopilot, open for the user to change:
+- With no theme set, the look stays as it was before themes.
+- The stage key is fixed once created.
+- Media budgets per import are 5 GB and 60 minutes.
+
+A committed self-signed test certificate and key for `media.test` (`libs/server/importer/src/lib/test-tls/`) is used only by tests.
