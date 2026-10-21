@@ -1,9 +1,9 @@
-import type { DeliveryTale, DeliveryTaleGroup } from '@taleart/contract';
+import { DEFAULT_TALE_DURATION_MS, type DeliveryTale, type DeliveryTaleGroup } from '@taleart/contract';
 import { prefersReducedMotion } from './bar';
 import { loadTaleFonts } from './document/fonts';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
 
-/** How long an image, or a tale without playable media, shows when its document sets no duration. */
+/** How long an image, or a tale without playable media, shows when it has no document. */
 export const IMAGE_DURATION_MS = 5000;
 /** Horizontal travel that makes a pointer gesture a swipe between groups. */
 export const SWIPE_MIN_PX = 50;
@@ -176,7 +176,8 @@ export interface TaleViewerOptions {
 /**
  * The full-screen tale viewer: a modal `<dialog>` in `root` that plays a
  * zone's tale groups in order. Images show for {@link IMAGE_DURATION_MS}
- * (or their document's duration), videos to their end. A tale with a document
+ * (a tale with a document for its `durationMs`, 7 s by default), videos to their end; a document's
+ * video element is the tale's video when its media is no video (R5). A tale with a document
  * (AD-15) shows its elements over its media on a 9:16 canvas; its text is
  * selectable, and a tap on it does not step. Tap or arrow keys step through tales (and across
  * groups), a swipe moves between groups, a hold or Space pauses (Space on the focused Close
@@ -501,7 +502,7 @@ export class TaleViewer {
 
     const current = g.tales[tale];
     const doc = current.document;
-    this.duration = doc?.durationMs ?? IMAGE_DURATION_MS;
+    this.duration = doc ? (doc.durationMs ?? DEFAULT_TALE_DURATION_MS) : IMAGE_DURATION_MS;
     // The media is framed the same with or without a document: full-bleed in the stage. A tale
     // with a document but no media shows its canvas colour instead, and the canvas carries the
     // tale's name.
@@ -517,8 +518,17 @@ export class TaleViewer {
       this.layer = renderTaleDocument(doc, {
         background: !current.media,
         label: current.media ? undefined : current.title || `Tale ${tale + 1}`,
+        reducedMotion: this.reduced,
       });
       this.parts.top.before(this.layer);
+      // Its video element (R5) runs the tale: it plays, pauses and ends with it. Next to a tale
+      // video it only loops along, muted.
+      const docVideo = this.layer.querySelector('video');
+      if (docVideo && !this.video) this.useVideo(docVideo);
+      else if (docVideo && !this.reduced) {
+        docVideo.loop = true;
+        void Promise.resolve(docVideo.play()).catch(() => undefined);
+      }
     }
     this.options.onGroupShown?.(g.id);
     if (this.reduced) {
@@ -548,25 +558,31 @@ export class TaleViewer {
       // Under reduced motion the video waits on its first frame (`#t` paints it in Safari) until Play.
       video.preload = this.reduced ? 'metadata' : 'auto';
       video.src = this.reduced ? `${media.url}#t=0.001` : media.url;
-      video.addEventListener('ended', () => {
-        if (video !== this.video) return;
-        if (!this.reduced) this.next();
-        else if (!this.paused) this.togglePause();
-      });
-      video.addEventListener('error', () => {
-        if (video === this.video) this.startTimed();
-      });
-      video.addEventListener('timeupdate', () => {
-        if (video !== this.video || !video.duration) return;
-        this.fill().style.transform = `scaleX(${Math.min(1, video.currentTime / video.duration)})`;
-      });
-      this.video = video;
+      this.useVideo(video);
       return video;
     }
     const placeholder = el('span', 'media');
     placeholder.setAttribute('role', 'img');
     placeholder.setAttribute('aria-label', label);
     return placeholder;
+  }
+
+  // Makes `video` the current tale's clock: the tale ends when it ends (or, under reduced motion,
+  // pauses there), its progress fills with it, and a video that fails runs the tale on the timer.
+  private useVideo(video: HTMLVideoElement): void {
+    video.addEventListener('ended', () => {
+      if (video !== this.video) return;
+      if (!this.reduced) this.next();
+      else if (!this.paused) this.togglePause();
+    });
+    video.addEventListener('error', () => {
+      if (video === this.video) this.startTimed();
+    });
+    video.addEventListener('timeupdate', () => {
+      if (video !== this.video || !video.duration) return;
+      this.fill().style.transform = `scaleX(${Math.min(1, video.currentTime / video.duration)})`;
+    });
+    this.video = video;
   }
 
   private fill(): HTMLElement {

@@ -7,17 +7,23 @@ import {
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
+  MAX_VIDEO_ELEMENTS,
+  missingAltText,
+  missingAltTextMessage,
+  documentMediaRefs,
   projectFontIds,
   projectFontRefs,
   TALE_DOCUMENT_VERSION,
   TALE_DOCUMENT_V1_SCHEMA,
   TALE_ELEMENT_TYPE_REGISTRY,
   type DeliveryTaleDocument,
+  type TaleCanvas,
   type TaleDocument,
   type TaleDocumentRevision,
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020';
+import { clearPublicMediaCache, lockMediaKeys, projectMediaKeys, recordTaleMedia, usesMedia } from './document-media';
 import { clearPublicFontCache, knownProjectFontIds, recordTaleFonts } from './project-fonts';
 import { inTransaction, TaleNotFoundError, type TransactionalDb } from './tales';
 
@@ -33,6 +39,18 @@ export class InvalidTaleDocumentError extends Error {
   ) {
     super(`${pointer || 'The document'} ${message}`);
     this.name = 'InvalidTaleDocumentError';
+  }
+}
+
+/**
+ * Thrown when a draft is published with a visible image or video that has neither alt text nor the
+ * decorative mark (R12); the message names the element as Tale Studio does. Drafts may hold one.
+ */
+export class AltTextRequiredError extends InvalidTaleDocumentError {
+  constructor(pointer: string, message: string) {
+    super(pointer, message);
+    this.message = message;
+    this.name = 'AltTextRequiredError';
   }
 }
 
@@ -166,6 +184,7 @@ export function checkTaleDocument(value: unknown): TaleDocument {
   }
   const doc = value as TaleDocument;
   const ids = new Set<string>();
+  let videos = 0;
   const elements = doc.elements.map((original, i) => {
     const at = `/elements/${i}`;
     const element = normalized(original);
@@ -190,9 +209,28 @@ export function checkTaleDocument(value: unknown): TaleDocument {
     const id = element.id.toLowerCase();
     if (ids.has(id)) throw new InvalidTaleDocumentError(`${at}/id`, 'is the id of another element');
     ids.add(id);
+    if (element.type === 'video' && ++videos > MAX_VIDEO_ELEMENTS) {
+      throw new InvalidTaleDocumentError(`${at}/type`, `is a video: a tale holds at most ${MAX_VIDEO_ELEMENTS}`);
+    }
     return element;
   });
   return { ...doc, elements };
+}
+
+/**
+ * The rules a document must also pass to be published (R12): every visible image and video has alt
+ * text or the decorative mark. Throws {@link AltTextRequiredError} naming the first that does not.
+ */
+export function checkPublishRules(doc: TaleDocument): void {
+  const missing = missingAltText(doc);
+  if (missing) throw new AltTextRequiredError(`/elements/${missing.index}/a11y/label`, missingAltTextMessage(missing));
+}
+
+/** {@link checkTaleDocument} then {@link checkPublishRules}: what a published document passes. */
+export function checkPublishableDocument(value: unknown): TaleDocument {
+  const doc = checkTaleDocument(value);
+  checkPublishRules(doc);
+  return doc;
 }
 
 // The element with its label, and a text element's text, in Unicode NFC, so equal text is stored
@@ -206,7 +244,7 @@ function normalized(element: TaleDocument['elements'][number]): TaleDocument['el
   if (font?.source === 'project' && typeof font.fontId === 'string') {
     props = { ...props, font: { ...font, fontId: font.fontId.toLowerCase() } } as typeof props;
   }
-  return { ...element, a11y, props };
+  return { ...element, a11y, props } as TaleDocument['elements'][number];
 }
 
 /**
@@ -223,20 +261,56 @@ export async function checkDocumentFonts(db: Db, projectId: string, document: un
   if (missing) throw new InvalidTaleDocumentError(missing.pointer, "is not a font of this tale's project");
 }
 
-// The project of the tale, or a 404.
-async function projectOfTale(db: Db, taleId: string): Promise<string> {
-  const { rows } = await db.query<{ projectId: string }>('SELECT project_id AS "projectId" FROM tales WHERE id = $1', [
-    taleId,
-  ]);
+/**
+ * Refuses a document that uses media the tale's project does not have (R14, AD-4): a key of another
+ * project or none, naming the JSON pointer of the first; and a key of the wrong kind (a video for
+ * an image element or the background, an image for a video). Each key is share locked first, until
+ * the caller's transaction ends, so a file it names is not judged unused and deleted meanwhile.
+ * Throws {@link InvalidTaleDocumentError}.
+ */
+export async function checkDocumentMedia(db: Db, projectId: string, document: unknown): Promise<void> {
+  const refs = documentMediaRefs(document);
+  if (refs.length === 0) return;
+  await lockMediaKeys(
+    db,
+    refs.map((r) => r.key),
+  );
+  const known = await projectMediaKeys(
+    db,
+    projectId,
+    refs.map((r) => r.key),
+  );
+  for (const ref of refs) {
+    if (!known.has(ref.key)) throw new InvalidTaleDocumentError(ref.pointer, "is not media of this tale's project");
+    const isVideo = /\.(mp4|webm)$/.test(ref.key);
+    if (isVideo !== (ref.kind === 'video')) {
+      throw new InvalidTaleDocumentError(ref.pointer, ref.kind === 'video' ? 'must be a video' : 'must be an image');
+    }
+  }
+}
+
+// The project of the tale, or a 404. With `lock`, the tale row is locked first, as publishing locks
+// it before the media keys, so a save and a publish take their locks in the same order.
+async function projectOfTale(db: Db, taleId: string, lock = false): Promise<string> {
+  const { rows } = await db.query<{ projectId: string }>(
+    `SELECT project_id AS "projectId" FROM tales WHERE id = $1${lock ? ' FOR UPDATE' : ''}`,
+    [taleId],
+  );
   if (rows.length === 0) throw new TaleNotFoundError(taleId);
   return rows[0].projectId;
 }
+
+/**
+ * A document as the Delivery API returns it, before its media keys become public URLs: the API
+ * resolves them (`resolveDocumentMedia`), so a key leaves only inside a URL (AD-11).
+ */
+export type KeyedDeliveryDocument = Omit<DeliveryTaleDocument, 'canvas'> & { canvas: TaleCanvas };
 
 /** The most delivered documents kept checked in memory, by tale and revision. */
 export const DELIVERY_CACHE_SIZE = 1000;
 
 // Delivered documents by `<tale id>:<revision>`, oldest first: a Map keeps insertion order.
-const deliveryCache = new Map<string, DeliveryTaleDocument | null>();
+const deliveryCache = new Map<string, KeyedDeliveryDocument | null>();
 
 /** Forgets the delivered documents kept in memory (for tests). */
 export function clearDeliveryCache(): void {
@@ -259,7 +333,7 @@ export function deliverableTaleDocument(
   stored: unknown,
   cacheKey?: string,
   storedBytes?: number,
-): DeliveryTaleDocument | null {
+): KeyedDeliveryDocument | null {
   if (stored === null || stored === undefined) return null;
   if ((stored as { version?: unknown }).version !== TALE_DOCUMENT_VERSION) return null;
   if (storedBytes !== undefined && storedBytes > 2 * MAX_TALE_DOCUMENT_BYTES) return null;
@@ -276,10 +350,10 @@ export function deliverableTaleDocument(
   return delivered;
 }
 
-function deliver(stored: unknown): DeliveryTaleDocument | null {
+function deliver(stored: unknown): KeyedDeliveryDocument | null {
   let doc: TaleDocument;
   try {
-    doc = checkTaleDocument(stored);
+    doc = checkPublishableDocument(stored);
   } catch {
     return null;
   }
@@ -291,7 +365,7 @@ function deliver(stored: unknown): DeliveryTaleDocument | null {
       .map((element) => {
         const delivered: Record<string, unknown> = { ...element };
         for (const field of EDITOR_ONLY_ELEMENT_FIELDS) delete delivered[field];
-        return delivered as DeliveryTaleDocument['elements'][number];
+        return delivered as KeyedDeliveryDocument['elements'][number];
       }),
   };
 }
@@ -356,8 +430,11 @@ export async function saveTaleDocument(
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
   const document = checkTaleDocument(value);
   const usesFonts = projectFontIds(document).length > 0;
+  const hasMedia = usesMedia(document);
   return inTransaction(db, async (tx) => {
-    if (usesFonts) await checkDocumentFonts(tx, await projectOfTale(tx, taleId), document, true);
+    const projectId = usesFonts || hasMedia ? await projectOfTale(tx, taleId, hasMedia) : null;
+    if (usesFonts && projectId) await checkDocumentFonts(tx, projectId, document, true);
+    if (hasMedia && projectId) await checkDocumentMedia(tx, projectId, document);
     const { rows } = await tx.query<StateRow>(
       `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
        WHERE id = $1 AND draft_revision = $3
@@ -366,6 +443,7 @@ export async function saveTaleDocument(
     );
     if (rows.length === 0) return refuseStale(tx, taleId);
     await recordTaleFonts(tx, taleId, 'draft', document, false);
+    await recordTaleMedia(tx, taleId, 'draft', document, false);
     return { ...toState(rows[0]), document };
   });
 }
@@ -391,7 +469,8 @@ export async function publishTaleDocument(
     if (read.rows.length === 0) throw new TaleNotFoundError(taleId);
     const draft = read.rows[0].document;
     if (draft === null) throw new NothingToPublishError();
-    checkTaleDocument(draft);
+    checkPublishableDocument(draft);
+    if (usesMedia(draft)) await checkDocumentMedia(tx, await projectOfTale(tx, taleId), draft);
     const { rows } = await tx.query<StateRow>(
       `UPDATE tales SET document = draft_document, document_revision = document_revision + 1
        WHERE id = $1 AND draft_revision = $2 AND document_revision = $3 AND draft_document IS NOT NULL
@@ -400,9 +479,11 @@ export async function publishTaleDocument(
     );
     if (rows.length === 0) return refuseStale(tx, taleId);
     await recordTaleFonts(tx, taleId, 'published', rows[0].publishedDocument, true);
+    await recordTaleMedia(tx, taleId, 'published', rows[0].publishedDocument, true);
     return toState(rows[0]);
   });
   clearPublicFontCache();
+  clearPublicMediaCache();
   return state;
 }
 
@@ -428,6 +509,7 @@ export async function discardTaleDraft(
     );
     if (rows.length === 0) return refuseStale(tx, taleId);
     await recordTaleFonts(tx, taleId, 'draft', rows[0].document, false);
+    await recordTaleMedia(tx, taleId, 'draft', rows[0].document, false);
     return toState(rows[0]);
   });
 }

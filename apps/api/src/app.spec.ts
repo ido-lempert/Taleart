@@ -198,7 +198,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -5320,6 +5320,330 @@ describe('Management API v1: projects and zones', () => {
       const target = await createZone();
       const other = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id })).json();
       expect(await fontOf(other)).toEqual({ source: 'system', stack: 'serif' });
+    });
+  });
+
+  describe('images and video in tale documents (epic Tale Studio R5, story 7.5)', () => {
+    const MB = 1024 * 1024;
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const gif = Buffer.from('GIF89a-tiny-gif');
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 1, 2]);
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom-tiny-mp4')]);
+
+    function upload(projectId: string, contentType: string, body: Uint8Array, headers: Record<string, string> = {}) {
+      return fetch(`${base}/projects/${projectId}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': contentType, ...headers },
+        body,
+      });
+    }
+
+    async function uploaded(projectId: string, contentType = 'image/png', body: Uint8Array = png): Promise<string> {
+      const res = await upload(projectId, contentType, body);
+      expect(res.status).toBe(201);
+      return (await res.json()).key;
+    }
+
+    function element(n: number, type: 'image' | 'video', mediaKey: string, extra: Record<string, unknown> = {}) {
+      return {
+        id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+        type,
+        box: { x: 0.1, y: 0.2, w: 0.5, h: 0.3, rotation: 20 },
+        hidden: false,
+        locked: false,
+        a11y: { label: `Element ${n}` },
+        props: { mediaKey, fit: 'cover', radius: 0.04, opacity: 0.9 },
+        ...extra,
+      };
+    }
+
+    function doc(elements: unknown[], extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements, ...extra };
+    }
+
+    async function state(taleId: string): Promise<{ revision: number; published: { revision: number } }> {
+      return (await fetch(`${base}/tales/${taleId}/document`)).json();
+    }
+
+    function save(taleId: string, document: unknown, revision: number): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document, revision }),
+      });
+    }
+
+    async function publishDraft(taleId: string): Promise<Response> {
+      const s = await state(taleId);
+      return post(`/tales/${taleId}/document/publish`, { revision: s.revision, publishedRevision: s.published.revision });
+    }
+
+    function putTaleMedia(taleId: string, contentType: string, body: Uint8Array): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/media`, { method: 'PUT', headers: { 'Content-Type': contentType }, body });
+    }
+
+    async function setup() {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      return { zone, group, tale };
+    }
+
+    async function delivered(zoneId: string) {
+      const { key } = await (await post(`/zones/${zoneId}/key`, {})).json();
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()).taleGroups as { tales: { id: string; document: Record<string, unknown> | null }[] }[];
+    }
+
+    function getPublic(key: string, headers: Record<string, string> = {}): Promise<Response> {
+      return globalThis.fetch(`${origin}/media/${key}`, { headers });
+    }
+
+    beforeEach(() => rmSync(join(mediaDir, 'media'), { recursive: true, force: true }));
+
+    it("uploads an image or video to the project, lists it with the tales' media, and serves the file with a session", async () => {
+      const { zone, tale } = await setup();
+      const res = await upload(zone.projectId, 'image/png', png);
+      expect(res.status).toBe(201);
+      const image = await res.json();
+      expect(image).toEqual({
+        key: expect.stringMatching(/^media\/[0-9a-f-]{36}\.png$/),
+        kind: 'image',
+        contentType: 'image/png',
+        url: `/api/v1/projects/${zone.projectId}/media/file?key=${encodeURIComponent(image.key)}`,
+        source: 'upload',
+        sizeBytes: png.length,
+        createdAt: expect.any(String),
+      });
+      expect(readFileSync(join(mediaDir, image.key))).toEqual(png);
+      const video = await uploaded(zone.projectId, 'video/mp4', mp4);
+      expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
+      const list = await (await fetch(`${base}/projects/${zone.projectId}/media`)).json();
+      expect(list.map((m: { source: string; kind: string }) => [m.source, m.kind])).toEqual([
+        ['upload', 'video'],
+        ['upload', 'image'],
+        ['tale', 'image'],
+      ]);
+      expect(list[0].key).toBe(video);
+      expect(list[2].taleTitle).toBe('Beach');
+
+      const file = await fetch(`${origin}${image.url}`);
+      expect(file.status).toBe(200);
+      expect(file.headers.get('content-type')).toBe('image/png');
+      expect(file.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(file.headers.get('etag')).not.toContain(image.key);
+      expect(Buffer.from(await file.arrayBuffer())).toEqual(png);
+      const videoUrl = `${base}/projects/${zone.projectId}/media/file?key=${encodeURIComponent(video)}`;
+      expect((await fetch(videoUrl, { headers: { Range: 'bytes=0-3' } })).status).toBe(206);
+      const etag = file.headers.get('etag') as string;
+      expect((await fetch(`${origin}${image.url}`, { headers: { 'If-None-Match': etag } })).status).toBe(304);
+      // Another project's key, or no key, is no media of this project.
+      const other = await createProject('Other');
+      const foreign = await fetch(`${base}/projects/${other.id}/media/file?key=${encodeURIComponent(image.key)}`);
+      expect(foreign.status).toBe(404);
+      expect((await foreign.json()).error.code).toBe('media_not_found');
+      expect((await fetch(`${base}/projects/${zone.projectId}/media/file`)).status).toBe(404);
+    });
+
+    it('refuses an upload of another type, a mismatched file, an empty or too large one, and an unknown project', async () => {
+      const project = await createProject();
+      const refuse = async (res: Response, status: number, code: string) => {
+        expect(res.status).toBe(status);
+        expect((await res.json()).error.code).toBe(code);
+      };
+      const early = await upload(project.id, 'text/plain', png);
+      expect(early.headers.get('connection')).toBe('close');
+      await refuse(early, 415, 'unsupported_media_type');
+      await refuse(await upload(project.id, 'image/svg+xml', Buffer.from('<svg/>')), 415, 'unsupported_media_type');
+      await refuse(await upload(project.id, 'application/json', Buffer.from('{}')), 415, 'unsupported_media_type');
+      await refuse(await upload(project.id, 'image/png', gif), 415, 'unsupported_media_type');
+      await refuse(await upload(project.id, 'video/mp4', png), 415, 'unsupported_media_type');
+      await refuse(await upload(project.id, 'image/png', Buffer.alloc(0)), 400, 'validation_failed');
+      await refuse(await upload(project.id, 'image/png', Buffer.concat([png, Buffer.alloc(10 * MB)])), 413, 'media_too_large');
+      await refuse(
+        await upload(project.id, 'image/png', png, { 'Content-Encoding': 'gzip' }),
+        415,
+        'unsupported_media_type',
+      );
+      await refuse(await upload('00000000-0000-4000-8000-000000000000', 'image/png', png), 404, 'project_not_found');
+      expect(await (await fetch(`${base}/projects/${project.id}/media`)).json()).toEqual([]);
+      expect(existsSync(join(mediaDir, 'media')) ? readdirSync(join(mediaDir, 'media')).length : 0).toBe(0);
+    });
+
+    it('saves resized, rotated and rounded image and video elements with a duration and a media background', async () => {
+      const { zone, tale } = await setup();
+      const image = await uploaded(zone.projectId);
+      const video = await uploaded(zone.projectId, 'video/mp4', mp4);
+      const background = await uploaded(zone.projectId, 'image/gif', gif);
+      const value = doc([element(1, 'image', image), element(2, 'video', video)], {
+        durationMs: 5000,
+        canvas: { background: { type: 'media', mediaKey: background, fit: 'contain', color: '#112233' } },
+      });
+      const res = await save(tale.id, value, 0);
+      expect(res.status).toBe(200);
+      expect((await res.json()).document).toEqual(value);
+      const rows = await pool.query('SELECT storage_key, document, content_type, delivered FROM tale_media');
+      expect(rows.rows).toEqual(
+        expect.arrayContaining([
+          { storage_key: image, document: 'draft', content_type: 'image/png', delivered: false },
+          { storage_key: video, document: 'draft', content_type: 'video/mp4', delivered: false },
+          { storage_key: background, document: 'draft', content_type: 'image/gif', delivered: false },
+        ]),
+      );
+      expect(rows.rows).toHaveLength(3);
+    });
+
+    it('refuses a key of another project, an unknown key, the wrong kind, two videos, a bad fit and a bad duration', async () => {
+      const { zone, tale } = await setup();
+      const other = await createProject('Other');
+      const foreign = await uploaded(other.id);
+      const image = await uploaded(zone.projectId);
+      const video = await uploaded(zone.projectId, 'video/mp4', mp4);
+      const refused = async (value: unknown, pointer: string) => {
+        const res = await save(tale.id, value, 0);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toMatchObject({ code: 'invalid_tale_document', pointer });
+      };
+      await refused(doc([element(1, 'image', foreign)]), '/elements/0/props/mediaKey');
+      await refused(doc([element(1, 'image', 'media/00000000-0000-4000-8000-000000000000.png')]), '/elements/0/props/mediaKey');
+      await refused(doc([element(1, 'image', video)]), '/elements/0/props/mediaKey');
+      await refused(doc([element(1, 'video', image)]), '/elements/0/props/mediaKey');
+      await refused(
+        doc([], { canvas: { background: { type: 'media', mediaKey: foreign, fit: 'cover', color: '#000000' } } }),
+        '/canvas/background/mediaKey',
+      );
+      await refused(doc([element(1, 'video', video), element(2, 'video', video)]), '/elements/1/type');
+      await refused(doc([element(1, 'image', image, { props: { mediaKey: image, fit: 'fill' } })]), '/elements/0/props/fit');
+      await refused(doc([element(1, 'image', image)], { durationMs: 2000 }), '/durationMs');
+      await refused(doc([element(1, 'image', image)], { durationMs: 16000 }), '/durationMs');
+      await refused(doc([element(1, 'image', 'https://evil.example/x.png')]), '/elements/0/props/mediaKey');
+      expect((await state(tale.id)).revision).toBe(0);
+      // The tale's own media is media of its project too.
+      expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
+      const { media_key: taleKey } = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [tale.id])).rows[0];
+      expect((await save(tale.id, doc([element(1, 'image', taleKey)]), 0)).status).toBe(200);
+    });
+
+    it('lets a draft lack alt text, refuses to publish it naming the element, and goes live without publishing it', async () => {
+      const { zone, group, tale } = await setup();
+      const image = await uploaded(zone.projectId);
+      const value = doc([element(1, 'image', image, { a11y: { label: 'Cat' } }), element(2, 'image', image, { a11y: {} })]);
+      expect((await save(tale.id, value, 0)).status).toBe(200);
+      const message = 'Image "Image 2" needs alt text, or must be marked decorative, before the tale is published.';
+      const res = await publishDraft(tale.id);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toEqual({ code: 'invalid_tale_document', message, pointer: '/elements/1/a11y/label' });
+      await publish('tale-groups', group.id);
+      const live = await setStatus('tales', tale.id, 'live');
+      expect(live.status).toBe(200);
+      expect(await live.json()).toMatchObject({ status: 'live', draftNotPublished: true, draftNotPublishedReason: message });
+      expect((await state(tale.id)).published.revision).toBe(0);
+      // Marked decorative, it publishes.
+      const fixed = doc([element(1, 'image', image), element(2, 'image', image, { a11y: { decorative: true } })]);
+      expect((await save(tale.id, fixed, 1)).status).toBe(200);
+      expect((await publishDraft(tale.id)).status).toBe(200);
+    });
+
+    it("delivers public URLs for a published tale's media and serves them only while it is delivered", async () => {
+      const { zone, group, tale } = await setup();
+      const image = await uploaded(zone.projectId);
+      const hidden = await uploaded(zone.projectId, 'image/gif', gif);
+      const video = await uploaded(zone.projectId, 'video/mp4', mp4);
+      const background = await uploaded(zone.projectId, 'image/png', png);
+      const value = doc(
+        [element(1, 'image', image), element(2, 'image', hidden, { hidden: true }), element(3, 'video', video)],
+        { canvas: { background: { type: 'media', mediaKey: background, fit: 'cover', color: '#112233' } } },
+      );
+      expect((await save(tale.id, value, 0)).status).toBe(200);
+      // Not yet published: nothing is public.
+      expect((await getPublic(image)).status).toBe(404);
+      await publish('tale-groups', group.id);
+      await publish('tales', tale.id);
+      // Going live published the draft: everything visible is public now, the hidden image is not.
+      for (const key of [image, video, background]) expect((await getPublic(key)).status).toBe(200);
+      expect((await getPublic(hidden)).status).toBe(404);
+      const etag = (await getPublic(image)).headers.get('etag') as string;
+      expect((await getPublic(image, { 'If-None-Match': etag })).status).toBe(304);
+      expect((await getPublic(video, { Range: 'bytes=0-3' })).status).toBe(206);
+
+      const [deliveredGroup] = await delivered(zone.id);
+      const document = deliveredGroup.tales[0].document as {
+        canvas: { background: unknown };
+        elements: { type: string; props: unknown; box: { rotation: number } }[];
+      };
+      expect(document.canvas.background).toEqual({
+        type: 'media',
+        url: `${publicApiUrl}/media/${background}`,
+        fit: 'cover',
+        color: '#112233',
+      });
+      expect(document.elements.map((e) => e.type)).toEqual(['image', 'video']);
+      expect(document.elements[0].props).toEqual({ url: `${publicApiUrl}/media/${image}`, fit: 'cover', radius: 0.04, opacity: 0.9 });
+      expect(document.elements[0].box.rotation).toBe(20);
+      expect(JSON.stringify(document)).not.toContain('mediaKey');
+
+      // A draft-only key is not public; pausing the tale makes everything private at once.
+      const draftOnly = await uploaded(zone.projectId, 'image/jpeg', jpeg);
+      expect((await save(tale.id, doc([element(1, 'image', draftOnly)]), 1)).status).toBe(200);
+      expect((await getPublic(draftOnly)).status).toBe(404);
+      expect((await getPublic(image)).status).toBe(200);
+      await setStatus('tales', tale.id, 'paused');
+      expect((await getPublic(image)).status).toBe(404);
+      expect((await getPublic(image, { 'If-None-Match': etag })).status).toBe(404);
+    });
+
+    it('keeps a replaced tale media file while a document references it', async () => {
+      const { tale } = await setup();
+      expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
+      const { media_key: oldKey } = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [tale.id])).rows[0];
+      expect((await save(tale.id, doc([element(1, 'image', oldKey)]), 0)).status).toBe(200);
+      expect((await putTaleMedia(tale.id, 'image/png', png)).status).toBe(200);
+      expect(existsSync(join(mediaDir, oldKey))).toBe(true);
+    });
+
+    it("keeps the media keys in copies, recorded for the copy's project, here and in another project", async () => {
+      const { zone, group, tale } = await setup();
+      const image = await uploaded(zone.projectId);
+      expect((await save(tale.id, doc([element(1, 'image', image)]), 0)).status).toBe(200);
+      expect((await publishDraft(tale.id)).status).toBe(200);
+      const target = await createZone();
+      const res = await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id });
+      expect(res.status).toBe(201);
+      const copiedTale = (await res.json()).tales[0].id as string;
+      const rows = await pool.query(
+        'SELECT project_id, document, delivered FROM tale_media WHERE tale_id = $1 ORDER BY document',
+        [copiedTale],
+      );
+      expect(rows.rows).toEqual([
+        { project_id: target.projectId, document: 'draft', delivered: false },
+        { project_id: target.projectId, document: 'published', delivered: true },
+      ]);
+      // The key is now media of the target project, so its tales may use it; files are not copied.
+      const targetList = await (await fetch(`${base}/projects/${target.projectId}/media`)).json();
+      expect(targetList).toEqual([expect.objectContaining({ key: image, source: 'document' })]);
+      const s = await state(copiedTale);
+      expect((await save(copiedTale, doc([element(1, 'image', image)]), s.revision)).status).toBe(200);
+      // Keeping a version as a new tale checks its media too.
+      const other = await createProject('Third');
+      const foreign = await uploaded(other.id);
+      const kept = await post(`/tales/${tale.id}/document/copy`, { document: doc([element(1, 'image', foreign)]) });
+      expect(kept.status).toBe(400);
+      expect((await kept.json()).error.pointer).toBe('/elements/0/props/mediaKey');
+      expect((await post(`/tales/${tale.id}/document/copy`, { document: doc([element(1, 'image', image)]) })).status).toBe(
+        201,
+      );
+    });
+
+    it('lets a content manager upload only to a project they belong to', async () => {
+      const mine = await createProject('Mine');
+      const theirs = await createProject('Theirs');
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, mine.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      expect((await upload(mine.id, 'image/png', png)).status).toBe(201);
+      expect((await upload(theirs.id, 'image/png', png)).status).toBe(403);
+      expect((await fetch(`${base}/projects/${theirs.id}/media`)).status).toBe(403);
     });
   });
 

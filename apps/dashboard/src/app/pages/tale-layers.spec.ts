@@ -1,4 +1,4 @@
-import type { TaleElement } from '@taleart/contract/tale-document';
+import type { TaleElement, TextElement } from '@taleart/contract/tale-document';
 import {
   clampMove,
   duplicateElement,
@@ -15,7 +15,7 @@ import {
   snapTargets,
 } from './tale-layers';
 
-function text(id: string, value = id, extra: Partial<TaleElement> = {}): TaleElement {
+function text(id: string, value = id, extra: Partial<TextElement> = {}): TextElement {
   return {
     id,
     type: 'text',
@@ -67,6 +67,25 @@ describe('layer helpers', () => {
     expect(layerName(text('a', '  Hello\n  world '))).toBe('Hello world');
     expect(layerName(text('a', ' \n '))).toBe('Empty text');
     expect(layerName(text('a', '😀'.repeat(41)))).toBe(`${'😀'.repeat(40)}…`);
+    // An image or video is named by its alt text, else by its type and place among its kind (R5).
+    const media = (id: string, type: 'image' | 'video', label?: string) =>
+      ({
+        ...text(id),
+        type,
+        a11y: label ? { label } : {},
+        props: { mediaKey: 'media/a.png', fit: 'cover' },
+      }) as unknown as TaleElement;
+    const elements = [
+      media('i1', 'image'),
+      text('t'),
+      media('v1', 'video'),
+      media('i2', 'image'),
+      media('i3', 'image', 'Cat'),
+    ];
+    expect(layerName(elements[3], elements)).toBe('Image 2');
+    expect(layerName(elements[2], elements)).toBe('Video 1');
+    expect(layerName(elements[4], elements)).toBe('Cat');
+    expect(layerName(elements[0])).toBe('Image 1');
   });
 
   it('duplicates with a new id, offset and kept on the canvas, without sharing objects', () => {

@@ -78,6 +78,10 @@ export type DeliveryTaleElement = Schemas['DeliveryTaleElement'];
 export type DeliveryFont = Schemas['DeliveryFont'];
 /** A font face uploaded to a project (epic Tale Studio R18). */
 export type ProjectFont = Schemas['ProjectFont'];
+/** An image or video of a project, which tale documents reference by key (epic Tale Studio R5). */
+export type ProjectMedia = Schemas['ProjectMedia'];
+/** A delivered canvas: a media background's key is its public URL (AD-11). */
+export type DeliveryCanvas = Schemas['DeliveryCanvas'];
 export type Findanother toolAppsRequest = Schemas['Findanother toolAppsRequest'];
 export type another toolApp = Schemas['another toolApp'];
 export type StartImportRequest = Schemas['StartImportRequest'];
@@ -304,6 +308,11 @@ export function mediaExtension(contentType: MediaContentType): string {
 /** Where the Management API serves a tale's media. Content stores only a storage key (AD-11). */
 export function taleMediaUrl(taleId: string): string {
   return `/api/v1/tales/${encodeURIComponent(taleId)}/media`;
+}
+
+/** Where the Management API serves a file of the project's media (epic Tale Studio R5), with a session. */
+export function projectMediaFileUrl(projectId: string, key: string): string {
+  return `/api/v1/projects/${encodeURIComponent(projectId)}/media/file?key=${encodeURIComponent(key)}`;
 }
 
 /**

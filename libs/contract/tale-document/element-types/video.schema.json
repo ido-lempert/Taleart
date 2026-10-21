@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VideoElementProps",
+  "description": "The props of a video element (epic Tale Studio R5): an MP4 or WebM video of the tale's project, by its storage key (AD-11), never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mediaKey", "fit"],
+  "properties": {
+    "mediaKey": {
+      "description": "The storage key of a video of the tale's project, as the server made it.",
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+    },
+    "fit": {
+      "description": "How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.",
+      "type": "string",
+      "enum": ["cover", "contain"]
+    },
+    "radius": {
+      "description": "The corner radius as a fraction of the canvas height; 0 when left out.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.5
+    },
+    "opacity": {
+      "description": "From 0 (transparent) to 1 (opaque); 1 when left out.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

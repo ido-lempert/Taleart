@@ -4,7 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter, Router } from '@angular/router';
 import type { ProjectFont, ZoneTaleGroup } from '@taleart/contract/core';
 import { clearProjectFontLoads } from '@taleart/contract/project-fonts';
-import { elementBounds, type TaleDocument } from '@taleart/contract/tale-document';
+import { elementBounds, type TaleDocument as AnyTaleDocument, type TextElement } from '@taleart/contract/tale-document';
 import { DEFAULT_TEXT_STYLE, SYSTEM_FONT_STACKS } from '@taleart/contract/text-style';
 import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
@@ -12,6 +12,9 @@ import { appRoutes } from '../app.routes';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { TaleStudioPage } from './tale-studio';
 import { ratioText } from './tale-text-style';
+
+// The documents here hold text only, typed so, which keeps a text's props a text's.
+type TaleDocument = Omit<AnyTaleDocument, 'elements'> & { elements: TextElement[] };
 
 const url = `${API_BASE}/tales/t1/document`;
 const tale = {
