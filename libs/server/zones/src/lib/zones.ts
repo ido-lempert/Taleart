@@ -39,3 +39,27 @@ export async function createZone(db: Db, input: { name: string; projectId: strin
   );
   return rows[0];
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Renames a zone when `decide` says so: the zone row is locked, `decide` gets
+ * its current name and answers the new one, or null to leave it. Run it on a
+ * transaction, so the decision and the write see the same name (the importer
+ * keeps names a person changed). Returns the name before and after, or null
+ * when the zone does not exist.
+ */
+export async function renameZoneWhen(
+  db: Db,
+  zoneId: string,
+  decide: (current: string) => string | null,
+): Promise<{ before: string; after: string } | null> {
+  if (!UUID.test(zoneId)) return null;
+  const { rows } = await db.query<{ name: string }>('SELECT name FROM zones WHERE id = $1 FOR UPDATE', [zoneId]);
+  if (rows.length === 0) return null;
+  const before = rows[0].name;
+  const next = decide(before);
+  if (next === null || next === before) return { before, after: before };
+  await db.query('UPDATE zones SET name = $2 WHERE id = $1', [zoneId, next]);
+  return { before, after: next };
+}

@@ -24,7 +24,7 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
-import { DEFAULT_THEME, PLAYBOOKS, type Playbook } from '@taleart/contract';
+import { DEFAULT_THEME, PLAYBOOKS, type ImportReport, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
@@ -46,6 +46,8 @@ const frameTypesDir = join(__dirname, '../../../libs/contract/frame-types');
 // The fake another tool server (apps/fake-another tool), started in-process on a free
 // port. Loaded by path at run time: it is a plain Node module of another app.
 const fakeanother toolModule = join(__dirname, '../../fake-another tool/src/fake-another tool.mjs');
+// The media files the fake serves for the fixtures' stories.
+const fixturesMediaDir = join(__dirname, '../../fake-another tool/src/fixtures/media');
 const FAKE_another tool_TOKEN = 'fake-another tool-token';
 interface Fakeanother tool {
   url: string;
@@ -185,7 +187,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -4177,6 +4179,9 @@ describe('Management API v1: projects and zones', () => {
       return { entity, record: { sourceId, name, within, withinSourceId, position }, kind: 'notHeld', field, sourceField: null };
     }
 
+    // A report's change counts for one entity type: what a first import does, `n` records created.
+    const created = (n: number) => ({ created: n, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 });
+
     async function storedJob(importId: string): Promise<{ token_ciphertext: string | null; source_app_id: string }> {
       const { rows } = await pool.query('SELECT token_ciphertext, source_app_id FROM import_jobs WHERE id = $1', [importId]);
       return rows[0];
@@ -4275,6 +4280,41 @@ describe('Management API v1: projects and zones', () => {
         expect(res.status).toBe(400);
         expect((await res.json()).error.code).toBe('import_selection_invalid');
       };
+
+      it('re-imports only what is picked: a zone not picked is neither updated nor taken for removed', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        // The source renames the Home page (2001) and a story of the Product page (2002).
+        fixture(fake.control.data.instances['1001'], 2001)['title'] = 'Start page';
+        fixture(fake.control.data.stories['3005'], 4012)['title'] = 'Customer videos';
+        const res = await pick(project.id, { zones: ['2002'] });
+        expect(res.status).toBe(202);
+        const job = await waitForEnd(project.id, ((await res.json()) as { id: string }).id);
+        expect(job['status']).toBe('done');
+        const report = job['report'] as ImportReport;
+        const pages = await zonePages(project.id);
+        expect(Object.keys(pages)).toEqual(['Home page', 'Product page', 'Checkout']);
+        expect(pages['Product page'][0].tales).toContain('Customer videos');
+        expect(report.changes?.zones).toEqual({
+          created: 0,
+          updated: 0,
+          unchanged: 1,
+          keptLocalEdit: 0,
+          removedAtSource: 0,
+        });
+        expect(report.changes?.tales).toMatchObject({ updated: 1, removedAtSource: 0 });
+        expect((report.differences ?? []).filter((d) => d.kind === 'removedAtSource')).toEqual([]);
+
+        // Zones only: names follow the source; tale groups and tales are neither read nor taken for removed.
+        const zonesOnly = await pick(project.id, { taleGroups: false, media: false, tags: false });
+        const second = await waitForEnd(project.id, ((await zonesOnly.json()) as { id: string }).id);
+        const secondReport = second['report'] as ImportReport;
+        expect(Object.keys(await zonePages(project.id))).toEqual(['Start page', 'Product page', 'Checkout']);
+        expect(secondReport.changes?.zones).toMatchObject({ updated: 1, unchanged: 2, removedAtSource: 0 });
+        expect((secondReport.differences ?? []).filter((d) => d.kind === 'removedAtSource')).toEqual([]);
+        expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
+      });
 
       it("previews the app's zones with their counts, storing neither the token nor a job", async () => {
         const project = await createProject();
@@ -4595,6 +4635,12 @@ describe('Management API v1: projects and zones', () => {
             notHeld('taleGroup', '3006', 'Free shipping', ['Checkout', '2003'], 1, 'media'),
           ],
           notImportedByDesign: ['Conversion records', 'Stats'],
+          changes: {
+            zones: created(3),
+            taleGroups: created(6),
+            tales: created(15),
+            media: created(15),
+          },
         },
         progress: {
           zones: { read: 3, written: 3 },
@@ -4776,6 +4822,7 @@ describe('Management API v1: projects and zones', () => {
         notes: ['Zone "Clean home": frame type unknown'],
         differences: [],
         notImportedByDesign: ['Conversion records', 'Stats'],
+        changes: { zones: created(1), taleGroups: created(1), tales: created(2), media: created(2) },
       });
     });
 
@@ -4845,7 +4892,7 @@ describe('Management API v1: projects and zones', () => {
       expect(await zonePages(project.id)).toEqual(demoShopPages);
     });
 
-    it('adds a story new at the source after the tales already imported', async () => {
+    it('adds a story new at the source in its source place among the tales already imported', async () => {
       const project = await createProject();
       startWorker();
       await waitForEnd(project.id, (await start(project.id)).id);
@@ -4853,9 +4900,10 @@ describe('Management API v1: projects and zones', () => {
       fake.control.data.stories['3002'].data.push({ id: 4999, story_group_id: 3002, title: 'Just in', sort_order: -1 });
       const again = await waitForEnd(project.id, (await start(project.id)).id);
       expect((again['report'] as { tales: unknown }).tales).toEqual({ source: 16, imported: 16, skipped: 0 });
+      // Nobody re-ordered the group in TaleArt, so the new tale takes its source place (importer story 7).
       expect((await zonePages(project.id))['Home page'][0]).toEqual({
         name: 'New arrivals',
-        tales: ['This week', 'Back in stock', 'Staff picks', 'Just in'],
+        tales: ['Just in', 'This week', 'Back in stock', 'Staff picks'],
       });
       expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 16, links: 25 });
     });
@@ -4921,6 +4969,348 @@ describe('Management API v1: projects and zones', () => {
     }
 
     const mediaRequests = () => fake.control.requests.filter((r) => r.path.startsWith('/media/'));
+
+    describe('re-import updates (AD-7)', () => {
+      const reportOf = (job: Record<string, unknown>) => job['report'] as ImportReport;
+      // The change counts of one entity type, every field given.
+      const changeCount = (
+        counts: Partial<Record<'created' | 'updated' | 'unchanged' | 'keptLocalEdit' | 'removedAtSource', number>>,
+      ) => ({
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        keptLocalEdit: 0,
+        removedAtSource: 0,
+        ...counts,
+      });
+      const differencesOf = (job: Record<string, unknown>, kind: string) =>
+        (reportOf(job).differences ?? []).filter((d) => d.kind === kind);
+      async function taleId(projectId: string, title: string): Promise<string> {
+        const { rows } = await pool.query('SELECT id FROM tales WHERE project_id = $1 AND title = $2', [
+          projectId,
+          title,
+        ]);
+        expect(rows).toHaveLength(1);
+        return rows[0].id;
+      }
+      async function groupId(projectId: string, name: string): Promise<string> {
+        const { rows } = await pool.query('SELECT id FROM tale_groups WHERE project_id = $1 AND name = $2', [
+          projectId,
+          name,
+        ]);
+        expect(rows).toHaveLength(1);
+        return rows[0].id;
+      }
+      async function tagNamesOf(taleGroupId: string): Promise<string[]> {
+        const { rows } = await pool.query(
+          `SELECT tags.name FROM tale_group_tags links JOIN tags ON tags.id = links.tag_id
+           WHERE links.tale_group_id = $1 ORDER BY tags.name`,
+          [taleGroupId],
+        );
+        return rows.map((r) => r.name);
+      }
+      const summerStories = () => fake.control.data.stories['3001'].data;
+
+      it('changes nothing in TaleArt when the same app is imported again, and counts every record unchanged', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const before = await contentCounts(project.id);
+        const files = storedMediaFiles().length;
+        fake.control.requests = [];
+        const again = await importOnce(project.id);
+        expect(again['status']).toBe('done');
+        expect(await contentCounts(project.id)).toEqual(before);
+        expect(await zonePages(project.id)).toEqual(demoShopPages);
+        expect(reportOf(again).changes).toEqual({
+          zones: changeCount({ unchanged: 3 }),
+          taleGroups: changeCount({ unchanged: 6 }),
+          tales: changeCount({ unchanged: 15 }),
+          media: changeCount({ unchanged: 15 }),
+        });
+        // The source names the same media, so none is downloaded again.
+        expect(mediaRequests()).toEqual([]);
+        expect(storedMediaFiles()).toHaveLength(files);
+        expect(differencesOf(again, 'keptLocalEdit')).toEqual([]);
+        expect(differencesOf(again, 'removedAtSource')).toEqual([]);
+        expect(JSON.stringify(again)).not.toContain(FAKE_another tool_TOKEN);
+      });
+
+      it('updates a title, a group name and a zone name changed at the source', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        fixture(fake.control.data.stories['3001'], 4001)['title'] = 'Up to 70% off';
+        fixture(fake.control.data.storyGroups['2001'], 3001)['title'] = 'Summer sale ends';
+        fixture(fake.control.data.instances['1001'], 2001)['title'] = 'Start page';
+        const again = await importOnce(project.id);
+        expect(again['status']).toBe('done');
+        const pages = await zonePages(project.id);
+        expect(Object.keys(pages)).toEqual(['Start page', 'Product page', 'Checkout']);
+        expect(pages['Start page'][2]).toEqual({
+          name: 'Summer sale ends',
+          tales: ['Beach picks', 'Up to 70% off', 'Last call'],
+        });
+        expect(reportOf(again).changes).toMatchObject({
+          zones: changeCount({ updated: 1, unchanged: 2 }),
+          taleGroups: changeCount({ updated: 1, unchanged: 5 }),
+          tales: changeCount({ updated: 1, unchanged: 14 }),
+        });
+        expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
+      });
+
+      it('keeps what a person changed in TaleArt, and lists it when the source changed it too', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        // A person retitles two tales and renames a group (the API has no tale title route, so the row is changed).
+        await pool.query('UPDATE tales SET title = $2 WHERE id = $1', [
+          await taleId(project.id, 'Up to 50% off'),
+          'Half off',
+        ]);
+        await pool.query('UPDATE tales SET title = $2 WHERE id = $1', [
+          await taleId(project.id, 'Last call'),
+          'Final call',
+        ]);
+        const renamed = await fetch(`${base}/tale-groups/${await groupId(project.id, 'Gift ideas')}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Gifts' }),
+        });
+        expect(renamed.status).toBe(200);
+        // The source changes one of those tales and that group; the other tale it leaves alone.
+        fixture(fake.control.data.stories['3001'], 4001)['title'] = 'Up to 70% off';
+        fixture(fake.control.data.storyGroups['2001'], 3003)['title'] = 'Gift guide';
+        const again = await importOnce(project.id);
+        const home = (await zonePages(project.id))['Home page'];
+        expect(home.map((g) => g.name)).toEqual(['New arrivals', 'Gifts', 'Summer sale']);
+        expect(home[2].tales).toEqual(['Beach picks', 'Half off', 'Final call']);
+        expect(reportOf(again).changes).toMatchObject({
+          taleGroups: changeCount({ unchanged: 6, keptLocalEdit: 1 }),
+          tales: changeCount({ unchanged: 15, keptLocalEdit: 1 }),
+        });
+        // In the order the groups are imported: "Gift guide" (sort order 1) before "Summer sale" (2).
+        expect(differencesOf(again, 'keptLocalEdit')).toEqual([
+          {
+            entity: 'taleGroup',
+            record: { sourceId: '3003', name: 'Gift guide', within: 'Home page', withinSourceId: '2001', position: 3 },
+            kind: 'keptLocalEdit',
+            field: 'title',
+            sourceField: null,
+          },
+          {
+            entity: 'tale',
+            record: {
+              sourceId: '4001',
+              name: 'Up to 70% off',
+              within: 'Summer sale',
+              withinSourceId: '3001',
+              position: 1,
+            },
+            kind: 'keptLocalEdit',
+            field: 'title',
+            sourceField: null,
+          },
+        ]);
+      });
+
+      it("follows the source's order, and keeps an order a person changed", async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        // The source moves "Last call" (4003) first in "Summer sale".
+        fixture(fake.control.data.stories['3001'], 4003)['sort_order'] = -1;
+        const moved = await importOnce(project.id);
+        expect((await zonePages(project.id))['Home page'][2].tales).toEqual([
+          'Last call',
+          'Beach picks',
+          'Up to 50% off',
+        ]);
+        expect(reportOf(moved).changes?.taleGroups).toEqual(changeCount({ updated: 1, unchanged: 5 }));
+
+        // A person puts "Up to 50% off" first; the source then moves "Beach picks" last: the person's order stays.
+        const summer = await groupId(project.id, 'Summer sale');
+        const order = [
+          await taleId(project.id, 'Up to 50% off'),
+          await taleId(project.id, 'Last call'),
+          await taleId(project.id, 'Beach picks'),
+        ];
+        const put = await fetch(`${base}/tale-groups/${summer}/tales/order`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taleIds: order }),
+        });
+        expect(put.status).toBe(200);
+        fixture(fake.control.data.stories['3001'], 4002)['sort_order'] = 9;
+        const kept = await importOnce(project.id);
+        expect((await zonePages(project.id))['Home page'][2].tales).toEqual([
+          'Up to 50% off',
+          'Last call',
+          'Beach picks',
+        ]);
+        expect(differencesOf(kept, 'keptLocalEdit').map((d) => [d.entity, d.record.sourceId, d.field])).toEqual([
+          ['taleGroup', '3001', 'sort_order'],
+        ]);
+      });
+
+      it('adds labels new at the source, never re-adds a tag a person removed, and lists labels the source dropped', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const summer = await groupId(project.id, 'Summer sale');
+        expect(await tagNamesOf(summer)).toEqual(['summer', 'vip']);
+        // A person removes "vip" from the group.
+        const tags: { id: string; name: string }[] = await (await fetch(`${base}/projects/${project.id}/tags`)).json();
+        const summerTag = tags.find((t) => t.name === 'summer')?.id;
+        const set = await fetch(`${base}/tale-groups/${summer}/tags`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tagIds: [summerTag] }),
+        });
+        expect(set.status).toBe(200);
+        // The source drops "summer" and adds "beach"; it still has "vip".
+        fixture(fake.control.data.storyGroups['2001'], 3001)['segments'] = ['vip', 'beach'];
+        const again = await importOnce(project.id);
+        expect(await tagNamesOf(summer)).toEqual(['beach', 'summer']);
+        expect(reportOf(again).changes?.taleGroups).toMatchObject({ updated: 1 });
+        expect(differencesOf(again, 'removedAtSource')).toEqual([
+          {
+            entity: 'tag',
+            record: { sourceId: null, name: 'summer', within: 'Summer sale', withinSourceId: '3001', position: null },
+            kind: 'removedAtSource',
+            field: 'segments',
+            sourceField: null,
+          },
+        ]);
+      });
+
+      it("replaces media the source changed, and keeps media a person set, listing it when the source's changed", async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const halfOff = await taleId(project.id, 'Up to 50% off');
+        const beach = await taleId(project.id, 'Beach picks');
+        const keyOf = async (id: string) =>
+          (await pool.query('SELECT media_key FROM tales WHERE id = $1', [id])).rows[0].media_key as string;
+        const earlier = await keyOf(halfOff);
+        // A person uploads their own image to "Beach picks".
+        const png = readFileSync(join(fixturesMediaDir, 'story.png'));
+        const upload = await fetch(`${base}/tales/${beach}/media`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/png' },
+          body: png,
+        });
+        expect(upload.status).toBe(200);
+        const uploaded = await keyOf(beach);
+        // The source points both stories at other images.
+        summerStories().forEach((story) => {
+          if (story['id'] === 4001) story['media'] = 'https://media.example/fake/story-4002.jpg';
+          if (story['id'] === 4002) story['media'] = 'https://media.example/fake/story-4003.jpg';
+        });
+        fake.control.requests = [];
+        const again = await importOnce(project.id);
+        expect(await keyOf(halfOff)).not.toBe(earlier);
+        expect(await keyOf(beach)).toBe(uploaded);
+        expect(mediaRequests().map((r) => r.path)).toEqual(['/media/story-4002.jpg']);
+        expect(reportOf(again).changes?.media).toEqual(changeCount({ updated: 1, unchanged: 13, keptLocalEdit: 1 }));
+        expect(reportOf(again).media).toEqual({ source: 15, imported: 14, skipped: 1 });
+        expect(differencesOf(again, 'keptLocalEdit').map((d) => [d.entity, d.record.sourceId, d.field])).toEqual([
+          ['tale', '4002', 'media'],
+        ]);
+        // The tale serves the new image; the earlier copy is left to the sweep, nothing else is deleted.
+        const served = await fetch(`${base}/tales/${halfOff}/media`);
+        expect(Buffer.from(await served.arrayBuffer())).toEqual(readFileSync(join(fixturesMediaDir, 'story-2.jpg')));
+        expect(storedMediaFiles()).toContain(earlier.slice('tales/'.length));
+      });
+
+      it('keeps records the source no longer lists, and lists them with their TaleArt names', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        fake.control.data.instances['1001'].data.pop(); // Checkout (2003), with "Free shipping" and its two stories
+        summerStories().pop(); // "Last call" (4003)
+        const again = await importOnce(project.id);
+        expect(again['status']).toBe('done');
+        expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
+        expect(reportOf(again).changes).toMatchObject({
+          zones: changeCount({ unchanged: 2, removedAtSource: 1 }),
+          taleGroups: changeCount({ unchanged: 5, removedAtSource: 1 }),
+          tales: changeCount({ unchanged: 12, removedAtSource: 3 }),
+        });
+        const removed = differencesOf(again, 'removedAtSource').map((d) => [
+          d.entity,
+          d.record.sourceId,
+          d.record.name,
+        ]);
+        expect(removed).toEqual(
+          expect.arrayContaining([
+            ['zone', '2003', 'Checkout'],
+            ['taleGroup', '3006', 'Free shipping'],
+            ['tale', '4003', 'Last call'],
+          ]),
+        );
+        expect(removed).toHaveLength(5);
+        // An import never deletes: the zone and its content stay, and a tale stays in its place.
+        expect((await zonePages(project.id))['Checkout']).toEqual(demoShopPages['Checkout']);
+        expect((await zonePages(project.id))['Home page'][2].tales).toEqual([
+          'Beach picks',
+          'Up to 50% off',
+          'Last call',
+        ]);
+      });
+
+      it('keeps a differing title of a record imported before re-imports kept baselines, and lists it', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        // As if imported before this story: no baselines, and links without their app.
+        await pool.query('DELETE FROM import_records WHERE project_id = $1', [project.id]);
+        await pool.query('UPDATE import_links SET source_app_id = NULL WHERE project_id = $1', [project.id]);
+        fixture(fake.control.data.stories['3001'], 4001)['title'] = 'Up to 70% off';
+        const again = await importOnce(project.id);
+        expect((await zonePages(project.id))['Home page'][2].tales).toContain('Up to 50% off');
+        expect(differencesOf(again, 'keptLocalEdit').map((d) => [d.entity, d.record.sourceId, d.field])).toEqual([
+          ['tale', '4001', 'title'],
+        ]);
+        expect(reportOf(again).changes?.tales).toEqual(changeCount({ unchanged: 15, keptLocalEdit: 1 }));
+        // The links know their app again, so a later run can list what the source drops.
+        const unscoped = await pool.query(
+          'SELECT 1 FROM import_links WHERE project_id = $1 AND source_app_id IS NULL',
+          [project.id],
+        );
+        expect(unscoped.rowCount).toBe(0);
+      });
+
+      it('updates each record once when two workers re-import the same app at the same time', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        await Promise.all(workers.map((w) => w.stop()));
+        workers = [];
+        fixture(fake.control.data.stories['3001'], 4001)['title'] = 'Up to 70% off';
+        fixture(fake.control.data.stories['3001'], 4003)['sort_order'] = -1;
+        const first = await start(project.id);
+        const second = await start(project.id);
+        startWorker('worker-a');
+        startWorker('worker-b');
+        const jobs = [await waitForEnd(project.id, first.id), await waitForEnd(project.id, second.id)];
+        expect(jobs.map((j) => j['status'])).toEqual(['done', 'done']);
+        expect(await contentCounts(project.id)).toEqual({ groups: 6, placements: 6, tales: 15, links: 24 });
+        expect((await zonePages(project.id))['Home page'][2].tales).toEqual([
+          'Last call',
+          'Beach picks',
+          'Up to 70% off',
+        ]);
+        // One run wrote the change; the other found it written.
+        const updated = jobs.map((j) => reportOf(j).changes?.tales.updated ?? 0);
+        expect(updated.reduce((a, b) => a + b, 0)).toBe(1);
+        expect(jobs.flatMap((j) => differencesOf(j, 'keptLocalEdit'))).toEqual([]);
+        const baselines = await pool.query('SELECT count(*)::int AS n FROM import_records WHERE project_id = $1', [
+          project.id,
+        ]);
+        expect(baselines.rows[0].n).toBe(24);
+      });
+    });
 
     describe('labels as tags', () => {
       // Each tale group of the project with its tags' names, as the zone pages list them.
@@ -5433,7 +5823,7 @@ describe('Management API v1: projects and zones', () => {
           tale.id,
           { media: 'https://media.example/fake/story-1.jpg' },
         );
-        expect(outcome).toEqual({ kind: 'keptOwn' });
+        expect(outcome).toEqual({ kind: 'keptOwn', sourceChanged: false });
         const media = (await pool.query('SELECT media_key, media_content_type FROM tales WHERE id = $1', [tale.id]))
           .rows[0];
         expect(media.media_content_type).toBe('image/png');
@@ -6059,7 +6449,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE import_media, import_links, import_jobs, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
+        'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
       );
     });
 
