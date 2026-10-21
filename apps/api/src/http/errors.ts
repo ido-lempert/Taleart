@@ -1,6 +1,7 @@
 import type { ErrorBody, ErrorCode } from '@taleart/contract';
 import { ErrorCodes } from '@taleart/contract';
 import {
+  FrameNotFoundError,
   InvalidFrameSettingsError,
   ProjectNotFoundError,
   UnknownFrameTypeError,
@@ -57,6 +58,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
   }
   if (
     err instanceof ZoneNotFoundError ||
+    err instanceof FrameNotFoundError ||
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
     err instanceof ZoneKeyNotFoundError

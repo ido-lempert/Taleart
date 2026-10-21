@@ -3,14 +3,14 @@ title: 'Schedule tale groups and tales with start and end times'
 type: 'feature'
 ticket: '4'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '9adf4bebe0788c49cb92403673b5ee94442dbf13'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: 'none'
+review: 'quick'
 review_source: 'pinned'
-lenses_ran: []
+lenses_ran: ['quick']
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -39,7 +39,7 @@ deferred: []
 - Delivery: `GET /delivery/v1/zone` lists only `live` groups in their window, each with only `live` tales in their window; a group left with no tale is left out (story 3 rule).
 - Public media: `GET /media/{key}` serves a key only while a `live` tale in its window, of a `live` group in its window, references it; else 404 `media_not_found`. Cache stays `public, no-cache` with ETag, so an expired URL answers 404 on the next revalidation.
 - Copy to zone copies the group's window and each tale's window, as it copies tales' statuses.
-- Dashboard: the zone page group row and the tale drawer each show the window (or "No schedule") and a form with two `datetime-local` inputs (Start, End), Save and Clear; values are shown and entered in the browser's time zone and sent as UTC. An end before the start is refused in the form and by the API, and the message is shown. Badges show the status as read (Scheduled, Expired); buttons follow `storedStatus`.
+- Dashboard: the zone page group row and the tale drawer each show the window (or "No schedule") and a form with two `datetime-local` inputs (Start, End), Save and Remove schedule (saves no window at once); values are shown and entered in the browser's time zone and sent as UTC. An end before the start is refused in the form and by the API, and the message is shown. Badges show the status as read (Scheduled, Expired); buttons follow `storedStatus`.
 - `_test` database only (`taleart_w1_test`); standard error body.
 
 **Never:** A job or trigger that stores `scheduled` / `expired`; campaigns; time zones stored per item; SDK changes (the filtered Delivery response is enough); changes to zone keys, Delivery CORS or the status transitions.
@@ -101,6 +101,18 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Review pass
+- verdicts: 7 findings — 6 patched, 1 rejected (by design)
+- findings:
+  - `[patch]` A half-typed `datetime-local` reports '' and silently cleared the bound — fixed: the form reads each input's `validity.badInput` and refuses with "Enter a complete date and time, or leave it empty."; component test.
+  - `[patch]` The fields hold minutes only, so saving rewrote an untouched bound and could refuse an unchanged sub-minute window — fixed: each field keeps the loaded ISO value and an unchanged field sends it as stored; tests for an untouched sub-minute window and for one edited bound.
+  - `[patch]` A local time inside a spring-forward gap shifted silently — fixed: `parseLocalInput` refuses it as nonexistent (the Date does not format back to the typed local time) and the form names the time zone and the daylight-saving change; a time that happens twice in autumn is read as its first occurrence `[ASSUMPTION]`; unit tests in Europe/Berlin via `process.env.TZ`.
+  - `[patch]` The group row showed nothing without a window — fixed: "No schedule" on the group row and in the tale drawer.
+  - `[patch]` "Clear both" only emptied the fields — replaced by "Remove schedule", which saves no window at once and closes the drawer.
+  - `[patch]` Missing API tests — added: a key shared by copies stays public while one copy is in its window and answers 404 once neither is; `If-None-Match` with the key's ETag answers 404, not 304, for expired and scheduled media.
+  - `[reject]` A tale reads `live` while its group is outside its window — by design (plan: a tale's status as read uses its own window; Delivery needs both).
+- Merged `autopilot/foundation` (importer story 2.4, web zones story 5 bar settings); one conflict in `create-drawer.ts` (imports and the Save label switch) resolved keeping both features; contract regenerated.
 
 ## Verification
 

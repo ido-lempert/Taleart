@@ -3,7 +3,16 @@
 // through @taleart/server-access.
 export { migrateZones } from './lib/migration';
 export { listZones, createZone, ProjectNotFoundError } from './lib/zones';
-export { listFrames, createFrame, findZone, zoneExists, zoneProjectId, ZoneNotFoundError } from './lib/frames';
+export {
+  listFrames,
+  createFrame,
+  updateFrameSettings,
+  findZone,
+  zoneExists,
+  zoneProjectId,
+  ZoneNotFoundError,
+  FrameNotFoundError,
+} from './lib/frames';
 export {
   FrameTypeRegistry,
   loadFrameTypeRegistry,

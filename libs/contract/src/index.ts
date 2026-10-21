@@ -22,6 +22,7 @@ export type CreateZoneRequest = Schemas['CreateZoneRequest'];
 export type FrameType = Schemas['FrameType'];
 export type Frame = Schemas['Frame'];
 export type CreateFrameRequest = Schemas['CreateFrameRequest'];
+export type UpdateFrameRequest = Schemas['UpdateFrameRequest'];
 export type TaleGroup = Schemas['TaleGroup'];
 export type ZoneTaleGroup = Schemas['ZoneTaleGroup'];
 export type ProjectTaleGroup = Schemas['ProjectTaleGroup'];
@@ -313,6 +314,7 @@ export const ErrorCodes = {
   zoneNotFound: 'zone_not_found',
   unknownFrameType: 'unknown_frame_type',
   invalidFrameSettings: 'invalid_frame_settings',
+  frameNotFound: 'frame_not_found',
   taleGroupNotFound: 'tale_group_not_found',
   taleGroupFull: 'tale_group_full',
   taleNotFound: 'tale_not_found',
@@ -358,6 +360,20 @@ export interface FrameTypeRegistryEntry {
 /** The shape of `frame-types/registry.json`. */
 export interface FrameTypeRegistryFile {
   types: FrameTypeRegistryEntry[];
+}
+
+/**
+ * The settings of a `bar` frame, as `frame-types/bar.schema.json` defines them
+ * (epic web zones R2). The schema is the source of the values and defaults;
+ * the Delivery API returns every field, filled with its default when unset.
+ */
+export interface BarSettings {
+  shape: 'circle' | 'rounded-square';
+  size: 'small' | 'medium' | 'large';
+  showTitles: boolean;
+  alignment: 'start' | 'center';
+  /** Space between items in px, 4 to 24. */
+  gap: number;
 }
 
 /** True when a value has the standard `{ error: { code, message } }` shape. */

@@ -1,9 +1,10 @@
-import type { CreateFrameRequest, CreateZoneRequest } from '@taleart/contract';
+import { ErrorCodes, type CreateFrameRequest, type CreateZoneRequest, type UpdateFrameRequest } from '@taleart/contract';
 import {
   createFrame,
   createZone,
   listFrames,
   listZones,
+  updateFrameSettings,
   zoneExists,
   ZoneNotFoundError,
   type FrameTypeRegistry,
@@ -11,6 +12,7 @@ import {
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { accessibleScope, authorize, authorizeParam } from './authorize';
+import { HttpError } from './errors';
 import { requiredString } from './validation';
 
 export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
@@ -56,6 +58,24 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
         settings: (req.body as { settings?: CreateFrameRequest['settings'] } | undefined)?.settings,
       };
       res.status(201).json(await createFrame(pool, frameTypes, { zoneId: req.params.zoneId, ...input }));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch('/:zoneId/frames/:frameId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+    try {
+      // Zone first (404), then the body (400), then the frame (404) and its type's schema (400).
+      if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
+      const settings = (req.body as Partial<UpdateFrameRequest> | undefined)?.settings;
+      if (settings === undefined) throw new HttpError(400, ErrorCodes.validationFailed, 'settings is required');
+      res.json(
+        await updateFrameSettings(pool, frameTypes, {
+          zoneId: req.params.zoneId,
+          frameId: req.params.frameId,
+          settings,
+        }),
+      );
     } catch (err) {
       next(err);
     }

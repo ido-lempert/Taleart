@@ -1,7 +1,7 @@
 import { ErrorCodes, mediaKind, publicMediaUrl, type DeliveryZone } from '@taleart/contract';
 import { zoneForKey, type KeyZone } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { findZone, listFrames } from '@taleart/server-zones';
+import { findZone, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
 import { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
@@ -45,6 +45,8 @@ function requireZoneKey(pool: Pool): RequestHandler {
 export interface DeliveryOptions {
   /** The API's public origin (PUBLIC_API_URL), which media URLs start with. */
   publicApiUrl: string;
+  /** The frame types, whose schema defaults fill each frame's missing settings (AD-5). */
+  frameTypes: FrameTypeRegistry;
 }
 
 /**
@@ -81,7 +83,11 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
       const body: DeliveryZone = {
         id: zone.id,
         name: zone.name,
-        frames: frames.map(({ id, type, settings }) => ({ id, type, settings })),
+        frames: frames.map(({ id, type, settings }) => ({
+          id,
+          type,
+          settings: options.frameTypes.withDefaults(type, settings),
+        })),
         taleGroups: taleGroups.map((group) => ({
           id: group.id,
           name: group.name,
