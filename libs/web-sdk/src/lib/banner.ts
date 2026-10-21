@@ -22,6 +22,9 @@ export const BANNER_INTERVAL_RANGE = { min: 3, max: 15 } as const;
 
 const PREFERS_REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
 
+/** How long after a swipe's pointerup a pointer click still belongs to the swipe. */
+export const SWIPE_CLICK_WINDOW_MS = 300;
+
 /**
  * The banner settings to render: each field the Delivery API sent when it is
  * valid, else its default. Settings are untrusted: only listed values reach
@@ -111,8 +114,9 @@ span.b-media { background: #e5e7eb; }
 .b-prev, .b-next { top: 50%; margin-top: -22px; }
 .b-prev { left: 8px; }
 .b-next { right: 8px; }
-.b-rotate { top: 8px; right: 8px; }
-.b-dots { display: flex; justify-content: center; flex-wrap: wrap; margin-top: 4px; }
+.b-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px; }
+.b-row .b-rotate { position: static; flex: none; }
+.b-dots { display: flex; justify-content: center; flex-wrap: wrap; }
 .b-dot {
   display: grid;
   place-items: center;
@@ -187,7 +191,7 @@ export function renderBanner(
 
   const viewport = document.createElement('div');
   viewport.className = 'b-viewport';
-  // First in the tab order, as the carousel pattern asks.
+  // Below the slide area, in a row with the dots, so no control can overlap another at any width.
   const rotate = button('b-btn b-rotate', '');
   const prev = button('b-btn b-prev', 'Previous slide');
   setIcon(prev, ICONS.prev);
@@ -213,11 +217,10 @@ export function renderBanner(
     media.className = 'b-media';
     if (media instanceof HTMLImageElement) media.draggable = false;
     open.appendChild(media);
-    open.addEventListener('click', () => {
-      if (swiped) {
-        swiped = false;
-        return;
-      }
+    open.addEventListener('click', (e) => {
+      // Only the pointer click that ends a swipe is dropped; keyboard and assistive
+      // technology activations (detail 0) always open.
+      if (e.detail !== 0 && Date.now() < swipedUntil) return;
       interact();
       onOpen(group.id);
     });
@@ -235,18 +238,27 @@ export function renderBanner(
   });
 
   const canRotate = autoplay && count > 1;
-  rotate.hidden = !canRotate || !!motion?.matches;
   prev.hidden = next.hidden = count < 2;
-  viewport.append(rotate, prev, next, track);
+  viewport.append(prev, next, track);
   root.appendChild(viewport);
-  if (showDots && count > 1) root.appendChild(dots);
+  const row = document.createElement('div');
+  row.className = 'b-row';
+  if (canRotate) row.appendChild(rotate);
+  if (showDots && count > 1) row.appendChild(dots);
+  if (row.firstChild) root.appendChild(row);
 
   let index = 0;
-  let rotating = canRotate;
+  // Set by the visitor's interaction or by reaching the last slide without loop; only the rotation button clears it.
+  let stopped = false;
+  let rotating = false;
   let hovering = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let press: { x: number; y: number } | null = null;
-  let swiped = false;
+  // A pointer click before this time ends a swipe and does not open the slide.
+  let swipedUntil = 0;
+  // True while the SDK moves focus itself, which is not the visitor's interaction.
+  let programmaticFocus = false;
+  const atEnd = () => !loop && index === count - 1;
 
   function goTo(i: number): void {
     index = Math.max(0, Math.min(count - 1, i));
@@ -262,7 +274,21 @@ export function renderBanner(
       else dot.removeAttribute('aria-current');
     });
     prev.setAttribute('aria-disabled', String(!loop && index === 0));
-    next.setAttribute('aria-disabled', String(!loop && index === count - 1));
+    next.setAttribute('aria-disabled', String(atEnd()));
+    sync();
+  }
+
+  // Derives the rotation state and shows it on the rotation button and the live region.
+  function sync(): void {
+    const reduced = !!motion?.matches;
+    rotating = canRotate && !stopped && !reduced && !atEnd();
+    rotate.hidden = !canRotate || reduced;
+    rotate.setAttribute('aria-label', rotating ? 'Stop automatic slide show' : 'Start automatic slide show');
+    // Nothing to start on the last slide without loop.
+    rotate.setAttribute('aria-disabled', String(!rotating && atEnd()));
+    setIcon(rotate, rotating ? ICONS.pause : ICONS.play);
+    // Screen readers hear slide changes only when the visitor makes them.
+    track.setAttribute('aria-live', rotating ? 'off' : 'polite');
   }
 
   // The step from the slide shown, or null at an end without loop.
@@ -277,20 +303,15 @@ export function renderBanner(
     if (target !== null) goTo(target);
   }
 
+  // Re-reads the rotation state and (re)starts the timer for the next slide while rotating.
   function schedule(): void {
     clearTimeout(timer);
-    if (motion?.matches) {
-      rotating = false;
-      rotate.hidden = true;
-    }
-    rotate.setAttribute('aria-label', rotating ? 'Stop automatic slide show' : 'Start automatic slide show');
-    setIcon(rotate, rotating ? ICONS.pause : ICONS.play);
-    // Screen readers hear slide changes only when the visitor makes them.
-    track.setAttribute('aria-live', rotating ? 'off' : 'polite');
+    sync();
     if (rotating && !hovering) {
       timer = setTimeout(() => {
         step(1);
-        if (!loop && index === count - 1) rotating = false;
+        // Reaching the last slide without loop stops autoplay; goTo already showed it.
+        if (atEnd()) stopped = true;
         schedule();
       }, intervalSeconds * 1000);
     }
@@ -298,13 +319,13 @@ export function renderBanner(
 
   // Any interaction stops autoplay for good; only the rotation button restarts it.
   function interact(): void {
-    if (!rotating) return;
-    rotating = false;
+    stopped = true;
     schedule();
   }
 
   rotate.addEventListener('click', () => {
-    rotating = !rotating && !motion?.matches;
+    if (rotating) stopped = true;
+    else if (!atEnd()) stopped = false;
     schedule();
   });
   prev.addEventListener('click', () => {
@@ -316,12 +337,11 @@ export function renderBanner(
     step(1);
   });
   root.addEventListener('focusin', (e) => {
-    if (e.target !== rotate) interact();
+    if (!programmaticFocus && e.target !== rotate) interact();
   });
   viewport.addEventListener('pointerdown', (e) => {
-    swiped = false;
     press = { x: e.clientX, y: e.clientY };
-    if (e.target !== rotate && !rotate.contains(e.target as Node)) interact();
+    interact();
   });
   viewport.addEventListener('pointerup', (e) => {
     if (!press) return;
@@ -329,7 +349,8 @@ export function renderBanner(
     const dy = e.clientY - press.y;
     press = null;
     if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
-      swiped = true;
+      // The click that may follow this pointerup comes at once; a later one is a new tap.
+      swipedUntil = Date.now() + SWIPE_CLICK_WINDOW_MS;
       step(dx < 0 ? 1 : -1);
     }
   });
@@ -358,13 +379,21 @@ export function renderBanner(
       return rotating;
     },
     focus(groupId) {
-      const i = groupId === null ? 0 : slides.findIndex((group) => group.id === groupId);
+      const i = groupId === null ? index : slides.findIndex((group) => group.id === groupId);
       if (i < 0) return false;
       goTo(i);
-      openButtons[i].focus();
+      // The SDK moving focus back is not the visitor interacting.
+      programmaticFocus = true;
+      try {
+        openButtons[i].focus();
+      } finally {
+        programmaticFocus = false;
+      }
+      schedule();
       return true;
     },
     destroy() {
+      stopped = true;
       rotating = false;
       clearTimeout(timer);
       motion?.removeEventListener?.('change', schedule);

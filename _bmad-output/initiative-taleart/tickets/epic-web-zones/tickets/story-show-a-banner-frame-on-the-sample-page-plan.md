@@ -3,7 +3,7 @@ title: 'Show a banner frame on the sample page'
 type: 'feature'
 ticket: '6'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '69a48ecb7cd61f0426acdeb459a9e349b748413d'
 route: 'full'
 route_source: 'auto'
@@ -100,7 +100,7 @@ deferred: []
 
 ## Implementation Notes
 
-- Assumptions (not settled by the epic, recorded for review): a slide shows the group's first tale that has media (the same rule as the bar cover; a video shows its first frame and never autoplays; no media shows a neutral placeholder); slides carry no visible caption, the slide button is named by the group; a group with no delivered tale has no slide, and a banner with no slides renders nothing; the carousel is named "Banner"; dots are named "Show <group>"; a hovering mouse pauses autoplay and leaving resumes it (WAI-ARIA carousel pattern), while any other interaction stops it for good until the rotation button restarts it; the rotation button shows only when autoplay can run (setting on, 2+ slides, no reduced motion) and focusing it alone does not stop autoplay; the slide transition is 0.35 s and instant under reduced motion; colours are TaleArt defaults until story 8 (dots and controls assume a light host background).
+- Assumptions (not settled by the epic, recorded for review): a slide shows the group's first tale that has media (the same rule as the bar cover; a video shows its first frame and never autoplays; no media shows a neutral placeholder); slides carry no visible caption, the slide button is named by the group; a group with no delivered tale has no slide, and a banner with no slides renders nothing; the carousel is named "Banner"; dots are named "Show <group>"; a hovering mouse pauses autoplay and leaving resumes it (WAI-ARIA carousel pattern), while any other interaction stops it for good until the rotation button restarts it; the rotation button shows only when autoplay can run (setting on, 2+ slides, no reduced motion), sits with the dots in a row below the slides (after them in the tab order, so a keyboard visitor reaches Previous first, which stops autoplay), and focusing it alone does not stop autoplay; the slide transition is 0.35 s and instant under reduced motion; colours are TaleArt defaults until story 8 (dots and controls assume a light host background).
 - The SDK now renders every frame type it knows, in the zone's frame order (R1); before, only the first bar rendered. Story 7 (stages, built in parallel) touches the same render loop: with no stage named it renders the frames in order, which this matches; expect a merge in `taleart-element.ts`.
 - Built: `banner.ts` (`readBannerSettings`, `renderBanner` returning a `BannerView` with `focus`/`destroy`, `BANNER_STYLES`); `bar.ts` exports `coverMedia` (was private `cover`); `viewer.ts` exports `setIcon`. The element keeps one viewer for all frames and remembers which frame opened it, so focus returns to that frame's item or slide of the group shown last; frame timers stop on reload and removal.
 - Untrusted settings: the aspect ratio reaches the DOM only as a `data-ratio` attribute from the three listed values, styled by fixed CSS rules; the interval is a checked integer used only as a timer; names are text/attributes, never HTML.
@@ -111,6 +111,17 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- verdicts: 7 findings, all patched.
+- findings:
+  - `[patch]` The swipe flag stayed set when no click followed (touch pan, drag ending elsewhere), swallowing the next keyboard or assistive-technology activation — suppression is now a 300 ms window after the swiping pointerup (`SWIPE_CLICK_WINDOW_MS`) and never applies to clicks with `detail === 0`; tests for Enter/Space after a swipe, a later tap, and the suppressed click.
+  - `[patch]` Reduced motion was handled only when it turned on — rotation state is now derived (`sync`) from the setting, a visitor-stop flag, the preference and the last-slide rule, so turning reduced motion off shows the rotation button and resumes autoplay unless the visitor already stopped it; tests both ways.
+  - `[patch]` Without loop the rotation button could restart on the last slide and claim to rotate — Start is `aria-disabled` and does nothing there; reaching the last slide updates the button and `aria-live` at once; restart works again after moving back; tests.
+  - `[patch]` The rotation button overlapped Next on narrow 3:1 banners — it now sits in a row with the dots below the slide area (static, 44 px); the a11y scan checks a 3:1 banner at 390 px for overlapping controls and 44 px targets, and a unit test checks the structure.
+  - `[patch]` Reload restored focus to the first frame with the group — the element remembers the opener's frame id across reloads and restores focus there first, then any frame with the group, then the opener's (or first) frame; test with `[banner, bar]` opened from the bar.
+  - `[patch]` SDK-driven focus stopped autoplay and the `focus(null)` fallback jumped to slide 0 — programmatic focus is flagged and ignored by the focusin handler; `focus(null)` focuses the slide shown; tests (unit and element reload).
+  - `[patch]` Missing regression test for several bars — a zone with two bar frames renders both, each opens the viewer and takes focus back, and both show the seen ring.
 
 ## Verification
 
@@ -131,9 +142,9 @@ deferred: []
 - `apps/sdk-sample/a11y-scan.mjs` -- banner scan and behaviour checks, reduced-motion context.
 
 **Verification:**
-- `nx run-many -t lint test build` for the 12 projects -- passed (api 239 tests, dashboard 131, web-sdk 116, server-zones 42, contract 21).
-- `nx run web-sdk:size` -- passed, 8.48 KB gzipped.
-- `nx run sdk-sample:a11y` -- 0 violations on bar, viewer, bar with rotating banner, stopped banner and reduced-motion banner; checks for autoplay at 3 s, dot, next, stop on interaction, swipe without opening, slide opens the viewer at its group, focus return, 3:1 ratio, no dots, no autoplay under reduced motion.
+- `nx run-many -t lint test build` for the 12 projects -- passed (api 239 tests, dashboard 131, web-sdk 127, server-zones 42, contract 21).
+- `nx run web-sdk:size` -- passed, 8.70 KB gzipped after review fixes.
+- `nx run sdk-sample:a11y` -- 0 violations on bar, viewer, bar with rotating banner, stopped banner, reduced-motion banner and a 3:1 banner at 390 px (no overlapping controls, 44 px targets); checks for autoplay at 3 s, dot, next, stop on interaction, swipe without opening, slide opens the viewer at its group, focus return, 3:1 ratio, no dots, no autoplay under reduced motion.
 - Screenshot of the sample page (stubbed API) inspected: bar above a 16:9 banner, controls and dots visible, focus ring visible.
 
 **Residual risks:**

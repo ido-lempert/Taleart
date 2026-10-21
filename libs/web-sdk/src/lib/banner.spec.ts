@@ -9,6 +9,7 @@ import {
   type BannerView,
   readBannerSettings,
   renderBanner,
+  SWIPE_CLICK_WINDOW_MS,
 } from './banner';
 
 const API = 'https://api.example.com';
@@ -60,6 +61,7 @@ function banner(settings: unknown = {}, list: readonly DeliveryTaleGroup[] = gro
     prev: q<HTMLButtonElement>('.b-prev') as HTMLButtonElement,
     next: q<HTMLButtonElement>('.b-next') as HTMLButtonElement,
     rotate: q<HTMLButtonElement>('.b-rotate') as HTMLButtonElement,
+    row: q<HTMLElement>('.b-row'),
     track: q<HTMLElement>('.b-track') as HTMLElement,
     viewport: q<HTMLElement>('.b-viewport') as HTMLElement,
   };
@@ -69,6 +71,11 @@ function pointer(type: string, target: Element, x: number, y = 10, pointerType =
   const e = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y });
   Object.defineProperty(e, 'pointerType', { value: pointerType });
   target.dispatchEvent(e);
+}
+
+// A pointer click (detail 1); `element.click()` is a keyboard-like activation (detail 0).
+function tap(target: Element) {
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
 }
 
 describe('banner settings', () => {
@@ -234,20 +241,39 @@ describe('renderBanner', () => {
     expect(b.view.index).toBe(2);
   });
 
-  it('moves by swipe, and a swipe does not open the slide', () => {
+  it('moves by swipe, and the click that ends a swipe does not open the slide', () => {
     const b = banner();
     const open = b.opens()[0];
     pointer('pointerdown', open, 200);
     pointer('pointerup', open, 120);
-    open.click();
+    tap(open);
     expect(b.view.index).toBe(1);
     expect(b.onOpen).not.toHaveBeenCalled();
     const second = b.opens()[1];
     pointer('pointerdown', second, 100);
     pointer('pointerup', second, 180);
-    second.click();
+    tap(second);
     expect(b.view.index).toBe(0);
     expect(b.onOpen).not.toHaveBeenCalled();
+  });
+
+  it('opens on Enter or Space right after a swipe that no click followed', () => {
+    const b = banner();
+    pointer('pointerdown', b.viewport, 200);
+    pointer('pointerup', b.viewport, 120);
+    expect(b.view.index).toBe(1);
+    // A keyboard or assistive-technology activation is a click with detail 0.
+    b.opens()[1].click();
+    expect(b.onOpen).toHaveBeenCalledWith('gb');
+  });
+
+  it('opens on a later tap after a swipe that no click followed', () => {
+    const b = banner();
+    pointer('pointerdown', b.viewport, 200);
+    pointer('pointerup', b.viewport, 120);
+    vi.advanceTimersByTime(SWIPE_CLICK_WINDOW_MS + 1);
+    tap(b.opens()[1]);
+    expect(b.onOpen).toHaveBeenCalledWith('gb');
   });
 
   it('treats a short or vertical drag as a tap', () => {
@@ -297,11 +323,42 @@ describe('renderBanner', () => {
     vi.advanceTimersByTime(30000);
     expect(b.view.index).toBe(2);
     expect(b.rotate.getAttribute('aria-label')).toBe('Start automatic slide show');
+    expect(b.track.getAttribute('aria-live')).toBe('polite');
+    // Nothing to start on the last slide without loop.
+    expect(b.rotate.getAttribute('aria-disabled')).toBe('true');
+    b.rotate.click();
+    expect(b.view.rotating).toBe(false);
+    expect(b.rotate.getAttribute('aria-label')).toBe('Start automatic slide show');
+    vi.advanceTimersByTime(30000);
+    expect(b.view.index).toBe(2);
+  });
+
+  it('updates the rotation button and live region the moment autoplay reaches the last slide', () => {
+    const b = banner({ loop: false, intervalSeconds: 3 });
+    vi.advanceTimersByTime(3000);
+    expect(b.track.getAttribute('aria-live')).toBe('off');
+    vi.advanceTimersByTime(3000);
+    expect(b.view.index).toBe(2);
+    expect(b.track.getAttribute('aria-live')).toBe('polite');
+    expect(b.rotate.getAttribute('aria-label')).toBe('Start automatic slide show');
+  });
+
+  it('can restart autoplay without loop once the visitor leaves the last slide', () => {
+    const b = banner({ loop: false, intervalSeconds: 3 });
+    b.dots()[2].click();
+    expect(b.rotate.getAttribute('aria-disabled')).toBe('true');
+    b.prev.click();
+    expect(b.rotate.getAttribute('aria-disabled')).toBe('false');
+    b.rotate.click();
+    expect(b.view.rotating).toBe(true);
+    vi.advanceTimersByTime(3000);
+    expect(b.view.index).toBe(2);
+    expect(b.view.rotating).toBe(false);
   });
 
   it('does not autoplay with the autoplay setting off, and offers no rotation button', () => {
     const b = banner({ autoplay: false });
-    expect(b.rotate.hidden).toBe(true);
+    expect(b.rotate).toBeNull();
     expect(b.track.getAttribute('aria-live')).toBe('polite');
     vi.advanceTimersByTime(60000);
     expect(b.view.index).toBe(0);
@@ -314,6 +371,37 @@ describe('renderBanner', () => {
     expect(b.rotate.hidden).toBe(true);
     vi.advanceTimersByTime(60000);
     expect(b.view.index).toBe(0);
+  });
+
+  it('starts autoplay when reduced motion turns off, per the setting', () => {
+    const motion = stubMotion(true);
+    const b = banner({ intervalSeconds: 3 });
+    expect(b.view.rotating).toBe(false);
+    motion.set(false);
+    expect(b.view.rotating).toBe(true);
+    expect(b.rotate.hidden).toBe(false);
+    expect(b.rotate.getAttribute('aria-label')).toBe('Stop automatic slide show');
+    vi.advanceTimersByTime(3000);
+    expect(b.view.index).toBe(1);
+    // On and off again: it stops and resumes.
+    motion.set(true);
+    vi.advanceTimersByTime(9000);
+    expect(b.view.index).toBe(1);
+    motion.set(false);
+    vi.advanceTimersByTime(3000);
+    expect(b.view.index).toBe(2);
+  });
+
+  it('keeps autoplay stopped when reduced motion turns off after the visitor interacted', () => {
+    const motion = stubMotion(true);
+    const b = banner({ intervalSeconds: 3 });
+    b.next.click();
+    motion.set(false);
+    expect(b.view.rotating).toBe(false);
+    expect(b.rotate.hidden).toBe(false);
+    expect(b.rotate.getAttribute('aria-label')).toBe('Start automatic slide show');
+    vi.advanceTimersByTime(9000);
+    expect(b.view.index).toBe(1);
   });
 
   it('stops autoplay when reduced motion turns on, and stops listening once destroyed', () => {
@@ -374,20 +462,40 @@ describe('renderBanner', () => {
     const b = banner({}, [groups[0]]);
     expect(b.prev.hidden).toBe(true);
     expect(b.next.hidden).toBe(true);
-    expect(b.rotate.hidden).toBe(true);
-    expect(b.root.querySelector('.b-dots')).toBeNull();
+    expect(b.rotate).toBeNull();
+    expect(b.row).toBeNull();
     expect(b.view.rotating).toBe(false);
   });
 
-  it('focuses the slide of a group, or the first slide, and stops autoplay', () => {
-    const b = banner();
+  it('focuses the slide of a group without counting as the visitor interacting', () => {
+    const b = banner({ intervalSeconds: 3 });
     expect(b.view.focus('gc')).toBe(true);
     expect(b.view.index).toBe(2);
     expect(document.activeElement).toBe(b.opens()[2]);
-    expect(b.view.rotating).toBe(false);
+    expect(b.view.rotating).toBe(true);
+    vi.advanceTimersByTime(3000);
+    expect(b.view.index).toBe(0);
     expect(b.view.focus('ge')).toBe(false);
+  });
+
+  it('focuses the slide shown for null, without jumping to the first slide', () => {
+    const b = banner({ intervalSeconds: 3 });
+    b.dots()[1].click();
     expect(b.view.focus(null)).toBe(true);
-    expect(document.activeElement).toBe(b.opens()[0]);
+    expect(b.view.index).toBe(1);
+    expect(document.activeElement).toBe(b.opens()[1]);
+  });
+
+  it('puts the rotation button in a row with the dots, below the slide area and clear of previous and next', () => {
+    const b = banner();
+    expect(b.viewport.contains(b.rotate)).toBe(false);
+    expect(b.row?.firstElementChild).toBe(b.rotate);
+    expect(b.row?.contains(b.root.querySelector('.b-dots'))).toBe(true);
+    expect([...b.root.children].map((el) => el.className)).toEqual(['b-viewport', 'b-row']);
+    expect(BANNER_STYLES).toContain('.b-row .b-rotate { position: static; flex: none; }');
+    // Without dots the row holds the rotation button alone.
+    const noDots = banner({ showDots: false });
+    expect([...(noDots.row?.children ?? [])]).toEqual([noDots.rotate]);
   });
 
   it('stops its timer when destroyed', () => {
