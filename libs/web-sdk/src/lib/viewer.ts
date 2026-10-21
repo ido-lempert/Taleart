@@ -139,6 +139,11 @@ function hasModifier(e: KeyboardEvent): boolean {
   return e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
 }
 
+// True when the event happened on a document's text element.
+function inText(e: Event): boolean {
+  return !!(e.target as Element | null)?.closest?.('.ta-text');
+}
+
 export function setIcon(button: HTMLButtonElement, path: string): void {
   button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
@@ -175,6 +180,7 @@ export class TaleViewer {
   private group = 0;
   private tale = 0;
   private media: HTMLElement | null = null;
+  private layer: HTMLElement | null = null; // the current tale's document, over its media
   private video: HTMLVideoElement | null = null;
   private paused = false; // by the visitor (Space or the button)
   private held = false; // while a pointer is down on the stage
@@ -322,13 +328,17 @@ export class TaleViewer {
     stage.addEventListener('lostpointercapture', () => this.onPointerCancel());
     dialog.addEventListener('pointerup', (e) => this.onPointerUp(e));
     dialog.addEventListener('pointercancel', () => this.onPointerCancel());
-    dialog.addEventListener('contextmenu', (e) => e.preventDefault());
+    // No context menu or scrolling, except on a document's text, where a long press and a drag
+    // select it (and the menu copies it) on touch screens.
+    dialog.addEventListener('contextmenu', (e) => {
+      if (!inText(e)) e.preventDefault();
+    });
     // The host page never scrolls under the open viewer; two-finger pinch-zoom still works.
     dialog.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
     dialog.addEventListener(
       'touchmove',
       (e) => {
-        if (e.touches.length < 2) e.preventDefault();
+        if (e.touches.length < 2 && !inText(e)) e.preventDefault();
       },
       { passive: false },
     );
@@ -464,13 +474,18 @@ export class TaleViewer {
     const current = g.tales[tale];
     const doc = current.document;
     this.duration = doc?.durationMs ?? IMAGE_DURATION_MS;
+    // The media is framed the same with or without a document: full-bleed in the stage. A tale
+    // with a document but no media shows its canvas colour instead, and the canvas carries the
+    // tale's name.
+    this.media = doc && !current.media ? null : this.renderMedia(current);
+    if (this.media) stage.prepend(this.media);
     if (doc) {
-      // A tale document (AD-16): its elements over the media, on a 9:16 canvas above the tap zones.
-      this.media = renderTaleDocument(doc, current.media ? this.renderMedia(current) : null);
-      this.parts.top.before(this.media);
-    } else {
-      this.media = this.renderMedia(current);
-      stage.prepend(this.media);
+      // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
+      this.layer = renderTaleDocument(doc, {
+        background: !current.media,
+        label: current.media ? undefined : current.title || `Tale ${tale + 1}`,
+      });
+      this.parts.top.before(this.layer);
     }
     this.options.onGroupShown?.(g.id);
     if (this.reduced) {
@@ -590,5 +605,7 @@ export class TaleViewer {
     this.video = null;
     this.media?.remove();
     this.media = null;
+    this.layer?.remove();
+    this.layer = null;
   }
 }

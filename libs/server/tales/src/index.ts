@@ -56,7 +56,10 @@ export {
 } from './lib/tales';
 export {
   checkTaleDocument,
+  clearDeliveryCache,
   deliverableTaleDocument,
+  DELIVERY_CACHE_SIZE,
+  pointerSegment,
   getTaleDocument,
   saveTaleDocument,
   InvalidTaleDocumentError,

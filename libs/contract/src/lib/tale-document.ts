@@ -100,31 +100,65 @@ export function emptyTaleDocument(): TaleDocument {
   };
 }
 
-/**
- * True when the text holds a control character a text element may not hold: U+0000 to U+001F
- * other than a line feed, U+007F, or U+0080 to U+009F.
- */
-export function hasTextControlCharacter(text: string): boolean {
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if ((code <= 0x1f && code !== 0x0a) || (code >= 0x7f && code <= 0x9f)) return true;
+/** The most characters (code points) an element's `a11y.label` holds. */
+export const MAX_LABEL_LENGTH = 300;
+
+/** Which characters a piece of document text may hold: a text element's text keeps line feeds, a label does not. */
+export interface TextRule {
+  lineFeeds: boolean;
+}
+
+/** The rule for a text element's text: line feeds start new lines. */
+export const ELEMENT_TEXT_RULE: TextRule = { lineFeeds: true };
+
+/** The rule for labels: one line. */
+export const LABEL_TEXT_RULE: TextRule = { lineFeeds: false };
+
+// The UTF-16 code units the character at `i` takes when it is allowed, or 0 when it is not:
+// C0 controls (a line feed only where the rule keeps it), DEL, C1 controls, a lone surrogate,
+// and the bidi embeddings and overrides U+202A to U+202E, which can make text read as other text.
+// Marks (U+200E, U+200F), isolates (U+2066 to U+2069), ZWJ and ZWNJ stay: Hebrew, Arabic and
+// emoji sequences need them.
+function allowedWidth(text: string, i: number, rule: TextRule): number {
+  const code = text.charCodeAt(i);
+  if (code >= 0xd800 && code <= 0xdbff) {
+    const next = text.charCodeAt(i + 1);
+    return next >= 0xdc00 && next <= 0xdfff ? 2 : 0;
+  }
+  if (code >= 0xdc00 && code <= 0xdfff) return 0;
+  if (code <= 0x1f) return code === 0x0a && rule.lineFeeds ? 1 : 0;
+  if (code >= 0x7f && code <= 0x9f) return 0;
+  if (code >= 0x202a && code <= 0x202e) return 0;
+  return 1;
+}
+
+/** True when the text holds a character the rule does not allow (see {@link cleanText}). */
+export function hasDisallowedCharacter(text: string, rule: TextRule): boolean {
+  for (let i = 0; i < text.length; ) {
+    const width = allowedWidth(text, i, rule);
+    if (width === 0) return true;
+    i += width;
   }
   return false;
 }
 
-/** The number of characters (code points) of a text, as the length limit counts them. */
-export function textLength(text: string): number {
-  let length = 0;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    // A high surrogate followed by a low one is one code point.
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
-      const next = text.charCodeAt(i + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) i++;
+/**
+ * The text without the characters the rule does not allow: control characters (C0 other than a
+ * line feed where the rule keeps it, DEL, C1), lone surrogates, and the bidi embeddings and
+ * overrides U+202A to U+202E. The server refuses them on write; editors strip them as people type
+ * or paste, and SDKs strip them before rendering.
+ */
+export function cleanText(text: string, rule: TextRule): string {
+  let clean = '';
+  for (let i = 0; i < text.length; ) {
+    const width = allowedWidth(text, i, rule);
+    if (width === 0) i++;
+    else {
+      clean += text.slice(i, i + width);
+      i += width;
     }
-    length++;
   }
-  return length;
+  return clean;
 }
 
 /**

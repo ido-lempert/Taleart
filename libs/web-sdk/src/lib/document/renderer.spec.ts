@@ -49,15 +49,49 @@ describe('renderTaleDocument', () => {
     const area = renderTaleDocument(doc([text('a', '<b>x</b>\n<img src=x onerror=alert(1)>')]));
     const [p] = texts(area);
     expect(p.tagName).toBe('P');
-    expect(p.childNodes).toHaveLength(1);
-    expect(p.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    const span = p.firstElementChild as HTMLElement;
+    expect(p.children).toHaveLength(1);
+    expect(span.className).toBe('ta-glyphs');
+    expect(span.childNodes).toHaveLength(1);
+    expect(span.firstChild?.nodeType).toBe(Node.TEXT_NODE);
     expect(p.textContent).toBe('<b>x</b>\n<img src=x onerror=alert(1)>');
     expect(area.querySelector('b, img')).toBeNull();
+  });
+
+  it('strips characters text may not hold, and keeps right-to-left text and emoji sequences', () => {
+    const area = renderTaleDocument(
+      doc([text('a', 'pay\u202e \u0007x\ud800', 0.1, 0.1), text('b', 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦', 0.1, 0.5)]),
+    );
+    expect(texts(area).map((p) => p.textContent)).toEqual(['pay x', 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦']);
+  });
+
+  it('treats inherited property names as unknown types', () => {
+    const area = renderTaleDocument(
+      doc([
+        { ...text('c', 'x'), type: 'constructor' },
+        { ...text('p', 'x'), type: '__proto__' },
+        { ...text('t', 'x'), type: 'toString' },
+        text('a', 'Shown'),
+      ]),
+    );
+    expect(texts(area).map((p) => p.textContent)).toEqual(['Shown']);
+    expect(warn).toHaveBeenCalledTimes(3);
+  });
+
+  it('names the canvas after the tale only when asked, so a tale without media keeps its name', () => {
+    const named = renderTaleDocument(doc([]), { label: 'Sunset', background: true });
+    expect(canvasOf(named).getAttribute('role')).toBe('group');
+    expect(canvasOf(named).getAttribute('aria-label')).toBe('Sunset');
+    expect(canvasOf(named).style.backgroundColor).toBe('rgb(17, 34, 51)');
+    const plain = renderTaleDocument(doc([]));
+    expect(canvasOf(plain).hasAttribute('role')).toBe(false);
+    expect(canvasOf(plain).style.backgroundColor).toBe('');
   });
 
   it('places each element from its box through CSSOM, without a style attribute from content', () => {
     const area = renderTaleDocument(
       doc([text('a', 'Hi', 0.1, 0.25, { box: { x: 0.1, y: 0.25, w: 0.8, h: 0.2, rotation: 15 } })]),
+      { background: true },
     );
     const [p] = texts(area);
     expect(p.style.left).toBe('10%');
@@ -99,10 +133,8 @@ describe('renderTaleDocument', () => {
     expect(shown[0].getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('puts the background below the elements and ignores a colour that is not hex', () => {
-    const media = document.createElement('img');
-    const area = renderTaleDocument(doc([text('a', 'Over')], 'red;x'), media);
-    expect(canvasOf(area).firstElementChild).toBe(media);
+  it('ignores a background colour that is not hex', () => {
+    const area = renderTaleDocument(doc([text('a', 'Over')], 'red;x'), { background: true });
     expect(canvasOf(area).style.backgroundColor).toBe('');
   });
 });

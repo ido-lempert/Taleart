@@ -59,7 +59,7 @@ const ZONE = {
         image('a1', 'Beach day'),
         {
           ...image('a2', 'Sunset'),
-          // A tale document (AD-15) with one text element in the upper third.
+          // A tale document (AD-15): a text element in the upper third, and right-to-left text with emoji below.
           document: {
             version: 1,
             canvas: { background: { type: 'color', color: '#000000' } },
@@ -70,6 +70,13 @@ const ZONE = {
                 box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
                 a11y: {},
                 props: { text: '<b>Hello</b>' },
+              },
+              {
+                id: '00000000-0000-4000-8000-000000000002',
+                type: 'text',
+                box: { x: 0.1, y: 0.62, w: 0.8, h: 0.1, rotation: 0 },
+                a11y: {},
+                props: { text: 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦' },
               },
             ],
           },
@@ -204,18 +211,24 @@ try {
   await page.keyboard.press('ArrowRight');
   await at('Summer sale, tale 2 of 2', 'ArrowRight steps to the next tale');
   // Tale 2 has a tale document (AD-15, AD-16): its text over the media, as live, selectable text.
-  const textEl = page.locator('taleart-view dialog p.ta-text');
+  const textEl = page.locator('taleart-view dialog p.ta-text').first();
+  const glyphs = textEl.locator('.ta-glyphs');
   check((await textEl.textContent()) === '<b>Hello</b>', 'the text element shows its text literally, as a text node');
+  check(
+    (await page.locator('taleart-view dialog p.ta-text').nth(1).textContent()) === 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦',
+    'right-to-left text with isolates and an emoji ZWJ sequence renders as written',
+  );
   const placed = await page.evaluate(() => {
     const root = document.querySelector('taleart-view').shadowRoot;
     const p = root.querySelector('dialog p.ta-text');
     const canvas = root.querySelector('dialog .ta-canvas').getBoundingClientRect();
     const box = p.getBoundingClientRect();
     return {
-      markup: p.querySelector('*') !== null,
+      markup: p.querySelector(':not(.ta-glyphs)') !== null,
       upperThird: box.top >= canvas.top && box.bottom <= canvas.top + canvas.height / 3,
       ratio: canvas.width / canvas.height,
-      over: root.querySelector('dialog .ta-canvas img.media') !== null,
+      // The media is framed as for a tale without a document: full-bleed in the stage.
+      over: root.querySelector('dialog .stage > img.media') !== null && !root.querySelector('dialog .ta-canvas img'),
     };
   });
   check(!placed.markup && placed.upperThird, 'the text sits in the upper third of the 9:16 canvas, with no markup');
@@ -224,12 +237,18 @@ try {
     "the canvas is 9:16 with the tale's media under the text",
   );
   violations += await scan(page, 'viewer with a text element', axe);
-  await textEl.click({ clickCount: 3 });
+  await glyphs.click({ clickCount: 3 });
   check(
     (await page.evaluate(() => String(getSelection()))).includes('<b>Hello</b>'),
     'the text can be selected with the mouse',
   );
   await at('Summer sale, tale 2 of 2', 'clicking the text does not step');
+  // The empty part of the text's box lets the tap through: on the left third, it steps back.
+  const textBox = await textEl.boundingBox();
+  await page.mouse.click(textBox.x + 4, textBox.y + textBox.height / 2);
+  await at('Summer sale, tale 1 of 2', "a tap on the empty part of a text's box steps the tale");
+  await page.keyboard.press('ArrowRight');
+  await at('Summer sale, tale 2 of 2', 'ArrowRight returns to the tale with text');
   await page.keyboard.press('ArrowLeft');
   await at('Summer sale, tale 1 of 2', 'ArrowLeft steps back');
   await page.keyboard.press('Alt+ArrowRight');

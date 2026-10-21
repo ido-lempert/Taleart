@@ -3,13 +3,13 @@ title: 'Tracer: add a text element to a tale and see it in the viewer'
 type: 'feature'
 ticket: '1'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '4dc1fb5'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
+review: 'thorough'
+review_source: 'pinned'
 lenses_ran: []
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -112,11 +112,72 @@ deferred: []
 - Dashboard.
   - The studio page is `tales/:taleId/studio`. It renders the canvas in Angular, because module-boundary lint forbids the dashboard from importing `libs/web-sdk`. The shared-renderer preview is R10, a later story.
   - The initial-bundle budget warning (500 KB) was already there at baseline: 611 KB before this story, 626 KB after.
+- Delivery cost: shipping every published tale's document in the zone response is to be measured by story 7.14 (the response shape is unchanged here). Reads are cheap-checked and memoised per tale and revision (review item 10).
 - Not verified by hand: a browser walk of the studio with a real passkey session. The component tests cover add, type in place, the arrow keys, the position fields, dragging, delete, save, the 409 reload and API messages. The sample-page scan covers the viewer.
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- **Verdicts:** 19 findings, all patched. `autopilot/foundation` was merged first; the merge was a no-op because the branch already contained it.
+- **Findings:**
+  1. `[patch]` A revision above 2^31−1 answered 500.
+     - The guard now refuses a revision that is not an integer from 0 to 2147483647 with 400 `validation_failed`, and openapi sets `maximum: 2147483647`.
+     - Tested with 2147483648, 1e300 and 1.5.
+  2. `[patch]` Labels used a looser control-character rule than text.
+     - Labels now refuse C0, DEL and C1, like text but without the line feed.
+     - Tested in server-tales and the API.
+  3. `[patch]` Text and labels were not Unicode-safe.
+     - The contract adds `hasDisallowedCharacter` and `cleanText`, with `ELEMENT_TEXT_RULE` and `LABEL_TEXT_RULE`. They refuse lone surrogates and the bidi embeddings and overrides U+202A to U+202E, and they allow U+200E/U+200F, the isolates U+2066 to U+2069, ZWJ and ZWNJ.
+     - The server refuses those characters and stores text and labels in NFC. The SDK strips them before rendering, and the studio strips them as people type.
+     - Tested with Hebrew and Arabic text, isolates and emoji ZWJ sequences.
+  4. `[patch]` Refusal pointers did not escape their keys.
+     - Every key is now escaped per RFC 6901 (`pointerSegment`).
+     - Tested with `a/b`, `c~d` and a nested key.
+  5. `[patch]` The SDK renderer lookup used a plain object.
+     - `ELEMENT_RENDERERS` is now a `Map`.
+     - Tested that `constructor`, `__proto__` and `toString` are skipped as unknown types.
+  6. `[patch]` Touch selection was blocked.
+     - `contextmenu` and single-touch `touchmove` are no longer prevented on a `.ta-text`, and are still prevented elsewhere.
+     - Tested with synthetic events.
+  7. `[patch]` A text's empty box area was a dead zone for taps.
+     - The `<p>` box has `pointer-events: none`, and an inline `.ta-glyphs` span takes pointer events and selection.
+     - A unit test checks the styles, and the sample scan taps the empty part of a box and sees the tale step.
+  8. `[patch]` A document tale without media had no accessible name.
+     - Its canvas is now a `role="group"` named by the tale title, which also covers an empty document.
+     - Tested.
+  9. `[patch]` Document tales and media-only tales were framed differently.
+     - The media is now full-bleed in the stage for both. Only the element area respects the safe-area insets, and the canvas paints its colour only when the tale has no media.
+     - Tested in the unit tests and the scan.
+  10. `[patch]` Delivery checked every document on every read.
+      - On read there is now a cheap check: a known `version`, and stored JSON text no larger than 2 × 128 KB. The full check runs once per tale id and revision, and its result is kept in a bounded LRU of 1,000 entries.
+      - Tested, including a cache hit and eviction.
+      - Shipping every document in the zone response is left to story 7.14 to measure. The response shape is unchanged.
+  11. `[patch]` The body-parser exemption depended on the exact path spelling.
+      - The document route's parser is now an `app.put` route registered before the global `express.json()`, so it matches in any case and with a trailing slash. The 413 mapping matches `/document/?$` case-insensitively.
+      - Tested with `/API/V1/Tales/<id>/Document/` (200 for 112 KB, 413 `tale_document_too_large` for a huge body) and with another route keeping the 100 KB limit.
+  12. `[patch]` Keyboard delete in the studio was unsafe.
+      - Only Delete removes an element; Backspace does not, until undo exists in story 7.3. After a delete, focus moves to the next element, else the previous one, else the canvas (`tabindex=-1`).
+      - Tested.
+  13. `[patch]` The Left and Top fields could show a value other than the one applied.
+      - The applied value is always written back, an invalid entry is restored, and the live region announces clamps ("as far as it goes").
+      - Tested.
+  14. `[patch]` The studio could drift from the SDK.
+      - The element shows its text through `[textContent]`, so no template whitespace is added, and the in-place textarea is rotated like the element.
+      - Tested.
+  15. `[patch]` The studio's text limit counted UTF-16 units.
+      - `maxlength` is gone. The studio counts code points, cuts input past 1,000 characters and says so.
+      - Tested with 1,000 emoji.
+  16. `[patch]` The studio passed raw input and raw API messages through.
+      - Typed or pasted text is cleaned, keeping line feeds, and a notice says what was removed.
+      - Refusals are shown in plain words, with no JSON pointer. The pointer selects the refused element and marks it `aria-invalid`.
+      - Tested.
+  17. `[patch]` Acceptance criterion 1 needed an end-to-end check.
+      - The API test "delivers a tale's document without hidden elements or editor-only fields" saves through PUT and reads `/delivery/v1/zone`.
+      - The sample scan still stubs the Delivery API, because it runs without a database; a seeded live API is used only by `perf`. The coordinator walks the live flow in a browser at merge.
+  18. `[patch]` `textLength` was unused. It was removed; the studio counts with `[...text].length`.
+  19. `[patch]` A 134-character JSDoc line was wrapped.
 
 ## Auto Run Result
 
@@ -136,10 +197,11 @@ deferred: []
 - `apps/sdk-sample/a11y-scan.mjs`: a tale with a text element. It is scanned, and the checks cover literal text, the upper third, 9:16, mouse selection and no step on click.
 
 **Verification:**
-- `run-many -t lint test build` on the 12 projects passed. Test counts: api 373, web-sdk 256, contract 104, server-tales 90, dashboard 217.
-- `web-sdk:size`: 13.51 KB gzipped.
-- `sdk-sample:a11y`: 0 violations in 14 scans, including "viewer with a text element".
-- `sdk-sample:perf`: cold p75 first content 1,253 ms, warm p75 754 ms.
+- First build, before review: `run-many -t lint test build` on the 12 projects passed. Test counts: api 373, web-sdk 256, contract 104, server-tales 90, dashboard 217. `web-sdk:size` was 13.51 KB gzipped, `sdk-sample:a11y` found 0 violations in 14 scans, and `sdk-sample:perf` measured cold p75 1,253 ms.
+- After the review fixes, the same `run-many` passed. Test counts: api 375, web-sdk 262, dashboard 221, contract 106, server-tales 96.
+- `web-sdk:size` after the fixes: 13.85 KB gzipped.
+- `sdk-sample:a11y` after the fixes: 0 violations in 14 scans. The new checks pass: RTL and emoji text, media framing, mouse selection, and a tap on a box's empty part stepping the tale.
+- `sdk-sample:perf` after the fixes: cold p75 first content 1,266 ms, warm p75 754 ms.
 
 **Residual risks:**
 - The studio canvas is Angular, not the SDK renderer, so its look can drift from the viewer until R10. Both read `TEXT_ELEMENT_STYLE` to limit that.

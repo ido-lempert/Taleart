@@ -1085,8 +1085,11 @@ export async function listDeliveryTaleGroups(
     key: string | null;
     contentType: string | null;
     document: unknown;
+    revision: number;
+    documentBytes: number | null;
   }>(
-    `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType", document
+    `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType",
+       document, document_revision AS revision, octet_length(document::text) AS "documentBytes"
      FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND ${liveNow('tales', '$2')} ORDER BY position, id`,
     [groups.rows.map((g) => g.id), now],
   );
@@ -1101,11 +1104,12 @@ export async function listDeliveryTaleGroups(
           : null,
       tales: tales.rows
         .filter((tale) => tale.taleGroupId === group.id)
-        .map(({ id, title, key, contentType, document }) => ({
+        .map(({ id, title, key, contentType, document, revision, documentBytes }) => ({
           id,
           title,
           media: key !== null && isMediaContentType(contentType) ? { key, contentType } : null,
-          document: deliverableTaleDocument(document),
+          // Checked in full once per tale and revision (every save raises it), then kept.
+          document: deliverableTaleDocument(document, `${id}:${revision}`, documentBytes ?? undefined),
         })),
     }))
     .filter((group) => group.tales.length > 0);

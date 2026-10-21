@@ -2274,6 +2274,51 @@ describe('Management API v1: projects and zones', () => {
       expect((await save(tale.id, { document, revision: 0 })).status).toBe(200);
     });
 
+    it('reads the larger body however the path is written: any case, with a trailing slash', async () => {
+      const tale = await createTale();
+      const document = doc(Array.from({ length: 55 }, (_, i) => text(i + 1, 'é'.repeat(1000))));
+      const put = (path: string, body: unknown) =>
+        fetch(`${origin}${path}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      const res = await put(`/API/V1/Tales/${tale.id}/Document/`, { document, revision: 0 });
+      expect(res.status).toBe(200);
+      expect((await res.json()).revision).toBe(1);
+      // A body over the route's own limit maps to the document's 413 on that spelling too.
+      const huge = await put(`/api/v1/TALES/${tale.id}/DOCUMENT/`, {
+        document: doc([text(1, 'x'.repeat(400 * 1024))]),
+        revision: 1,
+      });
+      expect(huge.status).toBe(413);
+      expect((await huge.json()).error.code).toBe('tale_document_too_large');
+      // Other routes keep the 100 KB default.
+      const other = await fetch(`${base}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'x'.repeat(110 * 1024) }),
+      });
+      expect(other.status).toBe(413);
+      expect((await other.json()).error.code).toBe('validation_failed');
+    });
+
+    it('keeps right-to-left text and emoji sequences, stores NFC, and refuses bidi overrides', async () => {
+      const tale = await createTale();
+      const hebrew = 'שלום \u2067עולם\u2069 \u200f👩‍👩‍👧‍👦 👍🏽';
+      const saved = await save(tale.id, {
+        document: doc([text(1, hebrew, { a11y: { label: 'Cafe\u0301' } })]),
+        revision: 0,
+      });
+      expect(saved.status).toBe(200);
+      const read1 = await (await read(tale.id)).json();
+      expect(read1.document.elements[0].props.text).toBe(hebrew);
+      expect(read1.document.elements[0].a11y.label).toBe('Caf\u00e9');
+      await expectRefused(doc([text(1, 'pay \u202egnp.exe')]), '/elements/0/props/text');
+      await expectRefused(doc([text(1, 'x', { a11y: { label: 'a\u0085b' } })]), '/elements/0/a11y/label');
+      await expectRefused(doc(undefined, { 'a/b': 1 }), '/a~1b');
+    });
+
     it('refuses a body without a document or a valid revision', async () => {
       const tale = await createTale();
       const bodies = [
@@ -2281,6 +2326,10 @@ describe('Management API v1: projects and zones', () => {
         { document: doc() },
         { document: doc(), revision: -1 },
         { document: doc(), revision: '0' },
+        { document: doc(), revision: 1.5 },
+        // Past the stored integer column: refused, never a database error.
+        { document: doc(), revision: 2147483648 },
+        { document: doc(), revision: 1e300 },
       ];
       for (const body of bodies) {
         const res = await save(tale.id, body);

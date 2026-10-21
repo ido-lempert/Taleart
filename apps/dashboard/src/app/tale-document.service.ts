@@ -10,14 +10,23 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
 
-/** A call's result: the document and its revision, or why it failed. `stale` marks a 409 (AD-15). */
+/**
+ * A call's result: the document and its revision, or why it failed: the API's message and code,
+ * `stale` for a 409 (AD-15), and `pointer`, the refused field of a document ('' for none).
+ */
 export type TaleDocumentResult =
-  | { value: TaleDocumentRevision; message: ''; stale: false }
-  | { value: null; message: string; stale: boolean };
+  | { value: TaleDocumentRevision; message: ''; stale: false; code: ''; pointer: '' }
+  | { value: null; message: string; stale: boolean; code: string; pointer: string };
 
 function failure(err: unknown, fallback: string): TaleDocumentResult {
   const body = err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error : null;
-  return { value: null, message: body?.message ?? fallback, stale: body?.code === ErrorCodes.staleRevision };
+  return {
+    value: null,
+    message: body?.message ?? fallback,
+    stale: body?.code === ErrorCodes.staleRevision,
+    code: body?.code ?? '',
+    pointer: body?.pointer ?? '',
+  };
 }
 
 function documentUrl(taleId: string): string {
@@ -33,7 +42,7 @@ export class TaleDocumentService {
   async load(taleId: string): Promise<TaleDocumentResult> {
     try {
       const value = await firstValueFrom(this.http.get<TaleDocumentRevision>(documentUrl(taleId)));
-      return { value, message: '', stale: false };
+      return { value, message: '', stale: false, code: '', pointer: '' };
     } catch (err) {
       return failure(err, 'Could not read the tale. Reload the page to try again.');
     }
@@ -44,7 +53,7 @@ export class TaleDocumentService {
     try {
       const body: SaveTaleDocumentRequest = { document, revision };
       const value = await firstValueFrom(this.http.put<TaleDocumentRevision>(documentUrl(taleId), body));
-      return { value, message: '', stale: false };
+      return { value, message: '', stale: false, code: '', pointer: '' };
     } catch (err) {
       return failure(err, 'The tale was not saved. Try again.');
     }

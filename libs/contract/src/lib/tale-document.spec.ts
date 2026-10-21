@@ -4,7 +4,10 @@ import {
   emptyTaleDocument,
   ErrorCodes,
   ERROR_CODES,
-  hasTextControlCharacter,
+  cleanText,
+  ELEMENT_TEXT_RULE,
+  hasDisallowedCharacter,
+  LABEL_TEXT_RULE,
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
   NEW_TEXT_BOX,
@@ -13,7 +16,6 @@ import {
   TALE_DOCUMENT_VERSION,
   TALE_ELEMENT_TYPE_REGISTRY,
   TALE_SAFE_AREA,
-  textLength,
   type TaleElementType,
 } from '../index';
 
@@ -67,18 +69,41 @@ describe('tale document helpers', () => {
     expect(NEW_TEXT_BOX.x + NEW_TEXT_BOX.w).toBeLessThanOrEqual(1 - TALE_SAFE_AREA.side);
   });
 
-  it('allows a line feed but no other control character in text', () => {
-    expect(hasTextControlCharacter('Hello\nworld')).toBe(false);
-    expect(hasTextControlCharacter('<b>x</b> é 😀')).toBe(false);
+  it('allows a line feed in text but no other control character, and none in labels', () => {
+    expect(hasDisallowedCharacter('Hello\nworld', ELEMENT_TEXT_RULE)).toBe(false);
+    expect(hasDisallowedCharacter('Hello\nworld', LABEL_TEXT_RULE)).toBe(true);
+    expect(hasDisallowedCharacter('<b>x</b> é 😀', ELEMENT_TEXT_RULE)).toBe(false);
     for (const c of ['\u0000', '\t', '\r', '\u0007', '\u001b', '\u007f', '\u0085', '\u009f']) {
-      expect(hasTextControlCharacter(`a${c}b`)).toBe(true);
+      expect(hasDisallowedCharacter(`a${c}b`, ELEMENT_TEXT_RULE)).toBe(true);
+      expect(hasDisallowedCharacter(`a${c}b`, LABEL_TEXT_RULE)).toBe(true);
     }
   });
 
-  it('counts characters as code points', () => {
-    expect(textLength('abc')).toBe(3);
-    expect(textLength('😀😀')).toBe(2);
-    expect(textLength('\ud800')).toBe(1);
+  it('refuses lone surrogates and bidi embeddings and overrides', () => {
+    for (const c of ['\ud800', '\udfff', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e']) {
+      expect(hasDisallowedCharacter(`a${c}b`, ELEMENT_TEXT_RULE)).toBe(true);
+    }
+    expect(hasDisallowedCharacter('a\ud800', ELEMENT_TEXT_RULE)).toBe(true);
+  });
+
+  it('keeps right-to-left text, bidi marks and isolates, and emoji ZWJ sequences', () => {
+    const allowed = [
+      'שלום עולם',
+      'مرحبا بالعالم',
+      'a\u200eb\u200fc',
+      '\u2066שלום\u2069 world \u2067x\u2068y\u2069',
+      '👩‍👩‍👧‍👦 👍🏽 🏳️‍🌈',
+      'می\u200cخواهم',
+    ];
+    for (const text of allowed) {
+      expect(hasDisallowedCharacter(text, ELEMENT_TEXT_RULE)).toBe(false);
+      expect(cleanText(text, ELEMENT_TEXT_RULE)).toBe(text);
+    }
+  });
+
+  it('strips what it does not allow', () => {
+    expect(cleanText('a\u0007b\nc\u202ed\ud800e', ELEMENT_TEXT_RULE)).toBe('ab\ncde');
+    expect(cleanText('a\nb', LABEL_TEXT_RULE)).toBe('ab');
   });
 
   it('orders elements top to bottom, then left to right, keeping z-order for ties', () => {

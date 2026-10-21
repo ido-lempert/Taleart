@@ -1,4 +1,4 @@
-import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, type Health } from '@taleart/contract';
+import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, type Health } from '@taleart/contract';
 import { DEFAULT_STORYLY_API_URL } from '@taleart/server-importer';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
@@ -22,9 +22,6 @@ import { zonesRouter } from './http/zones.router';
 
 /** Management API base path (AD-2, versioned per the spine conventions). */
 export const MANAGEMENT_API_BASE = '/api/v1';
-
-// The tale document route, which parses its own JSON body.
-const TALE_DOCUMENT_PATH = /^\/api\/v1\/tales\/[^/]+\/document\/?$/;
 
 /** How the API handles sign-in. */
 export interface AppAuth {
@@ -57,10 +54,11 @@ export function createApp(
   importer: ImporterConfig = { tokenKey: null, storylyApiUrl: DEFAULT_STORYLY_API_URL },
 ): express.Express {
   const app = express();
-  // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default: its route
-  // reads its own body with a larger limit.
-  const json = express.json();
-  app.use((req, res, next) => (TALE_DOCUMENT_PATH.test(req.path) ? next() : json(req, res, next)));
+  // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
+  // reads its body first, with a larger limit, and the parser below then leaves that body as it is.
+  // Being a route, it matches as the routers do: in any case, with or without a trailing slash.
+  app.put(`${MANAGEMENT_API_BASE}/tales/:taleId/document`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
+  app.use(express.json());
 
   // The dashboard reaches the API through its dev proxy, on its own origin, so
   // cookies are same-origin. CORS stays open for other callers, never with credentials.
