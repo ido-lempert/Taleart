@@ -1,5 +1,6 @@
 import {
   ErrorCodes,
+  type ApplyPlaybookRequest,
   type CreateFrameRequest,
   type CreateStageRequest,
   type CreateZoneRequest,
@@ -7,6 +8,7 @@ import {
   type UpdateFrameRequest,
 } from '@taleart/contract';
 import {
+  applyPlaybook,
   createFrame,
   createStage,
   createZone,
@@ -127,6 +129,17 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
     try {
       await deleteStage(pool, { zoneId: req.params.zoneId, stageId: req.params.stageId });
       res.sendStatus(204);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Playbooks (epic web zones R8): a preset set of frames with a stage each, applied in one transaction.
+  router.put('/:zoneId/playbook', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+    try {
+      // Zone first (404), then the key (400), then conflicts (409), in the zones module.
+      const body = (req.body ?? {}) as Partial<Record<keyof ApplyPlaybookRequest, unknown>>;
+      res.json(await applyPlaybook(pool, frameTypes, { zoneId: req.params.zoneId, key: body.key }));
     } catch (err) {
       next(err);
     }

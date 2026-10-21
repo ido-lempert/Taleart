@@ -12,7 +12,14 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MAX_TALES_PER_GROUP, type SettableStatus, type TaleGroup, type TaleGroupTag, type Zone } from '@taleart/contract';
+import {
+  findPlaybook,
+  MAX_TALES_PER_GROUP,
+  type SettableStatus,
+  type TaleGroup,
+  type TaleGroupTag,
+  type Zone,
+} from '@taleart/contract';
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
@@ -25,7 +32,7 @@ const TONES = 6;
 type Direction = 'earlier' | 'later';
 
 /**
- * One zone: its frames, its zone key and its tale groups, each a row of 9:16 tale cards with
+ * One zone: its playbook, its frames, its stages, its zone key and its tale groups, each a row of 9:16 tale cards with
  * the group's tags. A group can be placed in several zones (AD-14): its row says
  * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Each group
  * shows its status (AD-6) with the Publish, Pause, Archive or Restore buttons it
@@ -130,6 +137,14 @@ type Direction = 'earlier' | 'later';
       font-weight: 600;
       overflow-wrap: anywhere;
     }
+    .playbook-applied {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: var(--space-1) var(--space-3);
+      margin: 0 0 var(--space-2);
+      overflow-wrap: anywhere;
+    }
     .key-info {
       display: flex;
       flex-wrap: wrap;
@@ -161,6 +176,8 @@ export class ZoneDetailPage {
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected readonly zone = computed(() => this.store.zone(this.zoneId()));
   protected readonly frames = computed(() => this.store.framesOf(this.zoneId()));
+  /** The playbook applied to the zone (R8), when the registry still has it. */
+  protected readonly appliedPlaybook = computed(() => findPlaybook(this.zone()?.playbookKey));
   /** The zone's stages, each showing one of its frames on a page (R7). */
   protected readonly stages = computed(() => this.store.stagesOf(this.zoneId()));
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
