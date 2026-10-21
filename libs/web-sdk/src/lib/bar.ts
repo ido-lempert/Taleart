@@ -1,4 +1,5 @@
 import type { BarSettings, DeliveryTaleGroup } from '@taleart/contract';
+import { setSource } from './first-content';
 
 /** The frame type this renderer draws (AD-5). */
 export const BAR_FRAME_TYPE = 'bar';
@@ -153,24 +154,34 @@ function coverElement(kind: 'image' | 'video', url: string, animated: boolean, r
     video.loop = moving;
     video.preload = moving ? 'auto' : 'metadata';
     // The fragment makes Safari and iOS paint the first frame with metadata-only preload.
-    video.src = moving ? url : `${url}#t=0.001`;
+    setSource(video, moving ? url : `${url}#t=0.001`);
     el = video;
   } else if (animated && reduced) {
     const canvas = document.createElement('canvas');
     canvas.setAttribute('aria-hidden', 'true');
     const img = new Image();
+    // `data-ready` and a `load` event tell the first-content mark the canvas has its picture (or never will).
+    const ready = () => {
+      canvas.setAttribute('data-ready', '');
+      canvas.dispatchEvent(new Event('load'));
+    };
     img.onload = () => {
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       canvas.getContext('2d')?.drawImage(img, 0, 0);
+      ready();
     };
+    img.onerror = ready;
     img.src = url;
     el = canvas;
   } else {
     const img = document.createElement('img');
-    img.src = url;
-    img.alt = '';
+    // Lazy before the URL is set: covers out of view wait, and the element makes the first frame's
+    // covers in view eager and high priority once it has laid them out (NFR-006, see prioritize).
+    img.setAttribute('loading', 'lazy');
     img.decoding = 'async';
+    setSource(img, url);
+    img.alt = '';
     el = img;
   }
   if (animated) {

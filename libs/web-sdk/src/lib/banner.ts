@@ -1,5 +1,6 @@
 import type { BannerSettings, DeliveryTaleGroup } from '@taleart/contract';
 import { coverMedia } from './bar';
+import { coverSettled } from './first-content';
 import { setIcon, SWIPE_MIN_PX } from './viewer';
 
 /** The frame type this renderer draws (AD-5). */
@@ -218,6 +219,7 @@ export function renderBanner(
   const slideEls: HTMLElement[] = [];
   const openButtons: HTMLButtonElement[] = [];
   const dotButtons: HTMLButtonElement[] = [];
+  const mediaEls: HTMLElement[] = [];
   slides.forEach((group, i) => {
     const slide = document.createElement('div');
     slide.className = 'b-slide';
@@ -229,6 +231,7 @@ export function renderBanner(
     const media = coverMedia(group);
     media.className = 'b-media';
     if (media instanceof HTMLImageElement) media.draggable = false;
+    mediaEls.push(media);
     open.appendChild(media);
     open.addEventListener('click', (e) => {
       // Only the pointer click that ends a swipe is dropped; keyboard and assistive
@@ -273,8 +276,17 @@ export function renderBanner(
   let programmaticFocus = false;
   const atEnd = () => !loop && index === count - 1;
 
+  // Slide pictures start lazy (NFR-006): the slide shown loads, then, once it has its picture, the
+  // slides next to it, so the next slide is ready before it shows and the rest wait.
+  function warm(n: number | null): void {
+    if (n !== null) mediaEls[n].removeAttribute('loading');
+  }
+
   function goTo(i: number): void {
     index = Math.max(0, Math.min(count - 1, i));
+    warm(index);
+    const neighbours = [stepTo(1), stepTo(-1)];
+    void coverSettled(mediaEls[index]).then(() => neighbours.forEach(warm));
     track.style.transform = `translateX(${-100 * index}%)`;
     slideEls.forEach((slide, n) => {
       const hidden = n !== index;

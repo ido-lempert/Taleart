@@ -982,7 +982,10 @@ paths:
         without credentials. Tale groups and their tales come in dashboard
         order; only `live` groups and tales whose start and end times, and
         their group's, contain the current time are listed (AD-6); each
-        tale's media URL is absolute and public (AD-11).
+        tale's media URL is absolute and public (AD-11). The zone is cached
+        as `private, no-cache`, varies by `Authorization` and carries an
+        ETag, so a browser revalidates it on every load (304 while
+        unchanged) and sees a change at once (NFR-006).
       security:
         - zoneKey: []
       responses:
@@ -992,6 +995,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeliveryZone'
+        '304':
+          description: The client's copy, named by `If-None-Match`, is still current.
         '401':
           $ref: '#/components/responses/Error'
         default:

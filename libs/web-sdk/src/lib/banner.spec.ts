@@ -213,6 +213,32 @@ describe('renderBanner', () => {
     expect(b.track.style.transform).toBe('translateX(-100%)');
   });
 
+  it('loads the slide shown, then its neighbours once it has its picture, and leaves the rest lazy', async () => {
+    const decodes: (() => void)[] = [];
+    const original = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      return new Promise<void>((done) => decodes.push(done));
+    };
+    try {
+      const five = ['g1', 'g2', 'g3', 'g4', 'g5'].map((id) => ({ id, name: id, tales: [image(`${id}t`)] }));
+      const b = banner({ autoplay: false }, five);
+      const lazy = () => b.opens().map((o) => o.firstElementChild?.getAttribute('loading') ?? 'eager');
+      expect(lazy()).toEqual(['eager', 'lazy', 'lazy', 'lazy', 'lazy']);
+      decodes.shift()?.();
+      await vi.advanceTimersByTimeAsync(0);
+      // With loop, the slides next to the first are the second and the last.
+      expect(lazy()).toEqual(['eager', 'eager', 'lazy', 'lazy', 'eager']);
+
+      b.next.click();
+      expect(lazy()).toEqual(['eager', 'eager', 'lazy', 'lazy', 'eager']);
+      for (const done of decodes.splice(0)) done();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lazy()).toEqual(['eager', 'eager', 'eager', 'lazy', 'eager']);
+    } finally {
+      HTMLImageElement.prototype.decode = original;
+    }
+  });
+
   it('moves with next, previous and dots, wrapping with loop', () => {
     const b = banner();
     b.next.click();
