@@ -69,6 +69,9 @@ export type ImportStarted = Schemas['ImportStarted'];
 export type ImportCount = Schemas['ImportCount'];
 export type ImportReport = Schemas['ImportReport'];
 export type ImportJob = Schemas['ImportJob'];
+export type ImportJobSummary = Schemas['ImportJobSummary'];
+export type ImportProgress = Schemas['ImportProgress'];
+export type ImportProgressCount = Schemas['ImportProgressCount'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 
