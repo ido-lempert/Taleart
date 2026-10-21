@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, model, output } from '@angular/core';
 
 /** Frame settings as the API stores them: a JSON object validated by the frame type's schema (AD-5). */
 export type Settings = Record<string, unknown>;
@@ -74,9 +74,31 @@ export function settingsFields(schema: unknown): SettingsField[] {
 export function initialSettings(schema: unknown, stored: Settings | null | undefined): Settings {
   const settings: Settings = { ...(stored ?? {}) };
   for (const field of settingsFields(schema)) {
-    if (!(field.key in settings) && field.default !== undefined) settings[field.key] = field.default;
+    const present = Object.prototype.hasOwnProperty.call(settings, field.key);
+    if (present && fieldAccepts(field, settings[field.key])) continue;
+    // Missing, or a value the field cannot show (outside its choices, range or type): use the default.
+    if (field.default !== undefined) settings[field.key] = field.default;
+    else delete settings[field.key];
   }
   return settings;
+}
+
+/** True when `value` is one the field can show and its schema allows. */
+export function fieldAccepts(field: SettingsField, value: unknown): boolean {
+  switch (field.kind) {
+    case 'choice':
+      return field.choices.some((c) => c.value === value);
+    case 'toggle':
+      return typeof value === 'boolean';
+    case 'number':
+      return (
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        (field.step !== 1 || Number.isInteger(value)) &&
+        (field.min === undefined || value >= field.min) &&
+        (field.max === undefined || value <= field.max)
+      );
+  }
 }
 
 /**
@@ -144,6 +166,7 @@ export function initialSettings(schema: unknown, stored: Settings | null | undef
               [attr.aria-invalid]="invalid(field) ? 'true' : null"
               [attr.aria-describedby]="describedBy(field)"
               (input)="setNumber(field, $any($event.target).value)"
+              (blur)="settleNumber(field, $any($event.target))"
             />
             @if (field.hint) {
               <p class="field__hint" [id]="id(field) + '-hint'">{{ field.hint }}</p>
@@ -167,6 +190,8 @@ export class SettingsForm {
   readonly invalidField = input('');
   /** The id of the message that explains the refusal. */
   readonly errorId = input('');
+  /** The key of each field the user changes, so a refusal naming it can be cleared. */
+  readonly changed = output<string>();
 
   protected readonly fields = computed(() => settingsFields(this.schema()));
 
@@ -185,15 +210,40 @@ export class SettingsForm {
 
   protected set(field: SettingsField, next: unknown): void {
     this.value.update((settings) => ({ ...settings, [field.key]: next }));
+    this.changed.emit(field.key);
   }
 
-  /** An emptied number leaves the field out, so the schema default applies; anything else goes to the API as typed. */
+  /**
+   * A typed number goes to the API as typed, in range or not (the API decides).
+   * While the text is empty or not a number, the last number stays in the
+   * settings and the input is left alone, so typing is not interrupted.
+   */
   protected setNumber(field: SettingsField, text: string): void {
-    this.value.update((settings) => {
-      const next = { ...settings };
-      if (text.trim() === '') delete next[field.key];
-      else next[field.key] = Number(text);
-      return next;
-    });
+    const number = parseNumber(text);
+    if (number !== null) this.set(field, number);
   }
+
+  /** Leaving a number field empty or unreadable puts its default back, in the settings and in the input. */
+  protected settleNumber(field: SettingsField, input: HTMLInputElement): void {
+    if (parseNumber(input.value) !== null) return;
+    if (field.default === undefined) {
+      this.value.update((settings) => {
+        const next = { ...settings };
+        delete next[field.key];
+        return next;
+      });
+      input.value = '';
+    } else {
+      this.value.update((settings) => ({ ...settings, [field.key]: field.default }));
+      input.value = String(field.default);
+    }
+    this.changed.emit(field.key);
+  }
+}
+
+// A finite number from an input's text, or null for empty or unreadable text.
+function parseNumber(text: string): number | null {
+  if (text.trim() === '') return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
 }

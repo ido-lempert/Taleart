@@ -2214,6 +2214,30 @@ describe('Management API v1: projects and zones', () => {
       ]);
     });
 
+    it('delivers only valid settings when a stored row is invalid, filling defaults', async () => {
+      const zone = await createZone();
+      const bar = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      const listed = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+      // Written by hand, past the API's validation, as an older schema or a manual edit could leave them.
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [
+        bar.id,
+        JSON.stringify({ gap: 40, shape: 'star', size: 'large', color: 'red' }),
+      ]);
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [listed.id, JSON.stringify(['x'])]);
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [banner.id, JSON.stringify({ stray: 1 })]);
+      const { key } = await issue(zone.id);
+
+      const res = await deliver(key);
+      expect(res.status).toBe(200);
+      const defaults = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
+      expect((await res.json()).frames).toEqual([
+        { id: bar.id, type: 'bar', settings: { ...defaults, size: 'large' } },
+        { id: listed.id, type: 'bar', settings: defaults },
+        { id: banner.id, type: 'banner', settings: {} },
+      ]);
+    });
+
     describe('tale groups and public media', () => {
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]);
       const gif = Buffer.from('GIF89a-tiny-gif');

@@ -55,23 +55,29 @@ function describe(error: ErrorObject): string {
   }
 }
 
-// The `default` of each top-level property of a settings schema.
-function schemaDefaults(schema: object): Record<string, unknown> {
+/** One top-level property of a settings schema: its own validator and its `default`. */
+interface SettingsField {
+  validate: ValidateFunction;
+  default: unknown;
+}
+
+// Each top-level property of a settings schema, compiled on its own so a
+// stored value can be checked field by field.
+function schemaFields(ajv: Ajv2020, schema: object): Map<string, SettingsField> {
+  const fields = new Map<string, SettingsField>();
   const properties = (schema as { properties?: unknown }).properties;
-  if (typeof properties !== 'object' || properties === null) return {};
-  const defaults: Record<string, unknown> = {};
+  if (typeof properties !== 'object' || properties === null) return fields;
   for (const [name, property] of Object.entries(properties as Record<string, unknown>)) {
-    if (typeof property === 'object' && property !== null && 'default' in property) {
-      defaults[name] = (property as { default: unknown }).default;
-    }
+    if (typeof property !== 'object' || property === null) continue;
+    fields.set(name, { validate: ajv.compile(property), default: (property as { default?: unknown }).default });
   }
-  return defaults;
+  return fields;
 }
 
 interface RegisteredType {
   label: string;
   schema: object;
-  defaults: Record<string, unknown>;
+  fields: Map<string, SettingsField>;
   validate: ValidateFunction;
 }
 
@@ -89,7 +95,7 @@ export class FrameTypeRegistry {
         throw new Error(`Frame type "${key}" is registered twice`);
       }
       // Compiling here makes a broken schema fail at start, not on a write.
-      this.types.set(key, { label, schema, defaults: schemaDefaults(schema), validate: ajv.compile(schema) });
+      this.types.set(key, { label, schema, fields: schemaFields(ajv, schema), validate: ajv.compile(schema) });
     }
   }
 
@@ -99,13 +105,26 @@ export class FrameTypeRegistry {
   }
 
   /**
-   * `settings` with each top-level field it leaves out taken from the type's
-   * schema `default`. Settings of an unknown type, or that are not an object, come back as they are.
+   * The settings to deliver: only the type's top-level fields whose stored
+   * value is valid against that field's schema, then each missing field's
+   * schema `default`. Stored settings are validated on write, but rows written
+   * before a schema changed (or by hand) must not reach SDKs as they are.
+   * Settings that are not an object read as `{}`; an unknown type's object
+   * settings come back as they are (clients skip unknown types, AD-5).
    */
-  withDefaults(type: string, settings: Record<string, unknown>): Record<string, unknown> {
+  withDefaults(type: string, settings: unknown): Record<string, unknown> {
+    const stored =
+      typeof settings === 'object' && settings !== null && !Array.isArray(settings)
+        ? (settings as Record<string, unknown>)
+        : {};
     const entry = this.types.get(type);
-    if (!entry || typeof settings !== 'object' || settings === null || Array.isArray(settings)) return settings;
-    return { ...entry.defaults, ...settings };
+    if (!entry) return stored;
+    const result: Record<string, unknown> = {};
+    for (const [name, field] of entry.fields) {
+      if (Object.prototype.hasOwnProperty.call(stored, name) && field.validate(stored[name])) result[name] = stored[name];
+      else if (field.default !== undefined) result[name] = field.default;
+    }
+    return result;
   }
 
   /** Throws unless `type` is registered and `settings` matches its schema. */

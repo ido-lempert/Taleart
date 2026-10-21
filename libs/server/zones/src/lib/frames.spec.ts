@@ -75,9 +75,22 @@ describe('frame-type registry', () => {
       });
     });
 
-    it('leaves settings of an unknown or field-less type as they are', () => {
+    it('replaces each invalid stored value with its default and drops unknown keys', () => {
+      expect(
+        registry.withDefaults('bar', { gap: 40, shape: 'star', size: 'large', showTitles: 'no', color: 'red' }),
+      ).toEqual({ shape: 'circle', size: 'large', showTitles: true, alignment: 'start', gap: 12 });
+      expect(registry.withDefaults('bar', { gap: 12.5, alignment: null })).toMatchObject({ gap: 12, alignment: 'start' });
+    });
+
+    it.each([null, ['x'], 'bar', 7])('reads stored settings %j that are not an object as {}', (stored) => {
+      expect(registry.withDefaults('bar', stored)).toEqual(registry.withDefaults('bar', {}));
+      expect(registry.withDefaults('feed', stored)).toEqual({});
+    });
+
+    it('leaves object settings of an unknown type as they are, and drops every key of a field-less type', () => {
       expect(registry.withDefaults('feed', { a: 1 })).toEqual({ a: 1 });
       expect(registry.withDefaults('banner', {})).toEqual({});
+      expect(registry.withDefaults('banner', { stray: true })).toEqual({});
     });
   });
 

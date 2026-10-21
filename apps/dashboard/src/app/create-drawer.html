@@ -69,6 +69,7 @@
               [schema]="settingsSchema()"
               [invalidField]="invalidSetting()"
               [(value)]="settings"
+              (changed)="settingChanged($event)"
             />
           } @else {
             <p class="muted">This frame no longer exists.</p>
