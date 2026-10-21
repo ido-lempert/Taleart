@@ -514,14 +514,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The storage key of a published tale's media, such as `tales/<uuid>.png`. It contains a slash, sent as is. */
+                /** @description The storage key of a published tale's media or a published tale group's cover, such as `tales/<uuid>.png` or `covers/<uuid>.webm`. It contains a slash, sent as is. */
                 key: string;
             };
             cookie?: never;
         };
         /**
          * Read a published tale's media file, with no credentials.
-         * @description Serves only keys that a published tale (a `live` tale of a `live` group, each inside its start and end time, AD-6) currently references; any other key, including the key of replaced media or of draft, paused, archived, scheduled or expired content, answers 404 `media_not_found` (AD-11). The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
+         * @description Serves only keys that a published tale (a `live` tale of a `live` group, each inside its start and end time, AD-6) currently references; any other key, including the key of replaced media or of draft, paused, archived, scheduled or expired content, answers 404 `media_not_found` (AD-11). A tale group's cover is served while the group is delivered: `live`, inside its window, with at least one published tale. The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
          */
         get: operations["getPublicMedia"];
         put?: never;
@@ -687,6 +687,36 @@ export interface paths {
         put: operations["setTaleGroupSchedule"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tale-groups/{taleGroupId}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a tale group's cover file.
+         * @description The stored bytes, with the `Content-Type` they were uploaded with. No cover: 404 `media_not_found`. Unknown tale group: 404 `tale_group_not_found`.
+         */
+        get: operations["getTaleGroupCover"];
+        /**
+         * Set or replace a tale group's cover, still or animated.
+         * @description The body is the file's bytes and `Content-Type` its type, one of the tale media types. The dashboard makes the file in the browser (an image, a video frame, or a short clip); the server does not transcode (AD-11). The server decides from the bytes whether the cover is animated: every video, every GIF, an animated WebP and an APNG. An animated cover is at most 300 KB (307 200 bytes, `MAX_ANIMATED_COVER_BYTES`), a still image at most 10 MB; larger: 413 `media_too_large`. Other or mismatched type: 415 `unsupported_media_type`; empty body: 400 `validation_failed`; unknown tale group: 404 `tale_group_not_found`. The previous cover's file is deleted unless a tale or another cover still references it.
+         */
+        put: operations["putTaleGroupCover"];
+        post?: never;
+        /**
+         * Remove a tale group's cover.
+         * @description The group goes back to the default cover, its first published tale's media. The file is deleted unless a tale or another cover still references it. Removing a cover the group does not have changes nothing. Unknown tale group: 404 `tale_group_not_found`.
+         */
+        delete: operations["removeTaleGroupCover"];
         options?: never;
         head?: never;
         patch?: never;
@@ -893,6 +923,8 @@ export interface components {
         };
         /** @description A tale group belongs to its project (AD-14). Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
         TaleGroup: {
+            /** @description The group's cover, still or animated, or null when it has none; then the bar shows its first published tale's media. */
+            cover: components["schemas"]["TaleGroupCover"] | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -1014,6 +1046,14 @@ export interface components {
             /** @description Where the Management API serves the file, such as `/api/v1/tales/{taleId}/media`. */
             url: string;
         };
+        TaleGroupCover: {
+            kind: components["schemas"]["MediaKind"];
+            contentType: components["schemas"]["MediaContentType"];
+            /** @description True for a video, a GIF, an animated WebP or an APNG: the bar animates it unless the visitor prefers reduced motion. */
+            animated: boolean;
+            /** @description Where the Management API serves the file, such as `/api/v1/tale-groups/{taleGroupId}/cover`. */
+            url: string;
+        };
         /**
          * @description A status key of the AD-6 scheme. Each key has one HTTP code, defined in `libs/contract` (`CONTENT_STATUS_HTTP_CODES`): draft 204, live 200, scheduled 202, processing 102, invalid-media 422, paused 403, blocked-by-group 423, expired 410, quota-reached 429, archived 404. `scheduled`, `expired` and `blocked-by-group` are computed when content is read and never stored.
          * @enum {string}
@@ -1083,6 +1123,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
+            /** @description The group's cover, or null when it has none; the bar then shows its first tale's media. */
+            cover: components["schemas"]["DeliveryCover"] | null;
             /** @description The group's published tales by position. */
             tales: components["schemas"]["DeliveryTale"][];
         };
@@ -1099,6 +1141,17 @@ export interface components {
             /**
              * Format: uri
              * @description Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/tales/<uuid>.png`. Needs no key (AD-11).
+             */
+            url: string;
+        };
+        DeliveryCover: {
+            kind: components["schemas"]["MediaKind"];
+            contentType: components["schemas"]["MediaContentType"];
+            /** @description True when the cover moves (a video, a GIF, an animated WebP or an APNG); clients show it still when the visitor prefers reduced motion. */
+            animated: boolean;
+            /**
+             * Format: uri
+             * @description Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/covers/<uuid>.webm`. Needs no key (AD-11).
              */
             url: string;
         };
@@ -2093,7 +2146,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The storage key of a published tale's media, such as `tales/<uuid>.png`. It contains a slash, sent as is. */
+                /** @description The storage key of a published tale's media or a published tale group's cover, such as `tales/<uuid>.png` or `covers/<uuid>.webm`. It contains a slash, sent as is. */
                 key: string;
             };
             cookie?: never;
@@ -2401,6 +2454,98 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getTaleGroupCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cover file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "image/gif": string;
+                    "video/mp4": string;
+                    "video/webm": string;
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    putTaleGroupCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/jpeg": string;
+                "image/png": string;
+                "image/webp": string;
+                "image/gif": string;
+                "video/mp4": string;
+                "video/webm": string;
+            };
+        };
+        responses: {
+            /** @description The tale group with its new cover. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    removeTaleGroupCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tale group, with no cover. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
+            };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];

@@ -21,6 +21,7 @@ import {
   type SettableStatus,
   type Tale,
 } from '@taleart/contract';
+import { CoverEditor } from './cover-editor';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
@@ -35,7 +36,7 @@ import { STATUS_LABELS, StatusBadge, statusActions } from './status';
  */
 @Component({
   selector: 'app-create-drawer',
-  imports: [FormsModule, RouterLink, Drawer, StatusBadge, SettingsForm],
+  imports: [FormsModule, RouterLink, Drawer, StatusBadge, SettingsForm, CoverEditor],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './create-drawer.html',
 })
@@ -257,6 +258,14 @@ export class CreateDrawer implements OnInit {
     return { schedule: { startsAt, endsAt } };
   }
 
+  /** The tale group a cover drawer is for. */
+  protected readonly coverGroupId = computed(() => {
+    const request = this.request();
+    return request.kind === 'cover' ? request.taleGroupId : '';
+  });
+
+  private readonly coverEditor = viewChild(CoverEditor);
+
   /** The tale a media drawer is for. */
   protected readonly tale = computed(() => {
     const request = this.request();
@@ -275,6 +284,8 @@ export class CreateDrawer implements OnInit {
         return 'Add';
       case 'taleMedia':
         return 'Upload';
+      case 'cover':
+        return 'Save cover';
       case 'invite':
         return 'Create link';
       case 'tags':
@@ -340,6 +351,8 @@ export class CreateDrawer implements OnInit {
         return 'Add tale';
       case 'taleMedia':
         return 'Tale';
+      case 'cover':
+        return 'Cover';
       case 'invite':
         return 'Invite to project';
       case 'tags':
@@ -398,6 +411,10 @@ export class CreateDrawer implements OnInit {
       const tale = this.tale();
       const group = tale && this.store.taleGroup(tale.taleGroupId);
       return group ? `In tale group ${group.name}` : '';
+    }
+    if (request.kind === 'cover') {
+      const group = this.store.taleGroup(request.taleGroupId);
+      return group ? `Tale group ${group.name}` : '';
     }
     if (request.kind === 'schedule') {
       const item = this.scheduleItem();
@@ -620,6 +637,11 @@ export class CreateDrawer implements OnInit {
         message = this.file
           ? await this.store.uploadTaleMedia(request.taleId, this.file)
           : 'Choose an image or video to upload.';
+        break;
+      case 'cover':
+        // A repeated refusal must show again, so the old message goes first.
+        this.error.set('');
+        message = (await this.coverEditor()?.save()) ?? 'This tale group no longer exists.';
         break;
       case 'schedule': {
         const input = this.scheduleInput();

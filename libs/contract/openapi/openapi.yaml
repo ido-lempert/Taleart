@@ -785,8 +785,9 @@ paths:
         in: path
         required: true
         description: >-
-          The storage key of a published tale's media, such as
-          `tales/<uuid>.png`. It contains a slash, sent as is.
+          The storage key of a published tale's media or a published tale
+          group's cover, such as `tales/<uuid>.png` or
+          `covers/<uuid>.webm`. It contains a slash, sent as is.
         schema:
           type: string
         allowReserved: true
@@ -798,7 +799,9 @@ paths:
         group, each inside its start and end time, AD-6) currently
         references; any other key, including the key of replaced media or of
         draft, paused, archived, scheduled or expired content, answers
-        404 `media_not_found` (AD-11). The response carries the stored
+        404 `media_not_found` (AD-11). A tale group's cover is served while
+        the group is delivered: `live`, inside its window, with at least one
+        published tale. The response carries the stored
         `Content-Type`, supports one byte range (206, or 416 when
         unsatisfiable) and is open to any origin. It is cached as `public,
         no-cache` with the key as ETag, so a client revalidates (304 while
@@ -1134,6 +1137,112 @@ paths:
                 $ref: '#/components/schemas/TaleGroup'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/cover:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getTaleGroupCover
+      summary: Read a tale group's cover file.
+      description: >-
+        The stored bytes, with the `Content-Type` they were uploaded with.
+        No cover: 404 `media_not_found`. Unknown tale group: 404
+        `tale_group_not_found`.
+      responses:
+        '200':
+          description: The cover file.
+          content:
+            image/jpeg:
+              schema: { type: string, contentMediaType: image/jpeg }
+            image/png:
+              schema: { type: string, contentMediaType: image/png }
+            image/webp:
+              schema: { type: string, contentMediaType: image/webp }
+            image/gif:
+              schema: { type: string, contentMediaType: image/gif }
+            video/mp4:
+              schema: { type: string, contentMediaType: video/mp4 }
+            video/webm:
+              schema: { type: string, contentMediaType: video/webm }
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: putTaleGroupCover
+      summary: Set or replace a tale group's cover, still or animated.
+      description: >-
+        The body is the file's bytes and `Content-Type` its type, one of the
+        tale media types. The dashboard makes the file in the browser (an
+        image, a video frame, or a short clip); the server does not
+        transcode (AD-11). The server decides from the bytes whether the
+        cover is animated: every video, every GIF, an animated WebP and an
+        APNG. An animated cover is at most 300 KB (307 200 bytes,
+        `MAX_ANIMATED_COVER_BYTES`), a still image at most 10 MB; larger:
+        413 `media_too_large`. Other or mismatched type: 415
+        `unsupported_media_type`; empty body: 400 `validation_failed`;
+        unknown tale group: 404 `tale_group_not_found`. The previous cover's
+        file is deleted unless a tale or another cover still references it.
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema: { type: string, contentMediaType: image/jpeg }
+          image/png:
+            schema: { type: string, contentMediaType: image/png }
+          image/webp:
+            schema: { type: string, contentMediaType: image/webp }
+          image/gif:
+            schema: { type: string, contentMediaType: image/gif }
+          video/mp4:
+            schema: { type: string, contentMediaType: video/mp4 }
+          video/webm:
+            schema: { type: string, contentMediaType: video/webm }
+      responses:
+        '200':
+          description: The tale group with its new cover.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '415':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: removeTaleGroupCover
+      summary: Remove a tale group's cover.
+      description: >-
+        The group goes back to the default cover, its first published tale's
+        media. The file is deleted unless a tale or another cover still
+        references it. Removing a cover the group does not have changes
+        nothing. Unknown tale group: 404 `tale_group_not_found`.
+      responses:
+        '200':
+          description: The tale group, with no cover.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
         '403':
           $ref: '#/components/responses/Error'
         '404':
@@ -1546,8 +1655,15 @@ components:
       description: >-
         A tale group belongs to its project (AD-14). Zones place it, each in
         its own order; its tales, tags and media are the same in every zone.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, zoneIds, tales, tags]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tales, tags]
       properties:
+        cover:
+          description: >-
+            The group's cover, still or animated, or null when it has none;
+            then the bar shows its first published tale's media.
+          oneOf:
+            - $ref: '#/components/schemas/TaleGroupCover'
+            - type: 'null'
         id:
           type: string
           format: uuid
@@ -1775,6 +1891,22 @@ components:
         url:
           type: string
           description: Where the Management API serves the file, such as `/api/v1/tales/{taleId}/media`.
+    TaleGroupCover:
+      type: object
+      required: [kind, contentType, animated, url]
+      properties:
+        kind:
+          $ref: '#/components/schemas/MediaKind'
+        contentType:
+          $ref: '#/components/schemas/MediaContentType'
+        animated:
+          type: boolean
+          description: >-
+            True for a video, a GIF, an animated WebP or an APNG: the bar
+            animates it unless the visitor prefers reduced motion.
+        url:
+          type: string
+          description: Where the Management API serves the file, such as `/api/v1/tale-groups/{taleGroupId}/cover`.
     ContentStatus:
       type: string
       description: >-
@@ -1917,13 +2049,20 @@ components:
             $ref: '#/components/schemas/DeliveryTaleGroup'
     DeliveryTaleGroup:
       type: object
-      required: [id, name, tales]
+      required: [id, name, cover, tales]
       properties:
         id:
           type: string
           format: uuid
         name:
           type: string
+        cover:
+          description: >-
+            The group's cover, or null when it has none; the bar then shows
+            its first tale's media.
+          oneOf:
+            - $ref: '#/components/schemas/DeliveryCover'
+            - type: 'null'
         tales:
           type: array
           description: The group's published tales by position.
@@ -1957,6 +2096,25 @@ components:
           description: >-
             Absolute, public and unguessable URL of the file, such as
             `https://api.example.com/media/tales/<uuid>.png`. Needs no key (AD-11).
+    DeliveryCover:
+      type: object
+      required: [kind, contentType, animated, url]
+      properties:
+        kind:
+          $ref: '#/components/schemas/MediaKind'
+        contentType:
+          $ref: '#/components/schemas/MediaContentType'
+        animated:
+          type: boolean
+          description: >-
+            True when the cover moves (a video, a GIF, an animated WebP or an
+            APNG); clients show it still when the visitor prefers reduced motion.
+        url:
+          type: string
+          format: uri
+          description: >-
+            Absolute, public and unguessable URL of the file, such as
+            `https://api.example.com/media/covers/<uuid>.webm`. Needs no key (AD-11).
     UserRole:
       type: string
       enum: [admin, content_manager]

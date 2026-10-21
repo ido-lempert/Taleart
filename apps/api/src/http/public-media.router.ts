@@ -12,8 +12,8 @@ const MAX_KEY_LENGTH = 200;
 /**
  * Public media (AD-11), mounted at `/media`: `GET /media/<key>` serves the file
  * a published tale (a live tale of a live group, AD-6) currently references,
- * with no session and no zone key, so an `<img>` or `<video>` on any origin
- * loads it. Any other key, including the key of replaced media or of draft,
+ * or the cover of a delivered tale group (epic web zones R12), with no session
+ * and no zone key, so an `<img>` or `<video>` on any origin loads it. Any other key, including the key of replaced media or of draft,
  * paused or archived content, answers 404 `media_not_found`.
  */
 export function publicMediaRouter(pool: Pool, storage: MediaStorage): Router {

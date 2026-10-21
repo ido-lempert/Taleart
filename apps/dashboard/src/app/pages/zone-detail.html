@@ -144,7 +144,17 @@
                       <app-icon name="grip" />
                     </span>
                   }
-                  <span class="ring" aria-hidden="true">{{ group.name.charAt(0) }}</span>
+                  <span class="ring" [class.ring--cover]="!!group.cover" aria-hidden="true">
+                    @if (group.cover; as cover) {
+                      @if (cover.kind === 'video') {
+                        <video class="ring__cover" [src]="store.coverSrc(group) + '#t=0.001'" [muted]="true" playsinline preload="metadata"></video>
+                      } @else {
+                        <img class="ring__cover" [src]="store.coverSrc(group)" alt="" />
+                      }
+                    } @else {
+                      {{ group.name.charAt(0) }}
+                    }
+                  </span>
                   <div class="group__name">
                     <div class="group__title">
                       <h4 [id]="'group-name-' + group.id">{{ group.name }}</h4>
@@ -211,6 +221,14 @@
                       (click)="store.openDrawer({ kind: 'schedule', target: 'taleGroup', id: group.id }, $event)"
                     >
                       Schedule
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn--secondary btn--sm"
+                      [attr.aria-describedby]="'group-name-' + group.id"
+                      (click)="store.openDrawer({ kind: 'cover', taleGroupId: group.id }, $event)"
+                    >
+                      Cover
                     </button>
                     @if (store.zonesToPlace(group.id).length > 0) {
                       <button

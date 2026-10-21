@@ -416,4 +416,70 @@ describe('TaleartElement', () => {
     expect(el.getAttribute('zone-key')).toBe(KEY);
     expect(items(el)).toHaveLength(3);
   });
+
+  it('animates an animated cover and stills it when the visitor turns reduced motion on, and back', async () => {
+    let reduced = false;
+    const listeners = new Set<(event: { matches: boolean }) => void>();
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        get matches() {
+          return query === '(prefers-reduced-motion: reduce)' && reduced;
+        },
+        addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => listeners.add(listener),
+        removeEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => listeners.delete(listener),
+      })),
+    );
+    const url = `${API}/media/covers/c.webm`;
+    fetchMock.mockImplementation(async () =>
+      respond(200, {
+        ...zone,
+        taleGroups: [
+          { ...zone.taleGroups[0], cover: { kind: 'video', contentType: 'video/webm', animated: true, url } },
+        ],
+      }),
+    );
+    const el = await mount();
+    const cover = () => el.shadowRoot?.querySelector<HTMLVideoElement>('video.cover');
+    expect(cover()?.autoplay).toBe(true);
+    expect(cover()?.getAttribute('src')).toBe(url);
+
+    reduced = true;
+    for (const listener of listeners) listener({ matches: true });
+    expect(cover()?.autoplay).toBe(false);
+    expect(cover()?.getAttribute('src')).toBe(`${url}#t=0.001`);
+
+    reduced = false;
+    for (const listener of listeners) listener({ matches: false });
+    expect(cover()?.autoplay).toBe(true);
+
+    el.remove();
+    expect(listeners.size).toBe(0);
+  });
+
+  it('follows the reduced-motion setting through addListener where addEventListener is missing', async () => {
+    let listener: ((event: { matches: boolean }) => void) | null = null;
+    const removeListener = vi.fn();
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: false,
+        addListener: (l: (event: { matches: boolean }) => void) => (listener = l),
+        removeListener,
+      })),
+    );
+    const url = `${API}/media/covers/c.webm`;
+    fetchMock.mockImplementation(async () =>
+      respond(200, {
+        ...zone,
+        taleGroups: [{ ...zone.taleGroups[0], cover: { kind: 'video', contentType: 'video/webm', animated: true, url } }],
+      }),
+    );
+    const el = await mount();
+    expect(el.shadowRoot?.querySelector<HTMLVideoElement>('video.cover')?.autoplay).toBe(true);
+    listener?.({ matches: true });
+    expect(el.shadowRoot?.querySelector<HTMLVideoElement>('video.cover')?.autoplay).toBe(false);
+    el.remove();
+    expect(removeListener).toHaveBeenCalledWith(listener);
+  });
 });

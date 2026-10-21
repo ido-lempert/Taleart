@@ -8,6 +8,7 @@ import {
   findPublishedMedia,
   listDeliveryTaleGroups,
   getTaleGroup,
+  getTaleGroupCover,
   getTaleMedia,
   listProjectTaleGroups,
   listTaleGroups,
@@ -17,6 +18,7 @@ import {
   renameTaleGroup,
   orderTaleGroups,
   orderTales,
+  setTaleGroupCover,
   setTaleGroupSchedule,
   setTaleGroupStatus,
   setTaleMedia,
@@ -79,7 +81,7 @@ describe('tale groups', () => {
       { rows: [{ position: 2 }] },
     ]);
     const group = await createTaleGroup(db, { zoneId, name: 'A' });
-    expect(group).toEqual({ id: groupId, projectId, name: 'A', ...NO_WINDOW, position: 2, zoneIds: [zoneId], tales: [] });
+    expect(group).toEqual({ id: groupId, projectId, name: 'A', ...NO_WINDOW, cover: null, position: 2, zoneIds: [zoneId], tales: [] });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
     expect(statements().some((s) => /FROM zones/.test(s) && /FOR UPDATE/.test(s))).toBe(false);
@@ -138,7 +140,7 @@ describe('placements', () => {
     const result = await placeTaleGroup(db, zoneId, groupId);
     expect(result).toEqual({
       placed: true,
-      group: { ...placedRow, ...NO_WINDOW, tales: [], zoneIds: ['00000000-0000-4000-8000-0000000000aa', zoneId] },
+      group: { ...placedRow, ...NO_WINDOW, cover: null, tales: [], zoneIds: ['00000000-0000-4000-8000-0000000000aa', zoneId] },
     });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
@@ -226,7 +228,7 @@ describe('placements', () => {
 describe('rename', () => {
   it('renames the group itself and returns it with its tales and zones', async () => {
     const { db, query } = fakeDb([{ rows: [{ id: groupId, projectId, name: 'B' }] }, { rows: [] }, { rows: [{ taleGroupId: groupId, zoneId }] }]);
-    expect(await renameTaleGroup(db, groupId, 'B')).toEqual({ id: groupId, projectId, name: 'B', ...NO_WINDOW, tales: [], zoneIds: [zoneId] });
+    expect(await renameTaleGroup(db, groupId, 'B')).toEqual({ id: groupId, projectId, name: 'B', ...NO_WINDOW, cover: null, tales: [], zoneIds: [zoneId] });
     expect(query.mock.calls[0][0]).toMatch(/UPDATE tale_groups SET name = \$2 WHERE id = \$1/);
     expect(query.mock.calls[0][1]).toEqual([groupId, 'B']);
   });
@@ -279,6 +281,7 @@ describe('one tale group', () => {
     expect(await getTaleGroup(db, groupId)).toEqual({
       ...group,
       ...NO_WINDOW,
+      cover: null,
       zoneIds: [zoneId],
       tales: [{ id: 't1', taleGroupId: groupId, ...NO_WINDOW, media: null }],
     });
@@ -531,6 +534,7 @@ describe('delivery', () => {
       {
         id: groupId,
         name: 'A',
+        cover: null,
         tales: [
           { id: t1, title: 'One', media: { key: 'tales/x.png', contentType: 'image/png' } },
           { id: t2, title: 'Two', media: null },
@@ -622,6 +626,7 @@ describe('copy to zone', () => {
       name: 'Summer',
       startsAt: '2026-11-01T00:00:00.000Z',
       endsAt: null,
+      cover: null,
       position: 3,
       zoneIds: [zoneId],
       tales: [{ id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, ...NO_WINDOW, media: null }],
@@ -630,7 +635,8 @@ describe('copy to zone', () => {
     expect(lock?.[1]).toEqual([zoneId]);
     const insertGroup = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
     // The copy keeps the group's and its tales' start and end times.
-    expect(insertGroup?.[1]).toEqual([otherProject, 'Summer', new Date('2026-11-01T00:00:00Z'), null]);
+    // The copy keeps the group's and its tales' start and end times, and shares the source's cover (read by id).
+    expect(insertGroup?.[1]).toEqual([otherProject, 'Summer', new Date('2026-11-01T00:00:00Z'), null, groupId.toUpperCase()]);
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
     expect(insertTales?.[0]).toMatch(/media_key, media_content_type, status, starts_at, ends_at FROM tales/);
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
@@ -676,7 +682,7 @@ describe('status', () => {
       { rows: [] },
       { rows: [] },
     ]);
-    expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, status: 'live', ...NO_WINDOW, zoneIds: [], tales: [] });
+    expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, status: 'live', ...NO_WINDOW, cover: null, zoneIds: [], tales: [] });
     expect(statements()).toContain('SELECT status FROM tale_groups WHERE id = $1 FOR UPDATE');
     const update = query.mock.calls.find((c) => /UPDATE tale_groups SET status/.test(c[0] as string));
     expect(update?.[1]).toEqual([groupId, 'live']);
@@ -839,5 +845,166 @@ describe('schedule', () => {
       expect(sql).toContain(`conname = '${table}_window_check'`);
     }
     expect(sql).toMatch(/CHECK \(starts_at IS NULL OR ends_at IS NULL OR ends_at > starts_at\)/);
+  });
+});
+
+describe('covers', () => {
+  const coverRow = { id: groupId, projectId, name: 'A', storedStatus: 'live', startsAt: null, endsAt: null };
+
+  it('reads a group with its cover, the URL derived from the group id and never the key', async () => {
+    const { db } = fakeDb([
+      { rows: [{ ...coverRow, coverContentType: 'video/webm', coverAnimated: true }] },
+      { rows: [] },
+      { rows: [] },
+    ]);
+    const group = await getTaleGroup(db, groupId);
+    expect(group.cover).toEqual({
+      kind: 'video',
+      contentType: 'video/webm',
+      animated: true,
+      url: `/api/v1/tale-groups/${groupId}/cover`,
+    });
+    expect(JSON.stringify(group)).not.toMatch(/coverKey|covers\//);
+    expect(group).not.toHaveProperty('coverContentType');
+    expect(group).not.toHaveProperty('coverAnimated');
+  });
+
+  it('reads a group without a cover as cover null, and leaves the cover out of the project list', async () => {
+    const { db } = fakeDb([
+      { rows: [{ ...coverRow, coverContentType: null, coverAnimated: false }] },
+      { rows: [] },
+      { rows: [] },
+    ]);
+    expect((await getTaleGroup(db, groupId)).cover).toBeNull();
+    const list = fakeDb([
+      { rows: [{ ...coverRow, coverContentType: 'image/jpeg', coverAnimated: false, taleCount: 1 }] },
+      { rows: [] },
+    ]);
+    const [listed] = await listProjectTaleGroups(list.db, projectId);
+    expect(listed).not.toHaveProperty('cover');
+    expect(listed.taleCount).toBe(1);
+  });
+
+  it('reads the stored cover key, type and motion, null without one, and refuses an unknown group', async () => {
+    const { db } = fakeDb([
+      { rows: [{ key: 'covers/a.gif', contentType: 'image/gif', animated: true }] },
+      { rows: [{ key: null, contentType: null, animated: false }] },
+      { rows: [] },
+    ]);
+    expect(await getTaleGroupCover(db, groupId)).toEqual({ key: 'covers/a.gif', contentType: 'image/gif', animated: true });
+    expect(await getTaleGroupCover(db, groupId)).toBeNull();
+    await expect(getTaleGroupCover(db, groupId)).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+  });
+
+  it('does not query for a group id that is not a UUID', async () => {
+    const { db, query } = fakeDb([]);
+    await expect(getTaleGroupCover(db, 'nope')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    await expect(setTaleGroupCover(db, 'nope', null)).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('stores only the key, type and motion under a row lock and returns the previous key', async () => {
+    const { db, query } = fakeDb([
+      { rows: [{ ...coverRow, coverContentType: 'image/jpeg', coverAnimated: false, previousKey: 'covers/old.webm' }] },
+      { rows: [] },
+      { rows: [] },
+    ]);
+    const result = await setTaleGroupCover(db, groupId, { key: 'covers/new.jpg', contentType: 'image/jpeg', animated: false });
+    expect(query.mock.calls[0][0]).toMatch(/UPDATE tale_groups SET cover_key = \$2[\s\S]*FOR UPDATE/);
+    expect(query.mock.calls[0][1]).toEqual([groupId, 'covers/new.jpg', 'image/jpeg', false]);
+    expect(result.previousKey).toBe('covers/old.webm');
+    expect(result.group.cover).toEqual({
+      kind: 'image',
+      contentType: 'image/jpeg',
+      animated: false,
+      url: `/api/v1/tale-groups/${groupId}/cover`,
+    });
+    expect(result.group).not.toHaveProperty('previousKey');
+  });
+
+  it('removes the cover by storing none, and refuses an unknown group', async () => {
+    const { db, query } = fakeDb([
+      { rows: [{ ...coverRow, coverContentType: null, coverAnimated: false, previousKey: 'covers/a.jpg' }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [] },
+    ]);
+    const result = await setTaleGroupCover(db, groupId, null);
+    expect(query.mock.calls[0][1]).toEqual([groupId, null, null, false]);
+    expect(result.previousKey).toBe('covers/a.jpg');
+    expect(result.group.cover).toBeNull();
+    await expect(setTaleGroupCover(db, groupId, null)).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+  });
+
+  it('delivers each group with its stored cover key for the public URL', async () => {
+    const { db } = fakeDb([
+      {
+        rows: [{ id: groupId, name: 'A', coverKey: 'covers/a.webm', coverContentType: 'video/webm', coverAnimated: true }],
+      },
+      { rows: [{ id: 't1', taleGroupId: groupId, title: 'One', key: null, contentType: null }] },
+    ]);
+    const [group] = await listDeliveryTaleGroups(db, zoneId);
+    expect(group.cover).toEqual({ key: 'covers/a.webm', contentType: 'video/webm', animated: true });
+  });
+
+  it('finds a cover by key only for a live group in its window with a published tale', async () => {
+    const { db, query } = fakeDb([{ rows: [{ contentType: 'image/jpeg' }] }]);
+    expect(await findPublishedMedia(db, 'covers/a.jpg')).toEqual({ key: 'covers/a.jpg', contentType: 'image/jpeg' });
+    const sql = query.mock.calls[0][0] as string;
+    expect(sql).toMatch(/g\.cover_key = \$1 AND g\.status = 'live' AND \(g\.starts_at IS NULL OR g\.starts_at <= \$2\)/);
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM tales dt WHERE dt\.tale_group_id = g\.id AND dt\.status = 'live'/);
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM zone_tale_groups dz WHERE dz\.tale_group_id = g\.id\)/);
+  });
+
+  it('counts a cover as a reference when deciding whether a file is still in use', async () => {
+    const { db, query } = fakeDb([{ rows: [{}] }]);
+    expect(await isMediaKeyInUse(db, 'covers/a.jpg')).toBe(true);
+    expect(query.mock.calls[0][0]).toMatch(/FROM tales WHERE media_key = \$1[\s\S]*FROM tale_groups WHERE cover_key = \$1/);
+  });
+
+  it("copies the source's cover columns into the copy, sharing the key", async () => {
+    const copyId = '00000000-0000-4000-8000-0000000000cc';
+    const { db, query } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ name: 'A', startsAt: null, endsAt: null }] },
+      {
+        rows: [
+          {
+            id: copyId,
+            projectId,
+            name: 'A',
+            storedStatus: 'draft',
+            startsAt: null,
+            endsAt: null,
+            coverContentType: 'image/gif',
+            coverAnimated: true,
+          },
+        ],
+      },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ position: 0 }] },
+    ]);
+    const copy = await copyTaleGroup(db, { taleGroupId: groupId, zoneId });
+    const insert = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
+    expect(insert?.[0]).toMatch(/cover_key, cover_content_type, cover_animated FROM tale_groups WHERE id = \$5/);
+    expect(insert?.[1]).toEqual([projectId, 'A', null, null, groupId]);
+    expect(copy.cover).toEqual({
+      kind: 'image',
+      contentType: 'image/gif',
+      animated: true,
+      url: `/api/v1/tale-groups/${copyId}/cover`,
+    });
+  });
+
+  it('adds the nullable cover columns and their index, once', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    await migrateTales({ query } as unknown as TransactionalDb);
+    const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
+    expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_key text');
+    expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_content_type text');
+    expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_animated boolean NOT NULL DEFAULT false');
+    expect(sql).toContain('CREATE INDEX IF NOT EXISTS tale_groups_cover_key_idx ON tale_groups (cover_key)');
   });
 });
