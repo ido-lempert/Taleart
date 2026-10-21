@@ -952,7 +952,8 @@ describe('covers', () => {
     expect(await findPublishedMedia(db, 'covers/a.jpg')).toEqual({ key: 'covers/a.jpg', contentType: 'image/jpeg' });
     const sql = query.mock.calls[0][0] as string;
     expect(sql).toMatch(/g\.cover_key = \$1 AND g\.status = 'live' AND \(g\.starts_at IS NULL OR g\.starts_at <= \$2\)/);
-    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM tales t WHERE t\.tale_group_id = g\.id AND t\.status = 'live'/);
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM tales dt WHERE dt\.tale_group_id = g\.id AND dt\.status = 'live'/);
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM zone_tale_groups dz WHERE dz\.tale_group_id = g\.id\)/);
   });
 
   it('counts a cover as a reference when deciding whether a file is still in use', async () => {

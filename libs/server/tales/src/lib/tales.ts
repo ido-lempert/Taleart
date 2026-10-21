@@ -46,6 +46,17 @@ function liveNow(t: string, param: string): string {
   );
 }
 
+// A group the Delivery API delivers at $n, for the tale_groups alias `g`: live
+// in its window, with a live tale in its window, and placed in a zone (AD-6,
+// AD-14). The one rule for both the Delivery list and the public cover lookup.
+function deliveredGroup(g: string, param: string): string {
+  return (
+    `${liveNow(g, param)} ` +
+    `AND EXISTS (SELECT 1 FROM tales dt WHERE dt.tale_group_id = ${g}.id AND ${liveNow('dt', param)}) ` +
+    `AND EXISTS (SELECT 1 FROM zone_tale_groups dz WHERE dz.tale_group_id = ${g}.id)`
+  );
+}
+
 /**
  * A tale group as this module stores it: everything but its tags, which the
  * targeting module owns. The API composes the tags in (AD-1).
@@ -894,7 +905,7 @@ export async function listDeliveryTaleGroups(
        tale_groups.cover_content_type AS "coverContentType", tale_groups.cover_animated AS "coverAnimated"
      FROM zone_tale_groups
      JOIN tale_groups ON tale_groups.id = zone_tale_groups.tale_group_id
-     WHERE zone_tale_groups.zone_id = $1 AND ${liveNow('tale_groups', '$2')}
+     WHERE zone_tale_groups.zone_id = $1 AND ${deliveredGroup('tale_groups', '$2')}
      ORDER BY zone_tale_groups.position, tale_groups.id`,
     [zoneId, now],
   );
@@ -934,7 +945,8 @@ export async function listDeliveryTaleGroups(
  * The stored media a published tale (a `live` tale of a `live` group, each
  * inside its start and end time at `now`, AD-6) currently references under
  * `key`, or the cover of a delivered group (`live`, in its window, with a
- * published tale, as {@link listDeliveryTaleGroups} lists it); null when none
+ * published tale, placed in a zone: the rule {@link listDeliveryTaleGroups}
+ * uses); null when none
  * does: an unknown key, the key of replaced media or a replaced cover, or
  * media of draft, paused, archived, scheduled or expired content (AD-11).
  * A key copies share is public while any published tale or cover references it (AD-14).
@@ -951,8 +963,7 @@ export async function findPublishedMedia(
       LIMIT 1)
      UNION ALL
      (SELECT g.cover_content_type FROM tale_groups g
-      WHERE g.cover_key = $1 AND ${liveNow('g', '$2')}
-        AND EXISTS (SELECT 1 FROM tales t WHERE t.tale_group_id = g.id AND ${liveNow('t', '$2')})
+      WHERE g.cover_key = $1 AND ${deliveredGroup('g', '$2')}
       LIMIT 1)
      LIMIT 1`,
     [key, now],

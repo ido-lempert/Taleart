@@ -51,22 +51,39 @@ function squareCanvas(size: number): { canvas: HTMLCanvasElement; context: Canva
   return { canvas, context };
 }
 
-/** Moves the video to `time` (seconds) and waits until that frame can be drawn. */
-export function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
+/** How long a seek may take before it is given up, in ms. */
+export const SEEK_TIMEOUT_MS = 5000;
+
+/** The error a cancelled recording rejects with. */
+export function abortError(): DOMException {
+  return new DOMException('The recording was cancelled.', 'AbortError');
+}
+
+/**
+ * Moves the video to `time` (seconds) and waits until that frame can be drawn.
+ * Rejects when the video errors, is emptied or aborted, or the seek does not
+ * finish within {@link SEEK_TIMEOUT_MS}.
+ */
+export function seekTo(video: HTMLVideoElement, time: number, timeoutMs = SEEK_TIMEOUT_MS): Promise<void> {
   if (Math.abs(video.currentTime - time) < 0.001 && video.readyState >= 2) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const done = () => {
+    const failures = ['error', 'emptied', 'abort'];
+    const cleanup = () => {
+      clearTimeout(timer);
       video.removeEventListener('seeked', done);
-      video.removeEventListener('error', failed);
+      for (const type of failures) video.removeEventListener(type, failed);
+    };
+    const done = () => {
+      cleanup();
       resolve();
     };
     const failed = () => {
-      video.removeEventListener('seeked', done);
-      video.removeEventListener('error', failed);
+      cleanup();
       reject(new Error('The video could not be read.'));
     };
+    const timer = setTimeout(failed, timeoutMs);
     video.addEventListener('seeked', done);
-    video.addEventListener('error', failed);
+    for (const type of failures) video.addEventListener(type, failed);
     video.currentTime = time;
   });
 }
@@ -101,19 +118,25 @@ export function clipUploadType(recordedType: string): 'video/webm' | 'video/mp4'
 /**
  * Records `seconds` of the video from `start` as a square clip: an animated
  * cover. The video plays muted while it records, and stops at its end if that
- * comes first. Throws when the browser cannot record.
+ * comes first; a timer ends it at the latest a few seconds after the clip's
+ * length, even in a hidden tab where animation frames pause. Aborting
+ * `signal` stops the recorder and its tracks and rejects with an AbortError.
+ * Throws when the browser cannot record.
  */
 export async function recordClip(
   video: HTMLVideoElement,
   start: number,
   seconds: number,
+  signal?: AbortSignal,
   size = CLIP_COVER_PX,
 ): Promise<Blob> {
+  if (signal?.aborted) throw abortError();
   const type = recorderType();
   if (!type) throw new Error('This browser cannot record an animated cover. Try a recent Chrome, Edge, Firefox or Safari.');
   if (!video.videoWidth || !video.videoHeight) throw new Error('The video has not loaded yet.');
   const { canvas, context } = squareCanvas(size);
   await seekTo(video, start);
+  if (signal?.aborted) throw abortError();
   drawSquare(context, video, size);
 
   const stream = canvas.captureStream(CLIP_FPS);
@@ -123,26 +146,35 @@ export async function recordClip(
     if (event.data.size > 0) chunks.push(event.data);
   };
   const stopped = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
-  video.muted = true;
-  recorder.start();
+  let frame = 0;
+  let guard: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   try {
+    video.muted = true;
+    recorder.start();
     await video.play();
-    // Draws each frame until the clip's end, the video's end, or a stall (a wall-clock guard).
-    const deadline = performance.now() + seconds * 1000 + 5000;
-    await new Promise<void>((resolve) => {
+    // Draws each frame until the clip's end or the video's end; the timer and an abort end it too.
+    await new Promise<void>((resolve, reject) => {
+      guard = setTimeout(resolve, seconds * 1000 + 5000);
+      onAbort = () => reject(abortError());
+      signal?.addEventListener('abort', onAbort);
       const tick = () => {
         drawSquare(context, video, size);
-        if (video.currentTime >= start + seconds || video.ended || performance.now() > deadline) resolve();
-        else requestAnimationFrame(tick);
+        if (video.currentTime >= start + seconds || video.ended) resolve();
+        else frame = requestAnimationFrame(tick);
       };
-      requestAnimationFrame(tick);
+      frame = requestAnimationFrame(tick);
     });
   } finally {
+    cancelAnimationFrame(frame);
+    clearTimeout(guard);
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
     video.pause();
-    recorder.stop();
+    if (recorder.state !== 'inactive') recorder.stop();
     for (const track of stream.getTracks()) track.stop();
   }
   await stopped;
+  if (signal?.aborted) throw abortError();
   return new Blob(chunks, { type: clipUploadType(type) });
 }
 
@@ -163,11 +195,15 @@ export class CoverCapture {
     return recorderType() !== null;
   }
 
+  seekTo(video: HTMLVideoElement, time: number): Promise<void> {
+    return seekTo(video, time);
+  }
+
   captureFrame(video: HTMLVideoElement): Promise<Blob> {
     return captureFrame(video);
   }
 
-  recordClip(video: HTMLVideoElement, start: number, seconds: number): Promise<Blob> {
-    return recordClip(video, start, seconds);
+  recordClip(video: HTMLVideoElement, start: number, seconds: number, signal?: AbortSignal): Promise<Blob> {
+    return recordClip(video, start, seconds, signal);
   }
 }

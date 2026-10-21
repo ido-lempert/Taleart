@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { ErrorCodes, MAX_ANIMATED_COVER_BYTES, MAX_IMAGE_BYTES, maxCoverBytes, type TaleGroup } from '@taleart/contract';
+import {
+  ErrorCodes,
+  MAX_ANIMATED_COVER_BYTES,
+  MAX_IMAGE_BYTES,
+  maxCoverBytes,
+  mediaKind,
+  type TaleGroup,
+} from '@taleart/contract';
 import type { MediaStorage } from '@taleart/server-storage';
 import {
   getTaleGroupCover,
@@ -8,11 +15,18 @@ import {
   taleGroupExists,
   TaleGroupNotFoundError,
 } from '@taleart/server-tales';
-import express, { Router } from 'express';
+import express, { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { authorizeParam } from './authorize';
 import { HttpError } from './errors';
-import { declaredMediaType, isAnimatedMedia, matchesMagicNumber, mediaExtension, sendMediaBytes } from './media';
+import {
+  declaredMediaType,
+  etagMatches,
+  isAnimatedMedia,
+  matchesMagicNumber,
+  mediaExtension,
+  sendMediaBytes,
+} from './media';
 import { withTags } from './tale-groups.router';
 
 function logError(msg: string, err: unknown): void {
@@ -34,6 +48,9 @@ async function deleteIfUnused(pool: Pool, storage: MediaStorage, key: string | n
     .catch((err) => logError('could not delete replaced cover', err));
 }
 
+const ANIMATED_TOO_LARGE = `An animated cover is at most ${MAX_ANIMATED_COVER_BYTES / 1024} KB`;
+const IMAGE_TOO_LARGE = `The file is larger than ${MAX_IMAGE_BYTES / (1024 * 1024)} MB`;
+
 /**
  * A tale group's cover, still or animated (epic web zones R12): mounted at
  * `/tale-groups`. The dashboard makes the file in the browser; the server
@@ -43,23 +60,41 @@ async function deleteIfUnused(pool: Pool, storage: MediaStorage, key: string | n
 export function coversRouter(pool: Pool, storage: MediaStorage): Router {
   const router = Router();
   const groupAccess = authorizeParam(pool, 'taleGroup', 'taleGroupId');
-  // A still cover is at most an image's size; an animated one far less, checked after reading.
-  const rawBody = express.raw({ type: () => true, limit: MAX_IMAGE_BYTES });
+  // Every video cover is animated, so its body is capped at the animated limit
+  // while it is read; an image at the image limit, and an animated image is
+  // checked against the animated limit once its bytes are known.
+  const rawVideo = express.raw({ type: () => true, limit: MAX_ANIMATED_COVER_BYTES });
+  const rawImage = express.raw({ type: () => true, limit: MAX_IMAGE_BYTES });
+  const readBody: RequestHandler = (req, res, next) => {
+    const declared = declaredMediaType(req.headers['content-type']);
+    const isVideo = declared !== null && mediaKind(declared) === 'video';
+    (isVideo ? rawVideo : rawImage)(req, res, (err?: unknown) => {
+      if ((err as { type?: string } | undefined)?.type === 'entity.too.large') {
+        next(new HttpError(413, ErrorCodes.mediaTooLarge, isVideo ? ANIMATED_TOO_LARGE : IMAGE_TOO_LARGE));
+      } else {
+        next(err);
+      }
+    });
+  };
 
   router.get('/:taleGroupId/cover', groupAccess, async (req, res, next) => {
     try {
       const cover = await getTaleGroupCover(pool, req.params.taleGroupId);
-      const data = cover && (await storage.get(cover.key));
-      if (!cover || !data) throw new HttpError(404, ErrorCodes.mediaNotFound, 'This tale group has no cover');
+      if (!cover) throw new HttpError(404, ErrorCodes.mediaNotFound, 'This tale group has no cover');
+      // A current copy needs no read of the file.
+      if (etagMatches(req.headers['if-none-match'], `"${cover.key}"`)) {
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('ETag', `"${cover.key}"`);
+        res.status(304).end();
+        return;
+      }
+      const data = await storage.get(cover.key);
+      if (!data) throw new HttpError(404, ErrorCodes.mediaNotFound, 'This tale group has no cover');
       res.setHeader('Content-Type', cover.contentType);
       // Replacing the cover keeps the URL, so clients revalidate; the ETag is the key.
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('ETag', `"${cover.key}"`);
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      if (req.headers['if-none-match'] === `"${cover.key}"`) {
-        res.status(304).end();
-        return;
-      }
       sendMediaBytes(req, res, data);
     } catch (err) {
       next(err);
@@ -75,19 +110,27 @@ export function coversRouter(pool: Pool, storage: MediaStorage): Router {
         if (!(await taleGroupExists(pool, req.params['taleGroupId']))) {
           throw new TaleGroupNotFoundError(req.params['taleGroupId']);
         }
-        if (declaredMediaType(req.headers['content-type']) === null) {
+        const declared = declaredMediaType(req.headers['content-type']);
+        if (declared === null) {
           throw new HttpError(
             415,
             ErrorCodes.unsupportedMediaType,
             'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video',
           );
         }
+        // A declared length over the limit is refused before any byte is buffered.
+        const length = Number(req.headers['content-length']);
+        const isVideo = mediaKind(declared) === 'video';
+        if (Number.isFinite(length) && length > (isVideo ? MAX_ANIMATED_COVER_BYTES : MAX_IMAGE_BYTES)) {
+          req.resume();
+          throw new HttpError(413, ErrorCodes.mediaTooLarge, isVideo ? ANIMATED_TOO_LARGE : IMAGE_TOO_LARGE);
+        }
         next();
       } catch (err) {
         next(err);
       }
     },
-    rawBody,
+    readBody,
     async (req, res, next) => {
       try {
         const { taleGroupId } = req.params;
@@ -102,13 +145,7 @@ export function coversRouter(pool: Pool, storage: MediaStorage): Router {
         }
         const animated = isAnimatedMedia(contentType, data);
         if (data.length > maxCoverBytes(contentType, animated)) {
-          throw new HttpError(
-            413,
-            ErrorCodes.mediaTooLarge,
-            animated
-              ? `An animated cover is at most ${MAX_ANIMATED_COVER_BYTES / 1024} KB`
-              : `The file is larger than ${MAX_IMAGE_BYTES / (1024 * 1024)} MB`,
-          );
+          throw new HttpError(413, ErrorCodes.mediaTooLarge, animated ? ANIMATED_TOO_LARGE : IMAGE_TOO_LARGE);
         }
 
         // Store the new file, point the group at it, then delete the old file

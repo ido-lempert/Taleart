@@ -51,8 +51,11 @@ export class TaleartElement extends HTMLElement {
 
   connectedCallback(): void {
     if (typeof matchMedia === 'function') {
-      this.motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
-      this.motionQuery.addEventListener?.('change', this.onMotionChange);
+      const query = matchMedia('(prefers-reduced-motion: reduce)');
+      this.motionQuery = query;
+      // Safari before 14 has only the older addListener.
+      if (typeof query.addEventListener === 'function') query.addEventListener('change', this.onMotionChange);
+      else query.addListener?.(this.onMotionChange);
     }
     this.scheduleLoad();
   }
@@ -62,7 +65,9 @@ export class TaleartElement extends HTMLElement {
   }
 
   disconnectedCallback(): void {
-    this.motionQuery?.removeEventListener?.('change', this.onMotionChange);
+    const query = this.motionQuery;
+    if (query && typeof query.removeEventListener === 'function') query.removeEventListener('change', this.onMotionChange);
+    else query?.removeListener?.(this.onMotionChange);
     this.motionQuery = null;
     this.loadId++;
     this.closeViewer();

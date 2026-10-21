@@ -115,7 +115,8 @@ function drawer(): HTMLElement | null {
 const capture = {
   canRecord: vi.fn(() => true),
   captureFrame: vi.fn<(video: HTMLVideoElement) => Promise<Blob>>(),
-  recordClip: vi.fn<(video: HTMLVideoElement, start: number, seconds: number) => Promise<Blob>>(),
+  seekTo: vi.fn<(video: HTMLVideoElement, time: number) => Promise<void>>(),
+  recordClip: vi.fn<(video: HTMLVideoElement, start: number, seconds: number, signal?: AbortSignal) => Promise<Blob>>(),
 };
 
 // Stands in for the browser's WebAuthn calls.
@@ -2085,10 +2086,21 @@ describe('App', () => {
       return body;
     }
 
+    // Object URLs of made frames and clips; the runtime's own refuse jsdom's Blobs.
+    const urls = URL as unknown as Record<'createObjectURL' | 'revokeObjectURL', unknown>;
+    const originalUrls = { createObjectURL: urls.createObjectURL, revokeObjectURL: urls.revokeObjectURL };
+    const createObjectURL = vi.fn((_blob: Blob) => 'blob:made');
+
+    afterEach(() => Object.assign(URL, originalUrls));
+
     beforeEach(() => {
+      createObjectURL.mockClear();
+      Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
       capture.canRecord.mockReturnValue(true);
       capture.captureFrame.mockReset();
       capture.recordClip.mockReset();
+      capture.seekTo.mockReset();
+      capture.seekTo.mockResolvedValue(undefined);
     });
 
     it("shows the group's cover in its ring, and the default when it has none", async () => {
@@ -2107,7 +2119,7 @@ describe('App', () => {
 
     it('uploads a picked image as the cover and shows it in the ring', async () => {
       const { fixture, root } = await openCover({ ...oneZone, groups: { z1: [{ ...group, cover: null, tales: [] }] } });
-      expect(drawer()?.textContent).toContain("No cover. The bar shows the first tale's image.");
+      expect(drawer()?.textContent).toContain("First tale's image (default)");
       // Without a video tale, only an upload is offered.
       expect(radio('Frame of a video tale').disabled).toBe(true);
       expect(radio('Animated, from a video tale').disabled).toBe(true);
@@ -2153,10 +2165,141 @@ describe('App', () => {
       capture.captureFrame.mockResolvedValue(frame);
       buttonNamed(drawer() as HTMLElement, 'Save cover').click();
       await settle(fixture);
+      // The video is moved to the knob's time before the frame is taken.
+      expect(capture.seekTo).toHaveBeenCalledWith(video, 2.5);
       expect(capture.captureFrame).toHaveBeenCalledWith(video);
+      expect(capture.seekTo.mock.invocationCallOrder[0]).toBeLessThan(capture.captureFrame.mock.invocationCallOrder[0]);
       const body = await answerCover(fixture, 'image/jpeg', withVideo);
       expect(body).toBe(frame);
       expect(drawer()).toBeNull();
+    });
+
+    it('shows the default cover, the first tale\'s image, when the group has none', async () => {
+      const { root } = await openCover({
+        ...oneZone,
+        groups: { z1: [{ ...group, cover: null, tales: [{ ...taleA, media: pngMedia }] }] },
+      });
+      expect(drawer()?.querySelector('.cover-current img.ring__cover')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
+      );
+      expect(drawer()?.textContent).toContain("First tale's image (default)");
+      expect(root.querySelector('.group .ring')?.classList.contains('ring--cover')).toBe(false);
+    });
+
+    it('takes the frame with "Use this frame" into the preview, and Save uploads that frame', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Frame of a video tale');
+      const video = await loadVideo(fixture, 8);
+      await moveKnob(fixture, '4');
+      const frame = new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' });
+      capture.captureFrame.mockResolvedValue(frame);
+      buttonNamed(drawer() as HTMLElement, 'Use this frame').click();
+      await settle(fixture);
+      expect(capture.seekTo).toHaveBeenCalledWith(video, 4);
+      expect(drawer()?.querySelector('img.cover-preview')?.getAttribute('src')).toBe('blob:made');
+      expect(drawer()?.textContent).toContain('Frame at 4.0 s');
+
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(capture.captureFrame).toHaveBeenCalledTimes(1);
+      expect(await answerCover(fixture, 'image/jpeg', withVideo)).toBe(frame);
+    });
+
+    it('saves the frame at the knob time even after a clip recording moved the video', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      const video = await loadVideo(fixture, 8);
+      await moveKnob(fixture, '1');
+      capture.recordClip.mockImplementation(async (v) => {
+        v.currentTime = 3; // recording plays the video on
+        return new Blob([new Uint8Array(10)], { type: 'video/webm' });
+      });
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      await chooseSource(fixture, 'Frame of a video tale');
+      capture.captureFrame.mockResolvedValue(new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }));
+      buttonNamed(drawer() as HTMLElement, 'Save cover').click();
+      await settle(fixture);
+      expect(capture.seekTo).toHaveBeenLastCalledWith(video, 1);
+      await answerCover(fixture, 'image/jpeg', withVideo);
+    });
+
+    it('locks the knob, length, tale and source controls while recording, then unlocks them', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      await loadVideo(fixture, 8);
+      let finish: (blob: Blob) => void = () => undefined;
+      capture.recordClip.mockImplementation(() => new Promise<Blob>((resolve) => (finish = resolve)));
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector<HTMLInputElement>('input[type=range]')?.disabled).toBe(true);
+      expect(drawer()?.querySelector<HTMLSelectElement>('#cover-length')?.disabled).toBe(true);
+      expect(drawer()?.querySelector<HTMLFieldSetElement>('fieldset')?.disabled).toBe(true);
+      expect(buttonNamed(drawer() as HTMLElement, 'Recording…').disabled).toBe(true);
+
+      finish(new Blob([new Uint8Array(84 * 1024)], { type: 'video/webm' }));
+      await settle(fixture);
+      expect(drawer()?.querySelector<HTMLInputElement>('input[type=range]')?.disabled).toBe(false);
+      expect(drawer()?.querySelector<HTMLFieldSetElement>('fieldset')?.disabled).toBe(false);
+      // The size shows next to the preview.
+      expect(drawer()?.querySelector('.cover-size')?.textContent?.trim()).toBe('84 KB of 300 KB');
+    });
+
+    it('unlocks the controls when a recording fails', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      await loadVideo(fixture, 8);
+      capture.recordClip.mockRejectedValue(new Error('The video could not be read.'));
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The video could not be read.');
+      expect(drawer()?.querySelector<HTMLInputElement>('input[type=range]')?.disabled).toBe(false);
+    });
+
+    it('cancels a recording when the drawer closes, keeping nothing from it', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      await loadVideo(fixture, 8);
+      let finish: (blob: Blob) => void = () => undefined;
+      let signal: AbortSignal | undefined;
+      capture.recordClip.mockImplementation((_v, _s, _l, abort) => {
+        signal = abort;
+        return new Promise<Blob>((resolve) => (finish = resolve));
+      });
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      expect(signal?.aborted).toBe(false);
+      TestBed.inject(DashboardStore).closeDrawer();
+      await settle(fixture);
+      expect(signal?.aborted).toBe(true);
+      finish(new Blob([new Uint8Array(10)], { type: 'video/webm' }));
+      await settle(fixture);
+      expect(createObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('cancels a recording when the source changes, showing nothing from it', async () => {
+      const { fixture } = await openCover(withVideo);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      await loadVideo(fixture, 8);
+      let finish: (blob: Blob) => void = () => undefined;
+      let signal: AbortSignal | undefined;
+      capture.recordClip.mockImplementation((_v, _s, _l, abort) => {
+        signal = abort;
+        return new Promise<Blob>((resolve) => (finish = resolve));
+      });
+      buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
+      await settle(fixture);
+      // The controls are locked while recording, so the change comes from code, as a route change or reload would.
+      const fieldset = drawer()?.querySelector<HTMLFieldSetElement>('fieldset');
+      if (fieldset) fieldset.disabled = false;
+      await chooseSource(fixture, 'Frame of a video tale');
+      expect(signal?.aborted).toBe(true);
+      finish(new Blob([new Uint8Array(10)], { type: 'video/webm' }));
+      await settle(fixture);
+      await chooseSource(fixture, 'Animated, from a video tale');
+      expect(drawer()?.querySelector('video.cover-preview')).toBeNull();
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).not.toContain('ready');
+      expect(drawer()?.querySelector('[role=alert]')).toBeNull();
     });
 
     it('shows why a frame could not be captured', async () => {
@@ -2182,7 +2325,7 @@ describe('App', () => {
       capture.recordClip.mockResolvedValue(clip);
       buttonNamed(drawer() as HTMLElement, 'Make animated cover').click();
       await settle(fixture);
-      expect(capture.recordClip).toHaveBeenCalledWith(video, 1.5, 3);
+      expect(capture.recordClip).toHaveBeenCalledWith(video, 1.5, 3, expect.any(AbortSignal));
       expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toContain('Animated cover ready, 200 KB');
       expect(drawer()?.querySelector('video.cover-preview')).not.toBeNull();
 

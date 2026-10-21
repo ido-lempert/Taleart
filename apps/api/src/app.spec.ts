@@ -2033,6 +2033,21 @@ describe('Management API v1: projects and zones', () => {
       const etag = res.headers.get('etag') ?? '';
       expect(etag).toBe(`"${await coverKey(group.id)}"`);
       expect((await fetch(`${base}/tale-groups/${group.id}/cover`, { headers: { 'If-None-Match': etag } })).status).toBe(304);
+      // A list, weak tags and * match too; another tag does not.
+      for (const header of [`"other", ${etag}`, `W/${etag}`, '*']) {
+        expect((await fetch(`${base}/tale-groups/${group.id}/cover`, { headers: { 'If-None-Match': header } })).status).toBe(304);
+      }
+      expect((await fetch(`${base}/tale-groups/${group.id}/cover`, { headers: { 'If-None-Match': '"other"' } })).status).toBe(200);
+    });
+
+    it('answers 304 from the key alone, without reading the stored file', async () => {
+      const group = await createGroup();
+      await putCover(group.id, 'image/jpeg', jpeg);
+      const key = (await coverKey(group.id)) ?? '';
+      rmSync(join(mediaDir, key));
+      const res = await fetch(`${base}/tale-groups/${group.id}/cover`, { headers: { 'If-None-Match': `"${key}"` } });
+      expect(res.status).toBe(304);
+      expect((await fetch(`${base}/tale-groups/${group.id}/cover`)).status).toBe(404);
     });
 
     it('deletes the replaced cover file, and the removed one, and reads no cover after removal', async () => {
@@ -2134,6 +2149,47 @@ describe('Management API v1: projects and zones', () => {
       });
       expect(ended.status).toBe(200);
       expect((await getPublic(url)).status).toBe(404);
+    });
+
+    it('refuses a video cover above 300 KB while reading it, and one above 10 MB from its length', async () => {
+      const group = await createGroup();
+      for (const size of [300 * KB + 1, 10 * KB * KB + 1]) {
+        const res = await putCover(group.id, 'video/webm', webmOf(size));
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({ error: { code: 'media_too_large', message: 'An animated cover is at most 300 KB' } });
+      }
+      expect(await coverKey(group.id)).toBeNull();
+      expect(existsSync(join(mediaDir, 'covers')) ? readdirSync(join(mediaDir, 'covers')) : []).toEqual([]);
+    });
+
+    it('serves a cover publicly only while its group is placed in a zone, as the Delivery API delivers it', async () => {
+      const group = await liveGroup();
+      await putCover(group.id, 'image/jpeg', jpeg);
+      const url = (await deliveredGroups(group.key))[0].cover?.url ?? '';
+      const ok = await getPublic(url);
+      expect(ok.status).toBe(200);
+      const etag = ok.headers.get('etag') ?? '';
+
+      // Removed from its last zone: live, in its window, with a live tale, but not delivered anywhere.
+      expect((await fetch(`${base}/zones/${group.zoneId}/tale-groups/${group.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect(await deliveredGroups(group.key)).toEqual([]);
+      const gone = await getPublic(url);
+      expect([gone.status, (await gone.json()).error.code]).toEqual([404, 'media_not_found']);
+      const revalidated = await globalThis.fetch(`${origin}${new URL(url).pathname}`, { headers: { 'If-None-Match': etag } });
+      expect(revalidated.status).toBe(404);
+
+      // Placed again: public again.
+      expect((await fetch(`${base}/zones/${group.zoneId}/tale-groups/${group.id}`, { method: 'PUT' })).status).toBe(201);
+      expect((await getPublic(url)).status).toBe(200);
+    });
+
+    it('does not serve the cover of a live group with a live tale that was never placed', async () => {
+      const group = await liveGroup();
+      await putCover(group.id, 'image/jpeg', jpeg);
+      const key = (await coverKey(group.id)) ?? '';
+      await pool.query('DELETE FROM zone_tale_groups WHERE tale_group_id = $1', [group.id]);
+      const res = await globalThis.fetch(`${origin}/media/${key}`, { headers: { 'If-None-Match': `"${key}"` } });
+      expect(res.status).toBe(404);
     });
 
     it('does not serve the cover of a draft group publicly', async () => {

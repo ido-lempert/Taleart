@@ -98,6 +98,19 @@ export function isAnimatedMedia(contentType: MediaContentType, data: Buffer): bo
   }
 }
 
+/**
+ * True when an `If-None-Match` header names this strong ETag: `*`, or a
+ * comma-separated list of tags, each possibly weak (`W/"…"`), compared weakly
+ * as RFC 9110 asks for GET.
+ */
+export function etagMatches(header: string | undefined, etag: string): boolean {
+  if (!header) return false;
+  return header.split(',').some((tag) => {
+    const value = tag.trim();
+    return value === '*' || value.replace(/^W\//, '') === etag;
+  });
+}
+
 const EXTENSIONS: Record<MediaContentType, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
