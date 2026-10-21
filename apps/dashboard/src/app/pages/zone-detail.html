@@ -20,9 +20,21 @@
           </button>
         </div>
         @if (frames().length > 0) {
-          <ul class="pill-list" [attr.aria-label]="'Frames in ' + zone.name">
-            @for (frame of frames(); track frame.id) {
-              <li class="pill">{{ store.frameTypeLabel(frame.type) }}</li>
+          <ul class="frame-list" [attr.aria-label]="'Frames in ' + zone.name">
+            @for (frame of frames(); track frame.id; let fi = $index) {
+              <li class="frame-row">
+                <span class="pill" [id]="'frame-name-' + frame.id">{{ store.frameTypeLabel(frame.type) }}</span>
+                @if (store.hasSettings(frame.type)) {
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    [attr.aria-label]="'Settings of frame ' + (fi + 1) + ', ' + store.frameTypeLabel(frame.type)"
+                    (click)="store.openDrawer({ kind: 'frameSettings', zoneId: zone.id, frameId: frame.id }, $event)"
+                  >
+                    <app-icon name="settings" /> <span class="btn__label">Settings</span>
+                  </button>
+                }
+              </li>
             }
           </ul>
         } @else {

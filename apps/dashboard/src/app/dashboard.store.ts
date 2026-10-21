@@ -35,6 +35,7 @@ export type DrawerRequest =
   | { kind: 'invite'; projectId: string }
   | { kind: 'zone' }
   | { kind: 'frame'; zoneId: string }
+  | { kind: 'frameSettings'; zoneId: string; frameId: string }
   | { kind: 'taleGroup'; zoneId: string }
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
@@ -155,6 +156,17 @@ export class DashboardStore {
 
   framesOf(zoneId: string): Frame[] {
     return this.frames()[zoneId] ?? [];
+  }
+
+  /** The registry entry of a frame type, with its settings schema, if the API listed it. */
+  frameType(key: string): FrameType | undefined {
+    return this.frameTypes().find((t) => t.key === key);
+  }
+
+  /** True when the frame type's schema has fields to edit. */
+  hasSettings(key: string): boolean {
+    const properties = (this.frameType(key)?.schema as { properties?: object } | undefined)?.properties;
+    return !!properties && Object.keys(properties).length > 0;
   }
 
   taleGroupsOf(zoneId: string): ZoneTaleGroup[] {
@@ -353,6 +365,26 @@ export class DashboardStore {
       return apiErrorMessage(err, 'Frame was not saved. Choose a frame type.');
     }
     await this.refresh();
+    return '';
+  }
+
+  /** Replaces a frame's settings; the API validates them against the frame type's schema (AD-5). */
+  async updateFrameSettings(zoneId: string, frameId: string, settings: Record<string, unknown>): Promise<string> {
+    let saved: Frame;
+    try {
+      saved = await firstValueFrom(
+        this.http.patch<Frame>(
+          `${API_BASE}/zones/${encodeURIComponent(zoneId)}/frames/${encodeURIComponent(frameId)}`,
+          { settings },
+        ),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'Settings were not saved. Try again.');
+    }
+    this.frames.update((all) => ({
+      ...all,
+      [zoneId]: (all[zoneId] ?? []).map((frame) => (frame.id === saved.id ? saved : frame)),
+    }));
     return '';
   }
 
