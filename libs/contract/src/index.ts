@@ -111,6 +111,7 @@ export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: The
 export * from './lib/theme';
 export * from './lib/playbooks';
 export * from './lib/tale-document';
+export * from './lib/text-style';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;

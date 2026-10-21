@@ -166,6 +166,75 @@ describe('checkTaleDocument', () => {
   });
 });
 
+describe('checkTaleDocument: text style (story 7.4)', () => {
+  const styled = (props: Record<string, unknown>) => doc([text(1, 'Hello', { props: { text: 'Hello', ...props } })]);
+  const at = '/elements/0/props';
+
+  it('accepts every setting, each font source, and text without any style', () => {
+    const style = {
+      font: { source: 'name', family: '"Open Sans", Inter' },
+      fallback: 'serif',
+      size: 0.12,
+      weight: 'bold',
+      italic: true,
+      color: '#ff0000cc',
+      align: 'start',
+      direction: 'rtl',
+      lineHeight: 1.6,
+      background: 'highlight',
+      backgroundColor: '#ffcc00',
+    };
+    expect(checkTaleDocument(styled(style))).toEqual(styled(style));
+    expect(() => checkTaleDocument(styled({ font: { source: 'system', stack: 'monospace' } }))).not.toThrow();
+    expect(() => checkTaleDocument(styled({ font: { source: 'theme' }, fallback: 'rounded' }))).not.toThrow();
+    for (const size of [0.01, 0.03, 0.04, 0.06, 0.2]) expect(() => checkTaleDocument(styled({ size }))).not.toThrow();
+    for (const direction of ['auto', 'ltr']) expect(() => checkTaleDocument(styled({ direction }))).not.toThrow();
+  });
+
+  it.each([
+    ['inherit', { source: 'name', family: 'inherit' }, `${at}/font/family`],
+    ['a CSS-wide keyword in a list', { source: 'name', family: 'Inter, initial' }, `${at}/font/family`],
+    ['a declaration', { source: 'name', family: 'x;color:red' }, `${at}/font/family`],
+    ['url()', { source: 'name', family: 'url(x)' }, `${at}/font/family`],
+    ['a name over 200 characters', { source: 'name', family: 'a'.repeat(201) }, `${at}/font/family`],
+    ['a name source without a family', { source: 'name' }, `${at}/font/family`],
+    ['an unknown stack', { source: 'system', stack: 'fantasy' }, `${at}/font/stack`],
+    ['a system source with a family', { source: 'system', stack: 'serif', family: 'Inter' }, `${at}/font/family`],
+    ['a theme source with a stack', { source: 'theme', stack: 'serif' }, `${at}/font/stack`],
+    ['an unknown source', { source: 'project' }, `${at}/font/source`],
+    ['an unknown font field', { source: 'theme', url: 'x' }, `${at}/font/url`],
+  ])('refuses a font of %s', (_, font, pointer) => {
+    expect(refusal(styled({ font }))).toBe(pointer);
+  });
+
+  it.each([
+    ['color', 'red; background:url(x)'],
+    ['color', 'red'],
+    ['color', '#12345'],
+    ['color', '<b>x</b>'],
+    ['backgroundColor', 'url(x)'],
+    ['size', 0],
+    ['size', 0.005],
+    ['size', 0.5],
+    ['size', 'big'],
+    ['lineHeight', 0.5],
+    ['lineHeight', 4],
+    ['weight', 'heavy'],
+    ['italic', 'yes'],
+    ['align', 'left'],
+    ['direction', 'up'],
+    ['background', 'gradient'],
+    ['fallback', 'inherit'],
+    ['shadow', '0 0 2px red'],
+  ])('refuses %s %j, naming it', (field, value) => {
+    expect(refusal(styled({ [field]: value }))).toBe(`${at}/${field}`);
+  });
+
+  it('refuses a size of Infinity as not finite', () => {
+    expect(refusal(styled({ size: Infinity }))).toBe(`${at}/size`);
+  });
+});
+
 describe('deliverableTaleDocument', () => {
   it('drops hidden elements and the editor-only fields', () => {
     const delivered = deliverableTaleDocument(

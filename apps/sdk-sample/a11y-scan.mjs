@@ -173,7 +173,8 @@ try {
     const canvas = root.querySelector('dialog .ta-canvas').getBoundingClientRect();
     const box = p.getBoundingClientRect();
     return {
-      markup: p.querySelector(':not(.ta-glyphs)') !== null,
+      // Only the renderer's own line and glyph spans (story 7.4), never markup from the text.
+      markup: p.querySelector(':not(.ta-line, .ta-glyphs)') !== null,
       upperThird: box.top >= canvas.top && box.bottom <= canvas.top + canvas.height / 3,
       ratio: canvas.width / canvas.height,
       // The media is framed as for a tale without a document: full-bleed in the stage.

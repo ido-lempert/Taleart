@@ -1331,3 +1331,41 @@ select {
   font-weight: 600;
   color: var(--danger-text);
 }
+
+/* Tale Studio's text style inspector (story 7.4). */
+app-tale-text-style {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.text-style,
+.text-style__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.text-style__group {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.text-style__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.text-style__contrast {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.text-style__contrast:empty {
+  display: none;
+}
+.text-style__contrast.is-warning {
+  font-weight: 600;
+  color: var(--danger-text);
+}

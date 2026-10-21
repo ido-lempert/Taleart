@@ -3,6 +3,7 @@ import {
   ELEMENT_TEXT_RULE,
   ErrorCodes,
   hasDisallowedCharacter,
+  isFontFamily,
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
@@ -103,6 +104,12 @@ const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
         `${pointer}/text`,
         'may not hold control characters other than a line feed, lone surrogates or bidi overrides',
       );
+    }
+    // The schema's pattern states the theme's font-list rules; the contract's own check runs too,
+    // so a font name reaches CSS only when both agree (R14).
+    const font = props['font'] as { source?: unknown; family?: unknown } | undefined;
+    if (font?.source === 'name' && !isFontFamily(font.family)) {
+      throw new InvalidTaleDocumentError(`${pointer}/font/family`, 'must be a font-family list the theme accepts');
     }
   },
 };
