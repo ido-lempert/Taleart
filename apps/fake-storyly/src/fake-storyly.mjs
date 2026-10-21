@@ -161,8 +161,9 @@ function sendList(res, mode, body, origin) {
  * the base URL of its media (`mediaUrl`), the port, `close()`, and `control`:
  * - `failInstances`, `failStoryGroups`, `failStories`, `failSegments`: 'status'
  *   answers that list with a 500, 'shape' with an unexpected shape; null serves it.
- * - `data.storyGroups` (by instance id) and `data.stories` (by story group
- *   id) and `data.segments` (the labels list, by app id): the served lists,
+ * - `data.instances` (by app id), `data.storyGroups` (by instance id) and
+ *   `data.stories` (by story group id) and `data.segments` (the labels list,
+ *   by app id): the served lists,
  *   which tests may change; `reset()` restores the
  *   fixtures and clears the failure switches.
  * - `delayMs`: how long each answer waits, so a review can watch an import
@@ -171,7 +172,6 @@ function sendList(res, mode, body, origin) {
  */
 export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
   const apps = readFixture('apps.json');
-  const instances = readFixture('instances.json');
   const control = {
     failInstances: null,
     failStoryGroups: null,
@@ -187,6 +187,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       control.failSegments = null;
       control.delayMs = 0;
       control.data = {
+        instances: readFixture('instances.json'),
         storyGroups: readFixture('story-groups.json'),
         stories: readFixture('stories.json'),
         segments: readFixture('segments.json'),
@@ -228,7 +229,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       return;
     }
     if (path === '/instance') {
-      sendList(res, control.failInstances, instances[url.searchParams.get('app_id') ?? ''], origin);
+      sendList(res, control.failInstances, control.data.instances[url.searchParams.get('app_id') ?? ''], origin);
       return;
     }
     if (path === '/story-group') {

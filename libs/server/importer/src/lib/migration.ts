@@ -32,6 +32,8 @@ export async function migrateImporter(db: Db): Promise<void> {
   await db.query('ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0');
   // How far a job got per entity type, written by its runner while it runs (R5).
   await db.query('ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS progress jsonb');
+  // What the admin picked to import: zones by source id and entity types; NULL takes everything.
+  await db.query('ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS selection jsonb');
   await db.query(
     "CREATE INDEX IF NOT EXISTS import_jobs_queued_idx ON import_jobs (created_at) WHERE status = 'queued'",
   );
