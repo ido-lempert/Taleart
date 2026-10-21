@@ -1,24 +1,40 @@
 import type { ImportCount, TaleGroupTag } from '@taleart/contract';
 import type { TransactionalDb } from '@taleart/server-access';
-import { addTaleGroupTagsByName, ensureTags } from '@taleart/server-targeting';
-import { labelOutcome, type LabelOutcome } from './labels';
+import { addTaleGroupTagsByName, ensureTags, InvalidTagNameError } from '@taleart/server-targeting';
+import { labelOutcome, MAX_IMPORT_TAGS, type LabelOutcome } from './labels';
 import type { ReportText } from './record-shape';
 
 /** The most label names one merge note quotes; the rest are counted. */
 const MERGE_NOTE_NAMES = 5;
+/** The most merge notes one report holds; one more note counts the rest. */
+export const MAX_MERGE_NOTES = 50;
+
+/**
+ * True for an error a label's own text causes in the database (a data
+ * exception or a check): the label is not imported, but the job goes on.
+ */
+export function isLabelError(err: unknown): boolean {
+  if (err instanceof InvalidTagNameError) return true;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && (code.startsWith('22') || code === '23514');
+}
 
 /**
  * Brings an import's labels across as tags of its project, through the
- * targeting module (AD-1), and counts them for the report. A label is counted
- * once per distinct text (trimmed, in its case), and a value that is not text
- * once per occurrence; it is imported once a tag of the project carries it.
- * Tags are found by name ignoring case, or created, so a re-run or an
- * existing tag never makes a second one; nothing is ever removed.
+ * targeting module (AD-1), and counts them for the report per occurrence:
+ * every label read is a source label, imported once a tag of the project
+ * carries its name, else skipped. Tags are found by name ignoring case, or
+ * created, so a re-run or an existing tag never makes a second one; nothing
+ * is ever removed. At most {@link MAX_IMPORT_TAGS} distinct tags per import.
  */
 export class LabelImport {
-  // Each distinct label text read, with the id of the tag that carries it once known.
-  private readonly texts = new Map<string, string | null>();
-  private notText = 0;
+  private source = 0;
+  // Each tag name used, with how many label occurrences it stands for.
+  private readonly occurrences = new Map<string, number>();
+  // The tag that carries each name, once found or created.
+  private readonly tagOf = new Map<string, string>();
+  // Names refused by the per-import tag limit.
+  private readonly refused = new Set<string>();
   // Each tag's name and the distinct label texts it carries, for the merge notes.
   private readonly tags = new Map<string, { name: string; labels: Set<string> }>();
 
@@ -29,15 +45,39 @@ export class LabelImport {
 
   /** Counts one label as read and says what it becomes: a tag name, or why it cannot. */
   read(text: string | null): LabelOutcome {
-    if (text === null) this.notText++;
-    else if (!this.texts.has(text.trim())) this.texts.set(text.trim(), null);
+    this.source++;
     return labelOutcome(text);
+  }
+
+  /** Counts labels that were not read (past a limit, or a repeated record): source and skipped. */
+  uncounted(count: number): void {
+    this.source += count;
+  }
+
+  /** One read label whose name is to be carried by a tag: it counts as imported once that tag exists. */
+  use(name: string): void {
+    this.occurrences.set(name, (this.occurrences.get(name) ?? 0) + 1);
+  }
+
+  // The names that may be found or created: known ones, and new ones while the import's tag limit allows.
+  private allowed(names: readonly string[]): string[] {
+    const known = new Set(this.tagOf.keys());
+    const allowed: string[] = [];
+    for (const name of names) {
+      if (known.has(name)) allowed.push(name);
+      else if (known.size < MAX_IMPORT_TAGS) {
+        known.add(name);
+        allowed.push(name);
+      } else this.refused.add(name);
+    }
+    return allowed;
   }
 
   /** Finds or creates the project's tags for these names. */
   async ensure(names: readonly string[]): Promise<void> {
-    if (names.length === 0) return;
-    this.carried(names, await ensureTags(this.db, this.projectId, names));
+    const allowed = this.allowed(names);
+    if (allowed.length === 0) return;
+    this.carried(allowed, await ensureTags(this.db, this.projectId, allowed));
   }
 
   /**
@@ -45,8 +85,9 @@ export class LabelImport {
    * Throws the targeting module's TaleGroupNotFoundError when the group is gone.
    */
   async addToGroup(taleGroupId: string, names: readonly string[]): Promise<void> {
-    if (names.length === 0) return;
-    this.carried(names, await addTaleGroupTagsByName(this.db, taleGroupId, names));
+    const allowed = this.allowed(names);
+    if (allowed.length === 0) return;
+    this.carried(allowed, await addTaleGroupTagsByName(this.db, taleGroupId, allowed));
   }
 
   // Records which tag carries each name, in the order the names were read.
@@ -54,34 +95,54 @@ export class LabelImport {
     for (const name of names) {
       const tag = byName.get(name);
       if (tag === undefined) continue;
-      this.texts.set(name, tag.id);
+      this.tagOf.set(name, tag.id);
       const entry = this.tags.get(tag.id) ?? { name: tag.name, labels: new Set<string>() };
       entry.labels.add(name);
       this.tags.set(tag.id, entry);
     }
   }
 
-  /** The report's tag counts: source = imported + skipped. */
+  /** The report's tag counts, per occurrence: source = imported + skipped. */
   count(): ImportCount {
-    const source = this.texts.size + this.notText;
-    const imported = [...this.texts.values()].filter((tagId) => tagId !== null).length;
-    return { source, imported, skipped: source - imported };
+    let imported = 0;
+    for (const [name, count] of this.occurrences) if (this.tagOf.has(name)) imported += count;
+    return { source: this.source, imported, skipped: this.source - imported };
   }
 
   /** True once any label was read. */
   get anyRead(): boolean {
-    return this.texts.size + this.notText > 0;
+    return this.source > 0;
   }
 
-  /** One note per tag that carries labels differing only in case: Storyly tells them apart, TaleArt does not. */
-  mergeNotes(text: ReportText): string[] {
+  /**
+   * One note per tag that carries labels differing only in case (Storyly tells
+   * them apart, TaleArt does not), at most {@link MAX_MERGE_NOTES} and one
+   * counting the rest; and one note for labels past the import's tag limit.
+   */
+  notes(text: ReportText): string[] {
     const notes: string[] = [];
+    let moreMerged = 0;
     for (const { name, labels } of this.tags.values()) {
       if (labels.size < 2) continue;
+      if (notes.length >= MAX_MERGE_NOTES) {
+        moreMerged++;
+        continue;
+      }
       const all = [...labels];
       const quoted = all.slice(0, MERGE_NOTE_NAMES).map((label) => `"${text(label)}"`);
       if (all.length > MERGE_NOTE_NAMES) quoted.push(`${all.length - MERGE_NOTE_NAMES} more`);
       notes.push(`Tag "${text(name)}": labels ${quoted.join(', ')} became one tag, since tag names ignore case`);
+    }
+    if (moreMerged > 0) {
+      notes.push(`Tags: ${moreMerged} more tag(s) each carry labels that differ only in case`);
+    }
+    if (this.refused.size > 0) {
+      let count = 0;
+      for (const name of this.refused) count += this.occurrences.get(name) ?? 0;
+      notes.push(
+        `Tags: ${count} label(s) with ${this.refused.size} more name(s) were not imported, ` +
+          `since one import makes at most ${MAX_IMPORT_TAGS} tags`,
+      );
     }
     return notes;
   }

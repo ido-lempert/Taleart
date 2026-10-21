@@ -11,4 +11,4 @@ export {
   setTaleGroupTags,
   tagsForTaleGroups,
 } from './lib/tags';
-export { InvalidTagNameError, TagExistsError, TagNotFoundError } from './lib/errors';
+export { InvalidTagNameError, TagExistsError, TagNotFoundError, TagProjectNotFoundError } from './lib/errors';

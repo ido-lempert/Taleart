@@ -3,14 +3,14 @@ title: 'Import labels as tags on tale groups'
 type: 'feature'
 ticket: '8'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '7081607'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'thorough'
+review_source: 'pinned'
+lenses_ran: ['coordinator']
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -97,8 +97,9 @@ deferred: []
 - Assumptions (story 3 is frozen): the labels list is `GET /segment?app_id=`, a list of `{id, name}` records or bare strings; a group's `segments` is a list of strings (or a JSON string of one). Both come from the digests ("segments (JSON string)", "Segments are string labels") and are guesses. Object items are read through `name`, `title`, `value` or `label`. An object `segments` value (for example include/exclude lists) is a `wrongType` difference, not interpreted.
 - Both sources become tags, following the epic decision ("the values of the story group `segments` field and segments endpoint become TaleArt tags"): a label only in the list becomes a tag on no group (Demo shop's `returning`).
 - A labels list that cannot be read (error status, unreachable, not a list, or a refused token on that path only) adds a note and the import goes on with the groups' labels, since the path is a guess. Every other list still fails the job, as before.
-- A label longer than 40 characters is skipped with `tooLong`, not cut: a cut name could collide with another label and change who sees a group.
-- Counting: a label is one distinct trimmed text in its own case, so `Summer` and `summer` count as two source labels, both imported as one tag, with one note naming them (at most 5 names quoted). A non-text value counts once per occurrence. Blank texts share one key (`''`). source = imported + skipped.
+- A label longer than 40 characters is skipped with `tooLong`, not cut: a cut name could collide with another label and change who sees a group. A label holding a control character is skipped with `invalidCharacters`; `normalizeTagName` refuses control characters, so manual tag creation refuses them too (400 `validation_failed`).
+- Of labels differing only in case, the tag takes the spelling first by `lower(name), name` in the database's collation (the insert order), or keeps an existing tag's spelling.
+- Counting (changed by the review, see the triage log): per occurrence. Every label read (each labels-list entry, each `segments` value) is a source label; it is imported once a project tag carries its name, else skipped. Each skipped label is one difference, or is counted in `differencesOmitted` (per-record cap or report budget), or in a note (a repeated list record, a label past an import limit, labels the database refused). `Summer` and `summer` are two source labels imported as one tag, with one note (at most 5 names quoted).
 - Tags hold no import links: the name ignoring case is their identity, so a re-run finds the same tag. A label renamed at the source becomes a new tag on the next run; the old tag stays on the group (nothing is removed).
 - Re-run: tags are only added. A tag a person added stays. A tag a person removed from an imported group comes back on the next run, because there is no record of what the import added; story 7 (re-import updates) can decide otherwise.
 - Differences: label problems are listed under the new entity `tag`; group-list label differences are listed right after the group list (they are part of those records); list-record differences come after the instance list. `ImportDifference.reason` is now `ImportMediaFailure | ImportTagFailure`.
@@ -110,6 +111,19 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- verdicts: 9 findings, all patched
+- findings:
+  - `[patch]` Label differences bypassed the 50-per-record cap. Fixed: a group's `segments` and label differences share the group record's cap (its shape differences included); the rest go to `differencesOmitted`. Test: a group of 3,000 bad labels.
+  - `[patch]` A NUL in a label failed the job. Fixed: `normalizeTagName` refuses control characters (new reason `invalidCharacters`; manual tags refused too); `storedText` shows control characters as U+FFFD so jsonb can store any report; errors a label's text causes in the database (class 22, 23514, `InvalidTagNameError`) become notes around each ensure and add. Tests: unit, an API import with NUL, BEL and DEL labels, a 400 on a manual tag.
+  - `[patch]` Concurrent find-or-create could deadlock. Fixed: `INSERT … ORDER BY lower(name), name` shared by `ensureTags`, `addTaleGroupTagsByName` and `copyTaleGroupTags`; a `40P01` is retried once. Tests: SQL order, retry, and an API test of concurrent ensures in reversed orders.
+  - `[patch]` Unbounded volumes. Fixed: 10,000 labels-list entries, 500 values per `segments`, 1,000 distinct tags per import, 100 tags per group, 50 merge notes plus one counting the rest, 256 KB `segments` JSON; the excess is counted and noted, not built. `StorylyClient` reads at most 20 MB per response (declared length checked first, then while streaming). Tests per limit.
+  - `[patch]` Counts did not match the differences. Fixed: counted per occurrence (see Implementation Notes and the contract text); a list record without an id but with a usable name now becomes a tag, keeping its `invalidRecord`. Tests.
+  - `[patch]` Labels-list records were not deduped by id. Fixed: listed through `differences.addList`; a repeat is counted skipped with a note. Test.
+  - `[patch]` Dashboard hard-coded 40. Fixed: interpolates `MAX_TAG_NAME_LENGTH`; adds the `invalidCharacters` text.
+  - `[patch]` Lines over 120 columns in new code and tests. Fixed: wrapped.
+  - `[patch]` `addTaleGroupTagsByName` mapped every 23503 to a deleted group. Fixed: by constraint name, a deleted project is `TagProjectNotFoundError`, a deleted group `TaleGroupNotFoundError`, anything else passes through. Tests.
 
 ## Verification
 
@@ -128,9 +142,9 @@ deferred: []
 - `apps/api/src/app.spec.ts`: 8 integration tests (Demo shop, reused tag, re-run with a TaleArt tag, odd labels, list failures x2, token), updated expectations.
 - `apps/dashboard/src/app/pages/`: Tags row and difference text; component test.
 
-**Review:** not run (unreviewed build).
+**Review:** coordinator review, 9 findings, all patched (see Review Triage Log).
 
-**Follow-up review recommended:** true. Label shapes and the `/segment` path are guesses, and the re-add of tags removed in TaleArt should be confirmed with story 7.
+**Follow-up review recommended:** false. Label shapes and the `/segment` path stay guesses until story 3, and the re-add of tags removed in TaleArt should be confirmed with story 7.
 
 **Verification:** on the tree merged with `autopilot/foundation` (7081607), `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` passed for all 12 projects against `taleart_w3_test`: api 313, dashboard 192, server-importer 158, server-targeting 19, fake-storyly 13 tests. The only warning is the existing dashboard bundle budget warning.
 

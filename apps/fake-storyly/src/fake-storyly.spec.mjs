@@ -157,7 +157,7 @@ describe('fake Storyly server', () => {
     await declared.body.cancel();
   });
 
-  it("lists an app's labels and its story groups' labels, with Label shop's odd ones, and fails the list on request", async () => {
+  it("lists an app's labels and its groups' labels, with Label shop's odd ones, and fails on request", async () => {
     const demo = await (await get('/segment?app_id=1001', bearer)).json();
     expect(demo.data.map((l) => l.name)).toEqual(['summer', 'new', 'vip', 'returning']);
     const home = await (await get('/story-group?instance_id=2001', bearer)).json();
@@ -167,7 +167,13 @@ describe('fake Storyly server', () => {
     expect(odd.data).toHaveLength(8);
     expect(odd.data[0]).toBe('Loyal');
     const wall = await (await get('/story-group?instance_id=2401', bearer)).json();
-    expect(wall.data.map((g) => g.title)).toEqual(['Case twins', 'Odd labels', 'JSON labels', 'Bad segments', 'No labels']);
+    expect(wall.data.map((g) => g.title)).toEqual([
+      'Case twins',
+      'Odd labels',
+      'JSON labels',
+      'Bad segments',
+      'No labels',
+    ]);
     expect(typeof wall.data[2].segments).toBe('string');
     expect(await (await get('/segment?app_id=1003', bearer)).json()).toEqual({ data: [] });
 

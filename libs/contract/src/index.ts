@@ -160,13 +160,24 @@ export function zoneKeyPrefix(key: string): string {
 /** The most characters a tag name holds, after trimming. */
 export const MAX_TAG_NAME_LENGTH = 40;
 
+/** True when the text holds a control character (U+0000 to U+001F, U+007F), which a tag name may not hold. */
+export function hasControlCharacter(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
 /**
- * A tag name as it is stored: trimmed. Null when it is blank or longer than
- * {@link MAX_TAG_NAME_LENGTH} characters (counted as code points, as PostgreSQL does).
+ * A tag name as it is stored: trimmed. Null when it is blank, longer than
+ * {@link MAX_TAG_NAME_LENGTH} characters (counted as code points, as PostgreSQL does),
+ * or holds a control character.
  */
 export function normalizeTagName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const name = value.trim();
+  if (hasControlCharacter(name)) return null;
   const length = [...name].length;
   return length >= 1 && length <= MAX_TAG_NAME_LENGTH ? name : null;
 }

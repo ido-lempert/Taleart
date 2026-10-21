@@ -21,8 +21,8 @@ import {
 } from '@taleart/server-tales';
 import { createZone, zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { decryptToken } from './crypto';
-import { LabelImport } from './label-import';
-import { groupLabels, labelText } from './labels';
+import { isLabelError, LabelImport } from './label-import';
+import { groupLabels, labelText, MAX_GROUP_LABELS, MAX_GROUP_TAGS, MAX_LABEL_LIST_ENTRIES } from './labels';
 import { inTransaction } from './transaction';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import {
@@ -45,11 +45,12 @@ import {
   type TaleMediaImport,
 } from './media-copy';
 import type { MediaFetchPolicy } from './media-fetch';
-import { storedText, type DifferenceBudget, type ReportText } from './record-shape';
+import { MAX_DIFFERENCES_PER_RECORD, storedText, type DifferenceBudget, type ReportText } from './record-shape';
 import {
   recordsOf,
   StorylyClient,
   type CheckedEntry,
+  type CheckedLabelList,
   type CheckedList,
   type SourceInstance,
   type SourceLabel,
@@ -166,13 +167,14 @@ function differenceList(report: ImportReport, budget: DifferenceBudget | undefin
     }
     addEntry({ differences: [difference], omitted: 0 }, null);
   };
-  const addList = <T extends { id: string }>(
+  // Records without an id (a bare label) are never taken for repeats.
+  const addList = <T extends { id: string | null }>(
     checked: CheckedList<T>,
     listed: Set<string>,
     parent: DifferenceParent | null,
   ) => {
     for (const entry of checked.entries) {
-      if (entry.record !== null) {
+      if (entry.record !== null && entry.record.id !== null) {
         if (listed.has(entry.record.id)) {
           // A repeated record is listed once: what its check drew from the budget goes back.
           if (budget) budget.remaining += entry.differences.length;
@@ -183,7 +185,7 @@ function differenceList(report: ImportReport, budget: DifferenceBudget | undefin
       addEntry(entry, parent);
     }
   };
-  return { addEntry, addList, addOne };
+  return { addEntry, addList, addOne, omit };
 }
 
 /** A link appeared while this import was creating the record: roll the creation back. */
@@ -325,33 +327,66 @@ export async function importContent(
     sourceField: null,
     reason,
   });
+  // Saves labels as tags; an error the labels' own text causes is a note, never a failed job.
+  const saveLabels = async (save: () => Promise<void>, where: string) => {
+    try {
+      await save();
+    } catch (err) {
+      if (!isLabelError(err)) throw err;
+      report.notes.push(`${where}: labels could not be saved as tags, so they were not imported`);
+    }
+  };
   if (labels && options.labels) {
     // The app's labels list. Its path and shape are guesses until the real run, so a list that cannot be read
     // leaves the tags to the story groups' labels instead of failing the import.
     try {
-      const labelList = checkedOf(await options.labels());
+      const labelList = await options.labels();
+      const checked = checkedOf(labelList);
+      const beyond = Array.isArray(labelList) ? 0 : ((labelList as Partial<CheckedLabelList>).beyond ?? 0);
+      // Each record listed once by id, like every other list.
+      differences.addList(checked, new Set(), null);
+      const seen = new Set<string>();
+      let repeated = 0;
       const names: string[] = [];
-      labelList.entries.forEach((entry, index) => {
-        differences.addEntry(entry, null);
+      checked.entries.forEach((entry, index) => {
         const record = entry.record;
-        // An unreadable record, or one whose name is absent or not text, is already a difference of the record.
-        if (record === null || (!record.bare && typeof record.label !== 'string')) {
-          labels.read(null);
+        if (record !== null && record.id !== null) {
+          if (seen.has(record.id)) {
+            repeated++;
+            labels.uncounted(1);
+            return;
+          }
+          seen.add(record.id);
+        }
+        // An unreadable record is already listed as one.
+        const outcome = labels.read(record === null ? null : record.text);
+        if ('name' in outcome) {
+          labels.use(outcome.name);
+          names.push(outcome.name);
           return;
         }
-        const label = typeof record.label === 'string' ? record.label : null;
-        const outcome = labels.read(label);
-        if ('name' in outcome) names.push(outcome.name);
-        else {
-          const sourceId = record.id === null ? null : text(record.id);
-          const at = { sourceId, within: null, withinSourceId: null, position: index + 1 };
-          differences.addOne(labelDifference(label, outcome.reason, 'name', at));
+        // A record whose own difference covers its label gets no second one.
+        if (record === null || record.reported) return;
+        if (entry.differences.length + entry.omitted >= MAX_DIFFERENCES_PER_RECORD) {
+          differences.omit(1);
+          return;
         }
+        const at = { sourceId: record.id === null ? null : text(record.id), within: null, withinSourceId: null };
+        differences.addOne(labelDifference(record.text, outcome.reason, 'name', { ...at, position: index + 1 }));
       });
-      await labels.ensure([...new Set(names)]);
+      if (beyond > 0) {
+        labels.uncounted(beyond);
+        report.notes.push(
+          `Tags: ${beyond} label(s) past the first ${MAX_LABEL_LIST_ENTRIES} of the labels list were not read`,
+        );
+      }
+      if (repeated > 0) report.notes.push(`Tags: ${repeated} repeated label record(s) of the labels list were skipped`);
+      await saveLabels(() => labels.ensure([...new Set(names)]), 'Tags');
     } catch (err) {
       if (!(err instanceof StorylyUnavailableError || err instanceof StorylyTokenInvalidError)) throw err;
-      report.notes.push(`Tags: the labels list could not be read (${text(err.message)}), so tags come from story groups only`);
+      report.notes.push(
+        `Tags: the labels list could not be read (${text(err.message)}), so tags come from story groups only`,
+      );
     }
   }
   // Each story group's labels, read once per group id: the tag names it carries.
@@ -396,10 +431,20 @@ export async function importContent(
         const group = entry.record;
         if (group === null || labelGroups.has(group.id)) return;
         labelGroups.add(group.id);
-        const { values, wrongType } = groupLabels(group.segments);
+        const name = groupName(group);
+        // The group record's differences stay within the per-record cap; the rest are only counted.
+        let room = MAX_DIFFERENCES_PER_RECORD - entry.differences.length - entry.omitted;
+        const add = (difference: ImportDifference) => {
+          if (room <= 0) differences.omit(1);
+          else {
+            room--;
+            differences.addOne(difference);
+          }
+        };
+        const { values, beyond, wrongType } = groupLabels(group.segments);
         if (wrongType) {
           const title = group.name.trim();
-          differences.addOne({
+          add({
             entity: 'taleGroup',
             record: {
               sourceId: text(group.id),
@@ -412,18 +457,34 @@ export async function importContent(
             sourceField: null,
           });
         }
-        const parent = parentOf(groupName(group), group.id);
-        const own: string[] = [];
+        const parent = parentOf(name, group.id);
+        const kept = new Set<string>();
+        let dropped = 0;
         for (const { position, value } of values) {
           const label = labelText(value);
           const outcome = labels.read(label);
-          if ('name' in outcome) own.push(outcome.name);
-          else differences.addOne(labelDifference(label, outcome.reason, 'segments', { sourceId: null, ...parent, position }));
+          if ('reason' in outcome) {
+            add(labelDifference(label, outcome.reason, 'segments', { sourceId: null, ...parent, position }));
+          } else if (kept.has(outcome.name) || kept.size < MAX_GROUP_TAGS) {
+            kept.add(outcome.name);
+            labels.use(outcome.name);
+          } else dropped++;
         }
-        groupTagNames.set(group.id, [...new Set(own)]);
-        names.push(...own);
+        if (beyond > 0) {
+          labels.uncounted(beyond);
+          report.notes.push(
+            `Tale group "${text(name)}": ${beyond} label(s) past the first ${MAX_GROUP_LABELS} were not read`,
+          );
+        }
+        if (dropped > 0) {
+          report.notes.push(
+            `Tale group "${text(name)}": ${dropped} label(s) past its first ${MAX_GROUP_TAGS} tags were not imported`,
+          );
+        }
+        groupTagNames.set(group.id, [...kept]);
+        names.push(...kept);
       });
-      await labels.ensure([...new Set(names)]);
+      await saveLabels(() => labels.ensure([...new Set(names)]), `Story groups of zone "${text(zoneName)}"`);
     }
     let groupsWithoutZone = 0;
     for (const group of groups) {
@@ -482,8 +543,13 @@ export async function importContent(
         try {
           await labels.addToGroup(taleGroupId, groupTagNames.get(group.id) ?? []);
         } catch (err) {
-          if (!(err instanceof TaleGroupNotFoundError)) throw err;
-          report.notes.push(`Tale group "${text(name)}": it was deleted during the import, so its tags were not added`);
+          if (err instanceof TaleGroupNotFoundError) {
+            report.notes.push(
+              `Tale group "${text(name)}": it was deleted during the import, so its tags were not added`,
+            );
+          } else if (isLabelError(err)) {
+            report.notes.push(`Tale group "${text(name)}": its labels could not be saved as tags, so none were added`);
+          } else throw err;
         }
       }
 
@@ -557,7 +623,7 @@ export async function importContent(
   }
   if (labels) {
     report.tags = labels.count();
-    report.notes.push(...labels.mergeNotes(text));
+    report.notes.push(...labels.notes(text));
     // The mapping table: how labels combine is not carried.
     if (labels.anyRead) report.notes.push('Tags: whether labels combine with AND or OR is not imported');
   }

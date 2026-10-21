@@ -321,7 +321,7 @@ export interface paths {
         put?: never;
         /**
          * Create a tag in a project.
-         * @description The name is trimmed and holds 1 to 40 characters (400 `validation_failed` otherwise). Names are unique per project ignoring case; a taken name answers 409 `tag_exists`. Unknown project 404 `project_not_found`.
+         * @description The name is trimmed and holds 1 to 40 characters and no control characters (400 `validation_failed` otherwise). Names are unique per project ignoring case; a taken name answers 409 `tag_exists`. Unknown project 404 `project_not_found`.
          */
         post: operations["createTag"];
         delete?: never;
@@ -1439,7 +1439,7 @@ export interface components {
             tales?: components["schemas"]["ImportCount"];
             /** @description Tale media: the imported tales whose story names media, how many hold it now, and how many do not (each listed as a difference or a note). Absent in reports of imports made before media was copied. */
             media?: components["schemas"]["ImportCount"];
-            /** @description Labels as tags: the distinct label texts read from the labels list and the story groups, how many are carried by a tag of the project now, and how many could not become a tag (each listed as a difference). Absent in reports of imports made before labels were imported. */
+            /** @description Labels as tags, counted per occurrence: every label read (each entry of the labels list and each value of a story group's segments), how many are carried by a tag of the project now, and how many are not. Each skipped label is listed as a difference, counted in differencesOmitted when its record or the report is full, or counted in a note (a repeated list record, or a label past an import limit). Absent in reports of imports made before labels were imported. */
             tags?: components["schemas"]["ImportCount"];
             /** @description What did not come across, such as "frame type unknown" for each zone or a skipped tale. */
             notes: string[];
@@ -1461,10 +1461,10 @@ export interface components {
          */
         ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported" | "tagNotImported";
         /**
-         * @description Why a label did not become a tag. blank: it holds no text; tooLong: longer than a tag name may be; notText: the value is not text.
+         * @description Why a label did not become a tag. blank: it holds no text; tooLong: longer than a tag name may be; notText: the value is not text; invalidCharacters: it holds control characters, which a tag name may not.
          * @enum {string}
          */
-        ImportTagFailure: "blank" | "tooLong" | "notText";
+        ImportTagFailure: "blank" | "tooLong" | "notText" | "invalidCharacters";
         /**
          * @description Why media was not copied. invalidUrl: not an http or https URL; blockedAddress: it leads to a private, loopback, link-local or otherwise non-public address; unreachable: no connection or the transfer broke off; timeout: it took too long; tooManyRedirects: more redirects than allowed; httpError: the media host answered an error status; tooLarge: over the size limit of its type; unsupportedType: not an accepted image or video type, or its bytes do not match the type; jobBudgetExceeded: the import had already copied as many bytes, or spent as long on media, as one import may.
          * @enum {string}
@@ -3157,6 +3157,6 @@ export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["sc
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale", "tag"];
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported"];
-export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText"];
+export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "internal_error"];

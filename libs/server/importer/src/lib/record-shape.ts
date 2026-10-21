@@ -1,4 +1,5 @@
 import type { ImportDifference, ImportDifferenceEntity, ImportDifferenceKind } from '@taleart/contract';
+import { printable } from './labels';
 
 /**
  * The shape the import expects of one kind of source record (FR-029, AD-8):
@@ -72,7 +73,8 @@ export const MAX_DIFFERENCES_PER_RECORD = 50;
  * the token behind. Every source string a report holds goes through it.
  */
 export function storedText(text: string, token: string | null = null, limit = REPORT_TEXT_LIMIT): string {
-  const clean = token ? text.split(token).join('[token]') : text;
+  // Control characters (NUL above all, which jsonb refuses) are shown as U+FFFD.
+  const clean = printable(token ? text.split(token).join('[token]') : text);
   return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
 }
 

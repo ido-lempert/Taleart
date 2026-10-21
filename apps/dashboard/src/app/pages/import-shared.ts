@@ -1,3 +1,4 @@
+import { MAX_TAG_NAME_LENGTH } from '@taleart/contract';
 import type {
   ImportCount,
   ImportDifference,
@@ -91,8 +92,9 @@ const MEDIA_FAILURE_LABELS: Record<ImportMediaFailure, string> = {
 
 const TAG_FAILURE_LABELS: Record<ImportTagFailure, string> = {
   blank: 'blank',
-  tooLong: 'longer than 40 characters',
+  tooLong: `longer than ${MAX_TAG_NAME_LENGTH} characters`,
   notText: 'not text',
+  invalidCharacters: 'holds control characters',
 };
 
 /** One difference as a line under its record. */
