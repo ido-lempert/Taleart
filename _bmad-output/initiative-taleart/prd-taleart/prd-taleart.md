@@ -65,7 +65,7 @@ Organizations with several teams and project budgets also cannot see usage per p
 
 User decision (2026-10-21): Tale Studio is in the MVP. another tool's story editor is the reference for its features and flow; the research is in `research-another tool-competitive-teardown/digests/studio-r4-1.md`.
 
-- **FR-032** A content manager composes a tale in Tale Studio, an editor in the dashboard. A tale is built from text, images, video, shapes, stickers and emoji, calls to action (FR-016) and interactive components (FR-014), placed on a 9:16 canvas with safe areas. The editor has a layers list, undo and redo, a preview that matches what the Web SDK shows, and full keyboard and screen-reader access.
+- **FR-032** A content manager composes a tale in Tale Studio, an editor in the dashboard. A tale is built from text, images, video, shapes, stickers and emoji, calls to action (FR-016) and interactive components (FR-014), placed on a 9:16 canvas with safe areas. Text uses system font stacks, a font-family name the host page loads, or a WOFF2 font uploaded to the project (user decision, 2026-10-21). The editor has a layers list, undo and redo, a preview that matches what the Web SDK shows, and full keyboard and screen-reader access.
 - **FR-033** A tale is stored as a structured document of elements. The SDKs render each element live, so text stays real text: accessible, editable, translatable and sharp. A tale is never flattened into one image, and native SDKs later render the same document.
 
 ### Tags, segments, user lists and targeting
