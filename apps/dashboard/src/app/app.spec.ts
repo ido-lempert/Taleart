@@ -722,23 +722,48 @@ describe('App', () => {
       expect(stageRow(root, 'Hero banner').textContent).toContain('Frame 2 · Banner');
     });
 
-    it('lets an emptied key follow the name again, and defaults the frame to the first', async () => {
+    it('keeps an emptied key empty instead of following the name, and refuses it on save', async () => {
       const { fixture, root } = await open('/zones/z1', withFrames);
       buttonNamed(root, 'Add stage').click();
       await settle(fixture);
       const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
       const key = drawer()?.querySelector<HTMLInputElement>('#stage-key') ?? null;
-      type(key, 'custom');
+      type(name, 'Top');
+      await settle(fixture);
+      expect(key?.value).toBe('top');
       type(key, '');
       type(name, 'Top bar');
       await settle(fixture);
+      expect(key?.value).toBe('');
+
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/zones/z1/stages`);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Enter a key');
+    });
+
+    it('sends exactly what was typed after backspacing the suggested key, with the first frame by default', async () => {
+      const { fixture, root } = await open('/zones/z1', withFrames);
+      buttonNamed(root, 'Add stage').click();
+      await settle(fixture);
+      const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
+      const key = drawer()?.querySelector<HTMLInputElement>('#stage-key') ?? null;
+      type(name, 'Top bar');
+      await settle(fixture);
       expect(key?.value).toBe('top-bar');
+      // Backspace down to nothing, then type a new key: it must not be appended to a refilled suggestion.
+      for (const value of ['top-ba', 'top-b', 'top-', 'top', 'to', 't', '', 'h', 'he', 'hea', 'head']) type(key, value);
+      await settle(fixture);
+      expect(key?.value).toBe('head');
+      type(name, 'Header');
+      await settle(fixture);
+      expect(key?.value).toBe('head');
 
       buttonNamed(drawer() as HTMLElement, 'Add').click();
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/zones/z1/stages`);
-      expect(req.request.body).toEqual({ name: 'Top bar', key: 'top-bar', frameId: 'f1' });
-      req.flush(topStage);
+      expect(req.request.body).toEqual({ name: 'Header', key: 'head', frameId: 'f1' });
+      req.flush({ ...topStage, name: 'Header', key: 'head' });
       await settle(fixture);
     });
 

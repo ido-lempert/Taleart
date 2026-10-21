@@ -285,7 +285,7 @@
                 autocapitalize="off"
                 [maxlength]="maxStageKey"
                 [(ngModel)]="stageKey"
-                (ngModelChange)="stageKeyChanged($event)"
+                (ngModelChange)="stageKeyChanged()"
                 [attr.aria-invalid]="error() ? 'true' : null"
                 [attr.aria-describedby]="error() ? 'stage-key-hint create-error' : 'stage-key-hint'"
               />
