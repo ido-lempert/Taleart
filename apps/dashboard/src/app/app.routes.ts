@@ -1,14 +1,6 @@
 import { Route } from '@angular/router';
 import { authGuard, setupGuard, signInGuard } from './auth';
-import { ImportPage } from './pages/import';
-import { ImportJobPage } from './pages/import-job';
-import { InvitePage } from './pages/invite';
-import { SetupPage } from './pages/setup';
 import { SignInPage } from './pages/sign-in';
-import { ProjectsPage } from './pages/projects';
-import { TaleGroupsPage } from './pages/tale-groups';
-import { ThemePage } from './pages/theme';
-import { ZoneDetailPage } from './pages/zone-detail';
 import { ZonesPage } from './pages/zones';
 
 /** Shell data per route: the top bar title and what its "New …" button creates, if anything. */
@@ -27,7 +19,7 @@ export interface BareData {
 export const appRoutes: Route[] = [
   {
     path: 'setup',
-    component: SetupPage,
+    loadComponent: () => import('./pages/setup').then((m) => m.SetupPage),
     title: 'Set up · TaleArt',
     canActivate: [setupGuard],
     data: { bare: true } satisfies BareData,
@@ -42,7 +34,7 @@ export const appRoutes: Route[] = [
   {
     // An invitation link; works without a session (AD-9).
     path: 'invite/:token',
-    component: InvitePage,
+    loadComponent: () => import('./pages/invite').then((m) => m.InvitePage),
     title: 'Join · TaleArt',
     data: { bare: true } satisfies BareData,
   },
@@ -60,14 +52,14 @@ export const appRoutes: Route[] = [
       },
       {
         path: 'zones/:zoneId',
-        component: ZoneDetailPage,
+        loadComponent: () => import('./pages/zone-detail').then((m) => m.ZoneDetailPage),
         title: 'Zone · TaleArt',
         data: { heading: 'Zone', create: 'taleGroup', createLabel: 'New tale group' } satisfies ShellData,
       },
       {
         // A project's tale groups, placed in zones or not (AD-14).
         path: 'tale-groups',
-        component: TaleGroupsPage,
+        loadComponent: () => import('./pages/tale-groups').then((m) => m.TaleGroupsPage),
         title: 'Tale groups · TaleArt',
         data: { heading: 'Tale groups' } satisfies ShellData,
       },
@@ -80,28 +72,28 @@ export const appRoutes: Route[] = [
       },
       {
         path: 'projects',
-        component: ProjectsPage,
+        loadComponent: () => import('./pages/projects').then((m) => m.ProjectsPage),
         title: 'Projects · TaleArt',
         data: { heading: 'Projects', create: 'project', createLabel: 'New project' } satisfies ShellData,
       },
       {
         // The project's theme, for every zone's bar, banner and viewer (epic web zones R9).
         path: 'projects/:projectId/theme',
-        component: ThemePage,
+        loadComponent: () => import('./pages/theme').then((m) => m.ThemePage),
         title: 'Theme · TaleArt',
         data: { heading: 'Projects' } satisfies ShellData,
       },
       {
         // Admins import a another tool app into this project.
         path: 'projects/:projectId/import',
-        component: ImportPage,
+        loadComponent: () => import('./pages/import').then((m) => m.ImportPage),
         title: 'Import from another tool · TaleArt',
         data: { heading: 'Projects' } satisfies ShellData,
       },
       {
         // One import of the project: its progress while it runs, then its report.
         path: 'projects/:projectId/import/:importId',
-        component: ImportJobPage,
+        loadComponent: () => import('./pages/import-job').then((m) => m.ImportJobPage),
         title: 'Import from another tool · TaleArt',
         data: { heading: 'Projects' } satisfies ShellData,
       },

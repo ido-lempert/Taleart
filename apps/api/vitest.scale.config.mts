@@ -1,11 +1,11 @@
 import { defineConfig } from 'vitest/config';
-import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 
 // The importer's throughput target (`nx run api:import-scale`), kept out of `api:test`.
 export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/apps/api-scale',
-  plugins: [nxViteTsPaths()],
+  // Resolves the @taleart/* aliases from tsconfig.base.json (Vite native; replaces the deprecated nxViteTsPaths).
+  resolve: { tsconfigPaths: true },
   test: {
     name: 'api-import-scale',
     watch: false,
