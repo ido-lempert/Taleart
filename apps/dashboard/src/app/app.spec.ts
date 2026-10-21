@@ -471,10 +471,21 @@ describe('App', () => {
         expect(field<HTMLSelectElement>('shape')?.getAttribute('aria-invalid')).toBeNull();
       });
 
-      it('leaves an emptied number out, so its default applies', async () => {
+      it('keeps the last number while a number field is empty, and puts the default back when it is left empty', async () => {
         const { fixture } = await openSettings();
+        const gap = field<HTMLInputElement>('gap') as HTMLInputElement;
 
-        type(field<HTMLInputElement>('gap'), '');
+        type(gap, '20');
+        // Each input event is followed by change detection, as in the browser.
+        await settle(fixture);
+        type(gap, '');
+        await settle(fixture);
+        // Not rebound while typing.
+        expect(gap.value).toBe('');
+        gap.dispatchEvent(new Event('blur'));
+        await settle(fixture);
+        expect(gap.value).toBe('12');
+
         buttonNamed(drawer() as HTMLElement, 'Save').click();
         const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
         expect(req.request.body.settings).toEqual({
@@ -482,9 +493,76 @@ describe('App', () => {
           size: 'medium',
           showTitles: true,
           alignment: 'start',
+          gap: 12,
         });
         req.flush(frameBar);
         await settle(fixture);
+      });
+
+      it('saves the last typed number when the field is emptied but not left', async () => {
+        const { fixture } = await openSettings();
+        const gap = field<HTMLInputElement>('gap') as HTMLInputElement;
+
+        type(gap, '20');
+        type(gap, '');
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
+        expect(req.request.body.settings.gap).toBe(20);
+        req.flush(frameBar);
+        await settle(fixture);
+      });
+
+      it('shows and saves defaults for stored values the schema does not allow', async () => {
+        const broken = { ...frameBar, settings: { shape: 'star', size: 'large', showTitles: 'no', gap: 40 } };
+        const { fixture } = await openSettings({ ...oneZone, frames: { z1: [broken] } });
+
+        expect(field<HTMLSelectElement>('shape')?.value).toBe('circle');
+        expect(field<HTMLSelectElement>('size')?.value).toBe('large');
+        expect(field<HTMLInputElement>('showTitles')?.checked).toBe(true);
+        expect(field<HTMLInputElement>('gap')?.value).toBe('12');
+        buttonNamed(drawer() as HTMLElement, 'Save').click();
+        const req = http.expectOne(`${API_BASE}/zones/z1/frames/f1`);
+        expect(req.request.body.settings).toEqual({
+          shape: 'circle',
+          size: 'large',
+          showTitles: true,
+          alignment: 'start',
+          gap: 12,
+        });
+        req.flush(frameBar);
+        await settle(fixture);
+      });
+
+      it('clears the refused field mark when that field changes, and sets it again on the next refusal', async () => {
+        const { fixture } = await openSettings();
+        const refuseGap = async () => {
+          buttonNamed(drawer() as HTMLElement, 'Save').click();
+          http
+            .expectOne(`${API_BASE}/zones/z1/frames/f1`)
+            .flush(
+              { error: { code: 'invalid_frame_settings', message: 'settings.gap must be at most 24' } },
+              { status: 400, statusText: 'Bad Request' },
+            );
+          await settle(fixture);
+        };
+
+        type(field<HTMLInputElement>('gap'), '40');
+        await refuseGap();
+        const gap = field<HTMLInputElement>('gap') as HTMLInputElement;
+        expect(gap.getAttribute('aria-invalid')).toBe('true');
+
+        // Another field changing leaves the mark.
+        choose(field<HTMLSelectElement>('shape'), 'rounded-square');
+        await settle(fixture);
+        expect(gap.getAttribute('aria-invalid')).toBe('true');
+
+        type(gap, '30');
+        await settle(fixture);
+        expect(gap.getAttribute('aria-invalid')).toBeNull();
+        expect(gap.getAttribute('aria-describedby')).toBe('frame-settings-gap-hint');
+
+        await refuseGap();
+        expect(gap.getAttribute('aria-invalid')).toBe('true');
       });
     });
 

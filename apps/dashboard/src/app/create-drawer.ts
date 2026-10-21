@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
@@ -130,7 +130,12 @@ export class CreateDrawer implements OnInit {
   protected readonly settings = signal<Settings>({});
 
   /** The field the API named when it refused the settings, as in "settings.gap must be at most 24". */
-  protected readonly invalidSetting = computed(() => /^settings\.([A-Za-z0-9_]+)\b/.exec(this.error())?.[1] ?? '');
+  protected readonly invalidSetting = linkedSignal(() => /^settings\.([A-Za-z0-9_]+)\b/.exec(this.error())?.[1] ?? '');
+
+  /** Changing the refused field clears its invalid mark; the message stays until the next save. */
+  protected settingChanged(key: string): void {
+    if (this.invalidSetting() === key) this.invalidSetting.set('');
+  }
 
   /** The tale group a tags drawer is for. */
   protected readonly tagGroup = computed(() => {
@@ -423,6 +428,8 @@ export class CreateDrawer implements OnInit {
         message = await this.store.createFrame(request.zoneId, this.frameType);
         break;
       case 'frameSettings':
+        // A repeated refusal must mark its field again, so the old message goes first.
+        this.error.set('');
         message = this.settingsFrame()
           ? await this.store.updateFrameSettings(request.zoneId, request.frameId, this.settings())
           : 'This frame no longer exists.';

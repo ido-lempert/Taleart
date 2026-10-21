@@ -3,7 +3,7 @@ title: 'Edit bar settings in the dashboard'
 type: 'feature'
 ticket: '5'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '9adf4bebe0788c49cb92403673b5ee94442dbf13'
 route: 'full'
 route_source: 'auto'
@@ -83,8 +83,8 @@ deferred: []
 ## Implementation Notes
 
 - Scope: theme is not in this story. Per the epic, story 8 adds the project theme (one per project) and story 9 the zone override in the SDK configuration; the user's precedence (SDK over zone over project over defaults) belongs there. The epic has no theme per zone in the dashboard (R9: "There is no theme per frame"; the SDK configuration is the per-zone override), so nothing here anticipates one.
-- Assumptions (not settled by the epic, recorded for review): cover sizes small 48 px, medium 64 px (story 1's default), large 80 px; rounded-square corner radius is a quarter of the cover size (story 8's theme `cornerRadius` may later drive it); an item is 12 px wider than its cover; enum labels are humanised values ("Rounded square", "Center"); an emptied number field leaves the field out so its default applies; no live preview, since the epic does not ask for one.
-- Defaults are filled by the Delivery API (`FrameTypeRegistry.withDefaults`, from each top-level property's `default`), so clients get complete settings and a field added later reaches old frames; the Management API returns settings as stored. The SDK still reads each field defensively (`readBarSettings`) and never logs.
+- Assumptions (not settled by the epic, recorded for review): cover sizes small 48 px, medium 64 px (story 1's default), large 80 px; rounded-square corner radius is a quarter of the cover size (story 8's theme `cornerRadius` may later drive it); an item is 12 px wider than its cover; enum labels are humanised values ("Rounded square", "Center"); a number field keeps the last number typed while its text is empty or unreadable, and gets its default back when left that way (blur); stored values outside a field's choices, range or type show and save as the default; no live preview, since the epic does not ask for one.
+- The Delivery API sanitises and fills settings (`FrameTypeRegistry.withDefaults`: settings that are not an object read as `{}`, unknown keys and values failing their property schema are dropped, then each property's `default` fills the gaps), so clients get complete settings and a field added later reaches old frames; the Management API returns settings as stored. The SDK still reads each field defensively (`readBarSettings`) and never logs.
 - `GET /frame-types` now returns each type's `schema`; the dashboard builds the form from it (`settings-form.ts`: `settingsFields`, `initialSettings`, `SettingsForm`), so story 6's banner fields show up with no dashboard code; a type with no fields offers no Settings button.
 - Validation messages now say `must be at most N` / `at least N` / `must be one of: …`; the dashboard marks the field the message names (`settings.<key>`) with `aria-invalid` and links it to the error.
 - `BarSettings` type added to `libs/contract` (type-only import in the SDK); drift tests in contract and web-sdk compare against `bar.schema.json`.
@@ -93,6 +93,14 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- verdicts: 4 findings, all patched.
+- findings:
+  - `[patch]` Delivery passed stored settings through unvalidated (out-of-range or unknown enum values, unknown keys, non-object JSONB) — `withDefaults` now sanitises per field, each property compiled on its own, then fills defaults; unit tests and a Delivery integration test with hand-stored invalid rows (gap 40, shape `star`, an extra key, an array, a stray banner key).
+  - `[patch]` A stored value outside its enum stayed in form state while the select showed the first option — `initialSettings` treats out-of-enum, out-of-range and wrong-type values as missing (default, or left out when there is none); tests.
+  - `[patch]` Emptying a number field deleted the key and showed blank — the last number stays in state and the input is not rebound while typing; on blur an empty or unreadable value restores the default in state and input; tests.
+  - `[patch]` The refused-field mark stayed after the field changed — the form emits `changed` and the drawer clears the mark for that field (a linked signal of the error); a new save clears the old message so a repeated refusal marks the field again; test.
 
 ## Verification
 

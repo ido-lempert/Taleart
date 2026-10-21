@@ -51,4 +51,18 @@ describe('settings form schema reading', () => {
     });
     expect(initialSettings(schema, null)).toEqual({ shape: 'circle', showTitles: true, gap: 12 });
   });
+
+  it('reads stored values outside a field choices, range or type as missing', () => {
+    expect(initialSettings(schema, { shape: 'star', showTitles: 'yes', gap: 40 })).toEqual({
+      shape: 'circle',
+      showTitles: true,
+      gap: 12,
+    });
+    expect(initialSettings(schema, { gap: 3 })['gap']).toBe(12);
+    expect(initialSettings(schema, { gap: 12.5 })['gap']).toBe(12);
+    expect(initialSettings(schema, { gap: '20' })['gap']).toBe(12);
+    // A field without a default is left out instead.
+    expect(initialSettings(schema, { ratio: 'wide' })).not.toHaveProperty('ratio');
+    expect(initialSettings(schema, { ratio: 1.5 })['ratio']).toBe(1.5);
+  });
 });
