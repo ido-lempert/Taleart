@@ -32,7 +32,7 @@ import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@t
 import type { Pool } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig } from './app';
-import { createPool, migrate } from './db';
+import { createPool, databasePoolMax, migrate } from './db';
 
 // Runs against a separate test database. It clears tables, so it must never
 // point at the development database.
@@ -68,6 +68,7 @@ interface Fakeanother tool {
     failSegments: 'status' | 'shape' | null;
     delayMs: number;
     useScale(options: Record<string, unknown>): { appId: string; tales: number };
+    hold: { matches(url: URL): boolean; until: Promise<void> } | null;
     stats: { mediaRequests: number; injected: Record<string, number>; maxMediaOpen: number };
     data: {
       instances: Record<string, { data: Record<string, unknown>[] }>;
@@ -6970,16 +6971,56 @@ describe('Management API v1: projects and zones', () => {
         expect(fake.control.stats.maxMediaOpen).toBeLessThanOrEqual(6);
       });
 
-      it('resumes a job whose worker stopped mid-run, creating nothing twice and copying no media again', async () => {
+      it('sizes the pool from DATABASE_POOL_MAX, 20 by default', () => {
+        expect(databasePoolMax({ DATABASE_POOL_MAX: '7' })).toBe(7);
+        expect(databasePoolMax({})).toBe(20);
+        expect(databasePoolMax({ DATABASE_POOL_MAX: 'many' })).toBe(20);
+      });
+
+      it('keeps answering progress polls quickly while eight copies run', async () => {
         const project = await createProject();
-        // Slow enough to stop it part way: each list and file takes tens of milliseconds.
         fake.control.useScale({
           ...small,
-          storiesPerGroup: 4,
-          factor: 0.2,
+          storiesPerGroup: 6,
+          factor: 1,
           failures: false,
-          media: { ...small.media, ttfbMs: [100, 200] },
+          api: { latencyMs: [0, 0] },
+          media: { ...small.media, ttfbMs: [400, 400] },
         });
+        workers.push(
+          startImportWorker(pool, {
+            ...workerMedia(),
+            tokenKey,
+            another toolApiUrl: fake.url,
+            pollIntervalMs: 50,
+            dbConcurrency: 2,
+          }),
+        );
+        const res = await send('POST', `/projects/${project.id}/imports`, { token: FAKE_another tool_TOKEN, appId: '9001' });
+        const { id } = (await res.json()) as { id: string };
+        const slowest: number[] = [];
+        for (;;) {
+          const started = Date.now();
+          const job = await (await send('GET', `/projects/${project.id}/imports/${id}`)).json();
+          slowest.push(Date.now() - started);
+          if (job.status !== 'queued' && job.status !== 'running') break;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(fake.control.stats.maxMediaOpen).toBeGreaterThan(4);
+        expect(Math.max(...slowest)).toBeLessThan(500);
+      });
+
+      it('resumes a job whose worker stopped mid-run, creating nothing twice and copying no media again', async () => {
+        const project = await createProject();
+        fake.control.useScale({ ...small, storiesPerGroup: 4, factor: 0, failures: false });
+        // The second group's stories are held: the first run stops there, with the first group done.
+        let release: () => void = () => undefined;
+        fake.control.hold = {
+          matches: (url: URL) => url.pathname.endsWith('/story') && url.searchParams.get('story_group_id') === '910001',
+          until: new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+        };
         const { rows } = await pool.query(
           `INSERT INTO import_jobs (project_id, source_app_id, token_ciphertext) VALUES ($1, '9001', $2) RETURNING id`,
           [project.id, encryptToken(FAKE_another tool_TOKEN, tokenKey)],
@@ -6987,24 +7028,25 @@ describe('Management API v1: projects and zones', () => {
         const id = rows[0].id as string;
         const claimed = await claimNextJob(pool, 'first-worker');
         expect(claimed?.id).toBe(id);
-        const options = { ...workerMedia(), tokenKey, another toolApiUrl: fake.url };
+        const options = { ...workerMedia(), tokenKey, another toolApiUrl: fake.url, heartbeatMs: 20 };
         const first = runImportJob(pool, claimed as NonNullable<typeof claimed>, options);
-        // Once some tales are written, the first worker "dies": another takes the job over.
-        for (const until = Date.now() + 10_000; ; ) {
-          const job = await jobRow(id);
-          const progress = (await pool.query('SELECT progress FROM import_jobs WHERE id = $1', [id])).rows[0].progress;
-          if ((progress?.tales?.written ?? 0) >= 2 || job.status !== 'running') break;
-          if (Date.now() > until) throw new Error('No progress');
+        const copied = async () =>
+          Number(
+            (await pool.query('SELECT count(*) FROM import_media WHERE project_id = $1', [project.id])).rows[0].count,
+          );
+        for (const until = Date.now() + 10_000; (await copied()) < 4; ) {
+          if (Date.now() > until) throw new Error('The first group was not imported');
           await new Promise((resolve) => setTimeout(resolve, 10));
         }
+        // The first worker "dies": another takes the job over, and the first one's heartbeat finds out and stops.
         await pool.query(
           "UPDATE import_jobs SET locked_by = 'gone', heartbeat_at = now() - interval '1 hour' WHERE id = $1",
           [id],
         );
         await first;
+        release();
         const halfway = await contentCounts(project.id);
-        expect(halfway.tales).toBeGreaterThan(0);
-        expect(halfway.tales).toBeLessThan(8);
+        expect(halfway).toEqual({ groups: 1, placements: 1, tales: 4, links: 6 });
         const copiedBefore = Number(
           (await pool.query('SELECT count(*) FROM import_media WHERE project_id = $1', [project.id])).rows[0].count,
         );

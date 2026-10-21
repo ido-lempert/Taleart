@@ -12,7 +12,7 @@ import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
-import { createPool, migrate } from './db';
+import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
 function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void {
@@ -82,7 +82,9 @@ async function start(): Promise<void> {
   };
   let worker: ImportWorker | null = null;
   if (tokenKey !== null) {
-    worker = startImportWorker(pool, { tokenKey, another toolApiUrl, storage, mediaPolicy, log });
+    // The media copies' database work stays below the pool's size, so requests keep their connections.
+    const dbConcurrency = Math.max(1, databasePoolMax() - DATABASE_CONNECTIONS_FOR_REQUESTS);
+    worker = startImportWorker(pool, { tokenKey, another toolApiUrl, storage, mediaPolicy, dbConcurrency, log });
     log('info', `Import worker started; source ${another toolApiUrl}`);
   }
   const importer = { tokenKey, another toolApiUrl, wake: () => worker?.wake() };
