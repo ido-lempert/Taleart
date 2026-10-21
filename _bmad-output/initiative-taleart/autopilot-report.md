@@ -221,3 +221,19 @@ Decisions made by the autopilot, open for the user to change:
 - Media budgets per import are 5 GB and 60 minutes.
 
 A committed self-signed test certificate and key for `media.test` (`libs/server/importer/src/lib/test-tls/`) is used only by tests.
+
+## Sixth parallel batch (2026-10-21)
+
+| Story | Merge | Review |
+|---|---|---|
+| Web zones 3.9: override the theme in the Web SDK configuration | `7081607` | 8 findings, all patched: the getter leaked the internal array (unchecked values could reach CSS); host arrays are now copied by index before checking (Proxy, iterator and sparse arrays); upgrade order (a script property wins over the attribute); `theme="null"` warns; warnings name the zone by key prefix only; the registry entry is deleted when cleared; JSDoc; a zone-key change used the wrong zone's override |
+| Web zones 3.10: apply a playbook to a zone | `f2679e2` | 5 findings, all patched: a deadlock with a manual stage create (now `FOR NO KEY UPDATE`, one retry, then 409 `concurrent_change`); the conflict warning is announced; focus after apply is deterministic; frames keep their order (`clock_timestamp()`); a sample-page run for each playbook |
+| Importer 2.8: import labels as tags | `416911d` | 9 findings, all patched: per-record cap; control characters are refused in tag names and shown as U+FFFD in report text (NUL had failed the job); deadlock-free ordered find-or-create; volume caps (including a 20 MB Storyly response cap); counts match the differences; duplicate list records; the dashboard uses `MAX_TAG_NAME_LENGTH`; long lines; foreign-key errors told apart |
+
+Verification on the merged tree: `nx run-many -t lint test build` passed for 12 projects (api 330, web-sdk 217, importer 171 tests). In real Chromium: the playbook drawer previews the "Promo banner" preset; applying it adds the banner frame and the `promo-banner` stage; the sample page renders the stage on a phone; the Demo shop import shows Tags 9/9.
+
+Decisions made by the autopilot, open for the user to change:
+- An element's own SDK theme override wins over the zone override.
+- A zone holds one playbook; applying a different playbook is refused, and a playbook cannot be removed.
+- Labels that differ only in case merge into one tag.
+- A tag a person removes from an imported group is added back on the next import (story 7 may change this).
