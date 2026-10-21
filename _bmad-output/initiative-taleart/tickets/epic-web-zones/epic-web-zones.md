@@ -96,7 +96,7 @@ R11 (architecture Quality Targets, NFR-007): **Accessibility**
 - Native rendering is post-MVP.
 - Journeys and campaigns are post-MVP; this epic notes their ownership but builds neither.
 - Targeting (tags, user lists, segments) decides which groups a viewer gets; it belongs to epic-targeting. This epic delivers every published group of the zone.
-- Interactive components and calls to action inside tales belong to epic-interactive-components.
+- Interactive components inside tales belong to epic-interactive-components; calls to action and the tale document belong to epic-tale-studio (2026-10-21).
 - Events and metrics belong to epic-analytics; this epic sends no events.
 - Must not change: zone keys, the Delivery API's key handling and CORS, and the foundation's frame registry behavior.
 

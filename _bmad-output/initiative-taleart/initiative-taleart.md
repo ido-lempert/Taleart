@@ -79,6 +79,14 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
     The targeting epic holds user lists, segments, user attributes and the external user ID, so viewers are matched to groups.
     Verify: a user list CSV matches a viewer by external user ID.
 
+13. **Tale Studio** (R13)
+    **Given** a tale in the dashboard
+    **When** a content manager composes it in Tale Studio from text, images, video, shapes, stickers, calls to action and interactive components
+    **Then** the tale is stored as a structured document of live elements
+    **And** the Web SDK renders each element itself, as real, accessible text and media, not as a flattened image
+    Decision (user, 2026-10-21): added to the MVP, with Storyly's story editor as the reference.
+    Verify: compose a tale with text, an image and a button in Tale Studio; on the sample page the text can be selected and is read by a screen reader, and the button opens its link.
+
 ## Constraints
 
 - **Open source.** The license is not chosen (see Notes). Source: brief Open decisions 4.
@@ -94,10 +102,11 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
 - A visitor on a Web page sees a zone's bar or banner with imported tales.
 - Every MVP metric has a published definition.
 - Every tale, tale group, zone and (once built) product set carries a project identifier.
+- A content manager composes a tale in Tale Studio and a visitor sees its live elements on the Web SDK.
 
 ## Boundaries
 
-- **In:** Web MVP, the importer, the MVP entities, the six interactive components, tag and user list targeting, scheduling, per-widget analytics, the project tag.
+- **In:** Web MVP, the importer, the MVP entities, Tale Studio (R13), the seven interactive components, tag and user list targeting, scheduling, per-widget analytics, the project tag.
 - **Out (post-MVP):** native iOS and Android SDKs; usage metering, storage metering and audit export for internal chargeback; Canvas, Swipe Card and Video Feed widgets; conversion attribution; campaigns; journeys; AI personalization; retail media; pricing and hosted commercial offers.
 
 ## References
@@ -106,7 +115,7 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
 - brief — _bmad-output/initiative-taleart/brief-taleart/brief-taleart.md, sections MVP scope, Goals, Risks, Open decisions
 - research — _bmad-output/initiative-taleart/research-storyly-competitive-teardown/research-storyly-competitive-teardown.md, sections 3 to 11
 - prd — _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md
-- architecture — _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, AD-1 to AD-14
+- architecture — _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, AD-1 to AD-16
 
 ## Notes
 
@@ -117,3 +126,4 @@ A team that runs Storyly content can import its account into TaleArt, serve the 
 - Decision: conversion tracking is not part of Storyly compatibility. TaleArt designs its own conversion tracking later, and the importer does not migrate conversion records (user). Storyly's endpoint is no longer an open question.
 - Open question: names (terminology map) and license need decisions and counsel review before publication.
 - Decision (2026-10-20): targeting and campaign names approved by the user: tag (on tale groups; UI "Targeting tags"), segment, user list, user attributes, external user ID, journey (common noun, never branded; counsel sign-off pending, fallback "Sequence"), playbook, campaign with a schedule, product set (replaces collection). "Audience" is only a dashboard heading. Source: research-storyly-competitive-teardown/naming-targeting-and-campaigns.md.
+- Decision (2026-10-21): Tale Studio is in the MVP (R13). Tales are structured documents of live elements that the SDK renders, with Storyly's story editor as the reference. The epic is `epic-tale-studio`, built after web zones and before interactive components, whose components become element types in the tale document (architecture AD-15, AD-16) (user).

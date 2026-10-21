@@ -4,11 +4,11 @@ type: architecture-spine
 purpose: build-substrate
 altitude: initiative
 paradigm: 'modular monolith with ports-and-adapters edges'
-scope: 'TaleArt initiative: the API, dashboard, Web SDK and the contract native SDKs will use; keeps its six epics coherent'
+scope: 'TaleArt initiative: the API, dashboard, Web SDK and the contract native SDKs will use; keeps its seven epics coherent'
 status: final
 created: '2026-10-20'
-updated: '2026-10-20'
-binds: [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, NFR-006, NFR-007]
+updated: '2026-10-21'
+binds: [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, NFR-006, NFR-007]
 sources:
   - _bmad-output/initiative-taleart/initiative-taleart.md
   - _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md
@@ -127,6 +127,55 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 - **Prevents:** duplicating a tale group to show it in a second zone, edits that reach only one of the copies, and a zone's order that moves another zone's order.
 - **Rule:** A tale group, with its tales, tags, cover and media, belongs to a project. A zone shows an ordered list of placements (`zone_tale_groups`: zone, tale group, position, project), owned by the `tales` module; zones reach them only through its public interface. The same group can be placed in several zones of its project; an edit to the group shows in every zone, and each zone keeps its own order. Removing a group from a zone deletes only that placement; a group placed in no zone still exists in the project. A zone's groups, in the dashboard and the Delivery API, are read through its placements. **Copy to zone** creates an independent tale group, with copies of its tales and tag links and the same media storage keys (files are not duplicated), placed in a zone of the same project or of another project the user can access; the caller must be authorized for both projects (AD-4). In another project, tags are matched by name and created when missing. A storage key referenced by several tales is public while any published tale references it, and its file is deleted only when no tale or cover references it `[ASSUMPTION]` (AD-11). Migration: every existing tale group, from foundation stories 1.3, 1.4 and 1.5 and web-zones story 3.1, becomes a project group with one placement in its current zone, keeping its position.
 
+### AD-15 — Tale document model
+
+- **Binds:** R2, R4, R10, R13, FR-010, FR-012, FR-014, FR-016, FR-032, FR-033, NFR-007, AD-3, AD-5, AD-11
+- **Prevents:** tales flattened into images, whose text is not accessible, not editable, not translatable and not sharp; web and native renderers placing elements differently; a migration for each new element type; and markup or style injection through tale content.
+- **Rule:** Each tale holds one **tale document**: versioned JSON stored as JSONB on the tale row and owned by the `tales` module. The schema lives in `libs/contract` as JSON Schema (`tale-document/v1.schema.json`), with generated TypeScript types. Its shape is `{ version, canvas, durationMs?, elements[] }`.
+  - **Version:** an integer, 1 at launch. Additive changes keep the number: a new optional field, or a new element type. A breaking change raises it, and `libs/contract` ships a forward migration that the server applies when it reads or writes a stored document.
+  - **Canvas:** a 9:16 stage. It has a background, either a colour or one media element, and it defines its **safe areas** as contract constants: top 12% (progress bar and close control), bottom 16% (swipe-up and CTA) and 4% on each side `[ASSUMPTION]`.
+  - **Elements:** a discriminated union keyed by `type` from an **element-type registry** in `libs/contract`, like frame types (AD-5). The MVP types are `text`, `image`, `video`, `shape`, `sticker` and `button`, plus at most one `swipe-up` per tale. Interactive components (poll, quiz, emoji reaction, countdown, product pins, promo code, Rating) join as further element types, each with its own schema, and the document version stays the same.
+  - **Every element has:**
+    - `id`: a UUID, unique in the document, used for undo, analytics and later locale variants.
+    - `type`.
+    - `box`: `{ x, y, w, h, rotation }`. Positions and sizes are fractions (0 to 1) of the canvas width and height, so one document fits every screen and every platform.
+    - Size-like properties such as font size and corner radius are fractions of the canvas height.
+    - `hidden` and `locked`, which are editor state only.
+    - `a11y`: `{ label?, decorative? }`.
+    - type-specific `props`.
+  - **Z-order:** the order of the `elements` array, first at the bottom.
+  - **Reading order:** visual, top to bottom and then left to right by `box` `[ASSUMPTION]`.
+  - **Text:** plain Unicode strings, never HTML or Markdown.
+  - **Styles:** enumerated or range-checked values, such as a colour as `#RRGGBB` or `#RRGGBBAA` or a font key from the font registry in `libs/contract`. Raw CSS strings are never stored.
+  - **Validation on every write:** the Management API checks the document against the schema, with no additional properties, and then applies semantic rules. A refusal uses the standard error body naming the JSON pointer of the field it refused.
+    - The document is at most 128 KB, with at most 60 elements and at most 1,000 characters per text `[ASSUMPTION]`.
+    - Element ids are unique, and numbers are finite and inside their ranges.
+    - Link targets are absolute `http` or `https` URLs of at most 2,048 characters. Any other scheme, `javascript:` included, is refused.
+    - Every media reference is a storage key that belongs to the tale's project.
+    - An image, a video, an image sticker and an image button need alt text unless `decorative` is set.
+  - **Delivery:** the Delivery API returns the document with each published tale, after removing hidden elements and editor-only fields and resolving storage keys to public media URLs. Media is referenced by storage key, never by URL (AD-11), and a key that a published tale's document references counts as referenced and public.
+  - **Clients:** they ignore unknown fields and skip element types they do not know, so an older SDK still shows the rest of a tale. Native SDKs render the same document with the same registry (R10).
+  - **Migration:** a tale that existed before the document gets a version 1 document with one full-bleed media element for its media.
+  - **Later additions:** text locale variants are an additive field keyed by element id, added later.
+
+### AD-16 — SDK document renderer
+
+- **Binds:** R9, R13, NFR-006, NFR-007, AD-2, AD-15
+- **Prevents:** tale content running script or style in the host page, the studio preview differing from what visitors see, and the renderer pushing the Web SDK past its budget unnoticed.
+- **Rule:** The Web SDK renders a tale document as DOM inside its Shadow DOM.
+  - **Stage:** a 9:16 stage sized with container units. Each element is an absolutely positioned node placed from its `box`.
+  - **Text:** set only as text nodes (`textContent`), never through `innerHTML`, `insertAdjacentHTML` or a template string.
+  - **Styles:** set through CSSOM properties from validated values, never `setAttribute('style', …)`, so the SDK works under a strict host CSP.
+  - **Native elements:**
+    - Images are `<img alt>`.
+    - Videos are `<video muted playsinline>`.
+    - Links are `<a>` elements with `rel="noopener noreferrer"`, and the SDK checks again that the scheme is `http` or `https`.
+    - Buttons and links are focusable, with accessible names.
+  - **Renderer modules:** one renderer module per element type, keyed by the element-type registry under `libs/web-sdk/src/lib/document/`. An unknown type renders nothing.
+  - **Studio preview:** the dashboard's Tale Studio preview mounts the same renderer, imported from `libs/web-sdk`, on the unsaved document, so preview and visitor rendering cannot diverge.
+  - **Bundle budget:** the renderer counts toward the 50 KB gzip budget. While the whole SDK stays at or below 40 KB gzipped, it ships as one bundle. When it crosses 40 KB, the viewer, the document renderer and the element renderers move to a chunk loaded on first open, and the entry chunk keeps only what first zone content needs, so the 1.5 s target holds. The size check then reports both chunks `[ASSUMPTION]`.
+  - **Fonts:** the SDK loads no font files. Font keys map to system font stacks or to the project theme's `fontFamily`, which the host page loads.
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -193,7 +242,8 @@ erDiagram
   ZONE ||--o{ ZONE_TALE_GROUP : places
   TALE_GROUP ||--o{ ZONE_TALE_GROUP : placed-in
   TALE_GROUP ||--o{ TALE : contains
-  TALE ||--o{ INTERACTIVE_COMPONENT : carries
+  TALE ||--|| TALE_DOCUMENT : holds
+  TALE_DOCUMENT ||--o{ INTERACTIVE_COMPONENT : places
   TALE_GROUP }o--o{ TAG : tagged
   TALE_GROUP }o--o{ SEGMENT : targeted
   TALE_GROUP }o--o{ USER_LIST : targeted
@@ -205,7 +255,7 @@ erDiagram
   PROJECT ||--o{ EVENT : records
 ```
 
-A tale group belongs to its project, not to a zone. `ZONE_TALE_GROUP` (table `zone_tale_groups`: zone, tale group, position, project) places a group in a zone; a zone shows its placed groups in its own order, and the same group can be placed in several zones of its project (AD-14). Every frame in a zone shows all of the published tale groups placed in the zone; a frame does not pick groups. A zone has several stages, each showing one of its frames. A playbook is not a table: it is registry data in `libs/contract`, like the frame-type registry, and the zone records the key of the playbook applied to it. The theme is set per project (validated by a theme schema in `libs/contract`); the Web SDK configuration may override it per zone. A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
+A tale group belongs to its project, not to a zone. `ZONE_TALE_GROUP` (table `zone_tale_groups`: zone, tale group, position, project) places a group in a zone; a zone shows its placed groups in its own order, and the same group can be placed in several zones of its project (AD-14). Every frame in a zone shows all of the published tale groups placed in the zone; a frame does not pick groups. A zone has several stages, each showing one of its frames. A playbook is not a table: it is registry data in `libs/contract`, like the frame-type registry, and the zone records the key of the playbook applied to it. The theme is set per project (validated by a theme schema in `libs/contract`); the Web SDK configuration may override it per zone. A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. A tale's document (AD-15) is a JSONB column on the tale, not a table; interactive components are element types placed in it, and their responses live in the `interactive` module. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
 
 ```text
 apps/
@@ -213,11 +263,11 @@ apps/
   dashboard/      # Angular, Management API client
   docs/           # published docs, including metric definitions
 libs/
-  contract/       # OpenAPI 3.1, generated types, frame and theme schemas, playbook registry, event names, status map
+  contract/       # OpenAPI 3.1, generated types, frame and theme schemas, playbook registry, tale document schema and element-type and font registries, event names, status map
   server/
     access/       # projects, users, sessions, zone keys
     zones/        # zones, frames, stages, applied playbook key, journeys (post-MVP); registries live in contract
-    tales/        # tale groups (owned by the project), zone placements of tale groups (zone, group, position), tales, schedules, status, copy to zone
+    tales/        # tale groups (owned by the project), zone placements of tale groups (zone, group, position), tales and their tale documents (AD-15), schedules, status, copy to zone
     interactive/  # interactive components and responses
     targeting/    # tags, segments, user lists, user attributes, external user IDs
     campaigns/    # campaigns and their schedules (post-MVP)
@@ -225,7 +275,7 @@ libs/
     analytics/    # events, metrics
     importer/     # Storyly import jobs, import links, reports
     storage/      # media storage port and local adapter
-  web-sdk/        # Delivery API client and renderers
+  web-sdk/        # Delivery API client, frame renderers and the tale document renderer (AD-16), also used by the Tale Studio preview
 ```
 
 ## Quality Targets
@@ -245,7 +295,7 @@ libs/
 | --- | --- | --- |
 | R1, R2 Storyly import | `libs/server/importer`, worker | AD-7, AD-8, AD-12 |
 | R3 foundation entities | `access`, `zones`, `tales` (product sets moved out of the foundation to `product-sets`, later) | AD-1, AD-4, AD-14 |
-| R4 interactive components | `libs/server/interactive`, `libs/web-sdk` | AD-3, AD-10 |
+| R4 interactive components | `libs/server/interactive`, `libs/web-sdk`; each component is an element type in the tale document | AD-3, AD-10, AD-15 |
 | R5, R12 targeting | `libs/server/targeting`, rules evaluated in `libs/web-sdk` | AD-2, AD-4, AD-13 |
 | R6 scheduling | `libs/server/tales`, computed when read | AD-6 |
 | R7 analytics | `libs/server/analytics` | AD-10, AD-13 |
@@ -253,6 +303,7 @@ libs/
 | R9 Web zones | `libs/web-sdk`, Delivery API, public media URLs | AD-2, AD-3, AD-11 |
 | R10 native-ready, extensible | `libs/contract`, frame registry | AD-3, AD-5 |
 | R11 stage and playbook | `libs/server/zones`, playbook registry in `libs/contract` | AD-5 |
+| R13 Tale Studio | `apps/dashboard` (Tale Studio), `libs/server/tales` (tale document), `libs/contract` (document schema, element-type and font registries), `libs/web-sdk` (document renderer) | AD-11, AD-15, AD-16 |
 | NFR-006, NFR-007 | all clients and APIs | Quality Targets |
 
 ## Deferred
@@ -270,3 +321,5 @@ libs/
 - **Campaigns (FR-031):** post-MVP, in a separate `campaigns` module rather than `tales`, so tale groups stay free of campaign logic; a campaign references tale groups through the `tales` public interface and is a reporting unit for `analytics`. A tale group in a campaign is delivered only inside both its own window and the campaign's schedule.
 - **Journeys:** post-MVP, in `zones` (a zone holds a frame or a journey); distinct from playbooks.
 - **Product sets (FR-021, FR-022):** after product feeds exist, in `product-sets`; out of the foundation epic (user, 2026-10-20).
+- **Tale Studio beyond the MVP:** templates gallery, a brand kit beyond the project theme, uploaded font files, animations, GIF search, AI assist, text locale variants, a reading-order override and collaborative editing. AD-15 keeps each of them additive: a new element type, a new optional field or a new registry entry.
+- **Native document renderers:** post-MVP; they render the AD-15 document with the same element-type registry.

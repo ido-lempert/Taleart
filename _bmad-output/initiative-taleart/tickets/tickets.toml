@@ -25,12 +25,20 @@ covers = ["R6", "R9", "R11"]
 after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (no gate on the whole epic)" }]
 
 [[epic]]
+id = 7
+slug = "epic-tale-studio"
+title = "Tale Studio"
+description = "Content managers compose a tale in Tale Studio from text, media, shapes, stickers and calls to action on a 9:16 canvas; the tale is a document of live elements that the Web SDK renders, and every existing tale is migrated to a document."
+covers = ["R13", "R2", "R10"]
+after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (media upload 1.12, dashboard shell 1.14)" }, { epic = 3, needs = "the viewer (3.2), the project theme (3.8) and the tale group cover (3.14), per story" }, { epic = 2, needs = "the difference report and re-import (2.6, 2.7) for story 13 only" }]
+
+[[epic]]
 id = 4
 slug = "epic-interactive-components"
 title = "Interactive components"
 description = "Authors add poll, quiz, emoji reaction, countdown, product pins, promo code and Rating to a tale, and viewers respond on the Web SDK."
 covers = ["R4"]
-after = [{ epic = 1, needs = "the data model and API" }]
+after = [{ epic = 1, needs = "the data model and API" }, { epic = 7, needs = "the element-type registry (Tale Studio story 7.8), so each component is an element type in the tale document (AD-15)" }]
 
 [[epic]]
 id = 5
