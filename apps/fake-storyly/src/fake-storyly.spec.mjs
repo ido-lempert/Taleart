@@ -197,7 +197,11 @@ describe('fake Storyly server', () => {
 
   describe('Scale shop (importer story 10)', () => {
     it('serves the profile: 1,000 stories in 5 instances of 40 groups, with images and videos', async () => {
-      expect(fake.control.useScale({ factor: 0, failures: false })).toEqual({ appId: '9001', tales: 1000 });
+      expect(fake.control.useScale({ factor: 0, failures: false })).toEqual({
+        appId: '9001',
+        tales: 1000,
+        mediaBytes: expect.any(Number),
+      });
       const apps = await (await get('/app', bearer)).json();
       expect(apps.data.at(-1)).toMatchObject({ id: 9001, title: 'Scale shop' });
       const instances = await (await get('/instance?app_id=9001', bearer)).json();

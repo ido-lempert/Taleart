@@ -198,6 +198,16 @@ export async function heartbeatImportJob(db: Db, job: ClaimedJob, progress?: Imp
   return (rowCount ?? 0) > 0;
 }
 
+/**
+ * True while `job`'s worker still holds it. Run in a write's transaction, it
+ * also locks the job row (FOR SHARE) until that commits, so another worker
+ * cannot take the job over between the check and the write.
+ */
+export async function holdsImportJob(db: Db, job: ClaimedJob): Promise<boolean> {
+  const { rows } = await db.query(`SELECT 1 FROM import_jobs WHERE ${OWNED} FOR SHARE`, [job.id, job.lockedBy]);
+  return rows.length > 0;
+}
+
 /** Records the source app's name, once the worker has read it. False when the claim is lost. */
 export async function setSourceAppName(db: Db, job: ClaimedJob, name: string): Promise<boolean> {
   const { rowCount } = await db.query(`UPDATE import_jobs SET source_app_name = $3 WHERE ${OWNED}`, [

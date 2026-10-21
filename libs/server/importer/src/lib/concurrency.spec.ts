@@ -116,6 +116,39 @@ describe('Limiter and HostLimiter', () => {
     expect(started).toEqual(['a1', 'b1', 'a2']);
   });
 
+  it('takes and releases slots by hand; a waiter whose signal aborts leaves the queue', async () => {
+    const limiter = new Limiter(1);
+    const release = await limiter.acquire();
+    const stop = new AbortController();
+    const gone = limiter.acquire(stop.signal);
+    const next = limiter.acquire();
+    stop.abort(new Error('stopped'));
+    await expect(gone).rejects.toThrow('stopped');
+    release();
+    release();
+    const second = await next;
+    expect(limiter.active).toBe(1);
+    second();
+    expect(limiter.active).toBe(0);
+    await expect(limiter.acquire(stop.signal)).rejects.toThrow('stopped');
+  });
+
+  it('hands out host slots by hand, per host', async () => {
+    const hosts = new HostLimiter(1);
+    const a = await hosts.acquire('a.example');
+    let gotSecond = false;
+    const second = hosts.acquire('a.example').then((release) => {
+      gotSecond = true;
+      return release;
+    });
+    (await hosts.acquire('b.example'))();
+    await tick();
+    expect(gotSecond).toBe(false);
+    a();
+    (await second)();
+    expect(gotSecond).toBe(true);
+  });
+
   it('names a URL by its host and port', () => {
     expect(hostOf('https://CDN.example:8443/a.png')).toBe('cdn.example:8443');
     expect(hostOf('http://cdn.example/a.png')).toBe('cdn.example');

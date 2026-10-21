@@ -40,12 +40,14 @@ export interface CopiedMedia {
 export const IMPORTED_MEDIA_PREFIX = 'tales/imported-';
 
 /**
- * What one import may still spend on media: bytes left, and the time by which
- * copying must stop. Shared by every download of the import.
+ * What one import may still spend on media: bytes left, and the time after
+ * which no download starts. Shared by every download of the import. `spent`
+ * is set once a download was refused for the bytes: no later one starts.
  */
 export interface MediaJobBudget {
   bytesLeft: number;
   deadline: number;
+  spent?: boolean;
 }
 
 /** A fresh budget for one import, from the policy's per-job limits. */
@@ -56,8 +58,56 @@ export function mediaJobBudget(policy: MediaFetchPolicy = {}, now = Date.now()):
   };
 }
 
+/** The most bytes any one accepted media file may have: what an unsettled download may still take. */
+const MAX_FILE_BYTES = Math.max(maxMediaBytes('image/jpeg'), maxMediaBytes('video/mp4'));
+
+/**
+ * One download's place in its import's reading order, for the byte budget: a
+ * download with a declared length reserves it only once every earlier one has
+ * reserved its own (or ended), unless the budget is large enough that their
+ * order cannot matter. So which media the budget refuses is the same as one
+ * download at a time, for files that declare their length.
+ */
+export interface BudgetTicket {
+  /** Resolves once every earlier ticket is done. */
+  turn(): Promise<void>;
+  /** How many earlier tickets are not done yet. */
+  earlierOpen(): number;
+  /** This download reserved its bytes, streams without a length, or ended; idempotent. */
+  done(): void;
+}
+
+/** Hands out {@link BudgetTicket}s in the order the import reads its tales. */
+export class BudgetTurns {
+  private last: Promise<void> = Promise.resolve();
+  private next = 0;
+  private readonly open = new Set<number>();
+
+  ticket(): BudgetTicket {
+    const index = this.next++;
+    this.open.add(index);
+    const before = this.last;
+    let settle: () => void = () => undefined;
+    const mine = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.last = Promise.all([before, mine]).then(() => undefined);
+    return {
+      turn: () => before,
+      earlierOpen: () => [...this.open].filter((other) => other < index).length,
+      done: () => {
+        if (!this.open.delete(index)) return;
+        settle();
+      },
+    };
+  }
+}
+
 const budgetSpent = () =>
   new MediaFetchError('jobBudgetExceeded', 'The import already copied as much media as one import may');
+
+// Its turn came after the download had opened: open it again, now that its reservation is decided in order.
+class TurnTaken extends Error {}
 
 // Types that say nothing about the file: the story's `mime_type` decides instead.
 const GENERIC_TYPES = new Set(['application/octet-stream', 'binary/octet-stream']);
@@ -76,14 +126,22 @@ function declaredType(header: string | null, mimeType: unknown): MediaContentTyp
  * Downloads one source media file under the fetch policy and streams it into
  * storage under a new key (`tales/imported-<uuid>.<ext>`), with the upload's
  * rules: an accepted type whose leading bytes match it, and no more bytes than
- * its kind allows. The body is never held whole in memory. A reply 429 or 5xx
- * is tried again with backoff (or after its `Retry-After`) within the
- * download's deadline; every try goes through the guard again. With a job
- * budget, each chunk read is taken from it as it arrives, so downloads running
- * at once cannot pass it together; a download that would pass its bytes or its
- * deadline stops as `jobBudgetExceeded`. `abort` stops the download (the job
- * stopped). A source failure is a {@link MediaFetchError} and leaves nothing
- * stored; a storage failure is passed on as it is.
+ * its kind allows. The body is never held whole in memory.
+ *
+ * A reply 429 or 5xx is tried again with backoff (or after its `Retry-After`)
+ * when the wait fits in the download's deadline, else it fails at once as
+ * `httpError`; every try goes through the guard again.
+ *
+ * With a job budget: no download starts once the budget is spent or its
+ * deadline has passed (a download already running finishes within its own
+ * deadline). A declared length is reserved before the body is read, in the
+ * ticket's turn when the budget is close to binding, and what is not read is
+ * given back; a body without a length is taken from the budget as it arrives
+ * (downloads running at once may then be refused in another order than one at
+ * a time). A download refused for the budget gives back what it read and
+ * marks the budget spent. `abort` stops the download (the job stopped). A
+ * source failure is a {@link MediaFetchError} and leaves nothing stored; a
+ * storage failure is passed on as it is.
  */
 export async function copyMedia(
   storage: MediaStorage,
@@ -92,42 +150,39 @@ export async function copyMedia(
   policy: MediaFetchPolicy = {},
   budget?: MediaJobBudget,
   abort?: AbortSignal,
+  ticket?: BudgetTicket,
 ): Promise<CopiedMedia> {
-  const left = budget ? budget.deadline - Date.now() : Infinity;
-  if (budget && (budget.bytesLeft <= 0 || left <= 0)) throw budgetSpent();
-  const perDownload = AbortSignal.timeout(policy.timeoutMs ?? MEDIA_FETCH_TIMEOUT_MS);
-  const jobDeadline = Number.isFinite(left) ? AbortSignal.timeout(Math.max(1, left)) : null;
-  const signal = AbortSignal.any([perDownload, ...(jobDeadline ? [jobDeadline] : []), ...(abort ? [abort] : [])]);
-  // The job deadline turns any failure it causes into jobBudgetExceeded.
-  const byBudget = <T>(work: Promise<T>): Promise<T> =>
-    work.catch((err: unknown) => {
-      throw jobDeadline?.aborted && !perDownload.aborted ? budgetSpent() : err;
-    });
-  const retry = retryPolicy(policy.retry);
   try {
-    return await byBudget(
-      (async () => {
-        for (let attempt = 1; ; attempt++) {
-          try {
-            return await copyOnce(storage, url, mimeType, policy, budget, signal);
-          } catch (err) {
-            const reply = err instanceof MediaFetchError && err.reason === 'httpError' ? err.reply : undefined;
-            if (!reply || !isRetryableStatus(reply.status) || attempt >= retry.attempts) throw err;
-            try {
-              await sleep(retryDelayMs(attempt - 1, reply.retryAfterMs, retry), signal);
-            } catch {
-              throw new MediaFetchError('timeout', 'The media download took too long');
-            }
-          }
+    if (budget && (budget.spent || budget.bytesLeft <= 0 || Date.now() >= budget.deadline)) throw budgetSpent();
+    const timeoutMs = policy.timeoutMs ?? MEDIA_FETCH_TIMEOUT_MS;
+    const until = Date.now() + timeoutMs;
+    const perDownload = AbortSignal.timeout(timeoutMs);
+    const signal = abort ? AbortSignal.any([perDownload, abort]) : perDownload;
+    const retry = retryPolicy(policy.retry);
+    for (let attempt = 1; ; ) {
+      try {
+        return await copyOnce(storage, url, mimeType, policy, budget, signal, ticket);
+      } catch (err) {
+        if (err instanceof TurnTaken) continue;
+        const reply = err instanceof MediaFetchError && err.reason === 'httpError' ? err.reply : undefined;
+        if (!reply || !isRetryableStatus(reply.status) || attempt >= retry.attempts) throw err;
+        const wait = retryDelayMs(attempt - 1, reply.retryAfterMs, retry);
+        // A wait that cannot end before the deadline is not waited: the reply stands.
+        if (Date.now() + wait >= until) throw err;
+        try {
+          await sleep(wait, signal);
+        } catch {
+          throw new MediaFetchError('timeout', 'The media download took too long');
         }
-      })(),
-    );
+        attempt++;
+      }
+    }
   } catch (err) {
     // Once a download is refused for the budget, the budget is spent: the rest is not requested.
-    if (budget && err instanceof MediaFetchError && err.reason === 'jobBudgetExceeded') {
-      budget.bytesLeft = Math.min(budget.bytesLeft, 0);
-    }
+    if (budget && err instanceof MediaFetchError && err.reason === 'jobBudgetExceeded') budget.spent = true;
     throw err;
+  } finally {
+    ticket?.done();
   }
 }
 
@@ -139,9 +194,15 @@ async function copyOnce(
   policy: MediaFetchPolicy,
   budget: MediaJobBudget | undefined,
   signal: AbortSignal,
+  ticket: BudgetTicket | undefined,
 ): Promise<CopiedMedia> {
   const res = await openMedia(url, policy, signal);
   const { body } = res;
+  // Bytes reserved from the budget for a declared length, and bytes taken as read.
+  let reserved = 0;
+  let taken = 0;
+  let read = 0;
+
   try {
     const contentType = declaredType(res.contentType, mimeType);
     if (contentType === null) throw unsupported();
@@ -149,9 +210,30 @@ async function copyOnce(
     if (res.contentLength !== null && res.contentLength > limit) {
       throw new MediaFetchError('tooLarge', 'The media is larger than its type allows');
     }
-    if (budget && res.contentLength !== null && res.contentLength > budget.bytesLeft) throw budgetSpent();
+    if (budget) {
+      if (budget.spent) throw budgetSpent();
+      if (res.contentLength !== null) {
+        // The earlier downloads may still take up to a whole file each: only when that cannot matter does this
+        // one reserve out of turn. Otherwise it closes the connection (holding no host slot), waits, and opens again.
+        const room = budget.bytesLeft - (ticket ? ticket.earlierOpen() * MAX_FILE_BYTES : 0);
+        if (ticket && room < res.contentLength && ticket.earlierOpen() > 0) {
+          body.destroy();
+          res.release();
+          try {
+            await ticket.turn();
+          } catch {
+            // turn() never rejects.
+          }
+          if (signal.aborted) throw new MediaFetchError('timeout', 'The media download took too long');
+          throw new TurnTaken();
+        }
+        if (budget.spent || res.contentLength > budget.bytesLeft) throw budgetSpent();
+        budget.bytesLeft -= res.contentLength;
+        reserved = res.contentLength;
+      }
+    }
+    ticket?.done();
     const hash = createHash('sha256');
-    let read = 0;
     async function* checkedBytes(): AsyncGenerator<Uint8Array> {
       let head: Buffer[] = [];
       let headLength = 0;
@@ -160,9 +242,11 @@ async function copyOnce(
         for await (const chunk of body as AsyncIterable<Buffer>) {
           read += chunk.length;
           if (read > limit) throw new MediaFetchError('tooLarge', 'The media is larger than its type allows');
-          if (budget) {
-            // Taken as read: concurrent downloads share the budget.
-            budget.bytesLeft -= chunk.length;
+          if (budget && read > reserved) {
+            // Past what was reserved (no length declared): taken as read, so concurrent downloads share the budget.
+            const more = read - reserved - taken;
+            budget.bytesLeft -= more;
+            taken += more;
             if (budget.bytesLeft < 0) throw budgetSpent();
           }
           hash.update(chunk);
@@ -199,17 +283,34 @@ async function copyOnce(
     }
     const key = `${IMPORTED_MEDIA_PREFIX}${randomUUID()}.${mediaExtension(contentType)}`;
     await storage.putStream(key, checkedBytes());
+
     return { key, contentType, sha256: hash.digest('hex') };
+  } catch (err) {
+    if (budget && err instanceof MediaFetchError && err.reason === 'jobBudgetExceeded') {
+      // Refused for the budget: what it took goes back, so the downloads before it in reading order keep their room.
+      budget.bytesLeft += taken;
+      taken = 0;
+    }
+    throw err;
   } finally {
+    // A reserved length not read in full goes back; bytes read count as spent, as one at a time.
+    if (budget && reserved > 0) budget.bytesLeft += reserved - Math.min(read, reserved);
     body.destroy();
+    res.release();
   }
 }
 
 /**
  * Copies one source media file into storage; {@link copyMedia} under a policy,
- * or a stand-in in tests. `signal` aborts it when the job stops.
+ * or a stand-in in tests. `signal` aborts it when the job stops; `ticket` is
+ * its place in reading order for the byte budget.
  */
-export type MediaCopier = (url: string, mimeType: unknown, signal?: AbortSignal) => Promise<CopiedMedia>;
+export type MediaCopier = (
+  url: string,
+  mimeType: unknown,
+  signal?: AbortSignal,
+  ticket?: BudgetTicket,
+) => Promise<CopiedMedia>;
 
 /** What happened to one tale's media. */
 export type TaleMediaOutcome =
@@ -237,6 +338,16 @@ export interface TaleMediaImport {
   copy: MediaCopier;
   /** Reports a file that could not be cleaned up; it never fails the import. */
   onCleanupError?: (err: unknown) => void;
+  /**
+   * Runs first in the transaction that writes the tale's media: the job's
+   * claim guard, which throws when this worker no longer holds the job, so a
+   * stopped run writes nothing.
+   */
+  beforeWrite?: (tx: Db) => Promise<void>;
+  /** Runs each phase that uses the database (reads, then the write), such as under a slot limit; directly by default. */
+  withDb?: <T>(work: () => Promise<T>) => Promise<T>;
+  /** Hands out each tale's place in reading order for the byte budget; the importer takes one per tale. */
+  turns?: BudgetTurns;
 }
 
 /** The story a tale's media comes from: the source's `media` and `mime_type` values. */
@@ -328,16 +439,38 @@ export async function importTaleMedia(
   taleId: string,
   story: MediaSourceStory,
   signal?: AbortSignal,
+  ticket?: BudgetTicket,
 ): Promise<TaleMediaOutcome> {
+  try {
+    return await importTaleMediaWith(db, media, projectId, taleId, story, signal, ticket);
+  } finally {
+    // No download, or one that ended early: its place in the budget's order passes on.
+    ticket?.done();
+  }
+}
+
+async function importTaleMediaWith(
+  db: TransactionalDb,
+  media: TaleMediaImport,
+  projectId: string,
+  taleId: string,
+  story: MediaSourceStory,
+  signal: AbortSignal | undefined,
+  ticket: BudgetTicket | undefined,
+): Promise<TaleMediaOutcome> {
+  const withDb = media.withDb ?? (<T>(work: () => Promise<T>) => work());
   const url = story.media;
   if (url === undefined || url === null || (typeof url === 'string' && url.trim() === '')) return { kind: 'none' };
   if (typeof url !== 'string') return { kind: 'failed', reason: 'invalidUrl', keptEarlier: false };
   const digest = sourceMediaDigest(url.trim(), story.mimeType);
   let earlier: ImportedMedia | null;
   try {
-    const before = await currentOutcome(db, taleId, digest);
-    if (before !== null && before.kind !== 'imported') return before;
-    earlier = before === null ? null : await importedMedia(db, taleId);
+    const found = await withDb(async () => {
+      const before = await currentOutcome(db, taleId, digest);
+      return { before, earlier: before === null ? null : await importedMedia(db, taleId) };
+    });
+    if (found.before !== null && found.before.kind !== 'imported') return found.before;
+    earlier = found.earlier;
     // The import's copy is in place and the source names the same media: nothing to download.
     if (earlier !== null && earlier.digest === digest) return { kind: 'imported', change: 'unchanged' };
   } catch (err) {
@@ -347,7 +480,7 @@ export async function importTaleMedia(
 
   let copied: CopiedMedia;
   try {
-    copied = await media.copy(url.trim(), story.mimeType, signal);
+    copied = await media.copy(url.trim(), story.mimeType, signal, ticket);
   } catch (err) {
     if (err instanceof MediaFetchError) return { kind: 'failed', reason: err.reason, keptEarlier: earlier !== null };
     throw err;
@@ -356,33 +489,37 @@ export async function importTaleMedia(
   const removeCopy = () => media.storage.delete(copied.key).catch((err) => media.onCleanupError?.(err));
   let result: { outcome: TaleMediaOutcome; used: boolean };
   try {
-    result = await inTransaction(db, async (tx) => {
-      await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('import_media:' || $1, 0))", [taleId]);
-      const stored = { key: copied.key, contentType: copied.contentType };
-      if (earlier === null) {
-        // Only a tale that still holds no media takes the copy: a person's upload meanwhile wins.
-        if (await setTaleMediaIfNone(tx, taleId, stored)) {
+    result = await withDb(() =>
+      inTransaction(db, async (tx) => {
+        // A run that lost its job writes nothing; the guard holds the job row until this commits.
+        await media.beforeWrite?.(tx);
+        await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('import_media:' || $1, 0))", [taleId]);
+        const stored = { key: copied.key, contentType: copied.contentType };
+        if (earlier === null) {
+          // Only a tale that still holds no media takes the copy: a person's upload meanwhile wins.
+          if (await setTaleMediaIfNone(tx, taleId, stored)) {
+            await saveImportedMedia(tx, projectId, taleId, copied, digest);
+            return { outcome: { kind: 'imported', change: 'created' } as const, used: true };
+          }
+        } else if (earlier.sha256 === copied.sha256) {
+          // The same bytes under another URL: the copy in place stays, and the new fingerprint is recorded, but
+          // only while the tale still holds it (a person may have set media while the download ran).
+          if ((await getTaleMedia(tx, taleId))?.key === earlier.key) {
+            await tx.query(
+              'UPDATE import_media SET source_digest = $3, updated_at = now() WHERE tale_id = $1 AND media_key = $2',
+              [taleId, earlier.key, digest],
+            );
+            return { outcome: { kind: 'imported', change: 'unchanged' } as const, used: false };
+          }
+        } else if (await replaceTaleMediaIf(tx, taleId, earlier.key, stored)) {
+          // Replaced only while the tale still holds the import's earlier copy: a person's media meanwhile wins.
           await saveImportedMedia(tx, projectId, taleId, copied, digest);
-          return { outcome: { kind: 'imported', change: 'created' } as const, used: true };
+          return { outcome: { kind: 'imported', change: 'updated' } as const, used: true };
         }
-      } else if (earlier.sha256 === copied.sha256) {
-        // The same bytes under another URL: the copy in place stays, and the new fingerprint is recorded, but
-        // only while the tale still holds it (a person may have set media while the download ran).
-        if ((await getTaleMedia(tx, taleId))?.key === earlier.key) {
-          await tx.query(
-            'UPDATE import_media SET source_digest = $3, updated_at = now() WHERE tale_id = $1 AND media_key = $2',
-            [taleId, earlier.key, digest],
-          );
-          return { outcome: { kind: 'imported', change: 'unchanged' } as const, used: false };
-        }
-      } else if (await replaceTaleMediaIf(tx, taleId, earlier.key, stored)) {
-        // Replaced only while the tale still holds the import's earlier copy: a person's media meanwhile wins.
-        await saveImportedMedia(tx, projectId, taleId, copied, digest);
-        return { outcome: { kind: 'imported', change: 'updated' } as const, used: true };
-      }
-      const now = await currentOutcome(tx, taleId, digest);
-      return { outcome: now ?? { kind: 'keptOwn', sourceChanged: false }, used: false };
-    });
+        const now = await currentOutcome(tx, taleId, digest);
+        return { outcome: now ?? { kind: 'keptOwn', sourceChanged: false }, used: false };
+      }),
+    );
   } catch (err) {
     if (err instanceof CommitUncertainError) throw err;
     await removeCopy();

@@ -69,7 +69,6 @@ export function importChangeText(change: ImportChangeCount | undefined): string 
   return parts.length > 0 ? ` · ${parts.join(', ')}` : '';
 }
 
-/** One progress row's counts: "6 read / 4 written". */
 /** How long an import took, for its report: "42 s", "4 min 12 s", "1 h 3 min". */
 export function importDurationText(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -80,6 +79,7 @@ export function importDurationText(seconds: number): string {
   return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
 }
 
+/** One progress row's counts: "6 read / 4 written". */
 export function importProgressText(count: ImportProgressCount): string {
   return `${count.read} read / ${count.written} written`;
 }

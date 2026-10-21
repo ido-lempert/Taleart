@@ -4,6 +4,27 @@ import { labelText, MAX_LABEL_LIST_ENTRIES } from './labels';
 import { checkRecord, storedText, type DifferenceBudget } from './record-shape';
 import { isRetryableStatus, retryAfterMs, retryDelayMs, retryPolicy, sleep, type RetryPolicy } from './retry';
 
+// A read already under way, given up as unreachable once `signal` aborts.
+function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  const stopped = () => new StorylyUnavailableError('Storyly could not be reached when listing stories');
+  if (signal.aborted) return Promise.reject(stopped());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(stopped());
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 /** The real Storyly External API; `STORYLY_API_URL` overrides it (the fake server in tests). */
 export const DEFAULT_STORYLY_API_URL = 'https://api.storyly.io/external';
 
@@ -261,7 +282,9 @@ export class StorylyClient {
   async listStories(storyGroupId: string, signal?: AbortSignal): Promise<CheckedList<SourceStory>> {
     const early = this.ahead.get(storyGroupId);
     this.ahead.delete(storyGroupId);
-    const body = await (early ?? this.get('/story', { story_group_id: storyGroupId }, 'stories', signal));
+    const body = await (early
+      ? untilAborted(early, signal)
+      : this.get('/story', { story_group_id: storyGroupId }, 'stories', signal));
     return this.checkedContent(body, 'stories', 'tale');
   }
 
@@ -308,8 +331,11 @@ export class StorylyClient {
       let res: Response;
       for (let attempt = 1; ; attempt++) {
         // A 429 seen by any request of this client holds back the others until it passes.
-        const paused = this.pausedUntil - Date.now();
-        if (paused > 0) await this.pause(paused, what, signal);
+        // Checked again after each wait: another request's 429 may have moved the pause later meanwhile. A little
+        // jitter spreads the requests that wake together.
+        for (let paused = this.pausedUntil - Date.now(); paused > 0; paused = this.pausedUntil - Date.now()) {
+          await this.pause(paused + Math.random() * Math.min(250, paused / 10), what, signal);
+        }
         res = await this.request(path, query, mode, what, signal);
         if (!isRetryableStatus(res.status) || attempt >= this.retry.attempts) break;
         const after = retryAfterMs(res.headers.get('retry-after'));

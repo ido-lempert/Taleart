@@ -177,6 +177,9 @@ function sendList(res, mode, body, origin) {
  *   `factor` (every delay times it, bandwidth divided by it; 1 by default; 0
  *   answers at once), and `failures`: false for none, or rates overriding the
  *   profile's. `reset()` turns it off.
+ * - `hold`: `{ matches(url), until }`: a request whose URL matches waits for
+ *   the `until` promise before it is answered, so a test can stop a run at a
+ *   known point. `reset()` clears it.
  * - `stats`: Scale shop counters: API and media requests, injected failures by
  *   status, media bytes sent, and the most media requests open at once (from
  *   arrival to the end of the answer).
@@ -192,6 +195,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
     data: {},
     requests: [],
     scale: null,
+    hold: null,
     stats: null,
     useScale(options = {}) {
       const { factor = 1, failures = true, ...counts } = options;
@@ -205,10 +209,13 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       Object.assign(control.data.storyGroups, data.storyGroups);
       Object.assign(control.data.stories, data.stories);
       control.scale = { profile, factor, app: data.app, media: data.media, failed: new Set() };
-      return { appId, tales: profile.instances * profile.groupsPerInstance * profile.storiesPerGroup };
+      let mediaBytes = 0;
+      for (const file of data.media.values()) mediaBytes += file.bytes;
+      return { appId, tales: profile.instances * profile.groupsPerInstance * profile.storiesPerGroup, mediaBytes };
     },
     reset() {
       control.scale = null;
+      control.hold = null;
       control.stats = {
         apiRequests: 0,
         mediaRequests: 0,
@@ -246,11 +253,14 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       res.once('close', () => stats.mediaOpen--);
     }
     const delayMs = control.delayMs + (control.scale ? scaleDelay(url) : 0);
-    if (delayMs > 0) {
-      setTimeout(() => answer(req, res, url), delayMs);
-      return;
-    }
-    answer(req, res, url);
+    const reply = () => {
+      if (delayMs > 0) setTimeout(() => answer(req, res, url), delayMs);
+      else answer(req, res, url);
+    };
+    // A held request waits until the test lets it go.
+    const hold = control.hold;
+    if (hold && hold.matches(url)) hold.until.then(reply, reply);
+    else reply();
   });
 
   // The Scale shop's profile: what a request is called for its delay and its failure, without the token.

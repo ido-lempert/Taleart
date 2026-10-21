@@ -3,16 +3,16 @@ title: 'Import 1,000 tales within 30 minutes'
 type: 'feature'
 ticket: '10'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '4dc1fb5'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'thorough'
+review_source: 'pinned'
+lenses_ran: ['coordinator']
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md'
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-storyly-importer/epic-storyly-importer.md'
@@ -112,7 +112,11 @@ deferred: []
 - Not optimised, by measurement: database work. At SCALE_FACTOR 0.01 (network nearly free), 1,000 tales take about 10 s locally, against a 30-minute target. So there is no batching across records: story 7's per-record transactions and lock order stay as they were. The per-record heartbeat also stays.
 - The scale target lives in `api` because it needs every module's migrations (`apps/api/src/db.ts`). `*.scale.ts` is excluded from the app build and from `api:test`. `claimNextJob` is now exported for it.
 - The fake's `stats.maxMediaOpen` counts a media request from its arrival to the end of its answer.
-- Merged `autopilot/foundation` 52287b8 (Tale Studio 7.1) before committing. It merged with no conflicts, and the contract was regenerated with no change.
+- Merged `autopilot/foundation` 52287b8 (Tale Studio 7.1) before committing. It merged with no conflicts, and the contract was regenerated with no change. Merged it again (45e087a, Tale Studio 7.4) before the review fixes.
+- Review fixes (see Review Triage Log), as decisions:
+  - Budget order: a download reserves out of turn when the bytes left exceed the earlier open downloads' worst case (100 MB each). So the 5 GB default never makes downloads wait for turns until near exhaustion.
+  - Budget deadline: the job's media deadline now stops starting downloads only. A download already running finishes within its own 120 s deadline, so the import can pass the 60 minutes by at most that.
+  - Database pool: the API's pool holds `DATABASE_POOL_MAX` connections (20 by default, before this pg's default of 10). Media copies use at most `max − 6` for their database phases.
 - Measurements (`api:import-scale`, 1,000 tales, SCALE_FACTOR 0.1; the machine was shared, so expect ±20 %):
 
 | Run | Before (4dc1fb5) | After |
@@ -129,6 +133,41 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- verdicts: 12 findings, all patched, none rejected
+- findings:
+  - `[patch]` A lost claim did not stop the run between records: the heartbeat timer ignored the loss, and `room`/`drain` and running copies did not notice it. Fixed:
+    - `runImportJob` owns the stop controller, and the timer aborts it on `ClaimLostError`.
+    - `importContent` takes it as `signal`, and `InOrder` ends `room`/`drain` at once.
+    - Copies abort.
+    - `importTaleMedia` runs a claim guard (`holdsImportJob`, `FOR SHARE` on the job row) first in its write transaction.
+    - Tests: claim lost in `drain`, claim lost in `room`, the guard refusing, and `runImportJob` stopping via the timer, each with no further writes.
+  - `[patch]` List reads ignored the stop. Fixed: `ContentSource.listStoryGroups`/`listStories` take the signal (read-ahead included), so reads and retry waits abort, and the stop is checked before each zone, group and tale write after a read. Test: a read that answers after the stop writes nothing.
+  - `[patch]` A 429 hold was checked once. Fixed: a loop re-checks `pausedUntil` after each wait, with jitter (up to 10 %, at most 250 ms) on wake-ups. Test: a later 429 extends the hold while another request sleeps.
+  - `[patch]` A retry wait longer than the download's deadline still slept. Fixed: it fails at once as `httpError` with the reply's status; the spec says so.
+  - `[patch]` The byte budget was not deterministic under concurrency. Fixed:
+    - Each tale takes a `BudgetTicket` in reading order.
+    - A declared length is reserved in turn when the budget could bind (out of turn only when the earlier open downloads cannot matter), and unread bytes go back.
+    - A download refused for the budget gives back what it took and marks the budget spent.
+    - Waiting for the turn holds no host slot: the download closes and opens again.
+    - Streams without a length may still differ (documented).
+    - The 60-min deadline now only stops new downloads; running ones finish within their own deadline.
+    - Tests: `copyMedia` at concurrency 1 vs 6, and `importContent` at concurrency 1 vs 8, refuse the same media.
+  - `[patch]` The per-host limit counted the origin host only. Fixed: `MediaFetchPolicy.hostSlots`; each hop releases its slot before taking the next host's, so no two are held at once and nothing can deadlock. Test: six hosts redirecting to one stay within its limit of 2.
+  - `[patch]` `first_started_at` was not backfilled. Fixed in the migration (from `started_at`). Test.
+  - `[patch]` Stacked doc comments in `import-shared.ts`. Fixed.
+  - `[patch]` The resume test was timing-based. Fixed: the fake can hold a request (`control.hold`). The test holds group 2's stories, takes over once group 1's four tales and media are in, and the first run stops via its heartbeat timer.
+  - `[patch]` The scale target did not check `elapsedSeconds`. Fixed: set, and within a second of the measured time.
+  - `[patch]` The scale target's disk use was unchecked. Fixed:
+    - It checks for twice the media's size free before writing.
+    - Media goes under `taleart-scale-media-*` in the OS temp folder.
+    - It cleans up on end, SIGINT and SIGTERM, and removes such folders older than a day on start.
+    - Its header notes tmpfs.
+  - `[patch]` The pool size was implicit. Fixed:
+    - `DATABASE_POOL_MAX` (default 20) sets the pool's size, documented in `.env.example`.
+    - The worker runs media copies' database phases under a limit of `min(media, max − 6)` (`dbConcurrency`).
+    - Tests: the pool size, and progress polls answering within 500 ms while eight copies run.
 
 ## Verification
 
@@ -156,12 +195,20 @@ A job resumed after a worker stops creates nothing twice and downloads no media 
 - `apps/dashboard/`: "Took" line and `importDurationText`; 2 tests.
 - `.env.example`: `FAKE_STORYLY_SCALE`, budget note.
 
-**Review:** none yet (unreviewed).
+**Review:** coordinator review, 12 findings, all patched (see Review Triage Log).
 
 **Verification:** after merging `autopilot/foundation` 52287b8, the run-many command passed for all 12 projects against `taleart_w2_test`: api 379, server-importer 257, web-sdk 262, contract 106, server-tales 96, server-zones 67, fake-storyly 18 tests. The only warning is the dashboard bundle budget warning, which was already there. `api:import-scale` passed: 25.3 s at factor 0.1 with 27 injected failures, an upper bound of 4.2 min, 1,000/1,000 tales and media, and a peak RSS of 192 MB.
+
+**Verification (review fixes):** after merging `autopilot/foundation` 45e087a, the run-many command passed for all 12 projects against `taleart_w2_test`: api 381, server-importer 269, web-sdk 262, dashboard 223, contract 106, server-tales 96, server-zones 67, fake-storyly 18 tests. The only warning is the dashboard bundle budget warning, which was already there. `api:import-scale` (factor 0.1) passed:
+- with 429/500/503 replies: 25.0 s, an upper bound of 4.2 min, `elapsedSeconds` 25, a re-run of 4.4 s, at most 6 media requests open at once, and a peak RSS of 227 MB;
+- without failures: 14.7 s, an upper bound of 2.4 min.
+
+**Follow-up review recommended:** true. The ordered byte budget (tickets, reopening on its turn) and the stop paths are new concurrency code.
 
 **Residual risks:**
 - The latency and failure profile is assumed until story 3 records the live API. Media hosts much slower than 2 MB/s per connection, or long `Retry-After` values, change the numbers.
 - The timing assertions in the fake's and the API's tests (pacing, Retry-After of 1 s, at most 6 open) may be sensitive on a heavily loaded CI machine.
 - With a storage or database failure, tales after the failing one may already exist. The job fails and a re-run completes it.
 - The generated contract file (`api.ts`) may conflict with other contract changes when merged.
+- A download that waits for its budget turn opens its URL a second time. This happens only when the budget is close to binding.
+- Media streams without a declared length can still be refused in a different order than one at a time, when the budget binds.

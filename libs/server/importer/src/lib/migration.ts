@@ -37,6 +37,10 @@ export async function migrateImporter(db: Db): Promise<void> {
   // When a worker first claimed the job; kept when a recovered job runs again, so the report's elapsed time
   // covers every run of it (story 10).
   await db.query('ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS first_started_at timestamptz');
+  // Jobs started before the column: their last start is the best known first one.
+  await db.query(
+    'UPDATE import_jobs SET first_started_at = started_at WHERE first_started_at IS NULL AND started_at IS NOT NULL',
+  );
   await db.query(
     "CREATE INDEX IF NOT EXISTS import_jobs_queued_idx ON import_jobs (created_at) WHERE status = 'queued'",
   );

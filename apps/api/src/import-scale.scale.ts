@@ -20,8 +20,15 @@
 // 429/500 replies), SCALE_MEDIA_CONCURRENCY, SCALE_MEDIA_PER_HOST,
 // SCALE_LIST_READ_AHEAD (the importer's concurrency; its defaults otherwise),
 // SCALE_MAX_RSS_MB (peak memory allowed, 1024 by default).
+//
+// Disk: the copied media (about 1.2 GB for 1,000 tales) goes to a folder named
+// taleart-scale-media-* in the OS temp folder. The target checks first that the
+// disk there has twice that free, removes the folder when it ends (also on
+// SIGINT or SIGTERM), and removes such folders older than a day that an
+// earlier, killed run left. Where the temp folder is a tmpfs (memory), the
+// media counts against memory: point TMPDIR at a disk folder then.
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -79,7 +86,7 @@ interface FakeStoryly {
   port: number;
   control: {
     reset(): void;
-    useScale(options: Record<string, unknown>): { appId: string; tales: number };
+    useScale(options: Record<string, unknown>): { appId: string; tales: number; mediaBytes: number };
     stats: ScaleStats;
     scale: { profile: { storiesPerGroup: number; groupsPerInstance: number } } | null;
   };
@@ -88,10 +95,32 @@ interface FakeStoryly {
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
+const MEDIA_DIR_PREFIX = 'taleart-scale-media-';
+const DAY_MS = 24 * 60 * 60_000;
+let mediaDir = '';
+
+// Media folders an earlier run left (killed before it could clean up), older than a day.
+function removeStaleMediaDirs(): void {
+  for (const name of readdirSync(tmpdir())) {
+    if (!name.startsWith(MEDIA_DIR_PREFIX)) continue;
+    const path = join(tmpdir(), name);
+    try {
+      if (Date.now() - statSync(path).mtimeMs > DAY_MS) rmSync(path, { recursive: true, force: true });
+    } catch {
+      // Gone meanwhile, or not ours to remove.
+    }
+  }
+}
+
+// Interrupted: the media goes, then the process ends as the signal asked.
+function removeOnSignal(signal: NodeJS.Signals): void {
+  if (mediaDir) rmSync(mediaDir, { recursive: true, force: true });
+  process.kill(process.pid, signal);
+}
+
 describe('import throughput (epic R6)', () => {
   let pool: Pool;
   let fake: FakeStoryly;
-  let mediaDir: string;
   let peakRss = 0;
   let sampler: ReturnType<typeof setInterval>;
 
@@ -105,7 +134,10 @@ describe('import throughput (epic R6)', () => {
       startFakeStoryly(): Promise<FakeStoryly>;
     };
     fake = await startFakeStoryly();
-    mediaDir = mkdtempSync(join(tmpdir(), 'taleart-scale-media-'));
+    removeStaleMediaDirs();
+    mediaDir = mkdtempSync(join(tmpdir(), MEDIA_DIR_PREFIX));
+    process.once('SIGINT', removeOnSignal);
+    process.once('SIGTERM', removeOnSignal);
     sampler = setInterval(() => {
       peakRss = Math.max(peakRss, process.memoryUsage().rss);
     }, 100);
@@ -116,6 +148,8 @@ describe('import throughput (epic R6)', () => {
     await fake?.close();
     await pool?.end();
     if (mediaDir) rmSync(mediaDir, { recursive: true, force: true });
+    process.off('SIGINT', removeOnSignal);
+    process.off('SIGTERM', removeOnSignal);
   });
 
   it(
@@ -124,8 +158,17 @@ describe('import throughput (epic R6)', () => {
       fake.control.reset();
       // The profile's shape (200 stories per instance), with as many instances as the tales asked for need.
       const instances = Math.max(1, Math.round(tales / 200));
-      const { appId, tales: served } = fake.control.useScale({ factor, failures, instances });
+      const { appId, tales: served, mediaBytes } = fake.control.useScale({ factor, failures, instances });
       expect(served).toBe(tales);
+      // The copies need room: fail clearly before writing rather than filling the disk.
+      const disk = statfsSync(mediaDir);
+      const free = disk.bavail * disk.bsize;
+      if (free < 2 * mediaBytes) {
+        throw new Error(
+          `The temp folder has ${Math.round(free / 1024 / 1024)} MB free; the scale run needs ` +
+            `${Math.round((2 * mediaBytes) / 1024 / 1024)} MB (twice its media). Point TMPDIR elsewhere.`,
+        );
+      }
 
       const user = await createUser(pool, { name: 'Scale Admin', email: 'scale@example.com', role: 'admin' });
       const project = await createProject(pool, { name: 'Scale' });
@@ -164,6 +207,11 @@ describe('import throughput (epic R6)', () => {
       expect(report?.tales).toEqual({ source: tales, imported: tales, skipped: 0 });
       expect(report?.media).toEqual({ source: tales, imported: tales, skipped: 0 });
       expect(report?.zones.imported).toBe(instances);
+      // The report's elapsed time: set, and the measured time give or take the rounding and the claim.
+      const elapsed = report?.elapsedSeconds;
+      expect(elapsed).toEqual(expect.any(Number));
+      expect(elapsed).toBeGreaterThanOrEqual(Math.floor(first.ms / 1000) - 1);
+      expect(elapsed).toBeLessThanOrEqual(Math.ceil(first.ms / 1000) + 1);
 
       const counts = async () => {
         const { rows } = await pool.query<{ tales: string; groups: string; links: string; media: string }>(
@@ -190,7 +238,7 @@ describe('import throughput (epic R6)', () => {
         firstRun: seconds(first.ms),
         threshold: seconds(thresholdMs),
         extrapolatedUpperBound: `${(bound / 60_000).toFixed(1)} min (target 30 min)`,
-        reportElapsedSeconds: (report as { elapsedSeconds?: number } | null)?.elapsedSeconds ?? null,
+        reportElapsedSeconds: elapsed,
         reRun: seconds(second.ms),
         apiRequests: firstStats.apiRequests,
         mediaRequests: firstStats.mediaRequests,

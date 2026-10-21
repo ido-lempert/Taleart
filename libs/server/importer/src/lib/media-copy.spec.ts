@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import type { TransactionalDb } from '@taleart/server-access';
-import { copyMedia, importTaleMedia, sourceMediaDigest, type TaleMediaImport } from './media-copy';
+import { BudgetTurns, copyMedia, importTaleMedia, sourceMediaDigest, type TaleMediaImport } from './media-copy';
+import { HostLimiter } from './retry';
 import { CommitUncertainError } from './transaction';
 import {
   isPublicAddress,
@@ -569,14 +570,15 @@ describe('copyMedia: the per-import budget', () => {
     };
     expect(await failure(copyMedia(storage, `${origin}/chunked.png`, null, local(), budget))).toBe('jobBudgetExceeded');
     expect(stored()).toHaveLength(1);
-    expect(budget.bytesLeft).toBeLessThanOrEqual(0);
+    // Spent; what the refused download read went back (story 10), so downloads before it keep their room.
+    expect(budget).toMatchObject({ spent: true, bytesLeft: 10 });
     // Spent: the next media is not even requested.
     hits = [];
     expect(await failure(copyMedia(storage, `${origin}/a.png`, null, local(), budget))).toBe('jobBudgetExceeded');
     expect(hits).toEqual([]);
   });
 
-  it('stops at the import media deadline, before a request or during one', async () => {
+  it('starts no download after the import media deadline, and lets one running finish in its own time', async () => {
     routes['/a.png'] = file('image/png', PNG);
     const past = { bytesLeft: 1e9, deadline: Date.now() - 1 };
     expect(await failure(copyMedia(storage, `${origin}/a.png`, null, local(), past))).toBe('jobBudgetExceeded');
@@ -587,9 +589,16 @@ describe('copyMedia: the per-import budget', () => {
       const timer = setInterval(() => res.write(Buffer.from([0])), 20);
       req.on('close', () => clearInterval(timer));
     };
-    const budget = { bytesLeft: 1e9, deadline: Date.now() + 200 };
-    expect(await failure(copyMedia(storage, `${origin}/trickle.png`, null, local(), budget))).toBe('jobBudgetExceeded');
+    // Started before the import deadline: it runs on to its own deadline, not the import's.
+    const budget = { bytesLeft: 1e9, deadline: Date.now() + 50 };
+    const policy = { ...local(), timeoutMs: 300 };
+    const started = Date.now();
+    expect(await failure(copyMedia(storage, `${origin}/trickle.png`, null, policy, budget))).toBe('timeout');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
     expect(stored()).toEqual([]);
+    hits = [];
+    expect(await failure(copyMedia(storage, `${origin}/a.png`, null, local(), budget))).toBe('jobBudgetExceeded');
+    expect(hits).toEqual([]);
   });
 });
 
@@ -645,12 +654,16 @@ describe('copyMedia: retries and downloads at once (story 10)', () => {
     expect(tries).toBe(2);
   });
 
-  it('waits no longer than the download deadline for a retry', async () => {
+  it('gives up at once with the reply when the retry wait cannot fit the download deadline', async () => {
     routes['/later.png'] = replies([429], { 'Retry-After': '30' });
     const started = Date.now();
-    const policy = { ...local(), timeoutMs: 200, retry: { attempts: 3 } };
-    expect(await failure(copyMedia(storage, `${origin}/later.png`, null, policy))).toBe('timeout');
-    expect(Date.now() - started).toBeLessThan(2000);
+    const policy = { ...local(), timeoutMs: 2000, retry: { attempts: 3 } };
+    const err = await copyMedia(storage, `${origin}/later.png`, null, policy).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MediaFetchError);
+    expect((err as MediaFetchError).reason).toBe('httpError');
+    expect((err as MediaFetchError).reply?.status).toBe(429);
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(hits).toEqual(['/later.png']);
   });
 
   it('shares the byte budget between downloads running at once, never storing past it', async () => {
@@ -670,7 +683,54 @@ describe('copyMedia: retries and downloads at once (story 10)', () => {
       if (r.status === 'rejected') expect((r.reason as MediaFetchError).reason).toBe('jobBudgetExceeded');
     }
     expect(stored()).toHaveLength(copied);
-    expect(budget.bytesLeft).toBeLessThanOrEqual(0);
+    expect(budget.spent).toBe(true);
+  });
+
+  it('refuses the same downloads as one at a time when lengths are declared, whatever order they end in', async () => {
+    // Six files declaring their length; the later ones answer first.
+    for (let i = 0; i < 6; i++) {
+      routes[`/d${i}.png`] = (req, res) => {
+        setTimeout(() => file('image/png', PNG)(req, res), (6 - i) * 15);
+      };
+    }
+    const outcome = async (concurrent: boolean) => {
+      const budget = { bytesLeft: PNG.length * 3 + 10, deadline: Date.now() + 60_000 };
+      const turns = new BudgetTurns();
+      const run = (i: number, ticket = turns.ticket()) =>
+        copyMedia(storage, `${origin}/d${i}.png`, null, local(), budget, undefined, ticket).then(
+          () => 'copied',
+          (err: MediaFetchError) => err.reason,
+        );
+      if (concurrent) {
+        const tickets = Array.from({ length: 6 }, () => turns.ticket());
+        return Promise.all(tickets.map((ticket, i) => run(i, ticket)));
+      }
+      const results: string[] = [];
+      for (let i = 0; i < 6; i++) results.push(await run(i));
+      return results;
+    };
+    const one = await outcome(false);
+    const many = await outcome(true);
+    expect(one).toEqual(['copied', 'copied', 'copied', 'jobBudgetExceeded', 'jobBudgetExceeded', 'jobBudgetExceeded']);
+    expect(many).toEqual(one);
+  });
+
+  it('limits connections per host on every hop, so many hosts redirecting to one stay within its limit', async () => {
+    let open = 0;
+    let most = 0;
+    routes['/r'] = redirect(`http://one.test:${port}/slow.png`);
+    routes['/slow.png'] = (req, res) => {
+      open++;
+      most = Math.max(most, open);
+      res.on('close', () => open--);
+      setTimeout(() => file('image/png', PNG)(req, res), 40);
+    };
+    const lookup = async () => [{ address: '127.0.0.1', family: 4 as const }];
+    const policy: MediaFetchPolicy = { ...local(), lookup, hostSlots: new HostLimiter(2) };
+    const copies = Array.from({ length: 6 }, (_, i) => copyMedia(storage, `http://h${i}.test:${port}/r`, null, policy));
+    await Promise.all(copies);
+    expect(stored()).toHaveLength(6);
+    expect(most).toBeLessThanOrEqual(2);
   });
 
   it('stops when the job aborts it', async () => {

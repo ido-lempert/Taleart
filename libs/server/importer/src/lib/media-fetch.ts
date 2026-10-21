@@ -54,6 +54,13 @@ export interface MediaFetchPolicy {
   ca?: string | Buffer;
   /** How a download answered 429 or 5xx is tried again; the importer's default policy when absent. */
   retry?: Partial<RetryPolicy>;
+  /**
+   * Limits connections per host: a slot of each hop's host is taken before
+   * connecting, and the previous hop's is released first (a redirect never
+   * holds two), so the limit counts the host actually connected to. The last
+   * hop's slot is held until the response is released.
+   */
+  hostSlots?: { acquire(host: string, signal?: AbortSignal): Promise<() => void> };
 }
 
 export const MEDIA_FETCH_TIMEOUT_MS = 120_000;
@@ -227,6 +234,8 @@ export interface MediaResponse {
   body: IncomingMessage;
   /** Why the guard cut the connection (idle timeout, address check), once it has; null before. */
   failure(): MediaFetchError | null;
+  /** Releases the host slot the response holds ({@link MediaFetchPolicy.hostSlots}); call it once the body is done. */
+  release(): void;
 }
 
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
@@ -380,34 +389,55 @@ export async function openMedia(rawUrl: string, policy: MediaFetchPolicy, signal
   const maxRedirects = policy.maxRedirects ?? MEDIA_MAX_REDIRECTS;
   const dnsTimeoutMs = policy.dnsTimeoutMs ?? MEDIA_DNS_TIMEOUT_MS;
   let url = parseMediaUrl(rawUrl);
-  for (let redirects = 0; ; redirects++) {
-    if (signal.aborted) throw new MediaFetchError('timeout', 'The media download took too long');
-    const targets = await checkedAddresses(url, guard, lookup, dnsTimeoutMs, signal);
-    const { res, failure } = await getOnce(url, targets, guard, policy, signal);
-    const status = res.statusCode ?? 0;
-    if (REDIRECTS.has(status)) {
-      const location = res.headers.location;
-      res.destroy();
-      if (!location) throw new MediaFetchError('httpError', `The media host answered ${status} without a location`);
-      if (redirects >= maxRedirects) {
-        throw new MediaFetchError('tooManyRedirects', 'The media URL redirects too many times');
+  // The host slot held now: one hop's at a time, released before the next hop takes its own.
+  let release: () => void = () => undefined;
+  try {
+    for (let redirects = 0; ; redirects++) {
+      if (signal.aborted) throw new MediaFetchError('timeout', 'The media download took too long');
+      release();
+      release = () => undefined;
+      if (policy.hostSlots) {
+        try {
+          release = await policy.hostSlots.acquire(url.host.toLowerCase(), signal);
+        } catch {
+          throw new MediaFetchError('timeout', 'The media download took too long');
+        }
       }
-      url = parseMediaUrl(location, url);
-      continue;
+      const targets = await checkedAddresses(url, guard, lookup, dnsTimeoutMs, signal);
+      const { res, failure } = await getOnce(url, targets, guard, policy, signal);
+      const status = res.statusCode ?? 0;
+      if (REDIRECTS.has(status)) {
+        const location = res.headers.location;
+        res.destroy();
+        if (!location) throw new MediaFetchError('httpError', `The media host answered ${status} without a location`);
+        if (redirects >= maxRedirects) {
+          throw new MediaFetchError('tooManyRedirects', 'The media URL redirects too many times');
+        }
+        url = parseMediaUrl(location, url);
+        continue;
+      }
+      if (status < 200 || status > 299) {
+        const retryAfter = retryAfterMs(res.headers['retry-after']);
+        res.destroy();
+        throw new MediaFetchError('httpError', `The media host answered ${status}`, {
+          status,
+          retryAfterMs: retryAfter,
+        });
+      }
+      const type = res.headers['content-type'];
+      const length = Number(res.headers['content-length']);
+      const held = release;
+      release = () => undefined;
+      return {
+        contentType: type ? type.split(';')[0].trim().toLowerCase() : null,
+        contentLength:
+          res.headers['content-length'] !== undefined && Number.isSafeInteger(length) && length >= 0 ? length : null,
+        body: res,
+        failure,
+        release: held,
+      };
     }
-    if (status < 200 || status > 299) {
-      const retryAfter = retryAfterMs(res.headers['retry-after']);
-      res.destroy();
-      throw new MediaFetchError('httpError', `The media host answered ${status}`, { status, retryAfterMs: retryAfter });
-    }
-    const type = res.headers['content-type'];
-    const length = Number(res.headers['content-length']);
-    return {
-      contentType: type ? type.split(';')[0].trim().toLowerCase() : null,
-      contentLength:
-        res.headers['content-length'] !== undefined && Number.isSafeInteger(length) && length >= 0 ? length : null,
-      body: res,
-      failure,
-    };
+  } finally {
+    release();
   }
 }

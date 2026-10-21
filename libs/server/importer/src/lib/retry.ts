@@ -86,32 +86,68 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 /** Runs at most `max` tasks at once; the others wait their turn, first come first served. */
 export class Limiter {
   private running = 0;
-  private readonly waiting: (() => void)[] = [];
+  private readonly waiting: { grant: () => void }[] = [];
 
   constructor(readonly max: number) {
     if (!Number.isInteger(max) || max < 1) throw new RangeError('A limiter runs at least one task');
   }
 
-  /** How many tasks run now. */
+  /** How many slots are held now. */
   get active(): number {
     return this.running;
   }
 
-  async run<T>(task: () => Promise<T>): Promise<T> {
-    if (this.running >= this.max) await new Promise<void>((resolve) => this.waiting.push(resolve));
-    else this.running++;
+  /**
+   * Takes a slot, waiting for one when all are held; resolves to its release
+   * (calling it again does nothing). A waiter whose signal aborts leaves the
+   * queue and rejects with the signal's reason.
+   */
+  acquire(signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    if (this.running < this.max) {
+      this.running++;
+      return Promise.resolve(this.releaser());
+    }
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        const index = this.waiting.indexOf(waiter);
+        if (index >= 0) this.waiting.splice(index, 1);
+        reject(signal?.reason);
+      };
+      const waiter = {
+        grant: () => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve(this.releaser());
+        },
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      this.waiting.push(waiter);
+    });
+  }
+
+  async run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const release = await this.acquire(signal);
     try {
       return await task();
     } finally {
+      release();
+    }
+  }
+
+  private releaser(): () => void {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
       // The slot passes straight to the next waiter, so running never goes over max.
       const next = this.waiting.shift();
-      if (next) next();
+      if (next) next.grant();
       else this.running--;
-    }
+    };
   }
 }
 
-/** One {@link Limiter} per host: at most `max` tasks at once against any one host. */
+/** One {@link Limiter} per host: at most `max` slots at once against any one host. */
 export class HostLimiter {
   private readonly hosts = new Map<string, Limiter>();
 
@@ -119,16 +155,36 @@ export class HostLimiter {
     if (!Number.isInteger(max) || max < 1) throw new RangeError('A limiter runs at least one task');
   }
 
-  async run<T>(host: string, task: () => Promise<T>): Promise<T> {
+  /** Takes a slot of `host`; resolves to its release. See {@link Limiter.acquire}. */
+  async acquire(host: string, signal?: AbortSignal): Promise<() => void> {
     let limiter = this.hosts.get(host);
     if (!limiter) {
       limiter = new Limiter(this.max);
       this.hosts.set(host, limiter);
     }
+    const held = limiter;
+    const forget = () => {
+      if (held.active === 0 && this.hosts.get(host) === held) this.hosts.delete(host);
+    };
+    let release: () => void;
     try {
-      return await limiter.run(task);
+      release = await held.acquire(signal);
+    } catch (err) {
+      forget();
+      throw err;
+    }
+    return () => {
+      release();
+      forget();
+    };
+  }
+
+  async run<T>(host: string, task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const release = await this.acquire(host, signal);
+    try {
+      return await task();
     } finally {
-      if (limiter.active === 0) this.hosts.delete(host);
+      release();
     }
   }
 }

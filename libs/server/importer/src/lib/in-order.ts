@@ -19,8 +19,24 @@ export class InOrder {
   private failure: unknown = undefined;
   private readonly settledWaiters: (() => void)[] = [];
   private readonly works = new Set<Promise<unknown>>();
+  // Resolves when the first failure is kept: drain stops waiting for works then.
+  private readonly stopped: Promise<void>;
+  private markStopped: () => void = () => undefined;
 
-  constructor(private readonly onFailure: (err: unknown) => void = () => undefined) {}
+  /**
+   * `signal`, when given, stops it as a failure as soon as it aborts (the
+   * job's claim was lost): `room` and `drain` stop waiting and throw its reason.
+   */
+  constructor(
+    private readonly onFailure: (err: unknown) => void = () => undefined,
+    signal?: AbortSignal,
+  ) {
+    this.stopped = new Promise<void>((resolve) => {
+      this.markStopped = resolve;
+    });
+    if (signal?.aborted) this.fail(signal.reason);
+    else signal?.addEventListener('abort', () => this.fail(signal.reason), { once: true });
+  }
 
   /** How many effects wait for their turn. */
   get pending(): number {
@@ -62,9 +78,9 @@ export class InOrder {
     if (this.failed) throw this.failure;
   }
 
-  /** Waits for every effect added so far; throws the failure once a work failed. */
+  /** Waits for every effect added so far, or for the first failure; throws the failure once there is one. */
   async drain(): Promise<void> {
-    await this.tail.catch(() => undefined);
+    await Promise.race([this.tail.catch(() => undefined), this.stopped]);
     this.check();
   }
 
@@ -98,6 +114,7 @@ export class InOrder {
     this.failed = true;
     this.failure = err;
     this.settledWaiters.splice(0).forEach((resolve) => resolve());
+    this.markStopped();
     this.onFailure(err);
   }
 

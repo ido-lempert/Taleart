@@ -35,7 +35,7 @@ import { decryptToken } from './crypto';
 import { isLabelError, LabelImport } from './label-import';
 import { groupLabels, labelText, MAX_GROUP_LABELS, MAX_GROUP_TAGS, MAX_LABEL_LIST_ENTRIES } from './labels';
 import { InOrder } from './in-order';
-import { HostLimiter, hostOf, Limiter, type RetryPolicy } from './retry';
+import { HostLimiter, Limiter, type RetryPolicy } from './retry';
 import { inTransaction } from './transaction';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import {
@@ -43,6 +43,7 @@ import {
   failImportJob,
   finishImportJob,
   heartbeatImportJob,
+  holdsImportJob,
   progressOf,
   recoverStaleJobs,
   setSourceAppName,
@@ -67,6 +68,7 @@ import {
   type RecordType,
 } from './reimport';
 import {
+  BudgetTurns,
   copyMedia,
   importTaleMedia,
   isSweepable,
@@ -155,6 +157,11 @@ export interface ImportRunOptions {
   concurrency?: ImportConcurrency;
   /** How replies 429 and 5xx from Storyly are tried again; the default policy when absent. */
   retry?: Partial<RetryPolicy>;
+  /**
+   * How many media copies may use the database at once; the media concurrency
+   * by default. The API passes its pool's size less what its requests need.
+   */
+  dbConcurrency?: number;
 }
 
 /** A failure whose message is written for the person who started the import. */
@@ -170,8 +177,9 @@ export type SourceList<T> = readonly T[] | CheckedList<T>;
 
 /** Reads an instance's story groups and a group's stories; the Storyly client in the worker. */
 export interface ContentSource {
-  listStoryGroups(instanceId: string): Promise<SourceList<SourceStoryGroup>>;
-  listStories(storyGroupId: string): Promise<SourceList<SourceStory>>;
+  /** `signal` stops the read and its retry waits when the import stops. */
+  listStoryGroups(instanceId: string, signal?: AbortSignal): Promise<SourceList<SourceStoryGroup>>;
+  listStories(storyGroupId: string, signal?: AbortSignal): Promise<SourceList<SourceStory>>;
   /** Starts reading a group's stories before `listStories` asks for them; optional. */
   readAhead?(storyGroupId: string, signal?: AbortSignal): void;
 }
@@ -217,6 +225,12 @@ export interface ImportContentOptions {
   selection?: ImportJobSelection;
   /** How much runs at once; {@link DEFAULT_IMPORT_CONCURRENCY} by default. */
   concurrency?: ImportConcurrency;
+  /**
+   * Stops the import when it aborts, such as when the job's claim is lost:
+   * no record is written after it, the copies stop, and `importContent`
+   * rejects with its reason.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -488,9 +502,15 @@ export async function importContent(
 ): Promise<ImportReport> {
   const concurrency = concurrencyOf(options.concurrency);
   const stop = new AbortController();
+  // The caller's stop (a lost claim) stops this import with its reason.
+  const external = options.signal;
+  const onExternal = () => stop.abort(external?.reason);
+  if (external?.aborted) onExternal();
+  else external?.addEventListener('abort', onExternal, { once: true });
   const run: ContentRun = {
-    // A copy that fails (storage, database) stops the others at once.
-    order: new InOrder(() => stop.abort()),
+    // A copy that fails (storage, database) stops the others at once, with its failure as the reason; a stop
+    // ends the waits in room() and drain() at once.
+    order: new InOrder((err) => stop.abort(err), stop.signal),
     concurrency,
     mediaPool: new Limiter(concurrency.media),
     stop,
@@ -498,10 +518,14 @@ export async function importContent(
   try {
     return await importContentWith(run, db, projectId, instanceList, source, beforeEach, options);
   } catch (err) {
+    // The first failure is passed on, not the stop it caused elsewhere.
+    const first = stop.signal.aborted && stop.signal.reason !== undefined ? stop.signal.reason : err;
     // Nothing is written once the import has failed: the copies stop, and the effects still waiting are dropped.
-    run.stop.abort();
+    stop.abort(first);
     await run.order.settle();
-    throw err;
+    throw first;
+  } finally {
+    external?.removeEventListener('abort', onExternal);
   }
 }
 
@@ -712,6 +736,7 @@ async function importContentWith(
       continue;
     }
     await beforeEach(report);
+    stop.signal.throwIfAborted();
     const zone = await importZone(db, projectId, instance, zoneName, appId);
     const zoneId = zone?.id ?? null;
     if (zone !== null && instance.name.trim() === '') {
@@ -732,6 +757,7 @@ async function importContentWith(
     // The zone itself: its name and, when its tale groups were read, their order, in one transaction.
     const updateZone = async (withOrder: boolean) => {
       if (zone === null) return;
+      stop.signal.throwIfAborted();
       const zoneUpdate = await updateRecord(db, 'zone', zone.id, projectId, async (tx, baseline) => {
         // The zone's placement lock first, then its row (no key update), as the tales module's
         // placement writes take them: an update cannot deadlock with a create, place or copy into the zone.
@@ -763,7 +789,7 @@ async function importContentWith(
       continue;
     }
 
-    const groupList = checkedOf(await source.listStoryGroups(instance.id));
+    const groupList = checkedOf(await source.listStoryGroups(instance.id, stop.signal));
     const groups = inSourceOrder(recordsOf(groupList));
     const groupPlaces = placeOf(groupList);
     report.taleGroups.source += groupList.entries.length;
@@ -842,7 +868,7 @@ async function importContentWith(
       }
       seenGroups.add(group.id);
       const name = groupName(group);
-      const storyList = checkedOf(await source.listStories(group.id));
+      const storyList = checkedOf(await source.listStories(group.id, stop.signal));
       const stories = recordsOf(storyList);
       // Each story's place in its list, from 1, as its differences name it.
       const positions = placeOf(storyList);
@@ -863,6 +889,8 @@ async function importContentWith(
         continue;
       }
       await beforeEach(report);
+      // A read may have ended after the import stopped: nothing is written then.
+      stop.signal.throwIfAborted();
       let taleGroup: { id: string; created: boolean } | null;
       try {
         taleGroup = await importLinked(
@@ -897,6 +925,7 @@ async function importContentWith(
         seenStories.add(story.id);
         const title = taleTitle(story, name);
         await beforeEach(report);
+        stop.signal.throwIfAborted();
         let tale: { id: string; created: boolean } | null;
         try {
           tale = await importLinked(
@@ -938,6 +967,7 @@ async function importContentWith(
           // Where the tale is when it is not in the group the source now lists it under: moved at the source
           // (the tale is where the import put it), or by a person (the import put it elsewhere).
           let move: 'none' | 'source' | 'person' = 'none';
+          stop.signal.throwIfAborted();
           const update = await updateRecord(db, 'tale', taleId, projectId, async (tx, baseline) => {
             const merge = valueMerger(baseline?.name, title);
             const renamed = await renameTaleWhen(tx, taleId, merge.decide);
@@ -987,10 +1017,14 @@ async function importContentWith(
           const mediaChanges = changes.media;
           const position = positions.get(story.id) ?? 1;
           const parent = parentOf(name, group.id);
-          const copy = mediaPool.run(async () => {
-            stop.signal.throwIfAborted();
-            return importTaleMedia(db, media, projectId, taleId, story, stop.signal);
-          });
+          // Its place in reading order for the byte budget, taken now, in reading order.
+          const ticket = media.turns?.ticket();
+          const copy = mediaPool
+            .run(async () => {
+              stop.signal.throwIfAborted();
+              return importTaleMedia(db, media, projectId, taleId, story, stop.signal, ticket);
+            }, stop.signal)
+            .finally(() => ticket?.done());
           order.after(copy, (outcome) => {
             if (outcome.kind === 'none') return;
             counts.source++;
@@ -1029,8 +1063,9 @@ async function importContentWith(
 
       // The group itself: its name, its tags and the order of its tales, in one transaction.
       const groupPosition = groupPlaces.get(group.id) ?? 1;
-      const updateGroup = (withTags: boolean) =>
-        updateRecord(db, 'taleGroup', taleGroupId, projectId, async (tx, baseline) => {
+      const updateGroup = (withTags: boolean) => {
+        stop.signal.throwIfAborted();
+        return updateRecord(db, 'taleGroup', taleGroupId, projectId, async (tx, baseline) => {
           const nameMerge = valueMerger(baseline?.name, name);
           if ((await renameTaleGroupWhen(tx, taleGroupId, nameMerge.decide)) === null) return null;
           const fields: RecordFields = { name: nameMerge.result().baseline };
@@ -1060,6 +1095,7 @@ async function importContentWith(
           const written = nameMerge.result().write !== null || tagsAdded || orderMerge.result().write !== null;
           return { fields, update: { written, kept } };
         });
+      };
       let removedLabels: string[] = [];
       let groupUpdate: RecordUpdate | null = null;
       try {
@@ -1304,8 +1340,12 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     if (sofar) latest = sofar;
     if (!(await heartbeatImportJob(db, job, sofar && progressOf(sofar, notPicked)))) throw new ClaimLostError();
   };
+  // Stops the import as soon as the claim is lost, also between records (the heartbeat timer finds it).
+  const stop = new AbortController();
   const timer = setInterval(() => {
-    beat().catch(() => undefined);
+    beat().catch((err: unknown) => {
+      if (err instanceof ClaimLostError) stop.abort(err);
+    });
   }, options.heartbeatMs ?? IMPORT_HEARTBEAT_MS);
   timer.unref?.();
   try {
@@ -1340,8 +1380,13 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     const instances = await client.listInstances(app.id);
     // What this import may spend on media in all: once spent, the rest is listed as not imported.
     const mediaBudget = mediaJobBudget(options.mediaPolicy);
-    // At most so many downloads against one media host at once, whatever the pool's size.
-    const mediaHosts = new HostLimiter(concurrency.mediaPerHost);
+    // At most so many connections to one media host at once, counted per hop (a redirect's target counts).
+    const mediaPolicy: MediaFetchPolicy = {
+      ...options.mediaPolicy,
+      hostSlots: new HostLimiter(concurrency.mediaPerHost),
+    };
+    // The media copies' database work, below the pool's size so the API's own requests keep connections.
+    const dbSlots = new Limiter(Math.max(1, Math.min(concurrency.media, options.dbConcurrency ?? concurrency.media)));
     // What the admin picked; without a selection, everything. Media and tags need tale groups.
     const selection = job.selection ?? undefined;
     const picks = (entity: 'media' | 'tags') => !selection || (selection.taleGroups && selection[entity]);
@@ -1353,16 +1398,21 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
         budget,
         selection,
         concurrency,
+        signal: stop.signal,
         appId: app.id,
         labels: picks('tags') ? () => client.listLabels(app.id) : undefined,
         media: !picks('media')
           ? undefined
           : {
               storage: options.storage,
-              copy: (url, mimeType, signal) =>
-                mediaHosts.run(hostOf(url), () =>
-                  copyMedia(options.storage, url, mimeType, options.mediaPolicy, mediaBudget, signal),
-                ),
+              copy: (url, mimeType, signal, ticket) =>
+                copyMedia(options.storage, url, mimeType, mediaPolicy, mediaBudget, signal, ticket),
+              turns: new BudgetTurns(),
+              withDb: (work) => dbSlots.run(work),
+              // The claim guard: a run that lost its job writes no media.
+              beforeWrite: async (tx) => {
+                if (!(await holdsImportJob(tx, job))) throw new ClaimLostError();
+              },
               onCleanupError: (err) =>
                 log('error', `Import ${job.id} could not delete an unused media file`, redactedError(err, secret)),
             },

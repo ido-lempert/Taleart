@@ -1,4 +1,10 @@
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { LocalDiskStorage } from '@taleart/server-storage';
 import { MAX_IMPORT_REPORT_DIFFERENCES, type ImportDifference, type ImportReport } from '@taleart/contract';
 import type { TransactionalDb } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
@@ -6,6 +12,7 @@ import { decryptToken, encryptToken, parseTokenKey } from './crypto';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import { claimNextJob, finishImportJob, IMPORT_LIST_LIMIT, listImportJobs, progressOf } from './jobs';
 import { MediaFetchError } from './media-fetch';
+import { BudgetTurns, copyMedia } from './media-copy';
 import { migrateImporter } from './migration';
 import { REPORT_TEXT_LIMIT, storedText, type DifferenceBudget } from './record-shape';
 import { recordsOf, StorylyClient } from './storyly-client';
@@ -296,7 +303,7 @@ describe('importContent: zone locking', () => {
 
 // A stateful stand-in for the tables an import writes, answering the SQL the
 // zones, tales and importer modules send. Enough to follow an import's logic.
-function contentDb() {
+function contentDb(intercept?: (sql: string, params: unknown[]) => unknown) {
   let next = 0;
   const uuid = () => `00000000-0000-4000-8000-${String(++next).padStart(12, '0')}`;
   const links = new Map<string, string>();
@@ -317,6 +324,8 @@ function contentDb() {
   // Called when a link is read; a test can create a competing link there.
   let onLinkRead: (key: string) => void = () => undefined;
   const { db, statements } = fakeDb((sql, params) => {
+    const own = intercept?.(sql, params);
+    if (own !== undefined) return own;
     const p = params as string[];
     if (/INSERT INTO import_records[\s\S]*DO NOTHING RETURNING fields/.test(sql)) {
       const key = `${p[0]}:${p[1]}`;
@@ -2023,5 +2032,278 @@ describe('jobs: elapsed time (story 10)', () => {
     expect(await finishImportJob(done, job, { zones: { source: 0, imported: 0, skipped: 0 }, notes: [] })).toBe(true);
     expect(query.mock.calls[0][0]).toMatch(/jsonb_build_object\('elapsedSeconds'/);
     expect(query.mock.calls[0][0]).toMatch(/COALESCE\(first_started_at, started_at, now\(\)\)/);
+  });
+});
+
+describe('importContent: stopping (story 10 review)', () => {
+  const home = [{ id: '2001', name: 'Home page' }];
+  const media = (id: string) => ({ id, name: `Story ${id}`, sortOrder: 0, media: `https://m.example/${id}.png` });
+  const twoGroups: ContentSource = {
+    listStoryGroups: async () => [
+      { id: 'g1', name: 'A', sortOrder: 0 },
+      { id: 'g2', name: 'B', sortOrder: 1 },
+    ],
+    listStories: async (id) => [media(`${id}s1`), media(`${id}s2`)],
+  };
+  // A copy that never ends on its own: it waits for the import's stop.
+  const hanging = () =>
+    vi.fn(
+      (_url: string, _mime: unknown, signal?: AbortSignal) =>
+        new Promise<never>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(new MediaFetchError('timeout', 'stopped')), { once: true });
+        }),
+    );
+  const writes = (statements: () => string[]) =>
+    statements().filter((sql) => /INSERT INTO (tales|tale_groups|zones)|UPDATE tales SET media_key/.test(sql)).length;
+
+  it('stops waiting in drain when the claim is lost, and writes nothing more', async () => {
+    const content = contentDb();
+    const claim = new AbortController();
+    const copy = hanging();
+    const run = importContent(content.db, projectId, home, twoGroups, async () => undefined, {
+      signal: claim.signal,
+      media: { storage: noStorage, copy },
+    });
+    // Every tale is created; the import now waits in drain for the copies.
+    for (let i = 0; i < 100 && copy.mock.calls.length < 4; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(copy).toHaveBeenCalledTimes(4);
+    const before = writes(content.statements);
+    claim.abort(new Error('claim lost'));
+    await expect(run).rejects.toThrow('claim lost');
+    expect(writes(content.statements)).toBe(before);
+    expect(content.media.size).toBe(0);
+  });
+
+  it('stops waiting in room when the claim is lost, and creates no further tale', async () => {
+    const content = contentDb();
+    const claim = new AbortController();
+    const copy = hanging();
+    const run = importContent(content.db, projectId, home, twoGroups, async () => undefined, {
+      signal: claim.signal,
+      concurrency: { pendingEffects: 1, media: 1 },
+      media: { storage: noStorage, copy },
+    });
+    for (let i = 0; i < 100 && copy.mock.calls.length < 1; i++) await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 20));
+    const before = writes(content.statements);
+    claim.abort(new Error('claim lost'));
+    await expect(run).rejects.toThrow('claim lost');
+    expect(writes(content.statements)).toBe(before);
+    expect(content.tales.size).toBeLessThan(4);
+  });
+
+  it('passes its stop to list reads, and writes nothing from a read that ends after the stop', async () => {
+    const content = contentDb();
+    const claim = new AbortController();
+    const signals: (AbortSignal | undefined)[] = [];
+    const late: ContentSource = {
+      listStoryGroups: async (_id, signal) => {
+        signals.push(signal);
+        return [{ id: 'g1', name: 'A', sortOrder: 0 }];
+      },
+      listStories: async (_id, signal) => {
+        signals.push(signal);
+        // The claim is lost while this read runs; the read still answers.
+        claim.abort(new Error('claim lost'));
+        return [media('g1s1')];
+      },
+    };
+    await expect(
+      importContent(content.db, projectId, home, late, async () => undefined, { signal: claim.signal }),
+    ).rejects.toThrow('claim lost');
+    expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
+    expect(signals[1]?.aborted).toBe(true);
+    expect(content.groups.size).toBe(0);
+    expect(content.tales.size).toBe(0);
+  });
+
+  it('writes no media when the claim guard finds the job taken over', async () => {
+    const content = contentDb();
+    const copy = vi.fn(async (url: string) => ({
+      key: `tales/imported-${url.length}.png`,
+      contentType: 'image/png' as const,
+      sha256: url,
+    }));
+    const lost = new Error('claim lost');
+    await expect(
+      importContent(content.db, projectId, home, twoGroups, async () => undefined, {
+        media: {
+          storage: noStorage,
+          copy,
+          beforeWrite: async () => {
+            throw lost;
+          },
+        },
+      }),
+    ).rejects.toBe(lost);
+    expect(content.statements().some((sql) => /UPDATE tales SET media_key/.test(sql))).toBe(false);
+  });
+});
+
+describe('runImportJob: claim lost between records (story 10 review)', () => {
+  const key = randomBytes(32);
+  let server: Server;
+  let port = 0;
+  beforeAll(async () => {
+    // A media host that never answers: the import waits for its copy until it is stopped.
+    server = createServer(() => undefined);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    port = (server.address() as AddressInfo).port;
+  });
+  afterAll(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('stops when the heartbeat timer finds the claim lost, and records nothing', async () => {
+    const lostAt = Date.now() + 150;
+    const content = contentDb((sql) =>
+      /SET heartbeat_at = now\(\)/.test(sql) && Date.now() > lostAt ? { rows: [], rowCount: 0 } : undefined,
+    );
+    const lists: Record<string, unknown> = {
+      '/app': { data: [{ id: 1001, title: 'Demo shop' }] },
+      '/instance': { data: [{ id: 2001, title: 'Home page' }] },
+      '/story-group': { data: [{ id: 3001, title: 'Group', sort_order: 0 }] },
+      '/story': {
+        data: [{ id: 4001, title: 'Story', sort_order: 0, media: `http://127.0.0.1:${port}/hang.png` }],
+      },
+      '/segment': { data: [] },
+    };
+    const fetch = vi.fn(async (input: URL | string) => json(200, lists[new URL(String(input)).pathname] ?? {}));
+    const log = vi.fn();
+    const started = Date.now();
+    await runImportJob(
+      content.db,
+      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, key), lockedBy: 'w1' },
+      {
+        tokenKey: key,
+        storylyApiUrl: 'http://fake',
+        storage: noStorage,
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        mediaPolicy: { allowedAddresses: [`127.0.0.1:${port}`] },
+        heartbeatMs: 20,
+        log,
+      },
+    );
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(log).toHaveBeenCalledWith('info', expect.stringMatching(/taken over/));
+    const sql = content.statements();
+    expect(sql.some((s) => /status = 'failed'|status = 'done'/.test(s))).toBe(false);
+    expect(sql.some((s) => /UPDATE tales SET media_key/.test(s))).toBe(false);
+  });
+});
+
+describe('importContent: the byte budget in reading order (story 10 review)', () => {
+  let server: Server;
+  let port = 0;
+  let root = '';
+  const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 7)]);
+  beforeAll(async () => {
+    // Each file declares its length; later stories answer first.
+    server = createServer((req, res) => {
+      const n = Number(/(\d+)\.png/.exec(req.url ?? '')?.[1] ?? 0);
+      setTimeout(
+        () => {
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(PNG.length) });
+          res.end(PNG);
+        },
+        (10 - n) * 6,
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    port = (server.address() as AddressInfo).port;
+    root = mkdtempSync(join(tmpdir(), 'taleart-import-order-'));
+  });
+  afterAll(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('refuses the same tales media at concurrency 1 and 8 when the budget binds', async () => {
+    const source: ContentSource = {
+      listStoryGroups: async () => [{ id: 'g1', name: 'A', sortOrder: 0 }],
+      listStories: async () =>
+        Array.from({ length: 8 }, (_, n) => ({
+          id: `s${n}`,
+          name: `Story ${n}`,
+          sortOrder: n,
+          media: `http://127.0.0.1:${port}/${n}.png`,
+          mimeType: 'image/png',
+        })),
+    };
+    const run = async (concurrency: ImportConcurrency) => {
+      const storage = new LocalDiskStorage(root);
+      const budget = { bytesLeft: PNG.length * 5 + 3, deadline: Date.now() + 60_000 };
+      const policy = { allowedAddresses: [`127.0.0.1:${port}`] };
+      const report = await importContent(
+        contentDb().db,
+        projectId,
+        [{ id: '2001', name: 'Home page' }],
+        source,
+        async () => undefined,
+        {
+          concurrency,
+          budget: { remaining: MAX_IMPORT_REPORT_DIFFERENCES },
+          media: {
+            storage,
+            turns: new BudgetTurns(),
+            copy: (url, mime, signal, ticket) => copyMedia(storage, url, mime, policy, budget, signal, ticket),
+          },
+        },
+      );
+      return report;
+    };
+    const one = await run({ media: 1, listReadAhead: 0 });
+    const many = await run({ media: 8, mediaPerHost: 8 });
+    expect(one.media).toEqual({ source: 8, imported: 5, skipped: 3 });
+    expect(many.media).toEqual(one.media);
+    expect(many.differences).toEqual(one.differences);
+    expect((one.differences ?? []).map((d) => d.record.sourceId)).toEqual(['s5', 's6', 's7']);
+  });
+});
+
+describe('migration: elapsed time (story 10 review)', () => {
+  it('backfills the first start of jobs started before the column', async () => {
+    const { db, statements } = fakeDb();
+    await migrateImporter(db);
+    expect(statements().join('\n')).toMatch(
+      /UPDATE import_jobs SET first_started_at = started_at WHERE first_started_at IS NULL AND started_at IS NOT NULL/,
+    );
+  });
+});
+
+describe('StorylyClient: the 429 hold (story 10 review)', () => {
+  it('waits again when another request moved the hold later while it slept', async () => {
+    const start = Date.now();
+    const calls: { path: string; at: number }[] = [];
+    const ok = () => json(200, { data: [] });
+    const limited = (seconds: number) => {
+      const res = json(429, {});
+      res.headers.set('Retry-After', String(seconds));
+      return res;
+    };
+    let aTries = 0;
+    let cTries = 0;
+    const fetch = vi.fn(async (input: URL | string) => {
+      const id = new URL(String(input)).searchParams.get('app_id');
+      calls.push({ path: id ?? '', at: Date.now() - start });
+      if (id === 'a') return aTries++ === 0 ? limited(1) : ok();
+      if (id === 'c') {
+        if (cTries++ > 0) return ok();
+        // Answers late, while B already sleeps on A's hold, and moves the hold to two seconds from now.
+        await new Promise((r) => setTimeout(r, 300));
+        return limited(2);
+      }
+      return ok();
+    });
+    const client = new StorylyClient({ baseUrl: 'http://fake', token: TOKEN, fetch: fetch as never });
+    const a = client.listInstances('a');
+    const c = client.listInstances('c');
+    await new Promise((r) => setTimeout(r, 50));
+    const b = client.listInstances('b');
+    await Promise.all([a, b, c]);
+    const bAt = calls.find((call) => call.path === 'b')?.at ?? 0;
+    expect(bAt).toBeGreaterThanOrEqual(2250);
   });
 });
