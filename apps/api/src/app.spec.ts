@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
+import { request as httpRequest, type Server } from 'node:http';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,12 +27,12 @@ import {
 } from '@taleart/server-importer';
 import { DEFAULT_THEME, PLAYBOOKS, type ImportReport, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
-import { clearDeliveryCache, clearPublicFontCache } from '@taleart/server-tales';
+import { clearDeliveryCache, clearPublicFontCache, sweepUnusedProjectMediaFiles } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
-import { createApp, type ImporterConfig } from './app';
+import { createApp, type ImporterConfig, type ProjectMediaOptions } from './app';
 import { createPool, databasePoolMax, migrate } from './db';
 
 // Runs against a separate test database. It clears tables, so it must never
@@ -5375,7 +5375,10 @@ describe('Management API v1: projects and zones', () => {
 
     async function publishDraft(taleId: string): Promise<Response> {
       const s = await state(taleId);
-      return post(`/tales/${taleId}/document/publish`, { revision: s.revision, publishedRevision: s.published.revision });
+      return post(`/tales/${taleId}/document/publish`, {
+        revision: s.revision,
+        publishedRevision: s.published.revision,
+      });
     }
 
     function putTaleMedia(taleId: string, contentType: string, body: Uint8Array): Promise<Response> {
@@ -5402,7 +5405,7 @@ describe('Management API v1: projects and zones', () => {
 
     beforeEach(() => rmSync(join(mediaDir, 'media'), { recursive: true, force: true }));
 
-    it("uploads an image or video to the project, lists it with the tales' media, and serves the file with a session", async () => {
+    it("uploads media to the project, lists it with the tales' media, and serves it with a session", async () => {
       const { zone, tale } = await setup();
       const res = await upload(zone.projectId, 'image/png', png);
       expect(res.status).toBe(201);
@@ -5446,7 +5449,7 @@ describe('Management API v1: projects and zones', () => {
       expect((await fetch(`${base}/projects/${zone.projectId}/media/file`)).status).toBe(404);
     });
 
-    it('refuses an upload of another type, a mismatched file, an empty or too large one, and an unknown project', async () => {
+    it('refuses another type, a mismatched file, an empty or too large one, and an unknown project', async () => {
       const project = await createProject();
       const refuse = async (res: Response, status: number, code: string) => {
         expect(res.status).toBe(status);
@@ -5460,7 +5463,11 @@ describe('Management API v1: projects and zones', () => {
       await refuse(await upload(project.id, 'image/png', gif), 415, 'unsupported_media_type');
       await refuse(await upload(project.id, 'video/mp4', png), 415, 'unsupported_media_type');
       await refuse(await upload(project.id, 'image/png', Buffer.alloc(0)), 400, 'validation_failed');
-      await refuse(await upload(project.id, 'image/png', Buffer.concat([png, Buffer.alloc(10 * MB)])), 413, 'media_too_large');
+      await refuse(
+        await upload(project.id, 'image/png', Buffer.concat([png, Buffer.alloc(10 * MB)])),
+        413,
+        'media_too_large',
+      );
       await refuse(
         await upload(project.id, 'image/png', png, { 'Content-Encoding': 'gzip' }),
         415,
@@ -5471,7 +5478,7 @@ describe('Management API v1: projects and zones', () => {
       expect(existsSync(join(mediaDir, 'media')) ? readdirSync(join(mediaDir, 'media')).length : 0).toBe(0);
     });
 
-    it('saves resized, rotated and rounded image and video elements with a duration and a media background', async () => {
+    it('saves resized, rotated and rounded images and video, a duration and a media background', async () => {
       const { zone, tale } = await setup();
       const image = await uploaded(zone.projectId);
       const video = await uploaded(zone.projectId, 'video/mp4', mp4);
@@ -5494,7 +5501,7 @@ describe('Management API v1: projects and zones', () => {
       expect(rows.rows).toHaveLength(3);
     });
 
-    it('refuses a key of another project, an unknown key, the wrong kind, two videos, a bad fit and a bad duration', async () => {
+    it("refuses another project's key, an unknown key, the wrong kind, two videos, a bad fit or duration", async () => {
       const { zone, tale } = await setup();
       const other = await createProject('Other');
       const foreign = await uploaded(other.id);
@@ -5506,7 +5513,10 @@ describe('Management API v1: projects and zones', () => {
         expect((await res.json()).error).toMatchObject({ code: 'invalid_tale_document', pointer });
       };
       await refused(doc([element(1, 'image', foreign)]), '/elements/0/props/mediaKey');
-      await refused(doc([element(1, 'image', 'media/00000000-0000-4000-8000-000000000000.png')]), '/elements/0/props/mediaKey');
+      await refused(
+        doc([element(1, 'image', 'media/00000000-0000-4000-8000-000000000000.png')]),
+        '/elements/0/props/mediaKey',
+      );
       await refused(doc([element(1, 'image', video)]), '/elements/0/props/mediaKey');
       await refused(doc([element(1, 'video', image)]), '/elements/0/props/mediaKey');
       await refused(
@@ -5514,7 +5524,10 @@ describe('Management API v1: projects and zones', () => {
         '/canvas/background/mediaKey',
       );
       await refused(doc([element(1, 'video', video), element(2, 'video', video)]), '/elements/1/type');
-      await refused(doc([element(1, 'image', image, { props: { mediaKey: image, fit: 'fill' } })]), '/elements/0/props/fit');
+      await refused(
+        doc([element(1, 'image', image, { props: { mediaKey: image, fit: 'fill' } })]),
+        '/elements/0/props/fit',
+      );
       await refused(doc([element(1, 'image', image)], { durationMs: 2000 }), '/durationMs');
       await refused(doc([element(1, 'image', image)], { durationMs: 16000 }), '/durationMs');
       await refused(doc([element(1, 'image', 'https://evil.example/x.png')]), '/elements/0/props/mediaKey');
@@ -5525,19 +5538,30 @@ describe('Management API v1: projects and zones', () => {
       expect((await save(tale.id, doc([element(1, 'image', taleKey)]), 0)).status).toBe(200);
     });
 
-    it('lets a draft lack alt text, refuses to publish it naming the element, and goes live without publishing it', async () => {
+    it('lets a draft lack alt text, refuses to publish it naming the element, goes live unpublished', async () => {
       const { zone, group, tale } = await setup();
       const image = await uploaded(zone.projectId);
-      const value = doc([element(1, 'image', image, { a11y: { label: 'Cat' } }), element(2, 'image', image, { a11y: {} })]);
+      const value = doc([
+        element(1, 'image', image, { a11y: { label: 'Cat' } }),
+        element(2, 'image', image, { a11y: {} }),
+      ]);
       expect((await save(tale.id, value, 0)).status).toBe(200);
-      const message = 'Image "Image 2" needs alt text, or must be marked decorative, before the tale is published.';
+      const message = '"Image 2" needs alt text, or must be marked decorative, before the tale is published.';
       const res = await publishDraft(tale.id);
       expect(res.status).toBe(400);
-      expect((await res.json()).error).toEqual({ code: 'invalid_tale_document', message, pointer: '/elements/1/a11y/label' });
+      expect((await res.json()).error).toEqual({
+        code: 'invalid_tale_document',
+        message,
+        pointer: '/elements/1/a11y/label',
+      });
       await publish('tale-groups', group.id);
       const live = await setStatus('tales', tale.id, 'live');
       expect(live.status).toBe(200);
-      expect(await live.json()).toMatchObject({ status: 'live', draftNotPublished: true, draftNotPublishedReason: message });
+      expect(await live.json()).toMatchObject({
+        status: 'live',
+        draftNotPublished: true,
+        draftNotPublishedReason: message,
+      });
       expect((await state(tale.id)).published.revision).toBe(0);
       // Marked decorative, it publishes.
       const fixed = doc([element(1, 'image', image), element(2, 'image', image, { a11y: { decorative: true } })]);
@@ -5579,7 +5603,12 @@ describe('Management API v1: projects and zones', () => {
         color: '#112233',
       });
       expect(document.elements.map((e) => e.type)).toEqual(['image', 'video']);
-      expect(document.elements[0].props).toEqual({ url: `${publicApiUrl}/media/${image}`, fit: 'cover', radius: 0.04, opacity: 0.9 });
+      expect(document.elements[0].props).toEqual({
+        url: `${publicApiUrl}/media/${image}`,
+        fit: 'cover',
+        radius: 0.04,
+        opacity: 0.9,
+      });
       expect(document.elements[0].box.rotation).toBe(20);
       expect(JSON.stringify(document)).not.toContain('mediaKey');
 
@@ -5630,9 +5659,9 @@ describe('Management API v1: projects and zones', () => {
       const kept = await post(`/tales/${tale.id}/document/copy`, { document: doc([element(1, 'image', foreign)]) });
       expect(kept.status).toBe(400);
       expect((await kept.json()).error.pointer).toBe('/elements/0/props/mediaKey');
-      expect((await post(`/tales/${tale.id}/document/copy`, { document: doc([element(1, 'image', image)]) })).status).toBe(
-        201,
-      );
+      expect(
+        (await post(`/tales/${tale.id}/document/copy`, { document: doc([element(1, 'image', image)]) })).status,
+      ).toBe(201);
     });
 
     it('lets a content manager upload only to a project they belong to', async () => {
@@ -5644,6 +5673,185 @@ describe('Management API v1: projects and zones', () => {
       expect((await upload(mine.id, 'image/png', png)).status).toBe(201);
       expect((await upload(theirs.id, 'image/png', png)).status).toBe(403);
       expect((await fetch(`${base}/projects/${theirs.id}/media`)).status).toBe(403);
+    });
+
+    // A raw upload, for what fetch cannot send: no Content-Length, or a body that stops short.
+    function rawUpload(
+      target: string,
+      headers: Record<string, string>,
+    ): { req: ReturnType<typeof httpRequest>; answer: Promise<{ status: number; body: string }> } {
+      const url = new URL(target);
+      let req!: ReturnType<typeof httpRequest>;
+      const answer = new Promise<{ status: number; body: string }>((resolve, reject) => {
+        req = httpRequest(
+          {
+            method: 'POST',
+            host: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            headers: { Cookie: sessionCookie, ...headers },
+          },
+          (res) => {
+            let body = '';
+            res.on('data', (c) => (body += c));
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+          },
+        );
+        req.on('error', reject);
+      });
+      return { req, answer };
+    }
+
+    async function withServer<T>(media: ProjectMediaOptions, run: (base: string) => Promise<T>): Promise<T> {
+      const app = createApp(
+        pool,
+        loadFrameTypeRegistry(frameTypesDir),
+        new LocalDiskStorage(mediaDir),
+        {
+          verifier: fakeVerifier,
+        },
+        { publicApiUrl },
+        undefined,
+        media,
+      );
+      const s = app.listen(0);
+      await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+      try {
+        return await run(`http://127.0.0.1:${(s.address() as AddressInfo).port}/api/v1`);
+      } finally {
+        s.closeAllConnections();
+        await new Promise<void>((resolve) => s.close(() => resolve()));
+      }
+    }
+
+    const storedUploads = () => (existsSync(join(mediaDir, 'media')) ? readdirSync(join(mediaDir, 'media')) : []);
+
+    it('refuses an upload without a Content-Length (411), and stores nothing of a body that stops short', async () => {
+      const project = await createProject();
+      const chunked = rawUpload(`${base}/projects/${project.id}/media`, {
+        'Content-Type': 'image/png',
+        'Transfer-Encoding': 'chunked',
+      });
+      chunked.req.end(png);
+      const refused = await chunked.answer;
+      expect(refused.status).toBe(411);
+      expect(JSON.parse(refused.body).error.code).toBe('length_required');
+
+      const short = rawUpload(`${base}/projects/${project.id}/media`, {
+        'Content-Type': 'image/png',
+        'Content-Length': '4096',
+      });
+      short.answer.catch(() => undefined);
+      short.req.write(png);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      short.req.destroy();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(storedUploads()).toEqual([]);
+      expect(await (await fetch(`${base}/projects/${project.id}/media`)).json()).toEqual([]);
+    });
+
+    it('caps a project at its files and bytes, with clear codes, and leaves no file behind', async () => {
+      const project = await createProject();
+      await withServer({ limits: { maxFiles: 2, maxBytes: 25 } }, async (b) => {
+        const send = (body: Uint8Array) =>
+          fetch(`${b}/projects/${project.id}/media`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'image/png' },
+            body,
+          });
+        expect((await send(png)).status).toBe(201);
+        expect((await send(png)).status).toBe(201);
+        const third = await send(png);
+        expect(third.status).toBe(409);
+        expect((await third.json()).error.code).toBe('media_limit_reached');
+        const other = await createProject('Other');
+        const heavy = await fetch(`${b}/projects/${other.id}/media`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/png' },
+          body: Buffer.concat([png, Buffer.alloc(20)]),
+        });
+        expect(heavy.status).toBe(413);
+        expect((await heavy.json()).error.code).toBe('media_storage_full');
+      });
+      expect(storedUploads()).toHaveLength(2);
+    });
+
+    it('answers 429 upload_busy while the process streams its most uploads at once', async () => {
+      const project = await createProject();
+      await withServer({ maxConcurrentUploads: 1 }, async (b) => {
+        const slow = rawUpload(`${b}/projects/${project.id}/media`, {
+          'Content-Type': 'image/png',
+          'Content-Length': '64',
+        });
+        slow.answer.catch(() => undefined);
+        slow.req.write(png);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const busy = await fetch(`${b}/projects/${project.id}/media`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/png' },
+          body: png,
+        });
+        expect(busy.status).toBe(429);
+        expect((await busy.json()).error.code).toBe('upload_busy');
+        slow.req.end(Buffer.alloc(64 - png.length));
+        expect((await slow.answer).status).toBe(201);
+        const after = await fetch(`${b}/projects/${project.id}/media`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/png' },
+          body: png,
+        });
+        expect(after.status).toBe(201);
+      });
+    });
+
+    it('never deletes a replaced file a document write in flight is about to reference', async () => {
+      // 1. A tale holds media K. 2. A document save has checked K (holding its share lock) and not
+      // committed. 3. The tale's media is replaced: its row no longer names K, and the delete
+      // decision waits for the lock. 4. The save records its reference to K and commits. 5. The
+      // decision, made under the lock, sees the reference: K's file stays.
+      const { tale } = await setup();
+      expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
+      const { media_key: key, project_id: projectId } = (
+        await pool.query('SELECT media_key, project_id FROM tales WHERE id = $1', [tale.id])
+      ).rows[0];
+      const save = await pool.connect();
+      try {
+        await save.query('BEGIN');
+        await save.query("SELECT pg_advisory_xact_lock_shared(hashtextextended('media:' || $1, 0))", [key]);
+        let replaced = false;
+        const replacing = putTaleMedia(tale.id, 'image/png', png).then((res) => {
+          replaced = true;
+          return res;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(replaced).toBe(false);
+        await save.query(
+          `INSERT INTO tale_media (tale_id, storage_key, document, project_id, content_type, delivered)
+           VALUES ($1, $2, 'draft', $3, 'image/gif', false)`,
+          [tale.id, key, projectId],
+        );
+        await save.query('COMMIT');
+        expect((await replacing).status).toBe(200);
+      } finally {
+        save.release();
+      }
+      expect(existsSync(join(mediaDir, key))).toBe(true);
+      // With no reference left, the next replace deletes the file it leaves.
+      await pool.query('DELETE FROM tale_media WHERE tale_id = $1', [tale.id]);
+      const { media_key: second } = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [tale.id])).rows[0];
+      expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
+      expect(existsSync(join(mediaDir, second))).toBe(false);
+    });
+
+    it('sweeps upload files older than an hour that no row names', async () => {
+      const project = await createProject();
+      const kept = await uploaded(project.id);
+      writeFileSync(join(mediaDir, 'media', 'orphan.png'), png);
+      const old = new Date(Date.now() - 2 * 60 * 60_000);
+      utimesSync(join(mediaDir, kept), old, old);
+      utimesSync(join(mediaDir, 'media', 'orphan.png'), old, old);
+      expect(await sweepUnusedProjectMediaFiles(pool, new LocalDiskStorage(mediaDir))).toBe(1);
+      expect(storedUploads()).toEqual([kept.slice('media/'.length)]);
     });
   });
 

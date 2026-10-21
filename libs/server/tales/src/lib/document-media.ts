@@ -6,6 +6,7 @@
 // scan documents.
 import {
   documentMediaKeys,
+  ErrorCodes,
   documentMediaRefs,
   isMediaContentType,
   isMediaKey,
@@ -35,11 +36,11 @@ export async function lockMediaKeys(tx: Db, keys: readonly string[]): Promise<vo
 }
 
 /**
- * Waits until no document write holds the key's lock: a write that checked the key and has not
- * committed yet. Run on its own (not in a transaction), the lock is let go at once.
+ * Takes the key's lock exclusively until the caller's transaction ends: it waits for document writes
+ * that checked the key and have not committed, and keeps new ones out until then.
  */
-export async function waitForMediaKeyWrites(db: Db, key: string): Promise<void> {
-  await db.query(`SELECT pg_advisory_xact_lock(${KEY_LOCK})`, [key]);
+export async function lockMediaKeyForDeletion(tx: Db, key: string): Promise<void> {
+  await tx.query(`SELECT pg_advisory_xact_lock(${KEY_LOCK})`, [key]);
 }
 
 /**
@@ -112,6 +113,42 @@ export interface NewProjectMedia {
   uploaderId: string;
 }
 
+/** How much media one project holds at most (R5); configured by the API (env). */
+export interface ProjectMediaLimits {
+  /** The most files a project's media holds. */
+  maxFiles: number;
+  /** The most bytes a project's media files take together. */
+  maxBytes: number;
+}
+
+/** The starting caps: 500 files and 2 GB per project (PROJECT_MEDIA_MAX_FILES, PROJECT_MEDIA_MAX_BYTES). */
+export const DEFAULT_PROJECT_MEDIA_LIMITS: ProjectMediaLimits = { maxFiles: 500, maxBytes: 2 * 1024 * 1024 * 1024 };
+
+/** Thrown when the project's media already holds its most files (409 `media_limit_reached`). */
+export class MediaLimitError extends Error {
+  readonly code = ErrorCodes.mediaLimitReached;
+
+  constructor(maxFiles: number) {
+    super(`A project's media holds at most ${maxFiles} files.`);
+    this.name = 'MediaLimitError';
+  }
+}
+
+/** Thrown when the project's media files would take more than their cap (413 `media_storage_full`). */
+export class MediaStorageFullError extends Error {
+  readonly code = ErrorCodes.mediaStorageFull;
+
+  constructor(maxBytes: number) {
+    super(`A project's media files take at most ${formatBytes(maxBytes)} together.`);
+    this.name = 'MediaStorageFullError';
+  }
+}
+
+function formatBytes(bytes: number): string {
+  const gb = bytes / (1024 * 1024 * 1024);
+  return gb >= 1 ? `${Math.round(gb * 10) / 10} GB` : `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
 interface UploadRow {
   key: string;
   contentType: string;
@@ -133,32 +170,74 @@ function toUpload(projectId: string, row: UploadRow): ProjectMedia | null {
 }
 
 /**
- * Stores an upload to the project's media and its file, together: in one transaction the row is
- * inserted, then `put` stores the file; a failed `put` rolls the row back, and a commit that fails
- * after it calls `remove`.
+ * Refuses an upload of `sizeBytes` the project has no room for ({@link MediaLimitError},
+ * {@link MediaStorageFullError}). The API asks before it reads the body; {@link createProjectMedia}
+ * asks again under the project's lock.
+ */
+export async function checkProjectMediaRoom(
+  db: Db,
+  projectId: string,
+  sizeBytes: number,
+  limits: ProjectMediaLimits,
+): Promise<void> {
+  const { rows } = await db.query<{ count: number; bytes: string | number }>(
+    'SELECT count(*)::int AS count, COALESCE(sum(size_bytes), 0)::bigint AS bytes FROM project_media WHERE project_id = $1',
+    [projectId],
+  );
+  if (rows[0].count >= limits.maxFiles) throw new MediaLimitError(limits.maxFiles);
+  if (Number(rows[0].bytes) + sizeBytes > limits.maxBytes) throw new MediaStorageFullError(limits.maxBytes);
+}
+
+/**
+ * Records an upload whose file is already stored: in one transaction, under a lock on the
+ * project's media, the caps are checked again and the row inserted. The caller stored the file
+ * first and deletes it when this throws, so no row ever names a missing file; a file whose row
+ * never committed (the process stopped between) is removed by {@link sweepUnusedProjectMediaFiles}.
  */
 export async function createProjectMedia(
   db: TransactionalDb,
   media: NewProjectMedia,
-  file: { put: () => Promise<void>; remove: () => Promise<void> },
+  limits: ProjectMediaLimits = DEFAULT_PROJECT_MEDIA_LIMITS,
 ): Promise<ProjectMedia> {
-  let stored = false;
-  try {
-    return await inTransaction(db, async (tx) => {
-      const { rows } = await tx.query<UploadRow>(
-        `INSERT INTO project_media (project_id, storage_key, content_type, size_bytes, uploaded_by)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING storage_key AS key, content_type AS "contentType", size_bytes AS "sizeBytes", created_at AS "createdAt"`,
-        [media.projectId, media.storageKey, media.contentType, media.sizeBytes, media.uploaderId],
-      );
-      await file.put();
-      stored = true;
-      return toUpload(media.projectId, rows[0]) as ProjectMedia;
-    });
-  } catch (err) {
-    if (stored) await file.remove().catch(() => undefined);
-    throw err;
+  return inTransaction(db, async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('project_media:' || $1, 0))", [media.projectId]);
+    await checkProjectMediaRoom(tx, media.projectId, media.sizeBytes, limits);
+    const { rows } = await tx.query<UploadRow>(
+      `INSERT INTO project_media (project_id, storage_key, content_type, size_bytes, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING storage_key AS key, content_type AS "contentType", size_bytes AS "sizeBytes", created_at AS "createdAt"`,
+      [media.projectId, media.storageKey, media.contentType, media.sizeBytes, media.uploaderId],
+    );
+    return toUpload(media.projectId, rows[0]) as ProjectMedia;
+  });
+}
+
+/** Upload files younger than this are left alone: an upload may be about to commit its row. */
+export const MEDIA_UPLOAD_SWEEP_MIN_AGE_MS = 60 * 60_000;
+
+/**
+ * Deletes uploaded media files (`media/…`) older than {@link MEDIA_UPLOAD_SWEEP_MIN_AGE_MS} that no
+ * `project_media` row names: what an upload left when its process stopped between storing the
+ * file and committing its row. Rows are never deleted, so a file with a row is never touched.
+ * Returns how many it removed.
+ */
+export async function sweepUnusedProjectMediaFiles(
+  db: Db,
+  storage: {
+    listKeys(folder: string): Promise<{ key: string; modifiedAt: Date }[]>;
+    delete(key: string): Promise<void>;
+  },
+  now = Date.now(),
+): Promise<number> {
+  let removed = 0;
+  for (const { key, modifiedAt } of await storage.listKeys('media')) {
+    if (now - modifiedAt.getTime() < MEDIA_UPLOAD_SWEEP_MIN_AGE_MS) continue;
+    const { rows } = await db.query('SELECT 1 FROM project_media WHERE storage_key = $1', [key]);
+    if (rows.length > 0) continue;
+    await storage.delete(key);
+    removed++;
   }
+  return removed;
 }
 
 /**
@@ -235,7 +314,7 @@ export const PUBLIC_MEDIA_CACHE_TTL_MS = 30_000;
 export const PUBLIC_MEDIA_CACHE_SIZE = 1000;
 
 // Answers by storage key, oldest first (a Map keeps insertion order).
-const publicMedia = new Map<string, { at: number; contentType: MediaContentType | null }>();
+const publicMedia = new Map<string, { at: number; contentType: MediaContentType }>();
 
 /**
  * Forgets every public answer about documents' media this process keeps. Called on every change
@@ -250,8 +329,9 @@ export function clearPublicMediaCache(): void {
  * The media stored under `key` while a published tale's document uses it (AD-11, R5): a `live`
  * tale in its window, of a group the Delivery API delivers (the delivered-group rule), whose
  * published document is deliverable and shows the key (a `delivered` row of `tale_media`). Null for
- * any other key. Answers are kept in this process for {@link PUBLIC_MEDIA_CACHE_TTL_MS} (at most
- * {@link PUBLIC_MEDIA_CACHE_SIZE}), and forgotten at once on any change here that could alter them.
+ * any other key. A yes is kept in this process for {@link PUBLIC_MEDIA_CACHE_TTL_MS} (at most
+ * {@link PUBLIC_MEDIA_CACHE_SIZE}, least recently used first out), and forgotten at once on any change
+ * here that could alter it; a no is never kept.
  */
 export async function findPublishedDocumentMedia(
   db: Db,
@@ -262,6 +342,9 @@ export async function findPublishedDocumentMedia(
   if (!isMediaKey(key)) return null;
   const kept = publicMedia.get(key);
   if (kept && now.getTime() - kept.at < PUBLIC_MEDIA_CACHE_TTL_MS && now.getTime() >= kept.at) {
+    // Read again: it moves to the newest end, so the least recently used answer goes first.
+    publicMedia.delete(key);
+    publicMedia.set(key, kept);
     return answer(kept.contentType);
   }
   const { rows } = await db.query<{ contentType: string }>(
@@ -274,9 +357,13 @@ export async function findPublishedDocumentMedia(
     [key, now],
   );
   const contentType = isMediaContentType(rows[0]?.contentType) ? rows[0].contentType : null;
+  // Only a yes is kept: a no is asked again each time, so a key that becomes public shows at once
+  // elsewhere too, and requests for random keys cannot push the kept answers out.
   publicMedia.delete(key);
-  publicMedia.set(key, { at: now.getTime(), contentType });
-  if (publicMedia.size > PUBLIC_MEDIA_CACHE_SIZE) publicMedia.delete(publicMedia.keys().next().value as string);
+  if (contentType) {
+    publicMedia.set(key, { at: now.getTime(), contentType });
+    if (publicMedia.size > PUBLIC_MEDIA_CACHE_SIZE) publicMedia.delete(publicMedia.keys().next().value as string);
+  }
   return answer(contentType);
 }
 

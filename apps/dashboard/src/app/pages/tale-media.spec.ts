@@ -209,6 +209,83 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     expect(root.querySelector('app-tale-media-picker')).toBeNull();
   });
 
+  it('refuses a file over the size limit before uploading it', async () => {
+    await open();
+    q<HTMLButtonElement>('#studio-add-image').click();
+    await settle(fixture);
+    http.expectOne(mediaUrl).flush([]);
+    await settle(fixture);
+    const input = q<HTMLInputElement>('#media-upload');
+    const big = new File(['x'], 'big.png', { type: 'image/png' });
+    Object.defineProperty(big, 'size', { value: 10 * 1024 * 1024 + 1 });
+    Object.defineProperty(input, 'files', { value: [big] });
+    input.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    http.expectNone((r) => r.method === 'POST');
+    expect(root.querySelector('app-tale-media-picker [role=alert]')?.textContent).toContain(
+      'The file is larger than 10 MB',
+    );
+  });
+
+  it('warns about a video longer than 15 s: only its first 15 s will play', async () => {
+    const element = {
+      id: '00000000-0000-4000-8000-000000000001',
+      type: 'video' as const,
+      box: { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: { label: 'Runway' },
+      props: { mediaKey: VIDEO, fit: 'cover' as const },
+    };
+    await open({ ...empty, elements: [element] }, 1);
+    const video = q<HTMLVideoElement>('button.el video');
+    Object.defineProperty(video, 'duration', { value: 22.5 });
+    video.dispatchEvent(new Event('loadedmetadata'));
+    await settle(fixture);
+    expect(root.querySelector('.layer__state')?.textContent).toContain('Longer than 15 s');
+    q<HTMLButtonElement>('button.el').click();
+    await settle(fixture);
+    expect(root.querySelector('app-tale-media-style [role=status]')?.textContent).toContain(
+      'This video is 22.5 s long: only the first 15 s will play.',
+    );
+  });
+
+  it('selects the element the refused draft names, even after the layers moved meanwhile', async () => {
+    const image = (n: number, a11y: Record<string, unknown>) => ({
+      id: `00000000-0000-4000-8000-00000000000${n}`,
+      type: 'image' as const,
+      box: { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y,
+      props: { mediaKey: IMAGE, fit: 'cover' as const },
+    });
+    await open({ ...empty, elements: [image(1, {}), image(2, { label: 'Cat' })] }, 1);
+    q<HTMLButtonElement>('#studio-publish').click();
+    await settle(fixture);
+    const publish = http.expectOne(`${url}/publish`);
+    // While the publish is on its way, the first image is sent to the front.
+    const first = root.querySelectorAll<HTMLButtonElement>('button.el')[0];
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, shiftKey: true, bubbles: true }));
+    await settle(fixture);
+    expect(doc().elements[1].id).toBe(image(1, {}).id);
+    publish.flush(
+      {
+        error: {
+          code: 'invalid_tale_document',
+          message: '"Image 1" needs alt text.',
+          pointer: '/elements/0/a11y/label',
+        },
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await settle(fixture);
+    const selected = root.querySelector('button.el[aria-pressed=true]');
+    expect(selected?.id).toBe(`studio-el-${image(1, {}).id}`);
+    // The reorder is kept and saves after the publish.
+    expect((await saveNow(2)).elements[1].id).toBe(image(1, {}).id);
+  });
+
   it('shows an upload refused by the server in the picker', async () => {
     await open();
     q<HTMLButtonElement>('#studio-add-video').click();
@@ -345,7 +422,7 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     await open({ ...empty, elements: [element] }, 1);
     q<HTMLButtonElement>('#studio-publish').click();
     await settle(fixture);
-    const message = 'Image "Image 1" needs alt text, or must be marked decorative, before the tale is published.';
+    const message = '"Image 1" needs alt text, or must be marked decorative, before the tale is published.';
     http
       .expectOne(`${url}/publish`)
       .flush(

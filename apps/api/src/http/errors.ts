@@ -21,6 +21,8 @@ import {
   FontInUseError,
   FontLimitError,
   FontStorageFullError,
+  MediaLimitError,
+  MediaStorageFullError,
   FontNotFoundError,
   InvalidScheduleError,
   InvalidStatusTransitionError,
@@ -91,7 +93,11 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     res.status(400).json(errorBody(err.code, err.message, err.pointer));
     return;
   }
-  if (err instanceof TaleDocumentTooLargeError || err instanceof FontStorageFullError) {
+  if (
+    err instanceof TaleDocumentTooLargeError ||
+    err instanceof FontStorageFullError ||
+    err instanceof MediaStorageFullError
+  ) {
     res.status(413).json(errorBody(err.code, err.message));
     return;
   }
@@ -113,7 +119,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof NothingToPublishError ||
     err instanceof FontExistsError ||
     err instanceof FontInUseError ||
-    err instanceof FontLimitError
+    err instanceof FontLimitError ||
+    err instanceof MediaLimitError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
     return;

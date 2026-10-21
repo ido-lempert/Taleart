@@ -145,7 +145,7 @@ describe('tale media helpers', () => {
     );
     expect(found).toEqual({ index: 1, name: 'Image 2', type: 'image' });
     expect(missingAltTextMessage(found as NonNullable<typeof found>)).toBe(
-      'Image "Image 2" needs alt text, or must be marked decorative, before the tale is published.',
+      '"Image 2" needs alt text, or must be marked decorative, before the tale is published.',
     );
     expect(missingAltText(doc([element('video', VIDEO, { a11y: { label: '' } })]))?.name).toBe('Video 1');
   });

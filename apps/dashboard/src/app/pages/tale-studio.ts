@@ -24,6 +24,7 @@ import {
   hasVideoElement,
   isOutsideSafeArea,
   MAX_TALE_DURATION_MS,
+  MAX_TALE_VIDEO_MS,
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
   MEDIA_FITS,
@@ -553,6 +554,7 @@ export function newTextProps(text: string): TextElementProps {
                         [style.object-fit]="el.props.fit"
                         [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
                         [style.opacity]="el.props.opacity ?? 1"
+                        (loadedmetadata)="videoLoaded(el.props.mediaKey, $any($event.target))"
                       ></video>
                     } @else {
                       <img
@@ -737,6 +739,9 @@ export function newTextProps(text: string): TextElementProps {
                             @if (row.missingAlt) {
                               <span class="layer__warning"><app-icon name="alert" /> Needs alt text</span>
                             }
+                            @if (row.longVideo) {
+                              <span class="layer__warning"><app-icon name="alert" /> Longer than 15 s</span>
+                            }
                           </span>
                         </div>
                         <div role="gridcell">
@@ -896,6 +901,7 @@ export function newTextProps(text: string): TextElementProps {
                   @if (el.type !== 'text') {
                     <app-tale-media-style
                       [element]="el"
+                      [videoSeconds]="el.type === 'video' ? (videoSeconds().get(el.props.mediaKey) ?? null) : null"
                       [locked]="el.locked"
                       [lockedHint]="lockedHint"
                       (changed)="restyleMedia(el.id, $event)"
@@ -983,9 +989,11 @@ export function newTextProps(text: string): TextElementProps {
                     [disabled]="!projectId()"
                     (click)="openPicker('background', 'image')"
                   >
-                    {{
-                      d.canvas.background.type === 'media' ? 'Choose another background image…' : 'Background image…'
-                    }}
+                    @if (d.canvas.background.type === 'media') {
+                      Choose another background image…
+                    } @else {
+                      Background image…
+                    }
                   </button>
                   @if (d.canvas.background.type === 'media') {
                     <button
@@ -1170,6 +1178,8 @@ export class TaleStudioPage implements OnChanges {
   protected readonly fitNames = FIT_NAMES;
   protected readonly minDuration = MIN_TALE_DURATION_MS / 1000;
   protected readonly maxDuration = MAX_TALE_DURATION_MS / 1000;
+  /** The length in seconds of each video the canvas loaded, by key, for the 15 s warning (R5). */
+  protected readonly videoSeconds = signal<ReadonlyMap<string, number>>(new Map());
   /** The media picker, while it is open (R5). */
   protected readonly picker = signal<OpenPicker | null>(null);
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
@@ -1210,6 +1220,8 @@ export class TaleStudioPage implements OnChanges {
         lowContrast: el.type === 'text' && textContrast(resolveTextStyle(el.props), this.backdrop()).kind === 'low',
         // An image or video without alt text or the decorative mark keeps the tale from being published (R12).
         missingAlt: el.type !== 'text' && !el.hidden && !hasAltText(el),
+        // A video over 15 s plays only its first 15 s (R5).
+        longVideo: el.type === 'video' && (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
       .reverse(),
   );
@@ -1497,6 +1509,9 @@ export class TaleStudioPage implements OnChanges {
       }
       this.autosave.pause();
       const revision = this.autosave.savedRevision;
+      // The draft the server checks: a refusal's pointer names an element of this one, which may
+      // differ from what the canvas shows once more changes are made while it is on its way.
+      const sent = this.autosave.savedDocument;
       const send = (publishedRevision: number) =>
         action === 'publish'
           ? this.documents.publish(taleId, revision, publishedRevision)
@@ -1517,7 +1532,8 @@ export class TaleStudioPage implements OnChanges {
         else if (result.code === ErrorCodes.invalidTaleDocument) {
           // The refused element, such as an image without alt text (R12), is selected and named.
           const index = /^\/elements\/(\d+)/.exec(result.pointer)?.[1];
-          const element = index === undefined ? undefined : this.doc()?.elements[Number(index)];
+          const id = index === undefined ? undefined : sent.elements[Number(index)]?.id;
+          const element = id === undefined ? undefined : this.element(id);
           if (element) {
             this.invalidId.set(element.id);
             this.selectOnly(element.id);
@@ -2389,6 +2405,13 @@ export class TaleStudioPage implements OnChanges {
     this.picker.set({ purpose, kind, heading, elementId, currentKey, returnFocus });
   }
 
+  /** A canvas video read its length: one over 15 s is flagged, as only its first 15 s will play. */
+  protected videoLoaded(key: string, video: HTMLVideoElement): void {
+    const seconds = video.duration;
+    if (!Number.isFinite(seconds) || this.videoSeconds().get(key) === seconds) return;
+    this.videoSeconds.set(new Map([...this.videoSeconds(), [key, seconds]]));
+  }
+
   protected closePicker(): void {
     this.picker.set(null);
   }
@@ -2602,7 +2625,8 @@ export class TaleStudioPage implements OnChanges {
         this.invalidId.set(element.id);
         this.selectOnly(element.id);
         if (element.type !== 'text') {
-          return `This ${kindName(element).toLowerCase()} could not be saved: ${result.message}. It is selected on the canvas.`;
+          const kind = kindName(element).toLowerCase();
+          return `This ${kind} could not be saved: ${result.message}. It is selected on the canvas.`;
         }
         return 'A text could not be saved: it is too long or holds something a text cannot. It is selected on the canvas.';
       }

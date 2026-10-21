@@ -1,5 +1,5 @@
 import type { DeliveryTale, DeliveryTaleDocument, DeliveryTaleElement, DeliveryTaleGroup } from '@taleart/contract';
-import { IMAGE_DURATION_MS, TaleViewer } from '../viewer';
+import { IMAGE_DURATION_MS, TaleViewer, VIDEO_STALL_MS } from '../viewer';
 import { renderTaleDocument } from './renderer';
 
 const API = 'https://api.example.com';
@@ -133,6 +133,11 @@ describe('TaleViewer with a document video (epic Tale Studio R5)', () => {
   const dialog = () => host.querySelector('dialog') as HTMLDialogElement;
   const position = () => `${dialog().querySelectorAll('.segment.done').length + 1}`;
 
+  function setTime(video: HTMLVideoElement, seconds: number): void {
+    Object.defineProperty(video, 'currentTime', { value: seconds, configurable: true, writable: true });
+    video.dispatchEvent(new Event('timeupdate'));
+  }
+
   function tale(id: string, document: DeliveryTaleDocument | null, media: DeliveryTale['media'] = null): DeliveryTale {
     return { id, title: `Tale ${id}`, media, document };
   }
@@ -182,9 +187,39 @@ describe('TaleViewer with a document video (epic Tale Studio R5)', () => {
     const video = dialog().querySelector('.ta-canvas video') as HTMLVideoElement;
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
     expect(video.muted).toBe(true);
-    vi.advanceTimersByTime(20_000);
+    // It plays on while it makes progress, past the 7 s default.
+    for (let t = 1; t <= 12; t++) {
+      setTime(video, t);
+      vi.advanceTimersByTime(1000);
+    }
     expect(position()).toBe('1');
     video.dispatchEvent(new Event('ended'));
+    expect(position()).toBe('2');
+  });
+
+  it('ends the tale at 15 s, however long the video is', () => {
+    open();
+    const video = dialog().querySelector('.ta-canvas video') as HTMLVideoElement;
+    Object.defineProperty(video, 'duration', { value: 40, configurable: true });
+    setTime(video, 7.5);
+    expect((dialog().querySelector('.fill') as HTMLElement).style.transform).toBe('scaleX(0.5)');
+    setTime(video, 14.9);
+    expect(position()).toBe('1');
+    setTime(video, 15);
+    expect(position()).toBe('2');
+  });
+
+  it('ends the tale when its video makes no progress for 5 s, but not while it is paused', () => {
+    open();
+    const video = dialog().querySelector('.ta-canvas video') as HTMLVideoElement;
+    setTime(video, 1);
+    viewer.togglePause();
+    vi.advanceTimersByTime(VIDEO_STALL_MS * 3);
+    expect(position()).toBe('1');
+    viewer.togglePause();
+    vi.advanceTimersByTime(VIDEO_STALL_MS - 1);
+    expect(position()).toBe('1');
+    vi.advanceTimersByTime(1);
     expect(position()).toBe('2');
   });
 
@@ -236,6 +271,26 @@ describe('TaleViewer with a document video (epic Tale Studio R5)', () => {
     expect(button.getAttribute('aria-label')).toBe('Play');
     button.click();
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+  });
+
+  it("pauses and plays a document's video beside a tale video with the viewer, never while paused", () => {
+    const play = vi.mocked(HTMLMediaElement.prototype.play);
+    const pause = vi.mocked(HTMLMediaElement.prototype.pause);
+    open(true, [
+      tale('t1', doc([element(1, 'video', { url: MP4, fit: 'cover' })]), {
+        kind: 'video',
+        contentType: 'video/mp4',
+        url: `${API}/media/tales/t.mp4`,
+      }),
+    ]);
+    const docVideo = dialog().querySelector('.ta-canvas video') as HTMLVideoElement;
+    // Reduced motion: the viewer opens paused, so neither video starts.
+    expect(play.mock.contexts).not.toContain(docVideo);
+    (dialog().querySelector('.pause') as HTMLButtonElement).click();
+    expect(play.mock.contexts).toContain(docVideo);
+    pause.mockClear();
+    viewer.togglePause();
+    expect(pause.mock.contexts).toContain(docVideo);
   });
 
   it("keeps a tale video as the clock, the document's video looping along", () => {

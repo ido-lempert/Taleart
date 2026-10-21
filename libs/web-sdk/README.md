@@ -131,10 +131,11 @@ already is for the Delivery API.
 
 A tale's images and its video (Tale Studio) load only when the viewer opens that tale, never for first zone content.
 Images are `<img>` elements with their alt text; decorative ones are hidden from assistive technology. The video is a
-muted, inline `<video>` that plays with the tale, pauses with the viewer and ends it: a tale with a video lasts as long as
-the video, one without lasts its set duration (7 s by default). When the visitor prefers reduced motion, the video waits
-on its first frame until Play, and a GIF, WebP or PNG is drawn once to a canvas. Under a CSP, the API origin must be
-allowed in `img-src` and `media-src`, as it already is for tale media.
+muted, inline `<video>` that plays with the tale, pauses with the viewer and ends it: a tale with a video lasts as long
+as the video, at most 15 s, and moves on if the video stalls for 5 s; one without lasts its set duration (7 s by
+default). When the visitor prefers reduced motion, the video waits on its first frame until Play, and a GIF, WebP or PNG
+is drawn once to a canvas. Under a CSP, the API origin must be allowed in `img-src` and `media-src`, as it already is
+for tale media.
 
 ### Measuring
 

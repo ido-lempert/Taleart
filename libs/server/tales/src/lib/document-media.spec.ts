@@ -1,6 +1,12 @@
 import {
+  checkProjectMediaRoom,
   clearPublicMediaCache,
   createProjectMedia,
+  DEFAULT_PROJECT_MEDIA_LIMITS,
+  MediaLimitError,
+  MediaStorageFullError,
+  MEDIA_UPLOAD_SWEEP_MIN_AGE_MS,
+  sweepUnusedProjectMediaFiles,
   deliveredMediaKeys,
   findPublishedDocumentMedia,
   listProjectMedia,
@@ -16,12 +22,14 @@ import {
   checkPublishableDocument,
   checkTaleDocument,
   clearDeliveryCache,
+  draftProblem,
+  TaleDocumentTooLargeError,
   deliverableTaleDocument,
   InvalidTaleDocumentError,
   publishTaleDocument,
   saveTaleDocument,
 } from './tale-document';
-import type { TransactionalDb } from './tales';
+import { copyTaleWithDocument, type TransactionalDb } from './tales';
 
 const taleId = '00000000-0000-4000-8000-000000000010';
 const projectId = '00000000-0000-4000-8000-0000000000aa';
@@ -156,7 +164,7 @@ describe('checkTaleDocument: images and video (story 7.5)', () => {
     expect(err).toMatchObject({
       code: 'invalid_tale_document',
       pointer: '/elements/1/a11y/label',
-      message: 'Image "Image 2" needs alt text, or must be marked decorative, before the tale is published.',
+      message: '"Image 2" needs alt text, or must be marked decorative, before the tale is published.',
     });
     // Blank alt text is none; a hidden element is not delivered, so it does not block.
     expect(refusal(doc([media(1, 'video', VIDEO, { a11y: { label: '  ' } })]), checkPublishableDocument)).toBe(
@@ -289,31 +297,62 @@ describe('media of a project', () => {
     expect(await listProjectMedia(fakeDb([]).db, 'nope')).toEqual([]);
   });
 
-  it('stores an upload with its row: a failed store rolls the row back, a failed commit removes the file', async () => {
+  it('records an upload under the project lock, checking its caps again in the same transaction', async () => {
     const row = { key: IMAGE, contentType: 'image/png', sizeBytes: 4, createdAt: new Date() };
-    const ok = fakeDb([{ rows: [row] }]);
-    const put = vi.fn(async () => undefined);
-    const remove = vi.fn(async () => undefined);
+    const limits = { maxFiles: 3, maxBytes: 100 };
     const input = { projectId, storageKey: IMAGE, contentType: 'image/png' as const, sizeBytes: 4, uploaderId: id(9) };
-    expect(await createProjectMedia(ok.db, input, { put, remove })).toMatchObject({ key: IMAGE, source: 'upload' });
-    expect(ok.statements()).toEqual(['BEGIN', expect.stringMatching(/^INSERT INTO project_media/), 'COMMIT']);
-    expect(ok.calls()[0][1]).toEqual([projectId, IMAGE, 'image/png', 4, id(9)]);
-    expect(remove).not.toHaveBeenCalled();
+    const ok = fakeDb([{ rows: [] }, { rows: [{ count: 2, bytes: '90' }] }, { rows: [row] }]);
+    expect(await createProjectMedia(ok.db, input, limits)).toMatchObject({ key: IMAGE, source: 'upload' });
+    expect(ok.statements()).toEqual([
+      'BEGIN',
+      expect.stringMatching(/pg_advisory_xact_lock\(hashtextextended\('project_media:' \|\| \$1, 0\)\)/),
+      expect.stringMatching(/count\(\*\)::int AS count, COALESCE\(sum\(size_bytes\), 0\)/),
+      expect.stringMatching(/^INSERT INTO project_media/),
+      'COMMIT',
+    ]);
+    expect(ok.calls()[2][1]).toEqual([projectId, IMAGE, 'image/png', 4, id(9)]);
 
-    const failedPut = fakeDb([{ rows: [row] }]);
+    const full = fakeDb([{ rows: [] }, { rows: [{ count: 3, bytes: '10' }] }]);
+    await expect(createProjectMedia(full.db, input, limits)).rejects.toBeInstanceOf(MediaLimitError);
+    expect(full.statements()).toContain('ROLLBACK');
+    const heavy = fakeDb([{ rows: [] }, { rows: [{ count: 1, bytes: '97' }] }]);
+    const err = await createProjectMedia(heavy.db, input, limits).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MediaStorageFullError);
+    expect(err).toMatchObject({ code: 'media_storage_full' });
+    expect(heavy.statements().some((sql) => /^INSERT/.test(sql))).toBe(false);
+    expect(new MediaLimitError(500)).toMatchObject({ code: 'media_limit_reached' });
+    expect(DEFAULT_PROJECT_MEDIA_LIMITS).toEqual({ maxFiles: 500, maxBytes: 2 * 1024 * 1024 * 1024 });
+  });
+
+  it('checks room before an upload is read', async () => {
     await expect(
-      createProjectMedia(failedPut.db, input, { put: async () => Promise.reject(new Error('disk')), remove }),
-    ).rejects.toThrow('disk');
-    expect(failedPut.statements()).toContain('ROLLBACK');
-    expect(remove).not.toHaveBeenCalled();
-
-    const failedCommit = fakeDb([{ rows: [row] }]);
-    failedCommit.query.mockImplementation(async (sql: string) => {
-      if (sql === 'COMMIT') throw new Error('commit');
-      return sql.startsWith('INSERT') ? { rows: [row] } : { rows: [] };
+      checkProjectMediaRoom(fakeDb([{ rows: [{ count: 0, bytes: 0 }] }]).db, projectId, 5, {
+        maxFiles: 1,
+        maxBytes: 4,
+      }),
+    ).rejects.toBeInstanceOf(MediaStorageFullError);
+    await checkProjectMediaRoom(fakeDb([{ rows: [{ count: 0, bytes: 0 }] }]).db, projectId, 4, {
+      maxFiles: 1,
+      maxBytes: 4,
     });
-    await expect(createProjectMedia(failedCommit.db, input, { put, remove })).rejects.toThrow('commit');
-    expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it('sweeps upload files older than an hour that no row names, and nothing else', async () => {
+    const now = Date.parse('2026-10-22T12:00:00Z');
+    const old = new Date(now - MEDIA_UPLOAD_SWEEP_MIN_AGE_MS);
+    const storage = {
+      listKeys: vi.fn(async () => [
+        { key: 'media/orphan.png', modifiedAt: old },
+        { key: 'media/kept.png', modifiedAt: old },
+        { key: 'media/fresh.png', modifiedAt: new Date(now - 1000) },
+      ]),
+      delete: vi.fn(async () => undefined),
+    };
+    const { db, calls } = fakeDb([{ rows: [] }, { rows: [{}] }]);
+    expect(await sweepUnusedProjectMediaFiles(db, storage, now)).toBe(1);
+    expect(storage.listKeys).toHaveBeenCalledWith('media');
+    expect(storage.delete.mock.calls).toEqual([['media/orphan.png']]);
+    expect(calls().map((c) => c[1])).toEqual([['media/orphan.png'], ['media/kept.png']]);
   });
 
   it('lists the delivered keys of each tale', async () => {
@@ -356,29 +395,111 @@ describe('public media of documents', () => {
     expect(calls()).toHaveLength(2);
   });
 
-  it('forgets its answers when cleared, keeps at most its size, and never asks about a key of another shape', async () => {
-    const { db, calls } = fakeDb([]);
+  it('never keeps a no, keeps at most its size of yeses, and never asks about a key of another shape', async () => {
     const now = new Date();
-    expect(await findPublishedDocumentMedia(db, IMAGE, now)).toBeNull();
-    clearPublicMediaCache();
-    await findPublishedDocumentMedia(db, IMAGE, now);
-    expect(calls()).toHaveLength(2);
-    expect(await findPublishedDocumentMedia(db, 'covers/x.png', now)).toBeNull();
-    expect(await findPublishedDocumentMedia(db, 'fonts/x.woff2', now)).toBeNull();
-    expect(calls()).toHaveLength(2);
-    for (let i = 0; i <= PUBLIC_MEDIA_CACHE_SIZE; i++) {
-      await findPublishedDocumentMedia(db, `media/k${i}.png`, now);
-    }
-    const before = calls().length;
-    // The first key was dropped, so it is asked about again; the last is still kept.
+    const none = fakeDb([]);
+    expect(await findPublishedDocumentMedia(none.db, IMAGE, now)).toBeNull();
+    expect(await findPublishedDocumentMedia(none.db, IMAGE, now)).toBeNull();
+    // A no is asked again each time.
+    expect(none.calls()).toHaveLength(2);
+    expect(await findPublishedDocumentMedia(none.db, 'covers/x.png', now)).toBeNull();
+    expect(await findPublishedDocumentMedia(none.db, 'fonts/x.woff2', now)).toBeNull();
+    expect(none.calls()).toHaveLength(2);
+
+    const yes = { rows: [{ contentType: 'image/png' }] };
+    const { db, calls } = fakeDb([]);
+    (
+      db.query as unknown as { mockImplementation: (f: (sql: string, p: unknown[]) => unknown) => void }
+    ).mockImplementation(async (_sql: string, params: unknown[]) =>
+      (params[0] as string).startsWith('media/k') ? yes : { rows: [] },
+    );
     await findPublishedDocumentMedia(db, 'media/k0.png', now);
+    // Random keys that are not public never push a kept yes out.
+    for (let i = 0; i < PUBLIC_MEDIA_CACHE_SIZE * 2; i++) await findPublishedDocumentMedia(db, `media/x${i}.png`, now);
+    let before = calls().length;
+    await findPublishedDocumentMedia(db, 'media/k0.png', now);
+    expect(calls().length).toBe(before);
+    // Yeses beyond the size push out the least recently used one.
+    for (let i = 1; i <= PUBLIC_MEDIA_CACHE_SIZE; i++) await findPublishedDocumentMedia(db, `media/k${i}.png`, now);
+    before = calls().length;
     await findPublishedDocumentMedia(db, `media/k${PUBLIC_MEDIA_CACHE_SIZE}.png`, now);
+    expect(calls().length).toBe(before);
+    await findPublishedDocumentMedia(db, 'media/k0.png', now);
     expect(calls().length).toBe(before + 1);
+    clearPublicMediaCache();
+    await findPublishedDocumentMedia(db, `media/k${PUBLIC_MEDIA_CACHE_SIZE}.png`, now);
+    expect(calls().length).toBe(before + 2);
   });
 });
 
 describe('document writes with media', () => {
   const NONE = { publishedDocument: null, publishedRevision: 0 };
+
+  it('locks the tale row before the media keys and fonts on a save, as publishing does', async () => {
+    const FONT = '0f0e0d0c-0000-4000-8000-00000000000a';
+    const text = {
+      id: id(1),
+      type: 'text',
+      box: { x: 0.1, y: 0.2, w: 0.5, h: 0.1, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: { text: 'Hi', font: { source: 'project', fontId: FONT } },
+    };
+    const { db, calls } = fakeDb([
+      { rows: [{ projectId }] },
+      { rows: [{ id: FONT }] },
+      { rows: [{ document: {}, revision: 1, ...NONE }] },
+    ]);
+    await saveTaleDocument(db, taleId, doc([text]), 0);
+    expect(calls()[0][0]).toMatch(/FROM tales WHERE id = \$1 FOR UPDATE$/);
+    expect(calls()[1][0]).toMatch(/FROM project_fonts[\s\S]*FOR SHARE/);
+  });
+
+  it('keeps a version as a new tale locking the group and source tale before its fonts and media keys', async () => {
+    const value = doc([media(1, 'image', IMAGE)]);
+    const tale = { id: id(20), taleGroupId: id(30), projectId, title: 'T (copy)', position: 1, mediaContentType: null };
+    const { db, statements } = fakeDb([
+      { rows: [{ groupId: id(30), projectId }] },
+      { rows: [] },
+      { rows: [{}] },
+      { rows: [] },
+      { rows: [{ key: IMAGE }] },
+      { rows: [{ count: 1, next: 1 }] },
+      { rows: [tale] },
+    ]);
+    await copyTaleWithDocument(db, taleId, value);
+    const order = statements();
+    const group = order.findIndex((sql) => /FROM tale_groups WHERE id = \$1 FOR UPDATE/.test(sql));
+    const source = order.findIndex((sql) => /FROM tales WHERE id = \$1 FOR SHARE/.test(sql));
+    const key = order.findIndex((sql) => /pg_advisory_xact_lock_shared/.test(sql));
+    expect(group).toBeGreaterThan(-1);
+    expect(group).toBeLessThan(source);
+    expect(source).toBeLessThan(key);
+    expect(order.findIndex((sql) => /^INSERT INTO tale_media/.test(sql))).toBeGreaterThan(key);
+  });
+
+  it('says in plain words why a draft was not published', () => {
+    const value = doc([media(1, 'image', IMAGE), media(2, 'video', VIDEO)]);
+    const at = (pointer: string) => new InvalidTaleDocumentError(pointer, 'is invalid');
+    expect(draftProblem(new AltTextRequiredError('/elements/0/a11y/label', '"Image 1" needs alt text.'), value)).toBe(
+      '"Image 1" needs alt text.',
+    );
+    expect(draftProblem(at('/elements/1/props/fit'), value)).toBe('"A cat" has a setting that is not valid.');
+    expect(draftProblem(at('/elements/0/props/text'), doc([{ type: 'text', props: { text: '  Big   sale ' } }]))).toBe(
+      'The text "Big sale" has a setting that is not valid.',
+    );
+    expect(draftProblem(at('/durationMs'), value)).toBe('Its duration is not between 3 and 15 seconds.');
+    expect(draftProblem(at('/canvas/background/color'), value)).toBe('Its background has a setting that is not valid.');
+    expect(draftProblem(at('/elements/7/type'), value)).toBe('Something in it is not valid.');
+    expect(draftProblem(at('/elements/0/type'), doc([{ type: 'poll' }]))).toBe(
+      'Layer 1 has a setting that is not valid.',
+    );
+    expect(draftProblem(new TaleDocumentTooLargeError(), value)).toBe('The draft is larger than 128 KB.');
+    for (const reason of [draftProblem(at('/elements/1/props/fit'), value), draftProblem(at('/x'), value)]) {
+      expect(reason).not.toMatch(/\//);
+    }
+  });
 
   it("saves media of the tale's project, share locked before the check, and records it", async () => {
     const value = doc([media(1, 'image', IMAGE), media(2, 'video', VIDEO)]);

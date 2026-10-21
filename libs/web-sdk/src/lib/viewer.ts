@@ -1,10 +1,17 @@
-import { DEFAULT_TALE_DURATION_MS, type DeliveryTale, type DeliveryTaleGroup } from '@taleart/contract';
+import {
+  DEFAULT_TALE_DURATION_MS,
+  MAX_TALE_VIDEO_MS,
+  type DeliveryTale,
+  type DeliveryTaleGroup,
+} from '@taleart/contract';
 import { prefersReducedMotion } from './bar';
 import { loadTaleFonts } from './document/fonts';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
 
 /** How long an image, or a tale without playable media, shows when it has no document. */
 export const IMAGE_DURATION_MS = 5000;
+/** A document's video that makes no progress for this long while it should play ends its tale. */
+export const VIDEO_STALL_MS = 5000;
 /** Horizontal travel that makes a pointer gesture a swipe between groups. */
 export const SWIPE_MIN_PX = 50;
 /** A press at least this long is a hold (pause), not a tap (step). */
@@ -203,6 +210,11 @@ export class TaleViewer {
   private media: HTMLElement | null = null;
   private layer: HTMLElement | null = null; // the current tale's document, over its media
   private video: HTMLVideoElement | null = null;
+  // The clock is a document's video (R5): the tale ends at 15 s at most, and when it stalls.
+  private capped = false;
+  private watchdog: ReturnType<typeof setTimeout> | undefined;
+  // A document's video beside the tale's own video: it loops along, and follows pause and play.
+  private alongside: HTMLVideoElement[] = [];
   private paused = false; // by the visitor (Space or the button)
   private held = false; // while a pointer is down on the stage
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -524,10 +536,10 @@ export class TaleViewer {
       // Its video element (R5) runs the tale: it plays, pauses and ends with it. Next to a tale
       // video it only loops along, muted.
       const docVideo = this.layer.querySelector('video');
-      if (docVideo && !this.video) this.useVideo(docVideo);
-      else if (docVideo && !this.reduced) {
+      if (docVideo && !this.video) this.useVideo(docVideo, true);
+      else if (docVideo) {
         docVideo.loop = true;
-        void Promise.resolve(docVideo.play()).catch(() => undefined);
+        this.alongside.push(docVideo);
       }
     }
     this.options.onGroupShown?.(g.id);
@@ -569,20 +581,53 @@ export class TaleViewer {
 
   // Makes `video` the current tale's clock: the tale ends when it ends (or, under reduced motion,
   // pauses there), its progress fills with it, and a video that fails runs the tale on the timer.
-  private useVideo(video: HTMLVideoElement): void {
-    video.addEventListener('ended', () => {
+  // A document's video (`capped`) also ends the tale at 15 s (R5), and when it makes no progress
+  // for {@link VIDEO_STALL_MS} while it should play.
+  private useVideo(video: HTMLVideoElement, capped = false): void {
+    const end = () => {
       if (video !== this.video) return;
       if (!this.reduced) this.next();
-      else if (!this.paused) this.togglePause();
-    });
+      else {
+        video.pause();
+        if (!this.paused) this.togglePause();
+      }
+    };
+    video.addEventListener('ended', end);
     video.addEventListener('error', () => {
       if (video === this.video) this.startTimed();
     });
     video.addEventListener('timeupdate', () => {
-      if (video !== this.video || !video.duration) return;
-      this.fill().style.transform = `scaleX(${Math.min(1, video.currentTime / video.duration)})`;
+      if (video !== this.video) return;
+      if (capped) {
+        if (video.currentTime * 1000 >= MAX_TALE_VIDEO_MS) {
+          end();
+          return;
+        }
+        this.armWatchdog();
+      }
+      if (!video.duration) return;
+      const length = capped ? Math.min(video.duration, MAX_TALE_VIDEO_MS / 1000) : video.duration;
+      this.fill().style.transform = `scaleX(${Math.min(1, video.currentTime / length)})`;
     });
     this.video = video;
+    this.capped = capped;
+  }
+
+  // While a document's video should play, a stall of VIDEO_STALL_MS ends the tale (never under
+  // reduced motion, where nothing moves on by itself).
+  private armWatchdog(): void {
+    this.disarmWatchdog();
+    if (!this.capped || !this.video || this.reduced || this.paused || this.held) return;
+    const video = this.video;
+    this.watchdog = setTimeout(() => {
+      this.watchdog = undefined;
+      if (video === this.video && !this.paused && !this.held) this.next();
+    }, VIDEO_STALL_MS);
+  }
+
+  private disarmWatchdog(): void {
+    if (this.watchdog !== undefined) clearTimeout(this.watchdog);
+    this.watchdog = undefined;
   }
 
   private fill(): HTMLElement {
@@ -595,6 +640,8 @@ export class TaleViewer {
       this.video.pause();
       this.video = null;
     }
+    this.capped = false;
+    this.disarmWatchdog();
     this.timed = true;
     this.remaining = this.duration;
     const fill = this.fill();
@@ -622,8 +669,18 @@ export class TaleViewer {
         }, Math.max(0, this.remaining));
       }
     } else if (this.video) {
-      if (stopped) this.video.pause();
-      else this.play(this.video);
+      if (stopped) {
+        this.video.pause();
+        this.disarmWatchdog();
+      } else {
+        this.play(this.video);
+        this.armWatchdog();
+      }
+    }
+    // A document's video beside the tale's video plays and pauses with the tale, never while it is paused.
+    for (const video of this.alongside) {
+      if (stopped) video.pause();
+      else void Promise.resolve(video.play()).catch(() => undefined);
     }
   }
 
@@ -652,6 +709,10 @@ export class TaleViewer {
     this.timed = false;
     this.video?.pause();
     this.video = null;
+    this.capped = false;
+    this.disarmWatchdog();
+    for (const video of this.alongside) video.pause();
+    this.alongside = [];
     this.media?.remove();
     this.media = null;
     this.layer?.remove();

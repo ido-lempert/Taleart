@@ -430,13 +430,20 @@ paths:
         The body is the file's bytes, with its type declared as one of the
         tale media types. The server checks the bytes' magic number against
         the declared type and stores the file through the storage port
-        without transcoding it (AD-11). Images are at most 10 MB, videos
-        100 MB. Admins and content managers upload. Checked in this order:
-        unknown project 404 `project_not_found`; another declared type 415
-        `unsupported_media_type`; a declared length over the limit 413
-        `media_too_large` (before the body is read, with `Connection:
-        close`); a compressed body 415; too large 413; empty 400
-        `validation_failed`; bytes of another type 415.
+        without transcoding it (AD-11), streaming it to storage. Images are
+        at most 10 MB, videos 100 MB; a project holds at most 500 files and
+        2 GB (PROJECT_MEDIA_MAX_FILES, PROJECT_MEDIA_MAX_BYTES). Admins and
+        content managers upload. Checked in this order, all but the last
+        three before the body is read (with `Connection: close`): too many
+        uploads at once in this process 429 `upload_busy`; unknown project
+        404 `project_not_found`; another declared type 415
+        `unsupported_media_type`; a compressed body 415; no valid
+        `Content-Length` 411 `length_required`; empty 400
+        `validation_failed`; over the type's limit 413 `media_too_large`;
+        a full project 409 `media_limit_reached` or 413
+        `media_storage_full`; then, while it streams, first bytes of another
+        type 415, and a body other than its declared length 400; the caps
+        again when the row is inserted.
       requestBody:
         required: true
         content:
@@ -465,9 +472,15 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '411':
+          $ref: '#/components/responses/Error'
         '413':
           $ref: '#/components/responses/Error'
         '415':
+          $ref: '#/components/responses/Error'
+        '429':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -3984,6 +3997,10 @@ components:
         - font_in_use
         - font_limit_reached
         - font_storage_full
+        - media_limit_reached
+        - media_storage_full
+        - upload_busy
+        - length_required
         - internal_error
     ErrorBody:
       type: object

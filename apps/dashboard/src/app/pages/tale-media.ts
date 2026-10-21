@@ -1,12 +1,13 @@
 // Tale Studio's media parts (epic Tale Studio R5, R2, R12): the picker over the project's media,
 // with upload, and the inspector of a selected image or video.
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
-import type { MediaKind, ProjectMedia } from '@taleart/contract/core';
+import { isMediaContentType, maxMediaBytes, type MediaKind, type ProjectMedia } from '@taleart/contract/core';
 import {
   cleanText,
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_MEDIA_RADIUS,
+  MAX_TALE_VIDEO_MS,
   MEDIA_FITS,
   type ImageElementProps,
   type MediaElement,
@@ -194,6 +195,13 @@ export class TaleMediaPicker {
     const file = field.files?.[0];
     if (!file || this.uploading()) return;
     this.error.set('');
+    if (isMediaContentType(file.type) && file.size > maxMediaBytes(file.type)) {
+      this.error.set(
+        `The file is larger than ${maxMediaBytes(file.type) / (1024 * 1024)} MB. Choose a smaller ${this.kindName()}.`,
+      );
+      field.value = '';
+      return;
+    }
     if (!this.accept().split(',').includes(file.type)) {
       this.error.set(
         this.kind() === 'video' ? 'Choose an MP4 or WebM video.' : 'Choose a JPEG, PNG, WebP or GIF image.',
@@ -308,6 +316,13 @@ const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
       </div>
     </div>
     <span class="field__hint">The corner radius is a share of the canvas height.</span>
+    @if (videoSeconds(); as seconds) {
+      @if (seconds > maxVideoSeconds) {
+        <p class="field__hint layer__warning" role="status">
+          This video is {{ seconds.toFixed(1) }} s long: only the first {{ maxVideoSeconds }} s will play.
+        </p>
+      }
+    }
     <div class="row">
       <button
         type="button"
@@ -325,12 +340,15 @@ export class TaleMediaStyle {
   readonly element = input.required<MediaElement>();
   readonly locked = input(false);
   readonly lockedHint = input('');
+  /** The video's length in seconds once the canvas read it; null for an image or before. */
+  readonly videoSeconds = input<number | null>(null);
   readonly changed = output<MediaChange>();
   readonly notice = output<string>();
   readonly replace = output<void>();
 
   protected readonly fits = MEDIA_FITS;
   protected readonly fitNames = FIT_NAMES;
+  protected readonly maxVideoSeconds = MAX_TALE_VIDEO_MS / 1000;
   protected readonly maxLabel = MAX_LABEL_LENGTH;
   protected readonly maxRadius = percent(MAX_MEDIA_RADIUS);
   protected readonly kindName = computed(() => KIND_NAMES[this.element().type]);

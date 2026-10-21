@@ -12,7 +12,6 @@ import {
   discardTaleDraft,
   getTaleDocument,
   getTaleMedia,
-  isMediaKeyInUse,
   publishTaleDocument,
   saveTaleDocument,
   setTaleMedia,
@@ -20,6 +19,7 @@ import {
   setTaleStatus,
   taleExists,
   TaleNotFoundError,
+  withMediaKeyDeletionGuard,
 } from '@taleart/server-tales';
 import express, { Router } from 'express';
 import type { Pool } from 'pg';
@@ -105,9 +105,10 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
         }
         const { previousKey } = result;
         if (previousKey !== null && previousKey !== key) {
-          await isMediaKeyInUse(pool, previousKey)
-            .then((inUse) => (inUse ? undefined : storage.delete(previousKey)))
-            .catch((cleanupErr) => logError('could not delete replaced media', cleanupErr));
+          // Decided and deleted under the key's lock, so no document write can start using it meanwhile.
+          await withMediaKeyDeletionGuard(pool, previousKey, async (inUse) => {
+            if (!inUse) await storage.delete(previousKey);
+          }).catch((cleanupErr) => logError('could not delete replaced media', cleanupErr));
         }
         res.json(result.tale);
       } catch (err) {

@@ -509,6 +509,10 @@ export const ErrorCodes = {
   fontInUse: 'font_in_use',
   fontLimitReached: 'font_limit_reached',
   fontStorageFull: 'font_storage_full',
+  mediaLimitReached: 'media_limit_reached',
+  mediaStorageFull: 'media_storage_full',
+  uploadBusy: 'upload_busy',
+  lengthRequired: 'length_required',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

@@ -32,6 +32,7 @@ export {
   getTaleGroupCover,
   setTaleGroupCover,
   isMediaKeyInUse,
+  withMediaKeyDeletionGuard,
   orderTaleGroups,
   orderTales,
   orderTaleGroupsWhen,
@@ -96,8 +97,14 @@ export {
   type StoredFontFile,
 } from './lib/project-fonts';
 export {
+  checkProjectMediaRoom,
   clearPublicMediaCache,
   createProjectMedia,
+  DEFAULT_PROJECT_MEDIA_LIMITS,
+  MediaLimitError,
+  MediaStorageFullError,
+  sweepUnusedProjectMediaFiles,
+  type ProjectMediaLimits,
   findPublishedDocumentMedia,
   listProjectMedia,
   projectMediaFile,

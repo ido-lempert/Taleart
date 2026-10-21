@@ -10,6 +10,7 @@ import {
   MAX_VIDEO_ELEMENTS,
   missingAltText,
   missingAltTextMessage,
+  mediaElementName,
   documentMediaRefs,
   projectFontIds,
   projectFontRefs,
@@ -226,6 +227,33 @@ export function checkPublishRules(doc: TaleDocument): void {
   if (missing) throw new AltTextRequiredError(`/elements/${missing.index}/a11y/label`, missingAltTextMessage(missing));
 }
 
+/**
+ * Why a draft was not published, in words for the person who set the tale live: no JSON pointers,
+ * the element named as Tale Studio names it (R12, AD-15).
+ */
+export function draftProblem(err: InvalidTaleDocumentError | TaleDocumentTooLargeError, draft: unknown): string {
+  if (err instanceof TaleDocumentTooLargeError) return `The draft is larger than ${MAX_TALE_DOCUMENT_BYTES / 1024} KB.`;
+  if (err instanceof AltTextRequiredError) return err.message;
+  if (err.pointer === '/durationMs') return 'Its duration is not between 3 and 15 seconds.';
+  if (err.pointer.startsWith('/canvas')) return 'Its background has a setting that is not valid.';
+  const index = Number(/^\/elements\/(\d+)/.exec(err.pointer)?.[1] ?? NaN);
+  const elements = (draft as { elements?: unknown } | null)?.elements;
+  const element = Array.isArray(elements) && Number.isInteger(index) ? (elements[index] as unknown) : undefined;
+  if (typeof element !== 'object' || element === null) return 'Something in it is not valid.';
+  const e = element as { type?: unknown; props?: { text?: unknown }; a11y?: { label?: string } };
+  if (e.type === 'image' || e.type === 'video') {
+    return `"${mediaElementName(elements as { type: string }[], index)}" has a setting that is not valid.`;
+  }
+  if (e.type === 'text' && typeof e.props?.text === 'string') {
+    const words = [...e.props.text.trim().replace(/\s+/g, ' ')];
+    const name = words.length > 40 ? `${words.slice(0, 40).join('')}…` : words.join('');
+    return name
+      ? `The text "${name}" has a setting that is not valid.`
+      : 'An empty text has a setting that is not valid.';
+  }
+  return `Layer ${index + 1} has a setting that is not valid.`;
+}
+
 /** {@link checkTaleDocument} then {@link checkPublishRules}: what a published document passes. */
 export function checkPublishableDocument(value: unknown): TaleDocument {
   const doc = checkTaleDocument(value);
@@ -290,7 +318,7 @@ export async function checkDocumentMedia(db: Db, projectId: string, document: un
 }
 
 // The project of the tale, or a 404. With `lock`, the tale row is locked first, as publishing locks
-// it before the media keys, so a save and a publish take their locks in the same order.
+// it before the media keys: every document write takes the tale row, then its fonts and keys.
 async function projectOfTale(db: Db, taleId: string, lock = false): Promise<string> {
   const { rows } = await db.query<{ projectId: string }>(
     `SELECT project_id AS "projectId" FROM tales WHERE id = $1${lock ? ' FOR UPDATE' : ''}`,
@@ -432,7 +460,7 @@ export async function saveTaleDocument(
   const usesFonts = projectFontIds(document).length > 0;
   const hasMedia = usesMedia(document);
   return inTransaction(db, async (tx) => {
-    const projectId = usesFonts || hasMedia ? await projectOfTale(tx, taleId, hasMedia) : null;
+    const projectId = usesFonts || hasMedia ? await projectOfTale(tx, taleId, true) : null;
     if (usesFonts && projectId) await checkDocumentFonts(tx, projectId, document, true);
     if (hasMedia && projectId) await checkDocumentMedia(tx, projectId, document);
     const { rows } = await tx.query<StateRow>(
