@@ -335,7 +335,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List the project's imports, newest first (admins only).
+         * @description The project's import jobs, newest first, at most 50, with their state, times and failure reason; the report is read per job. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         */
+        get: operations["listImports"];
         put?: never;
         /**
          * Start importing a another tool app into the project (admins only).
@@ -359,8 +363,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read an import job, its state and its report (admins only).
-         * @description A job of another project, or none, answers 404 `not_found`. A content manager gets 403 `forbidden`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         * Read an import job, its state, progress and report (admins only).
+         * @description Poll it while the job is queued or running to follow its progress. A job of another project, or none, answers 404 `not_found`. A content manager gets 403 `forbidden`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
          */
         get: operations["getImport"];
         put?: never;
@@ -1078,6 +1082,36 @@ export interface components {
             /** @description What did not come across, such as "frame type unknown" for each zone or a skipped tale. */
             notes: string[];
         };
+        /** @description Records read from the source so far, and records in TaleArt so far (already linked ones included). */
+        ImportProgressCount: {
+            read: number;
+            written: number;
+        };
+        /** @description How far a job got, per entity type; updated while it runs. */
+        ImportProgress: {
+            zones: components["schemas"]["ImportProgressCount"];
+            taleGroups: components["schemas"]["ImportProgressCount"];
+            tales: components["schemas"]["ImportProgressCount"];
+        };
+        /** @description An import job in the project's list of imports, without its report. */
+        ImportJobSummary: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["ImportStatus"];
+            /** @description The source app's name, once the worker has read it. */
+            sourceAppName: string | null;
+            /** @description Why the job failed; null unless the status is failed. */
+            error: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When a worker last started the job; null while it waits in the queue.
+             */
+            startedAt: string | null;
+            /** Format: date-time */
+            finishedAt: string | null;
+        };
         ImportJob: {
             /** Format: uuid */
             id: string;
@@ -1085,10 +1119,17 @@ export interface components {
             /** @description The source app's name, once the worker has read it. */
             sourceAppName: string | null;
             report: components["schemas"]["ImportReport"] | null;
+            /** @description How far the job got; null until a worker has started it. */
+            progress: components["schemas"]["ImportProgress"] | null;
             /** @description Why the job failed; null unless the status is failed. */
             error: string | null;
             /** Format: date-time */
             createdAt: string;
+            /**
+             * Format: date-time
+             * @description When a worker last started the job; null while it waits in the queue.
+             */
+            startedAt: string | null;
             /** Format: date-time */
             finishedAt: string | null;
         };
@@ -1552,6 +1593,32 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listImports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's imports. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobSummary"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             503: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
