@@ -1,4 +1,4 @@
-<app-drawer [heading]="heading()" [returnFocus]="store.drawerOpener" [busy]="saving()" (closed)="close()">
+<app-drawer [heading]="heading()" [returnFocus]="returnFocus" [busy]="saving()" (closed)="close()">
   <form class="drawer__form" (ngSubmit)="submit()" novalidate>
     <div class="drawer__body">
       @if (context()) {
@@ -339,7 +339,7 @@
         }
         @case ('applyPlaybook') {
           @if (playbookZone()) {
-            <fieldset class="tag-options">
+            <fieldset class="tag-options" [attr.aria-describedby]="playbookDescribedBy()">
               <legend class="field__label">Playbook</legend>
               @for (playbook of playbooks; track playbook.key) {
                 <label class="checkbox">
@@ -384,7 +384,7 @@
               </p>
             }
             @if (playbookConflict() && !error()) {
-              <p class="form-error" id="playbook-conflict">{{ playbookConflict() }}</p>
+              <p class="form-error" role="alert" id="playbook-conflict">{{ playbookConflict() }}</p>
             }
           } @else {
             <p class="muted">This zone no longer exists.</p>

@@ -48,6 +48,10 @@ import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 export class CreateDrawer implements OnInit {
   protected readonly store = inject(DashboardStore);
   private readonly document = inject(DOCUMENT);
+  /** Replaces the opener as the return-focus target, when the opener goes away with the drawer's work. */
+  private returnTo: HTMLElement | null = null;
+  /** Read by the drawer when it is removed: the replacement target, else the element that opened it. */
+  protected readonly returnFocus = (): HTMLElement | null => this.returnTo ?? this.store.drawerOpener;
   readonly request = input.required<DrawerRequest>();
 
   protected readonly error = signal('');
@@ -113,6 +117,12 @@ export class CreateDrawer implements OnInit {
     return taken
       ? `This zone already has a stage with the key ${taken.stage.key}. Delete that stage first, then apply ${playbook.label}.`
       : '';
+  });
+
+  /** The playbook fieldset's description: the conflict warning while shown, and the API's or the drawer's message. */
+  protected readonly playbookDescribedBy = computed(() => {
+    const ids = [this.playbookConflict() && !this.error() ? 'playbook-conflict' : '', this.error() ? 'create-error' : ''];
+    return ids.filter(Boolean).join(' ') || null;
   });
 
   /** The key typed in a new stage drawer; follows the name until the user edits it. */
@@ -731,8 +741,8 @@ export class CreateDrawer implements OnInit {
           : this.playbookConflict() || (await this.store.applyPlaybook(request.zoneId, this.playbookKey()));
         if (!message) {
           // The Apply playbook button that opened the drawer is gone once the zone has a playbook,
-          // so focus moves to the Playbook section's heading after the drawer closes.
-          setTimeout(() => this.document.getElementById('playbook-title')?.focus());
+          // so focus returns to the Playbook section's heading instead.
+          this.returnTo = this.document.getElementById('playbook-title');
         }
         break;
       case 'placeTaleGroup':

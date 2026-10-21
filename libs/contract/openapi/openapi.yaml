@@ -877,8 +877,10 @@ paths:
         missing key answers 400 `validation_failed`; a key not in the registry
         400 `unknown_playbook`; a zone that has another playbook 409
         `playbook_already_applied`; a stage key of the playbook that the zone
-        already uses 409 `stage_key_taken`, and nothing is created. Unknown
-        zone: 404 `zone_not_found`.
+        already uses 409 `stage_key_taken`, and nothing is created. A
+        concurrent change to the zone that fails the apply twice answers 409
+        `concurrent_change`; nothing is created and it can be tried again.
+        Unknown zone: 404 `zone_not_found`.
       requestBody:
         required: true
         content:
@@ -2931,6 +2933,7 @@ components:
         - stage_key_taken
         - unknown_playbook
         - playbook_already_applied
+        - concurrent_change
         - internal_error
     ErrorBody:
       type: object
