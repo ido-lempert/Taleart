@@ -27,7 +27,7 @@ import {
   resolveTextStyle,
   TEXT_BOX_PADDING_EM,
   TEXT_HIGHLIGHT_PADDING_EM,
-  TEXT_WEIGHTS,
+  textCssWeight,
   textContrast,
   textFontFamily,
   type PublishedTaleDocument,
@@ -143,7 +143,7 @@ export function textView(props: unknown, themeFont: string | null): TextView {
     dir: look.direction,
     family: textFontFamily(look, themeFont),
     size: `${look.size * 100}cqh`,
-    weight: TEXT_WEIGHTS[look.weight],
+    weight: textCssWeight(look.weight),
     fontStyle: look.italic ? 'italic' : 'normal',
     color: look.color,
     lineHeight: look.lineHeight,
@@ -464,6 +464,8 @@ export function newTextProps(text: string): TextElementProps {
                     [style.font-style]="v.fontStyle"
                     [style.color]="v.color"
                     [style.text-align]="v.align"
+                    [style.background-color]="v.boxColor ?? v.lineColor"
+                    [style.padding-inline]="v.boxPadding ?? v.linePadding"
                     [value]="el.props.text"
                     (input)="typeText(el.id, $any($event.target))"
                     (blur)="stopEditing()"
@@ -729,7 +731,7 @@ export function newTextProps(text: string): TextElementProps {
                     [themeFont]="themeFont()"
                     [backdrop]="backdrop()"
                     (changed)="restyle(el.id, $event)"
-                    (refused)="say($event)"
+                    (notice)="say($event)"
                   />
                   <div class="row">
                     <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">Delete text</button>
@@ -1029,10 +1031,22 @@ export class TaleStudioPage implements OnChanges {
       this.say(LOCKED);
       return;
     }
-    this.change(change.label, (elements) =>
+    const before = textContrast(resolveTextStyle(element.props), this.backdrop()).kind;
+    const recorded = this.change(change.label, (elements) =>
       elements.map((e) => (e.id === id ? { ...e, props: { ...e.props, ...change.patch } } : e)),
     );
-    this.say(change.said);
+    // Only a recorded step is announced; the contrast line is not live, so a change of its warning is said here.
+    if (!recorded) return;
+    const after = textContrast(resolveTextStyle({ ...element.props, ...change.patch }), this.backdrop()).kind;
+    const contrast =
+      before === after
+        ? ''
+        : after === 'low'
+          ? ' Low contrast: see the warning under the text style.'
+          : before === 'low'
+            ? ' Contrast is enough now.'
+            : '';
+    this.say(change.said + contrast);
   }
 
   // The route's tale changed (on opening, or after keeping a version as a new tale, where the
@@ -1404,30 +1418,31 @@ export class TaleStudioPage implements OnChanges {
     label: string,
     update: (elements: TaleElement[]) => readonly TaleElement[],
     mergeKey: string | null = null,
-  ): void {
+  ): boolean {
     const doc = this.doc();
-    if (!doc) return;
+    if (!doc) return false;
     const elements = update(doc.elements);
-    if (elements === doc.elements) return;
-    this.commit(label, { ...doc, elements: [...elements] }, mergeKey);
+    if (elements === doc.elements) return false;
+    return this.commit(label, { ...doc, elements: [...elements] }, mergeKey);
   }
 
   // Every change to the document comes here: it is recorded in the history, shown, and autosaved.
-  // A change that leaves the document as it was is no step.
-  private commit(label: string, next: TaleDocument, mergeKey: string | null = null): void {
+  // A change that leaves the document as it was is no step. True when a step was recorded.
+  private commit(label: string, next: TaleDocument, mergeKey: string | null = null): boolean {
     const before = this.doc();
-    if (!before || next === before || JSON.stringify(next) === JSON.stringify(before)) return;
+    if (!before || next === before || JSON.stringify(next) === JSON.stringify(before)) return false;
     if (this.held()) {
       // The change does not go through; the canvas shows the document as it is.
       this.doc.set({ ...before });
       this.say(this.held());
-      return;
+      return false;
     }
     this.history.record(label, before, next, mergeKey);
     this.doc.set(next);
     this.notice.set('');
     this.syncHistory();
     this.autosave.changed(next);
+    return true;
   }
 
   private setBox(id: string, box: Partial<TaleElementBox>): void {

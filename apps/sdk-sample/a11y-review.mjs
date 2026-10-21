@@ -1269,6 +1269,17 @@ try {
             boxBg: s.backgroundColor,
             lineBg: gs.backgroundColor,
             clone: gs.boxDecorationBreak || gs.webkitBoxDecorationBreak,
+            // Where each word is drawn, for the visual order of mixed Hebrew and English (bidi).
+            words: Object.fromEntries(
+              ['קיץ', 'off', 'שלום', 'world'].flatMap((word) => {
+                const at = g.firstChild.textContent.indexOf(word);
+                if (at < 0) return [];
+                const range = document.createRange();
+                range.setStart(g.firstChild, at);
+                range.setEnd(g.firstChild, at + word.length);
+                return [[word, range.getBoundingClientRect().left]];
+              }),
+            ),
             leftGap: glyphs.left - box.left,
             rightGap: box.right - glyphs.right,
             inside:
@@ -1305,7 +1316,7 @@ try {
       );
       check(
         '1.3.1',
-        /^Georgia, serif, ui-monospace/.test(themed.family),
+        /^"?Georgia"?, serif, ui-monospace/.test(themed.family),
         `${at}: the theme font applies, then the fallback stack (${themed.family.slice(0, 40)}…)`,
       );
       check(
@@ -1320,6 +1331,13 @@ try {
         `${at}: an explicit left-to-right direction keeps Hebrew text left-aligned at its start`,
       );
       check('1.3.2', named.align === 'end' && named.leftGap > named.rightGap, `${at}: end alignment on LTR is right`);
+      // Visual order (AC2): in the right-to-left line the Hebrew word comes first, on the right, and the
+      // English after it, to its left; in the line set left to right the Hebrew word is on the left.
+      check(
+        '1.3.2',
+        hebrew.words['קיץ'] > hebrew.words['off'] && ltr.words['שלום'] < ltr.words['world'],
+        `${at}: mixed Hebrew and English runs are drawn in bidi order for each line's direction`,
+      );
       const boxRatio = contrast(parse(hebrew.color), parse(hebrew.boxBg));
       const lineRatio = contrast(parse(named.color), parse(named.lineBg));
       check(

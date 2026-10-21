@@ -48,7 +48,8 @@ export const FONT_FAMILY_KEYWORDS = ['inherit', 'initial', 'unset', 'revert', 'r
 
 // A word in any letter case, as a character class per letter: JSON Schema patterns take no flags.
 const anyCase = (word: string) => word.replace(/[a-z]/g, (c) => `[${c}${c.toUpperCase()}]`);
-const NO_KEYWORD = `(?!.*(?:^|[\\s,"'])(?:${FONT_FAMILY_KEYWORDS.map(anyCase).join('|')})(?=$|[\\s,"']))`;
+// Built by a function marked pure, so bundlers drop it where nothing reads the pattern.
+const noKeyword = () => `(?!.*(?:^|[\\s,"'])(?:${FONT_FAMILY_KEYWORDS.map(anyCase).join('|')})(?=$|[\\s,"']))`;
 const FONT_NAME = `(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|'[A-Za-z0-9 -]+')`;
 /**
  * A CSS font-family list: comma-separated names of letters, digits, spaces and
@@ -57,7 +58,9 @@ const FONT_NAME = `(?:[A-Za-z][A-Za-z0-9 -]*|"[A-Za-z0-9 -]+"|'[A-Za-z0-9 -]+')`
  * (`;`, `{`, `(`, a backslash, `/`, `:` …) is accepted, so the value cannot leave a
  * `font-family` declaration.
  */
-export const FONT_FAMILY_PATTERN = new RegExp(`^${NO_KEYWORD}\\s*${FONT_NAME}\\s*(?:,\\s*${FONT_NAME}\\s*)*$`);
+export const FONT_FAMILY_PATTERN = /* @__PURE__ */ new RegExp(
+  `^${/* @__PURE__ */ noKeyword()}\\s*${FONT_NAME}\\s*(?:,\\s*${FONT_NAME}\\s*)*$`,
+);
 
 /** The background value that lets the host page show through. */
 export const TRANSPARENT = 'transparent';
@@ -70,9 +73,9 @@ export const TRANSPARENT = 'transparent';
  * `#ea580c` (3.6:1). On white, every ring colour and the seen ring pass 3:1;
  * the accent passes 3:1 on black and on the viewer's track and buttons.
  */
-export const DEFAULT_THEME: Readonly<Theme> = Object.freeze({
+export const DEFAULT_THEME: Readonly<Theme> = /* @__PURE__ */ Object.freeze({
   ringStyle: 'gradient',
-  ringColors: Object.freeze(['#ea580c', '#db2777', '#7c3aed']) as unknown as string[],
+  ringColors: /* @__PURE__ */ Object.freeze(['#ea580c', '#db2777', '#7c3aed']) as unknown as string[],
   seenRingColor: '#6b7280',
   ringWidth: 2,
   cornerRadius: null,

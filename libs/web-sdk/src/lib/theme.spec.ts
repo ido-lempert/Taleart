@@ -85,7 +85,7 @@ describe('theme', () => {
     });
     expect(themeProperties({ titleColor: '#000000', fontFamily: 'Georgia', cornerRadius: 0, backgroundColor: '#fafafa' })).toMatchObject({
       '--ta-title': '#000000',
-      '--ta-font': 'Georgia',
+      '--ta-font': '"Georgia"',
       '--ta-radius': '0px',
       '--ta-bg': '#fafafa',
       '--ta-gap': '#fafafa',
@@ -101,8 +101,11 @@ describe('theme', () => {
     applyTheme(el, { ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0, fontFamily: 'Georgia, serif' });
     expect(el.style.getPropertyValue('--ta-ring')).toBe('#0055ff');
     expect(el.style.getPropertyValue('--ta-radius')).toBe('0px');
-    expect(el.style.getPropertyValue('--ta-font')).toBe('Georgia, serif');
+    expect(el.style.getPropertyValue('--ta-font')).toBe('"Georgia", serif');
     expect(el.style.getPropertyValue('--ta-title')).toBe('');
+    // A name CSS refuses bare (a word starting with a digit) applies once quoted.
+    applyTheme(el, { fontFamily: 'Source Sans 3, sans-serif' });
+    expect(el.style.getPropertyValue('--ta-font')).toBe('"Source Sans 3", sans-serif');
     expect(el.hasAttribute('data-title')).toBe(false);
     applyTheme(el, { titleColor: '#000000' });
     expect(el.getAttribute('data-title')).toBe('');

@@ -1,5 +1,8 @@
 import {
   compositeColor,
+  CONTRAST_CANVAS_HEIGHT_PX,
+  cssFontFamilyList,
+  textCssWeight,
   DEFAULT_TEXT_STYLE,
   FONT_FAMILY_PATTERN,
   isLargeText,
@@ -57,8 +60,12 @@ describe('text style schema', () => {
 });
 
 describe('resolveTextStyle', () => {
-  it('fills a text without style with the defaults, the look before styling', () => {
-    expect(resolveTextStyle({ text: 'Hi' })).toEqual(DEFAULT_TEXT_STYLE);
+  it('fills a text without style with the defaults, the look before styling, keeping its old weight', () => {
+    expect(resolveTextStyle({ text: 'Hi' })).toEqual({ ...DEFAULT_TEXT_STYLE, weight: null });
+    expect(textCssWeight(null)).toBe(600);
+    expect(textCssWeight('bold')).toBe(700);
+    // A new text stores its weight explicitly.
+    expect(DEFAULT_TEXT_STYLE.weight).toBe('bold');
     expect(DEFAULT_TEXT_STYLE).toMatchObject({ size: 0.04, lineHeight: 1.25, color: '#ffffff', align: 'center' });
     expect(DEFAULT_TEXT_STYLE.direction).toBe('auto');
   });
@@ -85,8 +92,6 @@ describe('resolveTextStyle', () => {
     ['font', { source: 'name', family: 'x;color:red' }],
     ['font', { source: 'name', family: 'a'.repeat(201) }],
     ['font', { source: 'system', stack: 'fantasy' }],
-    ['font', { source: 'system', stack: 'serif', family: 'Inter' }],
-    ['font', { source: 'theme', stack: 'serif' }],
     ['font', { source: 'project' }],
     ['font', 'serif'],
     ['fallback', 'cursive'],
@@ -95,7 +100,6 @@ describe('resolveTextStyle', () => {
     ['size', 0.5],
     ['size', Number.NaN],
     ['size', 'big'],
-    ['weight', 'heavy'],
     ['italic', 'yes'],
     ['color', 'red; background:url(x)'],
     ['color', 'red'],
@@ -109,6 +113,23 @@ describe('resolveTextStyle', () => {
   ])('replaces an invalid %s (%j) with its default', (field, value) => {
     const resolved = resolveTextStyle({ text: 'x', [field]: value }) as unknown as Record<string, unknown>;
     expect(resolved[field]).toEqual((DEFAULT_TEXT_STYLE as unknown as Record<string, unknown>)[field]);
+  });
+
+  it('keeps the old weight for an invalid one', () => {
+    expect(resolveTextStyle({ text: 'x', weight: 'heavy' }).weight).toBeNull();
+  });
+
+  it('reads fonts forward compatibly: unknown keys are ignored, an unknown source draws in the fallback', () => {
+    expect(readTextFont({ source: 'system', stack: 'serif', family: 'Inter' })).toEqual({
+      source: 'system',
+      stack: 'serif',
+    });
+    expect(readTextFont({ source: 'theme', weightAxis: 400 })).toEqual({ source: 'theme' });
+    expect(readTextFont({ source: 'project', fontId: 'f1' }, 'serif')).toEqual({ source: 'system', stack: 'serif' });
+    expect(readTextFont({ source: 'project', fontId: 'f1' }, 'cursive')).toBeNull();
+    expect(
+      resolveTextStyle({ text: 'x', font: { source: 'project', fontId: 'f1' }, fallback: 'rounded' }).font,
+    ).toEqual({ source: 'system', stack: 'rounded' });
   });
 
   it('reads each font source', () => {
@@ -130,13 +151,24 @@ describe('textFontFamily', () => {
     expect(textFontFamily({ font: { source: 'system', stack: 'serif' }, fallback: 'sans' })).toBe(serif);
   });
 
-  it('puts a named font before its fallback stack', () => {
-    expect(textFontFamily({ font: { source: 'name', family: 'Inter' }, fallback: 'serif' })).toBe(`Inter, ${serif}`);
+  it('puts a named font, quoted, before its fallback stack', () => {
+    expect(textFontFamily({ font: { source: 'name', family: 'Inter' }, fallback: 'serif' })).toBe(`"Inter", ${serif}`);
+    expect(textFontFamily({ font: { source: 'name', family: 'Source Sans 3' }, fallback: 'serif' })).toBe(
+      `"Source Sans 3", ${serif}`,
+    );
   });
 
-  it("uses the theme's font, or the fallback when the theme sets none", () => {
+  it('quotes each name of a list, keeps generic families bare, and normalises quotes', () => {
+    expect(cssFontFamilyList('Source Sans 3')).toBe('"Source Sans 3"');
+    expect(cssFontFamilyList('Noto Sans 3D, A - B')).toBe('"Noto Sans 3D", "A - B"');
+    expect(cssFontFamilyList(`'Open Sans',  Arial ,sans-serif`)).toBe('"Open Sans", "Arial", sans-serif');
+    expect(cssFontFamilyList('Georgia, Serif, system-ui, "serif"')).toBe('"Georgia", Serif, system-ui, "serif"');
+  });
+
+  it("uses the theme's font, quoted, or the fallback when the theme sets none", () => {
     const style = { font: { source: 'theme' } as const, fallback: 'sans' as const };
-    expect(textFontFamily(style, 'Georgia, serif')).toBe(`Georgia, serif, ${sans}`);
+    expect(textFontFamily(style, 'Georgia, serif')).toBe(`"Georgia", serif, ${sans}`);
+    expect(textFontFamily(style, 'Source Sans 3')).toBe(`"Source Sans 3", ${sans}`);
     expect(textFontFamily(style, null)).toBe(sans);
     expect(textFontFamily(style, 'x;color:red')).toBe(sans);
     expect(textFontFamily(style)).toBe(`var(--ta-font, ${sans}), ${sans}`);
@@ -180,8 +212,15 @@ describe('textContrast', () => {
     // #666666 on black is about 3.7:1, which large text passes and small text fails.
     expect(textContrast(style({ color: '#666666', size: 0.06 }), black)).toMatchObject({ kind: 'ok', minimum: 3 });
     expect(textContrast(style({ color: '#666666', size: 0.02 }), black)).toMatchObject({ kind: 'low', minimum: 4.5 });
-    expect(isLargeText({ size: 0.03, weight: 'bold' })).toBe(true);
-    expect(isLargeText({ size: 0.03, weight: 'regular' })).toBe(false);
+    // On the 540 px reference canvas: 24 px is large from 4.45 %, 18.67 px bold from 3.46 %.
+    expect(CONTRAST_CANVAS_HEIGHT_PX).toBe(540);
+    expect(isLargeText({ size: 0.045, weight: 'regular' })).toBe(true);
+    expect(isLargeText({ size: 0.044, weight: 'regular' })).toBe(false);
+    expect(isLargeText({ size: 0.035, weight: 'bold' })).toBe(true);
+    expect(isLargeText({ size: 0.034, weight: 'bold' })).toBe(false);
+    // The medium preset (4 %, 21.6 px) is large only when bold; text kept at the old 600 is not bold.
+    expect(isLargeText({ size: 0.04, weight: 'bold' })).toBe(true);
+    expect(isLargeText({ size: 0.04, weight: null })).toBe(false);
   });
 
   it("cannot check text over the tale's media, unless an opaque box covers it", () => {

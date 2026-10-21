@@ -10,7 +10,10 @@ type Props = components['schemas']['TextElementProps'];
 /** A key of the font registry's system stacks. */
 export type SystemFontStack = NonNullable<Props['fallback']>;
 
-/** Where a text's font comes from (R4): a system stack, the project theme's font, or a font-family list the host page loads. */
+/**
+ * Where a text's font comes from (R4): a system stack, the project theme's font, or a font-family
+ * list the host page loads.
+ */
 export type TextFont =
   | { source: 'system'; stack: SystemFontStack }
   | { source: 'theme' }
@@ -64,7 +67,8 @@ export interface TextStyle {
   font: TextFont;
   fallback: SystemFontStack;
   size: number;
-  weight: TextWeight;
+  /** Null for a text stored before styling, which keeps its weight of {@link LEGACY_TEXT_WEIGHT}. */
+  weight: TextWeight | null;
   italic: boolean;
   color: string;
   align: TextAlign;
@@ -75,11 +79,12 @@ export interface TextStyle {
 }
 
 /**
- * The style of a text whose props leave a field out: how text looked before styling (system sans
- * at 4 % of the canvas height, 1.25 line height, white, centred, its direction from its text),
- * except the weight, which was 600 and is now `bold` (700), the nearest of the three weights.
+ * The style a new text stores, every setting explicit, and the value each field takes when props
+ * leave it out: how text looked before styling (system sans at 4 % of the canvas height, 1.25 line
+ * height, white, centred, its direction from its text). A text whose props leave the weight out
+ * keeps the weight it had, {@link LEGACY_TEXT_WEIGHT}; a new text stores `bold`.
  */
-export const DEFAULT_TEXT_STYLE: Readonly<TextStyle> = /* @__PURE__ */ Object.freeze({
+export const DEFAULT_TEXT_STYLE: Readonly<TextStyle & { weight: TextWeight }> = /* @__PURE__ */ Object.freeze({
   font: /* @__PURE__ */ Object.freeze({ source: 'system', stack: 'sans' }) as TextFont,
   fallback: 'sans',
   size: TEXT_SIZE_PRESETS.medium,
@@ -99,22 +104,31 @@ const inRange = (value: unknown, range: { min: number; max: number }): value is 
   typeof value === 'number' && Number.isFinite(value) && value >= range.min && value <= range.max;
 const isColor = (value: unknown): value is string => typeof value === 'string' && TEXT_COLOR_PATTERN.test(value);
 
-/** The font of `value` when it is a valid font source, else null. */
-export function readTextFont(value: unknown): TextFont | null {
+/** The CSS weight of a text stored before styling, whose props leave the weight out. */
+export const LEGACY_TEXT_WEIGHT = 600;
+
+/** The CSS `font-weight` of a text weight; a weight left out keeps {@link LEGACY_TEXT_WEIGHT}. */
+export function textCssWeight(weight: TextWeight | null): number {
+  return weight === null ? LEGACY_TEXT_WEIGHT : TEXT_WEIGHTS[weight];
+}
+
+/**
+ * The font of `value` when it is a valid font source, else null. Readers are forward compatible:
+ * keys they do not know are ignored, and a source they do not know (such as one a later version
+ * adds) is drawn in `fallback`, the text's fallback stack, when that is valid.
+ */
+export function readTextFont(value: unknown, fallback?: unknown): TextFont | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const font = value as Record<string, unknown>;
-  const keys = Object.keys(font);
   switch (font['source']) {
     case 'system':
-      return keys.length === 2 && oneOf(STACKS, font['stack'])
-        ? { source: 'system', stack: font['stack'] as SystemFontStack }
-        : null;
+      return oneOf(STACKS, font['stack']) ? { source: 'system', stack: font['stack'] as SystemFontStack } : null;
     case 'theme':
-      return keys.length === 1 ? { source: 'theme' } : null;
+      return { source: 'theme' };
     case 'name':
-      return keys.length === 2 && isFontFamily(font['family']) ? { source: 'name', family: font['family'] } : null;
+      return isFontFamily(font['family']) ? { source: 'name', family: font['family'] } : null;
     default:
-      return null;
+      return oneOf(STACKS, fallback) ? { source: 'system', stack: fallback as SystemFontStack } : null;
   }
 }
 
@@ -127,10 +141,10 @@ export function resolveTextStyle(props: unknown): TextStyle {
   const p = typeof props === 'object' && props !== null ? (props as Record<string, unknown>) : {};
   const d = DEFAULT_TEXT_STYLE;
   return {
-    font: readTextFont(p['font']) ?? d.font,
+    font: readTextFont(p['font'], p['fallback']) ?? d.font,
     fallback: oneOf(SYSTEM_FONT_STACK_KEYS, p['fallback']) ? p['fallback'] : d.fallback,
     size: inRange(p['size'], TEXT_SIZE_RANGE) ? p['size'] : d.size,
-    weight: oneOf<TextWeight>(['regular', 'medium', 'bold'], p['weight']) ? p['weight'] : d.weight,
+    weight: oneOf<TextWeight>(['regular', 'medium', 'bold'], p['weight']) ? p['weight'] : null,
     italic: typeof p['italic'] === 'boolean' ? p['italic'] : d.italic,
     color: isColor(p['color']) ? p['color'] : d.color,
     align: oneOf<TextAlign>(['start', 'center', 'end'], p['align']) ? p['align'] : d.align,
@@ -145,6 +159,41 @@ export function resolveTextStyle(props: unknown): TextStyle {
 export const TEXT_BOX_PADDING_EM = 0.5;
 /** The inline padding of a per-line highlight, in em of the text. */
 export const TEXT_HIGHLIGHT_PADDING_EM = 0.25;
+
+/** CSS generic family keywords: written bare, since a quoted one names a font called so. */
+export const GENERIC_FONT_FAMILIES = [
+  'serif',
+  'sans-serif',
+  'monospace',
+  'cursive',
+  'fantasy',
+  'system-ui',
+  'ui-serif',
+  'ui-sans-serif',
+  'ui-monospace',
+  'ui-rounded',
+  'math',
+  'emoji',
+  'fangsong',
+] as const;
+
+/**
+ * A font-family list that passed the font-list rules (`isFontFamily`), with each name in double
+ * quotes, except a bare generic family. CSS refuses some bare names (`Source Sans 3`, `Noto Sans
+ * 3D`, `A - B`), and a quoted one is always a name. The rules allow no quote or backslash inside a
+ * name, so quoting needs no escaping.
+ */
+export function cssFontFamilyList(list: string): string {
+  return list
+    .split(',')
+    .map((part) => {
+      const name = part.trim();
+      const quoted = name.startsWith('"') || name.startsWith("'");
+      const bare = quoted ? name.slice(1, -1) : name.replace(/\s+/g, ' ');
+      return !quoted && (GENERIC_FONT_FAMILIES as readonly string[]).includes(bare.toLowerCase()) ? bare : `"${bare}"`;
+    })
+    .join(', ');
+}
 
 /** The CSS custom property the Web SDK sets to the project theme's font (web zones R9). */
 export const THEME_FONT_PROPERTY = '--ta-font';
@@ -162,10 +211,10 @@ export function textFontFamily(style: Pick<TextStyle, 'font' | 'fallback'>, them
     case 'system':
       return SYSTEM_FONT_STACKS[style.font.stack];
     case 'name':
-      return `${style.font.family}, ${fallback}`;
+      return `${cssFontFamilyList(style.font.family)}, ${fallback}`;
     default:
       if (themeFont === undefined) return `var(${THEME_FONT_PROPERTY}, ${fallback}), ${fallback}`;
-      return themeFont !== null && isFontFamily(themeFont) ? `${themeFont}, ${fallback}` : fallback;
+      return themeFont !== null && isFontFamily(themeFont) ? `${cssFontFamilyList(themeFont)}, ${fallback}` : fallback;
   }
 }
 
@@ -178,11 +227,13 @@ export function textSizePreset(size: number): TextSizePreset | 'custom' {
 }
 
 /**
- * The canvas height the contrast check takes, in CSS pixels, to tell large text: the canvas of a
- * 360 px wide phone (640 px high). Larger screens draw text larger, so a text large here is large
- * on every phone.
+ * The canvas height the contrast check takes, in CSS pixels, to tell large text. Text sizes are
+ * fractions of the canvas height, so the same text is smaller on a smaller canvas. 540 px is about
+ * the smallest canvas the viewer draws on a supported phone: a 320 × 568 screen (569 px for a
+ * 9:16 canvas 320 px wide), less its safe-area insets. Conservative on purpose: a text called large
+ * here is large on every phone, so the 3:1 minimum is never applied to text a phone shows smaller.
  */
-export const CONTRAST_CANVAS_HEIGHT_PX = 640;
+export const CONTRAST_CANVAS_HEIGHT_PX = 540;
 /** WCAG 2.2 large text: 18 pt (24 px), or 14 pt (about 18.67 px) when bold. */
 export const LARGE_TEXT_PX = 24;
 export const LARGE_BOLD_TEXT_PX = 18.67;
@@ -192,7 +243,7 @@ export const LARGE_TEXT_CONTRAST_MIN = 3;
 /** True when a text style counts as large text for WCAG 1.4.3 on {@link CONTRAST_CANVAS_HEIGHT_PX}. */
 export function isLargeText(style: Pick<TextStyle, 'size' | 'weight'>): boolean {
   const px = style.size * CONTRAST_CANVAS_HEIGHT_PX;
-  return px >= LARGE_TEXT_PX || (TEXT_WEIGHTS[style.weight] >= 700 && px >= LARGE_BOLD_TEXT_PX);
+  return px >= LARGE_TEXT_PX || (textCssWeight(style.weight) >= 700 && px >= LARGE_BOLD_TEXT_PX);
 }
 
 // A #RRGGBB or #RRGGBBAA colour as channels from 0 to 255 and an alpha from 0 to 1.
