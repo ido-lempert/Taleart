@@ -5,11 +5,14 @@ import {
   InvalidFrameSettingsError,
   InvalidStageError,
   InvalidThemeError,
+  PlaybookAlreadyAppliedError,
+  PlaybookKeyRequiredError,
   ProjectNotFoundError,
   StageFrameNotFoundError,
   StageKeyTakenError,
   StageNotFoundError,
   UnknownFrameTypeError,
+  UnknownPlaybookError,
   ZoneNotFoundError,
 } from '@taleart/server-zones';
 import {
@@ -83,6 +86,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof EmailTakenError ||
     err instanceof TagExistsError ||
     err instanceof StageKeyTakenError ||
+    err instanceof PlaybookAlreadyAppliedError ||
     err instanceof InvalidStatusTransitionError
   ) {
     res.status(409).json(errorBody(err.code, err.message));
@@ -96,6 +100,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof InvalidThemeError ||
     err instanceof InvalidStageError ||
     err instanceof StageFrameNotFoundError ||
+    err instanceof PlaybookKeyRequiredError ||
+    err instanceof UnknownPlaybookError ||
     err instanceof InvalidTagNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||

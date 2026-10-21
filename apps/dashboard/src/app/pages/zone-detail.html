@@ -8,6 +8,33 @@
         <p class="page-header__meta">in {{ store.projectName(zone.projectId) }}</p>
       </header>
 
+      <section class="card section zone-section" aria-labelledby="playbook-title">
+        <div class="section__header">
+          <h3 class="section__title" id="playbook-title" tabindex="-1">Playbook</h3>
+          @if (!zone.playbookKey) {
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm"
+              (click)="store.openDrawer({ kind: 'applyPlaybook', zoneId: zone.id }, $event)"
+            >
+              <app-icon name="plus" /> Apply playbook
+            </button>
+          }
+        </div>
+        @if (zone.playbookKey) {
+          @if (appliedPlaybook(); as playbook) {
+            <p class="playbook-applied"><span class="stage-row__name">{{ playbook.label }}</span> {{ playbook.goal }}</p>
+          } @else {
+            <p class="playbook-applied"><code class="key-prefix">{{ zone.playbookKey }}</code></p>
+          }
+          <p class="muted">Its frames and stages are below; edit or delete them like any other.</p>
+        } @else {
+          <p class="muted">
+            No playbook yet. A playbook adds a preset set of frames, each with its settings and a stage, for a goal.
+          </p>
+        }
+      </section>
+
       <section class="card section zone-section" aria-labelledby="frames-title">
         <div class="section__header">
           <h3 class="section__title" id="frames-title">Frames</h3>

@@ -337,6 +337,59 @@
             <p class="muted">This stage no longer exists.</p>
           }
         }
+        @case ('applyPlaybook') {
+          @if (playbookZone()) {
+            <fieldset class="tag-options">
+              <legend class="field__label">Playbook</legend>
+              @for (playbook of playbooks; track playbook.key) {
+                <label class="checkbox">
+                  <input
+                    type="radio"
+                    name="playbook"
+                    [value]="playbook.key"
+                    [checked]="playbookKey() === playbook.key"
+                    [attr.aria-describedby]="'playbook-goal-' + playbook.key"
+                    (change)="playbookKey.set(playbook.key); error.set('')"
+                  />
+                  <span>{{ playbook.label }}</span>
+                </label>
+                <p class="field__hint playbook-goal" [id]="'playbook-goal-' + playbook.key">{{ playbook.goal }}</p>
+              }
+            </fieldset>
+            @if (pickedPlaybook(); as playbook) {
+              <section class="playbook-preview" aria-labelledby="playbook-preview-title">
+                <h3 class="field__label" id="playbook-preview-title">{{ playbook.label }} adds</h3>
+                <ul class="playbook-preview__list">
+                  @for (item of playbookPreview(); track $index) {
+                    <li class="playbook-preview__item">
+                      <p class="playbook-preview__frame">{{ item.type }} frame</p>
+                      <dl class="playbook-preview__settings" [attr.aria-label]="item.type + ' frame settings'">
+                        @for (setting of item.settings; track setting.label) {
+                          <div>
+                            <dt>{{ setting.label }}</dt>
+                            <dd>{{ setting.value }}</dd>
+                          </div>
+                        }
+                      </dl>
+                      <p>
+                        Stage {{ item.stage.name }}, key <code>{{ item.stage.key }}</code>, shows this frame.
+                      </p>
+                    </li>
+                  }
+                </ul>
+              </section>
+              <p class="field__hint">
+                Frames use the project's theme. The frames and stages stay editable after you apply it. A zone has one
+                playbook; applying it again adds nothing.
+              </p>
+            }
+            @if (playbookConflict() && !error()) {
+              <p class="form-error" id="playbook-conflict">{{ playbookConflict() }}</p>
+            }
+          } @else {
+            <p class="muted">This zone no longer exists.</p>
+          }
+        }
         @case ('placeTaleGroup') {
           @if (placementGroup(); as group) {
             @if (placeZones().length > 0) {
