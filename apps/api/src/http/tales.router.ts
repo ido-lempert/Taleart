@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { ErrorCodes, maxMediaBytes, MAX_VIDEO_BYTES, type SetStatusRequest } from '@taleart/contract';
+import {
+  ErrorCodes,
+  maxMediaBytes,
+  MAX_VIDEO_BYTES,
+  type SetScheduleRequest,
+  type SetStatusRequest,
+} from '@taleart/contract';
 import type { MediaStorage } from '@taleart/server-storage';
 import {
   getTaleMedia,
   isMediaKeyInUse,
   setTaleMedia,
+  setTaleSchedule,
   setTaleStatus,
   taleExists,
   TaleNotFoundError,
@@ -14,7 +21,7 @@ import type { Pool } from 'pg';
 import { authorizeParam } from './authorize';
 import { HttpError } from './errors';
 import { declaredMediaType, matchesMagicNumber, mediaExtension, sendMediaBytes } from './media';
-import { requiredSettableStatus } from './validation';
+import { requiredSchedule, requiredSettableStatus } from './validation';
 
 function logError(msg: string, err: unknown): void {
   console.log(
@@ -103,6 +110,18 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
       if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
       const input: SetStatusRequest = { status: requiredSettableStatus(req.body) };
       res.json(await setTaleStatus(pool, taleId, input.status));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/:taleId/schedule', taleAccess, async (req, res, next) => {
+    try {
+      // Tale first (404), then the body (400).
+      const { taleId } = req.params;
+      if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
+      const input: SetScheduleRequest = requiredSchedule(req.body);
+      res.json(await setTaleSchedule(pool, taleId, input));
     } catch (err) {
       next(err);
     }

@@ -6,10 +6,13 @@ import {
   MEDIA_CONTENT_TYPES,
   type Invitation,
   type IssuedZoneKey,
+  type SetScheduleRequest,
   type SettableStatus,
+  type Tale,
 } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
+import { describeWindow, fromLocalInput, localTimeZone, toLocalInput } from './schedule';
 import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 
 /**
@@ -124,6 +127,59 @@ export class CreateDrawer implements OnInit {
     return group ? this.store.tagsOf(group.projectId) : [];
   });
 
+  /** The tale group or tale a schedule drawer is for, with its name and current window. */
+  protected readonly scheduleItem = computed(() => {
+    const request = this.request();
+    if (request.kind !== 'schedule') return undefined;
+    if (request.target === 'tale') {
+      const tale = this.store.tale(request.id);
+      return tale && { name: tale.title, kind: 'tale', startsAt: tale.startsAt, endsAt: tale.endsAt };
+    }
+    const group = this.store.projectTaleGroup(request.id) ?? this.store.taleGroup(request.id);
+    return group && { name: group.name, kind: 'tale group', startsAt: group.startsAt, endsAt: group.endsAt };
+  });
+
+  /** The start and end a schedule drawer's fields hold, as `datetime-local` values in the browser's time zone. */
+  protected startText = '';
+  protected endText = '';
+  protected readonly timeZone = localTimeZone();
+  protected readonly describeWindow = describeWindow;
+
+  /**
+   * Turns the tale drawer into the tale's schedule drawer. The drawer stays
+   * open, so focus still returns to what opened the tale drawer.
+   */
+  protected openTaleSchedule(tale: Tale): void {
+    this.store.drawer.set({ kind: 'schedule', target: 'tale', id: tale.id });
+    this.error.set('');
+    // The request input updates only after this handler, so the fields are filled from the tale itself.
+    this.loadSchedule(tale);
+  }
+
+  // Fills the schedule fields from a stored window, in the browser's time zone.
+  private loadSchedule(window: { startsAt: string | null; endsAt: string | null } | undefined): void {
+    this.startText = toLocalInput(window?.startsAt ?? null);
+    this.endText = toLocalInput(window?.endsAt ?? null);
+  }
+
+  /** Empties both schedule fields: saving then clears the window. */
+  protected clearSchedule(): void {
+    this.startText = '';
+    this.endText = '';
+    this.error.set('');
+  }
+
+  // The window the schedule fields hold, in UTC, or the message that refuses it.
+  private scheduleInput(): { schedule: SetScheduleRequest } | { message: string } {
+    const startsAt = fromLocalInput(this.startText);
+    const endsAt = fromLocalInput(this.endText);
+    if (startsAt === undefined || endsAt === undefined) return { message: 'Enter a date and time, or leave it empty.' };
+    if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) {
+      return { message: 'The end time must be later than the start time.' };
+    }
+    return { schedule: { startsAt, endsAt } };
+  }
+
   /** The tale a media drawer is for. */
   protected readonly tale = computed(() => {
     const request = this.request();
@@ -146,6 +202,7 @@ export class CreateDrawer implements OnInit {
         return 'Create link';
       case 'tags':
       case 'renameTaleGroup':
+      case 'schedule':
         return 'Save';
       case 'placeTaleGroup':
         return 'Add';
@@ -213,6 +270,8 @@ export class CreateDrawer implements OnInit {
         return 'Copy to zone';
       case 'removeTaleGroup':
         return 'Remove from this zone';
+      case 'schedule':
+        return 'Schedule';
       case 'zoneKey':
         if (this.issuedKey()) return 'Zone key';
         return this.zoneKeyRequest()?.action === 'rotate'
@@ -258,11 +317,16 @@ export class CreateDrawer implements OnInit {
       const group = tale && this.store.taleGroup(tale.taleGroupId);
       return group ? `In tale group ${group.name}` : '';
     }
+    if (request.kind === 'schedule') {
+      const item = this.scheduleItem();
+      return item ? `${item.kind === 'tale' ? 'Tale' : 'Tale group'} ${item.name}` : '';
+    }
     return '';
   });
 
   ngOnInit(): void {
     this.projectId = this.store.selectedProjectId();
+    if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
@@ -466,6 +530,12 @@ export class CreateDrawer implements OnInit {
           ? await this.store.uploadTaleMedia(request.taleId, this.file)
           : 'Choose an image or video to upload.';
         break;
+      case 'schedule': {
+        const input = this.scheduleInput();
+        message =
+          'message' in input ? input.message : await this.store.setSchedule(request.target, request.id, input.schedule);
+        break;
+      }
     }
     this.saving.set(false);
     this.error.set(message);

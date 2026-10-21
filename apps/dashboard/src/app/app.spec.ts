@@ -18,9 +18,20 @@ const acme = { id: 'p1', name: 'Acme' };
 const globex = { id: 'p2', name: 'Globex' };
 const zone = { id: 'z1', name: 'Home bar', projectId: 'p1' };
 const otherZone = { id: 'z2', name: 'Checkout', projectId: 'p2' };
-const group = { id: 'g1', zoneIds: ['z1'], projectId: 'p1', name: 'Summer', status: 'live', position: 0, tags: [] as unknown[] };
-const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, status: 'live', storedStatus: 'live', media: null };
-const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, status: 'live', storedStatus: 'live', media: null };
+const group = {
+  id: 'g1',
+  zoneIds: ['z1'],
+  projectId: 'p1',
+  name: 'Summer',
+  status: 'live',
+  storedStatus: 'live',
+  startsAt: null as string | null,
+  endsAt: null as string | null,
+  position: 0,
+  tags: [] as unknown[],
+};
+const taleA = { id: 't1', taleGroupId: 'g1', projectId: 'p1', title: 'A', position: 0, status: 'live', storedStatus: 'live', startsAt: null as string | null, endsAt: null as string | null, media: null };
+const taleB = { id: 't2', taleGroupId: 'g1', projectId: 'p1', title: 'B', position: 1, status: 'live', storedStatus: 'live', startsAt: null as string | null, endsAt: null as string | null, media: null };
 const pngMedia = { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' };
 const mp4Media = { kind: 'video', contentType: 'video/mp4', url: '/api/v1/tales/t2/media' };
 const MEDIA_ORIGIN = API_ORIGIN;
@@ -1063,9 +1074,9 @@ describe('App', () => {
   });
 
   describe('statuses', () => {
-    const draft = { ...group, id: 'g2', name: 'Draft one', status: 'draft', position: 1, tales: [] };
-    const paused = { ...group, id: 'g3', name: 'Paused one', status: 'paused', position: 2, tales: [] };
-    const archived = { ...group, id: 'g4', name: 'Archived one', status: 'archived', position: 3, tales: [] };
+    const draft = { ...group, id: 'g2', name: 'Draft one', status: 'draft', storedStatus: 'draft', position: 1, tales: [] };
+    const paused = { ...group, id: 'g3', name: 'Paused one', status: 'paused', storedStatus: 'paused', position: 2, tales: [] };
+    const archived = { ...group, id: 'g4', name: 'Archived one', status: 'archived', storedStatus: 'archived', position: 3, tales: [] };
     const pausedTale = { ...taleB, status: 'paused', storedStatus: 'paused' };
     const live = { ...group, tales: [taleA, pausedTale] };
 
@@ -1104,7 +1115,7 @@ describe('App', () => {
     });
 
     it('shows the tales of a paused group as blocked by group', async () => {
-      const blocked = { ...live, status: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }, pausedTale] };
+      const blocked = { ...live, status: 'paused', storedStatus: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }, pausedTale] };
       const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
 
       const cards = [...groupRow(root, 'Summer').querySelectorAll('.tale-card')];
@@ -1120,9 +1131,9 @@ describe('App', () => {
       const req = http.expectOne(`${API_BASE}/tale-groups/g2/status`);
       expect(req.request.method).toBe('PUT');
       expect(req.request.body).toEqual({ status: 'live' });
-      req.flush({ ...draft, status: 'live' });
+      req.flush({ ...draft, status: 'live', storedStatus: 'live' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...draft, status: 'live' }] } });
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...draft, status: 'live', storedStatus: 'live' }] } });
       await settle(fixture);
 
       expect(badge(groupRow(root, 'Draft one'))).toBe('Status: Live');
@@ -1137,9 +1148,9 @@ describe('App', () => {
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tale-groups/g4/status`);
       expect(req.request.body).toEqual({ status: 'paused' });
-      req.flush({ ...archived, status: 'paused' });
+      req.flush({ ...archived, status: 'paused', storedStatus: 'paused' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...archived, status: 'paused' }] } });
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...archived, status: 'paused', storedStatus: 'paused' }] } });
       await settle(fixture);
 
       expect(badge(groupRow(root, 'Archived one'))).toBe('Status: Paused');
@@ -1190,7 +1201,7 @@ describe('App', () => {
     });
 
     it("offers the stored status's buttons for a tale blocked by its group, and shows a refusal in the drawer", async () => {
-      const blocked = { ...live, status: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }] };
+      const blocked = { ...live, status: 'paused', storedStatus: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }] };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
 
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
@@ -1238,7 +1249,7 @@ describe('App', () => {
     });
 
     it("announces the tale's status from the API's answer, not the list", async () => {
-      const blockedGroup = { ...live, status: 'paused', tales: [pausedTale] };
+      const blockedGroup = { ...live, status: 'paused', storedStatus: 'paused', tales: [pausedTale] };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blockedGroup] } });
 
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale B"]')?.click();
@@ -1268,6 +1279,125 @@ describe('App', () => {
 
       const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] li')];
       expect(rows.map((r) => badge(r))).toEqual(['Status: Draft', 'Status: Live']);
+    });
+  });
+
+  describe('schedules', () => {
+    // Times the browser shows and the API stores: the field holds local time, the API UTC.
+    const localStart = '2030-01-01T10:00';
+    const localEnd = '2030-01-02T18:30';
+    const utc = (local: string) => new Date(local).toISOString();
+    const scheduled = { ...group, status: 'scheduled', startsAt: utc(localStart), endsAt: null, tales: [taleA] };
+
+    function groupRow(root: HTMLElement, name: string): HTMLElement {
+      const row = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => li.querySelector('h4')?.textContent?.trim() === name);
+      if (!row) throw new Error(`No ${name} row`);
+      return row;
+    }
+
+    function badge(root: Element): string {
+      return root.querySelector('.status-badge')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    }
+
+    function field(id: string): HTMLInputElement {
+      const input = drawer()?.querySelector<HTMLInputElement>(`#${id}`);
+      if (!input) throw new Error(`No ${id}`);
+      return input;
+    }
+
+    it('shows a scheduled group its badge and window, with the buttons of its stored status', async () => {
+      const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
+      const row = groupRow(root, 'Summer');
+
+      expect(badge(row)).toBe('Status: Scheduled');
+      expect(row.querySelector('.group__schedule')?.textContent).toContain(
+        `From ${new Date(utc(localStart)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
+      );
+      expect(buttonNamed(row, 'Pause')).toBeTruthy();
+      expect(buttonNamed(row, 'Schedule').getAttribute('aria-describedby')).toBe('group-name-g1');
+    });
+
+    it("sets a group's window in local time and sends it in UTC", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Schedule');
+      expect(field('schedule-start').type).toBe('datetime-local');
+      expect(field('schedule-start').value).toBe(localStart);
+      expect(field('schedule-end').value).toBe('');
+      type(field('schedule-end'), localEnd);
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/schedule`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ startsAt: utc(localStart), endsAt: utc(localEnd) });
+      req.flush({ ...scheduled, endsAt: utc(localEnd) });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...scheduled, endsAt: utc(localEnd) }] } });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(groupRow(root, 'Summer').querySelector('.group__schedule')?.textContent).toContain('until');
+    });
+
+    it('refuses an end before the start in the form, without a request', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      await settle(fixture);
+      type(field('schedule-end'), '2029-12-31T09:00');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+
+      http.expectNone(`${API_BASE}/tale-groups/g1/schedule`);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The end time must be later than the start time');
+      expect(field('schedule-end').getAttribute('aria-invalid')).toBe('true');
+    });
+
+    it("shows the API's refusal in the drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
+
+      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1/schedule`)
+        .flush(
+          { error: { code: 'validation_failed', message: 'The end time must be later than the start time' } },
+          { status: 400, statusText: 'Bad Request' },
+        );
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The end time must be later than the start time');
+    });
+
+    it("shows an expired tale's badge and window in its drawer, and clears the window from there", async () => {
+      const expiredTale = { ...taleA, status: 'expired', endsAt: utc(localStart) };
+      const withExpired = { ...group, tales: [expiredTale, taleB] };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [withExpired] } });
+
+      expect(badge(groupRow(root, 'Summer').querySelector('.tale-card') as HTMLElement)).toBe('Status: Expired');
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      expect(badge(drawer() as HTMLElement)).toBe('Status: Expired');
+      expect(drawer()?.querySelector('.schedule-summary')?.textContent).toContain('Until');
+      buttonNamed(drawer() as HTMLElement, 'Schedule…').click();
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('Tale A');
+      expect(field('schedule-end').value).toBe(localStart);
+      buttonNamed(drawer() as HTMLElement, 'Clear both').click();
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tales/t1/schedule`);
+      expect(req.request.body).toEqual({ startsAt: null, endsAt: null });
+      req.flush({ ...taleA });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } });
+      await settle(fixture);
+      expect(drawer()).toBeNull();
     });
   });
 

@@ -148,6 +148,9 @@
                     <p class="muted">
                       <span class="visually-hidden">Tales: </span>{{ group.tales.length }} / {{ maxTales }}
                     </p>
+                    @if (describeWindow(group); as window) {
+                      <p class="group__schedule muted"><span class="visually-hidden">Schedule: </span>{{ window }}</p>
+                    }
                     @if (otherZones(group); as others) {
                       @if (others.length > 0) {
                         <p class="group__zones muted">
@@ -160,7 +163,7 @@
                     }
                   </div>
                   <div class="group__actions">
-                    @for (action of statusActions(group.status); track action.status) {
+                    @for (action of statusActions(group.storedStatus); track action.status) {
                       <button
                         type="button"
                         class="btn btn--sm"
@@ -188,6 +191,14 @@
                       (click)="store.openDrawer({ kind: 'renameTaleGroup', taleGroupId: group.id }, $event)"
                     >
                       Rename
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn--secondary btn--sm"
+                      [attr.aria-describedby]="'group-name-' + group.id"
+                      (click)="store.openDrawer({ kind: 'schedule', target: 'taleGroup', id: group.id }, $event)"
+                    >
+                      Schedule
                     </button>
                     @if (store.zonesToPlace(group.id).length > 0) {
                       <button

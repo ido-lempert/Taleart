@@ -5,6 +5,9 @@ import {
   isContentStatus,
   isSettableStatus,
   nextStatuses,
+  isInWindow,
+  isValidWindow,
+  readContentStatus,
   readTaleStatus,
   statusHttpCode,
   ERROR_CODES,
@@ -144,6 +147,50 @@ describe('imports', () => {
       expect(readTaleStatus('paused', 'paused')).toBe('paused');
       expect(readTaleStatus('draft', 'paused')).toBe('draft');
       expect(readTaleStatus('live', 'draft')).toBe('live');
+    });
+
+    describe('schedules', () => {
+      const start = '2026-10-21T10:00:00.000Z';
+      const end = '2026-10-21T12:00:00.000Z';
+      const at = (iso: string) => new Date(iso);
+
+      it('contains now from the start up to, not including, the end', () => {
+        const window = { startsAt: start, endsAt: end };
+        expect(isInWindow(window, at('2026-10-21T09:59:59.999Z'))).toBe(false);
+        expect(isInWindow(window, at(start))).toBe(true);
+        expect(isInWindow(window, at('2026-10-21T11:59:59.999Z'))).toBe(true);
+        expect(isInWindow(window, at(end))).toBe(false);
+        expect(isInWindow({ startsAt: null, endsAt: null }, at(end))).toBe(true);
+        expect(isInWindow({ startsAt: new Date(start), endsAt: null }, at(end))).toBe(true);
+      });
+
+      it('reads live content as scheduled before its start and expired from its end', () => {
+        const window = { startsAt: start, endsAt: end };
+        expect(readContentStatus('live', window, at('2026-10-21T09:00:00Z'))).toBe('scheduled');
+        expect(readContentStatus('live', window, at(start))).toBe('live');
+        expect(readContentStatus('live', window, at(end))).toBe('expired');
+      });
+
+      it('keeps a stored key other than live, so paused wins over scheduled', () => {
+        const future = { startsAt: end, endsAt: null };
+        const now = at(start);
+        expect(readContentStatus('paused', future, now)).toBe('paused');
+        expect(readContentStatus('draft', future, now)).toBe('draft');
+        expect(readContentStatus('archived', { startsAt: null, endsAt: start }, at(end))).toBe('archived');
+      });
+
+      it('reads a tale as blocked-by-group before its own window', () => {
+        const past = { startsAt: null, endsAt: start };
+        expect(readTaleStatus('live', 'paused', past, at(end))).toBe('blocked-by-group');
+        expect(readTaleStatus('live', 'live', past, at(end))).toBe('expired');
+      });
+
+      it('accepts open bounds and refuses an end not later than the start', () => {
+        expect(isValidWindow({ startsAt: start, endsAt: end })).toBe(true);
+        expect(isValidWindow({ startsAt: null, endsAt: end })).toBe(true);
+        expect(isValidWindow({ startsAt: end, endsAt: start })).toBe(false);
+        expect(isValidWindow({ startsAt: start, endsAt: start })).toBe(false);
+      });
     });
   });
 });
