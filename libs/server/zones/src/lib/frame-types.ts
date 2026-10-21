@@ -38,14 +38,47 @@ export interface FrameTypeDefinition {
 // Names the property that failed, so the dashboard can show a useful message.
 function describe(error: ErrorObject): string {
   const at = `settings${error.instancePath.replace(/\//g, '.')}`;
+  const params = error.params as Record<string, unknown>;
   switch (error.keyword) {
     case 'additionalProperties':
-      return `${at} has unknown property "${(error.params as { additionalProperty: string }).additionalProperty}"`;
+      return `${at} has unknown property "${params['additionalProperty'] as string}"`;
     case 'required':
-      return `${at} is missing required property "${(error.params as { missingProperty: string }).missingProperty}"`;
+      return `${at} is missing required property "${params['missingProperty'] as string}"`;
+    case 'maximum':
+      return `${at} must be at most ${params['limit'] as number}`;
+    case 'minimum':
+      return `${at} must be at least ${params['limit'] as number}`;
+    case 'enum':
+      return `${at} must be one of: ${(params['allowedValues'] as unknown[]).join(', ')}`;
     default:
       return `${at} ${error.message ?? 'is invalid'}`;
   }
+}
+
+/** One top-level property of a settings schema: its own validator and its `default`. */
+interface SettingsField {
+  validate: ValidateFunction;
+  default: unknown;
+}
+
+// Each top-level property of a settings schema, compiled on its own so a
+// stored value can be checked field by field.
+function schemaFields(ajv: Ajv2020, schema: object): Map<string, SettingsField> {
+  const fields = new Map<string, SettingsField>();
+  const properties = (schema as { properties?: unknown }).properties;
+  if (typeof properties !== 'object' || properties === null) return fields;
+  for (const [name, property] of Object.entries(properties as Record<string, unknown>)) {
+    if (typeof property !== 'object' || property === null) continue;
+    fields.set(name, { validate: ajv.compile(property), default: (property as { default?: unknown }).default });
+  }
+  return fields;
+}
+
+interface RegisteredType {
+  label: string;
+  schema: object;
+  fields: Map<string, SettingsField>;
+  validate: ValidateFunction;
 }
 
 /**
@@ -53,7 +86,7 @@ function describe(error: ErrorObject): string {
  * a type means adding a registry entry and a schema, never code.
  */
 export class FrameTypeRegistry {
-  private readonly types = new Map<string, { label: string; validate: ValidateFunction }>();
+  private readonly types = new Map<string, RegisteredType>();
 
   constructor(definitions: readonly FrameTypeDefinition[]) {
     const ajv = new Ajv2020({ allErrors: false });
@@ -62,13 +95,36 @@ export class FrameTypeRegistry {
         throw new Error(`Frame type "${key}" is registered twice`);
       }
       // Compiling here makes a broken schema fail at start, not on a write.
-      this.types.set(key, { label, validate: ajv.compile(schema) });
+      this.types.set(key, { label, schema, fields: schemaFields(ajv, schema), validate: ajv.compile(schema) });
     }
   }
 
-  /** Every registered type, in registry order. */
+  /** Every registered type with its settings schema, in registry order. */
   list(): FrameType[] {
-    return [...this.types].map(([key, { label }]) => ({ key, label }));
+    return [...this.types].map(([key, { label, schema }]) => ({ key, label, schema: schema as FrameType['schema'] }));
+  }
+
+  /**
+   * The settings to deliver: only the type's top-level fields whose stored
+   * value is valid against that field's schema, then each missing field's
+   * schema `default`. Stored settings are validated on write, but rows written
+   * before a schema changed (or by hand) must not reach SDKs as they are.
+   * Settings that are not an object read as `{}`; an unknown type's object
+   * settings come back as they are (clients skip unknown types, AD-5).
+   */
+  withDefaults(type: string, settings: unknown): Record<string, unknown> {
+    const stored =
+      typeof settings === 'object' && settings !== null && !Array.isArray(settings)
+        ? (settings as Record<string, unknown>)
+        : {};
+    const entry = this.types.get(type);
+    if (!entry) return stored;
+    const result: Record<string, unknown> = {};
+    for (const [name, field] of entry.fields) {
+      if (Object.prototype.hasOwnProperty.call(stored, name) && field.validate(stored[name])) result[name] = stored[name];
+      else if (field.default !== undefined) result[name] = field.default;
+    }
+    return result;
   }
 
   /** Throws unless `type` is registered and `settings` matches its schema. */

@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  type BarSettings,
   canSetStatus,
   CONTENT_STATUS_HTTP_CODES,
   CONTENT_STATUSES,
@@ -37,6 +40,27 @@ describe('contract', () => {
     expect(isErrorBody({ error: { code: 'not_found', message: 'x' } })).toBe(true);
     expect(isErrorBody({ error: 'text' })).toBe(false);
     expect(isErrorBody(null)).toBe(false);
+  });
+});
+
+describe('bar frame schema', () => {
+  // The schema file is the source of the R2 fields; BarSettings mirrors it.
+  const schema = JSON.parse(readFileSync(join(__dirname, '../../frame-types/bar.schema.json'), 'utf8')) as {
+    properties: Record<string, object>;
+    additionalProperties: boolean;
+  };
+
+  it('has the R2 fields with their values and defaults, and nothing else', () => {
+    const fields: Record<keyof BarSettings, object> = {
+      shape: { enum: ['circle', 'rounded-square'], default: 'circle' },
+      size: { enum: ['small', 'medium', 'large'], default: 'medium' },
+      showTitles: { type: 'boolean', default: true },
+      alignment: { enum: ['start', 'center'], default: 'start' },
+      gap: { type: 'integer', minimum: 4, maximum: 24, default: 12 },
+    };
+    expect(Object.keys(schema.properties)).toEqual(Object.keys(fields));
+    for (const [key, expected] of Object.entries(fields)) expect(schema.properties[key]).toMatchObject(expected);
+    expect(schema.additionalProperties).toBe(false);
   });
 });
 

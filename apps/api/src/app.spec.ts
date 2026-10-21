@@ -297,10 +297,18 @@ describe('Management API v1: projects and zones', () => {
       const types = await res.json();
       expect(types).toEqual(
         expect.arrayContaining([
-          { key: 'bar', label: 'Bar' },
-          { key: 'banner', label: 'Banner' },
+          { key: 'bar', label: 'Bar', schema: expect.objectContaining({ type: 'object' }) },
+          { key: 'banner', label: 'Banner', schema: expect.objectContaining({ type: 'object' }) },
         ]),
       );
+      const bar = types.find((t: { key: string }) => t.key === 'bar');
+      expect(bar.schema.properties).toEqual({
+        shape: expect.objectContaining({ title: 'Shape', enum: ['circle', 'rounded-square'], default: 'circle' }),
+        size: expect.objectContaining({ title: 'Size', enum: ['small', 'medium', 'large'], default: 'medium' }),
+        showTitles: expect.objectContaining({ title: 'Show titles', type: 'boolean', default: true }),
+        alignment: expect.objectContaining({ title: 'Alignment', enum: ['start', 'center'], default: 'start' }),
+        gap: expect.objectContaining({ title: 'Gap', type: 'integer', minimum: 4, maximum: 24, default: 12 }),
+      });
     });
 
     it('adds a bar frame to a zone, copying the zone project', async () => {
@@ -413,7 +421,7 @@ describe('Management API v1: projects and zones', () => {
         await restart(loadFrameTypeRegistry(dir));
 
         const types = await (await fetch(`${base}/frame-types`)).json();
-        expect(types).toContainEqual({ key: 'test-strip', label: 'Test strip' });
+        expect(types).toContainEqual({ key: 'test-strip', label: 'Test strip', schema: expect.objectContaining({ required: ['height'] }) });
 
         const zone = await createZone();
         const missing = await post(`/zones/${zone.id}/frames`, { type: 'test-strip', settings: {} });
@@ -436,6 +444,79 @@ describe('Management API v1: projects and zones', () => {
       const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
       await restart();
       expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([frame]);
+    });
+
+    describe('frame settings', () => {
+      const edited = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
+
+      function patch(path: string, body: unknown): Promise<Response> {
+        return fetch(`${base}${path}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }
+
+      async function barFrame(): Promise<{ zone: { id: string }; frame: { id: string } }> {
+        const zone = await createZone();
+        const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+        return { zone, frame };
+      }
+
+      it('replaces a bar frame settings and keeps them', async () => {
+        const { zone, frame } = await barFrame();
+
+        const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: edited });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ ...frame, settings: edited });
+        expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([{ ...frame, settings: edited }]);
+
+        // A later save replaces the whole object.
+        const again = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: { gap: 8 } });
+        expect((await again.json()).settings).toEqual({ gap: 8 });
+      });
+
+      it.each([
+        [{ gap: 40 }, 'settings.gap must be at most 24'],
+        [{ gap: 3 }, 'settings.gap must be at least 4'],
+        [{ gap: 12.5 }, 'settings.gap must be integer'],
+        [{ shape: 'star' }, 'settings.shape must be one of: circle, rounded-square'],
+        [{ color: 'red' }, 'settings has unknown property "color"'],
+      ])('refuses %j with invalid_frame_settings and stores nothing', async (settings, message) => {
+        const { zone, frame } = await barFrame();
+        await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: edited });
+
+        const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: { ...edited, ...settings } });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: { code: 'invalid_frame_settings', message } });
+        const [stored] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
+        expect(stored.settings).toEqual(edited);
+      });
+
+      it('refuses a body without settings', async () => {
+        const { zone, frame } = await barFrame();
+        const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, {});
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      });
+
+      it('answers 404 for an unknown zone, an unknown frame and a frame of another zone', async () => {
+        const { zone, frame } = await barFrame();
+        const other = await barFrame();
+        const cases: [string, string][] = [
+          [`/zones/${unknownZoneId}/frames/${frame.id}`, 'zone_not_found'],
+          [`/zones/${zone.id}/frames/${unknownZoneId}`, 'frame_not_found'],
+          [`/zones/${zone.id}/frames/not-a-uuid`, 'frame_not_found'],
+          [`/zones/${zone.id}/frames/${other.frame.id}`, 'frame_not_found'],
+        ];
+        for (const [path, code] of cases) {
+          const res = await patch(path, { settings: {} });
+          expect({ path, status: res.status }).toEqual({ path, status: 404 });
+          expect((await res.json()).error.code).toBe(code);
+        }
+        const [untouched] = await (await fetch(`${base}/zones/${other.zone.id}/frames`)).json();
+        expect(untouched.settings).toEqual({});
+      });
     });
   });
 
@@ -1955,6 +2036,7 @@ describe('Management API v1: projects and zones', () => {
         ['POST', '/zones', { name: 'Mine', projectId: b.project.id }],
         ['GET', `/zones/${b.zone.id}/frames`],
         ['POST', `/zones/${b.zone.id}/frames`, { type: 'bar' }],
+        ['PATCH', `/zones/${b.zone.id}/frames/00000000-0000-4000-8000-000000000000`, { settings: {} }],
         ['GET', `/zones/${b.zone.id}/tale-groups`],
         ['POST', `/zones/${b.zone.id}/tale-groups`, { name: 'Mine' }],
         ['PUT', `/zones/${b.zone.id}/tale-groups/order`, { taleGroupIds: [b.group.id] }],
@@ -2118,9 +2200,63 @@ describe('Management API v1: projects and zones', () => {
       expect(await res.json()).toEqual({
         id: zone.id,
         name: zone.name,
-        frames: [{ id: frame.id, type: 'bar', settings: {} }],
+        // Stored as {}, delivered with every default of the bar schema.
+        frames: [
+          {
+            id: frame.id,
+            type: 'bar',
+            settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+          },
+        ],
         taleGroups: [],
       });
+    });
+
+    it('delivers a frame settings with the stored values over the defaults', async () => {
+      const zone = await createZone();
+      const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+      const saved = await globalThis.fetch(`${base}/zones/${zone.id}/frames/${frame.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+        body: JSON.stringify({ settings: { shape: 'rounded-square', showTitles: false, gap: 20 } }),
+      });
+      expect(saved.status).toBe(200);
+      const { key } = await issue(zone.id);
+
+      const { frames } = await (await deliver(key)).json();
+      expect(frames).toEqual([
+        {
+          id: frame.id,
+          type: 'bar',
+          settings: { shape: 'rounded-square', size: 'medium', showTitles: false, alignment: 'start', gap: 20 },
+        },
+        { id: banner.id, type: 'banner', settings: {} },
+      ]);
+    });
+
+    it('delivers only valid settings when a stored row is invalid, filling defaults', async () => {
+      const zone = await createZone();
+      const bar = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      const listed = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+      // Written by hand, past the API's validation, as an older schema or a manual edit could leave them.
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [
+        bar.id,
+        JSON.stringify({ gap: 40, shape: 'star', size: 'large', color: 'red' }),
+      ]);
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [listed.id, JSON.stringify(['x'])]);
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [banner.id, JSON.stringify({ stray: 1 })]);
+      const { key } = await issue(zone.id);
+
+      const res = await deliver(key);
+      expect(res.status).toBe(200);
+      const defaults = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
+      expect((await res.json()).frames).toEqual([
+        { id: bar.id, type: 'bar', settings: { ...defaults, size: 'large' } },
+        { id: listed.id, type: 'bar', settings: defaults },
+        { id: banner.id, type: 'banner', settings: {} },
+      ]);
     });
 
     describe('tale groups and public media', () => {
@@ -3751,11 +3887,12 @@ describe('Management API v1: projects and zones', () => {
       const token = decodeURIComponent(jar['taleart_session']);
       expect(Buffer.from(token, 'base64url')).toHaveLength(32);
 
-      const { rows } = await pool.query('SELECT token_hash, expires_at - created_at AS ttl FROM sessions');
+      const { rows } = await pool.query('SELECT token_hash, EXTRACT(EPOCH FROM expires_at - created_at)::int AS ttl FROM sessions');
       expect(rows).toHaveLength(1);
       expect(rows[0].token_hash).toBe(createHash('sha256').update(token).digest('hex'));
       expect(JSON.stringify(rows)).not.toContain(token);
-      expect(rows[0].ttl).toMatchObject({ days: 7 });
+      // In seconds: an interval would read 6 days 23 hours across a daylight saving change.
+      expect(rows[0].ttl).toBe(7 * 24 * 60 * 60);
 
       const passkeys = await pool.query('SELECT credential_id, counter FROM passkeys');
       expect(passkeys.rows).toEqual([{ credential_id: 'cred-1', counter: '0' }]);

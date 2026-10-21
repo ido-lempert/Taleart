@@ -103,7 +103,7 @@ export class TaleartElement extends HTMLElement {
     if (!frame) return;
     const style = document.createElement('style');
     style.textContent = BAR_STYLES + VIEWER_STYLES;
-    const bar = renderBar(zone.taleGroups, seenGroupIds());
+    const bar = renderBar(zone.taleGroups, seenGroupIds(), frame.settings);
     const items = new Map<string, HTMLButtonElement>();
     for (const button of bar.querySelectorAll<HTMLButtonElement>('button.item')) {
       items.set(button.dataset['taleGroupId'] ?? '', button);
