@@ -3,7 +3,7 @@ title: 'Refactor sweep'
 type: 'refactor'
 ticket: '10'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '27f71e92eb041b2953f693212df5f1f2896ce1d7'
 route: 'full'
 route_source: 'auto'
@@ -85,3 +85,6 @@ deferred:
 **Commands:**
 - `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool --skip-nx-cache` -- expected: all pass, test counts unchanged.
 - `npm exec nx -- run web-sdk:size`, `npm exec nx -- run sdk-sample:a11y` -- expected: pass.
+
+### 2026-10-22 — Review pass
+- verdicts: 0 findings. Routes, loadEach, vitest configs, inferred lint targets and nx.json checked; no behaviour change.
