@@ -34,6 +34,8 @@ import { createZone, findZone, renameZoneWhen, zoneExists, ZoneNotFoundError } f
 import { decryptToken } from './crypto';
 import { isLabelError, LabelImport } from './label-import';
 import { groupLabels, labelText, MAX_GROUP_LABELS, MAX_GROUP_TAGS, MAX_LABEL_LIST_ENTRIES } from './labels';
+import { InOrder } from './in-order';
+import { HostLimiter, hostOf, Limiter, type RetryPolicy } from './retry';
 import { inTransaction } from './transaction';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import {
@@ -97,6 +99,40 @@ export const IMPORT_STALE_AFTER_MS = 2 * 60_000;
 /** A job whose runner stopped this many times fails instead of running again. */
 export const IMPORT_MAX_ATTEMPTS = 3;
 
+/**
+ * How much of an import runs at once (story 10). Media copies run in a pool,
+ * at most `media` at once and `mediaPerHost` against one media host; story
+ * lists of up to `listReadAhead` groups are read ahead. At most
+ * `pendingEffects` tales wait for their report effects, which bounds memory.
+ * 1 everywhere imports one record at a time.
+ */
+export interface ImportConcurrency {
+  media?: number;
+  mediaPerHost?: number;
+  listReadAhead?: number;
+  pendingEffects?: number;
+}
+
+export const DEFAULT_IMPORT_CONCURRENCY: Required<ImportConcurrency> = {
+  media: 8,
+  mediaPerHost: 6,
+  listReadAhead: 4,
+  pendingEffects: 32,
+};
+
+const concurrencyOf = (given: ImportConcurrency = {}): Required<ImportConcurrency> => {
+  const value = (key: keyof ImportConcurrency, min: number) => {
+    const n = given[key];
+    return n !== undefined && Number.isInteger(n) && n >= min ? n : DEFAULT_IMPORT_CONCURRENCY[key];
+  };
+  return {
+    media: value('media', 1),
+    mediaPerHost: value('mediaPerHost', 1),
+    listReadAhead: value('listReadAhead', 0),
+    pendingEffects: value('pendingEffects', 1),
+  };
+};
+
 /** Writes one structured log line; the API passes its JSON logger. */
 export type ImportLog = (level: 'info' | 'warn' | 'error', msg: string, err?: unknown) => void;
 
@@ -115,6 +151,10 @@ export interface ImportRunOptions {
   log?: ImportLog;
   /** How often the runner refreshes the heartbeat; {@link IMPORT_HEARTBEAT_MS} by default. */
   heartbeatMs?: number;
+  /** How much runs at once; {@link DEFAULT_IMPORT_CONCURRENCY} by default. */
+  concurrency?: ImportConcurrency;
+  /** How replies 429 and 5xx from Storyly are tried again; the default policy when absent. */
+  retry?: Partial<RetryPolicy>;
 }
 
 /** A failure whose message is written for the person who started the import. */
@@ -132,6 +172,8 @@ export type SourceList<T> = readonly T[] | CheckedList<T>;
 export interface ContentSource {
   listStoryGroups(instanceId: string): Promise<SourceList<SourceStoryGroup>>;
   listStories(storyGroupId: string): Promise<SourceList<SourceStory>>;
+  /** Starts reading a group's stories before `listStories` asks for them; optional. */
+  readAhead?(storyGroupId: string, signal?: AbortSignal): void;
 }
 
 const checkedOf = <T>(list: SourceList<T>): CheckedList<T> =>
@@ -173,6 +215,8 @@ export interface ImportContentOptions {
    * `media` and `labels` when they were not picked. Absent takes everything.
    */
   selection?: ImportJobSelection;
+  /** How much runs at once; {@link DEFAULT_IMPORT_CONCURRENCY} by default. */
+  concurrency?: ImportConcurrency;
 }
 
 /**
@@ -181,7 +225,7 @@ export interface ImportContentOptions {
  * `differencesOmitted`. Each list is listed when it is read, entry by entry
  * in response order (unreadable records in place), each record once.
  */
-function differenceList(report: ImportReport, budget: DifferenceBudget | undefined) {
+function differenceList(report: ImportReport, budget: DifferenceBudget | undefined, order: InOrder) {
   const list: ImportDifference[] = [];
   report.differences = list;
   const omit = (count: number) => {
@@ -208,6 +252,18 @@ function differenceList(report: ImportReport, budget: DifferenceBudget | undefin
     }
     addEntry({ differences: [difference], omitted: 0 }, null);
   };
+  // An uncharged list's entry draws on the budget now, in reading order: what the budget cannot take is omitted.
+  const charge = <T>(entry: CheckedEntry<T>): CheckedEntry<T> => {
+    if (budget === undefined) return entry;
+    const kept = Math.max(0, Math.min(entry.differences.length, budget.remaining));
+    budget.remaining -= kept;
+    if (kept === entry.differences.length) return entry;
+    return {
+      record: entry.record,
+      differences: entry.differences.slice(0, kept),
+      omitted: entry.omitted + entry.differences.length - kept,
+    };
+  };
   // Records without an id (a bare label) are never taken for repeats.
   const addList = <T extends { id: string | null }>(
     checked: CheckedList<T>,
@@ -218,15 +274,26 @@ function differenceList(report: ImportReport, budget: DifferenceBudget | undefin
       if (entry.record !== null && entry.record.id !== null) {
         if (listed.has(entry.record.id)) {
           // A repeated record is listed once: what its check drew from the budget goes back.
-          if (budget) budget.remaining += entry.differences.length;
+          if (budget && !checked.uncharged) budget.remaining += entry.differences.length;
           continue;
         }
         listed.add(entry.record.id);
       }
-      addEntry(entry, parent);
+      addEntry(checked.uncharged ? charge(entry) : entry, parent);
     }
   };
-  return { addEntry, addList, addOne, omit };
+  // Each write takes its place in reading order: after the effects still waiting, such as a tale's media outcome.
+  return {
+    addEntry: (entry: Pick<CheckedEntry<unknown>, 'differences' | 'omitted'>, parent: DifferenceParent | null) =>
+      order.run(() => addEntry(entry, parent)),
+    addList: <T extends { id: string | null }>(
+      checked: CheckedList<T>,
+      listed: Set<string>,
+      parent: DifferenceParent | null,
+    ) => order.run(() => addList(checked, listed, parent)),
+    addOne: (difference: ImportDifference) => order.run(() => addOne(difference)),
+    omit: (count: number) => order.run(() => omit(count)),
+  };
 }
 
 /** A link appeared while this import was creating the record: roll the creation back. */
@@ -405,7 +472,11 @@ async function importLinked(
  * a group that is skipped; each unique story counts once, so source = imported
  * + skipped. A record without a source position is noted when it is created.
  * `beforeEach` runs before each record is written, with the report so far;
- * the worker refreshes its heartbeat and stores the progress there.
+ * the worker refreshes its heartbeat and stores the progress there. Media
+ * copies and story list reads run concurrently ({@link ImportConcurrency}),
+ * while every report write keeps its reading order: the report is the one a
+ * run of one record at a time writes. When the import fails, the copies still
+ * running are stopped and awaited before the failure is passed on.
  */
 export async function importContent(
   db: TransactionalDb,
@@ -414,6 +485,44 @@ export async function importContent(
   source: ContentSource,
   beforeEach: (sofar: Readonly<ImportReport>) => Promise<void> = async () => undefined,
   options: ImportContentOptions = {},
+): Promise<ImportReport> {
+  const concurrency = concurrencyOf(options.concurrency);
+  const stop = new AbortController();
+  const run: ContentRun = {
+    // A copy that fails (storage, database) stops the others at once.
+    order: new InOrder(() => stop.abort()),
+    concurrency,
+    mediaPool: new Limiter(concurrency.media),
+    stop,
+  };
+  try {
+    return await importContentWith(run, db, projectId, instanceList, source, beforeEach, options);
+  } catch (err) {
+    // Nothing is written once the import has failed: the copies stop, and the effects still waiting are dropped.
+    run.stop.abort();
+    await run.order.settle();
+    throw err;
+  }
+}
+
+/** What one {@link importContent} shares between its work and its cleanup. */
+interface ContentRun {
+  /** Report writes in reading order, while media copies run concurrently. */
+  order: InOrder;
+  concurrency: Required<ImportConcurrency>;
+  mediaPool: Limiter;
+  /** Stops read-ahead and media copies when the import fails or its claim is lost. */
+  stop: AbortController;
+}
+
+async function importContentWith(
+  { order, concurrency, mediaPool, stop }: ContentRun,
+  db: TransactionalDb,
+  projectId: string,
+  instanceList: SourceList<SourceInstance>,
+  source: ContentSource,
+  beforeEach: (sofar: Readonly<ImportReport>) => Promise<void>,
+  options: ImportContentOptions,
 ): Promise<ImportReport> {
   const text = options.text ?? ((value: string) => storedText(value));
   const checkedInstances = checkedOf(instanceList);
@@ -436,7 +545,8 @@ export async function importContent(
     ...(options.media ? { media: emptyChanges() } : {}),
   };
   const appId = options.appId ?? null;
-  const differences = differenceList(report, options.budget);
+  const differences = differenceList(report, options.budget, order);
+  const note = (text: string) => order.run(() => void report.notes.push(text));
   if (options.app) differences.addEntry(options.app, null);
   // Each record's place in its source list, from 1, as its differences name it.
   const placeOf = <T extends { id: string }>(list: CheckedList<T>): Map<string, number> => {
@@ -521,7 +631,7 @@ export async function importContent(
       await save();
     } catch (err) {
       if (!isLabelError(err)) throw err;
-      report.notes.push(`${where}: labels could not be saved as tags, so they were not imported`);
+      note(`${where}: labels could not be saved as tags, so they were not imported`);
     }
   };
   if (labels && options.labels) {
@@ -564,17 +674,13 @@ export async function importContent(
       });
       if (beyond > 0) {
         labels.uncounted(beyond);
-        report.notes.push(
-          `Tags: ${beyond} label(s) past the first ${MAX_LABEL_LIST_ENTRIES} of the labels list were not read`,
-        );
+        note(`Tags: ${beyond} label(s) past the first ${MAX_LABEL_LIST_ENTRIES} of the labels list were not read`);
       }
-      if (repeated > 0) report.notes.push(`Tags: ${repeated} repeated label record(s) of the labels list were skipped`);
+      if (repeated > 0) note(`Tags: ${repeated} repeated label record(s) of the labels list were skipped`);
       await saveLabels(() => labels.ensure([...new Set(names)]), 'Tags');
     } catch (err) {
       if (!(err instanceof StorylyUnavailableError || err instanceof StorylyTokenInvalidError)) throw err;
-      report.notes.push(
-        `Tags: the labels list could not be read (${text(err.message)}), so tags come from story groups only`,
-      );
+      note(`Tags: the labels list could not be read (${text(err.message)}), so tags come from story groups only`);
     }
   }
   // Each story group's labels, read once per group id: the tag names it carries.
@@ -609,17 +715,17 @@ export async function importContent(
     const zone = await importZone(db, projectId, instance, zoneName, appId);
     const zoneId = zone?.id ?? null;
     if (zone !== null && instance.name.trim() === '') {
-      report.notes.push(
+      note(
         `Zone ${instancePlaces.get(instance.id) ?? 1} of the source has no title, so it is named "${UNTITLED_ZONE}"`,
       );
     }
     if (zone === null) {
       report.zones.skipped++;
-      report.notes.push(`Zone "${text(zoneName)}": its earlier import was deleted, so it was not imported again`);
+      note(`Zone "${text(zoneName)}": its earlier import was deleted, so it was not imported again`);
     } else {
       report.zones.imported++;
       // The source names no widget type, so the zone has no frame yet (epic decision).
-      report.notes.push(`Zone "${text(zoneName)}": frame type unknown`);
+      note(`Zone "${text(zoneName)}": frame type unknown`);
     }
     // The tale groups this run imported into the zone, in source order: their order there is merged at the end.
     const zoneGroups: string[] = [];
@@ -712,12 +818,10 @@ export async function importContent(
         }
         if (beyond > 0) {
           labels.uncounted(beyond);
-          report.notes.push(
-            `Tale group "${text(name)}": ${beyond} label(s) past the first ${MAX_GROUP_LABELS} were not read`,
-          );
+          note(`Tale group "${text(name)}": ${beyond} label(s) past the first ${MAX_GROUP_LABELS} were not read`);
         }
         if (dropped > 0) {
-          report.notes.push(
+          note(
             `Tale group "${text(name)}": ${dropped} label(s) past its first ${MAX_GROUP_TAGS} tags were not imported`,
           );
         }
@@ -727,7 +831,11 @@ export async function importContent(
       await saveLabels(() => labels.ensure([...new Set(names)]), `Story groups of zone "${text(zoneName)}"`);
     }
     let groupsWithoutZone = 0;
-    for (const group of groups) {
+    for (const [index, group] of groups.entries()) {
+      // The stories of this group and the next ones are read while earlier tales are imported.
+      for (const next of groups.slice(index, index + 1 + concurrency.listReadAhead)) {
+        if (concurrency.listReadAhead > 0 && !seenGroups.has(next.id)) source.readAhead?.(next.id, stop.signal);
+      }
       if (seenGroups.has(group.id)) {
         report.taleGroups.skipped++;
         continue;
@@ -743,11 +851,11 @@ export async function importContent(
       if (storyList.entries.length > stories.length) unreadable.add('story');
       differences.addList(storyList, listedStories, parentOf(name, group.id));
       // The group is skipped: so is each of its stories, once.
-      const skipGroup = (note?: string) => {
+      const skipGroup = (why?: string) => {
         report.taleGroups.skipped++;
         report.tales.skipped += stories.length;
         for (const story of stories) seenStories.add(story.id);
-        if (note) report.notes.push(note);
+        if (why) note(why);
       };
       if (zoneId === null) {
         groupsWithoutZone++;
@@ -775,7 +883,7 @@ export async function importContent(
         continue;
       }
       report.taleGroups.imported++;
-      if (taleGroup.created && group.sortOrder === null) report.notes.push(`Tale group "${text(name)}": ${NO_POSITION}`);
+      if (taleGroup.created && group.sortOrder === null) note(`Tale group "${text(name)}": ${NO_POSITION}`);
       const taleGroupId = taleGroup.id;
       zoneGroups.push(taleGroupId);
       // The tales this run imported into the group, in source order: their order there is merged below.
@@ -802,23 +910,25 @@ export async function importContent(
         } catch (err) {
           if (err instanceof TaleGroupFullError) {
             report.tales.skipped++;
-            report.notes.push(`Tale "${text(title)}" in "${text(name)}": the tale group already holds ${MAX_TALES_PER_GROUP} tales`);
+            note(`Tale "${text(title)}" in "${text(name)}": the tale group already holds ${MAX_TALES_PER_GROUP} tales`);
             continue;
           }
           if (err instanceof TaleGroupNotFoundError) {
             report.tales.skipped++;
-            report.notes.push(`Tale "${text(title)}" in "${text(name)}": its tale group was deleted during the import`);
+            note(`Tale "${text(title)}" in "${text(name)}": its tale group was deleted during the import`);
             continue;
           }
           throw err;
         }
         if (tale === null) {
           report.tales.skipped++;
-          report.notes.push(`Tale "${text(title)}" in "${text(name)}": its earlier import was deleted, so it was not imported again`);
+          note(
+            `Tale "${text(title)}" in "${text(name)}": its earlier import was deleted, so it was not imported again`,
+          );
           continue;
         }
         report.tales.imported++;
-        if (tale.created && story.sortOrder === null) report.notes.push(`Tale "${text(title)}" in "${text(name)}": ${NO_POSITION}`);
+        if (tale.created && story.sortOrder === null) note(`Tale "${text(title)}" in "${text(name)}": ${NO_POSITION}`);
         const taleId = tale.id;
         if (tale.created) {
           countChange(changes.tales, 'created', false);
@@ -864,47 +974,56 @@ export async function importContent(
                 field: 'story_group_id',
               });
             } else {
-              report.notes.push(
+              note(
                 `Tale "${text(title)}" in "${text(name)}": a person moved it to another tale group in TaleArt, so it stays there`,
               );
             }
           }
         }
         if (options.media && report.media && changes.media) {
-          const outcome = await importTaleMedia(db, options.media, projectId, taleId, story);
-          if (outcome.kind === 'none') continue;
-          report.media.source++;
-          if (outcome.kind === 'imported') {
-            report.media.imported++;
-            countChange(changes.media, outcome.change, false);
-          } else {
-            report.media.skipped++;
-            if (outcome.kind === 'failed') {
-              differences.addOne(
-                mediaDifference(story, positions.get(story.id) ?? 1, parentOf(name, group.id), outcome.reason, text),
-              );
-              if (outcome.keptEarlier) {
-                report.notes.push(
-                  `Tale "${text(title)}" in "${text(name)}": its new media could not be copied, so it keeps its earlier media`,
-                );
-              }
-            } else if (outcome.kind === 'keptOwn') {
-              if (outcome.sourceChanged) {
-                changes.media.keptLocalEdit++;
-                differences.addOne(
-                  keptDifference('tale', story, positions.get(story.id) ?? 1, parentOf(name, group.id), 'media'),
-                );
-              } else {
-                report.notes.push(
-                  `Tale "${text(title)}" in "${text(name)}": its media was set in TaleArt, so it was not replaced`,
-                );
-              }
+          // Copied in the media pool while the import goes on; its outcome is applied in reading order.
+          const media = options.media;
+          const counts = report.media;
+          const mediaChanges = changes.media;
+          const position = positions.get(story.id) ?? 1;
+          const parent = parentOf(name, group.id);
+          const copy = mediaPool.run(async () => {
+            stop.signal.throwIfAborted();
+            return importTaleMedia(db, media, projectId, taleId, story, stop.signal);
+          });
+          order.after(copy, (outcome) => {
+            if (outcome.kind === 'none') return;
+            counts.source++;
+            if (outcome.kind === 'imported') {
+              counts.imported++;
+              countChange(mediaChanges, outcome.change, false);
             } else {
-              report.notes.push(
-                `Tale "${text(title)}" in "${text(name)}": it was deleted during the import, so its media was not copied`,
-              );
+              counts.skipped++;
+              if (outcome.kind === 'failed') {
+                differences.addOne(mediaDifference(story, position, parent, outcome.reason, text));
+                if (outcome.keptEarlier) {
+                  note(
+                    `Tale "${text(title)}" in "${text(name)}": its new media could not be copied, so it keeps its earlier media`,
+                  );
+                }
+              } else if (outcome.kind === 'keptOwn') {
+                if (outcome.sourceChanged) {
+                  mediaChanges.keptLocalEdit++;
+                  differences.addOne(keptDifference('tale', story, position, parent, 'media'));
+                } else {
+                  note(
+                    `Tale "${text(title)}" in "${text(name)}": its media was set in TaleArt, so it was not replaced`,
+                  );
+                }
+              } else {
+                note(
+                  `Tale "${text(title)}" in "${text(name)}": it was deleted during the import, so its media was not copied`,
+                );
+              }
             }
-          }
+          });
+          // Holds back while too many tales wait for their media: memory stays bounded.
+          await order.room(concurrency.pendingEffects);
         }
       }
 
@@ -950,14 +1069,14 @@ export async function importContent(
         // Deleted between its update's first read and its tags (the targeting module found no group).
         if (err instanceof TaleGroupNotFoundError) groupUpdate = null;
         else if (isLabelError(err)) {
-          report.notes.push(`Tale group "${text(name)}": its labels could not be saved as tags, so none were added`);
+          note(`Tale group "${text(name)}": its labels could not be saved as tags, so none were added`);
           groupUpdate = await updateGroup(false);
         } else throw err;
       }
       if (groupUpdate === null) {
         countChange(changes.taleGroups, taleGroup.created ? 'created' : 'unchanged', false);
         if (labels) {
-          report.notes.push(`Tale group "${text(name)}": it was deleted during the import, so its tags were not added`);
+          note(`Tale group "${text(name)}": it was deleted during the import, so its tags were not added`);
         }
       } else {
         const outcome: RecordOutcome = taleGroup.created ? 'created' : groupUpdate.written ? 'updated' : 'unchanged';
@@ -977,23 +1096,25 @@ export async function importContent(
       }
     }
     if (groupsWithoutZone > 0) {
-      report.notes.push(
+      note(
         `Zone "${text(zoneName)}": its ${groupsWithoutZone} tale group(s) were not imported, since the zone was not`,
       );
     }
     await updateZone(true);
   }
+  // Every media outcome is in the report before removals are looked for.
+  await order.drain();
   if (appId !== null) await listRemovedAtSource();
   if (labels) {
     report.tags = labels.count();
     report.notes.push(...labels.notes(text));
     // The mapping table: how labels combine is not carried.
-    if (labels.anyRead) report.notes.push('Tags: whether labels combine with AND or OR is not imported');
+    if (labels.anyRead) note('Tags: whether labels combine with AND or OR is not imported');
   }
   if (picked !== null) {
     const gone = [...picked].filter((id) => !seenInstances.has(id)).length;
     if (gone > 0) {
-      report.notes.push(`Zones: ${gone} picked zone(s) are no longer in the app, so they were not imported`);
+      note(`Zones: ${gone} picked zone(s) are no longer in the app, so they were not imported`);
     }
   }
   if (notSelected !== null && (notSelected.zones.length > 0 || notSelected.entities.length > 0)) {
@@ -1059,7 +1180,7 @@ export async function importContent(
     const checked = kinds.filter((kind) => {
       if (kind.sourceType !== 'instance' && !readEverything) return false;
       if (dependsOn[kind.sourceType].some((type) => unreadable.has(type))) {
-        report.notes.push(
+        note(
           `${kind.label}: the source listed records that could not be read, so none was looked for as removed at the source`,
         );
         return false;
@@ -1199,7 +1320,17 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     const text: ReportText = (value) => storedText(value, secret);
     // The report's budget, shared by every check of this import: once spent, differences are only counted.
     const budget: DifferenceBudget = { remaining: MAX_IMPORT_REPORT_DIFFERENCES };
-    const client = new StorylyClient({ baseUrl: options.storylyApiUrl, token, fetch: options.fetch, budget });
+    const concurrency = concurrencyOf(options.concurrency);
+    // Story lists are read ahead and checked as they arrive: they draw on the budget when listed, in reading order.
+    const client = new StorylyClient({
+      baseUrl: options.storylyApiUrl,
+      token,
+      fetch: options.fetch,
+      budget,
+      chargeOnListing: true,
+      readAhead: concurrency.listReadAhead,
+      retry: options.retry,
+    });
     const appEntry = (await client.listApps()).entries.find((entry) => entry.record?.id === job.sourceAppId);
     const app = appEntry?.record;
     if (!appEntry || !app) throw new ImportFailure('This Storyly token cannot read the chosen app.');
@@ -1209,6 +1340,8 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     const instances = await client.listInstances(app.id);
     // What this import may spend on media in all: once spent, the rest is listed as not imported.
     const mediaBudget = mediaJobBudget(options.mediaPolicy);
+    // At most so many downloads against one media host at once, whatever the pool's size.
+    const mediaHosts = new HostLimiter(concurrency.mediaPerHost);
     // What the admin picked; without a selection, everything. Media and tags need tale groups.
     const selection = job.selection ?? undefined;
     const picks = (entity: 'media' | 'tags') => !selection || (selection.taleGroups && selection[entity]);
@@ -1219,13 +1352,17 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
         text,
         budget,
         selection,
+        concurrency,
         appId: app.id,
         labels: picks('tags') ? () => client.listLabels(app.id) : undefined,
         media: !picks('media')
           ? undefined
           : {
               storage: options.storage,
-              copy: (url, mimeType) => copyMedia(options.storage, url, mimeType, options.mediaPolicy, mediaBudget),
+              copy: (url, mimeType, signal) =>
+                mediaHosts.run(hostOf(url), () =>
+                  copyMedia(options.storage, url, mimeType, options.mediaPolicy, mediaBudget, signal),
+                ),
               onCleanupError: (err) =>
                 log('error', `Import ${job.id} could not delete an unused media file`, redactedError(err, secret)),
             },

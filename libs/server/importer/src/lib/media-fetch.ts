@@ -3,6 +3,7 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { BlockList, isIP, type LookupFunction, type Socket } from 'node:net';
+import { retryAfterMs, type RetryPolicy } from './retry';
 
 /**
  * Why a source media file was not copied. The message is written for the log
@@ -12,6 +13,8 @@ export class MediaFetchError extends Error {
   constructor(
     readonly reason: ImportMediaFailure,
     message: string,
+    /** For `httpError`: the status the host answered, and its `Retry-After` in ms (null when none). */
+    readonly reply?: { status: number; retryAfterMs: number | null },
   ) {
     super(message);
     this.name = 'MediaFetchError';
@@ -49,6 +52,8 @@ export interface MediaFetchPolicy {
   lookup?: (hostname: string) => Promise<ResolvedAddress[]>;
   /** Extra trusted certificate authorities for https; tests only (a local TLS server). */
   ca?: string | Buffer;
+  /** How a download answered 429 or 5xx is tried again; the importer's default policy when absent. */
+  retry?: Partial<RetryPolicy>;
 }
 
 export const MEDIA_FETCH_TIMEOUT_MS = 120_000;
@@ -391,8 +396,9 @@ export async function openMedia(rawUrl: string, policy: MediaFetchPolicy, signal
       continue;
     }
     if (status < 200 || status > 299) {
+      const retryAfter = retryAfterMs(res.headers['retry-after']);
       res.destroy();
-      throw new MediaFetchError('httpError', `The media host answered ${status}`);
+      throw new MediaFetchError('httpError', `The media host answered ${status}`, { status, retryAfterMs: retryAfter });
     }
     const type = res.headers['content-type'];
     const length = Number(res.headers['content-length']);

@@ -22,6 +22,7 @@ import {
   IMPORT_PILL_STYLES,
   type ImportDifferenceGroupView,
   importChangeText,
+  importDurationText,
   importCountText,
   importDifferenceGroups,
   importNotSelectedText,
@@ -187,6 +188,12 @@ import {
                 <div>
                   <dt>Finished</dt>
                   <dd><time [attr.datetime]="job.finishedAt">{{ time(job.finishedAt) }}</time></dd>
+                </div>
+              }
+              @if (job.report?.elapsedSeconds !== undefined) {
+                <div>
+                  <dt>Took</dt>
+                  <dd>{{ durationText(job.report.elapsedSeconds) }}</dd>
                 </div>
               }
             </dl>
@@ -375,6 +382,7 @@ export class ImportJobPage implements OnInit {
   protected readonly statusClass = importStatusClass;
   protected readonly countText = importCountText;
   protected readonly changeText = importChangeText;
+  protected readonly durationText = importDurationText;
   protected readonly notSelectedText = importNotSelectedText;
   protected readonly progressText = importProgressText;
   protected readonly time = importTimeText;

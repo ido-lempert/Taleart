@@ -70,6 +70,16 @@ export function importChangeText(change: ImportChangeCount | undefined): string 
 }
 
 /** One progress row's counts: "6 read / 4 written". */
+/** How long an import took, for its report: "42 s", "4 min 12 s", "1 h 3 min". */
+export function importDurationText(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total} s`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return total % 60 === 0 ? `${minutes} min` : `${minutes} min ${total % 60} s`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
+}
+
 export function importProgressText(count: ImportProgressCount): string {
   return `${count.read} read / ${count.written} written`;
 }

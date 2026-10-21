@@ -593,6 +593,99 @@ describe('copyMedia: the per-import budget', () => {
   });
 });
 
+describe('copyMedia: retries and downloads at once (story 10)', () => {
+  let root: string;
+  let storage: LocalDiskStorage;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'taleart-import-retry-'));
+    storage = new LocalDiskStorage(root);
+  });
+
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  const stored = () => (existsSync(join(root, 'tales')) ? readdirSync(join(root, 'tales')) : []);
+  const quick = (): MediaFetchPolicy => ({ ...local(), retry: { baseDelayMs: 1, attempts: 3 } });
+  // Answers each status in turn, then serves the file.
+  const replies =
+    (statuses: number[], headers: Record<string, string> = {}): Handler =>
+    (req, res) => {
+      const status = statuses.shift();
+      if (status === undefined) file('image/png', PNG)(req, res);
+      else res.writeHead(status, headers).end();
+    };
+
+  it('tries a reply 503 or 429 again and copies the media', async () => {
+    routes['/busy.png'] = replies([503]);
+    routes['/limited.png'] = replies([429], { 'Retry-After': '0' });
+    await copyMedia(storage, `${origin}/busy.png`, null, quick());
+    await copyMedia(storage, `${origin}/limited.png`, null, quick());
+    expect(hits).toEqual(['/busy.png', '/busy.png', '/limited.png', '/limited.png']);
+    expect(stored()).toHaveLength(2);
+  });
+
+  it('gives up after the policy attempts with httpError, and never retries a 404', async () => {
+    routes['/down.png'] = replies([500, 502, 503, 504]);
+    expect(await failure(copyMedia(storage, `${origin}/down.png`, null, quick()))).toBe('httpError');
+    expect(hits).toEqual(['/down.png', '/down.png', '/down.png']);
+    hits = [];
+    expect(await failure(copyMedia(storage, `${origin}/missing.png`, null, quick()))).toBe('httpError');
+    expect(hits).toEqual(['/missing.png']);
+    expect(stored()).toEqual([]);
+  });
+
+  it('checks every try with the guard: a retry redirected inside is blocked', async () => {
+    let tries = 0;
+    routes['/flaky.png'] = (_req, res) => {
+      tries++;
+      if (tries === 1) res.writeHead(503).end();
+      else redirect('http://169.254.169.254/latest/meta-data/')(_req, res);
+    };
+    expect(await failure(copyMedia(storage, `${origin}/flaky.png`, null, quick()))).toBe('blockedAddress');
+    expect(tries).toBe(2);
+  });
+
+  it('waits no longer than the download deadline for a retry', async () => {
+    routes['/later.png'] = replies([429], { 'Retry-After': '30' });
+    const started = Date.now();
+    const policy = { ...local(), timeoutMs: 200, retry: { attempts: 3 } };
+    expect(await failure(copyMedia(storage, `${origin}/later.png`, null, policy))).toBe('timeout');
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('shares the byte budget between downloads running at once, never storing past it', async () => {
+    routes['/a.png'] = (_req, res) => {
+      // No length declared: only counting the bytes as they arrive can keep the downloads within the budget.
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.write(PNG.subarray(0, 20));
+      setTimeout(() => res.end(PNG.subarray(20)), 20);
+    };
+    const budget = { bytesLeft: PNG.length * 2 + 5, deadline: Date.now() + 60_000 };
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, () => copyMedia(storage, `${origin}/a.png`, null, local(), budget)),
+    );
+    const copied = results.filter((r) => r.status === 'fulfilled').length;
+    expect(copied).toBeLessThanOrEqual(2);
+    for (const r of results) {
+      if (r.status === 'rejected') expect((r.reason as MediaFetchError).reason).toBe('jobBudgetExceeded');
+    }
+    expect(stored()).toHaveLength(copied);
+    expect(budget.bytesLeft).toBeLessThanOrEqual(0);
+  });
+
+  it('stops when the job aborts it', async () => {
+    routes['/stall.png'] = (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.write(PNG.subarray(0, 4));
+    };
+    const stop = new AbortController();
+    const copy = copyMedia(storage, `${origin}/stall.png`, null, local(), undefined, stop.signal);
+    setTimeout(() => stop.abort(), 30);
+    expect(await failure(copy)).toBe('timeout');
+    expect(stored()).toEqual([]);
+  });
+});
+
 describe('importTaleMedia: writing the tale', () => {
   const taleId = '00000000-0000-4000-8000-0000000000aa';
   const copied = { key: 'tales/imported-new.jpg', contentType: 'image/jpeg' as const, sha256: 'abc' };

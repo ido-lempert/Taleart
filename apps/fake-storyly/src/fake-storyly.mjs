@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
+import { hash01, loadScaleProfile, pick, scaleData, sendPaced } from './scale.mjs';
 
 /** The only token the fake accepts, as a bearer token or the `token` query parameter. */
 export const FAKE_STORYLY_TOKEN = 'fake-storyly-token';
@@ -169,6 +170,16 @@ function sendList(res, mode, body, origin) {
  * - `delayMs`: how long each answer waits, so a review can watch an import
  *   run; 0 answers at once. `reset()` sets it back to 0.
  * - `requests`: each request's method and path.
+ * - `useScale(options)`: serves the Scale shop (fixtures/scale-profile.json,
+ *   importer story 10) besides the fixtures, with the profile's latency,
+ *   bandwidth and occasional 429 and 500 replies (each failing request answers
+ *   once, then succeeds). `options` may override the profile's counts and set
+ *   `factor` (every delay times it, bandwidth divided by it; 1 by default; 0
+ *   answers at once), and `failures`: false for none, or rates overriding the
+ *   profile's. `reset()` turns it off.
+ * - `stats`: Scale shop counters: API and media requests, injected failures by
+ *   status, media bytes sent, and the most media requests open at once (from
+ *   arrival to the end of the answer).
  */
 export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
   const apps = readFixture('apps.json');
@@ -180,7 +191,32 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
     delayMs: 0,
     data: {},
     requests: [],
+    scale: null,
+    stats: null,
+    useScale(options = {}) {
+      const { factor = 1, failures = true, ...counts } = options;
+      const profile = { ...loadScaleProfile(), ...counts };
+      if (!failures) profile.failures = { api429: 0, api500: 0, media429: 0, media503: 0, retryAfterSeconds: 0 };
+      else if (typeof failures === 'object') profile.failures = { ...profile.failures, ...failures };
+      const data = scaleData(profile);
+      const appId = String(profile.app.id);
+      control.data.instances[appId] = data.instances[appId];
+      control.data.segments[appId] = data.segments[appId];
+      Object.assign(control.data.storyGroups, data.storyGroups);
+      Object.assign(control.data.stories, data.stories);
+      control.scale = { profile, factor, app: data.app, media: data.media, failed: new Set() };
+      return { appId, tales: profile.instances * profile.groupsPerInstance * profile.storiesPerGroup };
+    },
     reset() {
+      control.scale = null;
+      control.stats = {
+        apiRequests: 0,
+        mediaRequests: 0,
+        injected: {},
+        mediaBytes: 0,
+        mediaOpen: 0,
+        maxMediaOpen: 0,
+      };
       control.failInstances = null;
       control.failStoryGroups = null;
       control.failStories = null;
@@ -202,14 +238,74 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     control.requests.push({ method: req.method, path: url.pathname });
-    if (control.delayMs > 0) {
-      setTimeout(() => answer(req, res, url), control.delayMs);
+    if (control.scale && isMedia(url)) {
+      // Open from its arrival to the end of its answer, its latency included.
+      const stats = control.stats;
+      stats.mediaOpen++;
+      stats.maxMediaOpen = Math.max(stats.maxMediaOpen, stats.mediaOpen);
+      res.once('close', () => stats.mediaOpen--);
+    }
+    const delayMs = control.delayMs + (control.scale ? scaleDelay(url) : 0);
+    if (delayMs > 0) {
+      setTimeout(() => answer(req, res, url), delayMs);
       return;
     }
     answer(req, res, url);
   });
 
+  // The Scale shop's profile: what a request is called for its delay and its failure, without the token.
+  const scaleKey = (url) => {
+    const params = new URLSearchParams(url.searchParams);
+    params.delete('token');
+    return `${url.pathname}?${params}`;
+  };
+  const isMedia = (url) => url.pathname.startsWith('/media/');
+  function scaleDelay(url) {
+    const { profile, factor } = control.scale;
+    const range = isMedia(url) ? profile.media.ttfbMs : profile.api.latencyMs;
+    return pick(range, `delay:${scaleKey(url)}`) * factor;
+  }
+
+  // A request the profile fails: the status it answers, once per request; null to answer it.
+  function scaleFailure(url) {
+    const { profile, failed } = control.scale;
+    const key = scaleKey(url);
+    if (failed.has(key)) return null;
+    const draw = hash01(`fail:${key}`);
+    const [tooMany, broken] = isMedia(url)
+      ? [profile.failures.media429, profile.failures.media503]
+      : [profile.failures.api429, profile.failures.api500];
+    const status = draw < tooMany ? 429 : draw < tooMany + broken ? (isMedia(url) ? 503 : 500) : null;
+    if (status === null) return null;
+    failed.add(key);
+    control.stats.injected[status] = (control.stats.injected[status] ?? 0) + 1;
+    return status;
+  }
+
+  // Serves a Scale shop media file, paced by the profile's bandwidth; false when `name` is not one.
+  function answerScaleMedia(res, name) {
+    const file = control.scale.media.get(name);
+    if (!file) return false;
+    control.stats.mediaBytes += file.bytes;
+    sendPaced(res, file.ext, file.bytes, control.scale.profile.media.bytesPerSecond / control.scale.factor);
+    return true;
+  }
+
   function answer(req, res, url) {
+    if (control.scale && req.method === 'GET') {
+      if (isMedia(url)) control.stats.mediaRequests++;
+      else control.stats.apiRequests++;
+      const status = scaleFailure(url);
+      if (status !== null) {
+        res.writeHead(status, {
+          'Content-Type': 'application/json; charset=utf-8',
+          ...(status === 429 ? { 'Retry-After': String(control.scale.profile.failures.retryAfterSeconds) } : {}),
+        });
+        res.end(JSON.stringify({ message: status === 429 ? 'Too many requests' : 'Server error' }));
+        return;
+      }
+      if (isMedia(url) && answerScaleMedia(res, url.pathname.slice('/media/'.length))) return;
+    }
     if (req.method === 'GET' && url.pathname.startsWith('/media/')) {
       answerMedia(req, res, url.pathname.slice('/media/'.length), origin, actualPort);
       return;
@@ -225,7 +321,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
     }
     const path = url.pathname.replace(/^\/external/, '').replace(/\/+$/, '');
     if (path === '/app') {
-      send(res, 200, apps);
+      send(res, 200, control.scale ? { data: [...apps.data, control.scale.app] } : apps);
       return;
     }
     if (path === '/instance') {

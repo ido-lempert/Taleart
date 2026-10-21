@@ -11,7 +11,7 @@
       "inputs": ["{projectRoot}/src/**/*"],
       "outputs": [],
       "options": {
-        "command": "node --check apps/fake-storyly/src/fake-storyly.mjs && node --check apps/fake-storyly/src/main.mjs"
+        "command": "node --check apps/fake-storyly/src/fake-storyly.mjs && node --check apps/fake-storyly/src/scale.mjs && node --check apps/fake-storyly/src/main.mjs"
       }
     },
     "serve": {

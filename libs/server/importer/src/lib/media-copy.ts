@@ -25,6 +25,7 @@ import {
   openMedia,
   type MediaFetchPolicy,
 } from './media-fetch';
+import { isRetryableStatus, retryDelayMs, retryPolicy, sleep } from './retry';
 import { CommitUncertainError, inTransaction } from './transaction';
 
 /** A source media file stored through the storage port. */
@@ -75,11 +76,14 @@ function declaredType(header: string | null, mimeType: unknown): MediaContentTyp
  * Downloads one source media file under the fetch policy and streams it into
  * storage under a new key (`tales/imported-<uuid>.<ext>`), with the upload's
  * rules: an accepted type whose leading bytes match it, and no more bytes than
- * its kind allows. The body is never held whole in memory. With a job budget,
- * the bytes read are taken from it, and a download that would pass its bytes
- * or its deadline stops as `jobBudgetExceeded`. A source failure is a
- * {@link MediaFetchError} and leaves nothing stored; a storage failure is
- * passed on as it is.
+ * its kind allows. The body is never held whole in memory. A reply 429 or 5xx
+ * is tried again with backoff (or after its `Retry-After`) within the
+ * download's deadline; every try goes through the guard again. With a job
+ * budget, each chunk read is taken from it as it arrives, so downloads running
+ * at once cannot pass it together; a download that would pass its bytes or its
+ * deadline stops as `jobBudgetExceeded`. `abort` stops the download (the job
+ * stopped). A source failure is a {@link MediaFetchError} and leaves nothing
+ * stored; a storage failure is passed on as it is.
  */
 export async function copyMedia(
   storage: MediaStorage,
@@ -87,92 +91,125 @@ export async function copyMedia(
   mimeType: unknown,
   policy: MediaFetchPolicy = {},
   budget?: MediaJobBudget,
+  abort?: AbortSignal,
 ): Promise<CopiedMedia> {
   const left = budget ? budget.deadline - Date.now() : Infinity;
   if (budget && (budget.bytesLeft <= 0 || left <= 0)) throw budgetSpent();
   const perDownload = AbortSignal.timeout(policy.timeoutMs ?? MEDIA_FETCH_TIMEOUT_MS);
   const jobDeadline = Number.isFinite(left) ? AbortSignal.timeout(Math.max(1, left)) : null;
-  const signal = jobDeadline ? AbortSignal.any([perDownload, jobDeadline]) : perDownload;
+  const signal = AbortSignal.any([perDownload, ...(jobDeadline ? [jobDeadline] : []), ...(abort ? [abort] : [])]);
   // The job deadline turns any failure it causes into jobBudgetExceeded.
   const byBudget = <T>(work: Promise<T>): Promise<T> =>
     work.catch((err: unknown) => {
       throw jobDeadline?.aborted && !perDownload.aborted ? budgetSpent() : err;
     });
-  let read = 0;
+  const retry = retryPolicy(policy.retry);
   try {
     return await byBudget(
       (async () => {
-        const res = await openMedia(url, policy, signal);
-        const { body } = res;
-        try {
-          const contentType = declaredType(res.contentType, mimeType);
-          if (contentType === null) throw unsupported();
-          const limit = maxMediaBytes(contentType);
-          if (res.contentLength !== null && res.contentLength > limit) {
-            throw new MediaFetchError('tooLarge', 'The media is larger than its type allows');
-          }
-          if (budget && res.contentLength !== null && res.contentLength > budget.bytesLeft) throw budgetSpent();
-          const hash = createHash('sha256');
-          async function* checkedBytes(): AsyncGenerator<Uint8Array> {
-            let head: Buffer[] = [];
-            let headLength = 0;
-            let headChecked = false;
+        for (let attempt = 1; ; attempt++) {
+          try {
+            return await copyOnce(storage, url, mimeType, policy, budget, signal);
+          } catch (err) {
+            const reply = err instanceof MediaFetchError && err.reason === 'httpError' ? err.reply : undefined;
+            if (!reply || !isRetryableStatus(reply.status) || attempt >= retry.attempts) throw err;
             try {
-              for await (const chunk of body as AsyncIterable<Buffer>) {
-                read += chunk.length;
-                if (read > limit) throw new MediaFetchError('tooLarge', 'The media is larger than its type allows');
-                if (budget && read > budget.bytesLeft) throw budgetSpent();
-                hash.update(chunk);
-                if (headChecked) {
-                  yield chunk;
-                  continue;
-                }
-                // The leading bytes are held back until the type check can read them.
-                head.push(chunk);
-                headLength += chunk.length;
-                if (headLength < MEDIA_MAGIC_BYTES) continue;
-                const leading = Buffer.concat(head);
-                if (!matchesMagicNumber(contentType as MediaContentType, leading)) throw unsupported();
-                headChecked = true;
-                head = [];
-                yield leading;
-              }
-            } catch (err) {
-              if (err instanceof MediaFetchError) throw err;
-              throw (
-                res.failure() ??
-                (signal.aborted
-                  ? new MediaFetchError('timeout', 'The media download took too long')
-                  : new MediaFetchError('unreachable', 'The media transfer broke off'))
-              );
-            }
-            if (!headChecked) {
-              const leading = Buffer.concat(head);
-              if (leading.length === 0 || !matchesMagicNumber(contentType as MediaContentType, leading)) {
-                throw unsupported();
-              }
-              yield leading;
+              await sleep(retryDelayMs(attempt - 1, reply.retryAfterMs, retry), signal);
+            } catch {
+              throw new MediaFetchError('timeout', 'The media download took too long');
             }
           }
-          const key = `${IMPORTED_MEDIA_PREFIX}${randomUUID()}.${mediaExtension(contentType)}`;
-          await storage.putStream(key, checkedBytes());
-          return { key, contentType, sha256: hash.digest('hex') };
-        } finally {
-          body.destroy();
         }
       })(),
     );
   } catch (err) {
     // Once a download is refused for the budget, the budget is spent: the rest is not requested.
-    if (budget && err instanceof MediaFetchError && err.reason === 'jobBudgetExceeded') budget.bytesLeft = read;
+    if (budget && err instanceof MediaFetchError && err.reason === 'jobBudgetExceeded') {
+      budget.bytesLeft = Math.min(budget.bytesLeft, 0);
+    }
     throw err;
-  } finally {
-    if (budget) budget.bytesLeft -= read;
   }
 }
 
-/** Copies one source media file into storage; {@link copyMedia} under a policy, or a stand-in in tests. */
-export type MediaCopier = (url: string, mimeType: unknown) => Promise<CopiedMedia>;
+// One try of copyMedia: opens the URL and streams its checked bytes into storage.
+async function copyOnce(
+  storage: MediaStorage,
+  url: string,
+  mimeType: unknown,
+  policy: MediaFetchPolicy,
+  budget: MediaJobBudget | undefined,
+  signal: AbortSignal,
+): Promise<CopiedMedia> {
+  const res = await openMedia(url, policy, signal);
+  const { body } = res;
+  try {
+    const contentType = declaredType(res.contentType, mimeType);
+    if (contentType === null) throw unsupported();
+    const limit = maxMediaBytes(contentType);
+    if (res.contentLength !== null && res.contentLength > limit) {
+      throw new MediaFetchError('tooLarge', 'The media is larger than its type allows');
+    }
+    if (budget && res.contentLength !== null && res.contentLength > budget.bytesLeft) throw budgetSpent();
+    const hash = createHash('sha256');
+    let read = 0;
+    async function* checkedBytes(): AsyncGenerator<Uint8Array> {
+      let head: Buffer[] = [];
+      let headLength = 0;
+      let headChecked = false;
+      try {
+        for await (const chunk of body as AsyncIterable<Buffer>) {
+          read += chunk.length;
+          if (read > limit) throw new MediaFetchError('tooLarge', 'The media is larger than its type allows');
+          if (budget) {
+            // Taken as read: concurrent downloads share the budget.
+            budget.bytesLeft -= chunk.length;
+            if (budget.bytesLeft < 0) throw budgetSpent();
+          }
+          hash.update(chunk);
+          if (headChecked) {
+            yield chunk;
+            continue;
+          }
+          // The leading bytes are held back until the type check can read them.
+          head.push(chunk);
+          headLength += chunk.length;
+          if (headLength < MEDIA_MAGIC_BYTES) continue;
+          const leading = Buffer.concat(head);
+          if (!matchesMagicNumber(contentType as MediaContentType, leading)) throw unsupported();
+          headChecked = true;
+          head = [];
+          yield leading;
+        }
+      } catch (err) {
+        if (err instanceof MediaFetchError) throw err;
+        throw (
+          res.failure() ??
+          (signal.aborted
+            ? new MediaFetchError('timeout', 'The media download took too long')
+            : new MediaFetchError('unreachable', 'The media transfer broke off'))
+        );
+      }
+      if (!headChecked) {
+        const leading = Buffer.concat(head);
+        if (leading.length === 0 || !matchesMagicNumber(contentType as MediaContentType, leading)) {
+          throw unsupported();
+        }
+        yield leading;
+      }
+    }
+    const key = `${IMPORTED_MEDIA_PREFIX}${randomUUID()}.${mediaExtension(contentType)}`;
+    await storage.putStream(key, checkedBytes());
+    return { key, contentType, sha256: hash.digest('hex') };
+  } finally {
+    body.destroy();
+  }
+}
+
+/**
+ * Copies one source media file into storage; {@link copyMedia} under a policy,
+ * or a stand-in in tests. `signal` aborts it when the job stops.
+ */
+export type MediaCopier = (url: string, mimeType: unknown, signal?: AbortSignal) => Promise<CopiedMedia>;
 
 /** What happened to one tale's media. */
 export type TaleMediaOutcome =
@@ -290,6 +327,7 @@ export async function importTaleMedia(
   projectId: string,
   taleId: string,
   story: MediaSourceStory,
+  signal?: AbortSignal,
 ): Promise<TaleMediaOutcome> {
   const url = story.media;
   if (url === undefined || url === null || (typeof url === 'string' && url.trim() === '')) return { kind: 'none' };
@@ -309,7 +347,7 @@ export async function importTaleMedia(
 
   let copied: CopiedMedia;
   try {
-    copied = await media.copy(url.trim(), story.mimeType);
+    copied = await media.copy(url.trim(), story.mimeType, signal);
   } catch (err) {
     if (err instanceof MediaFetchError) return { kind: 'failed', reason: err.reason, keptEarlier: earlier !== null };
     throw err;

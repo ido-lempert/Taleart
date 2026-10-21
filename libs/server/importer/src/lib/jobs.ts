@@ -132,8 +132,8 @@ export async function claimNextJob(db: TransactionalDb, workerId: string): Promi
     await tx.query('BEGIN');
     const { rows } = await tx.query<ClaimedJob>(
       `UPDATE import_jobs
-       SET status = 'running', started_at = now(), locked_by = $1, heartbeat_at = now(), attempts = attempts + 1,
-         progress = NULL
+       SET status = 'running', started_at = now(), first_started_at = COALESCE(first_started_at, now()),
+         locked_by = $1, heartbeat_at = now(), attempts = attempts + 1, progress = NULL
        WHERE id = (
          SELECT id FROM import_jobs WHERE status = 'queued' ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED
        )
@@ -208,11 +208,17 @@ export async function setSourceAppName(db: Db, job: ClaimedJob, name: string): P
   return (rowCount ?? 0) > 0;
 }
 
-/** Ends a job as done with its report and final progress, and deletes its token. False when the claim is lost. */
+/**
+ * Ends a job as done with its report and final progress, and deletes its
+ * token. The stored report gains `elapsedSeconds`: the time from the job's
+ * first claim to now, over every run of it. False when the claim is lost.
+ */
 export async function finishImportJob(db: Db, job: ClaimedJob, report: ImportReport): Promise<boolean> {
   const { rowCount } = await db.query(
-    `UPDATE import_jobs SET status = 'done', report = $3, progress = $4, error = NULL, token_ciphertext = NULL,
-       locked_by = NULL, finished_at = now()
+    `UPDATE import_jobs SET status = 'done',
+       report = $3::jsonb || jsonb_build_object('elapsedSeconds',
+         GREATEST(0, round(extract(epoch FROM now() - COALESCE(first_started_at, started_at, now()))))::integer),
+       progress = $4, error = NULL, token_ciphertext = NULL, locked_by = NULL, finished_at = now()
      WHERE ${OWNED}`,
     [job.id, job.lockedBy, JSON.stringify(report), JSON.stringify(progressOf(report))],
   );
