@@ -1,9 +1,9 @@
-import type { DeliveryFrame, DeliveryZone } from '@taleart/contract';
+import type { DeliveryFrame, DeliveryZone, Theme } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import { applyCoverMotion, BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
 import { fetchZone } from './delivery-client';
 import { markGroupSeen, seenGroupIds } from './seen';
-import { applyTheme } from './theme';
+import { applyTheme, readThemeOverride } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
 
 export const TALEART_ELEMENT_TAG = 'taleart-view';
@@ -11,6 +11,37 @@ export const TALEART_ELEMENT_TAG = 'taleart-view';
 const API_URL_ATTR = 'api-url';
 const ZONE_KEY_ATTR = 'zone-key';
 const STAGE_ATTR = 'stage';
+const THEME_ATTR = 'theme';
+
+/** The SDK configuration of a zone, passed to {@link configureZone}. */
+export interface ZoneOptions {
+  /** Theme fields for every element of the zone; each one set wins over the project's theme (R9). */
+  theme?: Partial<Theme> | null;
+}
+
+// The checked theme overrides set with configureZone, by zone key, and the connected elements they restyle.
+const zoneThemes = new Map<string, Readonly<Partial<Theme>>>();
+const connected = new Set<TaleartElement>();
+
+/**
+ * Configures a zone for every `<taleart-view>` with its zone key, now and
+ * later (R9): `theme` holds theme fields that win over the project's theme
+ * for that zone; an element's own `theme` wins over them. Calling again
+ * replaces the zone's configuration; `configureZone(key)` or
+ * `configureZone(key, {})` removes it. Rendered elements restyle at once,
+ * without a new request. Invalid fields are ignored with one console warning
+ * each, naming the zone by the start of its key only.
+ */
+export function configureZone(zoneKey: string, options?: ZoneOptions | null): void {
+  if (typeof zoneKey !== 'string' || !zoneKey) {
+    console.warn('TaleArt: configureZone needs a zone key; the configuration is ignored');
+    return;
+  }
+  const theme = readThemeOverride(options?.theme, `the theme of zone "${zoneKey.slice(0, 8)}…"`);
+  if (Object.keys(theme).length) zoneThemes.set(zoneKey, theme);
+  else zoneThemes.delete(zoneKey);
+  for (const element of connected) element.retheme();
+}
 
 interface FocusTarget {
   groupId: string;
@@ -35,11 +66,13 @@ interface FrameView {
  * banner slide opens its tale group in the full-screen viewer; groups this
  * browser has viewed show the seen ring in the bar. The zone's project theme
  * (R9) styles the frames and the viewer through CSS custom properties on a
- * wrapper inside the Shadow DOM.
+ * wrapper inside the Shadow DOM; each theme field set in the SDK
+ * configuration wins over it: the element's `theme` property (or `theme`
+ * attribute, JSON), then the zone's {@link configureZone} option.
  */
 export class TaleartElement extends HTMLElement {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, ZONE_KEY_ATTR, STAGE_ATTR];
+    return [API_URL_ATTR, ZONE_KEY_ATTR, STAGE_ATTR, THEME_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -55,6 +88,49 @@ export class TaleartElement extends HTMLElement {
   // The visitor's reduced-motion setting, watched while connected so animated covers follow it (R11, R12).
   private motionQuery: MediaQueryList | null = null;
   private readonly onMotionChange = (event: MediaQueryListEvent): void => applyCoverMotion(this.root, event.matches);
+  // This element's checked, frozen theme override, and the rendered wrapper with the zone key
+  // it was loaded with and the theme the Delivery API sent.
+  private themeOverride: Readonly<Partial<Theme>> = Object.freeze({});
+  private themed: { element: HTMLElement; zoneKey: string; theme: unknown } | null = null;
+  // True while the `theme` attribute present at upgrade is to be skipped, because a script set the property first.
+  private skipThemeAttribute = false;
+
+  constructor() {
+    super();
+    // A theme set on the element before the SDK defined it shadows the accessor: take it out and
+    // pass it through the setter. Set by script, it wins over a `theme` attribute present at
+    // upgrade, which is then left unread (and logs nothing).
+    if (Object.prototype.hasOwnProperty.call(this, 'theme')) {
+      const value: unknown = (this as { theme?: unknown }).theme;
+      delete (this as { theme?: unknown }).theme;
+      this.skipThemeAttribute = this.hasAttribute(THEME_ATTR);
+      this.theme = value as Partial<Theme> | null;
+    }
+  }
+
+  /**
+   * Theme fields for this element only, winning over the zone's
+   * {@link configureZone} theme and the project's theme (R9). Set an object of
+   * theme fields, or `null` to remove it. The value is copied, checked and
+   * kept when set: invalid fields are ignored with one console warning each.
+   * Reading it returns a copy of this element's own override fields that
+   * passed (not the zone's or the project's).
+   */
+  get theme(): Partial<Theme> {
+    const own = { ...this.themeOverride };
+    if (own.ringColors) own.ringColors = [...own.ringColors];
+    return own;
+  }
+  set theme(value: Partial<Theme> | null) {
+    this.themeOverride = readThemeOverride(value, "the element's theme");
+    this.retheme();
+  }
+
+  /** Applies the theme again with the current SDK configuration, without a new request. */
+  retheme(): void {
+    const themed = this.themed;
+    if (themed) applyTheme(themed.element, themed.theme, zoneThemes.get(themed.zoneKey) ?? {}, this.themeOverride);
+  }
 
   /** The TaleArt API origin, such as `https://api.example.com`. */
   get apiUrl(): string {
@@ -81,6 +157,7 @@ export class TaleartElement extends HTMLElement {
   }
 
   connectedCallback(): void {
+    connected.add(this);
     if (typeof matchMedia === 'function') {
       const query = matchMedia('(prefers-reduced-motion: reduce)');
       this.motionQuery = query;
@@ -91,11 +168,31 @@ export class TaleartElement extends HTMLElement {
     this.scheduleLoad();
   }
 
-  attributeChangedCallback(_name: string, oldValue: string | null, newValue: string | null): void {
-    if (oldValue !== newValue && this.isConnected) this.scheduleLoad();
+  attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null): void {
+    if (oldValue === newValue) return;
+    if (name === THEME_ATTR) {
+      if (this.skipThemeAttribute) this.skipThemeAttribute = false;
+      else this.theme = this.parseThemeAttribute(newValue) as Partial<Theme> | null;
+    } else if (this.isConnected) this.scheduleLoad();
+  }
+
+  // The `theme` attribute's JSON. A missing or empty attribute is no override; text that is not
+  // JSON, or JSON `null`, is none either, with one warning (other non-objects warn in the setter).
+  private parseThemeAttribute(value: string | null): unknown {
+    if (value === null || value.trim() === '') return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      console.warn("TaleArt: the element's theme attribute is not valid JSON; it is ignored");
+      return null;
+    }
+    if (parsed === null) console.warn("TaleArt: the element's theme attribute must be a JSON object; it is ignored");
+    return parsed;
   }
 
   disconnectedCallback(): void {
+    connected.delete(this);
     const query = this.motionQuery;
     if (query && typeof query.removeEventListener === 'function') query.removeEventListener('change', this.onMotionChange);
     else query?.removeListener?.(this.onMotionChange);
@@ -132,11 +229,12 @@ export class TaleartElement extends HTMLElement {
     this.pendingFocus = focusGroup;
     this.destroyViews();
     this.root.replaceChildren();
+    this.themed = null;
     if (!apiUrl || !zoneKey || !this.isConnected) return;
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
       const zone = await fetchZone(apiUrl, zoneKey);
-      if (id === this.loadId) this.render(zone, focusGroup);
+      if (id === this.loadId) this.render(zone, focusGroup, zoneKey);
     } catch (err) {
       if (id !== this.loadId) return;
       this.root.replaceChildren();
@@ -170,7 +268,7 @@ export class TaleartElement extends HTMLElement {
 
   // Renders every frame type the SDK knows, in the zone's frame order, or the named stage's
   // frame; unknown types are skipped (AD-5).
-  private render(zone: DeliveryZone, focusTarget: FocusTarget | null): void {
+  private render(zone: DeliveryZone, focusTarget: FocusTarget | null, zoneKey: string): void {
     this.pendingFocus = null;
     const frames = this.framesToRender(zone);
     if (!frames) return;
@@ -180,7 +278,8 @@ export class TaleartElement extends HTMLElement {
     // Holds the frames and the viewer, so both inherit the theme's custom properties.
     const themed = document.createElement('div');
     themed.className = 'taleart';
-    applyTheme(themed, zone.theme);
+    this.themed = { element: themed, zoneKey, theme: zone.theme };
+    this.retheme();
     const barItems: Map<string, HTMLButtonElement>[] = [];
     // The frame whose bar item or slide opened the viewer takes focus back when it closes.
     let opener: FrameView | null = null;

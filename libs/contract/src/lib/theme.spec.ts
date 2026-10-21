@@ -69,6 +69,9 @@ describe('theme', () => {
     [{ ringColors: ['#000000', '#000000', '#000000', '#000000'] }, 'theme.ringColors must hold 1 to 3 colours'],
     [{ ringColors: '#000000' }, 'theme.ringColors must hold 1 to 3 colours'],
     [{ ringColors: ['#000000', 'blue'] }, 'theme.ringColors must hold colours as #rrggbb'],
+    [{ ringColors: new Array(1) }, 'theme.ringColors must hold colours as #rrggbb'],
+    [{ ringColors: Object.assign(new Array(2), { 0: '#000000' }) }, 'theme.ringColors must hold colours as #rrggbb'],
+    [{ ringColors: [undefined] }, 'theme.ringColors must hold colours as #rrggbb'],
     [{ ringWidth: 5 }, 'theme.ringWidth must be at most 4'],
     [{ ringWidth: 0 }, 'theme.ringWidth must be at least 1'],
     [{ ringWidth: null }, 'theme.ringWidth must be a whole number'],
@@ -131,6 +134,32 @@ describe('theme', () => {
     expect(resolved).toEqual({ ...DEFAULT_THEME, ringStyle: 'solid', cornerRadius: 0 });
     expect(resolveTheme({ titleColor: null, backgroundColor: '#000000' })).toEqual({ ...DEFAULT_THEME, backgroundColor: '#000000' });
     expect(cleanThemeSettings({ ringStyle: 'solid', ringWidth: 9, extra: 1 })).toEqual({ ringStyle: 'solid' });
+  });
+
+  it('keeps exactly the ring colours it checked, from a Proxy, a custom iterator or a sparse array', () => {
+    // A Proxy that answers a valid colour on the first read of each index and junk afterwards.
+    const reads = new Map<PropertyKey, number>();
+    const proxy = new Proxy(['#000000'], {
+      get(target, key, receiver) {
+        if (key === '0') {
+          reads.set(key, (reads.get(key) ?? 0) + 1);
+          return reads.get(key) === 1 ? '#000000' : 'red;}x{';
+        }
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(resolveTheme({ ringColors: proxy }).ringColors).toEqual(['#000000']);
+    reads.clear();
+    expect(cleanThemeSettings({ ringColors: proxy })).toEqual({ ringColors: ['#000000'] });
+    // A custom iterator would yield junk to a spread; the copy reads by index.
+    const iterated = Object.assign(['#000000'], {
+      *[Symbol.iterator]() {
+        yield 'url(x)';
+      },
+    });
+    expect(resolveTheme({ ringColors: iterated }).ringColors).toEqual(['#000000']);
+    expect(resolveTheme({ ringColors: new Array(2) }).ringColors).toEqual(DEFAULT_THEME.ringColors);
+    expect(cleanThemeSettings({ ringColors: Object.assign(new Array(2), { 0: '#000000' }) })).toEqual({});
   });
 
   it('never shares the default ring colours with a resolved theme', () => {
