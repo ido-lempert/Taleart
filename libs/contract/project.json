@@ -11,13 +11,20 @@
       "executor": "nx:run-commands",
       "cache": true,
       "inputs": [
-        "{projectRoot}/openapi/openapi.yaml"
+        "{projectRoot}/openapi/openapi.yaml",
+        "{projectRoot}/tale-document/**/*.json",
+        "{projectRoot}/scripts/generate-tale-document-schemas.mjs"
       ],
       "outputs": [
-        "{projectRoot}/src/generated/api.ts"
+        "{projectRoot}/src/generated/api.ts",
+        "{projectRoot}/src/generated/tale-document-schemas.ts"
       ],
       "options": {
-        "command": "openapi-typescript libs/contract/openapi/openapi.yaml --enum-values -o libs/contract/src/generated/api.ts"
+        "commands": [
+          "openapi-typescript libs/contract/openapi/openapi.yaml --enum-values -o libs/contract/src/generated/api.ts",
+          "node libs/contract/scripts/generate-tale-document-schemas.mjs"
+        ],
+        "parallel": false
       }
     },
     "build": {

@@ -548,8 +548,15 @@ describe('delivery', () => {
       { rows: [{ id: groupId, name: 'A' }, { id: g2, name: 'B' }] },
       {
         rows: [
-          { id: t1, taleGroupId: groupId, title: 'One', key: 'tales/x.png', contentType: 'image/png' },
-          { id: t2, taleGroupId: groupId, title: 'Two', key: null, contentType: null },
+          {
+            id: t1,
+            taleGroupId: groupId,
+            title: 'One',
+            key: 'tales/x.png',
+            contentType: 'image/png',
+            document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] },
+          },
+          { id: t2, taleGroupId: groupId, title: 'Two', key: null, contentType: null, document: null },
         ],
       },
     ]);
@@ -559,8 +566,14 @@ describe('delivery', () => {
         name: 'A',
         cover: null,
         tales: [
-          { id: t1, title: 'One', media: { key: 'tales/x.png', contentType: 'image/png' } },
-          { id: t2, title: 'Two', media: null },
+          {
+            id: t1,
+            title: 'One',
+            media: { key: 'tales/x.png', contentType: 'image/png' },
+            // The delivered document (AD-15); a tale without one shows its media only.
+            document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] },
+          },
+          { id: t2, title: 'Two', media: null, document: null },
         ],
       },
       // B has no live tale, so it is left out.
@@ -661,7 +674,8 @@ describe('copy to zone', () => {
     // The copy keeps the group's and its tales' start and end times, and shares the source's cover (read by id).
     expect(insertGroup?.[1]).toEqual([otherProject, 'Summer', new Date('2026-11-01T00:00:00Z'), null, groupId.toUpperCase()]);
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
-    expect(insertTales?.[0]).toMatch(/media_key, media_content_type, status, starts_at, ends_at FROM tales/);
+    // ...and each tale's document (AD-15).
+    expect(insertTales?.[0]).toMatch(/media_key, media_content_type, status, starts_at, ends_at, document FROM tales/);
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
     expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);
     const order = statements();

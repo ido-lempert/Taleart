@@ -55,7 +55,26 @@ const ZONE = {
       id: 'ga',
       name: 'Summer sale',
       cover: { kind: 'image', contentType: 'image/svg+xml', animated: false, url: `${API}/media/covers/ga.svg` },
-      tales: [image('a1', 'Beach day'), image('a2', 'Sunset')],
+      tales: [
+        image('a1', 'Beach day'),
+        {
+          ...image('a2', 'Sunset'),
+          // A tale document (AD-15) with one text element in the upper third.
+          document: {
+            version: 1,
+            canvas: { background: { type: 'color', color: '#000000' } },
+            elements: [
+              {
+                id: '00000000-0000-4000-8000-000000000001',
+                type: 'text',
+                box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+                a11y: {},
+                props: { text: '<b>Hello</b>' },
+              },
+            ],
+          },
+        },
+      ],
     },
     { id: 'gb', name: 'New arrivals', cover: null, tales: [image('b1', 'Jackets')] },
     { id: 'gc', name: 'Stories', cover: null, tales: [image('c1', 'Behind the scenes')] },
@@ -184,6 +203,33 @@ try {
 
   await page.keyboard.press('ArrowRight');
   await at('Summer sale, tale 2 of 2', 'ArrowRight steps to the next tale');
+  // Tale 2 has a tale document (AD-15, AD-16): its text over the media, as live, selectable text.
+  const textEl = page.locator('taleart-view dialog p.ta-text');
+  check((await textEl.textContent()) === '<b>Hello</b>', 'the text element shows its text literally, as a text node');
+  const placed = await page.evaluate(() => {
+    const root = document.querySelector('taleart-view').shadowRoot;
+    const p = root.querySelector('dialog p.ta-text');
+    const canvas = root.querySelector('dialog .ta-canvas').getBoundingClientRect();
+    const box = p.getBoundingClientRect();
+    return {
+      markup: p.querySelector('*') !== null,
+      upperThird: box.top >= canvas.top && box.bottom <= canvas.top + canvas.height / 3,
+      ratio: canvas.width / canvas.height,
+      over: root.querySelector('dialog .ta-canvas img.media') !== null,
+    };
+  });
+  check(!placed.markup && placed.upperThird, 'the text sits in the upper third of the 9:16 canvas, with no markup');
+  check(
+    Math.abs(placed.ratio - 9 / 16) < 0.01 && placed.over,
+    "the canvas is 9:16 with the tale's media under the text",
+  );
+  violations += await scan(page, 'viewer with a text element', axe);
+  await textEl.click({ clickCount: 3 });
+  check(
+    (await page.evaluate(() => String(getSelection()))).includes('<b>Hello</b>'),
+    'the text can be selected with the mouse',
+  );
+  await at('Summer sale, tale 2 of 2', 'clicking the text does not step');
   await page.keyboard.press('ArrowLeft');
   await at('Summer sale, tale 1 of 2', 'ArrowLeft steps back');
   await page.keyboard.press('Alt+ArrowRight');

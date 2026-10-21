@@ -545,6 +545,11 @@
               </button>
             </div>
             <p class="visually-hidden" aria-live="polite">{{ statusAnnouncement() }}</p>
+            <div>
+              <a class="btn btn--secondary btn--sm" [routerLink]="['/tales', tale.id, 'studio']" (click)="close()">
+                Edit in Tale Studio
+              </a>
+            </div>
             <div class="media-preview">
               @if (tale.media; as media) {
                 @if (media.kind === 'video') {
