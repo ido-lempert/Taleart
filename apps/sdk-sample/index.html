@@ -4,7 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TaleArt Web SDK sample</title>
+    <!--
+      Loading hints a host page adds (see the web-sdk README, "Fast first content"): fetch the SDK early, and
+      open both kinds of connection to the API origin (the Delivery API call is CORS without credentials;
+      media loads like any image). A host writes the three links with its own URLs; this page reads the API URL
+      from the query string, so it adds the API links by script.
+    -->
+    <link rel="modulepreload" href="/sdk/index.js" />
+    <script>
+      try {
+        const api = new URL(new URLSearchParams(location.search).get('api') || 'http://localhost:3333').origin;
+        for (const crossOrigin of ['anonymous', null]) {
+          const link = document.createElement('link');
+          link.rel = 'preconnect';
+          link.href = api;
+          if (crossOrigin) link.crossOrigin = crossOrigin;
+          document.head.appendChild(link);
+        }
+      } catch {
+        // Not a URL: the SDK reports it.
+      }
+    </script>
     <style>
+      /* The default bar's height (medium covers with titles), reserved so the page does not shift when it renders. */
+      taleart-view { display: block; min-height: 94px; }
       body {
         margin: 0 auto;
         max-width: 960px;

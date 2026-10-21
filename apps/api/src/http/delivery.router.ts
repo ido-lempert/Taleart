@@ -117,6 +117,11 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
           })),
         })),
       };
+      // Browsers keep the zone and revalidate it on every load (NFR-006): Express's ETag answers 304
+      // while nothing changed, so a pause or unpublish still shows at once. `private` keeps keyed
+      // responses out of shared caches, and they vary by key.
+      res.setHeader('Cache-Control', 'private, no-cache');
+      res.setHeader('Vary', 'Authorization');
       res.json(body);
     } catch (err) {
       next(err);
