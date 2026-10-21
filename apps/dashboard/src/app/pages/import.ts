@@ -1,76 +1,88 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { isImportActive, type ImportCount, type ImportJob, type ImportStatus, type StorylyApp } from '@taleart/contract';
+import { Router, RouterLink } from '@angular/router';
+import { isImportActive, type ImportJobSummary, type StorylyApp } from '@taleart/contract';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
-import { IMPORT_POLL_INTERVAL_MS, ImportService } from '../import.service';
-
-const STATUS_LABELS: Record<ImportStatus, string> = {
-  queued: 'Queued',
-  running: 'Running',
-  done: 'Done',
-  failed: 'Failed',
-};
+import { ImportService } from '../import.service';
+import { IMPORT_PILL_STYLES, importStatusClass, importStatusLabel, importTimeText } from './import-shared';
 
 /**
  * "Import from Storyly" for one project (admins only): paste a Storyly API
- * token, find its apps, pick one and start. The import runs on the server; the
- * page reads its state every 2 s while it is queued or running, then shows the report.
+ * token, find its apps, pick one and start; starting opens the import's own
+ * page, which follows it. Below the form, the project's past imports with
+ * their state, times and failure reason, each opening its page and report.
  */
 @Component({
   selector: 'app-import-page',
   imports: [FormsModule, RouterLink, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: `
-    .import-section {
-      max-width: 640px;
-    }
-    .import-form {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-4);
-    }
-    .import-form__actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-3);
-    }
-    .import-status {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-    }
-    .pill--done {
-      background: #ecfdf3;
-      color: #067647;
-    }
-    .pill--failed {
-      background: var(--danger-tint);
-      color: var(--danger-text);
-    }
-    .pill--active {
-      background: var(--ember-tint);
-      color: var(--ember-strong-hover);
-    }
-    .import-report {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-    .import-report__row {
-      font-weight: 600;
-    }
-    .import-notes {
-      margin: 0;
-      padding-left: var(--space-5);
-      color: var(--text-secondary);
-    }
-  `,
+  styles: [
+    IMPORT_PILL_STYLES,
+    `
+      .import-section {
+        max-width: 640px;
+      }
+      .import-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+      }
+      .import-form__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+      }
+      .import-history {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .import-history__run {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-2);
+        padding: var(--space-4) 0;
+        border-top: 1px solid var(--border);
+      }
+      .import-history__run:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .import-history__head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-3);
+      }
+      .import-history__app {
+        font-weight: 600;
+      }
+      .import-history__times {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-1) var(--space-6);
+        margin: 0;
+        color: var(--text-secondary);
+      }
+      .import-history__times dt {
+        display: inline;
+        font-weight: 600;
+      }
+      .import-history__times dd {
+        display: inline;
+        margin: 0 0 0 var(--space-1);
+      }
+      .import-history__error {
+        margin: 0;
+        color: var(--danger-text);
+      }
+    `,
+  ],
   template: `
     <div class="page">
       <header class="page-header">
@@ -84,52 +96,6 @@ const STATUS_LABELS: Record<ImportStatus, string> = {
       @if (!auth.isAdmin()) {
         <section class="card section import-section">
           <p class="muted">Only admins can import content.</p>
-        </section>
-      } @else if (job(); as job) {
-        <section class="card section import-section" aria-labelledby="import-status-title">
-          <div class="section__header">
-            <h3 class="section__title" id="import-status-title">Import status</h3>
-            <span class="import-status" role="status">
-              <span class="pill" [class]="statusClass(job.status)">{{ statusLabel(job.status) }}</span>
-            </span>
-          </div>
-          @if (job.sourceAppName) {
-            <p class="muted">From the app {{ job.sourceAppName }}</p>
-          }
-          @if (job.report; as report) {
-            <ul class="import-report" aria-label="Report">
-              <li class="import-report__row">Zones: {{ countText(report.zones) }}</li>
-              @if (report.taleGroups; as taleGroups) {
-                <li class="import-report__row">Tale groups: {{ countText(taleGroups) }}</li>
-              }
-              @if (report.tales; as tales) {
-                <li class="import-report__row">Tales: {{ countText(tales) }}</li>
-              }
-            </ul>
-            @if (report.notes.length > 0) {
-              <ul class="import-notes" aria-label="Notes">
-                @for (note of report.notes; track $index) {
-                  <li>{{ note }}</li>
-                }
-              </ul>
-            }
-          } @else if (active()) {
-            <p class="muted">The import runs on the server. You can leave this page; it keeps running.</p>
-          }
-          @if (job.status === 'failed') {
-            <p class="form-error" role="alert">{{ job.error || 'The import failed.' }}</p>
-          }
-          @if (error()) {
-            <p class="form-error" role="alert">{{ error() }}</p>
-          }
-          @if (!active()) {
-            <div class="import-form__actions">
-              @if (job.status === 'done') {
-                <a class="btn btn--primary" routerLink="/zones">See zones</a>
-              }
-              <button type="button" class="btn btn--secondary" (click)="again()">Start another import</button>
-            </div>
-          }
         </section>
       } @else {
         <section class="card section import-section" aria-labelledby="import-form-title">
@@ -180,6 +146,58 @@ const STATUS_LABELS: Record<ImportStatus, string> = {
             <p class="form-error" id="import-error" role="alert">{{ error() }}</p>
           }
         </section>
+
+        <section class="card section import-section" aria-labelledby="import-history-title">
+          <h3 class="section__title" id="import-history-title">Past imports</h3>
+          @if (history(); as history) {
+            @if (history.length === 0) {
+              <p class="muted">No imports into this project yet.</p>
+            } @else {
+              <ul class="import-history" aria-label="Past imports">
+                @for (run of history; track run.id) {
+                  <li class="import-history__run">
+                    <div class="import-history__head">
+                      <span [class]="statusClass(run.status)">{{ statusLabel(run.status) }}</span>
+                      <span class="import-history__app">{{ run.sourceAppName ?? 'App not read yet' }}</span>
+                    </div>
+                    <dl class="import-history__times">
+                      <div>
+                        <dt>Started</dt>
+                        <dd>
+                          @if (run.startedAt) {
+                            <time [attr.datetime]="run.startedAt">{{ time(run.startedAt) }}</time>
+                          } @else {
+                            not yet
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Finished</dt>
+                        <dd>
+                          @if (run.finishedAt) {
+                            <time [attr.datetime]="run.finishedAt">{{ time(run.finishedAt) }}</time>
+                          } @else {
+                            not yet
+                          }
+                        </dd>
+                      </div>
+                    </dl>
+                    @if (run.status === 'failed') {
+                      <p class="import-history__error">{{ run.error || 'The import failed.' }}</p>
+                    }
+                    <a class="btn btn--secondary btn--sm" [routerLink]="['/projects', projectId(), 'import', run.id]">
+                      {{ isActive(run.status) ? 'View progress' : 'View report' }}
+                    </a>
+                  </li>
+                }
+              </ul>
+            }
+          } @else if (historyError()) {
+            <p class="form-error" role="alert">{{ historyError() }}</p>
+          } @else {
+            <p class="muted">Loading past imports…</p>
+          }
+        </section>
       }
     </div>
   `,
@@ -188,7 +206,7 @@ export class ImportPage implements OnInit {
   protected readonly store = inject(DashboardStore);
   protected readonly auth = inject(AuthStore);
   private readonly imports = inject(ImportService);
-  private readonly pollInterval = inject(IMPORT_POLL_INTERVAL_MS);
+  private readonly router = inject(Router);
 
   /** The project to import into, bound from the route's `:projectId`. */
   readonly projectId = input.required<string>();
@@ -196,41 +214,30 @@ export class ImportPage implements OnInit {
   protected token = '';
   protected appId = '';
   protected readonly apps = signal<StorylyApp[]>([]);
-  protected readonly job = signal<ImportJob | null>(null);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
-  protected readonly active = computed(() => {
-    const job = this.job();
-    return job !== null && isImportActive(job.status);
-  });
+  /** The project's imports, newest first; null until read. */
+  protected readonly history = signal<ImportJobSummary[] | null>(null);
+  protected readonly historyError = signal('');
 
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private destroyed = false;
-
-  constructor() {
-    inject(DestroyRef).onDestroy(() => {
-      this.destroyed = true;
-      clearTimeout(this.timer);
-    });
-  }
+  protected readonly statusLabel = importStatusLabel;
+  protected readonly statusClass = importStatusClass;
+  protected readonly time = importTimeText;
+  protected readonly isActive = isImportActive;
 
   ngOnInit(): void {
     // The imported zones show on the Zones page of this project.
     this.store.selectProject(this.projectId());
+    if (this.auth.isAdmin()) void this.loadHistory();
   }
 
-  // One report row's counts: "3 source / 3 imported", with the skipped ones when there are any.
-  protected countText(count: ImportCount): string {
-    const text = `${count.source} source / ${count.imported} imported`;
-    return count.skipped > 0 ? `${text} / ${count.skipped} skipped` : text;
-  }
-
-  protected statusLabel(status: ImportStatus): string {
-    return STATUS_LABELS[status];
-  }
-
-  protected statusClass(status: ImportStatus): string {
-    return `pill ${status === 'done' ? 'pill--done' : status === 'failed' ? 'pill--failed' : 'pill--active'}`;
+  private async loadHistory(): Promise<void> {
+    const { value, message } = await this.imports.list(this.projectId());
+    if (value === null) {
+      this.historyError.set(message);
+      return;
+    }
+    this.history.set(value);
   }
 
   // A new token needs its own apps.
@@ -279,45 +286,7 @@ export class ImportPage implements OnInit {
     // The server holds the token now, encrypted, until the import ends.
     this.token = '';
     this.apps.set([]);
-    this.job.set({
-      id: value.id,
-      status: value.status,
-      sourceAppName: null,
-      report: null,
-      error: null,
-      createdAt: new Date().toISOString(),
-      finishedAt: null,
-    });
-    this.schedulePoll(value.id);
-  }
-
-  protected again(): void {
-    clearTimeout(this.timer);
-    this.job.set(null);
-    this.error.set('');
-  }
-
-  private schedulePoll(importId: string): void {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.poll(importId), this.pollInterval);
-  }
-
-  private async poll(importId: string): Promise<void> {
-    const { value, message } = await this.imports.job(this.projectId(), importId);
-    if (this.destroyed || this.job()?.id !== importId) return;
-    if (value === null) {
-      // The job keeps running on the server; try again at the next poll.
-      this.error.set(message);
-      this.schedulePoll(importId);
-      return;
-    }
-    this.error.set('');
-    this.job.set(value);
-    if (isImportActive(value.status)) {
-      this.schedulePoll(importId);
-    } else if (value.status === 'done') {
-      // New zones: load them so the Zones page and project cards show them.
-      await this.store.refresh();
-    }
+    // The import's own URL, so a reload keeps following it.
+    await this.router.navigate(['/projects', this.projectId(), 'import', value.id]);
   }
 }

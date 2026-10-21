@@ -5,7 +5,7 @@ import {
   type StorylyApp,
 } from '@taleart/contract';
 import { projectExists } from '@taleart/server-access';
-import { createImportJob, encryptToken, getImportJob, StorylyClient } from '@taleart/server-importer';
+import { createImportJob, encryptToken, getImportJob, listImportJobs, StorylyClient } from '@taleart/server-importer';
 import { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { authorizeParam, caller, requireAdmin } from './authorize';
@@ -52,6 +52,17 @@ export function importsRouter(pool: Pool, importer: ImporterConfig): Router {
       const client = new StorylyClient({ baseUrl: importer.storylyApiUrl, token: input.token, fetch: importer.fetch });
       const apps: StorylyApp[] = await client.listApps();
       res.json(apps.map(({ id, name }) => ({ id, name })));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // The project's imports, newest first, without reports: the report is read per job.
+  router.get('/:projectId/imports', ...guards, async (req, res, next) => {
+    try {
+      const { projectId } = req.params;
+      await requireProject(pool, projectId);
+      res.json(await listImportJobs(pool, projectId));
     } catch (err) {
       next(err);
     }
