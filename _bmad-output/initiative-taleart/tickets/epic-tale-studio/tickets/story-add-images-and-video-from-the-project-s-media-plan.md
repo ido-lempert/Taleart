@@ -3,13 +3,13 @@ title: "Add images and video from the project's media"
 type: 'feature'
 ticket: '5'
 created: '2026-10-22'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'ad7d3a0'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
+review: 'thorough'
+review_source: 'pinned'
 lenses_ran: []
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -103,9 +103,28 @@ deferred: []
 - Verification (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 203, server-tales 186, web-sdk 313, dashboard 348+, api 454 tests); `web-sdk:size` 18.23 KB; `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 165 checks; `sdk-sample:perf` cold p75 1,273 ms, p75 first tale frame 67 ms. Dashboard initial bundle 491.27 KB.
 - Not verified by hand: a signed-in browser walk of the studio picker and inspector, and a real screen reader.
 
+- After the security review: deletion of replaced files goes through `withMediaKeyDeletionGuard` (exclusive key lock, reference read and delete in one transaction); uploads stream to storage (`putStream`) with the type sniffed from the first bytes, need a `Content-Length`, are stored before the row's transaction and capped per project (`PROJECT_MEDIA_MAX_FILES` 500, `PROJECT_MEDIA_MAX_BYTES` 2 GB) and per process (4 at once); the worker's start-up sweep removes `media/` files with no row. A document's video ends its tale at 15 s or after a 5 s stall, and a document video beside a tale video follows pause and play. Note for story 7.11 (also in the epic's Notes): the R16 migration must write `durationMs: 5000` to keep legacy timing; until then a legacy image tale with a document overlay plays 7 s instead of 5 s.
+- Verification after the security review fixes (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 203, server-tales 192, server-importer 276, web-sdk 316, dashboard 351, api 459 tests); `web-sdk:size` 18.46 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 165 checks; `sdk-sample:perf` cold p75 1,275 ms, p75 first tale frame 69 ms. Dashboard initial bundle 491.63 KB.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-22 — Coordinator security review
+- **Verdicts:** 12 findings, all patched; none deferred. `autopilot/foundation` was already merged (its tip, `ad7d3a0`, is this story's baseline).
+- **Findings:**
+  1. `[patch]` In-use race: `withMediaKeyDeletionGuard(db, key, decide)` takes the key's lock exclusively, reads the references and runs the delete in one transaction on one connection; used by tale media replace, cover replace and the importer sweep. Tests: SQL order and rollback (unit), the 5-step sequence against the real database (HTTP).
+  2. `[patch]` Per-project caps `PROJECT_MEDIA_MAX_FILES` (500) and `PROJECT_MEDIA_MAX_BYTES` (2 GB), checked before reading and again in the insert transaction under a project lock: 409 `media_limit_reached`, 413 `media_storage_full`. `sweepUnusedProjectMediaFiles` (files over an hour old with no row) runs in the worker's start-up sweep. Tests: unit and HTTP.
+  3. `[patch]` Uploads need a `Content-Length` (411 `length_required`), stream through `putStream` with the magic number checked on the first bytes and the length enforced while streaming, are stored before the row's transaction and deleted on failure; at most 4 at once per process (429 `upload_busy`). An aborted body answers 400 and stores nothing. Tests: HTTP (chunked, short body, caps, busy).
+  4. `[patch]` A document video beside a tale video plays and pauses with the viewer and never starts while paused. Test.
+  5. `[patch]` A document's video ends its tale at 15 s (`MAX_TALE_VIDEO_MS`), its progress filling over at most 15 s, and a 5 s stall (`VIDEO_STALL_MS`) moves on (not under reduced motion or while paused). The studio reads `loadedmetadata` and warns in the layers list and the inspector when a video is over 15 s. Tests: SDK and studio.
+  6. `[patch]` Lock order: every document write takes the tale row, then fonts and keys. Saves with fonts or media lock the tale row first; keep-as-copy locks the group and the source tale before its fonts and keys; group copy relies on the source tales' `FOR SHARE` (documented). SQL-order tests.
+  7. `[patch]` The public lookup keeps only yes answers, in a true LRU (reads refresh), so a no is never stale and random keys cannot push answers out. Test.
+  8. `[patch]` `draftNotPublishedReason` comes from `draftProblem`: plain words, no JSON pointers, the element named once (`"Image 1" needs alt text…`). Tests.
+  9. `[patch]` A publish refusal's pointer is read against the draft that was saved and sent (`savedDocument`), and the element is selected by id. Test with a reorder made while the publish was on its way.
+  10. `[patch]` The picker refuses a file over its kind's limit before uploading, with the size message. Test.
+  11. `[patch]` The plan and the epic's Notes record that story 7.11's R16 migration must write `durationMs: 5000`, and that a legacy image tale with a document overlay now plays 7 s.
+  12. `[patch]` New lines over 120 characters were reformatted or shortened. Long test names were shortened, and lines in files that were not Prettier-clean before this story were formatted only where this story added them.
 
 ## Design Notes
 

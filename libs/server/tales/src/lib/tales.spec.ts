@@ -6,6 +6,7 @@ import {
   InvalidScheduleError,
   InvalidStatusTransitionError,
   isMediaKeyInUse,
+  withMediaKeyDeletionGuard,
   findPublishedMedia,
   listDeliveryTaleGroups,
   getTaleGroup,
@@ -831,14 +832,42 @@ describe('copy to zone', () => {
   });
 
   it('tells whether any tale, cover, document or upload still references a media key', async () => {
-    const used = fakeDb([{ rows: [{}] }, { rows: [{}] }]);
+    const used = fakeDb([{ rows: [{}] }]);
     expect(await isMediaKeyInUse(used.db, 'tales/a.png')).toBe(true);
-    // A document write that checked the key and has not committed is waited for first (R5).
-    expect(used.query.mock.calls[0]).toEqual([expect.stringMatching(/pg_advisory_xact_lock\(hashtextextended\('media:'/), ['tales/a.png']]);
-    expect(used.query.mock.calls[1][1]).toEqual(['tales/a.png']);
-    expect(used.query.mock.calls[1][0]).toMatch(/FROM tale_media WHERE storage_key = \$1[\s\S]*FROM project_media WHERE storage_key = \$1/);
-    const unused = fakeDb([{ rows: [] }, { rows: [] }]);
+    expect(used.query.mock.calls[0][1]).toEqual(['tales/a.png']);
+    expect(used.query.mock.calls[0][0]).toMatch(
+      /FROM tale_media WHERE storage_key = \$1[\s\S]*FROM project_media WHERE storage_key = \$1/,
+    );
+    const unused = fakeDb([{ rows: [] }]);
     expect(await isMediaKeyInUse(unused.db, 'tales/a.png')).toBe(false);
+  });
+
+  it('decides and deletes under the key lock, in one transaction on one connection', async () => {
+    const { db, statements, query } = fakeDb([{ rows: [] }, { rows: [] }]);
+    const order: string[] = [];
+    const decided = await withMediaKeyDeletionGuard(db, 'tales/a.png', async (inUse) => {
+      order.push(`decide ${inUse}`, ...statements());
+      return 'deleted';
+    });
+    expect(decided).toBe('deleted');
+    // The lock is taken first, the read follows on the same connection, and the decision runs before COMMIT.
+    expect(order).toEqual([
+      'decide false',
+      'BEGIN',
+      expect.stringMatching(/^SELECT pg_advisory_xact_lock\(hashtextextended\('media:' \|\| \$1, 0\)\)/),
+      expect.stringMatching(/FROM tales WHERE media_key = \$1/),
+    ]);
+    expect(statements().at(-1)).toBe('COMMIT');
+    expect(query.mock.calls[1][1]).toEqual(['tales/a.png']);
+    expect((db.connect as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(1);
+    const used = fakeDb([{ rows: [] }, { rows: [{}] }]);
+    expect(await withMediaKeyDeletionGuard(used.db, 'tales/a.png', async (inUse) => inUse)).toBe(true);
+    // A failed delete rolls back, which lets the lock go.
+    const failed = fakeDb([]);
+    await expect(
+      withMediaKeyDeletionGuard(failed.db, 'tales/a.png', async () => Promise.reject(new Error('disk'))),
+    ).rejects.toThrow('disk');
+    expect(failed.statements()).toContain('ROLLBACK');
   });
 });
 
@@ -1174,9 +1203,9 @@ describe('covers', () => {
   });
 
   it('counts a cover as a reference when deciding whether a file is still in use', async () => {
-    const { db, query } = fakeDb([{ rows: [] }, { rows: [{}] }]);
+    const { db, query } = fakeDb([{ rows: [{}] }]);
     expect(await isMediaKeyInUse(db, 'covers/a.jpg')).toBe(true);
-    expect(query.mock.calls[1][0]).toMatch(/FROM tales WHERE media_key = \$1[\s\S]*FROM tale_groups WHERE cover_key = \$1/);
+    expect(query.mock.calls[0][0]).toMatch(/FROM tales WHERE media_key = \$1[\s\S]*FROM tale_groups WHERE cover_key = \$1/);
   });
 
   it("copies the source's cover columns into the copy, sharing the key", async () => {

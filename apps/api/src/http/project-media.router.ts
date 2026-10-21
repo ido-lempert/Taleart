@@ -1,9 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { ErrorCodes, MAX_VIDEO_BYTES, maxMediaBytes, USER_ROLES, type ProjectMedia } from '@taleart/contract';
+import type { IncomingMessage } from 'node:http';
+import { ErrorCodes, MEDIA_MAGIC_BYTES, maxMediaBytes, USER_ROLES, type ProjectMedia } from '@taleart/contract';
 import { projectExists } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
-import { createProjectMedia, listProjectMedia, projectMediaFile } from '@taleart/server-tales';
-import express, { Router, type RequestHandler, type Response } from 'express';
+import {
+  checkProjectMediaRoom,
+  createProjectMedia,
+  DEFAULT_PROJECT_MEDIA_LIMITS,
+  listProjectMedia,
+  projectMediaFile,
+  type ProjectMediaLimits,
+} from '@taleart/server-tales';
+import { Router, type Response } from 'express';
 import type { Pool } from 'pg';
 import { authorizeParam, caller } from './authorize';
 import { HttpError } from './errors';
@@ -41,6 +49,66 @@ function tooLarge(limit: number): HttpError {
   return new HttpError(413, ErrorCodes.mediaTooLarge, `The file is larger than ${limit / (1024 * 1024)} MB`);
 }
 
+/** How a project's media uploads are bounded. */
+export interface ProjectMediaOptions {
+  /** The caps of one project's media (PROJECT_MEDIA_MAX_FILES, PROJECT_MEDIA_MAX_BYTES). */
+  limits?: ProjectMediaLimits;
+  /** The most uploads this process streams at once; more answer 429 `upload_busy`. */
+  maxConcurrentUploads?: number;
+}
+
+/** The uploads one process streams at once by default. */
+export const MAX_CONCURRENT_MEDIA_UPLOADS = 4;
+
+// Thrown while the body streams: the stream stops, nothing is stored, and the request is answered.
+class UploadRefused extends Error {
+  constructor(readonly error: HttpError) {
+    super(error.message);
+  }
+}
+
+/**
+ * The request body as chunks for the storage port: the first bytes are checked against the
+ * declared type before anything is passed on (415), and a body longer or shorter than its declared
+ * length stops the stream (400). Nothing is buffered beyond the first bytes.
+ */
+async function* checkedBody(
+  req: IncomingMessage,
+  contentType: Parameters<typeof matchesMagicNumber>[0],
+  length: number,
+): AsyncGenerator<Uint8Array> {
+  let head: Buffer | null = Buffer.alloc(0);
+  let received = 0;
+  const notWhole = () =>
+    new UploadRefused(new HttpError(400, ErrorCodes.validationFailed, 'The file did not arrive whole'));
+  const sniff = (bytes: Buffer) => {
+    if (!matchesMagicNumber(contentType, bytes)) {
+      throw new UploadRefused(
+        new HttpError(415, ErrorCodes.unsupportedMediaType, `The file is not a valid ${contentType} file`),
+      );
+    }
+  };
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    received += chunk.length;
+    if (received > length) throw notWhole();
+    if (head === null) {
+      yield chunk;
+      continue;
+    }
+    head = Buffer.concat([head, chunk]);
+    if (head.length < MEDIA_MAGIC_BYTES) continue;
+    sniff(head);
+    const first = head;
+    head = null;
+    yield first;
+  }
+  if (received !== length) throw notWhole();
+  if (head !== null) {
+    sniff(head);
+    yield head;
+  }
+}
+
 /** An opaque ETag for a media file: it names the file without telling its storage key. */
 function mediaEtag(key: string): string {
   return `"${createHash('sha256').update(key).digest('base64url').slice(0, 22)}"`;
@@ -52,33 +120,12 @@ function mediaEtag(key: string): string {
  * types, judged by their bytes against the declared type, images at most 10 MB and videos 100 MB,
  * stored through the storage port without transcoding (AD-11).
  */
-export function projectMediaRouter(pool: Pool, storage: MediaStorage): Router {
+export function projectMediaRouter(pool: Pool, storage: MediaStorage, options: ProjectMediaOptions = {}): Router {
   const router = Router();
   const projectAccess = authorizeParam(pool, 'project', 'projectId');
-  // No inflating: a compressed body could be far larger than what was sent. Capped at the largest
-  // accepted size, a video; an image's own limit is checked once the body is read.
-  const raw = express.raw({ type: () => true, limit: MAX_VIDEO_BYTES, inflate: false });
-  const readBody: RequestHandler = (req, res, next) =>
-    raw(req, res, (err?: unknown) => {
-      switch ((err as { type?: string } | undefined)?.type) {
-        case undefined:
-          next(err);
-          return;
-        case 'entity.too.large':
-          next(closing(res, tooLarge(MAX_VIDEO_BYTES)));
-          return;
-        case 'encoding.unsupported':
-          next(closing(res, new HttpError(415, ErrorCodes.unsupportedMediaType, 'Send the file uncompressed')));
-          return;
-        case 'request.aborted':
-        case 'request.size.invalid':
-        case 'stream.encoding.set':
-          next(closing(res, new HttpError(400, ErrorCodes.validationFailed, 'The file did not arrive whole')));
-          return;
-        default:
-          next(err);
-      }
-    });
+  const limits = options.limits ?? DEFAULT_PROJECT_MEDIA_LIMITS;
+  const maxUploads = options.maxConcurrentUploads ?? MAX_CONCURRENT_MEDIA_UPLOADS;
+  let uploads = 0;
 
   router.get('/:projectId/media', projectAccess, async (req, res, next) => {
     try {
@@ -89,59 +136,87 @@ export function projectMediaRouter(pool: Pool, storage: MediaStorage): Router {
     }
   });
 
-  router.post(
-    '/:projectId/media',
-    projectAccess,
-    async (req, res, next) => {
-      try {
-        // Role (403), project (404), declared type (415) and a declared length over the type's
-        // limit (413), before any byte is read.
-        if (!UPLOAD_ROLES.includes(caller(res).role)) {
-          throw closing(res, new HttpError(403, ErrorCodes.forbidden, 'Only admins and content managers upload media'));
-        }
-        await requireProject(pool, req.params['projectId']);
-        const declared = declaredMediaType(req.headers['content-type']);
-        if (declared === null) throw closing(res, new HttpError(415, ErrorCodes.unsupportedMediaType, UNSUPPORTED));
-        const length = Number(req.headers['content-length']);
-        if (Number.isFinite(length) && length > maxMediaBytes(declared)) {
-          throw closing(res, tooLarge(maxMediaBytes(declared)));
-        }
-        next();
-      } catch (err) {
-        if (err instanceof HttpError && res.getHeader('Connection') === 'close') req.resume();
-        next(err);
+  router.post('/:projectId/media', projectAccess, async (req, res, next) => {
+    let counted = false;
+    let key: string | null = null;
+    try {
+      // Everything that needs no byte of the body is checked first, and refused with
+      // `Connection: close` so the body is never read: the role (403), uploads in flight (429), the
+      // project (404), the declared type (415), compression (415), the declared length (411, 400,
+      // 413) and the project's room (409, 413).
+      const early = (error: HttpError) => {
+        req.resume();
+        return closing(res, error);
+      };
+      if (!UPLOAD_ROLES.includes(caller(res).role)) {
+        throw early(new HttpError(403, ErrorCodes.forbidden, 'Only admins and content managers upload media'));
       }
-    },
-    readBody,
-    async (req, res, next) => {
-      try {
-        const { projectId } = req.params;
-        const contentType = declaredMediaType(req.headers['content-type']);
-        if (contentType === null) throw new HttpError(415, ErrorCodes.unsupportedMediaType, UNSUPPORTED);
-        const data: unknown = req.body;
-        if (!Buffer.isBuffer(data) || data.length === 0) {
-          throw new HttpError(400, ErrorCodes.validationFailed, 'The file is empty');
-        }
-        if (data.length > maxMediaBytes(contentType)) throw tooLarge(maxMediaBytes(contentType));
-        if (!matchesMagicNumber(contentType, data)) {
-          throw new HttpError(415, ErrorCodes.unsupportedMediaType, `The file is not a valid ${contentType} file`);
-        }
-        // The key's extension is the checked type's: documents read the type from it.
-        const key = `media/${randomUUID()}.${mediaExtension(contentType)}`;
-        const media = await createProjectMedia(
-          pool,
-          { projectId, storageKey: key, contentType, sizeBytes: data.length, uploaderId: caller(res).id },
-          {
-            put: () => storage.put(key, data),
-            remove: () => storage.delete(key).catch((err) => logError('could not delete unused media', err)),
-          },
-        );
-        res.status(201).json(media satisfies ProjectMedia);
-      } catch (err) {
-        next(err);
+      if (uploads >= maxUploads) {
+        res.setHeader('Retry-After', '5');
+        throw early(new HttpError(429, ErrorCodes.uploadBusy, 'Too many uploads are in progress. Try again shortly.'));
       }
-    },
-  );
+      uploads++;
+      counted = true;
+      const { projectId } = req.params;
+      await requireProject(pool, projectId).catch((err: HttpError) => {
+        throw early(err);
+      });
+      const contentType = declaredMediaType(req.headers['content-type']);
+      if (contentType === null) throw early(new HttpError(415, ErrorCodes.unsupportedMediaType, UNSUPPORTED));
+      const encoding = (req.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
+      if (encoding !== 'identity') {
+        throw early(new HttpError(415, ErrorCodes.unsupportedMediaType, 'Send the file uncompressed'));
+      }
+      const declared = req.headers['content-length'];
+      const length = declared !== undefined && /^\d+$/.test(declared) ? Number(declared) : NaN;
+      if (!Number.isSafeInteger(length) || req.headers['transfer-encoding']) {
+        throw early(new HttpError(411, ErrorCodes.lengthRequired, 'Send the file with its Content-Length'));
+      }
+      if (length === 0) throw early(new HttpError(400, ErrorCodes.validationFailed, 'The file is empty'));
+      if (length > maxMediaBytes(contentType)) throw early(tooLarge(maxMediaBytes(contentType)));
+      try {
+        await checkProjectMediaRoom(pool, projectId, length, limits);
+      } catch (err) {
+        req.resume();
+        res.setHeader('Connection', 'close');
+        throw err;
+      }
+
+      // The file streams to storage, checked as it comes, before any transaction opens; the row is
+      // then inserted (the caps checked again under the project's lock), and a failure deletes the
+      // file. The key's extension is the checked type's: documents read the type from it.
+      key = `media/${randomUUID()}.${mediaExtension(contentType)}`;
+      try {
+        await storage.putStream(key, checkedBody(req, contentType, length));
+      } catch (err) {
+        key = null;
+        if (err instanceof UploadRefused) {
+          req.resume();
+          throw closing(res, err.error);
+        }
+        // The client went away mid-file: nothing was stored, and there is nobody to answer.
+        if (req.destroyed || (err as { message?: string }).message === 'aborted') {
+          throw closing(res, new HttpError(400, ErrorCodes.validationFailed, 'The file did not arrive whole'));
+        }
+        throw err;
+      }
+      const media = await createProjectMedia(
+        pool,
+        { projectId, storageKey: key, contentType, sizeBytes: length, uploaderId: caller(res).id },
+        limits,
+      );
+      key = null;
+      res.status(201).json(media satisfies ProjectMedia);
+    } catch (err) {
+      if (key !== null) {
+        const stored = key;
+        await storage.delete(stored).catch((cleanupErr) => logError('could not delete unused media', cleanupErr));
+      }
+      next(err);
+    } finally {
+      if (counted) uploads--;
+    }
+  });
 
   router.get('/:projectId/media/file', projectAccess, async (req, res, next) => {
     try {

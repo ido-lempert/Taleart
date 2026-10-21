@@ -26,7 +26,7 @@ import {
   findPublishedDocumentMedia,
   recordTaleMedia,
   usesMedia,
-  waitForMediaKeyWrites,
+  lockMediaKeyForDeletion,
 } from './document-media';
 import { deliveryProjectFonts, recordTaleFonts, withoutProjectFonts, type StoredFontFile } from './project-fonts';
 import {
@@ -34,6 +34,7 @@ import {
   checkDocumentMedia,
   checkPublishableDocument,
   checkTaleDocument,
+  draftProblem,
   deliverableTaleDocument,
   InvalidTaleDocumentError,
   type KeyedDeliveryDocument,
@@ -510,7 +511,10 @@ export async function copyTaleGroup(
     const group = rows[0];
     // Locking the source tales means a media replace on one of them waits for
     // this copy to commit, so its "still referenced" check sees the copy's
-    // tales and never deletes a file the copy now uses (AD-11).
+    // tales and never deletes a file the copy now uses (AD-11). The same lock
+    // keeps the source documents, and so their `tale_media` references, as they
+    // are until the copies' references are recorded: a key the copies use stays
+    // referenced throughout, so this copy needs no media key locks (R5).
     await tx.query('SELECT 1 FROM tales WHERE tale_group_id = $1 FOR SHARE', [taleGroupId]);
     const sameProject = source.rows[0].projectId === projectId;
     // In the same project the copies reference the source's project fonts: they are share locked
@@ -857,9 +861,10 @@ export async function setTaleStatus(
       try {
         checkPublishableDocument(draft);
         if (usesMedia(draft)) {
-          const owner = await tx.query<{ projectId: string }>('SELECT project_id AS "projectId" FROM tales WHERE id = $1', [
-            taleId,
-          ]);
+          const owner = await tx.query<{ projectId: string }>(
+            'SELECT project_id AS "projectId" FROM tales WHERE id = $1',
+            [taleId],
+          );
           await checkDocumentMedia(tx, owner.rows[0].projectId, draft);
         }
         await tx.query(
@@ -871,7 +876,7 @@ export async function setTaleStatus(
       } catch (err) {
         if (!(err instanceof InvalidTaleDocumentError || err instanceof TaleDocumentTooLargeError)) throw err;
         draftNotPublished = true;
-        reason = err.message;
+        reason = draftProblem(err, draft);
       }
     }
     const { rows } =
@@ -1022,13 +1027,14 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
     );
     const groupId = groupOf.rows[0]?.groupId;
     if (groupId === undefined) throw new TaleNotFoundError(taleId);
-    // Its project fonts and media must be the project's, and stay until this commits (R14, R18).
-    await checkDocumentFonts(tx, groupOf.rows[0].projectId, document, true);
-    await checkDocumentMedia(tx, groupOf.rows[0].projectId, document);
     await tx.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [groupId]);
     // The source is read under a share lock, after the group's, as copyTaleGroup does.
     const source = await tx.query('SELECT 1 FROM tales WHERE id = $1 FOR SHARE', [taleId]);
     if (source.rows.length === 0) throw new TaleNotFoundError(taleId);
+    // Its project fonts and media must be the project's, and stay until this commits (R14, R18).
+    // Locked after the rows, in the order every document write takes them: rows, then fonts and keys.
+    await checkDocumentFonts(tx, groupOf.rows[0].projectId, document, true);
+    await checkDocumentMedia(tx, groupOf.rows[0].projectId, document);
 
     const stats = await tx.query<{ count: number; next: number }>(
       `SELECT count(*)::int AS count, COALESCE(MAX(position), -1) + 1 AS next
@@ -1090,7 +1096,7 @@ export async function getTaleMedia(db: Db, taleId: string): Promise<StoredTaleMe
 /**
  * Points the tale at newly stored media. Returns the updated tale and the key
  * it pointed at before (null when none). A copied tale shares its media's key
- * (AD-14), so the caller deletes that file only when {@link isMediaKeyInUse}
+ * (AD-14), so the caller deletes that file only through {@link withMediaKeyDeletionGuard}
  * says no tale references it any more. Throws {@link TaleNotFoundError}.
  */
 export async function setTaleMedia(
@@ -1173,7 +1179,7 @@ export async function getTaleGroupCover(db: Db, taleGroupId: string): Promise<St
  * Points the group at a newly stored cover, or at none (`null`), going back to
  * the first tale's media. Returns the group and the key it pointed at before
  * (null when none). Copies share cover keys (AD-14), so the caller deletes that
- * file only when {@link isMediaKeyInUse} says nothing references it any more.
+ * file only through {@link withMediaKeyDeletionGuard}, when nothing references it any more.
  * Throws {@link TaleGroupNotFoundError}.
  */
 export async function setTaleGroupCover(
@@ -1358,13 +1364,10 @@ export async function findPublishedMedia(
 /**
  * True when any tale or tale group cover still references the storage key, or
  * a tale's draft or published document (R5), or the project's media holds it.
- * Copied tales and covers share their keys (AD-14), so a replaced or removed
- * file is deleted only when this is false (AD-11).
+ * A read only: to delete a file, use {@link withMediaKeyDeletionGuard}, which
+ * keeps document writes out until the decision is carried out.
  */
 export async function isMediaKeyInUse(db: Db, key: string): Promise<boolean> {
-  // A document write that checked this key and has not committed yet is waited for, so its
-  // reference is seen below (R5): a write that starts later finds the key only where it is read here.
-  await waitForMediaKeyWrites(db, key);
   const { rows } = await db.query(
     `SELECT 1 FROM tales WHERE media_key = $1
      UNION ALL SELECT 1 FROM tale_groups WHERE cover_key = $1
@@ -1374,4 +1377,26 @@ export async function isMediaKeyInUse(db: Db, key: string): Promise<boolean> {
     [key],
   );
   return rows.length > 0;
+}
+
+/**
+ * Decides, and carries out, whether a replaced or removed file may be deleted
+ * (AD-11, AD-14, R5): in one transaction on one connection, it takes the key's
+ * lock exclusively (document writes share it while they check and record the
+ * key), reads whether anything still references the key, and runs `decide`
+ * with that answer while still holding the lock, so no document write can
+ * check the key and reference it between the read and the delete. A write that
+ * comes after finds nothing that makes the key its project's, and is refused.
+ * Copied tales and covers share keys, so `decide` deletes only when `inUse`
+ * is false.
+ */
+export async function withMediaKeyDeletionGuard<T>(
+  db: TransactionalDb,
+  key: string,
+  decide: (inUse: boolean) => Promise<T>,
+): Promise<T> {
+  return inTransaction(db, async (tx) => {
+    await lockMediaKeyForDeletion(tx, key);
+    return decide(await isMediaKeyInUse(tx, key));
+  });
 }

@@ -263,6 +263,12 @@ export const MIN_TALE_DURATION_MS = 3000;
 /** The longest `durationMs` a document holds: 15 s. */
 export const MAX_TALE_DURATION_MS = 15000;
 
+/**
+ * The longest a tale with a video plays: its video's length, but never past 15 s, the longest
+ * duration (R5). The SDK ends the tale there, and Tale Studio warns about a longer video.
+ */
+export const MAX_TALE_VIDEO_MS = MAX_TALE_DURATION_MS;
+
 /** The most video elements one document holds (a starting value, tuned by story 7.14). */
 export const MAX_VIDEO_ELEMENTS = 1;
 
@@ -397,9 +403,8 @@ export function missingAltText(doc: {
 }
 
 /** What a refusal says about an element {@link missingAltText} found. */
-export function missingAltTextMessage(found: { name: string; type: 'image' | 'video' }): string {
-  const what = found.type === 'video' ? 'Video' : 'Image';
-  return `${what} "${found.name}" needs alt text, or must be marked decorative, before the tale is published.`;
+export function missingAltTextMessage(found: { name: string }): string {
+  return `"${found.name}" needs alt text, or must be marked decorative, before the tale is published.`;
 }
 
 /**

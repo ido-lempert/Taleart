@@ -12,7 +12,7 @@ import { projectFontsRouter } from './http/fonts.router';
 import { frameTypesRouter } from './http/frame-types.router';
 import { importsRouter, type ImporterConfig } from './http/imports.router';
 import { errorHandler, notFoundHandler } from './http/errors';
-import { projectMediaRouter } from './http/project-media.router';
+import { projectMediaRouter, type ProjectMediaOptions } from './http/project-media.router';
 import { projectsRouter } from './http/projects.router';
 import { publicMediaRouter } from './http/public-media.router';
 import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from './http/tale-groups.router';
@@ -45,6 +45,7 @@ export interface AppUrls {
 }
 
 export type { ImporterConfig } from './http/imports.router';
+export type { ProjectMediaOptions } from './http/project-media.router';
 
 // Builds the API. Takes its pool, frame-type registry, media storage, passkey
 // verifier and importer settings so tests can point it at a real database,
@@ -57,6 +58,7 @@ export function createApp(
   auth: AppAuth,
   urls: AppUrls = {},
   importer: ImporterConfig = { tokenKey: null, storylyApiUrl: DEFAULT_STORYLY_API_URL },
+  media: ProjectMediaOptions = {},
 ): express.Express {
   const app = express();
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
@@ -94,7 +96,7 @@ export function createApp(
   v1.use('/projects', importsRouter(pool, importer));
   v1.use('/projects', projectThemeRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));
-  v1.use('/projects', projectMediaRouter(pool, storage));
+  v1.use('/projects', projectMediaRouter(pool, storage, media));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));
