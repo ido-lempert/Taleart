@@ -45,6 +45,8 @@ function sendList(res, mode, body) {
  * - `data.storyGroups` (by instance id) and `data.stories` (by story group
  *   id): the served lists, which tests may change; `reset()` restores the
  *   fixtures and clears the failure switches.
+ * - `delayMs`: how long each answer waits, so a review can watch an import
+ *   run; 0 answers at once. `reset()` sets it back to 0.
  * - `requests`: each request's method and path.
  */
 export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
@@ -54,12 +56,14 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
     failInstances: null,
     failStoryGroups: null,
     failStories: null,
+    delayMs: 0,
     data: {},
     requests: [],
     reset() {
       control.failInstances = null;
       control.failStoryGroups = null;
       control.failStories = null;
+      control.delayMs = 0;
       control.data = { storyGroups: readFixture('story-groups.json'), stories: readFixture('stories.json') };
     },
   };
@@ -68,6 +72,14 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     control.requests.push({ method: req.method, path: url.pathname });
+    if (control.delayMs > 0) {
+      setTimeout(() => answer(req, res, url), control.delayMs);
+      return;
+    }
+    answer(req, res, url);
+  });
+
+  function answer(req, res, url) {
     if (req.method !== 'GET') {
       // The importer only reads; anything else is a bug in the caller.
       send(res, 405, { message: 'Method not allowed' });
@@ -95,7 +107,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       return;
     }
     send(res, 404, { message: 'Not found' });
-  });
+  }
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
