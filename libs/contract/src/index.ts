@@ -84,6 +84,7 @@ export type ImportDifference = Schemas['ImportDifference'];
 export type ImportDifferenceEntity = Schemas['ImportDifferenceEntity'];
 export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
 export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
+export type ImportMediaFailure = Schemas['ImportMediaFailure'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 /**
@@ -224,6 +225,47 @@ export function mediaKind(contentType: MediaContentType): MediaKind {
 /** The largest file of this type a tale accepts, in bytes. */
 export function maxMediaBytes(contentType: MediaContentType): number {
   return mediaKind(contentType) === 'video' ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+}
+
+function startsWithBytes(data: Uint8Array, bytes: readonly number[], offset = 0): boolean {
+  return data.length >= offset + bytes.length && bytes.every((b, i) => data[offset + i] === b);
+}
+
+const asciiBytes = (text: string): number[] => [...text].map((c) => c.charCodeAt(0));
+
+// Magic numbers: the leading bytes each accepted type must start with.
+const MEDIA_SIGNATURES: Record<MediaContentType, (data: Uint8Array) => boolean> = {
+  'image/png': (d) => startsWithBytes(d, [0x89, 0x50, 0x4e, 0x47]),
+  'image/jpeg': (d) => startsWithBytes(d, [0xff, 0xd8, 0xff]),
+  'image/gif': (d) => startsWithBytes(d, asciiBytes('GIF8')),
+  'image/webp': (d) => startsWithBytes(d, asciiBytes('RIFF')) && startsWithBytes(d, asciiBytes('WEBP'), 8),
+  'video/mp4': (d) => startsWithBytes(d, asciiBytes('ftyp'), 4),
+  'video/webm': (d) => startsWithBytes(d, [0x1a, 0x45, 0xdf, 0xa3]),
+};
+
+/** How many leading bytes {@link matchesMagicNumber} reads at most. */
+export const MEDIA_MAGIC_BYTES = 12;
+
+/**
+ * True when the file's leading bytes match the declared type: the rule every
+ * stored tale media passes, whether uploaded or imported.
+ */
+export function matchesMagicNumber(contentType: MediaContentType, data: Uint8Array): boolean {
+  return MEDIA_SIGNATURES[contentType](data);
+}
+
+const MEDIA_EXTENSIONS: Record<MediaContentType, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+};
+
+/** The file extension a storage key gets for this type. */
+export function mediaExtension(contentType: MediaContentType): string {
+  return MEDIA_EXTENSIONS[contentType];
 }
 
 /** Where the Management API serves a tale's media. Content stores only a storage key (AD-11). */

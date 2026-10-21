@@ -37,6 +37,18 @@
       "is_inbox_story": false,
       "settings": {},
       "detailed_info": {}
+    },
+    {
+      "id": 1004,
+      "token": "fake-app-token-1004",
+      "title": "Media shop",
+      "category": "shopping",
+      "store_type": "web",
+      "store_id": "media-shop.example",
+      "account_id": 501,
+      "is_inbox_story": false,
+      "settings": {},
+      "detailed_info": {}
     }
   ]
 }

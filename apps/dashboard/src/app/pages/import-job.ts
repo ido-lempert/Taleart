@@ -198,6 +198,9 @@ import {
                 @if (report.tales; as tales) {
                   <li>Tales: {{ countText(tales) }}</li>
                 }
+                @if (report.media; as media) {
+                  <li>Media: {{ countText(media) }}</li>
+                }
               </ul>
               @if (report.notes.length > 0) {
                 <ul class="import-notes" aria-label="Notes">

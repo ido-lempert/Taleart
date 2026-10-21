@@ -51,4 +51,29 @@ export async function migrateImporter(db: Db): Promise<void> {
       UNIQUE (project_id, source_system, source_type, source_id)
     );
   `);
+
+  // Which stored media file an import put on which tale (AD-11), keyed by the
+  // tale: the story it came from is known only through import_links (AD-7). A
+  // re-import finds the tale still holding that key and copies nothing again;
+  // the bytes' SHA-256 is kept for a later update check. An unreleased first
+  // shape of this table, keyed by source id, is dropped.
+  await db.query(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'import_media' AND column_name = 'source_id') THEN
+        DROP TABLE import_media;
+      END IF;
+    END $$;
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS import_media (
+      tale_id uuid PRIMARY KEY,
+      project_id uuid NOT NULL REFERENCES projects(id),
+      media_key text NOT NULL,
+      content_type text NOT NULL,
+      content_sha256 text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query('CREATE INDEX IF NOT EXISTS import_media_media_key_idx ON import_media (media_key)');
 }

@@ -1,8 +1,9 @@
 // Public interface of the importer module (AD-1). It owns the `import_jobs`
-// and `import_links` tables, reads Storyly through its own client (the only
-// place Storyly appears, AD-12), and writes zones, tale groups and tales only
-// through @taleart/server-zones and @taleart/server-tales (AD-8). Source ids
-// live only in `import_links` (AD-7).
+// `import_links` and `import_media` tables, reads Storyly through its own
+// client (the only place Storyly appears, AD-12), writes zones, tale groups
+// and tales only through @taleart/server-zones and @taleart/server-tales, and
+// copies tale media through the storage port (AD-8, AD-11). Source ids live
+// only in `import_links` (AD-7).
 export { migrateImporter } from './lib/migration';
 export { parseTokenKey, encryptToken, decryptToken } from './lib/crypto';
 export {
@@ -35,3 +36,20 @@ export {
   type ImportRunOptions,
   type ImportLog,
 } from './lib/worker';
+export {
+  parseAllowedAddresses,
+  isPublicAddress,
+  MediaFetchError,
+  MEDIA_MAX_BYTES_PER_JOB,
+  MEDIA_MAX_MS_PER_JOB,
+  type MediaFetchPolicy,
+} from './lib/media-fetch';
+export {
+  importTaleMedia,
+  sweepImportedMedia,
+  isSweepable,
+  IMPORTED_MEDIA_PREFIX,
+  MEDIA_SWEEP_MIN_AGE_MS,
+  type CopiedMedia,
+  type TaleMediaImport,
+} from './lib/media-copy';

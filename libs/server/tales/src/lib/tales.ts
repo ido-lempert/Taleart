@@ -819,6 +819,23 @@ export async function setTaleMedia(
   return { tale: toTale(row), previousKey };
 }
 
+/**
+ * Points a tale that holds no media at newly stored media, in one conditional
+ * update: when the tale already holds media (another writer got there first),
+ * nothing changes and the answer is false, so no one's media is ever replaced
+ * and no previous key needs deleting. Throws {@link TaleNotFoundError}.
+ */
+export async function setTaleMediaIfNone(db: Db, taleId: string, media: StoredTaleMedia): Promise<boolean> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const { rowCount } = await db.query(
+    'UPDATE tales SET media_key = $2, media_content_type = $3 WHERE id = $1 AND media_key IS NULL',
+    [taleId, media.key, media.contentType],
+  );
+  if ((rowCount ?? 0) > 0) return true;
+  if (!(await taleExists(db, taleId))) throw new TaleNotFoundError(taleId);
+  return false;
+}
+
 /** A tale group's stored cover: its storage key, content type and whether it moves. */
 export interface StoredCover extends StoredTaleMedia {
   animated: boolean;
