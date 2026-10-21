@@ -179,3 +179,26 @@ Assumptions to confirm with the user:
 - Theme work belongs to stories 3.8 (per project) and 3.9 (override in the SDK settings), not 3.5.
 
 Operational note: a dashboard dev server that had been running before the merges served old drawer templates, and both drawers showed empty. Restarting it fixed this.
+
+## Fourth parallel batch (2026-10-21)
+
+Built in parallel worktrees, reviewed, patched and merged into `autopilot/foundation`:
+
+| Story | Merge | Review |
+|---|---|---|
+| Web zones 3.6: banner frame on the sample page | `48886bb` | 7 findings, all patched: a swipe swallowed the next keyboard or screen-reader activation; autoplay never resumed after reduced motion turned off; the play button could restart on the last slide without loop; the play button overlapped Next on phones (moved below the slides); focus went to the wrong frame after a reload; programmatic focus stopped autoplay; a missing two-bar test |
+| Importer 2.6: check each record and list every difference | `5f05391` | 7 findings, all patched: text was cut before the token was removed, so part of the token could remain (the app name too); parent names were not bounded; work on hostile records was unbounded before the cap; distinct records merged in the dashboard; differences were not in reading order; closed groups still rendered every item |
+| Web zones 3.14: tale group cover, still or animated | `176f99d` | 11 findings, all patched. Main ones: a cover of a live group placed in no zone was public (one shared "delivered group" check now serves both the Delivery API and `/media`); the video cover cap now applies before buffering; the saved frame could differ from the slider; controls stayed live during a recording; there was no cancel path; the drawer differed from the plan |
+
+After the merges, `7d243c8` caps the height of the cover drawer's source video. A portrait video had pushed the clip preview out of view.
+
+Verification on the merged tree: `nx run-many -t lint test build` passed for 12 projects (api 259, web-sdk 136 tests). The web SDK is 9.10 KB gzipped, and `sdk-sample:a11y` passes. In real Chromium, a recorded WebM video tale was turned into a still frame cover and then into an animated WebM cover, which shows animated in the bar on the sample page. The Odd shop import listed 22 differences. Screenshots were sent to the user.
+
+Waiting for the user:
+- whether content managers should see past imports;
+- whether the bar sizes of 48, 64 and 80 px are OK;
+- renaming Frame to Widget;
+- whether the import report should list tale media, statuses, schedules and tags as "not carried yet" until stories 2.5, 2.8 and 2.11 (recommended: yes);
+- banner slides have no visible caption; a slide shows the group's first tale's media.
+
+Operational note: the dashboard dev server starts its own API with the default database when none is running, so the e2e API must start first.
