@@ -348,11 +348,12 @@ describe('tale document storage', () => {
       revision: 4,
       published: { document: published, revision: 2 },
     });
-    // The draft's font references are rewritten in the same transaction.
+    // The draft's font and media references are rewritten in the same transaction.
     expect(statements()).toEqual([
       'BEGIN',
       expect.stringMatching(/^UPDATE tales/),
       expect.stringMatching(/^DELETE FROM tale_fonts/),
+      expect.stringMatching(/^DELETE FROM tale_media/),
       'COMMIT',
     ]);
     const [sql, params] = calls()[0];

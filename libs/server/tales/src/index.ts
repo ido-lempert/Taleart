@@ -1,8 +1,10 @@
 // Public interface of the tales module (AD-1). It owns the `tale_groups`,
 // `zone_tale_groups` (zone placements, AD-14), `tales` (including each tale's
-// media key and document, AD-15), `project_fonts` and `tale_fonts` (R18) tables,
+// media key and document, AD-15), `project_fonts` and `tale_fonts` (R18), and `project_media` and
+// `tale_media` (R5) tables,
 // and reads zones only through @taleart/server-zones.
 // Tale groups carry no tags here: the targeting module owns them and the API composes them in.
+import { clearPublicMediaCache } from './lib/document-media';
 import { clearPublicFontCache } from './lib/project-fonts';
 import * as tales from './lib/tales';
 
@@ -53,14 +55,15 @@ export {
   type TransactionalDb,
 } from './lib/tales';
 
-// A change that can make a project font public or private: once it is done (or failed), this
-// process forgets its public font answers (R18), so the public route sees it at once.
+// A change that can make a project font or a document's media public or private: once it is done
+// (or failed), this process forgets its public answers (R18, R5), so the public route sees it at once.
 function thenClearFonts<A extends unknown[], R>(change: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
   return async (...args: A) => {
     try {
       return await change(...args);
     } finally {
       clearPublicFontCache();
+      clearPublicMediaCache();
     }
   };
 }
@@ -93,7 +96,20 @@ export {
   type StoredFontFile,
 } from './lib/project-fonts';
 export {
+  clearPublicMediaCache,
+  createProjectMedia,
+  findPublishedDocumentMedia,
+  listProjectMedia,
+  projectMediaFile,
+  PUBLIC_MEDIA_CACHE_TTL_MS,
+  type NewProjectMedia,
+} from './lib/document-media';
+export {
+  AltTextRequiredError,
   checkDocumentFonts,
+  checkDocumentMedia,
+  checkPublishableDocument,
+  checkPublishRules,
   checkTaleDocument,
   clearDeliveryCache,
   deliverableTaleDocument,

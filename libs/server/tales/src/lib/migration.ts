@@ -216,6 +216,42 @@ export async function migrateTales(db: Db): Promise<void> {
     await recordTaleFonts(db, row.id, 'draft', row.draft, false);
     await recordTaleFonts(db, row.id, 'published', row.document, isValidDocument(row.document));
   }
+
+  // A project's media uploaded in Tale Studio (epic Tale Studio R5, AD-11): its file through the
+  // storage port by key (`media/<uuid>.<ext>`), the type its bytes were checked as, and who uploaded
+  // it (not a foreign key, so the row stays when the user is removed). Tale documents reference it
+  // by key; it is never deleted while anything could reference it.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS project_media (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id uuid NOT NULL REFERENCES projects(id),
+      storage_key text NOT NULL UNIQUE,
+      content_type text NOT NULL,
+      size_bytes bigint NOT NULL CHECK (size_bytes > 0),
+      uploaded_by uuid,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query('CREATE INDEX IF NOT EXISTS project_media_project_id_idx ON project_media (project_id, created_at)');
+
+  // Which tale's draft or published document references which media key, for the tale's project,
+  // written in the same transaction as the document (as tale_fonts), so a key's project, "in use"
+  // and the public lookup read this, not the documents. A published row is `delivered` when a
+  // visible element or the background uses the key and the document passed the document and
+  // publish checks. No document held media before this table, so nothing is backfilled.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tale_media (
+      tale_id uuid NOT NULL REFERENCES tales(id) ON DELETE CASCADE,
+      storage_key text NOT NULL,
+      document text NOT NULL CHECK (document IN ('draft', 'published')),
+      project_id uuid NOT NULL REFERENCES projects(id),
+      content_type text NOT NULL,
+      delivered boolean NOT NULL DEFAULT false,
+      PRIMARY KEY (tale_id, document, storage_key)
+    );
+  `);
+  await db.query('CREATE INDEX IF NOT EXISTS tale_media_storage_key_idx ON tale_media (storage_key, document)');
+  await db.query('CREATE INDEX IF NOT EXISTS tale_media_project_id_idx ON tale_media (project_id, storage_key)');
 }
 
 // True when a stored document passes the document check, as the Delivery API requires.

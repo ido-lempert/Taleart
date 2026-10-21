@@ -1,4 +1,11 @@
-import { ErrorCodes, mediaKind, publicMediaUrl, type DeliveryZone } from '@taleart/contract';
+import {
+  ErrorCodes,
+  mediaKind,
+  publicMediaUrl,
+  resolveDocumentMedia,
+  type DeliveryTaleDocument,
+  type DeliveryZone,
+} from '@taleart/contract';
 import { zoneForKey, type KeyZone } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
 import { findZone, getProjectTheme, listDeliveryStages, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
@@ -114,8 +121,13 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
               contentType: tale.media.contentType,
               url: publicMediaUrl(options.publicApiUrl, tale.media.key),
             },
-            // Without hidden elements and editor-only fields (AD-15); null shows the media only.
-            document: tale.document,
+            // Without hidden elements and editor-only fields (AD-15); null shows the media only. Its
+            // media keys become public URLs; a key the public route would not serve is left out (AD-11).
+            document:
+              tale.document &&
+              (resolveDocumentMedia(tale.document, (key) =>
+                tale.mediaKeys.has(key) ? publicMediaUrl(options.publicApiUrl, key) : null,
+              ) as DeliveryTaleDocument),
             // The project fonts its text uses (R18), as public URLs the SDK fetches when the tale opens.
             ...(tale.fonts.length > 0 && {
               fonts: tale.fonts.map((font) => ({

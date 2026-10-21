@@ -650,8 +650,9 @@ describe('delivery', () => {
             // The delivered document (AD-15); a tale without one shows its media only.
             document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] },
             fonts: [],
+            mediaKeys: new Set(),
           },
-          { id: t2, title: 'Two', media: null, document: null, fonts: [] },
+          { id: t2, title: 'Two', media: null, document: null, fonts: [], mediaKeys: new Set() },
         ],
       },
       // B has no live tale, so it is left out.
@@ -829,11 +830,14 @@ describe('copy to zone', () => {
     expect(statements()).not.toContain('COMMIT');
   });
 
-  it('tells whether any tale still references a media key', async () => {
-    const used = fakeDb([{ rows: [{}] }]);
+  it('tells whether any tale, cover, document or upload still references a media key', async () => {
+    const used = fakeDb([{ rows: [{}] }, { rows: [{}] }]);
     expect(await isMediaKeyInUse(used.db, 'tales/a.png')).toBe(true);
-    expect(used.query.mock.calls[0][1]).toEqual(['tales/a.png']);
-    const unused = fakeDb([{ rows: [] }]);
+    // A document write that checked the key and has not committed is waited for first (R5).
+    expect(used.query.mock.calls[0]).toEqual([expect.stringMatching(/pg_advisory_xact_lock\(hashtextextended\('media:'/), ['tales/a.png']]);
+    expect(used.query.mock.calls[1][1]).toEqual(['tales/a.png']);
+    expect(used.query.mock.calls[1][0]).toMatch(/FROM tale_media WHERE storage_key = \$1[\s\S]*FROM project_media WHERE storage_key = \$1/);
+    const unused = fakeDb([{ rows: [] }, { rows: [] }]);
     expect(await isMediaKeyInUse(unused.db, 'tales/a.png')).toBe(false);
   });
 });
@@ -930,6 +934,7 @@ describe('status', () => {
     for (const from of ['draft', 'paused']) {
       const first = fakeDb([
         { rows: [{ status: from, draft, unpublished: true }] },
+        { rows: [] },
         { rows: [] },
         { rows: [] },
         { rows: [row] },
@@ -1169,9 +1174,9 @@ describe('covers', () => {
   });
 
   it('counts a cover as a reference when deciding whether a file is still in use', async () => {
-    const { db, query } = fakeDb([{ rows: [{}] }]);
+    const { db, query } = fakeDb([{ rows: [] }, { rows: [{}] }]);
     expect(await isMediaKeyInUse(db, 'covers/a.jpg')).toBe(true);
-    expect(query.mock.calls[0][0]).toMatch(/FROM tales WHERE media_key = \$1[\s\S]*FROM tale_groups WHERE cover_key = \$1/);
+    expect(query.mock.calls[1][0]).toMatch(/FROM tales WHERE media_key = \$1[\s\S]*FROM tale_groups WHERE cover_key = \$1/);
   });
 
   it("copies the source's cover columns into the copy, sharing the key", async () => {

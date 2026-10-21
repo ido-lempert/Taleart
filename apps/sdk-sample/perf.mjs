@@ -245,6 +245,8 @@ async function removeSeeded(databaseUrl, { userId, projectId }) {
       for (const table of [
         'tale_fonts',
         'project_fonts',
+        'tale_media',
+        'project_media',
         'zone_keys',
         'zone_tale_groups',
         'tale_group_tags',

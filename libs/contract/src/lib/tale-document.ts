@@ -3,6 +3,7 @@
 // type with the schema of its `props`. `contract:generate` turns them into the types below (through
 // openapi.yaml) and into a TypeScript copy of the schemas for validators.
 import type { components } from '../generated/api';
+import type { DeliveryCanvas, MediaContentType } from './core';
 import type { TextFont } from './text-style';
 
 export { TALE_DOCUMENT_V1_SCHEMA, TALE_ELEMENT_TYPE_REGISTRY } from '../generated/tale-document-schemas';
@@ -13,6 +14,10 @@ type Schemas = components['schemas'];
 export type TaleColor = Schemas['Color'];
 /** The 9:16 stage of a tale. */
 export type TaleCanvas = Schemas['Canvas'];
+/** A solid canvas background colour. */
+export type ColorBackground = Schemas['ColorBackground'];
+/** An image of the tale's project filling the canvas, with a band colour (epic Tale Studio R2). */
+export type MediaBackground = Schemas['MediaBackground'];
 /** Where an element sits: fractions (0 to 1) of the canvas width and height, and a rotation in degrees. */
 export type TaleElementBox = Schemas['Box'];
 /** What assistive technology is told about an element. */
@@ -29,8 +34,19 @@ export type TaleElementOf<T extends string, P> = Omit<Schemas['Element'], 'type'
 /** A text element: plain text wrapped inside its box (epic Tale Studio R4). */
 export type TextElement = TaleElementOf<'text', TextElementProps>;
 
+/** The props of an `image` element, from `element-types/image.schema.json` (epic Tale Studio R5). */
+export type ImageElementProps = Schemas['ImageElementProps'];
+/** The props of a `video` element, from `element-types/video.schema.json` (epic Tale Studio R5). */
+export type VideoElementProps = Schemas['VideoElementProps'];
+/** An image (GIF included) of the tale's project, by storage key (epic Tale Studio R5). */
+export type ImageElement = TaleElementOf<'image', ImageElementProps>;
+/** A video of the tale's project, by storage key; a tale holds at most one (epic Tale Studio R5). */
+export type VideoElement = TaleElementOf<'video', VideoElementProps>;
+/** An element that shows media of the tale's project. */
+export type MediaElement = ImageElement | VideoElement;
+
 /** Every element type of the registry, a discriminated union keyed by `type` (AD-15). */
-export type TaleElement = TextElement;
+export type TaleElement = TextElement | ImageElement | VideoElement;
 
 /** The registered element type keys. */
 export type TaleElementType = TaleElement['type'];
@@ -228,4 +244,187 @@ export function isOutsideSafeArea(box: TaleElementBox): boolean {
   return (
     at.x < safe.x - e || at.y < safe.y - e || at.x + at.w > safe.x + safe.w + e || at.y + at.h > safe.y + safe.h + e
   );
+}
+
+// ---- Media (epic Tale Studio R5, R2, R12, R14; AD-11) ----
+
+/** How media fills its box: `cover` crops it to fill, `contain` shows all of it. */
+export type MediaFit = ImageElementProps['fit'];
+
+/** Every media fit, in the order the studio offers them. */
+export const MEDIA_FITS: readonly MediaFit[] = ['cover', 'contain'];
+
+/** How long a document tale without a video plays when its document sets no `durationMs`: 7 s. */
+export const DEFAULT_TALE_DURATION_MS = 7000;
+
+/** The shortest `durationMs` a document holds: 3 s. */
+export const MIN_TALE_DURATION_MS = 3000;
+
+/** The longest `durationMs` a document holds: 15 s. */
+export const MAX_TALE_DURATION_MS = 15000;
+
+/** The most video elements one document holds (a starting value, tuned by story 7.14). */
+export const MAX_VIDEO_ELEMENTS = 1;
+
+/** The largest corner radius of a media element, as a fraction of the canvas height. */
+export const MAX_MEDIA_RADIUS = 0.5;
+
+/** Where a new image or video goes: centred, inside the safe areas. */
+export const NEW_MEDIA_BOX: TaleElementBox = { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 };
+
+/**
+ * A document's media key: a storage key the server made for media (`tales/…` or `media/…`, with
+ * the extension of its checked type), as the element schemas state it.
+ */
+export const MEDIA_KEY_PATTERN = /^(tales|media)\/[a-z0-9][a-z0-9-]{0,99}\.(png|jpg|gif|webp|mp4|webm)$/;
+
+/** True when `value` has the shape of a document media key ({@link MEDIA_KEY_PATTERN}). */
+export function isMediaKey(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 200 && MEDIA_KEY_PATTERN.test(value);
+}
+
+const KEY_TYPES: Readonly<Record<string, MediaContentType>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+};
+
+/**
+ * The content type of media stored under `key`, from its extension, which the server chose from
+ * the file's checked type; null for a key that is not a document media key.
+ */
+export function mediaContentTypeOfKey(key: string): MediaContentType | null {
+  if (!isMediaKey(key)) return null;
+  return KEY_TYPES[key.slice(key.lastIndexOf('.') + 1)] ?? null;
+}
+
+/** One media reference of a document: its key, where it is, what it must be, and whether it shows. */
+export interface DocumentMediaRef {
+  key: string;
+  /** The JSON pointer of the key, as a refusal names it. */
+  pointer: string;
+  /** What the key must be: a video for a `video` element, else an image. */
+  kind: 'image' | 'video';
+  /** False for a hidden element, which is not delivered. */
+  visible: boolean;
+}
+
+/** True when the element is an `image` or a `video`. */
+export function isMediaElement<T extends { type: string }>(
+  element: T,
+): element is Extract<T, { type: 'image' | 'video' }> {
+  return element.type === 'image' || element.type === 'video';
+}
+
+/**
+ * The media keys a document of any trust references: each image and video element's `mediaKey`,
+ * and the canvas's media background. Values that are not strings are skipped; the schema refuses them.
+ */
+export function documentMediaRefs(doc: unknown): DocumentMediaRef[] {
+  const refs: DocumentMediaRef[] = [];
+  if (typeof doc !== 'object' || doc === null) return refs;
+  const { canvas, elements } = doc as { canvas?: unknown; elements?: unknown };
+  const background = (canvas as { background?: { type?: unknown; mediaKey?: unknown } } | null)?.background;
+  if (background?.type === 'media' && typeof background.mediaKey === 'string') {
+    refs.push({ key: background.mediaKey, pointer: '/canvas/background/mediaKey', kind: 'image', visible: true });
+  }
+  if (!Array.isArray(elements)) return refs;
+  elements.forEach((element: unknown, i) => {
+    const e = element as { type?: unknown; hidden?: unknown; props?: { mediaKey?: unknown } } | null;
+    if ((e?.type !== 'image' && e?.type !== 'video') || typeof e.props?.mediaKey !== 'string') return;
+    refs.push({
+      key: e.props.mediaKey,
+      pointer: `/elements/${i}/props/mediaKey`,
+      kind: e.type,
+      visible: e.hidden !== true,
+    });
+  });
+  return refs;
+}
+
+/** The distinct media keys a document references; with `visibleOnly`, only those it would deliver. */
+export function documentMediaKeys(doc: unknown, options: { visibleOnly?: boolean } = {}): string[] {
+  const refs = documentMediaRefs(doc).filter((ref) => !options.visibleOnly || ref.visible);
+  return [...new Set(refs.map((ref) => ref.key))];
+}
+
+/** True when a document holds a `video` element: the tale then plays for the video's length. */
+export function hasVideoElement(doc: { elements: readonly { type: string }[] } | null | undefined): boolean {
+  return !!doc?.elements.some((element) => element.type === 'video');
+}
+
+/**
+ * How Tale Studio, and refusals, name a media element: its alt text, shortened to 40 characters,
+ * or its type and its place among the elements of that type from the bottom of the z-order, such
+ * as "Image 2".
+ */
+export function mediaElementName(
+  elements: readonly { type: string; a11y?: { label?: string } }[],
+  index: number,
+): string {
+  const element = elements[index];
+  const label = element?.a11y?.label?.trim().replace(/\s+/g, ' ') ?? '';
+  if (label) {
+    const characters = [...label];
+    return characters.length > 40 ? `${characters.slice(0, 40).join('')}…` : label;
+  }
+  const type = element?.type === 'video' ? 'video' : 'image';
+  const n = elements.slice(0, index + 1).filter((e) => e.type === type).length;
+  return `${type === 'video' ? 'Video' : 'Image'} ${n}`;
+}
+
+/** True when the element tells assistive technology what it shows, or is marked as showing nothing to tell (R12). */
+export function hasAltText(element: { a11y?: { label?: string; decorative?: boolean } }): boolean {
+  return element.a11y?.decorative === true || (element.a11y?.label ?? '').trim() !== '';
+}
+
+/**
+ * The first visible image or video that has neither alt text nor the decorative mark (R12), which
+ * keeps a tale from being published; null when there is none. Drafts may hold such elements.
+ */
+export function missingAltText(doc: {
+  elements: readonly { type: string; hidden?: boolean; a11y?: { label?: string; decorative?: boolean } }[];
+}): { index: number; name: string; type: 'image' | 'video' } | null {
+  const index = doc.elements.findIndex(
+    (e) => (e.type === 'image' || e.type === 'video') && e.hidden !== true && !hasAltText(e),
+  );
+  if (index < 0) return null;
+  const type = doc.elements[index].type === 'video' ? 'video' : 'image';
+  return { index, name: mediaElementName(doc.elements, index), type };
+}
+
+/** What a refusal says about an element {@link missingAltText} found. */
+export function missingAltTextMessage(found: { name: string; type: 'image' | 'video' }): string {
+  const what = found.type === 'video' ? 'Video' : 'Image';
+  return `${what} "${found.name}" needs alt text, or must be marked decorative, before the tale is published.`;
+}
+
+/**
+ * The document with its media keys turned into URLs, as the Delivery API returns it (AD-11): each
+ * image and video element's `mediaKey` becomes `url`, and a media background's too. `resolve`
+ * gives the URL of a key, or null for a key that is not to be delivered: that element is left out,
+ * and that background becomes its colour.
+ */
+export function resolveDocumentMedia<D extends { canvas: unknown; elements: readonly unknown[] }>(
+  doc: D,
+  resolve: (key: string) => string | null,
+): Omit<D, 'canvas'> & { canvas: DeliveryCanvas } {
+  const canvas = doc.canvas as { background?: { type?: unknown; mediaKey?: unknown; color?: unknown } } | null;
+  let background: unknown = canvas?.background;
+  if (canvas?.background?.type === 'media') {
+    const { mediaKey, ...rest } = canvas.background;
+    const url = typeof mediaKey === 'string' ? resolve(mediaKey) : null;
+    background = url === null ? { type: 'color', color: rest.color } : { ...rest, url };
+  }
+  const elements = doc.elements.flatMap((element) => {
+    const e = element as { type?: unknown; props?: { mediaKey?: unknown } };
+    if (e.type !== 'image' && e.type !== 'video') return [element];
+    const { mediaKey, ...props } = e.props ?? {};
+    const url = typeof mediaKey === 'string' ? resolve(mediaKey) : null;
+    return url === null ? [] : [{ ...e, props: { ...props, url } }];
+  });
+  return { ...doc, canvas: { ...(doc.canvas as object), background } as DeliveryCanvas, elements };
 }
