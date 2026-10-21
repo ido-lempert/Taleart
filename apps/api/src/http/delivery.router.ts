@@ -1,7 +1,7 @@
 import { ErrorCodes, mediaKind, publicMediaUrl, type DeliveryZone } from '@taleart/contract';
 import { zoneForKey, type KeyZone } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { findZone, listDeliveryStages, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
+import { findZone, getProjectTheme, listDeliveryStages, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
 import { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
@@ -78,15 +78,18 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         res.status(401).json(errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE));
         return;
       }
-      const [frames, stages, taleGroups] = await Promise.all([
+      const [frames, stages, taleGroups, theme] = await Promise.all([
         listFrames(pool, zoneId),
         listDeliveryStages(pool, zoneId),
         listDeliveryTaleGroups(pool, zoneId),
+        getProjectTheme(pool, zone.projectId),
       ]);
       // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).
       const body: DeliveryZone = {
         id: zone.id,
         name: zone.name,
+        // The project's theme (R9), complete: TaleArt's default fills every field it leaves out.
+        theme: theme.resolved,
         frames: frames.map(({ id, type, settings }) => ({
           id,
           type,

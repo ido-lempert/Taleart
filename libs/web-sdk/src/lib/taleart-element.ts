@@ -3,6 +3,7 @@ import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import { applyCoverMotion, BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
 import { fetchZone } from './delivery-client';
 import { markGroupSeen, seenGroupIds } from './seen';
+import { applyTheme } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
 
 export const TALEART_ELEMENT_TAG = 'taleart-view';
@@ -32,7 +33,9 @@ interface FrameView {
  * console warning. Frame types it does not know are skipped (AD-5). A refused key or a network failure
  * renders nothing and logs one console error. Activating a bar item or a
  * banner slide opens its tale group in the full-screen viewer; groups this
- * browser has viewed show the seen ring in the bar.
+ * browser has viewed show the seen ring in the bar. The zone's project theme
+ * (R9) styles the frames and the viewer through CSS custom properties on a
+ * wrapper inside the Shadow DOM.
  */
 export class TaleartElement extends HTMLElement {
   static get observedAttributes(): string[] {
@@ -174,10 +177,14 @@ export class TaleartElement extends HTMLElement {
     const names = new Map(zone.taleGroups.map((group) => [group.id, group.name]));
     const seen = seenGroupIds();
     const views: FrameView[] = [];
+    // Holds the frames and the viewer, so both inherit the theme's custom properties.
+    const themed = document.createElement('div');
+    themed.className = 'taleart';
+    applyTheme(themed, zone.theme);
     const barItems: Map<string, HTMLButtonElement>[] = [];
     // The frame whose bar item or slide opened the viewer takes focus back when it closes.
     let opener: FrameView | null = null;
-    const viewer = new TaleViewer(this.root, zone.taleGroups, {
+    const viewer = new TaleViewer(themed, zone.taleGroups, {
       onGroupShown: (groupId) => {
         markGroupSeen(groupId);
         for (const items of barItems) {
@@ -238,7 +245,8 @@ export class TaleartElement extends HTMLElement {
     const style = document.createElement('style');
     style.textContent = BAR_STYLES + BANNER_STYLES + VIEWER_STYLES;
     this.viewer = viewer;
-    this.root.replaceChildren(style, ...views.map((view) => view.element));
+    themed.replaceChildren(...views.map((view) => view.element));
+    this.root.replaceChildren(style, themed);
     if (focusTarget) {
       // The frame that opened the viewer first, then any frame with the group, then the opener's (or the first) frame as it is.
       const { groupId, frameId } = focusTarget;

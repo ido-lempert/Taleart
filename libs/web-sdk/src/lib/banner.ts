@@ -52,16 +52,20 @@ export function readBannerSettings(raw: unknown): BannerSettings {
 }
 
 /**
- * The banner's look (WAI-ARIA carousel pattern). Colours are TaleArt's
- * defaults until the theme story; controls are 44 px, dots 24 px targets.
+ * The banner's look (WAI-ARIA carousel pattern). The project's theme (R9)
+ * sets the background, font, slide corner radius and dot colour through the
+ * `--ta-*` custom properties, falling back to the look before themes when
+ * the theme leaves one unset; the previous, next and rotation buttons keep
+ * their own light fill so they read on any slide. Controls are 44 px, dots
+ * 24 px targets.
  */
 export const BANNER_STYLES = `
-.banner { position: relative; margin: 8px 0; }
+.banner { position: relative; margin: 8px 0; background: var(--ta-bg, transparent); font-family: var(--ta-font, inherit); }
 .b-viewport {
   position: relative;
   overflow: hidden;
   aspect-ratio: 16 / 9;
-  border-radius: 12px;
+  border-radius: var(--ta-radius, 12px);
   background: #e5e7eb;
   touch-action: pan-y;
   user-select: none;
@@ -92,7 +96,7 @@ export const BANNER_STYLES = `
   -webkit-user-drag: none;
 }
 span.b-media { background: #e5e7eb; }
-.b-open:focus-visible { outline: 3px solid #1a56db; outline-offset: -5px; box-shadow: inset 0 0 0 5px #fff; }
+.b-open:focus-visible { outline: 3px solid #111827; outline-offset: -5px; box-shadow: inset 0 0 0 5px #fff; }
 .b-btn {
   position: absolute;
   z-index: 1;
@@ -109,7 +113,7 @@ span.b-media { background: #e5e7eb; }
 }
 .b-btn[hidden] { display: none; }
 .b-btn svg { width: 24px; height: 24px; fill: currentColor; }
-.b-btn:focus-visible { outline: 3px solid #1a56db; outline-offset: 1px; box-shadow: 0 0 0 5px #fff; }
+.b-btn:focus-visible { outline: 3px solid #111827; outline-offset: 1px; box-shadow: 0 0 0 5px #fff; }
 .b-btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 .b-prev, .b-next { top: 50%; margin-top: -22px; }
 .b-prev { left: 8px; }
@@ -128,8 +132,17 @@ span.b-media { background: #e5e7eb; }
   cursor: pointer;
 }
 .b-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
-.b-dot[aria-current="true"]::before { width: 12px; height: 12px; background: #111827; }
-.b-dot:focus-visible { outline: 2px solid #1a56db; outline-offset: -2px; border-radius: 50%; }
+/* With a theme title colour, dots are rings of it, filled for the slide shown. */
+.taleart[data-title] .b-dot::before {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ta-title);
+  background: none;
+}
+.b-dot[aria-current="true"]::before,
+.taleart[data-title] .b-dot[aria-current="true"]::before { width: 12px; height: 12px; background: var(--ta-title, #111827); }
+.b-dot:focus-visible { outline: 2px solid #111827; outline-offset: -2px; box-shadow: inset 0 0 0 4px #fff; border-radius: 50%; }
 `;
 
 const ICONS = {
