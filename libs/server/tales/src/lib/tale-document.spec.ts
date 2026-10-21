@@ -16,6 +16,7 @@ import { TaleNotFoundError } from './tales';
 import { DELIVERY_CACHE_SIZE } from './tale-document';
 
 const taleId = '00000000-0000-4000-8000-000000000010';
+const FONT_ID = '0f0e0d0c-0000-4000-8000-00000000000a';
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 function text(n: number, value = 'Hello', extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -170,6 +171,11 @@ describe('checkTaleDocument: text style (story 7.4)', () => {
   const styled = (props: Record<string, unknown>) => doc([text(1, 'Hello', { props: { text: 'Hello', ...props } })]);
   const at = '/elements/0/props';
 
+  it('accepts a project font by its id and stores the id in lower case (story 7.17)', () => {
+    const checked = checkTaleDocument(styled({ font: { source: 'project', fontId: FONT_ID.toUpperCase() } }));
+    expect((checked.elements[0].props as { font: unknown }).font).toEqual({ source: 'project', fontId: FONT_ID });
+  });
+
   it('accepts every setting, each font source, and text without any style', () => {
     const style = {
       font: { source: 'name', family: '"Open Sans", Inter' },
@@ -201,7 +207,11 @@ describe('checkTaleDocument: text style (story 7.4)', () => {
     ['an unknown stack', { source: 'system', stack: 'fantasy' }, `${at}/font/stack`],
     ['a system source with a family', { source: 'system', stack: 'serif', family: 'Inter' }, `${at}/font/family`],
     ['a theme source with a stack', { source: 'theme', stack: 'serif' }, `${at}/font/stack`],
-    ['an unknown source', { source: 'project' }, `${at}/font/source`],
+    ['an unknown source', { source: 'cloud' }, `${at}/font/source`],
+    ['a project source without its id', { source: 'project' }, `${at}/font/fontId`],
+    ['a project source with a family', { source: 'project', fontId: FONT_ID, family: 'Inter' }, `${at}/font/family`],
+    ['a project id that is no UUID', { source: 'project', fontId: 'brand' }, `${at}/font/fontId`],
+    ['a system source with a project id', { source: 'system', stack: 'serif', fontId: FONT_ID }, `${at}/font/fontId`],
     ['an unknown font field', { source: 'theme', url: 'x' }, `${at}/font/url`],
   ])('refuses a font of %s', (_, font, pointer) => {
     expect(refusal(styled({ font }))).toBe(pointer);
@@ -330,6 +340,31 @@ describe('tale document storage', () => {
     expect(sql).toMatch(/WHERE id = \$1 AND draft_revision = \$3/);
     expect(sql.split('RETURNING')[0]).not.toMatch(/SET document|document_revision =/);
     expect(params).toEqual([taleId, JSON.stringify(value), 3]);
+  });
+
+  it("saves a document with project fonts only when they are the tale's project's, share locking them", async () => {
+    const projectId = '00000000-0000-4000-8000-0000000000aa';
+    const value = doc([text(1, 'Hello', { props: { text: 'Hello', font: { source: 'project', fontId: FONT_ID } } })]);
+    const { db, query } = fakeDb([
+      { rows: [{ projectId }] },
+      { rows: [{ id: FONT_ID }] },
+      { rows: [{ document: {}, revision: 1, ...NONE }] },
+    ]);
+    expect((await saveTaleDocument(db, taleId, value, 0)).revision).toBe(1);
+    const [sql, params] = query.mock.calls[2] as unknown as [string, unknown[]];
+    expect(sql).toMatch(/FROM project_fonts WHERE project_id = \$4 AND id = ANY\(\$5::uuid\[\]\) FOR SHARE/);
+    expect(sql).toMatch(/\(SELECT count\(\*\) FROM fonts\) = \$6/);
+    expect(params.slice(3)).toEqual([projectId, [FONT_ID], 1]);
+
+    const foreign = fakeDb([{ rows: [{ projectId }] }, { rows: [] }]);
+    const refused = saveTaleDocument(foreign.db, taleId, value, 0);
+    await expect(refused).rejects.toBeInstanceOf(InvalidTaleDocumentError);
+    await expect(refused).rejects.toMatchObject({ pointer: '/elements/0/props/font/fontId' });
+    expect(foreign.query).toHaveBeenCalledTimes(2);
+
+    // A font deleted between the check and the write refuses the document, not the revision.
+    const raced = fakeDb([{ rows: [{ projectId }] }, { rows: [{ id: FONT_ID }] }, { rows: [] }, { rows: [] }]);
+    await expect(saveTaleDocument(raced.db, taleId, value, 0)).rejects.toBeInstanceOf(InvalidTaleDocumentError);
   });
 
   it('publishes the checked draft with compare-and-set on both revisions', async () => {

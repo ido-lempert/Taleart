@@ -1,6 +1,6 @@
 import { ErrorCodes } from '@taleart/contract';
 import type { MediaStorage } from '@taleart/server-storage';
-import { findPublishedMedia } from '@taleart/server-tales';
+import { findPublishedFont, findPublishedMedia } from '@taleart/server-tales';
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { HttpError } from './errors';
@@ -8,11 +8,14 @@ import { sendMediaBytes } from './media';
 
 // Server-made keys are short (`tales/<uuid>.<ext>`); anything far longer is not one.
 const MAX_KEY_LENGTH = 200;
+// Where project font files are stored (`fonts/<uuid>.woff2`).
+const FONT_KEY_PREFIX = 'fonts/';
 
 /**
  * Public media (AD-11), mounted at `/media`: `GET /media/<key>` serves the file
  * a published tale (a live tale of a live group, AD-6) currently references,
- * or the cover of a delivered tale group (epic web zones R12), with no session
+ * the cover of a delivered tale group (epic web zones R12), or a project font
+ * a delivered tale's published document uses (epic Tale Studio R18), with no session
  * and no zone key, so an `<img>` or `<video>` on any origin loads it. Any other key, including the key of replaced media or of draft,
  * paused or archived content, answers 404 `media_not_found`.
  */
@@ -42,8 +45,13 @@ export function publicMediaRouter(pool: Pool, storage: MediaStorage): Router {
       } catch {
         // An undecodable key names no media.
       }
-      const media = key.length > 0 && key.length <= MAX_KEY_LENGTH ? await findPublishedMedia(pool, key) : null;
+      const valid = key.length > 0 && key.length <= MAX_KEY_LENGTH;
+      // A project font (R18) is public only while a delivered tale's published document uses it.
+      const isFont = key.startsWith(FONT_KEY_PREFIX);
+      const media = !valid ? null : isFont ? await findPublishedFont(pool, key) : await findPublishedMedia(pool, key);
       if (!media) throw new HttpError(404, ErrorCodes.mediaNotFound, 'No published media at this URL');
+      // A font loads with CORS from any page that shows the tale (FontFace from fetched bytes).
+      if (isFont) res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       // A URL's bytes never change (replaced media gets a new key), but it stops
       // being public when its content is unpublished, so clients revalidate on
       // every use: 304 while published, 404 at once after (AD-11).

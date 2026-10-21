@@ -116,6 +116,15 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
             },
             // Without hidden elements and editor-only fields (AD-15); null shows the media only.
             document: tale.document,
+            // The project fonts its text uses (R18), as public URLs the SDK fetches when the tale opens.
+            ...(tale.fonts.length > 0 && {
+              fonts: tale.fonts.map((font) => ({
+                id: font.id,
+                url: publicMediaUrl(options.publicApiUrl, font.key),
+                weight: font.weight,
+                style: font.style,
+              })),
+            }),
           })),
         })),
       };

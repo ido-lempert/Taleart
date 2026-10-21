@@ -8,7 +8,7 @@
 //   --shots <dir>  also saves the review's screenshots (PNG) there
 //   --json <file>  also writes every check's result as JSON
 // Every check is recorded with the WCAG criterion it serves; the run fails when any check fails.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
@@ -1367,6 +1367,131 @@ try {
       check('4.1.2', page.errors.length === 0, `${at}: no console errors on the styled text tale`);
       await context.close();
     }
+  }
+
+  // 12. Project fonts (Tale Studio 7.17, epic R15, R18): no font file before the tale opens; then one
+  //     request, the fallback first and the font swapped in; a font slower than 3 s keeps the fallback.
+  {
+    const FONT_ID = '0f0e0d0c-0000-4000-8000-00000000000a';
+    const ALIAS = `taleart-font-${FONT_ID}`;
+    const fontBytes = readFileSync(
+      resolve(import.meta.dirname, '../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2'),
+    );
+    const branded = {
+      ...text(1, 0.3, 'Brand font, swapped in when ready'),
+      props: {
+        text: 'Brand font, swapped in when ready',
+        font: { source: 'project', fontId: FONT_ID },
+        fallback: 'serif',
+        size: 0.05,
+      },
+    };
+    const z = zone({
+      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      taleGroups: [
+        { id: 'gp', name: 'Plain', cover: null, tales: [textTale('p1', 'Plain', ['No project font'])] },
+        {
+          id: 'gf',
+          name: 'Brand',
+          cover: null,
+          tales: [
+            {
+              id: 'f1',
+              title: 'Brand',
+              media: null,
+              document: {
+                version: 1,
+                canvas: { background: { type: 'color', color: '#1f3a5f' } },
+                elements: [branded, text(2, 0.6, 'Plain text')],
+              },
+              fonts: [{ id: FONT_ID, url: `${API}/media/fonts/brand.woff2`, weight: 400, style: 'normal' }],
+            },
+          ],
+        },
+      ],
+    });
+    const serveFont = async (page, delayMs) => {
+      const requests = [];
+      await page.route(`${API}/media/fonts/**`, async (route) => {
+        requests.push(route.request().url());
+        await new Promise((done) => setTimeout(done, delayMs));
+        await route
+          .fulfill({ body: fontBytes, contentType: 'font/woff2', headers: { 'Access-Control-Allow-Origin': '*' } })
+          .catch(() => undefined);
+      });
+      return requests;
+    };
+    const readFont = (page) =>
+      page.evaluate((alias) => {
+        const p = [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('dialog .ta-text')].find((t) =>
+          t.textContent.startsWith('Brand font'),
+        );
+        return {
+          family: p ? getComputedStyle(p).fontFamily : '',
+          width: p ? p.querySelector('.ta-glyphs').getBoundingClientRect().width : 0,
+          faces: [...document.fonts].filter((f) => f.family.replace(/"/g, '') === alias).map((f) => f.status),
+        };
+      }, ALIAS);
+    const items = (page) => view(page).locator('button.item');
+
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await openSample(context, { zone: z });
+    const requests = await serveFont(page, 600);
+    // Open the plain group first: a tale with no project font fetches none.
+    await items(page).first().click();
+    await dialogOf(page).waitFor();
+    await page.waitForTimeout(700);
+    check('R18', requests.length === 0, 'no font file is requested before a tale that uses it opens');
+    await page.keyboard.press('Escape');
+    await items(page).nth(1).click();
+    await dialogOf(page).waitFor();
+    await page.keyboard.press(' ');
+    const before = await readFont(page);
+    check(
+      'R18',
+      // Computed styles may drop the quotes around the alias.
+      before.family.replace(/"/g, '').startsWith(`${ALIAS},`) &&
+        /Georgia/.test(before.family) &&
+        before.faces.length === 0,
+      `the text is drawn under the font's alias, in its fallback until the font is ready (${before.family.slice(0, 60)}…)`,
+    );
+    await page.waitForFunction(
+      (alias) => [...document.fonts].some((f) => f.family.replace(/"/g, '') === alias && f.status === 'loaded'),
+      ALIAS,
+      { timeout: 5000 },
+    );
+    await page.waitForTimeout(100);
+    const after = await readFont(page);
+    check(
+      'R18',
+      after.faces.join() === 'loaded' && Math.abs(after.width - before.width) > 1,
+      `the font swaps in when ready (text width ${Math.round(before.width)} → ${Math.round(after.width)} px)`,
+    );
+    check('R18', requests.length === 1, `opening the tale requests its font once (${requests.length})`);
+    await axe(page, 'viewer on a tale in a project font');
+    await page.keyboard.press('Escape');
+    await items(page).nth(1).click();
+    await dialogOf(page).waitFor();
+    await page.waitForTimeout(300);
+    check('R18', requests.length === 1, 'opening the tale again requests no font');
+    check('4.1.2', page.errors.length === 0, 'no console errors on the project font tale');
+    await context.close();
+
+    // A font that takes over 3 s is dropped: the text keeps its fallback.
+    const slowContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const slow = await openSample(slowContext, { zone: z });
+    await serveFont(slow, 4000);
+    await items(slow).nth(1).click();
+    await dialogOf(slow).waitFor();
+    await slow.keyboard.press(' ');
+    await slow.waitForTimeout(4800);
+    const late = await readFont(slow);
+    check(
+      'R18',
+      late.faces.length === 0 && /Georgia/.test(late.family) && late.width > 0,
+      'a font slower than 3 s is never added, and the text keeps its fallback',
+    );
+    await slowContext.close();
   }
 } finally {
   await browser.close();

@@ -160,4 +160,28 @@ export async function migrateTales(db: Db): Promise<void> {
     `UPDATE tales SET draft_document = document, draft_revision = document_revision
      WHERE draft_document IS NULL AND document IS NOT NULL`,
   );
+
+  // Project fonts (epic Tale Studio R18, AD-15): a WOFF2 face uploaded to one project (AD-4), its
+  // file through the storage port by key (AD-11), and the uploader's confirmation that they may use
+  // and distribute it, kept with their id and name and the time. The uploader is not a foreign key,
+  // so the confirmation stays when the user is removed. A project has one face per family (in any
+  // letter case), weight and style.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS project_fonts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id uuid NOT NULL REFERENCES projects(id),
+      family text NOT NULL CHECK (char_length(family) BETWEEN 1 AND 100),
+      weight integer NOT NULL CHECK (weight BETWEEN 100 AND 900 AND weight % 100 = 0),
+      style text NOT NULL CHECK (style IN ('normal', 'italic')),
+      fallback text NOT NULL CHECK (fallback IN ('sans', 'serif', 'rounded', 'monospace')),
+      storage_key text NOT NULL UNIQUE,
+      size_bytes integer NOT NULL CHECK (size_bytes > 0),
+      uploaded_by uuid,
+      uploaded_by_name text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query(
+    'CREATE UNIQUE INDEX IF NOT EXISTS project_fonts_face_key ON project_fonts (project_id, lower(family), weight, style)',
+  );
 }

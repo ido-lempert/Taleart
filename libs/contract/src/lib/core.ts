@@ -74,6 +74,10 @@ export type DeliveryMedia = Schemas['DeliveryMedia'];
 export type DeliveryCover = Schemas['DeliveryCover'];
 export type DeliveryTaleDocument = Schemas['DeliveryTaleDocument'];
 export type DeliveryTaleElement = Schemas['DeliveryTaleElement'];
+/** A project font a delivered tale uses (epic Tale Studio R18): its public URL and face descriptors. */
+export type DeliveryFont = Schemas['DeliveryFont'];
+/** A font face uploaded to a project (epic Tale Studio R18). */
+export type ProjectFont = Schemas['ProjectFont'];
 export type FindStorylyAppsRequest = Schemas['FindStorylyAppsRequest'];
 export type StorylyApp = Schemas['StorylyApp'];
 export type StartImportRequest = Schemas['StartImportRequest'];
@@ -491,6 +495,9 @@ export const ErrorCodes = {
   taleDocumentTooLarge: 'tale_document_too_large',
   staleRevision: 'stale_revision',
   nothingToPublish: 'nothing_to_publish',
+  fontNotFound: 'font_not_found',
+  fontExists: 'font_exists',
+  fontInUse: 'font_in_use',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

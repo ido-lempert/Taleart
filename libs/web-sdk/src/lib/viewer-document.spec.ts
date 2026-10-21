@@ -1,4 +1,9 @@
-import type { DeliveryTale, DeliveryTaleDocument, DeliveryTaleGroup } from '@taleart/contract';
+import {
+  clearProjectFontLoads,
+  type DeliveryTale,
+  type DeliveryTaleDocument,
+  type DeliveryTaleGroup,
+} from '@taleart/contract';
 import { IMAGE_DURATION_MS, TaleViewer, VIEWER_STYLES } from './viewer';
 
 const API = 'https://api.example.com';
@@ -175,5 +180,114 @@ describe('TaleViewer with tale documents (AD-16)', () => {
     expect(position()).toBe('3');
     vi.advanceTimersByTime(8000 - IMAGE_DURATION_MS);
     expect(position()).toBe('4');
+  });
+});
+
+describe('TaleViewer with project fonts (epic Tale Studio R18)', () => {
+  const FONT_ID = '0f0e0d0c-0000-4000-8000-00000000000a';
+  const FONT_URL = `${API}/media/fonts/a.woff2`;
+  // A file with a WOFF2 header whose total length is its size.
+  const woff2 = () => {
+    const data = new Uint8Array(64);
+    data.set([0x77, 0x4f, 0x46, 0x32]);
+    data[11] = 64;
+    return data.buffer;
+  };
+  const branded = (id: string): DeliveryTale => {
+    const base = doc('Brand');
+    const element = {
+      ...base.elements[0],
+      props: { text: 'Brand', font: { source: 'project', fontId: FONT_ID }, fallback: 'serif' } as never,
+    };
+    return {
+      ...tale(id, { ...base, elements: [element] }),
+      fonts: [{ id: FONT_ID, url: FONT_URL, weight: 700, style: 'italic' }],
+    };
+  };
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let made: { family: string; descriptors: unknown }[];
+  let added: unknown[];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    clearProjectFontLoads();
+    made = [];
+    added = [];
+    fetchMock = vi.fn(async () => ({ ok: true, arrayBuffer: async () => woff2() }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal(
+      'FontFace',
+      class {
+        constructor(family: string, _bytes: ArrayBuffer, descriptors: unknown) {
+          made.push({ family, descriptors });
+        }
+        async load() {
+          return this;
+        }
+      },
+    );
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { add: (face: unknown) => added.push(face) },
+    });
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    viewer = new TaleViewer(host, [
+      { id: 'g', name: 'G', cover: null, tales: [tale('t1', doc('Plain')), branded('t2'), branded('t3')] },
+    ]);
+  });
+
+  afterEach(() => {
+    viewer.close();
+    document.body.replaceChildren();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    delete (document as { fonts?: unknown }).fonts;
+  });
+
+  it('fetches a font only when a tale that uses it opens, once, and adds it under its alias', async () => {
+    viewer.open('g');
+    await vi.advanceTimersByTimeAsync(0);
+    // The first tale uses no project font: nothing is fetched.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    viewer.next();
+    const text = dialog().querySelector('p.ta-text') as HTMLElement;
+    // Drawn under its alias, then the fallback stack, which shows until the face is added.
+    expect(text.style.fontFamily).toMatch(new RegExp(`^"taleart-font-${FONT_ID}", Georgia`));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(FONT_URL, expect.objectContaining({ credentials: 'omit', mode: 'cors' }));
+    expect(made).toEqual([{ family: `taleart-font-${FONT_ID}`, descriptors: { weight: '700', style: 'italic' } }]);
+    expect(added).toHaveLength(1);
+
+    // Another tale with the same font, and the same tale again, fetch nothing more.
+    viewer.next();
+    viewer.previous();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips a font whose URL is not http(s), and keeps the fallback when the font fails', async () => {
+    viewer.close();
+    host.replaceChildren();
+    const unsafe = {
+      ...branded('t2'),
+      fonts: [{ id: FONT_ID, url: 'javascript:alert(1)', weight: 700, style: 'italic' }],
+    };
+    viewer = new TaleViewer(host, [{ id: 'g', name: 'G', cover: null, tales: [unsafe as DeliveryTale] }]);
+    viewer.open('g');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    viewer.close();
+    host.replaceChildren();
+    fetchMock.mockRejectedValue(new Error('offline'));
+    viewer = new TaleViewer(host, [{ id: 'g', name: 'G', cover: null, tales: [branded('t2')] }]);
+    viewer.open('g');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(added).toHaveLength(0);
+    expect((dialog().querySelector('p.ta-text') as HTMLElement).textContent).toBe('Brand');
   });
 });

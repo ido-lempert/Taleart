@@ -20,10 +20,11 @@ import {
  * Its style (story 7.4) comes from `resolveTextStyle`, which checks every value again and falls
  * back to the default for one that fails, and reaches the DOM through CSSOM properties only: the
  * font (a registry stack, the theme's `--ta-font` or a checked font-family list, each ending in
- * the fallback stack; no font file is loaded), the size as a fraction of the canvas height, the
- * weight, italic, colour, line height, logical alignment (`start` and `end` follow the
- * direction), a solid box on the paragraph or a highlight behind each line of the glyphs, and the
- * direction as the `dir` attribute (`auto` by default, so a Hebrew line reads right to left).
+ * the fallback stack; a project font comes first under its alias, and the viewer loads its file when
+ * the tale opens), the size as a fraction of the canvas height, the weight, italic, colour, line
+ * height, logical alignment (`start` and `end` follow the direction), a solid box on the paragraph
+ * or a highlight behind each line of the glyphs, and the direction as the `dir` attribute (`auto`
+ * by default, so a Hebrew line reads right to left).
  */
 export function renderText(element: DeliveryTaleElement): HTMLElement | null {
   const raw = (element.props as { text?: unknown }).text;

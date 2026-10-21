@@ -7,6 +7,8 @@ import {
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
+  projectFontIds,
+  projectFontRefs,
   TALE_DOCUMENT_VERSION,
   TALE_DOCUMENT_V1_SCHEMA,
   TALE_ELEMENT_TYPE_REGISTRY,
@@ -16,6 +18,7 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020';
+import { knownProjectFontIds } from './project-fonts';
 import { TaleNotFoundError } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -192,13 +195,41 @@ export function checkTaleDocument(value: unknown): TaleDocument {
   return { ...doc, elements };
 }
 
-// The element with its label, and a text element's text, in Unicode NFC, so equal text is stored equally.
+// The element with its label, and a text element's text, in Unicode NFC, so equal text is stored
+// equally; a project font's id in lower case, as the database spells a uuid.
 function normalized(element: TaleDocument['elements'][number]): TaleDocument['elements'][number] {
   const label = element.a11y.label;
   const a11y = typeof label === 'string' ? { ...element.a11y, label: label.normalize('NFC') } : element.a11y;
   const text = (element.props as { text?: unknown } | null)?.text;
-  const props = typeof text === 'string' ? { ...element.props, text: text.normalize('NFC') } : element.props;
+  let props = typeof text === 'string' ? { ...element.props, text: text.normalize('NFC') } : element.props;
+  const font = (props as { font?: { source?: unknown; fontId?: unknown } } | null)?.font;
+  if (font?.source === 'project' && typeof font.fontId === 'string') {
+    props = { ...props, font: { ...font, fontId: font.fontId.toLowerCase() } } as typeof props;
+  }
   return { ...element, a11y, props };
+}
+
+/**
+ * Refuses a document that uses a project font the project does not have (R14, R18): an unknown id
+ * or one of another project, naming the JSON pointer of the first such `fontId`. With `lock`, the
+ * fonts are share locked until the caller's transaction ends, so none is deleted meanwhile.
+ * Throws {@link InvalidTaleDocumentError}.
+ */
+export async function checkDocumentFonts(db: Db, projectId: string, document: unknown, lock = false): Promise<void> {
+  const refs = projectFontRefs(document);
+  if (refs.length === 0) return;
+  const known = await knownProjectFontIds(db, projectId, [...new Set(refs.map((r) => r.fontId))], lock);
+  const missing = refs.find((ref) => !known.has(ref.fontId));
+  if (missing) throw new InvalidTaleDocumentError(missing.pointer, "is not a font of this tale's project");
+}
+
+// The project of the tale, or a 404.
+async function projectOfTale(db: Db, taleId: string): Promise<string> {
+  const { rows } = await db.query<{ projectId: string }>('SELECT project_id AS "projectId" FROM tales WHERE id = $1', [
+    taleId,
+  ]);
+  if (rows.length === 0) throw new TaleNotFoundError(taleId);
+  return rows[0].projectId;
 }
 
 /** The most delivered documents kept checked in memory, by tale and revision. */
@@ -321,13 +352,34 @@ export async function saveTaleDocument(
 ): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
   const document = checkTaleDocument(value);
+  const fontIds = projectFontIds(document);
+  if (fontIds.length === 0) {
+    const { rows } = await db.query<StateRow>(
+      `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
+       WHERE id = $1 AND draft_revision = $3
+       RETURNING ${STATE_COLUMNS}`,
+      [taleId, JSON.stringify(document), basedOn],
+    );
+    if (rows.length > 0) return { ...toState(rows[0]), document };
+    return refuseStale(db, taleId);
+  }
+  // Its project fonts must be the tale's project's (R14). The statement share locks them, so a
+  // font being deleted (which locks its row first) is either gone, and the save refused, or waits
+  // for this save and then sees it uses the font.
+  const projectId = await projectOfTale(db, taleId);
+  await checkDocumentFonts(db, projectId, document);
   const { rows } = await db.query<StateRow>(
-    `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
-     WHERE id = $1 AND draft_revision = $3
+    `WITH fonts AS (
+       SELECT id FROM project_fonts WHERE project_id = $4 AND id = ANY($5::uuid[]) FOR SHARE
+     )
+     UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
+     WHERE id = $1 AND draft_revision = $3 AND (SELECT count(*) FROM fonts) = $6
      RETURNING ${STATE_COLUMNS}`,
-    [taleId, JSON.stringify(document), basedOn],
+    [taleId, JSON.stringify(document), basedOn, projectId, fontIds, fontIds.length],
   );
   if (rows.length > 0) return { ...toState(rows[0]), document };
+  // A font deleted since the check above refuses the document; else the revision was stale.
+  await checkDocumentFonts(db, projectId, document);
   return refuseStale(db, taleId);
 }
 

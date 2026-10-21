@@ -649,8 +649,9 @@ describe('delivery', () => {
             media: { key: 'tales/x.png', contentType: 'image/png' },
             // The delivered document (AD-15); a tale without one shows its media only.
             document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] },
+            fonts: [],
           },
-          { id: t2, title: 'Two', media: null, document: null },
+          { id: t2, title: 'Two', media: null, document: null, fonts: [] },
         ],
       },
       // B has no live tale, so it is left out.
@@ -714,7 +715,7 @@ describe('copy to zone', () => {
     const { db, query, statements } = fakeDb([
       { rows: [{ project_id: otherProject }] },
       { rows: [{}] },
-      { rows: [{ name: 'Summer', startsAt: new Date('2026-11-01T00:00:00Z'), endsAt: null }] },
+      { rows: [{ name: 'Summer', projectId, startsAt: new Date('2026-11-01T00:00:00Z'), endsAt: null }] },
       {
         rows: [
           { id: copyId, projectId: otherProject, name: 'Summer', startsAt: new Date('2026-11-01T00:00:00Z'), endsAt: null },
@@ -722,6 +723,8 @@ describe('copy to zone', () => {
       },
       { rows: [] },
       { rows: [] },
+      // The copy's documents, read to drop project fonts in the other project (R18): none use one.
+      { rows: [{ id: 't9', document: null, draft: null }] },
       { rows: [{ position: 3 }] },
       { rows: [] },
       { rows: [tale] },
@@ -760,6 +763,9 @@ describe('copy to zone', () => {
     const order = statements();
     expect(order.findIndex((s) => /FOR SHARE/.test(s))).toBeLessThan(order.findIndex((s) => /INSERT INTO tales/.test(s)));
     expect(order.indexOf('SELECT tags')).toBeLessThan(order.indexOf('COMMIT'));
+    expect(
+      order.some((s) => /SELECT id, document, draft_document AS draft FROM tales WHERE tale_group_id = \$1/.test(s)),
+    ).toBe(true);
   });
 
   it('rolls the copy back when the callback fails', async () => {
@@ -1119,7 +1125,7 @@ describe('covers', () => {
     const { db, query } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
-      { rows: [{ name: 'A', startsAt: null, endsAt: null }] },
+      { rows: [{ name: 'A', projectId, startsAt: null, endsAt: null }] },
       {
         rows: [
           {
