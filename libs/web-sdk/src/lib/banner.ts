@@ -281,12 +281,15 @@ export function renderBanner(
   function warm(n: number | null): void {
     if (n !== null) mediaEls[n].removeAttribute('loading');
   }
+  // One settled promise per slide, made on first need, so stepping adds no listeners.
+  const slideSettled: Promise<void>[] = [];
+  const settledSlide = (n: number) => (slideSettled[n] ??= coverSettled(mediaEls[n]));
 
   function goTo(i: number): void {
     index = Math.max(0, Math.min(count - 1, i));
     warm(index);
     const neighbours = [stepTo(1), stepTo(-1)];
-    void coverSettled(mediaEls[index]).then(() => neighbours.forEach(warm));
+    void settledSlide(index).then(() => neighbours.forEach(warm));
     track.style.transform = `translateX(${-100 * index}%)`;
     slideEls.forEach((slide, n) => {
       const hidden = n !== index;

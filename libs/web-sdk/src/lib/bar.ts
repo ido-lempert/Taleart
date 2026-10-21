@@ -1,5 +1,5 @@
 import type { BarSettings, DeliveryTaleGroup } from '@taleart/contract';
-import { setSource } from './first-content';
+import { replaceCover, setCanvasSource, setSource } from './first-content';
 
 /** The frame type this renderer draws (AD-5). */
 export const BAR_FRAME_TYPE = 'bar';
@@ -172,7 +172,8 @@ function coverElement(kind: 'image' | 'video', url: string, animated: boolean, r
       ready();
     };
     img.onerror = ready;
-    img.src = url;
+    // Held and lazy like the other covers (see first-content.ts).
+    setCanvasSource(canvas, img, url);
     el = canvas;
   } else {
     const img = document.createElement('img');
@@ -218,11 +219,15 @@ export function coverMedia(group: DeliveryTaleGroup): HTMLElement {
   return el;
 }
 
-/** Redraws every animated cover under `root` for the visitor's current motion setting. */
+/**
+ * Redraws every animated cover under `root` for the visitor's current motion
+ * setting. A replacement keeps the cover's loading state (held, or first
+ * content), and the first content waits on it instead.
+ */
 export function applyCoverMotion(root: ParentNode, reduced: boolean): void {
   for (const el of root.querySelectorAll<HTMLElement>('.cover[data-animated]')) {
     const kind = el.dataset['kind'] === 'video' ? 'video' : 'image';
-    el.replaceWith(coverElement(kind, el.dataset['src'] ?? '', true, reduced));
+    replaceCover(el, () => coverElement(kind, el.dataset['src'] ?? '', true, reduced));
   }
 }
 

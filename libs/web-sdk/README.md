@@ -78,14 +78,18 @@ The budget (NFR-006) is the first zone content visible within 1.5 s at p75 on a 
 the SDK at most 50 KB gzipped. What the SDK does:
 
 - The first frame's covers in view load first, eager and at high fetch priority; every other picture (bar covers out
-  of view, the other frames) waits until they have loaded, at most 3 s. Bar covers out of view stay lazy.
+  of view, the other frames) waits until they have loaded, at most 3 s. Bar covers out of view stay lazy, including
+  still canvas covers (animated images under reduced motion). A new render (another key or stage) starts over, and an
+  element removed from the page starts no more downloads.
+- A still video cover (a first frame, metadata-only preload) counts as loaded at its first frame, or 1 s after its
+  metadata when the browser loads no frame data up front.
 - A banner loads the slide shown, then the slides next to it once that slide has its picture; the rest stay lazy.
 - Covers and slides have fixed boxes, so nothing inside the element shifts when pictures arrive.
 - The Delivery API answers `Cache-Control: private, no-cache` with an ETag: a repeat visit revalidates the zone and
   gets 304 while it is unchanged, and a paused or unpublished group still disappears at once.
-- Performance marks, for your own monitoring: `taleart:zone` when the zone has arrived, and `taleart:first-content`
-  when the element's first frame is on the page with its covers in view loaded (once per element; with several
-  elements, the earliest is the page's first zone content).
+- Performance marks, for your own monitoring, each once per element: `taleart:zone` when the zone first arrives, and
+  `taleart:first-content` when the element's first frame is on the page with its covers in view loaded (a render
+  replaced or removed before that never marks). With several elements, the earliest is the page's first zone content.
 
 ```js
 new PerformanceObserver((list) => {
@@ -116,13 +120,19 @@ What the host page does:
 ### Measuring
 
 `nx run sdk-sample:perf` builds the API and the SDK, starts the API on `TEST_DATABASE_URL` (a database whose name
-ends in `_test`; it adds a project, never removes rows), seeds a zone with a bar and a banner frame and eight tale
+ends in `_test`, as pg resolves the connection string), seeds a zone with a bar and a banner frame and eight tale
 groups (an animated cover first, a group without a cover third, still covers for the rest; three 1080 x 1920 JPEG
 tales each), serves the sample page and loads it in headless Chromium with Chrome DevTools' Fast 4G (165 ms latency,
 9 Mbps x 0.9 down, 1.5 Mbps x 0.9 up), a 4x slower CPU and a 412 x 823 phone screen. Each run is a cold load (empty
 cache) and a warm reload; it reads `taleart:first-content` and prints every run, p50, p75 and max, layout shift and
 the SDK's gzipped size. It fails when cold p75 is over 1.5 s or the SDK over 50 KB gzipped. `PERF_RUNS` (default 10),
 `PERF_BUDGET_MS` (default 1500) and `PERF_DEBUG=1` (the first load's requests) tune it.
+
+What a run adds to the database, and deletes again at the end (also when it fails or gets SIGINT/SIGTERM): an admin
+user and their session (inserted directly, as the API tests sign in), and through the Management API a project, its
+zone, two frames, eight tale groups with their zone placements, covers and 24 tales, and a zone key. The media files go
+to a temporary folder that is removed with them. A run killed outright (SIGKILL) leaves those rows, whose media keys
+then name files that no longer exist.
 
 ## Building
 

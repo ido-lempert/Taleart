@@ -11,6 +11,7 @@ import {
   readBarSettings,
   renderBar,
 } from './bar';
+import { holdMedia, prioritize, releaseMedia } from './first-content';
 
 const groups: DeliveryTaleGroup[] = [
   { id: 'ga', name: 'Summer', cover: null, tales: [] },
@@ -121,7 +122,13 @@ describe('covers', () => {
   });
 
   it('marks a still canvas ready when its picture is drawn or fails to load', () => {
-    const images: { onload: (() => void) | null; onerror: (() => void) | null; naturalWidth: number; naturalHeight: number }[] = [];
+    interface FakeImage {
+      onload: (() => void) | null;
+      onerror: (() => void) | null;
+      naturalWidth: number;
+      naturalHeight: number;
+    }
+    const images: FakeImage[] = [];
     vi.stubGlobal(
       'Image',
       class {
@@ -194,6 +201,20 @@ describe('covers', () => {
       vi.unstubAllGlobals();
     }
     expect((coverOf(renderBar(withCover(clip))) as HTMLVideoElement).autoplay).toBe(true);
+  });
+
+  it('redraws a held animated cover held, and a first-content one loading at once with priority', () => {
+    const list = holdMedia(() => renderBar([...withCover(clip), { ...withCover(gif)[0], id: 'g2' }], new Set(), {}, false));
+    const [video] = [...list.querySelectorAll<HTMLElement>('.cover')];
+    prioritize([video]);
+    releaseMedia([video]);
+    applyCoverMotion(list, false);
+    const [first, held] = [...list.querySelectorAll<HTMLElement>('.cover')];
+    expect(first).not.toBe(video);
+    expect(first.getAttribute('src')).toBe(clip.url);
+    expect(first.hasAttribute('data-first')).toBe(true);
+    expect(held.getAttribute('src')).toBeNull();
+    expect(held.dataset['hold']).toBe(gif.url);
   });
 
   it('redraws animated covers when the setting changes, leaving still ones', () => {

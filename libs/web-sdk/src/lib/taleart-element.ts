@@ -2,7 +2,7 @@ import type { DeliveryFrame, DeliveryZone, Theme } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import { applyCoverMotion, BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
 import { fetchZone } from './delivery-client';
-import { coversInView, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
+import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
@@ -95,8 +95,11 @@ export class TaleartElement extends HTMLElement {
   private themed: { element: HTMLElement; zoneKey: string; theme: unknown } | null = null;
   // True while the `theme` attribute present at upgrade is to be skipped, because a script set the property first.
   private skipThemeAttribute = false;
-  // True once this element has set its first-content mark.
+  // True once this element has set its zone mark, and its first-content mark (for a render still on the page).
+  private zoneMarked = false;
   private marked = false;
+  // Aborts the current render's first-content work (loadFirstContent).
+  private renderAbort: AbortController | null = null;
 
   constructor() {
     super();
@@ -201,8 +204,16 @@ export class TaleartElement extends HTMLElement {
     else query?.removeListener?.(this.onMotionChange);
     this.motionQuery = null;
     this.loadId++;
+    // Held pictures of the render stay held: a removed element starts no downloads.
+    this.stopFirstContent();
     this.closeViewer();
     this.destroyViews();
+  }
+
+  // Stops the current render's first-content work: its timer, listeners, releases and mark.
+  private stopFirstContent(): void {
+    this.renderAbort?.abort();
+    this.renderAbort = null;
   }
 
   // Closes the viewer; returns the group it showed and the frame that opened it, or null when it was not open.
@@ -230,6 +241,7 @@ export class TaleartElement extends HTMLElement {
     // A reload while the viewer is open puts focus back on the opening frame once it renders.
     const focusGroup = this.closeViewer() ?? this.pendingFocus;
     this.pendingFocus = focusGroup;
+    this.stopFirstContent();
     this.destroyViews();
     this.root.replaceChildren();
     this.themed = null;
@@ -238,7 +250,10 @@ export class TaleartElement extends HTMLElement {
     try {
       const zone = await fetchZone(apiUrl, zoneKey);
       if (id !== this.loadId) return;
-      if (!this.marked) mark(ZONE_MARK);
+      if (!this.zoneMarked) {
+        this.zoneMarked = true;
+        mark(ZONE_MARK);
+      }
       this.render(zone, focusGroup, zoneKey);
     } catch (err) {
       if (id !== this.loadId) return;
@@ -354,10 +369,15 @@ export class TaleartElement extends HTMLElement {
     this.viewer = viewer;
     themed.replaceChildren(...views.map((view) => view.element));
     this.root.replaceChildren(style, themed);
-    // The first frame's covers in view load first, then the rest; the first zone content this
-    // element shows is marked once (NFR-006), for hosts and the perf measurement.
-    void loadFirstContent(this.root, coversInView(views[0].element), !this.marked);
-    this.marked = true;
+    // The first frame's covers in view load first, then the rest of this render's pictures; the
+    // first zone content this element shows is marked once, when it is on the page (NFR-006).
+    const abort = new AbortController();
+    this.renderAbort = abort;
+    void loadFirstContent(themed, coversInView(views[0].element), abort.signal, () => {
+      if (this.marked) return;
+      this.marked = true;
+      mark(FIRST_CONTENT_MARK);
+    });
     if (focusTarget) {
       // The frame that opened the viewer first, then any frame with the group, then the opener's (or the first) frame as it is.
       const { groupId, frameId } = focusTarget;

@@ -1,14 +1,16 @@
 import {
   coverSettled,
   coversInView,
-  FIRST_CONTENT_MARK,
   HOLD_MAX_MS,
   holdMedia,
   loadFirstContent,
   mark,
   prioritize,
   releaseMedia,
+  replaceCover,
+  setCanvasSource,
   setSource,
+  STILL_VIDEO_MAX_MS,
 } from './first-content';
 
 const URL_A = 'https://api.example.com/media/covers/a.jpg';
@@ -191,60 +193,216 @@ describe('first content', () => {
     expect(video.hasAttribute('fetchpriority')).toBe(false);
   });
 
-  it('loads the first covers, then the rest once they settle, and marks first content at the next paint', async () => {
-    const root = document.createElement('div');
-    const [first, rest] = holdMedia(() => {
-      const a = document.createElement('img');
-      const b = document.createElement('img');
-      setSource(a, URL_A);
-      setSource(b, 'https://api.example.com/media/tales/b.jpg');
-      return [a, b];
+  describe('loadFirstContent', () => {
+    const URL_B = 'https://api.example.com/media/tales/b.jpg';
+    let root: HTMLElement;
+
+    beforeEach(() => {
+      root = document.createElement('div');
+      document.body.appendChild(root);
     });
-    let decoded: () => void = () => undefined;
-    first.decode = () => new Promise<void>((done) => (decoded = done));
-    root.append(first, rest);
 
-    const done = loadFirstContent(root, [first], true);
-    expect(first.src).toBe(URL_A);
-    expect(first.getAttribute('fetchpriority')).toBe('high');
-    await flush();
-    expect(rest.getAttribute('src')).toBeNull();
-    expect(performance.getEntriesByName(FIRST_CONTENT_MARK)).toHaveLength(0);
+    afterEach(() => document.body.replaceChildren());
 
-    decoded();
-    await done;
-    expect(rest.src).toBe('https://api.example.com/media/tales/b.jpg');
-    expect(performance.getEntriesByName(FIRST_CONTENT_MARK)).toHaveLength(1);
+    const heldImage = (url: string) =>
+      holdMedia(() => {
+        const el = document.createElement('img');
+        setSource(el, url);
+        return el;
+      });
+
+    it('loads the first covers, then the rest once they settle, and calls back at the next paint', async () => {
+      const first = heldImage(URL_A);
+      const rest = heldImage(URL_B);
+      let decoded: () => void = () => undefined;
+      first.decode = () => new Promise<void>((done) => (decoded = done));
+      root.append(first, rest);
+      const shown = vi.fn();
+
+      const done = loadFirstContent(root, [first], new AbortController().signal, shown);
+      expect(first.src).toBe(URL_A);
+      expect(first.getAttribute('fetchpriority')).toBe('high');
+      await flush();
+      expect(rest.getAttribute('src')).toBeNull();
+      expect(shown).not.toHaveBeenCalled();
+
+      decoded();
+      await done;
+      expect(rest.src).toBe(URL_B);
+      expect(shown).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases only its own container, and everything at once with no covers in view', async () => {
+      const own = heldImage(URL_A);
+      const other = heldImage(URL_B);
+      root.appendChild(own);
+      document.body.appendChild(other);
+      await loadFirstContent(root, [], new AbortController().signal, () => undefined);
+      expect(own.src).toBe(URL_A);
+      expect(other.getAttribute('src')).toBeNull();
+    });
+
+    it('does not call back for a container no longer on the page', async () => {
+      const shown = vi.fn();
+      const done = loadFirstContent(root, [], new AbortController().signal, shown);
+      root.remove();
+      await done;
+      expect(shown).not.toHaveBeenCalled();
+    });
+
+    it(`releases the rest after ${HOLD_MAX_MS} ms when a first cover never settles, without calling back`, async () => {
+      vi.useFakeTimers();
+      const stuck = document.createElement('video');
+      const rest = heldImage(URL_A);
+      root.append(stuck, rest);
+      const shown = vi.fn();
+      void loadFirstContent(root, [stuck], new AbortController().signal, shown);
+      await vi.advanceTimersByTimeAsync(HOLD_MAX_MS - 1);
+      expect(rest.getAttribute('src')).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(rest.src).toBe(URL_A);
+      expect(shown).not.toHaveBeenCalled();
+    });
+
+    it('stops when aborted: no release, no call back, its timer and cover listeners gone', async () => {
+      vi.useFakeTimers();
+      const stuck = document.createElement('video');
+      const rest = heldImage(URL_A);
+      root.append(stuck, rest);
+      const removed = vi.spyOn(stuck, 'removeEventListener');
+      const shown = vi.fn();
+      const abort = new AbortController();
+      const done = loadFirstContent(root, [stuck], abort.signal, shown);
+      abort.abort();
+      // The next paint after the abort, which calls back nothing.
+      await vi.advanceTimersByTimeAsync(20);
+      await done;
+      expect(removed.mock.calls.map(([type]) => type).sort()).toEqual(['error', 'loadeddata']);
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(HOLD_MAX_MS);
+      stuck.dispatchEvent(new Event('loadeddata'));
+      await vi.advanceTimersByTimeAsync(20);
+      expect(rest.getAttribute('src')).toBeNull();
+      expect(shown).not.toHaveBeenCalled();
+    });
+
+    it('waits on a replacement cover instead of the one it replaced', async () => {
+      const old = heldImage(URL_A);
+      root.appendChild(old);
+      old.decode = () => new Promise<void>(() => undefined);
+      const shown = vi.fn();
+      const done = loadFirstContent(root, [old], new AbortController().signal, shown);
+      let next: HTMLVideoElement | null = null;
+      replaceCover(old, () => {
+        next = document.createElement('video');
+        setSource(next, URL_B);
+        return next;
+      });
+      const video = next as unknown as HTMLVideoElement;
+      // The replacement is first content: loading at once, tagged.
+      expect(video.src).toBe(URL_B);
+      expect(video.hasAttribute('data-first')).toBe(true);
+      await flush();
+      expect(shown).not.toHaveBeenCalled();
+      video.dispatchEvent(new Event('loadeddata'));
+      await done;
+      expect(shown).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('marks nothing when asked not to, and releases everything at once with no covers in view', async () => {
+  it('keeps a held cover held when it is replaced, and an unheld one unheld', () => {
     const root = document.createElement('div');
     const held = holdMedia(() => {
       const el = document.createElement('img');
       setSource(el, URL_A);
       return el;
     });
-    root.appendChild(held);
-    await loadFirstContent(root, [], false);
-    expect(held.src).toBe(URL_A);
-    expect(performance.getEntriesByName(FIRST_CONTENT_MARK)).toHaveLength(0);
-  });
-
-  it(`releases the rest after ${HOLD_MAX_MS} ms when a first cover never settles, without marking`, async () => {
-    vi.useFakeTimers();
-    const root = document.createElement('div');
-    const stuck = document.createElement('video');
-    const rest = holdMedia(() => {
+    const loaded = img();
+    root.append(held, loaded);
+    const make = () => {
       const el = document.createElement('img');
       setSource(el, URL_A);
       return el;
-    });
-    root.append(stuck, rest);
-    void loadFirstContent(root, [stuck], true);
-    await vi.advanceTimersByTimeAsync(HOLD_MAX_MS - 1);
-    expect(rest.getAttribute('src')).toBeNull();
+    };
+    replaceCover(held, make);
+    replaceCover(loaded, make);
+    const [a, b] = [...root.querySelectorAll('img')];
+    expect(a.getAttribute('src')).toBeNull();
+    expect(a.dataset['hold']).toBe(URL_A);
+    expect(b.src).toBe(URL_A);
+  });
+
+  it('settles a still video 1 s after its metadata when no frame comes, or at its first frame', async () => {
+    vi.useFakeTimers();
+    const still = document.createElement('video');
+    still.preload = 'metadata';
+    let done = false;
+    void coverSettled(still).then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(done).toBe(false);
+    still.dispatchEvent(new Event('loadedmetadata'));
+    await vi.advanceTimersByTimeAsync(STILL_VIDEO_MAX_MS - 1);
+    expect(done).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect(rest.src).toBe(URL_A);
-    expect(performance.getEntriesByName(FIRST_CONTENT_MARK)).toHaveLength(0);
+    expect(done).toBe(true);
+
+    const framed = document.createElement('video');
+    framed.preload = 'metadata';
+    const settled = coverSettled(framed);
+    framed.dispatchEvent(new Event('loadedmetadata'));
+    framed.dispatchEvent(new Event('loadeddata'));
+    await settled;
+    expect(vi.getTimerCount()).toBe(0);
+
+    // A moving cover has no cap: it waits for its first frame.
+    const moving = document.createElement('video');
+    moving.preload = 'auto';
+    moving.autoplay = true;
+    let movingDone = false;
+    void coverSettled(moving).then(() => (movingDone = true));
+    moving.dispatchEvent(new Event('loadedmetadata'));
+    await vi.advanceTimersByTimeAsync(STILL_VIDEO_MAX_MS * 2);
+    expect(movingDone).toBe(false);
+  });
+
+  it('holds a canvas cover image like other covers, and loads it lazily near the window', () => {
+    const canvas = document.createElement('canvas');
+    const image = new Image();
+    holdMedia(() => setCanvasSource(canvas, image, URL_A));
+    expect(image.getAttribute('src')).toBeNull();
+    expect(canvas.dataset['hold']).toBe(URL_A);
+    releaseMedia([canvas]);
+    expect(image.src).toBe(URL_A);
+
+    let near: (entries: { isIntersecting: boolean }[]) => void = () => undefined;
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(callback: typeof near) {
+          near = callback;
+        }
+        observe = vi.fn();
+        disconnect = disconnect;
+      },
+    );
+    const lazyCanvas = document.createElement('canvas');
+    const lazyImage = new Image();
+    setCanvasSource(lazyCanvas, lazyImage, URL_A);
+    expect(lazyImage.getAttribute('src')).toBeNull();
+    near([{ isIntersecting: false }]);
+    expect(lazyImage.getAttribute('src')).toBeNull();
+    near([{ isIntersecting: true }]);
+    expect(lazyImage.src).toBe(URL_A);
+    expect(disconnect).toHaveBeenCalled();
+  });
+
+  it('nests holds', () => {
+    const el = document.createElement('img');
+    holdMedia(() => {
+      holdMedia(() => undefined);
+      setSource(el, URL_A);
+    });
+    expect(el.getAttribute('src')).toBeNull();
   });
 });
