@@ -2317,6 +2317,23 @@ describe('App', () => {
       expect(video?.loop).toBe(true);
     });
 
+    it("opens a tale's Tale Studio from its drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } });
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      const links = [...(drawer()?.querySelectorAll('a') ?? [])];
+      const link = links.find((a) => a.textContent?.trim() === 'Edit in Tale Studio');
+      expect(link?.getAttribute('href')).toBe('/tales/t1/studio');
+      link?.click();
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/tales/t1/studio');
+      expect(drawer()).toBeNull();
+      http.expectOne(`${API_BASE}/tales/t1/document`).flush({ document: null, revision: 0 });
+      await settle(fixture);
+      expect(root.querySelector('h2.page-header__title')?.textContent).toContain('Tale Studio');
+      expect(root.querySelector('.canvas')).not.toBeNull();
+    });
+
     it('opens a tale, uploads a PNG and shows it on the card', async () => {
       const withTale = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } };
       const { fixture, root } = await open('/zones/z1', withTale);

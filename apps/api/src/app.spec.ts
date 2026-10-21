@@ -1634,7 +1634,7 @@ describe('Management API v1: projects and zones', () => {
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       // C has no live tale, so only A is delivered.
       expect((await delivered.json()).taleGroups).toEqual([
-        { id: a.id, name: 'A', cover: null, tales: [{ id: tale.id, title: 'Beach', media: null }] },
+        { id: a.id, name: 'A', cover: null, tales: [{ id: tale.id, title: 'Beach', media: null, document: null }] },
       ]);
     });
 
@@ -2115,6 +2115,199 @@ describe('Management API v1: projects and zones', () => {
       const results = await Promise.all([0, 1, 2, 3].map(() => copy(g.id, production.id)));
       expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201]);
       expect((await listed(production.id)).map((x) => x.position)).toEqual([0, 1, 2, 3, 4]);
+    });
+  });
+
+  describe('tale documents (AD-15)', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+    const elementId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+    function text(n: number, value = 'Hello', extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        id: elementId(n),
+        type: 'text',
+        box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+        hidden: false,
+        locked: false,
+        a11y: {},
+        props: { text: value },
+        ...extra,
+      };
+    }
+
+    function doc(elements: unknown[] = [text(1)], extra: Record<string, unknown> = {}): Record<string, unknown> {
+      return { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements, ...extra };
+    }
+
+    async function createTale(): Promise<{ id: string; projectId: string }> {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      return { id: tale.id, projectId: zone.projectId };
+    }
+
+    function read(taleId: string): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/document`);
+    }
+
+    function save(taleId: string, body: unknown): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+    }
+
+    // Saves `document` at revision 0 and expects the refusal, naming `pointer`; nothing is stored.
+    async function expectRefused(document: unknown, pointer: string): Promise<void> {
+      const tale = await createTale();
+      const res = await save(tale.id, { document, revision: 0 });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toEqual({ code: 'invalid_tale_document', message: expect.any(String), pointer });
+      expect(await (await read(tale.id)).json()).toEqual({ document: null, revision: 0 });
+    }
+
+    it('reads a tale without a document as null at revision 0', async () => {
+      const tale = await createTale();
+      const res = await read(tale.id);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ document: null, revision: 0 });
+    });
+
+    it('saves a document and reads it back unchanged, raising the revision', async () => {
+      const tale = await createTale();
+      const document = doc([text(1, '<b>x</b>\nsecond line', { a11y: { label: 'Greeting' } }), text(2, 'Two')], {
+        durationMs: 7000,
+      });
+      const saved = await save(tale.id, { document, revision: 0 });
+      expect(saved.status).toBe(200);
+      expect(await saved.json()).toEqual({ document, revision: 1 });
+      expect(await (await read(tale.id)).json()).toEqual({ document, revision: 1 });
+
+      const next = doc([text(2, 'Two')]);
+      expect(await (await save(tale.id, { document: next, revision: 1 })).json()).toEqual({
+        document: next,
+        revision: 2,
+      });
+    });
+
+    it('refuses a write based on an older revision with 409, changing nothing', async () => {
+      const tale = await createTale();
+      expect((await save(tale.id, { document: doc([text(1, 'First')]), revision: 0 })).status).toBe(200);
+      const stale = await save(tale.id, { document: doc([text(1, 'Second')]), revision: 0 });
+      expect(stale.status).toBe(409);
+      expect((await stale.json()).error.code).toBe('stale_revision');
+      expect(await (await read(tale.id)).json()).toEqual({ document: doc([text(1, 'First')]), revision: 1 });
+      // A revision from the future is just as stale.
+      expect((await save(tale.id, { document: doc(), revision: 7 })).status).toBe(409);
+    });
+
+    it('refuses an unknown element type', async () => {
+      await expectRefused(doc([text(1), { ...text(2), type: 'poll' }]), '/elements/1/type');
+    });
+
+    it('refuses out-of-range boxes', async () => {
+      await expectRefused(
+        doc([text(1, 'x', { box: { x: 1.5, y: 0, w: 0.5, h: 0.5, rotation: 0 } })]),
+        '/elements/0/box/x',
+      );
+      await expectRefused(doc([text(1, 'x', { box: { x: 0, y: 0, w: 0, h: 0.5, rotation: 0 } })]), '/elements/0/box/w');
+      await expectRefused(
+        doc([text(1, 'x', { box: { x: 0, y: 0, w: 0.5, h: 0.5, rotation: 400 } })]),
+        '/elements/0/box/rotation',
+      );
+    });
+
+    it('refuses an unknown property and a style string', async () => {
+      await expectRefused(doc([text(1, 'x', { style: 'color:red' })]), '/elements/0/style');
+      await expectRefused(doc([{ ...text(1), props: { text: 'x', html: '<b>x</b>' } }]), '/elements/0/props/html');
+      await expectRefused(doc(undefined, { css: 'body{}' }), '/css');
+    });
+
+    it('refuses more than 60 elements', async () => {
+      await expectRefused(doc(Array.from({ length: 61 }, (_, i) => text(i + 1))), '/elements');
+    });
+
+    it('refuses a text over 1,000 characters', async () => {
+      await expectRefused(doc([text(1, 'a'.repeat(1001))]), '/elements/0/props/text');
+    });
+
+    it('refuses control characters in text other than a line feed', async () => {
+      await expectRefused(doc([text(1, 'bell\u0007')]), '/elements/0/props/text');
+      await expectRefused(doc([text(1, 'nul\u0000')]), '/elements/0/props/text');
+    });
+
+    it('refuses duplicate element ids, a wrong version and a colour that is not hex', async () => {
+      await expectRefused(doc([text(1), text(1, 'again')]), '/elements/1/id');
+      await expectRefused(doc(undefined, { version: 2 }), '/version');
+      await expectRefused(
+        doc(undefined, { canvas: { background: { type: 'color', color: 'red' } } }),
+        '/canvas/background/color',
+      );
+    });
+
+    it('refuses a non-finite number', async () => {
+      const tale = await createTale();
+      const body = JSON.stringify({ document: doc(), revision: 0 }).replace('"x":0.1', '"x":1e999');
+      const res = await save(tale.id, body);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.pointer).toBe('/elements/0/box/x');
+    });
+
+    it('refuses a document over 128 KB with 413, and a larger body too', async () => {
+      const tale = await createTale();
+      const big = doc(Array.from({ length: 60 }, (_, i) => text(i + 1, '€'.repeat(1000))));
+      const res = await save(tale.id, { document: big, revision: 0 });
+      expect(res.status).toBe(413);
+      expect((await res.json()).error.code).toBe('tale_document_too_large');
+      const huge = await save(tale.id, { document: doc([text(1, 'x'.repeat(400 * 1024))]), revision: 0 });
+      expect(huge.status).toBe(413);
+      expect((await huge.json()).error.code).toBe('tale_document_too_large');
+      expect(await (await read(tale.id)).json()).toEqual({ document: null, revision: 0 });
+    });
+
+    it('accepts a document between 100 KB and 128 KB, over the default body limit', async () => {
+      const tale = await createTale();
+      // 55 texts of 1,000 two-byte characters: about 112 KB.
+      const document = doc(Array.from({ length: 55 }, (_, i) => text(i + 1, 'é'.repeat(1000))));
+      expect((await save(tale.id, { document, revision: 0 })).status).toBe(200);
+    });
+
+    it('refuses a body without a document or a valid revision', async () => {
+      const tale = await createTale();
+      const bodies = [
+        { revision: 0 },
+        { document: doc() },
+        { document: doc(), revision: -1 },
+        { document: doc(), revision: '0' },
+      ];
+      for (const body of bodies) {
+        const res = await save(tale.id, body);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      const malformed = await save(tale.id, '{"document":');
+      expect(malformed.status).toBe(400);
+    });
+
+    it('answers 404 for an unknown tale and 403 for a tale of another project', async () => {
+      expect((await read(unknownId)).status).toBe(404);
+      expect((await save(unknownId, { document: doc(), revision: 0 })).status).toBe(404);
+      const tale = await createTale();
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      expect((await read(tale.id)).status).toBe(403);
+      expect((await save(tale.id, { document: doc(), revision: 0 })).status).toBe(403);
+    });
+
+    it('copies a tale group with its tales’ documents', async () => {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      expect((await save(tale.id, { document: doc(), revision: 0 })).status).toBe(200);
+      const copy = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: zone.id })).json();
+      expect(await (await read(copy.tales[0].id)).json()).toEqual({ document: doc(), revision: 0 });
     });
   });
 
@@ -3469,15 +3662,27 @@ describe('Management API v1: projects and zones', () => {
             name: 'A',
             cover: null,
             tales: [
-              { id: a1.id, title: 'A1', media: { kind: 'image', contentType: 'image/png', url: expect.stringMatching(mediaUrl) } },
-              { id: a2.id, title: 'A2', media: null },
+              {
+                id: a1.id,
+                title: 'A1',
+                media: { kind: 'image', contentType: 'image/png', url: expect.stringMatching(mediaUrl) },
+                document: null,
+              },
+              { id: a2.id, title: 'A2', media: null, document: null },
             ],
           },
           {
             id: b.id,
             name: 'B',
             cover: null,
-            tales: [{ id: b1.id, title: 'B1', media: { kind: 'video', contentType: 'video/mp4', url: expect.stringMatching(mediaUrl) } }],
+            tales: [
+              {
+                id: b1.id,
+                title: 'B1',
+                media: { kind: 'video', contentType: 'video/mp4', url: expect.stringMatching(mediaUrl) },
+                document: null,
+              },
+            ],
           },
         ]);
         // No project id or Management API media path in the Delivery response (AD-13).
@@ -3489,6 +3694,52 @@ describe('Management API v1: projects and zones', () => {
         const zone = await createZone();
         const { key } = await issue(zone.id);
         expect((await (await deliver(key)).json()).taleGroups).toEqual([]);
+      });
+
+      it("delivers a tale's document without hidden elements or editor-only fields (AD-15)", async () => {
+        const zone = await createZone();
+        const group = await addGroup(zone.id, 'A');
+        const tale = await addTale(group.id, 'A1', ['image/png', png]);
+        const shown = '00000000-0000-4000-8000-0000000000a1';
+        const hidden = '00000000-0000-4000-8000-0000000000a2';
+        const element = (id: string, text: string, extra: object) => ({
+          id,
+          type: 'text',
+          box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+          a11y: {},
+          props: { text },
+          ...extra,
+        });
+        const document = {
+          version: 1,
+          canvas: { background: { type: 'color', color: '#000000' } },
+          elements: [
+            element(shown, '<b>x</b>', { hidden: false, locked: true }),
+            element(hidden, 'Secret', { hidden: true, locked: false }),
+          ],
+        };
+        const saved = await fetch(`${base}/tales/${tale.id}/document`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document, revision: 0 }),
+        });
+        expect(saved.status).toBe(200);
+        const { key } = await issue(zone.id);
+        const text = await (await deliver(key)).text();
+        expect(JSON.parse(text).taleGroups[0].tales[0].document).toEqual({
+          version: 1,
+          canvas: { background: { type: 'color', color: '#000000' } },
+          elements: [element(shown, '<b>x</b>', {})],
+        });
+        expect(text).not.toContain('Secret');
+        expect(text).not.toContain('"locked"');
+        expect(text).not.toContain('"hidden"');
+
+        // A stored document that no longer validates is not delivered: the tale shows its media only.
+        await pool.query(`UPDATE tales SET document = '{"version": 9}'::jsonb WHERE id = $1`, [tale.id]);
+        const media = (await (await deliver(key)).json()).taleGroups[0].tales[0];
+        expect(media.document).toBeNull();
+        expect(media.media.url).toMatch(mediaUrl);
       });
 
       it('serves published media publicly: stored type, revalidated cache, CORS, nosniff, no key or session', async () => {

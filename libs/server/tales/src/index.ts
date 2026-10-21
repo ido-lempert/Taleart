@@ -1,6 +1,6 @@
 // Public interface of the tales module (AD-1). It owns the `tale_groups`,
 // `zone_tale_groups` (zone placements, AD-14) and `tales` tables (including
-// each tale's media key), and reads zones only through @taleart/server-zones.
+// each tale's media key and document, AD-15), and reads zones only through @taleart/server-zones.
 // Tale groups carry no tags here: the targeting module owns them and the API composes them in.
 export { migrateTales } from './lib/migration';
 export {
@@ -54,3 +54,12 @@ export {
   type StoredZoneTaleGroup,
   type TransactionalDb,
 } from './lib/tales';
+export {
+  checkTaleDocument,
+  deliverableTaleDocument,
+  getTaleDocument,
+  saveTaleDocument,
+  InvalidTaleDocumentError,
+  StaleRevisionError,
+  TaleDocumentTooLargeError,
+} from './lib/tale-document';

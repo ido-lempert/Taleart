@@ -10,6 +10,7 @@ import {
   taleGroupCoverUrl,
   taleMediaUrl,
   type ContentStatus,
+  type DeliveryTaleDocument,
   type MediaContentType,
   type ProjectTaleGroup,
   type SettableStatus,
@@ -20,6 +21,7 @@ import {
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
+import { deliverableTaleDocument } from './tale-document';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -492,9 +494,11 @@ export async function copyTaleGroup(
     // this copy to commit, so its "still referenced" check sees the copy's
     // tales and never deletes a file the copy now uses (AD-11).
     await tx.query('SELECT 1 FROM tales WHERE tale_group_id = $1 FOR SHARE', [taleGroupId]);
+    // Each copy keeps its tale's document (AD-15), starting its own revisions.
     await tx.query(
-      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status, starts_at, ends_at)
-       SELECT $2, $3, title, position, media_key, media_content_type, status, starts_at, ends_at FROM tales
+      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status,
+         starts_at, ends_at, document)
+       SELECT $2, $3, title, position, media_key, media_content_type, status, starts_at, ends_at, document FROM tales
        WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId, group.id, projectId],
     );
@@ -1030,6 +1034,8 @@ export interface DeliveryStoredTale {
   id: string;
   title: string;
   media: StoredTaleMedia | null;
+  /** The tale's document as delivered (AD-15), or null when it has none or it no longer validates. */
+  document: DeliveryTaleDocument | null;
 }
 
 /** A tale group as the Delivery API needs it, with its tales by position. */
@@ -1078,8 +1084,9 @@ export async function listDeliveryTaleGroups(
     title: string;
     key: string | null;
     contentType: string | null;
+    document: unknown;
   }>(
-    `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType"
+    `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType", document
      FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND ${liveNow('tales', '$2')} ORDER BY position, id`,
     [groups.rows.map((g) => g.id), now],
   );
@@ -1094,10 +1101,11 @@ export async function listDeliveryTaleGroups(
           : null,
       tales: tales.rows
         .filter((tale) => tale.taleGroupId === group.id)
-        .map(({ id, title, key, contentType }) => ({
+        .map(({ id, title, key, contentType, document }) => ({
           id,
           title,
           media: key !== null && isMediaContentType(contentType) ? { key, contentType } : null,
+          document: deliverableTaleDocument(document),
         })),
     }))
     .filter((group) => group.tales.length > 0);

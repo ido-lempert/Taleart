@@ -114,6 +114,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
               contentType: tale.media.contentType,
               url: publicMediaUrl(options.publicApiUrl, tale.media.key),
             },
+            // Without hidden elements and editor-only fields (AD-15); null shows the media only.
+            document: tale.document,
           })),
         })),
       };
