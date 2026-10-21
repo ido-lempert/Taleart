@@ -2,7 +2,7 @@
 // of the contract, read as is in this test only.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import bannerSchema from '../../../../libs/contract/frame-types/banner.schema.json';
-import { humanize, initialSettings, settingsFields } from './settings-form';
+import { describeSettings, humanize, initialSettings, settingsFields } from './settings-form';
 
 describe('settings form schema reading', () => {
   const schema = {
@@ -100,5 +100,21 @@ describe('settings form schema reading', () => {
       aspectRatio: '16:9',
       intervalSeconds: 5,
     });
+  });
+
+  it('describes settings read-only, labelled by the schema, in schema order', () => {
+    expect(
+      describeSettings(bannerSchema, { loop: true, aspectRatio: '3:1', autoplay: false, intervalSeconds: 5, extra: 'x-y' }),
+    ).toEqual([
+      { label: 'Aspect ratio', value: '3:1' },
+      { label: 'Autoplay', value: 'Off' },
+      { label: 'Interval', value: '5' },
+      { label: 'Loop', value: 'On' },
+      { label: 'Extra', value: 'X y' },
+    ]);
+    expect(describeSettings(undefined, { showTitles: true, shape: 'rounded-square' })).toEqual([
+      { label: 'Show titles', value: 'On' },
+      { label: 'Shape', value: 'Rounded square' },
+    ]);
   });
 });

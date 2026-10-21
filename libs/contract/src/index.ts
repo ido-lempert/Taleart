@@ -27,6 +27,8 @@ export type UpdateFrameRequest = Schemas['UpdateFrameRequest'];
 export type Stage = Schemas['Stage'];
 export type CreateStageRequest = Schemas['CreateStageRequest'];
 export type RenameStageRequest = Schemas['RenameStageRequest'];
+export type ApplyPlaybookRequest = Schemas['ApplyPlaybookRequest'];
+export type AppliedPlaybook = Schemas['AppliedPlaybook'];
 export type TaleGroup = Schemas['TaleGroup'];
 export type ZoneTaleGroup = Schemas['ZoneTaleGroup'];
 export type ProjectTaleGroup = Schemas['ProjectTaleGroup'];
@@ -95,6 +97,7 @@ export type ErrorBody = Schemas['ErrorBody'];
 export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: ThemeSettings };
 
 export * from './lib/theme';
+export * from './lib/playbooks';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
@@ -453,6 +456,9 @@ export const ErrorCodes = {
   invalidStatusTransition: 'invalid_status_transition',
   stageNotFound: 'stage_not_found',
   stageKeyTaken: 'stage_key_taken',
+  unknownPlaybook: 'unknown_playbook',
+  playbookAlreadyApplied: 'playbook_already_applied',
+  concurrentChange: 'concurrent_change',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 
