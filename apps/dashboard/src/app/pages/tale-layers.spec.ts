@@ -2,6 +2,10 @@ import type { TaleElement } from '@taleart/contract';
 import {
   clampMove,
   duplicateElement,
+  historyKeyShortcuts,
+  historyLabel,
+  historyShortcut,
+  isTextEntry,
   layerName,
   layerShortcut,
   moveBox,
@@ -141,6 +145,11 @@ describe('layerShortcut', () => {
     expect(press('h', { ctrlKey: true })).toBeNull();
   });
 
+  it('reads a Latin letter as typed, so AZERTY’s A and Z keys match their labels', () => {
+    expect(press('a', { code: 'KeyQ', ctrlKey: true })).toBe('select-all');
+    expect(press('q', { code: 'KeyA', ctrlKey: true })).toBeNull();
+  });
+
   it('deletes with Delete, and with Backspace on a Mac only', () => {
     expect(press('Delete')).toBe('delete');
     expect(press('Backspace')).toBeNull();
@@ -160,5 +169,53 @@ describe('layerShortcut', () => {
     expect(shortcutLabel('front', false)).toBe('Alt+Shift+↑');
     expect(shortcutLabel('delete', true)).toBe('⌫');
     expect(shortcutLabel('select-all', false)).toBe('Ctrl+A');
+  });
+});
+
+describe('historyShortcut', () => {
+  const press = (key: string, init: KeyboardEventInit = {}, apple = false) =>
+    historyShortcut(new KeyboardEvent('keydown', { key, ...init }), apple);
+
+  it('undoes with Ctrl+Z and redoes with Ctrl+Shift+Z or Ctrl+Y off a Mac', () => {
+    expect(press('z', { ctrlKey: true })).toBe('undo');
+    expect(press('Z', { ctrlKey: true, shiftKey: true })).toBe('redo');
+    expect(press('y', { ctrlKey: true })).toBe('redo');
+    expect(press('z', { metaKey: true })).toBeNull();
+    expect(press('z')).toBeNull();
+    expect(press('z', { ctrlKey: true, altKey: true })).toBeNull();
+  });
+
+  it('undoes with Cmd+Z and redoes with Shift+Cmd+Z on a Mac, where Ctrl+Z and Cmd+Y do nothing', () => {
+    expect(press('z', { metaKey: true }, true)).toBe('undo');
+    expect(press('z', { metaKey: true, shiftKey: true }, true)).toBe('redo');
+    expect(press('z', { ctrlKey: true }, true)).toBeNull();
+    expect(press('y', { metaKey: true }, true)).toBeNull();
+  });
+
+  it('works on non-Latin and AZERTY layouts', () => {
+    expect(press('ז', { code: 'KeyZ', ctrlKey: true })).toBe('undo');
+    expect(press('z', { code: 'KeyW', ctrlKey: true })).toBe('undo');
+    expect(press('w', { code: 'KeyZ', ctrlKey: true })).toBeNull();
+  });
+
+  it('labels and names the shortcuts per platform', () => {
+    expect([historyLabel('undo', true), historyLabel('redo', true)]).toEqual(['⌘Z', '⇧⌘Z']);
+    expect([historyLabel('undo', false), historyLabel('redo', false)]).toEqual(['Ctrl+Z', 'Ctrl+Shift+Z']);
+    expect(historyKeyShortcuts('redo', false)).toBe('Control+Shift+Z Control+Y');
+    expect(historyKeyShortcuts('undo', true)).toBe('Meta+Z');
+  });
+});
+
+describe('isTextEntry', () => {
+  const input = (type: string) => Object.assign(document.createElement('input'), { type });
+
+  it('is true where typing goes, whose undo is the browser’s', () => {
+    expect(isTextEntry(document.createElement('textarea'))).toBe(true);
+    expect(isTextEntry(input('text'))).toBe(true);
+    expect(isTextEntry(input('number'))).toBe(true);
+    expect(isTextEntry(input('checkbox'))).toBe(false);
+    expect(isTextEntry(input('color'))).toBe(false);
+    expect(isTextEntry(document.createElement('button'))).toBe(false);
+    expect(isTextEntry(null)).toBe(false);
   });
 });

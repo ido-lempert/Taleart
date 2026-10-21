@@ -178,11 +178,51 @@ export function isApple(): boolean {
   return /mac|iphone|ipad|ipod/i.test(platform);
 }
 
-// The letter a key press types on a Latin layout: by its physical key (`KeyH`), so it works on any
-// layout such as Hebrew, else by the character.
+// The letter a key press stands for: the Latin letter it types, so a layout that moves letters
+// (AZERTY's A and Z) matches what its keys say; on a layout without Latin letters, such as Hebrew,
+// the physical key (`KeyH`).
 function letter(event: KeyboardEvent): string {
+  if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase();
   const code = /^Key([A-Z])$/.exec(event.code ?? '')?.[1];
   return (code ?? event.key).toLowerCase();
+}
+
+/** A history command, from the keyboard or the toolbar. */
+export type HistoryCommand = 'undo' | 'redo';
+
+/**
+ * The history command a key press asks for, or null: Cmd+Z and Shift+Cmd+Z on a Mac, Ctrl+Z,
+ * Ctrl+Shift+Z and Ctrl+Y elsewhere. The studio asks only outside text fields, whose own undo
+ * stays the browser's.
+ */
+export function historyShortcut(event: KeyboardEvent, apple = isApple()): HistoryCommand | null {
+  const mod = apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (!mod || event.altKey) return null;
+  const key = letter(event);
+  if (key === 'z') return event.shiftKey ? 'redo' : 'undo';
+  if (key === 'y' && !apple && !event.shiftKey) return 'redo';
+  return null;
+}
+
+/** How the history shortcuts read, with the Mac symbols on a Mac. */
+export function historyLabel(command: HistoryCommand, apple = isApple()): string {
+  if (command === 'undo') return apple ? '⌘Z' : 'Ctrl+Z';
+  return apple ? '⇧⌘Z' : 'Ctrl+Shift+Z';
+}
+
+/** The history shortcuts as `aria-keyshortcuts` names them on this platform. */
+export function historyKeyShortcuts(command: HistoryCommand, apple = isApple()): string {
+  if (command === 'undo') return apple ? 'Meta+Z' : 'Control+Z';
+  return apple ? 'Meta+Shift+Z' : 'Control+Shift+Z Control+Y';
+}
+
+/** True for a field where typing goes, whose keys (its own undo included) belong to the browser. */
+export function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)
+    return true;
+  if (!(target instanceof HTMLInputElement)) return false;
+  return !['checkbox', 'radio', 'button', 'submit', 'reset', 'color', 'range', 'file', 'image'].includes(target.type);
 }
 
 /**
@@ -191,7 +231,8 @@ function letter(event: KeyboardEvent): string {
  * (WCAG 2.1.4) and nothing clashes with the browser: Alt+Up and Alt+Down bring forward and send
  * backward, with Shift to the front and the back; H hides or shows, L locks or unlocks, D
  * duplicates; Ctrl+A (Cmd+A on a Mac) selects every layer; Delete deletes, and so does Backspace
- * on a Mac. Letters are matched by physical key, so they work on any keyboard layout.
+ * on a Mac. Letters are matched by the Latin letter typed, else by physical key, so they work on
+ * any keyboard layout.
  */
 export function layerShortcut(event: KeyboardEvent, apple = isApple()): LayerCommand | null {
   const mod = event.ctrlKey || event.metaKey;

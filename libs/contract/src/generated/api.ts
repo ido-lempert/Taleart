@@ -923,7 +923,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale.
-         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11).
+         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11). Setting `live` on a tale that has nothing published yet (from any status) also publishes its draft document (AD-15) in the same transaction, after checking it again; a tale that already has a published document keeps it. When the draft no longer passes the check, the status still changes, the draft is not published, and the answer says so with `draftNotPublished: true`.
          */
         put: operations["setTaleStatus"];
         post?: never;
@@ -991,16 +991,82 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a tale's document.
-         * @description The tale document (AD-15) and its revision. A tale without a document answers `document: null` and revision 0; it shows its media only. Unknown tale: 404 `tale_not_found`.
+         * Read a tale's draft document, with its published one.
+         * @description The tale's draft document (AD-15), the one Tale Studio edits, with its revision, and the published document with its own revision, the one the Delivery API serves. A tale without a draft answers `document: null` and revision 0; without a published document, `published: { document: null, revision: 0 }`, and it shows its media only. Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTaleDocument"];
         /**
-         * Save a tale's document.
-         * @description Replaces the document when `revision` is the tale's current revision, and answers the document with the next revision. A write based on an older revision changes nothing and answers 409 `stale_revision`, so two editors never overwrite each other silently. The document is checked against `tale-document/v1.schema.json` (no additional properties), each element's `props` against the schema of its registered type, and the rules of AD-15: at most 60 elements, 1,000 characters per text, unique ids, numbers in range, no control characters except a line feed in text. A refused document answers 400 `invalid_tale_document` with `pointer`, the JSON pointer of the field it refused (from the document's root); a document over 128 KB answers 413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647): 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         * Save a tale's draft document.
+         * @description Replaces the draft document when `revision` is the draft's current revision, and answers it with the next revision and the published document. The published document, and so what visitors see, does not change. A write based on an older revision changes nothing and answers 409 `stale_revision`, so two editors never overwrite each other silently. The document is checked against `tale-document/v1.schema.json` (no additional properties), each element's `props` against the schema of its registered type, and the rules of AD-15: at most 60 elements, 1,000 characters per text, unique ids, numbers in range, no control characters except a line feed in text. A refused document answers 400 `invalid_tale_document` with `pointer`, the JSON pointer of the field it refused (from the document's root); a document over 128 KB answers 413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647): 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
          */
         put: operations["saveTaleDocument"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/document/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a tale's draft document.
+         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. A tale with no draft answers 409 `nothing_to_publish`; publishing never empties the published document. The draft is checked again first (400 `invalid_tale_document` with `pointer`). The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         */
+        post: operations["publishTaleDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/document/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard a tale's draft, back to the published document.
+         * @description Replaces the draft with the published document (null when nothing is published), raising the draft's revision, when `revision` and `publishedRevision` are the current ones (compare-and-set on both); otherwise nothing changes and it answers 409 `stale_revision`. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         */
+        post: operations["discardTaleDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/document/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep a document as a new tale in the tale's group.
+         * @description For a save refused with 409 `stale_revision`: keeps the editor's own version as a new tale instead of dropping it. In one transaction, creates a `draft` tale at the end of the source tale's group, titled after the source with " (copy)", sharing the source's media storage key (AD-11, AD-14), and holding `document` as its draft at revision 1, with nothing published (revision 0). The document is checked as a save checks it: 400 `invalid_tale_document` with `pointer`, 413 `tale_document_too_large`. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the source tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a body without a document: 400 `validation_failed`.
+         */
+        post: operations["copyTaleDocument"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1429,15 +1495,36 @@ export interface components {
         TaleDocument: components["schemas"]["v1.schema"];
         TextElementProps: components["schemas"]["text.schema"];
         TaleDocumentRevision: {
-            /** @description The tale's document, or null when it has none. */
+            /** @description The tale's draft document, the one Tale Studio edits, or null when it has none. */
             document: components["schemas"]["v1.schema"] | null;
-            /** @description Raised by one on every save; 0 before the first save. */
+            /** @description The draft's revision, raised by one on every save; 0 before the first save. */
             revision: number;
+            published: components["schemas"]["PublishedTaleDocument"];
+        };
+        /** @description A tale as a status change answers it. */
+        TaleStatusResult: components["schemas"]["Tale"] & {
+            /** @description Present and true when the tale went live with nothing published yet and its draft document no longer passes the checks, so the draft was not published (AD-15). */
+            draftNotPublished?: boolean;
+        };
+        PublishedTaleDocument: {
+            /** @description The published document, the one the Delivery API serves, or null when none is published. */
+            document: components["schemas"]["v1.schema"] | null;
+            /** @description Raised by one on every publish; 0 before the first. */
+            revision: number;
+        };
+        TaleDocumentRevisionsRequest: {
+            /** @description The draft revision the request is based on. */
+            revision: number;
+            /** @description The published revision the request is based on. */
+            publishedRevision: number;
         };
         SaveTaleDocumentRequest: {
             document: components["schemas"]["v1.schema"];
             /** @description The revision this document was based on, as the last read or save returned it. */
             revision: number;
+        };
+        CopyTaleDocumentRequest: {
+            document: components["schemas"]["v1.schema"];
         };
         DeliveryMedia: {
             kind: components["schemas"]["MediaKind"];
@@ -1750,7 +1837,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -3412,7 +3499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Tale"];
+                    "application/json": components["schemas"]["TaleStatusResult"];
                 };
             };
             400: components["responses"]["Error"];
@@ -3576,6 +3663,100 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    publishTaleDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaleDocumentRevisionsRequest"];
+            };
+        };
+        responses: {
+            /** @description The draft and the newly published document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleDocumentRevision"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    discardTaleDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaleDocumentRevisionsRequest"];
+            };
+        };
+        responses: {
+            /** @description The draft, now the published document, and the published document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleDocumentRevision"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    copyTaleDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyTaleDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description The new tale, a draft, holding the document. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
 }
 type FlattenedDeepRequired<T> = {
     [K in keyof T]-?: FlattenedDeepRequired<T[K] extends unknown[] | undefined | null ? Extract<T[K], unknown[]>[number] : T[K]>;
@@ -3597,4 +3778,4 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "internal_error"];

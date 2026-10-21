@@ -1154,6 +1154,58 @@ select {
   margin-right: var(--space-2);
 }
 
+/* ---------- Tale Studio: undo, redo and the save indicator ---------- */
+.studio-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.studio-bar .btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.studio-save {
+  margin: 0 0 0 auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.studio-save.is-failed {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+.studio-publish {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.studio-publish.is-unpublished {
+  border-color: var(--ember);
+}
+.studio-publish__state {
+  flex: 1;
+  min-width: 200px;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.studio-publish .btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.studio-alert,
+.studio-notice {
+  margin: 0 0 var(--space-4);
+}
+.studio-alert p {
+  margin: 0 0 var(--space-2);
+}
+
 /* ---------- Tale Studio: layers list and layer actions menu ---------- */
 .layers {
   display: flex;

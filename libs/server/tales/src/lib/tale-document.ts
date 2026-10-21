@@ -52,6 +52,16 @@ export class StaleRevisionError extends Error {
   }
 }
 
+/** Thrown when a tale with no draft document is published: publishing never empties the published document. */
+export class NothingToPublishError extends Error {
+  readonly code = ErrorCodes.nothingToPublish;
+
+  constructor() {
+    super('This tale has no draft to publish.');
+    this.name = 'NothingToPublishError';
+  }
+}
+
 /** A key as a JSON pointer segment (RFC 6901): `~` becomes `~0` and `/` becomes `~1`. */
 export function pointerSegment(key: string | number): string {
   return String(key).replace(/~/g, '~0').replace(/\//g, '~1');
@@ -248,25 +258,53 @@ function deliver(stored: unknown): DeliveryTaleDocument | null {
   };
 }
 
+// The draft and the published document with their revisions, as a row reads them.
+const STATE_COLUMNS =
+  'draft_document AS document, draft_revision AS revision, ' +
+  'document AS "publishedDocument", document_revision AS "publishedRevision"';
+
+interface StateRow {
+  document: TaleDocument | null;
+  revision: number;
+  publishedDocument: TaleDocument | null;
+  publishedRevision: number;
+}
+
+function toState(row: StateRow): TaleDocumentRevision {
+  return {
+    document: row.document,
+    revision: row.revision,
+    published: { document: row.publishedDocument, revision: row.publishedRevision },
+  };
+}
+
 /**
- * The tale's document and revision; a tale without one reads `{ document: null, revision: 0 }`.
+ * The tale's draft document (the one Tale Studio edits) and revision, with its published document
+ * (the one the Delivery API serves) and its revision; a tale without one reads null at revision 0.
  * Throws {@link TaleNotFoundError}.
  */
 export async function getTaleDocument(db: Db, taleId: string): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const { rows } = await db.query<{ document: TaleDocument | null; revision: number }>(
-    'SELECT document, document_revision AS revision FROM tales WHERE id = $1',
-    [taleId],
-  );
+  const { rows } = await db.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
   if (rows.length === 0) throw new TaleNotFoundError(taleId);
-  return { document: rows[0].document, revision: rows[0].revision };
+  return toState(rows[0]);
+}
+
+// Refuses a request based on revisions that are no longer current, or answers 404.
+async function refuseStale(db: Db, taleId: string): Promise<never> {
+  const current = await db.query<{ revision: number }>('SELECT draft_revision AS revision FROM tales WHERE id = $1', [
+    taleId,
+  ]);
+  if (current.rows.length === 0) throw new TaleNotFoundError(taleId);
+  throw new StaleRevisionError(current.rows[0].revision);
 }
 
 /**
- * Replaces the tale's document when `basedOn` is its current revision, in one conditional
- * update, and returns it with the next revision. Checks the document first
- * ({@link checkTaleDocument}). Throws {@link StaleRevisionError} when another save came first,
- * so no write is lost silently, and {@link TaleNotFoundError}.
+ * Replaces the tale's draft document when `basedOn` is the draft's current revision, in one
+ * conditional update, and returns it with the next revision. The published document, and so
+ * what visitors see, does not change. Checks the document first ({@link checkTaleDocument}).
+ * Throws {@link StaleRevisionError} when another save came first, so no write is lost silently,
+ * and {@link TaleNotFoundError}.
  */
 export async function saveTaleDocument(
   db: Db,
@@ -276,17 +314,65 @@ export async function saveTaleDocument(
 ): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
   const document = checkTaleDocument(value);
-  const { rows } = await db.query<{ revision: number }>(
-    `UPDATE tales SET document = $2::jsonb, document_revision = document_revision + 1
-     WHERE id = $1 AND document_revision = $3
-     RETURNING document_revision AS revision`,
+  const { rows } = await db.query<StateRow>(
+    `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
+     WHERE id = $1 AND draft_revision = $3
+     RETURNING ${STATE_COLUMNS}`,
     [taleId, JSON.stringify(document), basedOn],
   );
-  if (rows.length > 0) return { document, revision: rows[0].revision };
-  const current = await db.query<{ revision: number }>(
-    'SELECT document_revision AS revision FROM tales WHERE id = $1',
-    [taleId],
+  if (rows.length > 0) return { ...toState(rows[0]), document };
+  return refuseStale(db, taleId);
+}
+
+/**
+ * Publishes the tale's draft: copies it to the published document, which the Delivery API serves,
+ * raising the published revision. Compare-and-set on both revisions, in one statement: when
+ * `draftRevision` or `publishedRevision` is no longer current nothing changes and it throws
+ * {@link StaleRevisionError}. The draft is checked again first, as rules may have changed since
+ * it was saved ({@link InvalidTaleDocumentError}). A tale with no draft throws
+ * {@link NothingToPublishError}: publishing never empties the published document. The tale's
+ * status does not change.
+ */
+export async function publishTaleDocument(
+  db: Db,
+  taleId: string,
+  draftRevision: number,
+  publishedRevision: number,
+): Promise<TaleDocumentRevision> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const read = await db.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
+  if (read.rows.length === 0) throw new TaleNotFoundError(taleId);
+  const draft = read.rows[0].document;
+  if (draft === null) throw new NothingToPublishError();
+  checkTaleDocument(draft);
+  const { rows } = await db.query<StateRow>(
+    `UPDATE tales SET document = draft_document, document_revision = document_revision + 1
+     WHERE id = $1 AND draft_revision = $2 AND document_revision = $3 AND draft_document IS NOT NULL
+     RETURNING ${STATE_COLUMNS}`,
+    [taleId, draftRevision, publishedRevision],
   );
-  if (current.rows.length === 0) throw new TaleNotFoundError(taleId);
-  throw new StaleRevisionError(current.rows[0].revision);
+  if (rows.length > 0) return toState(rows[0]);
+  return refuseStale(db, taleId);
+}
+
+/**
+ * Discards the tale's draft: it becomes the published document again (null when nothing is
+ * published), raising the draft's revision. Compare-and-set on both revisions, as
+ * {@link publishTaleDocument}; throws {@link StaleRevisionError} and {@link TaleNotFoundError}.
+ */
+export async function discardTaleDraft(
+  db: Db,
+  taleId: string,
+  draftRevision: number,
+  publishedRevision: number,
+): Promise<TaleDocumentRevision> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const { rows } = await db.query<StateRow>(
+    `UPDATE tales SET draft_document = document, draft_revision = draft_revision + 1
+     WHERE id = $1 AND draft_revision = $2 AND document_revision = $3
+     RETURNING ${STATE_COLUMNS}`,
+    [taleId, draftRevision, publishedRevision],
+  );
+  if (rows.length > 0) return toState(rows[0]);
+  return refuseStale(db, taleId);
 }

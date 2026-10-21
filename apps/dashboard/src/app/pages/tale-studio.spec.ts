@@ -1,9 +1,11 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { elementBounds, type TaleDocument, type ZoneTaleGroup } from '@taleart/contract';
 import { API_BASE, DashboardStore } from '../dashboard.store';
+import { appRoutes } from '../app.routes';
+import { AUTOSAVE_TIMING } from './tale-autosave';
 import { TaleStudioPage } from './tale-studio';
 
 const url = `${API_BASE}/tales/t1/document`;
@@ -36,6 +38,15 @@ const existing: TaleDocument = {
   ],
 };
 
+// A read of the tale's document: the draft, and the published document, the same unless given.
+function draftRead(read: {
+  document: TaleDocument | null;
+  revision: number;
+  published?: { document: TaleDocument | null; revision: number };
+}) {
+  return { ...read, published: read.published ?? { document: read.document, revision: read.revision } };
+}
+
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   await fixture.whenStable();
   await new Promise((resolve) => setTimeout(resolve));
@@ -52,38 +63,64 @@ function key(target: Element, k: string, init: KeyboardEventInit = {}): void {
   target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
 }
 
+// Autosave waits for the test to ask; tests of its timing shorten it.
+const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
+const timing = { ...WAIT_FOR_TEST };
+
 describe('TaleStudioPage', () => {
   let http: HttpTestingController;
   let fixture: ComponentFixture<TaleStudioPage>;
   let root: HTMLElement;
 
-  async function open(read: { document: TaleDocument | null; revision: number }): Promise<void> {
+  async function open(read: Parameters<typeof draftRead>[0]): Promise<void> {
     fixture = TestBed.createComponent(TaleStudioPage);
     fixture.componentRef.setInput('taleId', 't1');
     fixture.detectChanges();
-    http.expectOne(url).flush(read);
+    http.expectOne(url).flush(draftRead(read));
     await settle(fixture);
     root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
   }
 
   const elements = () => [...root.querySelectorAll<HTMLButtonElement>('button.el')];
-  const status = () => root.querySelector('[role=status]')?.textContent?.trim();
+  const status = () => root.querySelector('#studio-save')?.textContent?.trim();
+
+  // Saves what is unsaved now, as leaving the studio does, and answers the save with `revision`.
+  async function saveNow(revision: number): Promise<{ document: TaleDocument; revision: number }> {
+    const leaving = fixture.componentInstance.canLeave();
+    await settle(fixture);
+    const req = http.expectOne(url);
+    expect(req.request.method).toBe('PUT');
+    const body = req.request.body as { document: TaleDocument; revision: number };
+    req.flush({ document: body.document, revision });
+    expect(await leaving).toBe(true);
+    await settle(fixture);
+    return body;
+  }
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [TaleStudioPage],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        // Autosave waits for the test to ask, unless a test sets its own timing.
+        { provide: AUTOSAVE_TIMING, useValue: timing },
+      ],
     }).compileComponents();
     http = TestBed.inject(HttpTestingController);
     const store = TestBed.inject(DashboardStore);
     store.taleGroups.set({ z1: [group] });
     store.loaded.set(true);
+    // Leaving with changes that could not be saved asks; tests answer "stay" unless they say otherwise.
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
   });
 
   afterEach(() => {
     http.verify();
     document.body.replaceChildren();
+    vi.restoreAllMocks();
   });
 
   it('shows a tale without a document on an empty 9:16 canvas with its media as the background', async () => {
@@ -129,11 +166,7 @@ describe('TaleStudioPage', () => {
     expect((root.querySelector('#studio-y') as HTMLInputElement).value).toBe('21');
     expect(root.querySelector('[aria-live=polite]')?.textContent).toContain('Text moved');
 
-    buttonNamed(root, 'Save').click();
-    await settle(fixture);
-    const req = http.expectOne(url);
-    expect(req.request.method).toBe('PUT');
-    const body = req.request.body as { document: TaleDocument; revision: number };
+    const body = await saveNow(1);
     expect(body.revision).toBe(0);
     expect(body.document.elements).toEqual([
       {
@@ -146,17 +179,13 @@ describe('TaleStudioPage', () => {
         props: { text: 'Hello' },
       },
     ]);
-    req.flush({ document: body.document, revision: 1 });
-    await settle(fixture);
-    expect(status()).toBe('Saved');
+    expect(status()).toBe('All changes saved');
 
     // The next save is based on the new revision.
-    buttonNamed(root, 'Save').click();
+    key(elements()[0], 'ArrowDown');
     await settle(fixture);
-    const next = http.expectOne(url);
-    expect((next.request.body as { revision: number }).revision).toBe(1);
-    next.flush({ document: body.document, revision: 2 });
-    await settle(fixture);
+    expect(status()).toBe('Unsaved changes');
+    expect((await saveNow(2)).revision).toBe(1);
   });
 
   const live = () => root.querySelector('[aria-live=polite]')?.textContent;
@@ -206,7 +235,7 @@ describe('TaleStudioPage', () => {
     await settle(fixture);
     expect(elements()).toHaveLength(0);
     expect(document.activeElement).toBe(root.querySelector('.canvas'));
-    expect(live()).toBe('Text deleted');
+    expect(live()).toBe('Text deleted — press Ctrl+Z to undo');
   });
 
   it('shows text without added whitespace, and keeps the rotation while typing in place', async () => {
@@ -271,7 +300,8 @@ describe('TaleStudioPage', () => {
 
   it('offers to reload when the save is refused as stale', async () => {
     await open({ document: existing, revision: 1 });
-    buttonNamed(root, 'Save').click();
+    key(elements()[0], 'ArrowDown');
+    void fixture.componentInstance.canLeave();
     await settle(fixture);
     http
       .expectOne(url)
@@ -281,15 +311,16 @@ describe('TaleStudioPage', () => {
     buttonNamed(root, 'Reload latest version').click();
     await settle(fixture);
     const changed = { ...existing, elements: [{ ...existing.elements[0], props: { text: 'Theirs' } }] };
-    http.expectOne(url).flush({ document: changed, revision: 2 });
+    http.expectOne(url).flush(draftRead({ document: changed, revision: 2 }));
     await settle(fixture);
     expect(elements()[0].textContent?.trim()).toBe('Theirs');
-    expect(root.querySelector('[role=alert]')).toBeNull();
+    expect([...root.querySelectorAll('[role=alert]')].map((a) => a.textContent?.trim()).join('')).toBe('');
   });
 
   it('explains a refused save in plain words and marks the element its pointer names', async () => {
     await open({ document: existing, revision: 1 });
-    buttonNamed(root, 'Save').click();
+    key(elements()[0], 'ArrowDown');
+    void fixture.componentInstance.canLeave();
     await settle(fixture);
     http.expectOne(url).flush(
       {
@@ -309,13 +340,14 @@ describe('TaleStudioPage', () => {
     expect(elements()[0].getAttribute('aria-pressed')).toBe('true');
     expect(status()).toBe('Not saved');
 
-    buttonNamed(root, 'Save').click();
+    buttonNamed(root, 'Retry now').click();
     await settle(fixture);
     http
       .expectOne(url)
       .flush({ error: { code: 'tale_document_too_large', message: 'x' } }, { status: 413, statusText: 'Too Large' });
     await settle(fixture);
-    expect(root.querySelector('[role=alert]')?.textContent).toContain('This tale is too large to save');
+    // The visible block changes with each failure; the alert region keeps the first, announced once.
+    expect(root.querySelector('#studio-save-problem')?.textContent).toContain('This tale is too large to save');
   });
   describe('layers, background and safe areas (story 2)', () => {
     const ID = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
@@ -338,13 +370,7 @@ describe('TaleStudioPage', () => {
     const state = (n: number) => root.querySelector(`#layer-state-${ID(n)}`)?.textContent?.trim();
 
     async function saved(): Promise<TaleDocument> {
-      buttonNamed(root, 'Save').click();
-      await settle(fixture);
-      const req = http.expectOne(url);
-      const body = req.request.body as { document: TaleDocument };
-      req.flush({ document: body.document, revision: 2 });
-      await settle(fixture);
-      return body.document;
+      return (await saveNow(2)).document;
     }
 
     it('lists every layer top first, with its type and a name from its text', async () => {
@@ -457,7 +483,7 @@ describe('TaleStudioPage', () => {
       key(row(3), 'Delete');
       await settle(fixture);
       expect(rowNames()).toEqual(['B']);
-      expect(live()).toBe('2 layers deleted');
+      expect(live()).toBe('2 layers deleted — press Ctrl+Z to undo');
       expect(document.activeElement).toBe(row(2));
     });
 
@@ -820,6 +846,605 @@ describe('TaleStudioPage', () => {
       expect(root.querySelector('#studio-bg-error')).toBeNull();
       expect(picker.value).toBe('#aabbcc');
       expect((await saved()).canvas).toEqual({ background: { type: 'color', color: '#AABBCC80' } });
+    });
+  });
+
+  describe('undo, redo and autosave (story 3)', () => {
+    const ID = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+    const at = (n: number, text: string, y: number) => ({
+      ...existing.elements[0],
+      id: ID(n),
+      box: { x: 0.1, y, w: 0.8, h: 0.1, rotation: 0 },
+      props: { text },
+    });
+    const three: TaleDocument = { ...existing, elements: [at(1, 'A', 0.4), at(2, 'B', 0.42), at(3, 'C', 0.2)] };
+    const row = (n: number) => root.querySelector(`#layer-${ID(n)}`) as HTMLElement;
+    const canvasEl = (n: number) => root.querySelector(`#studio-el-${ID(n)}`) as HTMLElement;
+    const canvas = () => root.querySelector('#studio-canvas') as HTMLElement;
+    const undoButton = () => root.querySelector('#studio-undo') as HTMLButtonElement;
+    const redoButton = () => root.querySelector('#studio-redo') as HTMLButtonElement;
+    const docNow = () => JSON.stringify((fixture.componentInstance as unknown as { doc(): TaleDocument }).doc());
+    const alertText = () => [...root.querySelectorAll('[role=alert]')].map((a) => a.textContent).join(' ');
+    const copyUrl = `${url}/copy`;
+
+    it('undoes ten edits (add, move, reorder, hide…) one by one and redoes them, then saves the last state', async () => {
+      await open({ document: three, revision: 1 });
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+      expect(undoButton().getAttribute('aria-keyshortcuts')).toBe('Control+Z');
+      expect(redoButton().getAttribute('aria-keyshortcuts')).toBe('Control+Shift+Z Control+Y');
+      const states = [docNow()];
+      const step = async (act: () => void) => {
+        act();
+        await settle(fixture);
+        states.push(docNow());
+      };
+      await step(() => buttonNamed(root, 'Add text').click());
+      key(root.querySelector('textarea.el-edit') as HTMLElement, 'Escape');
+      await settle(fixture);
+      await step(() => key(canvasEl(1), 'ArrowDown'));
+      await step(() => key(canvasEl(1), 'ArrowUp', { altKey: true }));
+      await step(() => key(canvasEl(2), 'h', { code: 'KeyH' }));
+      await step(() => key(row(3), 'l', { code: 'KeyL' }));
+      await step(() => key(row(1), 'd', { code: 'KeyD' }));
+      await step(() => {
+        const hex = root.querySelector('#studio-bg-hex') as HTMLInputElement;
+        hex.value = '#112233';
+        hex.dispatchEvent(new Event('change'));
+      });
+      await step(() => key(row(3), 'ArrowDown', { altKey: true }));
+      canvasEl(1).click();
+      await settle(fixture);
+      await step(() => {
+        const y = root.querySelector('#studio-y') as HTMLInputElement;
+        y.value = '55';
+        y.dispatchEvent(new Event('change'));
+      });
+      await step(() => key(canvasEl(1), 'Delete'));
+      expect(new Set(states).size).toBe(11);
+      expect(undoButton().title).toBe('Undo Text deleted (Ctrl+Z)');
+
+      for (let i = 9; i >= 0; i--) {
+        key(canvas(), 'z', { ctrlKey: true });
+        await settle(fixture);
+        expect(docNow()).toBe(states[i]);
+      }
+      expect(live()).toBe('Undone: Text added');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+      undoButton().click();
+      await settle(fixture);
+      expect(live()).toBe('Nothing to undo');
+      expect(docNow()).toBe(states[0]);
+
+      for (let i = 1; i <= 10; i++) {
+        if (i % 2) key(canvas(), 'Z', { ctrlKey: true, shiftKey: true });
+        else redoButton().click();
+        await settle(fixture);
+        expect(docNow()).toBe(states[i]);
+      }
+      expect(redoButton().getAttribute('aria-disabled')).toBe('true');
+      expect(live()).toBe('Redone: Text deleted');
+      expect(JSON.stringify((await saveNow(2)).document)).toBe(states[10]);
+    });
+
+    it('undoes a delete, bringing the layer back selected, with Ctrl+Y redoing it', async () => {
+      await open({ document: three, revision: 1 });
+      key(canvasEl(2), 'Delete');
+      await settle(fixture);
+      expect(canvasEl(2)).toBeNull();
+      expect(live()).toBe('Text deleted — press Ctrl+Z to undo');
+      key(canvas(), 'z', { ctrlKey: true });
+      await settle(fixture);
+      expect(canvasEl(2)?.getAttribute('aria-pressed')).toBe('true');
+      expect(live()).toBe('Undone: Text deleted');
+      // Focus stays where the delete put it, on the next layer.
+      expect(document.activeElement).toBe(canvasEl(3));
+      key(canvas(), 'y', { ctrlKey: true });
+      await settle(fixture);
+      expect(canvasEl(2)).toBeNull();
+    });
+
+    it('leaves Ctrl+Z in a text field to the browser, and makes typing one step', async () => {
+      await open({ document: three, revision: 1 });
+      canvasEl(1).click();
+      await settle(fixture);
+      const field = root.querySelector('#studio-text') as HTMLTextAreaElement;
+      for (const value of ['A1', 'A12', 'A123']) {
+        field.value = value;
+        field.dispatchEvent(new Event('input'));
+      }
+      await settle(fixture);
+      const typed = docNow();
+      const press = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+      field.dispatchEvent(press);
+      await settle(fixture);
+      expect(press.defaultPrevented).toBe(false);
+      expect(docNow()).toBe(typed);
+      // Outside the field, one undo takes the whole word back.
+      undoButton().click();
+      await settle(fixture);
+      expect(canvasEl(1).textContent).toBe('A');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('makes a whole drag one step', async () => {
+      await open({ document: three, revision: 1 });
+      canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 600 }) as DOMRect;
+      const el = canvasEl(3);
+      const pointer = (type: string, y: number) =>
+        el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: 100, clientY: y }));
+      pointer('pointerdown', 100);
+      for (const y of [120, 160, 220]) pointer('pointermove', y);
+      pointer('pointerup', 220);
+      await settle(fixture);
+      expect(canvasEl(3).style.top).not.toBe('20%');
+      expect(undoButton().title).toBe('Undo Text moved (Ctrl+Z)');
+      undoButton().click();
+      await settle(fixture);
+      expect(canvasEl(3).style.top).toBe('20%');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('offers keep-as-copy on a stale save, and keeps the version as a new tale in the same group', async () => {
+      await open({ document: three, revision: 1 });
+      const store = TestBed.inject(DashboardStore);
+      const refresh = vi.spyOn(store, 'refresh').mockResolvedValue();
+      // The router changes the route's tale before navigation resolves.
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockImplementation(async (commands) => {
+        fixture.componentRef.setInput('taleId', (commands as string[])[1]);
+        fixture.detectChanges();
+        return true;
+      });
+      key(canvasEl(1), 'ArrowDown');
+      const leaving = fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush({ error: { code: 'stale_revision', message: 'stale' } }, { status: 409, statusText: 'Conflict' });
+      // Leaving now asks, since the changes are not saved; the person stays.
+      expect(await leaving).toBe(false);
+      expect(window.confirm).toHaveBeenCalledTimes(1);
+      await settle(fixture);
+      expect(alertText()).toContain('Someone saved this tale after you opened it');
+      expect(status()).toBe('Not saved: a newer version exists');
+      // Edits go on, kept on the page; autosave stays stopped.
+      key(canvasEl(1), 'ArrowDown');
+      await settle(fixture);
+      http.expectNone(url);
+      const mine = docNow();
+
+      // A full group refuses; the version stays and the choice is still offered.
+      buttonNamed(root, 'Keep my version as a new tale').click();
+      await settle(fixture);
+      const full = http.expectOne(copyUrl);
+      expect(full.request.method).toBe('POST');
+      full.flush({ error: { code: 'tale_group_full', message: 'full' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      expect(alertText()).toContain('already holds the most tales it can');
+      expect(docNow()).toBe(mine);
+      expect(navigate).not.toHaveBeenCalled();
+
+      buttonNamed(root, 'Keep my version as a new tale').click();
+      await settle(fixture);
+      const keep = http.expectOne(copyUrl);
+      expect(JSON.stringify((keep.request.body as { document: TaleDocument }).document)).toBe(mine);
+      // While it is kept, editing is held: nothing changes and nothing goes to the original.
+      key(canvasEl(1), 'ArrowDown');
+      await settle(fixture);
+      expect(docNow()).toBe(mine);
+      expect(live()).toBe('Wait until your version is kept as a new tale.');
+      keep.flush({ ...tale, id: 't2', title: 'Beach (copy)', position: 1, status: 'draft', storedStatus: 'draft' });
+      await settle(fixture);
+      expect(refresh).toHaveBeenCalled();
+      expect(navigate).toHaveBeenCalledWith(['/tales', 't2', 'studio']);
+      // The route's tale is the copy now: the studio opens it, and no save ever went to the original.
+      http
+        .expectOne(`${API_BASE}/tales/t2/document`)
+        .flush(draftRead({ document: JSON.parse(mine), revision: 1, published: { document: null, revision: 0 } }));
+      await settle(fixture);
+      http.expectNone(url);
+      expect(docNow()).toBe(mine);
+      expect(status()).toBe('All changes saved');
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+      expect(root.querySelector('.studio-notice')?.textContent).toContain('kept as a new draft tale, “Beach (copy)”');
+      expect(await fixture.componentInstance.canLeave()).toBe(true);
+    });
+
+    it('stays in the stale choice when the kept copy cannot be opened', async () => {
+      await open({ document: three, revision: 1 });
+      vi.spyOn(TestBed.inject(DashboardStore), 'refresh').mockResolvedValue();
+      vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(false);
+      key(canvasEl(1), 'ArrowDown');
+      void fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush({ error: { code: 'stale_revision', message: 'stale' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      buttonNamed(root, 'Keep my version as a new tale').click();
+      await settle(fixture);
+      http.expectOne(copyUrl).flush({ ...tale, id: 't2', title: 'Beach (copy)' });
+      await settle(fixture);
+      expect(alertText()).toContain('it could not be opened');
+      expect(status()).toBe('Not saved: a newer version exists');
+      // Editing works again, and still nothing is saved to the original.
+      key(canvasEl(1), 'ArrowDown');
+      await settle(fixture);
+      http.expectNone(url);
+    });
+
+    it('reloads the latest version on request, starting the history over', async () => {
+      await open({ document: three, revision: 1 });
+      key(canvasEl(1), 'ArrowDown');
+      void fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush({ error: { code: 'stale_revision', message: 'stale' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      buttonNamed(root, 'Reload latest version').click();
+      await settle(fixture);
+      http.expectOne(url).flush(draftRead({ document: three, revision: 5 }));
+      await settle(fixture);
+      await settle(fixture);
+      expect(docNow()).toBe(JSON.stringify(three));
+      expect(undoButton().getAttribute('aria-disabled')).toBe('true');
+      expect(alertText()).toBe('');
+      expect(live()).toBe('Latest version loaded');
+      // The stale choice that had focus is gone: focus is on the canvas.
+      expect(document.activeElement).toBe(canvas());
+      key(canvasEl(1), 'ArrowDown');
+      expect((await saveNow(6)).revision).toBe(5);
+    });
+
+    it('asks before the tab closes with unsaved changes, and tries to save them', async () => {
+      await open({ document: three, revision: 1 });
+      const quiet = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(quiet);
+      expect(quiet.defaultPrevented).toBe(false);
+      key(canvasEl(1), 'ArrowDown');
+      const closing = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(closing);
+      expect(closing.defaultPrevented).toBe(true);
+      await settle(fixture);
+      http.expectOne(url).flush({ document: three, revision: 2 });
+      await settle(fixture);
+      expect(status()).toBe('All changes saved');
+    });
+
+    it('leaves at once when everything is saved, and asks when a save fails', async () => {
+      await open({ document: three, revision: 1 });
+      expect(await fixture.componentInstance.canLeave()).toBe(true);
+      key(canvasEl(1), 'ArrowDown');
+      vi.mocked(window.confirm).mockReturnValue(true);
+      const leaving = fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 500, statusText: 'Error' });
+      expect(await leaving).toBe(true);
+      expect(window.confirm).toHaveBeenCalledWith(
+        'Your latest changes to this tale are not saved. Leave Tale Studio and lose them?',
+      );
+    });
+
+    describe('draft and publish (user decision 2026-10-22)', () => {
+      const publishState = () => root.querySelector('#studio-publish-state')?.textContent?.trim();
+      const publishButton = () => root.querySelector('#studio-publish') as HTMLButtonElement;
+      const discardButton = () => root.querySelector('#studio-discard') as HTMLButtonElement;
+
+      it('says a published, unchanged tale is what visitors see, with nothing to publish or discard', async () => {
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(publishButton().getAttribute('aria-disabled')).toBe('true');
+        expect(discardButton().getAttribute('aria-disabled')).toBe('true');
+        publishButton().click();
+        await settle(fixture);
+        http.expectNone(`${url}/publish`);
+      });
+
+      it('says a tale with nothing published is a draft visitors cannot see, or live with its media only', async () => {
+        const store = TestBed.inject(DashboardStore);
+        store.taleGroups.set({ z1: [{ ...group, tales: [{ ...tale, status: 'draft' }] } as unknown as ZoneTaleGroup] });
+        await open({ document: three, revision: 1, published: { document: null, revision: 0 } });
+        expect(publishState()).toContain('Draft — not visible to visitors');
+        expect(publishButton().hasAttribute('aria-disabled')).toBe(false);
+        expect(discardButton().getAttribute('aria-disabled')).toBe('true');
+        store.taleGroups.set({ z1: [group] });
+        fixture.detectChanges();
+        expect(publishState()).toBe("Live — visitors see the tale's media; studio changes aren't published yet.");
+      });
+
+      it('has nothing to publish while no draft is stored and nothing changed', async () => {
+        await open({ document: null, revision: 0, published: { document: null, revision: 0 } });
+        expect(publishButton().getAttribute('aria-disabled')).toBe('true');
+        publishButton().click();
+        await settle(fixture);
+        http.expectNone(`${url}/publish`);
+        buttonNamed(root, 'Add text').click();
+        await settle(fixture);
+        expect(publishButton().hasAttribute('aria-disabled')).toBe(false);
+      });
+
+      it('publishes changes once they are saved, with both revisions, and then reads published', async () => {
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(publishState()).toBe('Unpublished changes — visitors see the published version until you publish them.');
+        publishButton().click();
+        await settle(fixture);
+        const save = http.expectOne(url);
+        const draft = (save.request.body as { document: TaleDocument }).document;
+        save.flush({ document: draft, revision: 4, published: { document: three, revision: 2 } });
+        await settle(fixture);
+        const publish = http.expectOne(`${url}/publish`);
+        expect(publish.request.method).toBe('POST');
+        expect(publish.request.body).toEqual({ revision: 4, publishedRevision: 2 });
+        // The server answers JSONB with its own key order: still the same document.
+        const reverse = (v: unknown): unknown =>
+          Array.isArray(v)
+            ? v.map(reverse)
+            : v && typeof v === 'object'
+              ? Object.fromEntries(
+                  Object.entries(v)
+                    .reverse()
+                    .map(([k, x]) => [k, reverse(x)]),
+                )
+              : v;
+        const reordered = reverse(draft) as TaleDocument;
+        expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(draft));
+        publish.flush({ document: draft, revision: 4, published: { document: reordered, revision: 3 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(live()).toBe('Changes published. Visitors now see this version.');
+        expect(publishButton().getAttribute('aria-disabled')).toBe('true');
+      });
+
+      const stale = { error: { code: 'stale_revision', message: 'stale' } };
+      const conflict = { status: 409, statusText: 'Conflict' };
+
+      it('offers reload or keep-as-copy when publishing finds a newer draft elsewhere', async () => {
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        publishButton().click();
+        await settle(fixture);
+        http.expectOne(`${url}/publish`).flush(stale, conflict);
+        await settle(fixture);
+        // It reads what is there now: the draft moved on, so it is a real conflict.
+        http
+          .expectOne(url)
+          .flush(draftRead({ document: three, revision: 4, published: { document: null, revision: 0 } }));
+        await settle(fixture);
+        expect(alertText()).toContain('Someone saved this tale after you opened it');
+        expect(buttonNamed(root, 'Keep my version as a new tale')).toBeTruthy();
+      });
+
+      it('publishes again with the fresh published revision when only that moved (published elsewhere)', async () => {
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        publishButton().click();
+        await settle(fixture);
+        const save = http.expectOne(url);
+        const draft = (save.request.body as { document: TaleDocument }).document;
+        save.flush({ document: draft, revision: 4, published: { document: null, revision: 0 } });
+        await settle(fixture);
+        http.expectOne(`${url}/publish`).flush(stale, conflict);
+        await settle(fixture);
+        // The tale went live from the zone page, which published the draft at revision 3.
+        http
+          .expectOne(url)
+          .flush(draftRead({ document: draft, revision: 4, published: { document: three, revision: 1 } }));
+        await settle(fixture);
+        const retry = http.expectOne(`${url}/publish`);
+        expect(retry.request.body).toEqual({ revision: 4, publishedRevision: 1 });
+        retry.flush({ document: draft, revision: 4, published: { document: draft, revision: 2 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(alertText()).toBe('');
+        expect(publishState()).toBe('Published — visitors see this version.');
+      });
+
+      it('keeps edits made while publishing, saving them after it on the same draft revision', async () => {
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        publishButton().click();
+        await settle(fixture);
+        const publish = http.expectOne(`${url}/publish`);
+        // An edit while the publish is on its way: no save goes out meanwhile.
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(fixture.componentInstance.canLeave).toBeDefined();
+        http.expectNone(url);
+        publish.flush({ document: three, revision: 3, published: { document: three, revision: 1 } });
+        await settle(fixture);
+        expect(status()).toBe('Unsaved changes');
+        expect(publishState()).toBe('Unpublished changes — visitors see the published version until you publish them.');
+        const after = await saveNow(4);
+        expect(after.revision).toBe(3);
+      });
+
+      it('refreshes what is published when the page comes back into view', async () => {
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        window.dispatchEvent(new Event('focus'));
+        http
+          .expectOne(url)
+          .flush(draftRead({ document: three, revision: 3, published: { document: three, revision: 1 } }));
+        await settle(fixture);
+        expect(publishState()).toBe('Published — visitors see this version.');
+        document.dispatchEvent(new Event('visibilitychange'));
+        http
+          .expectOne(url)
+          .flush(draftRead({ document: three, revision: 3, published: { document: three, revision: 1 } }));
+        await settle(fixture);
+      });
+
+      it('discards the draft after asking, back to the published version, and undo brings the draft back', async () => {
+        const published = { ...three, canvas: { background: { type: 'color', color: '#ffffff' } } } as TaleDocument;
+        await open({ document: three, revision: 5, published: { document: published, revision: 2 } });
+        discardButton().click();
+        await settle(fixture);
+        expect(window.confirm).toHaveBeenCalledWith(
+          'Discard the draft and go back to the published version? You can undo this until you leave Tale Studio.',
+        );
+        http.expectNone(`${url}/discard`);
+
+        vi.mocked(window.confirm).mockReturnValue(true);
+        discardButton().click();
+        await settle(fixture);
+        const discard = http.expectOne(`${url}/discard`);
+        // Editing is held while the draft is discarded.
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(live()).toBe('Wait until the draft is discarded.');
+        expect(docNow()).toBe(JSON.stringify(three));
+        expect(discard.request.body).toEqual({ revision: 5, publishedRevision: 2 });
+        discard.flush({ document: published, revision: 6, published: { document: published, revision: 2 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(docNow()).toBe(JSON.stringify(published));
+        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(live()).toBe('Draft discarded: the published version is back. Press Ctrl+Z to undo.');
+        expect(status()).toBe('All changes saved');
+
+        undoButton().click();
+        await settle(fixture);
+        expect(docNow()).toBe(JSON.stringify(three));
+        expect(status()).toBe('Unsaved changes');
+        const restored = await saveNow(7);
+        expect(restored.revision).toBe(6);
+        expect(JSON.stringify(restored.document)).toBe(JSON.stringify(three));
+      });
+    });
+
+    it('shows a refused save again when undo brings the refused content back, without sending it', async () => {
+      await open({ document: three, revision: 1 });
+      key(canvasEl(1), 'ArrowDown');
+      void fixture.componentInstance.canLeave();
+      await settle(fixture);
+      http
+        .expectOne(url)
+        .flush(
+          { error: { code: 'invalid_tale_document', message: 'bad', pointer: '/elements/0/props/text' } },
+          { status: 400, statusText: 'Bad Request' },
+        );
+      await settle(fixture);
+      expect(canvasEl(1).getAttribute('aria-invalid')).toBe('true');
+      key(canvasEl(1), 'ArrowDown');
+      await settle(fixture);
+      expect(status()).toBe('Unsaved changes');
+      undoButton().click();
+      await settle(fixture);
+      expect(status()).toBe('Not saved');
+      expect(root.querySelector('#studio-save-problem')?.textContent).toContain('A text could not be saved');
+      expect(canvasEl(1).getAttribute('aria-invalid')).toBe('true');
+      // Leaving treats it as not saved and asks; it is not sent again by itself.
+      expect(await fixture.componentInstance.canLeave()).toBe(false);
+      expect(window.confirm).toHaveBeenCalled();
+      http.expectNone(url);
+    });
+
+    it('guards the studio route with the page’s leave check', async () => {
+      const studio = appRoutes
+        .flatMap((r) => [r, ...(r.children ?? [])])
+        .find((r) => r.path === 'tales/:taleId/studio');
+      const guard = studio?.canDeactivate?.[0] as (page: { canLeave(): Promise<boolean> }) => Promise<boolean>;
+      const page = { canLeave: vi.fn(async () => false) };
+      expect(await guard(page)).toBe(false);
+      expect(page.canLeave).toHaveBeenCalledTimes(1);
+    });
+
+    describe('with autosave timing', () => {
+      beforeEach(() => Object.assign(timing, { debounceMs: 20, maxWaitMs: 200, retryDelaysMs: [40] }));
+      afterEach(() => Object.assign(timing, WAIT_FOR_TEST));
+      const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      it('saves by itself after a pause, one save at a time, and shows saving and saved', async () => {
+        await open({ document: three, revision: 1 });
+        expect(status()).toBe('All changes saved');
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(status()).toBe('Unsaved changes');
+        await wait(40);
+        fixture.detectChanges();
+        expect(status()).toBe('Saving…');
+        const first = http.expectOne(url);
+        expect((first.request.body as { revision: number }).revision).toBe(1);
+        key(canvasEl(1), 'ArrowDown');
+        await wait(40);
+        // No second save while the first is on its way.
+        http.expectNone(url);
+        first.flush({ document: three, revision: 2 });
+        await settle(fixture);
+        const second = http.expectOne(url);
+        expect((second.request.body as { revision: number }).revision).toBe(2);
+        expect(JSON.stringify((second.request.body as { document: TaleDocument }).document)).toBe(docNow());
+        second.flush({ document: three, revision: 3 });
+        await settle(fixture);
+        expect(status()).toBe('All changes saved');
+      });
+
+      it('shows a failed save, retries it by itself, and says when everything is saved again', async () => {
+        await open({ document: three, revision: 1 });
+        key(canvasEl(1), 'ArrowDown');
+        await wait(40);
+        http.expectOne(url).error(new ProgressEvent('error'));
+        await settle(fixture);
+        expect(status()).toBe('Not saved');
+        expect(alertText()).toContain('the connection failed. Trying again automatically.');
+        expect(buttonNamed(root, 'Retry now')).toBeTruthy();
+        await wait(60);
+        http.expectOne(url).flush({ document: three, revision: 2 });
+        await settle(fixture);
+        await settle(fixture);
+        expect(status()).toBe('All changes saved');
+        expect(alertText()).toBe('');
+        expect(live()).toBe('All changes saved');
+      });
+
+      it('keeps one failure block and one announcement through the retries, with Retry now staying put', async () => {
+        await open({ document: three, revision: 1 });
+        key(canvasEl(1), 'ArrowDown');
+        await wait(40);
+        http.expectOne(url).error(new ProgressEvent('error'));
+        await settle(fixture);
+        const retry = root.querySelector('#studio-retry') as HTMLButtonElement;
+        const alertRegion = () => root.querySelector('p.visually-hidden[role=alert]')?.textContent?.trim();
+        const first = alertRegion();
+        expect(first).toContain('the connection failed');
+        expect(root.querySelector('#studio-save-problem')?.hasAttribute('role')).toBe(false);
+        expect(root.querySelector('.studio-retry')?.textContent).toMatch(/Trying again (in \d+ s|now)/);
+        retry.focus();
+        await wait(60);
+        fixture.detectChanges();
+        // The retry is on its way: the same button, kept focused, and not pressable.
+        expect(root.querySelector('#studio-retry')).toBe(retry);
+        expect(retry.getAttribute('aria-disabled')).toBe('true');
+        expect(document.activeElement).toBe(retry);
+        http
+          .expectOne(url)
+          .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 503, statusText: 'Down' });
+        await settle(fixture);
+        expect(root.querySelector('#studio-retry')).toBe(retry);
+        expect(alertRegion()).toBe(first);
+        await wait(60);
+        http.expectOne(url).flush(draftRead({ document: three, revision: 2 }));
+        await settle(fixture);
+        await settle(fixture);
+        expect(alertRegion()).toBe('');
+        expect(root.querySelector('#studio-retry')).toBeNull();
+        expect(live()).toBe('All changes saved');
+      });
+
+      it('retries at once when the browser is back online', async () => {
+        await open({ document: three, revision: 1 });
+        key(canvasEl(1), 'ArrowDown');
+        await wait(40);
+        http.expectOne(url).error(new ProgressEvent('error'));
+        await settle(fixture);
+        window.dispatchEvent(new Event('online'));
+        http.expectOne(url).flush({ document: three, revision: 2 });
+        await settle(fixture);
+        expect(status()).toBe('All changes saved');
+      });
     });
   });
 });
