@@ -1,5 +1,6 @@
 import type { ImportJob, ImportJobSummary, ImportProgress, ImportReport, ImportStarted } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
+import type { ImportJobSelection } from './preview';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,6 +19,8 @@ export interface ClaimedJob {
   tokenCiphertext: string | null;
   /** The worker that claimed it; every later write on the job checks it. */
   lockedBy: string;
+  /** What to import; null or absent takes everything. */
+  selection?: ImportJobSelection | null;
 }
 
 // Only the worker holding the claim may write a running job.
@@ -45,15 +48,31 @@ export function progressOf(report: ImportReport): ImportProgress {
   return { zones: count(report.zones), taleGroups: count(report.taleGroups), tales: count(report.tales) };
 }
 
-/** Stores a queued import job with its encrypted source token. The caller checks the project. */
+/**
+ * Stores a queued import job with its encrypted source token and what to
+ * import (everything without a selection). The caller checks the project and
+ * the selection.
+ */
 export async function createImportJob(
   db: Db,
-  input: { projectId: string; createdBy: string; sourceAppId: string; tokenCiphertext: string },
+  input: {
+    projectId: string;
+    createdBy: string;
+    sourceAppId: string;
+    tokenCiphertext: string;
+    selection?: ImportJobSelection | null;
+  },
 ): Promise<ImportStarted> {
   const { rows } = await db.query<ImportStarted>(
-    `INSERT INTO import_jobs (project_id, created_by, source_app_id, token_ciphertext)
-     VALUES ($1, $2, $3, $4) RETURNING id, status`,
-    [input.projectId, input.createdBy, input.sourceAppId, input.tokenCiphertext],
+    `INSERT INTO import_jobs (project_id, created_by, source_app_id, token_ciphertext, selection)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id, status`,
+    [
+      input.projectId,
+      input.createdBy,
+      input.sourceAppId,
+      input.tokenCiphertext,
+      input.selection ? JSON.stringify(input.selection) : null,
+    ],
   );
   return rows[0];
 }
@@ -98,7 +117,7 @@ export async function claimNextJob(db: TransactionalDb, workerId: string): Promi
          SELECT id FROM import_jobs WHERE status = 'queued' ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED
        )
        RETURNING id, project_id AS "projectId", source_app_id AS "sourceAppId",
-         token_ciphertext AS "tokenCiphertext", locked_by AS "lockedBy"`,
+         token_ciphertext AS "tokenCiphertext", locked_by AS "lockedBy", selection`,
       [workerId],
     );
     await tx.query('COMMIT');

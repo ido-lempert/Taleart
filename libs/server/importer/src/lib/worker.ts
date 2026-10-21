@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   IMPORT_NOT_IMPORTED_BY_DESIGN,
   MAX_IMPORT_REPORT_DIFFERENCES,
+  MAX_IMPORT_SELECTED_ZONES,
   MAX_TALES_PER_GROUP,
   type ImportCount,
   type ImportDifference,
+  type ImportEntityChoice,
   type ImportMediaFailure,
   type ImportReport,
   type ImportTagFailure,
@@ -45,6 +47,7 @@ import {
   type TaleMediaImport,
 } from './media-copy';
 import type { MediaFetchPolicy } from './media-fetch';
+import type { ImportJobSelection } from './preview';
 import { MAX_DIFFERENCES_PER_RECORD, storedText, type DifferenceBudget, type ReportText } from './record-shape';
 import {
   recordsOf,
@@ -132,6 +135,12 @@ export interface ImportContentOptions {
    * report counts them; without it, labels are not imported.
    */
   labels?: () => Promise<SourceList<SourceLabel>>;
+  /**
+   * What the admin picked: only the picked instances become zones, and with
+   * `taleGroups` false no story group or story is read. The caller leaves out
+   * `media` and `labels` when they were not picked. Absent takes everything.
+   */
+  selection?: ImportJobSelection;
 }
 
 /**
@@ -311,7 +320,30 @@ export async function importContent(
   };
   const differences = differenceList(report, options.budget);
   if (options.app) differences.addEntry(options.app, null);
-  differences.addList(checkedInstances, new Set(), null);
+  // What was not picked is skipped, never missing: an instance not picked is listed once, without its differences.
+  const picked = options.selection ? new Set(options.selection.zones) : null;
+  const withGroups = options.selection?.taleGroups ?? true;
+  const notSelected = options.selection
+    ? {
+        zones: [] as { sourceId: string; name: string }[],
+        entities: (['taleGroups', 'media', 'tags'] as const).filter(
+          (entity): entity is ImportEntityChoice => !(options.selection as ImportJobSelection)[entity],
+        ),
+      }
+    : null;
+  differences.addList(
+    picked === null
+      ? checkedInstances
+      : {
+          entries: checkedInstances.entries.filter((entry) => {
+            if (entry.record === null || picked.has(entry.record.id)) return true;
+            if (options.budget) options.budget.remaining += entry.differences.length;
+            return false;
+          }),
+        },
+    new Set(),
+    null,
+  );
   const labels = options.labels ? new LabelImport(db, projectId) : null;
   // A label that cannot become a tag, as a report difference: its text only when it has some.
   const labelDifference = (
@@ -407,8 +439,16 @@ export async function importContent(
       continue;
     }
     seenInstances.add(instance.id);
-    await beforeEach(report);
     const zoneName = instance.name.trim() || `Instance ${instance.id}`;
+    if (picked !== null && notSelected !== null && !picked.has(instance.id)) {
+      report.zones.skipped++;
+      report.zones.notSelected = (report.zones.notSelected ?? 0) + 1;
+      if (notSelected.zones.length < MAX_IMPORT_SELECTED_ZONES) {
+        notSelected.zones.push({ sourceId: text(instance.id), name: text(zoneName) });
+      }
+      continue;
+    }
+    await beforeEach(report);
     const zoneId = await importZone(db, projectId, instance, zoneName);
     if (zoneId === null) {
       report.zones.skipped++;
@@ -418,6 +458,8 @@ export async function importContent(
       // The source names no widget type, so the zone has no frame yet (epic decision).
       report.notes.push(`Zone "${text(zoneName)}": frame type unknown`);
     }
+    // Zones only: no story group or story is read.
+    if (!withGroups) continue;
 
     const groupList = checkedOf(await source.listStoryGroups(instance.id));
     const groups = inSourceOrder(recordsOf(groupList));
@@ -627,7 +669,21 @@ export async function importContent(
     // The mapping table: how labels combine is not carried.
     if (labels.anyRead) report.notes.push('Tags: whether labels combine with AND or OR is not imported');
   }
-  return report;
+  if (picked !== null) {
+    const gone = [...picked].filter((id) => !seenInstances.has(id)).length;
+    if (gone > 0) {
+      report.notes.push(`Zones: ${gone} picked zone(s) are no longer in the app, so they were not imported`);
+    }
+  }
+  if (notSelected !== null && (notSelected.zones.length > 0 || notSelected.entities.length > 0)) {
+    report.notSelected = notSelected;
+  }
+  if (withGroups) return report;
+  // Tale groups and tales were not picked: the report has no counts for them.
+  const zonesOnly: ImportReport = { ...report };
+  delete zonesOnly.taleGroups;
+  delete zonesOnly.tales;
+  return zonesOnly;
 }
 
 /** A story whose media was not copied, as a report difference: the reason only, never the URL. */
@@ -730,19 +786,25 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     const instances = await client.listInstances(app.id);
     // What this import may spend on media in all: once spent, the rest is listed as not imported.
     const mediaBudget = mediaJobBudget(options.mediaPolicy);
+    // What the admin picked; without a selection, everything. Media and tags need tale groups.
+    const selection = job.selection ?? undefined;
+    const picks = (entity: 'media' | 'tags') => !selection || (selection.taleGroups && selection[entity]);
     // Every source string is already made safe as it is stored; redactDeep is a last guard.
     const report = redactDeep(
       await importContent(db, job.projectId, instances, client, beat, {
         app: appEntry,
         text,
         budget,
-        labels: () => client.listLabels(app.id),
-        media: {
-          storage: options.storage,
-          copy: (url, mimeType) => copyMedia(options.storage, url, mimeType, options.mediaPolicy, mediaBudget),
-          onCleanupError: (err) =>
-            log('error', `Import ${job.id} could not delete an unused media file`, redactedError(err, secret)),
-        },
+        selection,
+        labels: picks('tags') ? () => client.listLabels(app.id) : undefined,
+        media: !picks('media')
+          ? undefined
+          : {
+              storage: options.storage,
+              copy: (url, mimeType) => copyMedia(options.storage, url, mimeType, options.mediaPolicy, mediaBudget),
+              onCleanupError: (err) =>
+                log('error', `Import ${job.id} could not delete an unused media file`, redactedError(err, secret)),
+            },
       }),
       token,
     );

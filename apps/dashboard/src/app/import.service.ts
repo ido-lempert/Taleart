@@ -4,6 +4,8 @@ import {
   isErrorBody,
   type ImportJob,
   type ImportJobSummary,
+  type ImportPreview,
+  type ImportSelection,
   type ImportStarted,
   type StorylyApp,
 } from '@taleart/contract';
@@ -43,10 +45,28 @@ export class ImportService {
     }
   }
 
-  /** Queues an import of one app into the project. */
-  async start(projectId: string, token: string, appId: string): Promise<ImportResult<ImportStarted>> {
+  /** What an app holds: its zones with their counts, and the key a selection carries. */
+  async preview(projectId: string, token: string, appId: string): Promise<ImportResult<ImportPreview>> {
     try {
-      const started = await firstValueFrom(this.http.post<ImportStarted>(importsUrl(projectId), { token, appId }));
+      const preview = await firstValueFrom(
+        this.http.post<ImportPreview>(`${importsUrl(projectId)}/storyly/preview`, { token, appId }),
+      );
+      return { value: preview, message: '' };
+    } catch (err) {
+      return failure(err, 'Could not read what this app holds. Try again.');
+    }
+  }
+
+  /** Queues an import of one app into the project: what `selection` picks, or everything without it. */
+  async start(
+    projectId: string,
+    token: string,
+    appId: string,
+    selection?: ImportSelection,
+  ): Promise<ImportResult<ImportStarted>> {
+    try {
+      const body = selection ? { token, appId, selection } : { token, appId };
+      const started = await firstValueFrom(this.http.post<ImportStarted>(importsUrl(projectId), body));
       return { value: started, message: '' };
     } catch (err) {
       return failure(err, 'The import did not start. Try again.');
