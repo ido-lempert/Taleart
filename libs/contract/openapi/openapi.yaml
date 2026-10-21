@@ -495,6 +495,55 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /projects/{projectId}/imports/another tool/preview:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: previewanother toolApp
+      summary: Show what a another tool app holds before importing it (admins only).
+      description: >-
+        Reads the app's instances (zones) with their story group and story counts through the another tool External
+        API, so the admin can pick what to import. The token is used for this call only: it is not stored and no
+        job is created. At most 500 zones are listed (`zonesBeyond` counts the rest); counting reads at most 100
+        lists in at most 20 seconds, and a zone whose counts were not read has null counts. The whole preview
+        takes at most 30 seconds, and its reads stop when the caller goes away. One preview runs per person and
+        four per server at a time; another answers 429 `preview_busy`. The answer's
+        `selectionKey` names the zones listed and is valid for 30 minutes: a start with a selection must carry
+        it. A token another tool refuses answers 400 `another tool_token_invalid`; an app the token cannot read 400
+        `import_selection_invalid`; another tool unreachable, or its app or instance list unreadable, 502
+        `another tool_unavailable`. A content manager gets 403 `forbidden`; an unknown project 404
+        `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportPreviewRequest'
+      responses:
+        '200':
+          description: The app's zones with their counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportPreview'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects/{projectId}/imports:
     parameters:
       - name: projectId
@@ -533,7 +582,13 @@ paths:
       description: >-
         Stores a queued import job and answers at once (AD-8); a background
         worker runs it. The token is stored encrypted with the job only until
-        the job ends. A content manager gets 403 `forbidden`; an unknown project
+        the job ends. Without `selection` everything is imported; with it, only
+        the picked zones and entity types; `selection: null` is refused as
+        malformed. A selection whose key is invalid,
+        expired or for another project, app or person, that names a zone the
+        key does not, or that asks for media or tags without tale groups,
+        answers 400 `import_selection_invalid` and creates no job; a malformed
+        one 400 `validation_failed`. A content manager gets 403 `forbidden`; an unknown project
         404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503
         `importer_not_configured`.
       requestBody:
@@ -2697,6 +2752,120 @@ components:
           type: string
           minLength: 1
           description: The id of the another tool app to import, from the apps list.
+        selection:
+          $ref: '#/components/schemas/ImportSelection'
+    ImportPreviewRequest:
+      type: object
+      required: [token, appId]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: A another tool API token. Used for this call only; never stored.
+        appId:
+          type: string
+          minLength: 1
+          description: The id of the another tool app, from the apps list.
+    ImportPreviewZone:
+      type: object
+      required: [id, name, taleGroups, tales]
+      description: A another tool instance of the app, which an import makes a zone.
+      properties:
+        id:
+          type: string
+          description: The instance's id at the source.
+        name:
+          type: string
+        taleGroups:
+          type: [integer, 'null']
+          description: How many story groups the instance lists; null when they were not counted.
+        tales:
+          type: [integer, 'null']
+          description: How many stories its story groups list; null when they were not all counted.
+    ImportPreview:
+      type: object
+      required: [appId, appName, zones, zonesBeyond, countsComplete, selectionKey, expiresAt]
+      description: What an app holds, to pick what to import. Holds no token.
+      properties:
+        appId:
+          type: string
+        appName:
+          type: string
+        zones:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/ImportPreviewZone'
+        zonesBeyond:
+          type: integer
+          minimum: 0
+          description: How many more instances the app has than are listed; they cannot be picked.
+        countsComplete:
+          type: boolean
+          description: False when some counts were not read (null), to keep the preview short.
+        selectionKey:
+          type: string
+          description: Proves which zones this preview listed; a start with a selection carries it.
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the selection key stops being accepted.
+    ImportEntityChoice:
+      type: string
+      enum: [taleGroups, media, tags]
+      description: >-
+        An entity type an import may leave out: tale groups and tales, tale media, or labels as tags. Zones are
+        always imported, the picked ones.
+    ImportSelection:
+      type: object
+      required: [selectionKey, zones, taleGroups, media, tags]
+      description: What to import. Media and tags need tale groups.
+      properties:
+        selectionKey:
+          type: string
+          minLength: 1
+          description: The preview's selection key.
+        zones:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          description: The source ids of the zones (instances) to import, all listed by the preview.
+          items:
+            type: string
+            minLength: 1
+        taleGroups:
+          type: boolean
+          description: Import story groups as tale groups and stories as tales.
+        media:
+          type: boolean
+          description: Copy tale media.
+        tags:
+          type: boolean
+          description: Import labels as tags.
+    ImportNotSelectedZone:
+      type: object
+      required: [sourceId, name]
+      properties:
+        sourceId:
+          type: string
+        name:
+          type: string
+    ImportNotSelected:
+      type: object
+      required: [zones, entities]
+      description: What the import left out because it was not picked.
+      properties:
+        zones:
+          type: array
+          maxItems: 500
+          description: The zones not picked (at most 500 listed; zones.notSelected counts them all).
+          items:
+            $ref: '#/components/schemas/ImportNotSelectedZone'
+        entities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportEntityChoice'
     ImportStatus:
       type: string
       enum: [queued, running, done, failed]
@@ -2720,6 +2889,10 @@ components:
           type: integer
         skipped:
           type: integer
+        notSelected:
+          type: integer
+          minimum: 0
+          description: How many of the skipped were left out because they were not picked. Absent when none were.
     ImportReport:
       type: object
       required: [zones, notes]
@@ -2767,6 +2940,9 @@ components:
           description: What the import never brings across, listed once, such as conversion records and stats.
           items:
             type: string
+        notSelected:
+          $ref: '#/components/schemas/ImportNotSelected'
+          description: What was left out because it was not picked. Absent when the import took everything.
     ImportDifferenceEntity:
       type: string
       enum: [app, zone, taleGroup, tale, tag]
@@ -2854,6 +3030,13 @@ components:
       required: [zones, taleGroups, tales]
       description: How far a job got, per entity type; updated while it runs.
       properties:
+        notSelected:
+          type: array
+          description: >-
+            The entity types this import leaves out because they were not picked; their counts stay 0. Absent when
+            the import takes everything.
+          items:
+            $ref: '#/components/schemas/ImportEntityChoice'
         zones:
           $ref: '#/components/schemas/ImportProgressCount'
         taleGroups:
@@ -2951,6 +3134,8 @@ components:
         - another tool_token_invalid
         - another tool_unavailable
         - importer_not_configured
+        - import_selection_invalid
+        - preview_busy
         - invalid_status_transition
         - stage_not_found
         - stage_key_taken

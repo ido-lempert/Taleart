@@ -3489,8 +3489,28 @@ describe('App', () => {
       fixture.detectChanges();
     }
 
-    // Pastes the token, finds the apps and starts importing Demo shop, which opens the job's page.
-    async function startImport(fixture: ComponentFixture<unknown>, root: HTMLElement): Promise<void> {
+    // What Demo shop holds, as the preview answers it.
+    const demoPreview = (extra: object = {}) => ({
+      appId: '1001',
+      appName: 'Demo shop',
+      zones: [
+        { id: '2001', name: 'Home page', taleGroups: 3, tales: 8 },
+        { id: '2002', name: 'Product page', taleGroups: 2, tales: 5 },
+        { id: '2003', name: 'Checkout', taleGroups: 1, tales: null },
+      ],
+      zonesBeyond: 0,
+      countsComplete: true,
+      selectionKey: 'v1.key.mac',
+      expiresAt: '2026-10-20T12:30:00.000Z',
+      ...extra,
+    });
+
+    // Pastes the token, finds the apps and chooses Demo shop, which shows what it holds.
+    async function chooseApp(
+      fixture: ComponentFixture<unknown>,
+      root: HTMLElement,
+      preview = demoPreview(),
+    ): Promise<void> {
       type(root.querySelector<HTMLInputElement>('#import-token'), 'fake-another tool-token');
       buttonNamed(root, 'Find apps').click();
       const find = http.expectOne(`${importsUrl}/another tool/apps`);
@@ -3501,12 +3521,45 @@ describe('App', () => {
 
       const options = [...(root.querySelector<HTMLSelectElement>('#import-app')?.options ?? [])];
       expect(options.map((o) => o.textContent?.trim())).toEqual(['Demo shop']);
+      expect(root.textContent).not.toContain('Start import');
+      buttonNamed(root, 'Choose what to import').click();
+      const read = http.expectOne(`${importsUrl}/another tool/preview`);
+      expect(read.request.method).toBe('POST');
+      expect(read.request.body).toEqual({ token: 'fake-another tool-token', appId: '1001' });
+      read.flush(preview);
+      await settle(fixture);
+    }
+
+    // Pastes the token, finds the apps and starts importing all of Demo shop, which opens the job's page.
+    async function startImport(fixture: ComponentFixture<unknown>, root: HTMLElement): Promise<void> {
+      await chooseApp(fixture, root);
       buttonNamed(root, 'Start import').click();
       const start = http.expectOne((r) => r.method === 'POST' && r.url === importsUrl);
-      expect(start.request.body).toEqual({ token: 'fake-another tool-token', appId: '1001' });
+      expect(start.request.body).toEqual({
+        token: 'fake-another tool-token',
+        appId: '1001',
+        selection: {
+          selectionKey: 'v1.key.mac',
+          zones: ['2001', '2002', '2003'],
+          taleGroups: true,
+          media: true,
+          tags: true,
+        },
+      });
       start.flush({ id: 'j1', status: 'queued' }, { status: 202, statusText: 'Accepted' });
       await settle(fixture);
     }
+
+    const checkbox = (root: HTMLElement, name: string) => {
+      const label = [...root.querySelectorAll('label.checkbox')].find((l) => l.textContent?.trim() === name);
+      const input = label?.querySelector<HTMLInputElement>('input[type=checkbox]');
+      if (!input) throw new Error(`No checkbox named ${name}`);
+      return input;
+    };
+    const click = (fixture: ComponentFixture<unknown>, input: HTMLInputElement) => {
+      input.click();
+      fixture.detectChanges();
+    };
 
     it('gives admins "Import from another tool" on each project card, opening the import page', async () => {
       const { fixture, root } = await open('/projects', { projects: [acme, globex], zones: [zone] });
@@ -3952,6 +4005,187 @@ describe('App', () => {
       expect(root.querySelector('[role=alert]')?.textContent).toContain('Only admins can do this');
       await tick();
       http.expectNone(`${importsUrl}/j1`);
+    });
+
+    it('shows each zone of the app with its counts, all picked, and picks all or none with one box', async () => {
+      const { fixture, root } = await openForm();
+      await chooseApp(fixture, root);
+      expect(root.textContent).toContain('What to import from Demo shop');
+      const zones = root.querySelector('#import-zone-list');
+      expect(zones?.closest('fieldset')?.querySelector('legend')?.textContent?.trim()).toBe('Zones');
+      expect(rows(root, 'Zones of the app')).toEqual([
+        'Home page 3 tale groups, 8 tales',
+        'Product page 2 tale groups, 5 tales',
+        'Checkout 1 tale group, tales not counted',
+      ]);
+      // Each zone's counts describe its checkbox.
+      const home = checkbox(root, 'Home page');
+      const homeCounts = root.querySelector(`#${home.getAttribute('aria-describedby')}`);
+      expect(homeCounts?.textContent).toBe('3 tale groups, 8 tales');
+      const all = checkbox(root, 'All zones');
+      expect(all.getAttribute('aria-controls')).toBe('import-zone-list');
+      const count = () => root.querySelector('.import-pick__count')?.textContent?.replace(/\s+/g, ' ').trim();
+      expect(all.checked).toBe(true);
+      expect(all.indeterminate).toBe(false);
+      expect(count()).toBe('3 of 3 zones selected');
+      expect(root.querySelector('.import-pick__count')?.getAttribute('role')).toBe('status');
+
+      click(fixture, checkbox(root, 'Checkout'));
+      expect(all.checked).toBe(false);
+      expect(all.indeterminate).toBe(true);
+      expect(count()).toBe('2 of 3 zones selected');
+
+      // The mixed box picks all, then none.
+      click(fixture, all);
+      expect(count()).toBe('3 of 3 zones selected');
+      expect(checkbox(root, 'Checkout').checked).toBe(true);
+      click(fixture, all);
+      expect(count()).toBe('0 of 3 zones selected');
+      expect(all.indeterminate).toBe(false);
+      const startButton = buttonNamed(root, 'Start import');
+      expect(startButton.disabled).toBe(true);
+      expect(root.querySelector(`#${startButton.getAttribute('aria-describedby')}`)?.textContent).toContain(
+        'Pick at least one zone',
+      );
+      click(fixture, checkbox(root, 'Product page'));
+      expect(buttonNamed(root, 'Start import').disabled).toBe(false);
+    });
+
+    it('starts with only the ticked zones and content, and leaves media and tags out without tale groups', async () => {
+      const { fixture, root } = await openForm();
+      await chooseApp(fixture, root);
+      click(fixture, checkbox(root, 'Checkout'));
+      click(fixture, checkbox(root, 'Tags'));
+      buttonNamed(root, 'Start import').click();
+      const start = http.expectOne((r) => r.method === 'POST' && r.url === importsUrl);
+      expect(start.request.body.selection).toEqual({
+        selectionKey: 'v1.key.mac',
+        zones: ['2001', '2002'],
+        taleGroups: true,
+        media: true,
+        tags: false,
+      });
+      start.flush(
+        { error: { code: 'import_selection_invalid', message: 'The selection has expired. Choose again.' } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle(fixture);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('The selection has expired');
+
+      // Without tale groups, media and tags are off and say why.
+      click(fixture, checkbox(root, 'Tale groups and tales'));
+      const media = checkbox(root, 'Media');
+      expect(media.disabled).toBe(true);
+      expect(media.checked).toBe(false);
+      expect(checkbox(root, 'Tags').disabled).toBe(true);
+      expect(root.querySelector(`#${media.getAttribute('aria-describedby')}`)?.textContent).toContain(
+        'Media and tags need tale groups and tales',
+      );
+      buttonNamed(root, 'Start import').click();
+      const zonesOnly = http.expectOne((r) => r.method === 'POST' && r.url === importsUrl);
+      expect(zonesOnly.request.body.selection).toEqual({
+        selectionKey: 'v1.key.mac',
+        zones: ['2001', '2002'],
+        taleGroups: false,
+        media: false,
+        tags: false,
+      });
+      zonesOnly.flush({ id: 'j1', status: 'queued' }, { status: 202, statusText: 'Accepted' });
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/projects/p1/import/j1');
+      await answerPoll(fixture, job('queued', { sourceAppName: null }));
+    });
+
+    it('says when zones were not listed or counts not read, and forgets the preview for another token', async () => {
+      const { fixture, root } = await openForm();
+      await chooseApp(fixture, root, demoPreview({ zonesBeyond: 2, countsComplete: false }));
+      expect(root.textContent).toContain('This app has 2 more zones than can be listed here');
+      expect(root.textContent).toContain('Some counts were not read');
+      type(root.querySelector<HTMLInputElement>('#import-token'), 'another-token');
+      await settle(fixture);
+      expect(root.querySelector('#import-zone-list')).toBeNull();
+      expect(root.textContent).not.toContain('Start import');
+    });
+
+    it("shows the preview's error and no picker when the app cannot be read", async () => {
+      const { fixture, root } = await openForm();
+      type(root.querySelector<HTMLInputElement>('#import-token'), 'fake-another tool-token');
+      buttonNamed(root, 'Find apps').click();
+      http.expectOne(`${importsUrl}/another tool/apps`).flush([{ id: '1001', name: 'Demo shop' }]);
+      await settle(fixture);
+      buttonNamed(root, 'Choose what to import').click();
+      const read = http.expectOne(`${importsUrl}/another tool/preview`);
+      read.flush(
+        { error: { code: 'another tool_unavailable', message: 'another tool answered 500 when listing instances' } },
+        { status: 502, statusText: 'Bad Gateway' },
+      );
+      await settle(fixture);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('another tool answered 500 when listing instances');
+      expect(root.querySelector('#import-zone-list')).toBeNull();
+    });
+
+    it('reports the zones and content not selected as skipped, not missing', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: {
+            ...report,
+            zones: { source: 3, imported: 2, skipped: 1, notSelected: 1 },
+            notSelected: { zones: [{ sourceId: '2003', name: 'Checkout' }], entities: ['tags'] },
+          },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      expect(rows(root, 'Report')).toEqual([
+        'Zones: 3 source / 2 imported / 1 skipped (1 not selected)',
+        'Tale groups: 6 source / 6 imported',
+        'Tales: 15 source / 14 imported / 1 skipped',
+        'Tags: not selected, skipped',
+      ]);
+      expect(rows(root, 'Zones not selected')).toEqual(['Zone "Checkout": not selected, skipped']);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('says how many more zones were not selected than the report names', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: {
+            ...report,
+            zones: { source: 503, imported: 1, skipped: 502, notSelected: 502 },
+            notSelected: {
+              zones: Array.from({ length: 500 }, (_, i) => ({ sourceId: String(i), name: `Zone ${i}` })),
+              entities: [],
+            },
+          },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      const listed = rows(root, 'Zones not selected');
+      expect(listed).toHaveLength(501);
+      expect(listed[500]).toBe('and 2 more zones not selected');
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('shows tale groups and tales as not selected while a zones-only import runs', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('running', {
+          progress: { ...progress([3, 2], [0, 0], [0, 0]), notSelected: ['taleGroups', 'media', 'tags'] },
+        }),
+      );
+      expect(rows(root, 'Progress')).toEqual([
+        'Zones: 3 read / 2 written',
+        'Tale groups: not selected',
+        'Tales: not selected',
+      ]);
+      await answerPoll(fixture, job('running', { progress: progress([3, 3], [1, 0], [0, 0]) }));
+      expect(rows(root, 'Progress')[1]).toBe('Tale groups: 1 read / 0 written');
+      await answerPoll(fixture, job('done', { report, finishedAt: '2026-10-20T12:00:09.000Z' }));
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
     it('asks for a token before finding apps', async () => {

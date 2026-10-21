@@ -20,6 +20,7 @@ import {
   sweepImportedMedia,
   recoverStaleJobs,
   runImportJob,
+  signSelectionKey,
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
@@ -58,6 +59,7 @@ interface Fakeanother tool {
     failSegments: 'status' | 'shape' | null;
     delayMs: number;
     data: {
+      instances: Record<string, { data: Record<string, unknown>[] }>;
       storyGroups: Record<string, { data: Record<string, unknown>[] }>;
       stories: Record<string, { data: Record<string, unknown>[] }>;
       segments: Record<string, { data: unknown[] }>;
@@ -4266,6 +4268,324 @@ describe('Management API v1: projects and zones', () => {
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: { code: 'another tool_token_invalid', message: expect.any(String) } });
       expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(0);
+    });
+
+    describe('picking what to import', () => {
+      function preview(
+        projectId: string,
+        body: unknown = { token: FAKE_another tool_TOKEN, appId: '1001' },
+        at = importBase,
+      ): Promise<Response> {
+        return send('POST', `/projects/${projectId}/imports/another tool/preview`, body, at);
+      }
+
+      // Starts an import of Demo shop with a selection; all zones and types unless told otherwise.
+      async function pick(
+        projectId: string,
+        choice: { zones?: string[]; taleGroups?: boolean; media?: boolean; tags?: boolean; selectionKey?: string },
+      ): Promise<Response> {
+        const key = choice.selectionKey ?? (await (await preview(projectId)).json()).selectionKey;
+        return send('POST', `/projects/${projectId}/imports`, {
+          token: FAKE_another tool_TOKEN,
+          appId: '1001',
+          selection: {
+            selectionKey: key,
+            zones: choice.zones ?? ['2001', '2002', '2003'],
+            taleGroups: choice.taleGroups ?? true,
+            media: choice.media ?? true,
+            tags: choice.tags ?? true,
+          },
+        });
+      }
+
+      const adminId = async (): Promise<string> =>
+        (await pool.query("SELECT id FROM users WHERE email = 'admin@example.com'")).rows[0].id;
+      const requestsTo = (path: string) => fake.control.requests.filter((r) => r.path === `/external${path}`).length;
+      const jobCount = async () => (await pool.query('SELECT 1 FROM import_jobs')).rowCount;
+      const expectInvalid = async (res: Response) => {
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('import_selection_invalid');
+      };
+
+      it("previews the app's zones with their counts, storing neither the token nor a job", async () => {
+        const project = await createProject();
+        fake.control.requests.length = 0;
+        const res = await preview(project.id);
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body).toEqual({
+          appId: '1001',
+          appName: 'Demo shop',
+          zones: [
+            { id: '2001', name: 'Home page', taleGroups: 3, tales: 8 },
+            { id: '2002', name: 'Product page', taleGroups: 2, tales: 5 },
+            { id: '2003', name: 'Checkout', taleGroups: 1, tales: 2 },
+          ],
+          zonesBeyond: 0,
+          countsComplete: true,
+          selectionKey: expect.stringMatching(/^v1\./),
+          expiresAt: expect.any(String),
+        });
+        expect(Date.parse(body.expiresAt) - Date.now()).toBeGreaterThan(25 * 60_000);
+        expect(JSON.stringify(body)).not.toContain(FAKE_another tool_TOKEN);
+        expect(Buffer.from(body.selectionKey.split('.')[1], 'base64url').toString()).not.toContain(FAKE_another tool_TOKEN);
+        expect(await jobCount()).toBe(0);
+        // Counting reads no media and no labels.
+        expect(requestsTo('/segment')).toBe(0);
+        expect(fake.control.requests.some((r) => r.path.startsWith('/media/'))).toBe(false);
+      });
+
+      it('refuses a refused token, an app the token cannot read, and a failing instance list', async () => {
+        const project = await createProject();
+        const badToken = await preview(project.id, { token: 'wrong-token', appId: '1001' });
+        expect(badToken.status).toBe(400);
+        expect((await badToken.json()).error.code).toBe('another tool_token_invalid');
+        await expectInvalid(await preview(project.id, { token: FAKE_another tool_TOKEN, appId: '9999' }));
+        const missing = await preview(project.id, { token: FAKE_another tool_TOKEN });
+        expect((await missing.json()).error.code).toBe('validation_failed');
+        fake.control.failInstances = 'status';
+        const failing = await preview(project.id);
+        expect(failing.status).toBe(502);
+        expect((await failing.json()).error.code).toBe('another tool_unavailable');
+        expect(await jobCount()).toBe(0);
+      });
+
+      it('leaves counts unknown when a story list fails, and bounds what it lists and reads', async () => {
+        const project = await createProject();
+        fake.control.failStories = 'status';
+        const body = await (await preview(project.id)).json();
+        type Counted = { taleGroups: number | null; tales: number | null };
+        const counts = body.zones.map((z: Counted) => [z.taleGroups, z.tales]);
+        expect(counts).toEqual([
+          [3, null],
+          [2, null],
+          [1, null],
+        ]);
+        expect(body.countsComplete).toBe(false);
+
+        fake.control.reset();
+        const bounded = await listenImporter({
+          tokenKey,
+          another toolApiUrl: fake.url,
+          previewLimits: { maxZones: 2, maxCountRequests: 3 },
+        });
+        try {
+          fake.control.requests.length = 0;
+          const small = await (await preview(project.id, undefined, bounded.base)).json();
+          expect(small.zones).toEqual([
+            { id: '2001', name: 'Home page', taleGroups: 3, tales: null },
+            { id: '2002', name: 'Product page', taleGroups: null, tales: null },
+          ]);
+          expect(small.zonesBeyond).toBe(1);
+          expect(small.countsComplete).toBe(false);
+          expect(requestsTo('/story-group') + requestsTo('/story')).toBe(3);
+        } finally {
+          await new Promise<void>((resolve) => bounded.server.close(() => resolve()));
+        }
+      });
+
+      it('imports only the ticked zones without tags, and reports the rest as not selected', async () => {
+        const project = await createProject();
+        const res = await pick(project.id, { zones: ['2001', '2002'], tags: false });
+        expect(res.status).toBe(202);
+        const started = await res.json();
+        fake.control.requests.length = 0;
+        startWorker();
+        const job = await waitForEnd(project.id, started.id);
+        expect(job['status']).toBe('done');
+        const report = job['report'] as Record<string, unknown>;
+        expect(report['zones']).toEqual({ source: 3, imported: 2, skipped: 1, notSelected: 1 });
+        expect(report['taleGroups']).toEqual({ source: 5, imported: 5, skipped: 0 });
+        expect(report['tales']).toEqual({ source: 13, imported: 13, skipped: 0 });
+        expect(report['media']).toEqual({ source: 13, imported: 13, skipped: 0 });
+        expect(report['tags']).toBeUndefined();
+        expect(report['notSelected']).toEqual({ zones: [{ sourceId: '2003', name: 'Checkout' }], entities: ['tags'] });
+        // Not selected is not missing: no difference names the zone left out.
+        expect(JSON.stringify(report['differences'])).not.toContain('"2003"');
+        expect((await projectZones(project.id)).map((z) => z.name).sort()).toEqual(['Home page', 'Product page']);
+        expect(await contentCounts(project.id)).toEqual({ groups: 5, placements: 5, tales: 13, links: 20 });
+        const tags = await pool.query('SELECT count(*) FROM tags WHERE project_id = $1', [project.id]);
+        expect(Number(tags.rows[0].count)).toBe(0);
+        // Nothing of the zone left out, and no labels, were read.
+        expect(requestsTo('/story-group')).toBe(2);
+        expect(requestsTo('/story')).toBe(5);
+        expect(requestsTo('/segment')).toBe(0);
+        expect((await storedJob(started.id)).token_ciphertext).toBeNull();
+      });
+
+      it('imports zones only when tale groups are not picked, and tales without media when media is not', async () => {
+        const project = await createProject();
+        const zonesOnly = await (await pick(project.id, { taleGroups: false, media: false, tags: false })).json();
+        fake.control.requests.length = 0;
+        startWorker();
+        const zonesOnlyJob = await waitForEnd(project.id, zonesOnly.id);
+        // Progress names what was left out, so the job page shows it as not selected.
+        expect((zonesOnlyJob['progress'] as Record<string, unknown>)['notSelected']).toEqual([
+          'taleGroups',
+          'media',
+          'tags',
+        ]);
+        const report = zonesOnlyJob['report'] as Record<string, unknown>;
+        expect(report['zones']).toEqual({ source: 3, imported: 3, skipped: 0 });
+        expect(report['taleGroups']).toBeUndefined();
+        expect(report['tales']).toBeUndefined();
+        expect(report['notSelected']).toEqual({ zones: [], entities: ['taleGroups', 'media', 'tags'] });
+        expect(requestsTo('/story-group')).toBe(0);
+        expect(await contentCounts(project.id)).toEqual({ groups: 0, placements: 0, tales: 0, links: 3 });
+
+        const other = await createProject('Beta');
+        const noMedia = await (await pick(other.id, { media: false })).json();
+        fake.control.requests.length = 0;
+        const done = (await waitForEnd(other.id, noMedia.id))['report'] as Record<string, unknown>;
+        expect(done['tales']).toEqual({ source: 15, imported: 15, skipped: 0 });
+        expect(done['media']).toBeUndefined();
+        expect(done['notSelected']).toEqual({ zones: [], entities: ['media'] });
+        expect(fake.control.requests.some((r) => r.path.startsWith('/media/'))).toBe(false);
+        const withMedia = await pool.query(
+          'SELECT count(*) FROM tales WHERE project_id = $1 AND media_key IS NOT NULL',
+          [other.id],
+        );
+        expect(Number(withMedia.rows[0].count)).toBe(0);
+      });
+
+      it('refuses a zone the preview did not list, and a key that is changed, expired or for someone else', async () => {
+        const project = await createProject();
+        const other = await createProject('Beta');
+        const { selectionKey } = await (await preview(project.id)).json();
+        await expectInvalid(await pick(project.id, { selectionKey, zones: ['2001', '9999'] }));
+        await expectInvalid(await pick(other.id, { selectionKey }));
+        const [version, payload, mac] = selectionKey.split('.');
+        const changed = JSON.parse(Buffer.from(payload, 'base64url').toString());
+        changed.z.push('9999');
+        const forged = `${version}.${Buffer.from(JSON.stringify(changed)).toString('base64url')}.${mac}`;
+        await expectInvalid(await pick(project.id, { selectionKey: forged, zones: ['9999'] }));
+        const scope = { projectId: project.id, appId: '1001', userId: await adminId() };
+        const soon = Date.now() + 60_000;
+        for (const key of [
+          signSelectionKey(tokenKey, scope, ['2001'], Date.now() - 1),
+          signSelectionKey(tokenKey, { ...scope, userId: randomUUID() }, ['2001'], soon),
+          signSelectionKey(tokenKey, { ...scope, appId: '1002' }, ['2001'], soon),
+          signSelectionKey(randomBytes(32), scope, ['2001'], soon),
+        ]) {
+          await expectInvalid(await pick(project.id, { selectionKey: key, zones: ['2001'] }));
+        }
+        // A genuine key for this scope is accepted.
+        const genuine = signSelectionKey(tokenKey, scope, ['2001'], soon);
+        expect((await pick(project.id, { selectionKey: genuine, zones: ['2001'] })).status).toBe(202);
+        await pool.query('DELETE FROM import_jobs');
+        // Media and tags need tale groups.
+        await expectInvalid(await pick(project.id, { selectionKey, taleGroups: false, media: true, tags: false }));
+        await expectInvalid(await pick(project.id, { selectionKey, taleGroups: false, media: false, tags: true }));
+        expect(await jobCount()).toBe(0);
+      });
+
+      it('refuses a malformed selection with validation_failed', async () => {
+        const project = await createProject();
+        const { selectionKey } = await (await preview(project.id)).json();
+        const all = { taleGroups: true, media: true, tags: true };
+        const tooMany = Array.from({ length: 501 }, (_, i) => `z${i}`);
+        for (const selection of [
+          'all',
+          null,
+          [],
+          { zones: ['2001'], ...all },
+          { selectionKey, zones: [], ...all },
+          { selectionKey, zones: ['2001', '2001'], ...all },
+          { selectionKey, zones: tooMany, ...all },
+          { selectionKey, zones: [2001], ...all },
+          { selectionKey, zones: ['2001'], ...all, taleGroups: 'yes' },
+          { selectionKey, zones: ['2001'], taleGroups: true, media: true },
+        ]) {
+          const res = await send('POST', `/projects/${project.id}/imports`, {
+            token: FAKE_another tool_TOKEN,
+            appId: '1001',
+            selection,
+          });
+          expect(res.status).toBe(400);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+        expect(await jobCount()).toBe(0);
+      });
+
+      it('notes a picked zone that left the app before the import ran', async () => {
+        const project = await createProject();
+        const started = await (await pick(project.id, { zones: ['2001', '2003'] })).json();
+        const demo = fake.control.data.instances['1001'];
+        demo.data = demo.data.filter((instance) => instance['id'] !== 2003);
+        startWorker();
+        const job = await waitForEnd(project.id, started.id);
+        expect(job['status']).toBe('done');
+        const report = job['report'] as { notes: string[]; zones: unknown; notSelected: unknown };
+        expect(report.notes).toContain('Zones: 1 picked zone(s) are no longer in the app, so they were not imported');
+        expect(report.zones).toEqual({ source: 2, imported: 1, skipped: 1, notSelected: 1 });
+        expect(report.notSelected).toEqual({ zones: [{ sourceId: '2002', name: 'Product page' }], entities: [] });
+      });
+
+      it('runs one preview per person and a few per server at a time, answering preview_busy', async () => {
+        const project = await createProject();
+        // Each of the preview's eleven reads waits a little, so two previews overlap.
+        fake.control.delayMs = 60;
+        const [first, second] = await Promise.all([preview(project.id), preview(project.id)]);
+        expect([first.status, second.status].sort()).toEqual([200, 429]);
+        const busy = first.status === 429 ? first : second;
+        expect((await busy.json()).error.code).toBe('preview_busy');
+        // The slot is free again once the preview ends.
+        expect((await preview(project.id)).status).toBe(200);
+
+        // Process-wide: another person is refused while the server is at its limit.
+        const bounded = await listenImporter({
+          tokenKey,
+          another toolApiUrl: fake.url,
+          previewConcurrency: { perUser: 1, total: 1 },
+        });
+        try {
+          const admin = sessionCookie;
+          const other = await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+          const otherCookie = `taleart_session=${(await createSession(pool, other.id)).token}`;
+          const running = preview(project.id, undefined, bounded.base);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          sessionCookie = otherCookie;
+          const refused = await preview(project.id, undefined, bounded.base);
+          sessionCookie = admin;
+          expect(refused.status).toBe(429);
+          expect((await refused.json()).error.code).toBe('preview_busy');
+          expect((await running).status).toBe(200);
+        } finally {
+          await new Promise<void>((resolve) => bounded.server.close(() => resolve()));
+        }
+      });
+
+      it('aborts its another tool reads when the caller goes away, freeing its slot at once', async () => {
+        const project = await createProject();
+        fake.control.delayMs = 3000;
+        const caller = new AbortController();
+        const gone = fetch(`${importBase}/projects/${project.id}/imports/another tool/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: FAKE_another tool_TOKEN, appId: '1001' }),
+          signal: caller.signal,
+        }).catch(() => null);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        caller.abort();
+        await gone;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        // Had the read gone on, the person's one slot would still be taken for about 3 s.
+        fake.control.delayMs = 0;
+        const started = Date.now();
+        const next = await preview(project.id);
+        expect(next.status).toBe(200);
+        expect(Date.now() - started).toBeLessThan(2000);
+      });
+
+      it('refuses the preview to a content manager', async () => {
+        const project = await createProject();
+        const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+        await addProjectMember(pool, project.id, user.id);
+        sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+        const res = await preview(project.id);
+        expect(res.status).toBe(403);
+        expect((await res.json()).error.code).toBe('forbidden');
+      });
     });
 
     it('imports the app as zones with links and a report, then deletes the token', async () => {
