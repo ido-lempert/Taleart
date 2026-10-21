@@ -112,4 +112,26 @@ export async function migrateTales(db: Db): Promise<void> {
       $$;
     `);
   }
+
+  // An optional start and end time (AD-6), in UTC. Live content is delivered
+  // only inside its window; `scheduled` and `expired` are computed from it
+  // when content is read, never stored. Existing rows get no window. The
+  // CHECK is added once, guarded by its name, so a second run changes nothing.
+  for (const table of ['tale_groups', 'tales']) {
+    await db.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS starts_at timestamptz`);
+    await db.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ends_at timestamptz`);
+    await db.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = '${table}_window_check' AND conrelid = '${table}'::regclass
+        ) THEN
+          ALTER TABLE ${table} ADD CONSTRAINT ${table}_window_check
+            CHECK (starts_at IS NULL OR ends_at IS NULL OR ends_at > starts_at);
+        END IF;
+      END
+      $$;
+    `);
+  }
 }

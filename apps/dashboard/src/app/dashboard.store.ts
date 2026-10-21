@@ -9,6 +9,7 @@ import {
   type IssuedZoneKey,
   type Project,
   type ProjectTaleGroup,
+  type SetScheduleRequest,
   type SettableStatus,
   type Tag,
   type Tale,
@@ -44,7 +45,11 @@ export type DrawerRequest =
   | { kind: 'removeTaleGroup'; zoneId: string; taleGroupId: string }
   | { kind: 'copyTaleGroup'; taleGroupId: string }
   | { kind: 'taleMedia'; taleId: string }
+  | { kind: 'schedule'; target: ScheduleTarget; id: string }
   | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction };
+
+/** What a schedule drawer sets the start and end time of (AD-6). */
+export type ScheduleTarget = 'taleGroup' | 'tale';
 
 /** What a zone key drawer does: issue the first key, rotate the active one, or revoke it. */
 export type ZoneKeyAction = 'issue' | 'rotate' | 'revoke';
@@ -488,6 +493,26 @@ export class DashboardStore {
     }
     await this.refresh();
     return { tale, message: '' };
+  }
+
+  /**
+   * Sets or clears the start and end time of a tale group or tale (AD-6), in
+   * UTC; every zone shows the status that follows from it. Returns '' or the
+   * message to show, such as the API's refusal of an end before the start.
+   */
+  async setSchedule(
+    target: ScheduleTarget,
+    id: string,
+    schedule: SetScheduleRequest,
+  ): Promise<string> {
+    const path = target === 'taleGroup' ? 'tale-groups' : 'tales';
+    try {
+      await firstValueFrom(this.http.put(`${API_BASE}/${path}/${encodeURIComponent(id)}/schedule`, schedule));
+    } catch (err) {
+      return apiErrorMessage(err, 'The schedule was not saved. Try again.');
+    }
+    await this.refresh();
+    return '';
   }
 
   /** Creates a tag in a project and adds it to the project's tags. */

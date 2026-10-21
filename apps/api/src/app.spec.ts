@@ -537,6 +537,9 @@ describe('Management API v1: projects and zones', () => {
         projectId: zone.projectId,
         name: 'Summer',
         status: 'draft',
+        storedStatus: 'draft',
+        startsAt: null,
+        endsAt: null,
         position: 0,
         zoneIds: [zone.id],
         tales: [],
@@ -579,6 +582,8 @@ describe('Management API v1: projects and zones', () => {
         position: 0,
         status: 'draft',
         storedStatus: 'draft',
+        startsAt: null,
+        endsAt: null,
         media: null,
       });
       const { rows } = await pool.query('SELECT project_id FROM tales');
@@ -913,6 +918,9 @@ describe('Management API v1: projects and zones', () => {
         projectId: zone.projectId,
         name: 'First',
         status: 'draft',
+        storedStatus: 'draft',
+        startsAt: null,
+        endsAt: null,
         zoneIds: [zone.id],
         tales: [],
         tags: [
@@ -1138,6 +1146,9 @@ describe('Management API v1: projects and zones', () => {
         projectId: a.projectId,
         name: 'Summer sale',
         status: 'live',
+        storedStatus: 'live',
+        startsAt: null,
+        endsAt: null,
         zoneIds: [z.id, z2.id],
         tales: [expect.objectContaining({ title: 'T', status: 'live' })],
         tags: [],
@@ -1230,10 +1241,10 @@ describe('Management API v1: projects and zones', () => {
       expect(res.status).toBe(200);
       const groups = await res.json();
       expect(groups).toEqual([
-        { id: a.id, projectId: project.id, name: 'A', status: 'draft', taleCount: 1, zoneIds: [] },
-        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', taleCount: 0, zoneIds: [z2.id] },
-        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', taleCount: 0, zoneIds: [z.id] },
-        { id: c.id, projectId: project.id, name: 'C', status: 'draft', taleCount: 0, zoneIds: [z2.id] },
+        { id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [] },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id] },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id] },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id] },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
@@ -1303,7 +1314,7 @@ describe('Management API v1: projects and zones', () => {
         { zone_id: z2.id, tale_group_id: c, project_id: project.id, position: 0 },
       ].sort((x, y) => (x.zone_id < y.zone_id ? -1 : x.zone_id > y.zone_id ? 1 : x.position - y.position));
       expect(await placements()).toEqual(expected);
-      expect(await columns()).toEqual(['created_at', 'id', 'name', 'project_id', 'status']);
+      expect(await columns()).toEqual(['created_at', 'ends_at', 'id', 'name', 'project_id', 'starts_at', 'status']);
       expect((await pool.query("SELECT 1 FROM pg_indexes WHERE indexname = 'tale_groups_zone_id_idx'")).rowCount).toBe(0);
       expect((await listed(z.id)).map((g) => [g.name, g.position, g.tales.map((t) => t.title)])).toEqual([
         ['A', 0, ['Beach']],
@@ -1314,7 +1325,7 @@ describe('Management API v1: projects and zones', () => {
       // Runs twice without change.
       await restart();
       expect(await placements()).toEqual(expected);
-      expect(await columns()).toEqual(['created_at', 'id', 'name', 'project_id', 'status']);
+      expect(await columns()).toEqual(['created_at', 'ends_at', 'id', 'name', 'project_id', 'starts_at', 'status']);
     });
 
     it('makes groups and tales made before statuses live, new ones draft, once (AD-6)', async () => {
@@ -1439,6 +1450,9 @@ describe('Management API v1: projects and zones', () => {
         projectId: project.id,
         name: 'Summer sale',
         status: 'draft',
+        storedStatus: 'draft',
+        startsAt: null,
+        endsAt: null,
         position: 1,
         zoneIds: [production.id],
         tales: [
@@ -2596,6 +2610,246 @@ describe('Management API v1: projects and zones', () => {
           expect((await getPublic(urls[0])).status).toBe(404);
           await expectStatus('tale-groups', copy.id, 'live', 200);
           expect((await getPublic(urls[0])).status).toBe(200);
+        });
+      });
+
+      describe('schedules (AD-6)', () => {
+        const minute = 60 * 1000;
+        const at = (offset: number) => new Date(Date.now() + offset).toISOString();
+
+        interface Scheduled {
+          id: string;
+          status: string;
+          storedStatus: string;
+          startsAt: string | null;
+          endsAt: string | null;
+          tales: Scheduled[];
+        }
+
+        function setSchedule(kind: 'tale-groups' | 'tales', id: string, body: unknown): Promise<Response> {
+          return fetch(`${base}/${kind}/${id}/schedule`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        }
+
+        async function schedule(kind: 'tale-groups' | 'tales', id: string, startsAt: string | null, endsAt: string | null) {
+          const res = await setSchedule(kind, id, { startsAt, endsAt });
+          expect(res.status).toBe(200);
+          return (await res.json()) as Scheduled;
+        }
+
+        async function delivered(key: string): Promise<{ name: string; tales: { title: string }[] }[]> {
+          const res = await deliver(key);
+          expect(res.status).toBe(200);
+          return (await res.json()).taleGroups;
+        }
+
+        async function zoneGroups(zoneId: string): Promise<Scheduled[]> {
+          return (await fetch(`${base}/zones/${zoneId}/tale-groups`)).json();
+        }
+
+        // A zone with a key and a live group "Live" holding live tales L1 (PNG) and L2 (GIF).
+        async function liveZone() {
+          const zone = await createZone();
+          const group = await addGroup(zone.id, 'Live');
+          const l1 = await addTale(group.id, 'L1', ['image/png', png]);
+          const l2 = await addTale(group.id, 'L2', ['image/gif', gif]);
+          const { key } = await issue(zone.id);
+          const urls = (await (await deliver(key)).json()).taleGroups[0].tales.map(
+            (t: { media: { url: string } }) => t.media.url,
+          );
+          return { zone, group, l1, l2, key, urls };
+        }
+
+        afterEach(() => {
+          vi.useRealTimers();
+        });
+
+        it('sets a window in UTC from any offset and clears it', async () => {
+          const { zone, group, l1 } = await liveZone();
+          const set = await schedule('tale-groups', group.id, '2030-01-01T12:00:00+02:00', '2030-01-02T00:00:00Z');
+          expect(set).toMatchObject({
+            startsAt: '2030-01-01T10:00:00.000Z',
+            endsAt: '2030-01-02T00:00:00.000Z',
+            storedStatus: 'live',
+            status: 'scheduled',
+            tags: [],
+          });
+          const cleared = await schedule('tale-groups', group.id, null, null);
+          expect(cleared).toMatchObject({ startsAt: null, endsAt: null, status: 'live' });
+          expect(await schedule('tales', l1.id, null, '2030-01-01T00:00:00.000Z')).toMatchObject({
+            startsAt: null,
+            endsAt: '2030-01-01T00:00:00.000Z',
+            status: 'live',
+          });
+          const listed = await (await fetch(`${base}/projects/${zone.projectId}/tale-groups`)).json();
+          expect(listed[0]).toMatchObject({ status: 'live', storedStatus: 'live', startsAt: null, endsAt: null });
+        });
+
+        it("hides a group whose start is ahead, and shows it once the start passes; its media is public only then", async () => {
+          const { zone, group, key, urls } = await liveZone();
+          await schedule('tale-groups', group.id, at(minute), null);
+          expect(await delivered(key)).toEqual([]);
+          expect((await getPublic(urls[0])).status).toBe(404);
+          expect((await zoneGroups(zone.id))[0]).toMatchObject({ status: 'scheduled', storedStatus: 'live' });
+
+          vi.useFakeTimers({ toFake: ['Date'] });
+          vi.setSystemTime(Date.now() + 2 * minute);
+          expect((await delivered(key)).map((g) => g.name)).toEqual(['Live']);
+          expect((await getPublic(urls[0])).status).toBe(200);
+          expect((await zoneGroups(zone.id))[0].status).toBe('live');
+        });
+
+        it("skips a tale past its end: the group starts with its next tale, the tale reads expired and its media answers 404", async () => {
+          const { zone, l1, key, urls } = await liveZone();
+          await schedule('tales', l1.id, null, at(minute));
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L1', 'L2']);
+
+          vi.useFakeTimers({ toFake: ['Date'] });
+          vi.setSystemTime(Date.now() + 2 * minute);
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L2']);
+          expect((await getPublic(urls[0])).status).toBe(404);
+          expect((await getPublic(urls[1])).status).toBe(200);
+          expect((await zoneGroups(zone.id))[0].tales.map((t) => [t.status, t.storedStatus])).toEqual([
+            ['expired', 'live'],
+            ['live', 'live'],
+          ]);
+        });
+
+        it("hides every tale of an expired group, even tales inside their own window", async () => {
+          const { group, l1, key, urls } = await liveZone();
+          await schedule('tales', l1.id, at(-minute), at(60 * minute));
+          await schedule('tale-groups', group.id, at(-60 * minute), at(-minute));
+          expect(await delivered(key)).toEqual([]);
+          expect((await getPublic(urls[0])).status).toBe(404);
+          expect((await getPublic(urls[1])).status).toBe(404);
+          // Reopening the group's window brings it back.
+          await schedule('tale-groups', group.id, at(-60 * minute), null);
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L1', 'L2']);
+        });
+
+        it('leaves out a group whose only tales are scheduled', async () => {
+          const { l1, l2, key } = await liveZone();
+          await schedule('tales', l1.id, at(minute), null);
+          await schedule('tales', l2.id, at(minute), null);
+          expect(await delivered(key)).toEqual([]);
+        });
+
+        it('reads paused over scheduled, draft over expired, and blocked-by-group over a tale window', async () => {
+          const { zone, group, l1 } = await liveZone();
+          await schedule('tale-groups', group.id, at(minute), null);
+          expect((await setStatus('tale-groups', group.id, 'paused')).status).toBe(200);
+          await schedule('tales', l1.id, null, at(-minute));
+          const [paused] = await zoneGroups(zone.id);
+          expect([paused.status, paused.tales[0].status]).toEqual(['paused', 'blocked-by-group']);
+
+          const draft = await (await post(`/tale-groups/${group.id}/tales`, { title: 'D' })).json();
+          expect((await schedule('tales', draft.id, null, at(-minute))).status).toBe('draft');
+        });
+
+        it('refuses an end not later than the start, and bad bounds, with 400, changing nothing', async () => {
+          const { group, l1 } = await liveZone();
+          await schedule('tale-groups', group.id, '2030-01-01T00:00:00Z', null);
+          const bodies: unknown[] = [
+            { startsAt: '2030-01-02T00:00:00Z', endsAt: '2030-01-01T00:00:00Z' },
+            { startsAt: '2030-01-01T00:00:00Z', endsAt: '2030-01-01T00:00:00Z' },
+            { startsAt: '2030-01-01T02:00:00+02:00', endsAt: '2030-01-01T00:00:00Z' },
+            { startsAt: null },
+            { endsAt: null },
+            {},
+            { startsAt: '2030-01-01T00:00:00', endsAt: null },
+            { startsAt: '2030-01-01', endsAt: null },
+            { startsAt: 'tomorrow', endsAt: null },
+            { startsAt: 1893456000000, endsAt: null },
+            { startsAt: '2030-02-30T00:00:00Z', endsAt: null },
+          ];
+          for (const body of bodies) {
+            for (const [kind, id] of [
+              ['tale-groups', group.id],
+              ['tales', l1.id],
+            ] as const) {
+              const res = await setSchedule(kind, id, body);
+              expect({ body, kind, status: res.status }).toEqual({ body, kind, status: 400 });
+              expect(await res.json()).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
+            }
+          }
+          const noBody = await fetch(`${base}/tales/${l1.id}/schedule`, { method: 'PUT' });
+          expect(noBody.status).toBe(400);
+          const { rows } = await pool.query('SELECT starts_at, ends_at FROM tale_groups WHERE id = $1', [group.id]);
+          expect(rows[0]).toEqual({ starts_at: new Date('2030-01-01T00:00:00Z'), ends_at: null });
+          // The database holds the same rule.
+          await expect(
+            pool.query("UPDATE tales SET starts_at = '2030-01-02', ends_at = '2030-01-01' WHERE id = $1", [l1.id]),
+          ).rejects.toThrow(/tales_window_check/);
+        });
+
+        it('answers 404 for an unknown group or tale before reading the body, and 403 without the project', async () => {
+          for (const id of [unknownId, 'not-a-uuid']) {
+            const group = await setSchedule('tale-groups', id, { nope: 1 });
+            expect([group.status, (await group.json()).error.code]).toEqual([404, 'tale_group_not_found']);
+            const tale = await setSchedule('tales', id, { nope: 1 });
+            expect([tale.status, (await tale.json()).error.code]).toEqual([404, 'tale_not_found']);
+          }
+          const { group, l1 } = await liveZone();
+          const mine = await createProject('Mine');
+          await signInAsContentManager(mine.id);
+          for (const [kind, id] of [
+            ['tale-groups', group.id],
+            ['tales', l1.id],
+          ] as const) {
+            const res = await setSchedule(kind, id, { startsAt: null, endsAt: '2020-01-01T00:00:00Z' });
+            expect([res.status, (await res.json()).error.code]).toEqual([403, 'forbidden']);
+          }
+          const { rows } = await pool.query('SELECT ends_at FROM tale_groups UNION ALL SELECT ends_at FROM tales');
+          expect(rows.every((r) => r.ends_at === null)).toBe(true);
+        });
+
+        it('keeps a key copies share public while one copy is in its window, and 404 once neither is', async () => {
+          const { zone, group, l1, urls } = await liveZone();
+          const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
+          const copy: Scheduled = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id })).json();
+          await publish('tale-groups', copy.id);
+          const copiedL1 = copy.tales[0].id;
+          // The source tale's window has ended; the copy's tale is open: the shared file stays public.
+          await schedule('tales', l1.id, null, at(-minute));
+          expect((await getPublic(urls[0])).status).toBe(200);
+          // The copy's group starts later: no published tale uses the key now.
+          await schedule('tale-groups', copy.id, at(minute), null);
+          expect((await getPublic(urls[0])).status).toBe(404);
+          // Its tale's own window reopening does not help while the copy's group is scheduled.
+          await schedule('tales', copiedL1, null, null);
+          expect((await getPublic(urls[0])).status).toBe(404);
+        });
+
+        it('answers 404, not 304, to a revalidation of media that is scheduled or expired', async () => {
+          const { group, l1, urls } = await liveZone();
+          const etag = (await getPublic(urls[0])).headers.get('etag') ?? '';
+          expect(etag).toMatch(/^"tales\//);
+          expect((await getPublic(urls[0], { 'If-None-Match': etag })).status).toBe(304);
+
+          await schedule('tales', l1.id, null, at(-minute));
+          const expired = await getPublic(urls[0], { 'If-None-Match': etag });
+          expect(expired.status).toBe(404);
+          expect(await expired.json()).toEqual({ error: { code: 'media_not_found', message: expect.any(String) } });
+
+          await schedule('tales', l1.id, null, null);
+          await schedule('tale-groups', group.id, at(minute), null);
+          expect((await getPublic(urls[0], { 'If-None-Match': etag })).status).toBe(404);
+        });
+
+        it('copies the windows of a group and its tales', async () => {
+          const { zone, group, l1 } = await liveZone();
+          await schedule('tale-groups', group.id, '2030-01-01T00:00:00.000Z', null);
+          await schedule('tales', l1.id, null, '2031-01-01T00:00:00.000Z');
+          const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
+          const copy: Scheduled = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id })).json();
+          expect([copy.startsAt, copy.endsAt]).toEqual(['2030-01-01T00:00:00.000Z', null]);
+          expect(copy.tales.map((t) => [t.startsAt, t.endsAt])).toEqual([
+            [null, '2031-01-01T00:00:00.000Z'],
+            [null, null],
+          ]);
         });
       });
     });

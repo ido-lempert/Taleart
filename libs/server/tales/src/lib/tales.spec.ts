@@ -2,6 +2,7 @@ import {
   copyTaleGroup,
   createTale,
   createTaleGroup,
+  InvalidScheduleError,
   InvalidStatusTransitionError,
   isMediaKeyInUse,
   findPublishedMedia,
@@ -16,8 +17,10 @@ import {
   renameTaleGroup,
   orderTaleGroups,
   orderTales,
+  setTaleGroupSchedule,
   setTaleGroupStatus,
   setTaleMedia,
+  setTaleSchedule,
   setTaleStatus,
   taleExists,
   taleGroupProjectId,
@@ -34,6 +37,8 @@ import { ZoneNotFoundError } from '@taleart/server-zones';
 const zoneId = '00000000-0000-4000-8000-000000000001';
 const projectId = '00000000-0000-4000-8000-000000000002';
 const groupId = '00000000-0000-4000-8000-000000000003';
+// No start and no end time, as rows without a window read (AD-6).
+const NO_WINDOW = { startsAt: null, endsAt: null };
 
 // A fake pool whose connection answers queries in order from `answers`.
 function fakeDb(answers: unknown[]) {
@@ -74,7 +79,7 @@ describe('tale groups', () => {
       { rows: [{ position: 2 }] },
     ]);
     const group = await createTaleGroup(db, { zoneId, name: 'A' });
-    expect(group).toEqual({ id: groupId, projectId, name: 'A', position: 2, zoneIds: [zoneId], tales: [] });
+    expect(group).toEqual({ id: groupId, projectId, name: 'A', ...NO_WINDOW, position: 2, zoneIds: [zoneId], tales: [] });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
     expect(statements().some((s) => /FROM zones/.test(s) && /FOR UPDATE/.test(s))).toBe(false);
@@ -133,7 +138,7 @@ describe('placements', () => {
     const result = await placeTaleGroup(db, zoneId, groupId);
     expect(result).toEqual({
       placed: true,
-      group: { ...placedRow, tales: [], zoneIds: ['00000000-0000-4000-8000-0000000000aa', zoneId] },
+      group: { ...placedRow, ...NO_WINDOW, tales: [], zoneIds: ['00000000-0000-4000-8000-0000000000aa', zoneId] },
     });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
@@ -207,8 +212,8 @@ describe('placements', () => {
       { rows: [{ taleGroupId: groupId, zoneId }] },
     ]);
     expect(await listProjectTaleGroups(db, projectId)).toEqual([
-      { id: groupId, projectId, name: 'Autumn', taleCount: 2, zoneIds: [zoneId] },
-      { id: g2, projectId, name: 'beach', taleCount: 0, zoneIds: [] },
+      { id: groupId, projectId, name: 'Autumn', ...NO_WINDOW, taleCount: 2, zoneIds: [zoneId] },
+      { id: g2, projectId, name: 'beach', ...NO_WINDOW, taleCount: 0, zoneIds: [] },
     ]);
     expect(query.mock.calls[0][0]).toMatch(/ORDER BY lower\(name\), name, id/);
     expect(query.mock.calls[0][1]).toEqual([projectId]);
@@ -221,7 +226,7 @@ describe('placements', () => {
 describe('rename', () => {
   it('renames the group itself and returns it with its tales and zones', async () => {
     const { db, query } = fakeDb([{ rows: [{ id: groupId, projectId, name: 'B' }] }, { rows: [] }, { rows: [{ taleGroupId: groupId, zoneId }] }]);
-    expect(await renameTaleGroup(db, groupId, 'B')).toEqual({ id: groupId, projectId, name: 'B', tales: [], zoneIds: [zoneId] });
+    expect(await renameTaleGroup(db, groupId, 'B')).toEqual({ id: groupId, projectId, name: 'B', ...NO_WINDOW, tales: [], zoneIds: [zoneId] });
     expect(query.mock.calls[0][0]).toMatch(/UPDATE tale_groups SET name = \$2 WHERE id = \$1/);
     expect(query.mock.calls[0][1]).toEqual([groupId, 'B']);
   });
@@ -273,8 +278,9 @@ describe('one tale group', () => {
     ]);
     expect(await getTaleGroup(db, groupId)).toEqual({
       ...group,
+      ...NO_WINDOW,
       zoneIds: [zoneId],
-      tales: [{ id: 't1', taleGroupId: groupId, media: null }],
+      tales: [{ id: 't1', taleGroupId: groupId, ...NO_WINDOW, media: null }],
     });
   });
 });
@@ -318,7 +324,7 @@ describe('tales', () => {
     const tale = await createTale(db, { taleGroupId: groupId, title: 'T' });
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
     expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2]);
-    expect(tale).toEqual({ id: 't1', media: null });
+    expect(tale).toEqual({ id: 't1', ...NO_WINDOW, media: null });
   });
 
   it('runs the callback in the same transaction once the tale exists, and rolls back when it throws', async () => {
@@ -364,8 +370,8 @@ describe('tale media', () => {
     ]);
     const [group] = await listTaleGroups(db, zoneId);
     expect(group.tales).toEqual([
-      { ...row, media: { kind: 'video', contentType: 'video/mp4', url: `/api/v1/tales/${taleId}/media` } },
-      { ...row, id: 't2', media: null },
+      { ...row, ...NO_WINDOW, media: { kind: 'video', contentType: 'video/mp4', url: `/api/v1/tales/${taleId}/media` } },
+      { ...row, ...NO_WINDOW, id: 't2', media: null },
     ]);
     expect(JSON.stringify(group)).not.toMatch(/key/i);
   });
@@ -397,7 +403,7 @@ describe('tale media', () => {
     expect(query.mock.calls[0][1]).toEqual([taleId, 'tales/new.gif', 'image/gif']);
     expect(result).toEqual({
       previousKey: 'tales/old.png',
-      tale: { ...row, media: { kind: 'image', contentType: 'image/gif', url: `/api/v1/tales/${taleId}/media` } },
+      tale: { ...row, ...NO_WINDOW, media: { kind: 'image', contentType: 'image/gif', url: `/api/v1/tales/${taleId}/media` } },
     });
   });
 
@@ -535,7 +541,12 @@ describe('delivery', () => {
     expect(statements()[0]).toMatch(/FROM zone_tale_groups[\s\S]*ORDER BY zone_tale_groups\.position, tale_groups\.id/);
     // Only live groups and their live tales are delivered (AD-6).
     expect(statements()[0]).toMatch(/tale_groups\.status = 'live'/);
-    expect(statements()[1]).toMatch(/status = 'live' ORDER BY position, id/);
+    expect(statements()[1]).toMatch(/tales\.status = 'live'[\s\S]*ORDER BY position, id/);
+    // ...inside their start and end time, and their group's (AD-6).
+    expect(statements()[0]).toMatch(
+      /tale_groups\.starts_at IS NULL OR tale_groups\.starts_at <= \$2\) AND \(tale_groups\.ends_at IS NULL OR tale_groups\.ends_at > \$2\)/,
+    );
+    expect(statements()[1]).toMatch(/tales\.starts_at IS NULL OR tales\.starts_at <= \$2\) AND \(tales\.ends_at IS NULL OR tales\.ends_at > \$2\)/);
   });
 
   it('answers an empty list for a zone without groups, and does not query for a non-UUID zone', async () => {
@@ -550,9 +561,11 @@ describe('delivery', () => {
   it('finds the media a tale references by key, and null for any other key', async () => {
     const found = fakeDb([{ rows: [{ contentType: 'video/mp4' }] }]);
     expect(await findPublishedMedia(found.db, 'tales/x.mp4')).toEqual({ key: 'tales/x.mp4', contentType: 'video/mp4' });
-    expect(found.query.mock.calls[0][1]).toEqual(['tales/x.mp4']);
-    // Published: a live tale of a live group (AD-6, AD-11).
-    expect(found.query.mock.calls[0][0]).toMatch(/tales\.status = 'live' AND tale_groups\.status = 'live'/);
+    expect(found.query.mock.calls[0][1]).toEqual(['tales/x.mp4', expect.any(Date)]);
+    // Published: a live tale of a live group, each inside its window (AD-6, AD-11).
+    expect(found.query.mock.calls[0][0]).toMatch(/tales\.status = 'live' AND \(tales\.starts_at IS NULL/);
+    expect(found.query.mock.calls[0][0]).toMatch(/tale_groups\.status = 'live' AND \(tale_groups\.starts_at IS NULL/);
+    expect(found.query.mock.calls[0][0]).toMatch(/tale_groups\.ends_at > \$2/);
     const missing = fakeDb([{ rows: [] }]);
     expect(await findPublishedMedia(missing.db, 'tales/old.png')).toBeNull();
   });
@@ -584,8 +597,12 @@ describe('copy to zone', () => {
     const { db, query, statements } = fakeDb([
       { rows: [{ project_id: otherProject }] },
       { rows: [{}] },
-      { rows: [{ name: 'Summer' }] },
-      { rows: [{ id: copyId, projectId: otherProject, name: 'Summer' }] },
+      { rows: [{ name: 'Summer', startsAt: new Date('2026-11-01T00:00:00Z'), endsAt: null }] },
+      {
+        rows: [
+          { id: copyId, projectId: otherProject, name: 'Summer', startsAt: new Date('2026-11-01T00:00:00Z'), endsAt: null },
+        ],
+      },
       { rows: [] },
       { rows: [] },
       { rows: [{ position: 3 }] },
@@ -603,16 +620,19 @@ describe('copy to zone', () => {
       id: copyId,
       projectId: otherProject,
       name: 'Summer',
+      startsAt: '2026-11-01T00:00:00.000Z',
+      endsAt: null,
       position: 3,
       zoneIds: [zoneId],
-      tales: [{ id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, media: null }],
+      tales: [{ id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, ...NO_WINDOW, media: null }],
     });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
     const insertGroup = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
-    expect(insertGroup?.[1]).toEqual([otherProject, 'Summer']);
+    // The copy keeps the group's and its tales' start and end times.
+    expect(insertGroup?.[1]).toEqual([otherProject, 'Summer', new Date('2026-11-01T00:00:00Z'), null]);
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
-    expect(insertTales?.[0]).toMatch(/media_key, media_content_type, status FROM tales/);
+    expect(insertTales?.[0]).toMatch(/media_key, media_content_type, status, starts_at, ends_at FROM tales/);
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
     expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);
     const order = statements();
@@ -647,7 +667,7 @@ describe('copy to zone', () => {
 
 describe('status', () => {
   const taleId = '00000000-0000-4000-8000-000000000007';
-  const row = { id: groupId, projectId, name: 'A', status: 'live' };
+  const row = { id: groupId, projectId, name: 'A', storedStatus: 'live' };
 
   it('publishes a draft group under a row lock and returns it with its tales and zones', async () => {
     const { db, query, statements, release } = fakeDb([
@@ -656,7 +676,7 @@ describe('status', () => {
       { rows: [] },
       { rows: [] },
     ]);
-    expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, zoneIds: [], tales: [] });
+    expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, status: 'live', ...NO_WINDOW, zoneIds: [], tales: [] });
     expect(statements()).toContain('SELECT status FROM tale_groups WHERE id = $1 FOR UPDATE');
     const update = query.mock.calls.find((c) => /UPDATE tale_groups SET status/.test(c[0] as string));
     expect(update?.[1]).toEqual([groupId, 'live']);
@@ -665,7 +685,7 @@ describe('status', () => {
   });
 
   it('changes nothing when the group already has the status', async () => {
-    const { db, statements } = fakeDb([{ rows: [{ status: 'paused' }] }, { rows: [{ ...row, status: 'paused' }] }]);
+    const { db, statements } = fakeDb([{ rows: [{ status: 'paused' }] }, { rows: [{ ...row, storedStatus: 'paused' }] }]);
     expect((await setTaleGroupStatus(db, groupId, 'paused')).status).toBe('paused');
     expect(statements().some((s) => /^UPDATE/.test(s))).toBe(false);
   });
@@ -713,6 +733,7 @@ describe('status', () => {
       position: 0,
       storedStatus: 'paused',
       status: 'paused',
+      ...NO_WINDOW,
       media: null,
     });
     const update = paused.query.mock.calls.find((c) => /UPDATE tales SET status/.test(c[0] as string));
@@ -733,5 +754,90 @@ describe('status', () => {
     expect(bad.query).not.toHaveBeenCalled();
     const refused = fakeDb([{ rows: [{ status: 'draft' }] }]);
     await expect(setTaleStatus(refused.db, taleId, 'paused')).rejects.toBeInstanceOf(InvalidStatusTransitionError);
+  });
+});
+
+describe('schedule', () => {
+  const taleId = '00000000-0000-4000-8000-000000000008';
+  const hour = 60 * 60 * 1000;
+  const window = (startOffset: number | null, endOffset: number | null) => ({
+    startsAt: startOffset === null ? null : new Date(Date.now() + startOffset),
+    endsAt: endOffset === null ? null : new Date(Date.now() + endOffset),
+  });
+
+  it('stores a group window in UTC and reads a live group as scheduled before its start', async () => {
+    const stored = window(hour, 2 * hour);
+    const { db, query } = fakeDb([
+      { rows: [{ id: groupId, projectId, name: 'A', storedStatus: 'live', ...stored }] },
+      { rows: [] },
+      { rows: [] },
+    ]);
+    const startsAt = stored.startsAt?.toISOString() ?? null;
+    const endsAt = stored.endsAt?.toISOString() ?? null;
+    const group = await setTaleGroupSchedule(db, groupId, { startsAt, endsAt });
+    expect(group).toMatchObject({ storedStatus: 'live', status: 'scheduled', startsAt, endsAt });
+    expect(query.mock.calls[0][0]).toMatch(/UPDATE tale_groups SET starts_at = \$2, ends_at = \$3 WHERE id = \$1/);
+    expect(query.mock.calls[0][1]).toEqual([groupId, startsAt, endsAt]);
+  });
+
+  it('reads a live tale as expired after its end, and a paused one as paused whatever its window', async () => {
+    const taleRow = { id: taleId, taleGroupId: groupId, projectId, title: 'T', position: 0, mediaContentType: null };
+    const expired = fakeDb([
+      { rows: [{ ...taleRow, storedStatus: 'live', groupStatus: 'live', ...window(-2 * hour, -hour) }] },
+    ]);
+    expect(await setTaleSchedule(expired.db, taleId, { startsAt: null, endsAt: '2020-01-01T00:00:00Z' })).toMatchObject({
+      status: 'expired',
+      storedStatus: 'live',
+    });
+    expect(expired.query.mock.calls[0][0]).toMatch(/UPDATE tales SET starts_at = \$2, ends_at = \$3 WHERE id = \$1/);
+    const paused = fakeDb([{ rows: [{ ...taleRow, storedStatus: 'paused', groupStatus: 'live', ...window(hour, null) }] }]);
+    expect((await setTaleSchedule(paused.db, taleId, { startsAt: '2999-01-01T00:00:00Z', endsAt: null })).status).toBe(
+      'paused',
+    );
+    const open = fakeDb([{ rows: [{ ...taleRow, storedStatus: 'live', groupStatus: 'live', ...window(null, null) }] }]);
+    expect(await setTaleSchedule(open.db, taleId, NO_WINDOW)).toMatchObject({ status: 'live', ...NO_WINDOW });
+  });
+
+  it('refuses an end not later than the start without querying', async () => {
+    const { db, query } = fakeDb([]);
+    const start = '2026-10-21T10:00:00.000Z';
+    await expect(setTaleGroupSchedule(db, groupId, { startsAt: start, endsAt: start })).rejects.toBeInstanceOf(
+      InvalidScheduleError,
+    );
+    await expect(
+      setTaleSchedule(db, taleId, { startsAt: start, endsAt: '2026-10-21T09:00:00.000Z' }),
+    ).rejects.toMatchObject({ code: 'validation_failed' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses unknown or non-UUID ids', async () => {
+    await expect(setTaleGroupSchedule(fakeDb([{ rows: [] }]).db, groupId, NO_WINDOW)).rejects.toBeInstanceOf(
+      TaleGroupNotFoundError,
+    );
+    await expect(setTaleSchedule(fakeDb([{ rows: [] }]).db, taleId, NO_WINDOW)).rejects.toBeInstanceOf(TaleNotFoundError);
+    const bad = fakeDb([]);
+    await expect(setTaleGroupSchedule(bad.db, 'nope', NO_WINDOW)).rejects.toBeInstanceOf(TaleGroupNotFoundError);
+    await expect(setTaleSchedule(bad.db, 'nope', NO_WINDOW)).rejects.toBeInstanceOf(TaleNotFoundError);
+    expect(bad.query).not.toHaveBeenCalled();
+  });
+
+  it('passes the time it delivers at to the window filters', async () => {
+    const now = new Date('2026-10-21T10:00:00Z');
+    const { db, query } = fakeDb([{ rows: [{ id: groupId, name: 'A' }] }, { rows: [] }]);
+    await listDeliveryTaleGroups(db, zoneId, now);
+    expect(query.mock.calls[0][1]).toEqual([zoneId, now]);
+    expect(query.mock.calls[1][1]).toEqual([[groupId], now]);
+  });
+
+  it('adds nullable window columns with a CHECK, once', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    await migrateTales({ query } as unknown as TransactionalDb);
+    const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
+    for (const table of ['tale_groups', 'tales']) {
+      expect(sql).toContain(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS starts_at timestamptz`);
+      expect(sql).toContain(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ends_at timestamptz`);
+      expect(sql).toContain(`conname = '${table}_window_check'`);
+    }
+    expect(sql).toMatch(/CHECK \(starts_at IS NULL OR ends_at IS NULL OR ends_at > starts_at\)/);
   });
 });

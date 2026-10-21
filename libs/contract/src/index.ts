@@ -40,6 +40,7 @@ export type OrderTalesRequest = Schemas['OrderTalesRequest'];
 export type ContentStatus = Schemas['ContentStatus'];
 export type SetStatusRequest = Schemas['SetStatusRequest'];
 export type SettableStatus = SetStatusRequest['status'];
+export type SetScheduleRequest = Schemas['SetScheduleRequest'];
 export type TaleMedia = Schemas['TaleMedia'];
 export type MediaKind = Schemas['MediaKind'];
 export type MediaContentType = Schemas['MediaContentType'];
@@ -237,12 +238,72 @@ export function nextStatuses(from: ContentStatus): SettableStatus[] {
   return SETTABLE_STATUSES.filter((to) => to !== from && STATUS_SOURCES[to].includes(from));
 }
 
+/** A start and end time (AD-6): ISO 8601 UTC strings or Dates, null for an open bound. */
+export interface ScheduleWindow {
+  startsAt: string | Date | null;
+  endsAt: string | Date | null;
+}
+
+/** No start and no end: always inside. */
+export const OPEN_WINDOW: ScheduleWindow = { startsAt: null, endsAt: null };
+
+function toMillis(value: string | Date): number {
+  return typeof value === 'string' ? Date.parse(value) : value.getTime();
+}
+
+/**
+ * Where `now` lies against a window: `before` its start, `after` its end
+ * (the end itself counts as after), else `inside`. A missing bound is open.
+ */
+export function windowPosition(window: ScheduleWindow, now: Date = new Date()): 'before' | 'inside' | 'after' {
+  const at = now.getTime();
+  const { startsAt, endsAt } = window;
+  if (startsAt && at < toMillis(startsAt)) return 'before';
+  if (endsAt && at >= toMillis(endsAt)) return 'after';
+  return 'inside';
+}
+
+/** True when the window contains `now`: at or after its start and before its end (AD-6). */
+export function isInWindow(window: ScheduleWindow, now: Date = new Date()): boolean {
+  return windowPosition(window, now) === 'inside';
+}
+
+/** True when a window is acceptable: an open bound, or an end later than the start. */
+export function isValidWindow(window: ScheduleWindow): boolean {
+  const { startsAt, endsAt } = window;
+  return !startsAt || !endsAt || toMillis(endsAt) > toMillis(startsAt);
+}
+
+/**
+ * Content's status as read (AD-6): a stored key other than `live` as stored
+ * (paused content reads paused whatever its window); live content reads
+ * `scheduled` before its start, `expired` from its end on, else `live`.
+ * Nothing stores `scheduled` or `expired`.
+ */
+export function readContentStatus(
+  stored: ContentStatus,
+  window: ScheduleWindow,
+  now: Date = new Date(),
+): ContentStatus {
+  if (stored !== 'live') return stored;
+  const position = windowPosition(window, now);
+  return position === 'before' ? 'scheduled' : position === 'after' ? 'expired' : 'live';
+}
+
 /**
  * A tale's status as read (AD-6): `blocked-by-group` while the tale is live
- * and its group is paused, else the tale's stored key.
+ * and its group is paused, else {@link readContentStatus} of the tale's
+ * stored key and its own window. The group's window does not change the
+ * tale's status; the Delivery API checks both windows.
  */
-export function readTaleStatus(stored: ContentStatus, groupStatus: ContentStatus): ContentStatus {
-  return stored === 'live' && groupStatus === 'paused' ? 'blocked-by-group' : stored;
+export function readTaleStatus(
+  stored: ContentStatus,
+  groupStatus: ContentStatus,
+  window: ScheduleWindow = OPEN_WINDOW,
+  now: Date = new Date(),
+): ContentStatus {
+  if (stored === 'live' && groupStatus === 'paused') return 'blocked-by-group';
+  return readContentStatus(stored, window, now);
 }
 
 /** Named error codes, so callers don't repeat string literals. */
