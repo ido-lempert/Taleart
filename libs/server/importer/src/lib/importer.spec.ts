@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
+import { MAX_IMPORT_REPORT_DIFFERENCES, type ImportDifference } from '@taleart/contract';
 import type { TransactionalDb } from '@taleart/server-access';
 import { decryptToken, encryptToken, parseTokenKey } from './crypto';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import { claimNextJob, IMPORT_LIST_LIMIT, listImportJobs, progressOf } from './jobs';
 import { migrateImporter } from './migration';
-import { StorylyClient } from './storyly-client';
-import { importContent, runImportJob, type ContentSource } from './worker';
+import { REPORT_TEXT_LIMIT, storedText } from './record-shape';
+import { recordsOf, StorylyClient } from './storyly-client';
+import { importContent, redactDeep, runImportJob, type ContentSource } from './worker';
 
 const noContent: ContentSource = { listStoryGroups: async () => [], listStories: async () => [] };
 
@@ -85,7 +87,7 @@ describe('StorylyClient', () => {
   it('sends a bearer token and reads apps from a data list', async () => {
     const fetch = vi.fn(async () => json(200, { data: [{ id: 1001, title: 'Demo shop', token: 'x' }] }));
     const client = new StorylyClient({ baseUrl: 'http://fake/external/', token: TOKEN, fetch });
-    expect(await client.listApps()).toEqual([{ id: '1001', name: 'Demo shop' }]);
+    expect(await client.listApps()).toEqual({ entries: [{ record: { id: '1001', name: 'Demo shop' }, differences: [], omitted: 0 }] });
     const [url, init] = fetch.mock.calls[0] as unknown as [URL, RequestInit];
     expect(String(url)).toBe('http://fake/external/app');
     expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${TOKEN}`);
@@ -94,8 +96,8 @@ describe('StorylyClient', () => {
   it('falls back to the token parameter when the bearer token is refused, and keeps using it', async () => {
     const fetch = vi.fn(async (url: URL) => (url.searchParams.get('token') === TOKEN ? json(200, []) : json(401, {})));
     const client = new StorylyClient({ baseUrl: 'http://fake', token: TOKEN, fetch: fetch as unknown as typeof globalThis.fetch });
-    expect(await client.listApps()).toEqual([]);
-    expect(await client.listInstances('1001')).toEqual([]);
+    expect(await client.listApps()).toEqual({ entries: [] });
+    expect(await client.listInstances('1001')).toEqual({ entries: [] });
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(String(fetch.mock.calls[2][0])).toBe(`http://fake/instance?app_id=1001&token=${TOKEN}`);
   });
@@ -110,8 +112,6 @@ describe('StorylyClient', () => {
     const answers: (() => Promise<Response>)[] = [
       async () => json(500, {}),
       async () => json(200, { instances: 'unexpected' }),
-      async () => json(200, { data: [{ title: 'No id' }] }),
-      async () => json(200, { data: [{ id: 5 }] }),
       async () => {
         throw new Error(`connect ECONNREFUSED http://fake/instance?token=${TOKEN}`);
       },
@@ -139,6 +139,8 @@ describe('importContent: zones', () => {
       taleGroups: { source: 0, imported: 0, skipped: 0 },
       tales: { source: 0, imported: 0, skipped: 0 },
       notes: ['Zone "Home page": frame type unknown'],
+      differences: [],
+      notImportedByDesign: ['Conversion records', 'Stats'],
     });
     expect(statements().some((s) => /INSERT INTO import_links/.test(s))).toBe(true);
   });
@@ -542,11 +544,11 @@ describe('StorylyClient: story groups and stories', () => {
       token: TOKEN,
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
-    expect(await client.listStoryGroups('2001')).toEqual([
+    expect(recordsOf(await client.listStoryGroups('2001'))).toEqual([
       { id: '3001', name: 'A', sortOrder: 2 },
       { id: '3002', name: 'B', sortOrder: 1 },
     ]);
-    expect(await client.listStories('3001')).toEqual([
+    expect(recordsOf(await client.listStories('3001'))).toEqual([
       { id: '4001', name: 'T', sortOrder: null },
       { id: '4002', name: 'U', sortOrder: null },
     ]);
@@ -558,7 +560,7 @@ describe('StorylyClient: story groups and stories', () => {
     const client = new StorylyClient({
       baseUrl: 'http://fake',
       token: TOKEN,
-      fetch: vi.fn(async () => json(200, { data: [{ id: 1 }] })),
+      fetch: vi.fn(async () => json(200, { stories: [{ id: 1 }] })),
     });
     await expect(client.listStories('1')).rejects.toThrow(/stories response has an unexpected shape/);
   });
@@ -784,5 +786,177 @@ describe('listImportJobs', () => {
     const { db, query } = fakeDb();
     expect(await listImportJobs(db, 'nope')).toEqual([]);
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('importContent: differences', () => {
+  const diff = (
+    entity: ImportDifference['entity'],
+    sourceId: string | null,
+    kind: ImportDifference['kind'],
+    field: string | null,
+    position = 1,
+  ): ImportDifference => ({
+    entity,
+    record: { sourceId, name: null, within: null, withinSourceId: null, position },
+    kind,
+    field,
+    sourceField: null,
+  });
+  const entry = <T>(record: T | null, differences: ImportDifference[] = [], omitted = 0) => ({
+    record,
+    differences,
+    omitted,
+  });
+
+  it('lists differences in reading order, unreadable records in place, with the record each belongs to', async () => {
+    const fake = contentDb();
+    const instances = {
+      entries: [
+        entry({ id: '2001', name: 'Home page' }, [diff('zone', '2001', 'notHeld', 'token')]),
+        entry(null, [diff('zone', null, 'invalidRecord', null, 2)]),
+      ],
+    };
+    const content: ContentSource = {
+      listStoryGroups: async () => ({
+        entries: [
+          // Read first, created second: listed in the order read.
+          entry({ id: 'g2', name: 'Later', sortOrder: 5 }, [diff('taleGroup', 'g2', 'unexpected', 'theme')]),
+          entry(null, [diff('taleGroup', null, 'invalidRecord', null, 2)]),
+          entry({ id: 'g1', name: 'Summer', sortOrder: 0 }, [diff('taleGroup', 'g1', 'notHeld', 'pinned', 3)]),
+        ],
+      }),
+      listStories: async (groupId) =>
+        groupId === 'g1'
+          ? {
+              entries: [
+                entry({ id: 's1', name: 'A', sortOrder: 1 }, [diff('tale', 's1', 'notHeld', 'deep_link')]),
+                entry(null, [diff('tale', null, 'invalidRecord', null, 2)]),
+                // Listed twice at the source: skipped the second time, its differences listed once.
+                entry({ id: 's1', name: 'A', sortOrder: 0 }, [diff('tale', 's1', 'notHeld', 'deep_link', 3)]),
+              ],
+            }
+          : [],
+    };
+    const report = await importContent(fake.db, projectId, instances, content, undefined, {
+      app: entry(null, [diff('app', '1001', 'notHeld', 'settings')]),
+    });
+    expect(report.zones).toEqual({ source: 2, imported: 1, skipped: 1 });
+    expect(report.taleGroups).toEqual({ source: 3, imported: 2, skipped: 1 });
+    expect(report.tales).toEqual({ source: 3, imported: 1, skipped: 2 });
+    expect(report.differences?.map((d) => [d.entity, d.kind, d.field, d.record.within, d.record.withinSourceId])).toEqual([
+      ['app', 'notHeld', 'settings', null, null],
+      ['zone', 'notHeld', 'token', null, null],
+      ['zone', 'invalidRecord', null, null, null],
+      ['taleGroup', 'unexpected', 'theme', 'Home page', '2001'],
+      ['taleGroup', 'invalidRecord', null, 'Home page', '2001'],
+      ['taleGroup', 'notHeld', 'pinned', 'Home page', '2001'],
+      ['tale', 'notHeld', 'deep_link', 'Summer', 'g1'],
+      ['tale', 'invalidRecord', null, 'Summer', 'g1'],
+    ]);
+    expect(report.notImportedByDesign).toEqual(['Conversion records', 'Stats']);
+    expect(report.differencesOmitted).toBeUndefined();
+  });
+
+  it('lists the differences of the stories of a skipped group', async () => {
+    const fake = contentDb();
+    const content: ContentSource = {
+      listStoryGroups: async () => [{ id: 'g1', name: 'Summer', sortOrder: 0 }],
+      listStories: async () => ({
+        entries: [entry({ id: 's1', name: 'A', sortOrder: 0 }, [diff('tale', 's1', 'notHeld', 'outlink')])],
+      }),
+    };
+    await importContent(fake.db, projectId, [{ id: '2001', name: 'Home page' }], content);
+    // The zone is gone now: the group and its story are skipped, their differences still listed.
+    fake.zones.clear();
+    const report = await importContent(fake.db, projectId, [{ id: '2001', name: 'Home page' }], content);
+    expect(report.tales).toEqual({ source: 1, imported: 0, skipped: 1 });
+    expect(report.differences?.map((d) => d.field)).toEqual(['outlink']);
+  });
+
+  it(`stores at most ${MAX_IMPORT_REPORT_DIFFERENCES} differences and counts the rest, the per-record omitted ones too`, async () => {
+    const fake = contentDb();
+    const many = Array.from({ length: MAX_IMPORT_REPORT_DIFFERENCES + 7 }, (_, i) =>
+      diff('zone', '2001', 'unexpected', `f${i}`),
+    );
+    const report = await importContent(
+      fake.db,
+      projectId,
+      { entries: [entry({ id: '2001', name: 'Home page' }, many, 40)] },
+      noContent,
+    );
+    expect(report.differences).toHaveLength(MAX_IMPORT_REPORT_DIFFERENCES);
+    expect(report.differencesOmitted).toBe(47);
+  });
+
+  it('bounds and redacts the parent names it copies into differences and notes', async () => {
+    const fake = contentDb();
+    const huge = `${'H'.repeat(1_000_000)}${TOKEN}`;
+    const content: ContentSource = {
+      listStoryGroups: async () => ({
+        entries: [entry({ id: 'g1', name: 'Summer', sortOrder: null }, [diff('taleGroup', 'g1', 'unexpected', 'theme')])],
+      }),
+      listStories: async () => [],
+    };
+    const report = await importContent(fake.db, projectId, [{ id: `2001${TOKEN}`, name: huge }], content, undefined, {
+      text: (value) => storedText(value, TOKEN),
+    });
+    const [difference] = report.differences ?? [];
+    expect(difference.record.within?.length).toBeLessThanOrEqual(REPORT_TEXT_LIMIT);
+    expect(difference.record.withinSourceId).toBe('2001[token]');
+    for (const note of report.notes) expect(note.length).toBeLessThan(REPORT_TEXT_LIMIT + 100);
+    expect(JSON.stringify(report)).not.toContain(TOKEN);
+  });
+
+  it('gives back the budget a repeated record drew, so the report fills with listed differences', async () => {
+    const fake = contentDb();
+    const budget = { remaining: 10 };
+    const twice = [diff('zone', '2001', 'notHeld', 'token')];
+    await importContent(
+      fake.db,
+      projectId,
+      { entries: [entry({ id: '2001', name: 'Home' }, twice), entry({ id: '2001', name: 'Home' }, twice)] },
+      noContent,
+      undefined,
+      { budget },
+    );
+    expect(budget.remaining).toBe(11);
+  });
+
+  it('removes the token from every string of a report', () => {
+    const report = { notes: [`a ${TOKEN} b`], differences: [{ record: { name: TOKEN } }], zones: { source: 1 } };
+    expect(redactDeep(report, TOKEN)).toEqual({
+      notes: ['a [token] b'],
+      differences: [{ record: { name: '[token]' } }],
+      zones: { source: 1 },
+    });
+    expect(redactDeep(report, null)).toBe(report);
+  });
+});
+
+describe('runImportJob: stored text', () => {
+  const key = randomBytes(32);
+
+  it("stores the app's name with the token removed, then cut, and no token in the report", async () => {
+    const { db, query } = fakeDb();
+    const appName = `${'n'.repeat(REPORT_TEXT_LIMIT - 5)}${TOKEN}`;
+    const fetch = vi.fn(async (url: URL) =>
+      url.pathname.endsWith('/app')
+        ? json(200, { data: [{ id: 1001, title: appName, [`x${TOKEN}`]: 1 }] })
+        : json(200, { data: [] }),
+    );
+    await runImportJob(
+      db,
+      { id: jobId, projectId, sourceAppId: '1001', tokenCiphertext: encryptToken(TOKEN, key), lockedBy: 'w1' },
+      { tokenKey: key, storylyApiUrl: 'http://fake', fetch: fetch as unknown as typeof globalThis.fetch },
+    );
+    const named = query.mock.calls.find((c) => /SET source_app_name/.test(c[0] as string));
+    const stored = (named?.[1] as string[])[2];
+    expect(stored).toBe(storedText(appName, TOKEN));
+    expect(stored).not.toContain(TOKEN.slice(0, 6));
+    const done = query.mock.calls.find((c) => /SET status = 'done'/.test(c[0] as string));
+    const report = JSON.stringify(done?.[1]);
+    expect(report).toContain('[token]');
+    expect(report).not.toContain(TOKEN);
   });
 });

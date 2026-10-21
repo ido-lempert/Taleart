@@ -1,9 +1,54 @@
 {
   "1001": {
     "data": [
-      { "id": 2001, "app_id": 1001, "title": "Home page", "token": "fake-instance-token-2001", "platform": "web" },
-      { "id": 2002, "app_id": 1001, "title": "Product page", "token": "fake-instance-token-2002", "platform": "web" },
-      { "id": 2003, "app_id": 1001, "title": "Checkout", "token": "fake-instance-token-2003", "platform": "web" }
+      {
+        "id": 2001,
+        "app_id": 1001,
+        "title": "Home page",
+        "token": "fake-instance-token-2001",
+        "platform": "web"
+      },
+      {
+        "id": 2002,
+        "app_id": 1001,
+        "title": "Product page",
+        "token": "fake-instance-token-2002",
+        "platform": "web"
+      },
+      {
+        "id": 2003,
+        "app_id": 1001,
+        "title": "Checkout",
+        "token": "fake-instance-token-2003",
+        "platform": "web"
+      }
+    ]
+  },
+  "1002": {
+    "data": [
+      {
+        "id": 2101,
+        "app_id": 1002,
+        "name": "Odd home",
+        "token": "fake-instance-token-2101",
+        "platform": "web"
+      },
+      "oops",
+      {
+        "app_id": 1002,
+        "title": "No id",
+        "platform": "web"
+      }
+    ]
+  },
+  "1003": {
+    "data": [
+      {
+        "id": 2201,
+        "app_id": 1003,
+        "title": "Clean home",
+        "platform": "web"
+      }
     ]
   }
 }
