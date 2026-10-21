@@ -183,19 +183,21 @@ export class StorylyClient {
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
+  // Each list call may take a `signal` besides the per-request timeout: it aborts the read when it fires.
+
   /** The apps the token can read, checked. */
-  async listApps(): Promise<CheckedList<SourceApp>> {
-    return unordered(await this.checked('/app', {}, 'apps', 'app'));
+  async listApps(signal?: AbortSignal): Promise<CheckedList<SourceApp>> {
+    return unordered(await this.checked('/app', {}, 'apps', 'app', signal));
   }
 
   /** The instances of one app, checked. */
-  async listInstances(appId: string): Promise<CheckedList<SourceInstance>> {
-    return unordered(await this.checked('/instance', { app_id: appId }, 'instances', 'zone'));
+  async listInstances(appId: string, signal?: AbortSignal): Promise<CheckedList<SourceInstance>> {
+    return unordered(await this.checked('/instance', { app_id: appId }, 'instances', 'zone', signal));
   }
 
   /** The story groups of one instance, in response order, checked. */
-  async listStoryGroups(instanceId: string): Promise<CheckedList<SourceStoryGroup>> {
-    return this.checked('/story-group', { instance_id: instanceId }, 'story groups', 'taleGroup');
+  async listStoryGroups(instanceId: string, signal?: AbortSignal): Promise<CheckedList<SourceStoryGroup>> {
+    return this.checked('/story-group', { instance_id: instanceId }, 'story groups', 'taleGroup', signal);
   }
 
   /**
@@ -225,8 +227,8 @@ export class StorylyClient {
   }
 
   /** The stories of one story group, in response order, checked. */
-  async listStories(storyGroupId: string): Promise<CheckedList<SourceStory>> {
-    return this.checked('/story', { story_group_id: storyGroupId }, 'stories', 'tale');
+  async listStories(storyGroupId: string, signal?: AbortSignal): Promise<CheckedList<SourceStory>> {
+    return this.checked('/story', { story_group_id: storyGroupId }, 'stories', 'tale', signal);
   }
 
   // GETs a list and checks each of its records.
@@ -235,15 +237,17 @@ export class StorylyClient {
     query: Record<string, string>,
     what: string,
     entity: ImportDifferenceEntity,
+    signal?: AbortSignal,
   ): Promise<CheckedList<SourceStory>> {
-    return checkedList(await this.get(path, query, what), what, entity, this.options.token, this.options.budget);
+    const body = await this.get(path, query, what, signal);
+    return checkedList(body, what, entity, this.options.token, this.options.budget);
   }
 
   // GETs `path` and returns its JSON body. 401 and 403 count as a refused token.
-  private async get(path: string, query: Record<string, string>, what: string): Promise<unknown> {
+  private async get(path: string, query: Record<string, string>, what: string, signal?: AbortSignal): Promise<unknown> {
     const modes: AuthMode[] = this.mode ? [this.mode] : ['bearer', 'query'];
     for (const mode of modes) {
-      const res = await this.request(path, query, mode, what);
+      const res = await this.request(path, query, mode, what, signal);
       if (res.status === 401 || res.status === 403) {
         await res.body?.cancel().catch(() => undefined);
         continue;
@@ -260,14 +264,25 @@ export class StorylyClient {
     throw new StorylyTokenInvalidError();
   }
 
-  private async request(path: string, query: Record<string, string>, mode: AuthMode, what: string): Promise<Response> {
+  private async request(
+    path: string,
+    query: Record<string, string>,
+    mode: AuthMode,
+    what: string,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     const url = new URL(`${this.baseUrl}${path}`);
     for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (mode === 'bearer') headers['Authorization'] = `Bearer ${this.options.token}`;
     else url.searchParams.set('token', this.options.token);
     try {
-      return await this.fetchFn(url, { method: 'GET', headers, signal: AbortSignal.timeout(this.timeoutMs) });
+      const timeout = AbortSignal.timeout(this.timeoutMs);
+      return await this.fetchFn(url, {
+        method: 'GET',
+        headers,
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
+      });
     } catch {
       // The underlying error may quote the URL, which can hold the token: never pass it on.
       throw new StorylyUnavailableError(`Storyly could not be reached when listing ${what}`);

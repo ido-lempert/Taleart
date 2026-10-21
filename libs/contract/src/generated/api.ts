@@ -365,7 +365,7 @@ export interface paths {
         put?: never;
         /**
          * Show what a Storyly app holds before importing it (admins only).
-         * @description Reads the app's instances (zones) with their story group and story counts through the Storyly External API, so the admin can pick what to import. The token is used for this call only: it is not stored and no job is created. At most 500 zones are listed (`zonesBeyond` counts the rest); counting reads at most 100 lists in at most 20 seconds, and a zone whose counts were not read has null counts. The answer's `selectionKey` names the zones listed and is valid for 30 minutes: a start with a selection must carry it. A token Storyly refuses answers 400 `storyly_token_invalid`; an app the token cannot read 400 `import_selection_invalid`; Storyly unreachable, or its app or instance list unreadable, 502 `storyly_unavailable`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         * @description Reads the app's instances (zones) with their story group and story counts through the Storyly External API, so the admin can pick what to import. The token is used for this call only: it is not stored and no job is created. At most 500 zones are listed (`zonesBeyond` counts the rest); counting reads at most 100 lists in at most 20 seconds, and a zone whose counts were not read has null counts. The whole preview takes at most 30 seconds, and its reads stop when the caller goes away. One preview runs per person and four per server at a time; another answers 429 `preview_busy`. The answer's `selectionKey` names the zones listed and is valid for 30 minutes: a start with a selection must carry it. A token Storyly refuses answers 400 `storyly_token_invalid`; an app the token cannot read 400 `import_selection_invalid`; Storyly unreachable, or its app or instance list unreadable, 502 `storyly_unavailable`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
          */
         post: operations["previewStorylyApp"];
         delete?: never;
@@ -391,7 +391,7 @@ export interface paths {
         put?: never;
         /**
          * Start importing a Storyly app into the project (admins only).
-         * @description Stores a queued import job and answers at once (AD-8); a background worker runs it. The token is stored encrypted with the job only until the job ends. Without `selection` everything is imported; with it, only the picked zones and entity types. A selection whose key is invalid, expired or for another project, app or person, that names a zone the key does not, or that asks for media or tags without tale groups, answers 400 `import_selection_invalid` and creates no job; a malformed one 400 `validation_failed`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         * @description Stores a queued import job and answers at once (AD-8); a background worker runs it. The token is stored encrypted with the job only until the job ends. Without `selection` everything is imported; with it, only the picked zones and entity types; `selection: null` is refused as malformed. A selection whose key is invalid, expired or for another project, app or person, that names a zone the key does not, or that asks for media or tags without tale groups, answers 400 `import_selection_invalid` and creates no job; a malformed one 400 `validation_failed`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
          */
         post: operations["startImport"];
         delete?: never;
@@ -1627,6 +1627,8 @@ export interface components {
         };
         /** @description How far a job got, per entity type; updated while it runs. */
         ImportProgress: {
+            /** @description The entity types this import leaves out because they were not picked; their counts stay 0. Absent when the import takes everything. */
+            notSelected?: components["schemas"]["ImportEntityChoice"][];
             zones: components["schemas"]["ImportProgressCount"];
             taleGroups: components["schemas"]["ImportProgressCount"];
             tales: components["schemas"]["ImportProgressCount"];
@@ -1672,7 +1674,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2217,6 +2219,7 @@ export interface operations {
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            429: components["responses"]["Error"];
             502: components["responses"]["Error"];
             503: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -3349,4 +3352,4 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];

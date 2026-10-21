@@ -509,7 +509,9 @@ paths:
         Reads the app's instances (zones) with their story group and story counts through the Storyly External
         API, so the admin can pick what to import. The token is used for this call only: it is not stored and no
         job is created. At most 500 zones are listed (`zonesBeyond` counts the rest); counting reads at most 100
-        lists in at most 20 seconds, and a zone whose counts were not read has null counts. The answer's
+        lists in at most 20 seconds, and a zone whose counts were not read has null counts. The whole preview
+        takes at most 30 seconds, and its reads stop when the caller goes away. One preview runs per person and
+        four per server at a time; another answers 429 `preview_busy`. The answer's
         `selectionKey` names the zones listed and is valid for 30 minutes: a start with a selection must carry
         it. A token Storyly refuses answers 400 `storyly_token_invalid`; an app the token cannot read 400
         `import_selection_invalid`; Storyly unreachable, or its app or instance list unreadable, 502
@@ -533,6 +535,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '429':
           $ref: '#/components/responses/Error'
         '502':
           $ref: '#/components/responses/Error'
@@ -579,7 +583,8 @@ paths:
         Stores a queued import job and answers at once (AD-8); a background
         worker runs it. The token is stored encrypted with the job only until
         the job ends. Without `selection` everything is imported; with it, only
-        the picked zones and entity types. A selection whose key is invalid,
+        the picked zones and entity types; `selection: null` is refused as
+        malformed. A selection whose key is invalid,
         expired or for another project, app or person, that names a zone the
         key does not, or that asks for media or tags without tale groups,
         answers 400 `import_selection_invalid` and creates no job; a malformed
@@ -3020,6 +3025,13 @@ components:
       required: [zones, taleGroups, tales]
       description: How far a job got, per entity type; updated while it runs.
       properties:
+        notSelected:
+          type: array
+          description: >-
+            The entity types this import leaves out because they were not picked; their counts stay 0. Absent when
+            the import takes everything.
+          items:
+            $ref: '#/components/schemas/ImportEntityChoice'
         zones:
           $ref: '#/components/schemas/ImportProgressCount'
         taleGroups:
@@ -3118,6 +3130,7 @@ components:
         - storyly_unavailable
         - importer_not_configured
         - import_selection_invalid
+        - preview_busy
         - invalid_status_transition
         - stage_not_found
         - stage_key_taken

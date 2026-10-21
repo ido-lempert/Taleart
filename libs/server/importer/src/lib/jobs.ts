@@ -1,4 +1,11 @@
-import type { ImportJob, ImportJobSummary, ImportProgress, ImportReport, ImportStarted } from '@taleart/contract';
+import type {
+  ImportEntityChoice,
+  ImportJob,
+  ImportJobSummary,
+  ImportProgress,
+  ImportReport,
+  ImportStarted,
+} from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
 import type { ImportJobSelection } from './preview';
 
@@ -42,10 +49,24 @@ function withTimes<T extends ImportJobSummary>(row: Timed<T>): T {
   } as T;
 }
 
-/** Progress as the report counts it: read is the source count so far, written the imported count. */
-export function progressOf(report: ImportReport): ImportProgress {
+/**
+ * Progress as the report counts it: read is the source count so far, written
+ * the imported count. `notSelected` names the entity types the import leaves
+ * out (the report's own list by default), so a running job can show them as
+ * not selected rather than as 0.
+ */
+export function progressOf(
+  report: ImportReport,
+  notSelected: readonly ImportEntityChoice[] | undefined = report.notSelected?.entities,
+): ImportProgress {
   const count = (c: ImportReport['zones'] | undefined) => ({ read: c?.source ?? 0, written: c?.imported ?? 0 });
-  return { zones: count(report.zones), taleGroups: count(report.taleGroups), tales: count(report.tales) };
+  const progress: ImportProgress = {
+    zones: count(report.zones),
+    taleGroups: count(report.taleGroups),
+    tales: count(report.tales),
+  };
+  if (notSelected && notSelected.length > 0) progress.notSelected = [...notSelected];
+  return progress;
 }
 
 /**

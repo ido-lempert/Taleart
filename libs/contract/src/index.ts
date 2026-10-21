@@ -476,6 +476,7 @@ export const ErrorCodes = {
   storylyUnavailable: 'storyly_unavailable',
   importerNotConfigured: 'importer_not_configured',
   importSelectionInvalid: 'import_selection_invalid',
+  previewBusy: 'preview_busy',
   invalidStatusTransition: 'invalid_status_transition',
   stageNotFound: 'stage_not_found',
   stageKeyTaken: 'stage_key_taken',

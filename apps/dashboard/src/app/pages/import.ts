@@ -17,8 +17,9 @@ import { IMPORT_PILL_STYLES, importStatusClass, importStatusLabel, importTimeTex
 /**
  * "Import from Storyly" for one project (admins only): paste a Storyly API
  * token, find its apps, pick one, choose which zones and which content to
- * import, and start; starting opens the import's own page, which follows it. Below the form, the project's past imports with
- * their state, times and failure reason, each opening its page and report.
+ * import, and start; starting opens the import's own page, which follows it.
+ * Below the form, the project's past imports with their state, times and
+ * failure reason, each opening its page and report.
  */
 @Component({
   selector: 'app-import-page',

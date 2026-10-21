@@ -4387,7 +4387,14 @@ describe('Management API v1: projects and zones', () => {
         const zonesOnly = await (await pick(project.id, { taleGroups: false, media: false, tags: false })).json();
         fake.control.requests.length = 0;
         startWorker();
-        const report = (await waitForEnd(project.id, zonesOnly.id))['report'] as Record<string, unknown>;
+        const zonesOnlyJob = await waitForEnd(project.id, zonesOnly.id);
+        // Progress names what was left out, so the job page shows it as not selected.
+        expect((zonesOnlyJob['progress'] as Record<string, unknown>)['notSelected']).toEqual([
+          'taleGroups',
+          'media',
+          'tags',
+        ]);
+        const report = zonesOnlyJob['report'] as Record<string, unknown>;
         expect(report['zones']).toEqual({ source: 3, imported: 3, skipped: 0 });
         expect(report['taleGroups']).toBeUndefined();
         expect(report['tales']).toBeUndefined();
@@ -4448,6 +4455,7 @@ describe('Management API v1: projects and zones', () => {
         const tooMany = Array.from({ length: 501 }, (_, i) => `z${i}`);
         for (const selection of [
           'all',
+          null,
           [],
           { zones: ['2001'], ...all },
           { selectionKey, zones: [], ...all },
@@ -4480,6 +4488,62 @@ describe('Management API v1: projects and zones', () => {
         expect(report.notes).toContain('Zones: 1 picked zone(s) are no longer in the app, so they were not imported');
         expect(report.zones).toEqual({ source: 2, imported: 1, skipped: 1, notSelected: 1 });
         expect(report.notSelected).toEqual({ zones: [{ sourceId: '2002', name: 'Product page' }], entities: [] });
+      });
+
+      it('runs one preview per person and a few per server at a time, answering preview_busy', async () => {
+        const project = await createProject();
+        // Each of the preview's eleven reads waits a little, so two previews overlap.
+        fake.control.delayMs = 60;
+        const [first, second] = await Promise.all([preview(project.id), preview(project.id)]);
+        expect([first.status, second.status].sort()).toEqual([200, 429]);
+        const busy = first.status === 429 ? first : second;
+        expect((await busy.json()).error.code).toBe('preview_busy');
+        // The slot is free again once the preview ends.
+        expect((await preview(project.id)).status).toBe(200);
+
+        // Process-wide: another person is refused while the server is at its limit.
+        const bounded = await listenImporter({
+          tokenKey,
+          storylyApiUrl: fake.url,
+          previewConcurrency: { perUser: 1, total: 1 },
+        });
+        try {
+          const admin = sessionCookie;
+          const other = await createUser(pool, { name: 'Ada Admin', email: 'ada@example.com', role: 'admin' });
+          const otherCookie = `taleart_session=${(await createSession(pool, other.id)).token}`;
+          const running = preview(project.id, undefined, bounded.base);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          sessionCookie = otherCookie;
+          const refused = await preview(project.id, undefined, bounded.base);
+          sessionCookie = admin;
+          expect(refused.status).toBe(429);
+          expect((await refused.json()).error.code).toBe('preview_busy');
+          expect((await running).status).toBe(200);
+        } finally {
+          await new Promise<void>((resolve) => bounded.server.close(() => resolve()));
+        }
+      });
+
+      it('aborts its Storyly reads when the caller goes away, freeing its slot at once', async () => {
+        const project = await createProject();
+        fake.control.delayMs = 3000;
+        const caller = new AbortController();
+        const gone = fetch(`${importBase}/projects/${project.id}/imports/storyly/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: FAKE_STORYLY_TOKEN, appId: '1001' }),
+          signal: caller.signal,
+        }).catch(() => null);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        caller.abort();
+        await gone;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        // Had the read gone on, the person's one slot would still be taken for about 3 s.
+        fake.control.delayMs = 0;
+        const started = Date.now();
+        const next = await preview(project.id);
+        expect(next.status).toBe(200);
+        expect(Date.now() - started).toBeLessThan(2000);
       });
 
       it('refuses the preview to a content manager', async () => {

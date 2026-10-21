@@ -215,6 +215,11 @@ import {
                     @for (zone of notSelected.zones; track $index) {
                       <li>Zone "{{ zone.name }}": not selected, skipped</li>
                     }
+                    @if ((report.zones.notSelected ?? 0) > notSelected.zones.length) {
+                      <li>
+                        and {{ (report.zones.notSelected ?? 0) - notSelected.zones.length }} more zones not selected
+                      </li>
+                    }
                   </ul>
                 }
               }
@@ -283,8 +288,13 @@ import {
             } @else if (job.progress; as progress) {
               <ul class="import-counts" aria-label="Progress" aria-live="polite">
                 <li>Zones: {{ progressText(progress.zones) }}</li>
-                <li>Tale groups: {{ progressText(progress.taleGroups) }}</li>
-                <li>Tales: {{ progressText(progress.tales) }}</li>
+                @if (progress.notSelected?.includes('taleGroups')) {
+                  <li>Tale groups: not selected</li>
+                  <li>Tales: not selected</li>
+                } @else {
+                  <li>Tale groups: {{ progressText(progress.taleGroups) }}</li>
+                  <li>Tales: {{ progressText(progress.tales) }}</li>
+                }
               </ul>
             }
             @if (active()) {

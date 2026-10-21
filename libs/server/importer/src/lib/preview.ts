@@ -13,6 +13,8 @@ import {
 /** What an import takes when a selection was picked: the selection without its key. */
 export type ImportJobSelection = Omit<ImportSelection, 'selectionKey'>;
 
+/** How long one whole preview may take: the app list, the instance list and the counting. */
+export const PREVIEW_DEADLINE_MS = 30_000;
 /** How many story group and story lists one preview reads to count, at most. */
 export const PREVIEW_MAX_COUNT_REQUESTS = 100;
 /** How long one preview spends counting, at most; zones not counted by then have null counts. */
@@ -39,6 +41,8 @@ export interface PreviewLimits {
   maxZones?: number;
   maxCountRequests?: number;
   countDeadlineMs?: number;
+  /** The whole preview's deadline; {@link PREVIEW_DEADLINE_MS} by default. */
+  deadlineMs?: number;
   now?: () => number;
 }
 
@@ -56,35 +60,57 @@ const plain = <T>(list: readonly T[] | CheckedList<T>): CheckedList<T> =>
  * failed, gets null counts. A refused token and a failing app or instance list
  * throw, as the apps list does. Null when the token cannot read the app.
  * `token` only makes names safe to show; it is not kept.
+ *
+ * Every read carries a signal: the whole preview's deadline (`deadlineMs`) and
+ * `signal` (the caller gone) abort any read in flight, and the counting
+ * deadline aborts a count read in flight. An app or instance list cut off this
+ * way fails the preview; a count cut off leaves its counts null.
  */
 export async function previewApp(
   source: PreviewSource,
   appId: string,
   token: string,
   limits: PreviewLimits = {},
+  signal?: AbortSignal,
 ): Promise<AppPreview | null> {
   const now = limits.now ?? Date.now;
   const maxZones = limits.maxZones ?? MAX_IMPORT_SELECTED_ZONES;
   const maxRequests = limits.maxCountRequests ?? PREVIEW_MAX_COUNT_REQUESTS;
   const text = (value: string) => storedText(value, token);
-  const app = recordsOf(await source.listApps()).find((record) => record.id === appId);
+  const overallTimeout = AbortSignal.timeout(limits.deadlineMs ?? PREVIEW_DEADLINE_MS);
+  const overall = signal ? AbortSignal.any([overallTimeout, signal]) : overallTimeout;
+  // A list the deadline or the caller cut off fails the preview with a clear message.
+  const whole = async <T>(list: () => Promise<T>, what: string): Promise<T> => {
+    try {
+      return await list();
+    } catch (err) {
+      if (overall.aborted) throw new StorylyUnavailableError(`Storyly took too long to answer the ${what}`);
+      throw err;
+    }
+  };
+  const apps = await whole(() => source.listApps(overall), 'apps list');
+  const app = recordsOf(apps).find((record) => record.id === appId);
   if (!app) return null;
 
   // Each instance once, in response order, as the import reads them.
   const seen = new Set<string>();
-  const instances = recordsOf(await source.listInstances(app.id)).filter((instance) => {
+  const instanceList = await whole(() => source.listInstances(app.id, overall), 'instance list');
+  const instances = recordsOf(instanceList).filter((instance) => {
     if (seen.has(instance.id)) return false;
     seen.add(instance.id);
     return true;
   });
   const listed = instances.slice(0, maxZones);
 
-  const deadline = now() + (limits.countDeadlineMs ?? PREVIEW_COUNT_DEADLINE_MS);
+  const countMs = limits.countDeadlineMs ?? PREVIEW_COUNT_DEADLINE_MS;
+  const deadline = now() + countMs;
+  // Counting stops at its own deadline or the whole preview's, whichever comes first.
+  const counting = AbortSignal.any([overall, AbortSignal.timeout(countMs)]);
   let requests = 0;
   let complete = true;
   // One more list may be read: within the request budget and the deadline.
   const take = (): boolean => {
-    if (requests >= maxRequests || now() >= deadline) {
+    if (requests >= maxRequests || now() >= deadline || counting.aborted) {
       complete = false;
       return false;
     }
@@ -96,7 +122,7 @@ export async function previewApp(
     try {
       return plain(await list());
     } catch (err) {
-      if (!(err instanceof StorylyUnavailableError)) throw err;
+      if (!(err instanceof StorylyUnavailableError) && !counting.aborted) throw err;
       complete = false;
       return null;
     }
@@ -112,7 +138,7 @@ export async function previewApp(
     };
     zones.push(zone);
     if (!take()) continue;
-    const groups = await read<SourceStoryGroup>(() => source.listStoryGroups(instance.id));
+    const groups = await read<SourceStoryGroup>(() => source.listStoryGroups(instance.id, counting));
     if (groups === null) continue;
     zone.taleGroups = groups.entries.length;
     let tales: number | null = 0;
@@ -124,7 +150,7 @@ export async function previewApp(
         tales = null;
         break;
       }
-      const stories = await read<SourceStory>(() => source.listStories(group.id));
+      const stories = await read<SourceStory>(() => source.listStories(group.id, counting));
       if (stories === null) {
         tales = null;
         break;
@@ -150,6 +176,8 @@ export interface SelectionScope {
 }
 
 const KEY_VERSION = 'v1';
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+const canonical = (part: string): boolean => Buffer.from(part, 'base64url').toString('base64url') === part;
 
 // The MAC key: derived from the token key, so the two are never the same bytes.
 function macKey(tokenKey: Buffer): Buffer {
@@ -191,6 +219,8 @@ export function verifySelectionKey(
 ): Set<string> | null {
   const parts = key.split('.');
   if (parts.length !== 3 || parts[0] !== KEY_VERSION) return null;
+  // Only the canonical encoding: base64url characters, and parts that encode back to themselves.
+  if (!parts.slice(1).every((part) => BASE64URL.test(part) && canonical(part))) return null;
   const expected = mac(tokenKey, `${parts[0]}.${parts[1]}`);
   const given = Buffer.from(parts[2], 'base64url');
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;

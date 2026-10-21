@@ -4147,6 +4147,47 @@ describe('App', () => {
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
+    it('says how many more zones were not selected than the report names', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: {
+            ...report,
+            zones: { source: 503, imported: 1, skipped: 502, notSelected: 502 },
+            notSelected: {
+              zones: Array.from({ length: 500 }, (_, i) => ({ sourceId: String(i), name: `Zone ${i}` })),
+              entities: [],
+            },
+          },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      const listed = rows(root, 'Zones not selected');
+      expect(listed).toHaveLength(501);
+      expect(listed[500]).toBe('and 2 more zones not selected');
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('shows tale groups and tales as not selected while a zones-only import runs', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(
+        fixture,
+        job('running', {
+          progress: { ...progress([3, 2], [0, 0], [0, 0]), notSelected: ['taleGroups', 'media', 'tags'] },
+        }),
+      );
+      expect(rows(root, 'Progress')).toEqual([
+        'Zones: 3 read / 2 written',
+        'Tale groups: not selected',
+        'Tales: not selected',
+      ]);
+      await answerPoll(fixture, job('running', { progress: progress([3, 3], [1, 0], [0, 0]) }));
+      expect(rows(root, 'Progress')[1]).toBe('Tale groups: 1 read / 0 written');
+      await answerPoll(fixture, job('done', { report, finishedAt: '2026-10-20T12:00:09.000Z' }));
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
     it('asks for a token before finding apps', async () => {
       const { fixture, root } = await openForm();
       buttonNamed(root, 'Find apps').click();

@@ -2,10 +2,10 @@ import { randomBytes } from 'node:crypto';
 import type { ImportDifference } from '@taleart/contract';
 import type { TransactionalDb } from '@taleart/server-access';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
-import { claimNextJob, createImportJob } from './jobs';
+import { claimNextJob, createImportJob, progressOf } from './jobs';
 import { migrateImporter } from './migration';
 import { previewApp, signSelectionKey, verifySelectionKey, type PreviewSource } from './preview';
-import type { CheckedList } from './storyly-client';
+import { StorylyClient, type CheckedList } from './storyly-client';
 import { importContent, type ContentSource } from './worker';
 
 const TOKEN = 'secret-token-value';
@@ -292,5 +292,138 @@ describe('job selection', () => {
     expect(query.mock.calls.find((c) => /SET status = 'running'/.test(c[0]))?.[0]).toMatch(/selection/);
     await migrateImporter(db);
     expect(query.mock.calls.some((c) => /ADD COLUMN IF NOT EXISTS selection jsonb/.test(c[0]))).toBe(true);
+  });
+});
+
+// A read that never answers until its signal aborts it, then fails as the client does.
+const hang = (signal?: AbortSignal) =>
+  new Promise<never>((_, reject) => {
+    signal?.addEventListener('abort', () => reject(new StorylyUnavailableError('Storyly could not be reached')));
+  });
+
+describe('previewApp: deadlines and the caller (review fixes)', () => {
+  it('aborts an app or instance list in flight at the whole deadline and fails the preview', async () => {
+    const { source } = fakeSource(1);
+    const signals: (AbortSignal | undefined)[] = [];
+    const hangingApps: PreviewSource = {
+      ...source,
+      listApps: (signal) => {
+        signals.push(signal);
+        return hang(signal);
+      },
+    };
+    const started = Date.now();
+    await expect(previewApp(hangingApps, '1001', TOKEN, { deadlineMs: 100 })).rejects.toThrow(
+      'Storyly took too long to answer the apps list',
+    );
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(signals[0]?.aborted).toBe(true);
+
+    const hangingInstances: PreviewSource = { ...source, listInstances: (_id, signal) => hang(signal) };
+    await expect(previewApp(hangingInstances, '1001', TOKEN, { deadlineMs: 100 })).rejects.toThrow(
+      'Storyly took too long to answer the instance list',
+    );
+  });
+
+  it('aborts a count read in flight at the counting deadline and leaves its counts unknown', async () => {
+    const { source } = fakeSource(2, 1, 1);
+    const signals: (AbortSignal | undefined)[] = [];
+    const hanging: PreviewSource = {
+      ...source,
+      listStoryGroups: (id, signal) => {
+        signals.push(signal);
+        return id === 'i1' ? hang(signal) : source.listStoryGroups(id);
+      },
+    };
+    const started = Date.now();
+    const preview = await previewApp(hanging, '1001', TOKEN, { countDeadlineMs: 100 });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(signals[0]?.aborted).toBe(true);
+    // The counting deadline passed during i1's read, so i2 is not read either.
+    expect(preview?.zones.map((z) => [z.taleGroups, z.tales])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+    expect(preview?.countsComplete).toBe(false);
+  });
+
+  it('keeps counting within the whole deadline when it is shorter than the counting one', async () => {
+    const { source } = fakeSource(1, 1, 1);
+    const hanging: PreviewSource = { ...source, listStories: (_id, signal) => hang(signal) };
+    const preview = await previewApp(hanging, '1001', TOKEN, { deadlineMs: 100, countDeadlineMs: 60_000 });
+    expect(preview?.zones).toEqual([{ id: 'i1', name: 'Zone 1', taleGroups: 1, tales: null }]);
+  });
+
+  it("aborts the reads in flight when the caller's signal fires", async () => {
+    const { source } = fakeSource(1);
+    const caller = new AbortController();
+    const signals: (AbortSignal | undefined)[] = [];
+    const hanging: PreviewSource = {
+      ...source,
+      listInstances: (_id, signal) => {
+        signals.push(signal);
+        setTimeout(() => caller.abort(), 10);
+        return hang(signal);
+      },
+    };
+    await expect(previewApp(hanging, '1001', TOKEN, {}, caller.signal)).rejects.toBeInstanceOf(StorylyUnavailableError);
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("passes the signal to the client's fetch, which stops at it", async () => {
+    const fetch = vi.fn(
+      (_url: URL, init?: RequestInit) =>
+        new Promise<Response>((_, reject) =>
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))),
+        ),
+    );
+    const client = new StorylyClient({
+      baseUrl: 'http://fake',
+      token: TOKEN,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+    const controller = new AbortController();
+    const read = client.listStoryGroups('i1', controller.signal);
+    controller.abort();
+    await expect(read).rejects.toBeInstanceOf(StorylyUnavailableError);
+  });
+});
+
+describe('selection key: canonical encoding (review fix)', () => {
+  const key = randomBytes(32);
+  const scope = { projectId, appId: '1001', userId: 'u1' };
+
+  it('refuses a key whose parts are not in canonical base64url', () => {
+    const signed = signSelectionKey(key, scope, ['i1'], Date.now() + 60_000);
+    const [version, payload, mac] = signed.split('.');
+    expect(verifySelectionKey(key, signed, scope)).not.toBeNull();
+    // Padding, other alphabets and stray characters decode to the same bytes, but are not the key.
+    for (const changed of [
+      `${mac}=`,
+      `${mac} `,
+      mac.replace(/-/g, '+').replace(/_/g, '/') + (/[-_]/.test(mac) ? '' : '+'),
+    ]) {
+      expect(verifySelectionKey(key, `${version}.${payload}.${changed}`, scope)).toBeNull();
+    }
+    // A last character whose unused bits differ decodes to the same bytes.
+    const last = mac[mac.length - 1];
+    const sibling = 'AEIMQUYcgkosw048'.includes(last) ? String.fromCharCode(last.charCodeAt(0) + 1) : null;
+    if (sibling)
+      expect(verifySelectionKey(key, `${version}.${payload}.${mac.slice(0, -1)}${sibling}`, scope)).toBeNull();
+    expect(verifySelectionKey(key, `${version}.${payload}=.${mac}`, scope)).toBeNull();
+  });
+});
+
+describe('progress of a selection (review fix)', () => {
+  it('names the entity types left out, from the selection or the report', () => {
+    const report = { zones: { source: 3, imported: 2, skipped: 0 }, notes: [] };
+    expect(progressOf(report, ['taleGroups', 'media', 'tags'])).toEqual({
+      zones: { read: 3, written: 2 },
+      taleGroups: { read: 0, written: 0 },
+      tales: { read: 0, written: 0 },
+      notSelected: ['taleGroups', 'media', 'tags'],
+    });
+    expect(progressOf({ ...report, notSelected: { zones: [], entities: ['tags'] } }).notSelected).toEqual(['tags']);
+    expect(progressOf(report)).not.toHaveProperty('notSelected');
   });
 });

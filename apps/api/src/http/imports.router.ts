@@ -41,6 +41,33 @@ export interface ImporterConfig {
   wake?: () => void;
   /** Preview bounds; tests shorten them. */
   previewLimits?: PreviewLimits;
+  /** How many previews may run at once, per person and in this process; tests lower them. */
+  previewConcurrency?: { perUser: number; total: number };
+}
+
+/** Previews running at once: one per person and four per process by default. */
+export const PREVIEW_CONCURRENCY = { perUser: 1, total: 4 };
+
+/** Counts the previews in flight, per person and in all, so a burst cannot fan out Storyly reads. */
+function previewSlots(limit: { perUser: number; total: number }) {
+  const byUser = new Map<string, number>();
+  let total = 0;
+  return {
+    /** Takes a slot for `userId`; false when the person or the process is at its limit. */
+    take(userId: string): boolean {
+      const mine = byUser.get(userId) ?? 0;
+      if (mine >= limit.perUser || total >= limit.total) return false;
+      byUser.set(userId, mine + 1);
+      total++;
+      return true;
+    },
+    release(userId: string): void {
+      const mine = (byUser.get(userId) ?? 1) - 1;
+      if (mine <= 0) byUser.delete(userId);
+      else byUser.set(userId, mine);
+      total--;
+    },
+  };
 }
 
 const selectionInvalid = (message: string) => new HttpError(400, ErrorCodes.importSelectionInvalid, message);
@@ -52,8 +79,10 @@ const selectionInvalid = (message: string) => new HttpError(400, ErrorCodes.impo
  */
 function readSelection(body: unknown, tokenKey: Buffer, scope: SelectionScope): ImportJobSelection | null {
   const value = (body as Record<string, unknown> | undefined)?.['selection'];
-  if (value === undefined || value === null) return null;
+  // Only an absent selection takes everything; null is a malformed one.
+  if (value === undefined) return null;
   const invalid = (message: string) => new HttpError(400, ErrorCodes.validationFailed, message);
+  if (value === null) throw invalid('selection must be an object; leave it out to import everything');
   if (typeof value !== 'object' || Array.isArray(value)) throw invalid('selection must be an object');
   const selection = value as Record<string, unknown>;
   const key = selection['selectionKey'];
@@ -94,6 +123,7 @@ async function requireProject(pool: Pool, projectId: string): Promise<void> {
 /** A project's imports from Storyly: mounted at `/projects`. Admins only. */
 export function importsRouter(pool: Pool, importer: ImporterConfig): Router {
   const router = Router();
+  const slots = previewSlots(importer.previewConcurrency ?? PREVIEW_CONCURRENCY);
 
   // Admins first (403), then access to the project (403), then a configured importer (503).
   const configured: RequestHandler = (_req, _res, next) => {
@@ -137,10 +167,31 @@ export function importsRouter(pool: Pool, importer: ImporterConfig): Router {
         fetch: importer.fetch,
         timeoutMs: PREVIEW_REQUEST_TIMEOUT_MS,
       });
-      const preview = await previewApp(client, input.appId, input.token, importer.previewLimits);
+      const userId = caller(res).id;
+      if (!slots.take(userId)) {
+        throw new HttpError(
+          429,
+          ErrorCodes.previewBusy,
+          'Another check of what to import is still running. Wait for it to finish, then try again.',
+        );
+      }
+      // The caller going away aborts the reads in flight.
+      const gone = new AbortController();
+      const abort = () => {
+        if (!res.writableFinished) gone.abort();
+      };
+      res.on('close', abort);
+      let preview: Awaited<ReturnType<typeof previewApp>>;
+      try {
+        preview = await previewApp(client, input.appId, input.token, importer.previewLimits, gone.signal);
+      } finally {
+        res.off('close', abort);
+        slots.release(userId);
+      }
+      if (gone.signal.aborted) return;
       if (preview === null) throw selectionInvalid('This Storyly token cannot read the chosen app');
       const expiresAt = Date.now() + SELECTION_KEY_TTL_MS;
-      const scope = { projectId, appId: preview.appId, userId: caller(res).id };
+      const scope = { projectId, appId: preview.appId, userId };
       const zoneIds = preview.zones.map((zone) => zone.id);
       const answer: ImportPreview = {
         ...preview,

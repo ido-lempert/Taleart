@@ -3,14 +3,14 @@ title: 'Pick what to import before starting'
 type: 'feature'
 ticket: '9'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '596ffbcfb580cabd5169840e1e8300b74099665d'
 route: 'full'
 route_source: 'auto'
 risk: 'low'
-review: 'none'
+review: 'quick'
 review_source: 'pinned'
-lenses_ran: []
+lenses_ran: ['coordinator']
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -107,6 +107,18 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Coordinator review
+- verdicts: 7 findings, all patched
+- findings:
+  - `[patch]` The preview had no overall deadline: the app and instance lists could each take their full per-request timeout on top of 20 s of counting. Fixed: one whole-preview deadline (`PREVIEW_DEADLINE_MS`, 30 s) whose signal goes to every read, combined in the client with the per-request timeout (`AbortSignal.any`); counting reads also carry the 20 s counting signal. An app or instance list cut off fails the preview with "Storyly took too long to answer the …"; a count cut off leaves its counts null. `StorylyClient` list methods take an optional `signal`. Unit tests with sources that never answer prove reads in flight are aborted at each deadline, and that the client's fetch stops at the signal.
+  - `[patch]` A preview kept reading after its caller left, and previews were unbounded in number. Fixed: the route aborts the preview's reads on `res` close, and caps concurrent previews at 1 per person and 4 per process (`PREVIEW_CONCURRENCY`, configurable); extra ones answer 429 `preview_busy` (contract). API tests: two overlapping previews of one person (one 429), another person refused at the process limit, and a disconnected preview frees its slot at once.
+  - `[patch]` `selection: null` imported everything. Fixed: only an absent field takes everything; null is 400 `validation_failed`. Test.
+  - `[patch]` The key accepted non-canonical encodings (padding, `+`/`/`, stray characters, other unused trailing bits). Fixed: payload and MAC must be base64url characters and re-encode to themselves. Test.
+  - `[patch]` A zones-only job's progress showed tale groups and tales as 0 read while running. Fixed: `ImportProgress.notSelected` carries the entity types left out (from the job's selection while running, from the report at the end); the job page shows "Tale groups: not selected" / "Tales: not selected". Component and API tests.
+  - `[patch]` The "Zones not selected" list stopped silently at 500 names. Fixed: it adds "and N more zones not selected" from `zones.notSelected`. Component test.
+  - `[patch]` A 125-character JSDoc line in `pages/import.ts`. Wrapped.
+- `autopilot/foundation` had nothing new since the baseline (merge: already up to date).
+
 ## Verification
 
 **Commands:**
@@ -123,13 +135,15 @@ deferred: []
 - `apps/fake-storyly/src/fake-storyly.mjs`: editable instance lists.
 - `apps/dashboard/src/app/import.service.ts`, `pages/import.ts`, `pages/import-job.ts`, `pages/import-shared.ts`, `app.spec.ts`: picker, not-selected report rows; component tests.
 
-**Review:** none run (unreviewed build).
+**Review:** coordinator review, 7 findings, all patched (see Review Triage Log).
 
-**Follow-up review recommended:** true. New security-relevant surface: the stateless HMAC selection key and the preview's outbound request bounds.
+**Follow-up review recommended:** false. The review's findings on the key encoding and the preview's bounds are patched and tested.
 
 **Verification:** `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` passed for all 12 projects against `taleart_w2_test` with no lint warnings: api 339, dashboard 206, server-importer 186, contract 95, fake-storyly 13 tests.
 
+**Verification (review fixes):** the same command passed for all 12 projects against `taleart_w2_test`, no lint warnings: api 341, dashboard 208, server-importer 193 tests.
+
 **Residual risks:**
-- The preview runs Storyly reads inside an HTTP request (up to ~20 s of counting plus two list calls of up to 10 s each); a slow source makes "Choose what to import" slow, though bounded.
+- The preview runs Storyly reads inside an HTTP request, now at most 30 s in all; a slow source makes "Choose what to import" slow. The concurrency caps are per process, not across several API processes.
 - The selection key is a bearer-style proof bound to project, app and user; anyone holding a valid key still needs admin access to the project and the Storyly token to start.
 - Story 7 (re-import updates) edits the same worker function in parallel; the changes here are small but a merge may need care around `importContent`'s instance loop.

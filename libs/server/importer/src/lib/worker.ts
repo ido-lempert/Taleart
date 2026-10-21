@@ -753,12 +753,16 @@ function redactedError(err: unknown, token: string | null): Error {
  */
 export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options: ImportRunOptions): Promise<void> {
   const log = options.log ?? noLog;
+  // The entity types the selection leaves out: progress shows them as not selected while the job runs.
+  const notPicked = job.selection
+    ? (['taleGroups', 'media', 'tags'] as const).filter((entity) => !job.selection?.[entity])
+    : undefined;
   let token: string | null = null;
   // The running report: importContent keeps adding to it, so at a failure it tells how far the job got.
   let latest: Readonly<ImportReport> | undefined;
   const beat = async (sofar?: Readonly<ImportReport>) => {
     if (sofar) latest = sofar;
-    if (!(await heartbeatImportJob(db, job, sofar && progressOf(sofar)))) throw new ClaimLostError();
+    if (!(await heartbeatImportJob(db, job, sofar && progressOf(sofar, notPicked)))) throw new ClaimLostError();
   };
   const timer = setInterval(() => {
     beat().catch(() => undefined);
@@ -822,7 +826,7 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     }
     if (!isKnownFailure(err)) log('error', `Import ${job.id} failed`, redactedError(err, token));
     try {
-      await failImportJob(db, job, failureMessage(err, token), latest && progressOf(latest));
+      await failImportJob(db, job, failureMessage(err, token), latest && progressOf(latest, notPicked));
     } catch (writeErr) {
       // The job stays running with its token; its heartbeat stops, so a worker recovers it.
       log('error', `Import ${job.id} failed and its failure could not be recorded`, redactedError(writeErr, token));
