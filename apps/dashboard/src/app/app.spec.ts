@@ -3662,7 +3662,7 @@ describe('App', () => {
         name: string | null;
         within: string | null;
         withinSourceId?: string | null;
-        position: number;
+        position: number | null;
       },
       kind: string,
       field: string | null,
@@ -3802,6 +3802,65 @@ describe('App', () => {
         '"A label far too long" in "Odd labels" | segments: label not imported (longer than 40 characters)',
         'Record 4 in "Odd labels" | segments: label not imported (not text)',
         'Record 9 in "Odd labels" | segments: label not imported (holds control characters)',
+      ]);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
+    it('shows what a re-import changed per row, and the edits it kept and the records the source dropped', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const count = (counts: Record<string, number>) => ({
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        keptLocalEdit: 0,
+        removedAtSource: 0,
+        ...counts,
+      });
+      const tale = {
+        sourceId: '4001',
+        name: 'Up to 70% off',
+        within: 'Summer sale',
+        withinSourceId: '3001',
+        position: 1,
+      };
+      const gone = { sourceId: '2003', name: 'Checkout', within: null, withinSourceId: null, position: null };
+      const label = { sourceId: null, name: 'summer', within: 'Summer sale', withinSourceId: '3001', position: null };
+      const differences = [
+        difference('tale', tale, 'keptLocalEdit', 'title'),
+        difference('zone', gone, 'removedAtSource', null),
+        difference('tag', label, 'removedAtSource', 'segments'),
+        difference('zone', { ...gone, sourceId: '2004', name: null }, 'removedAtSource', null),
+      ];
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: {
+            ...report,
+            differences,
+            changes: {
+              zones: count({ unchanged: 2, removedAtSource: 1 }),
+              taleGroups: count({ updated: 1, unchanged: 5 }),
+              tales: count({ created: 1, unchanged: 13, keptLocalEdit: 1 }),
+            },
+          },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      expect(rows(root, 'Report')).toEqual([
+        'Zones: 3 source / 3 imported · 2 unchanged, 1 no longer at the source',
+        'Tale groups: 6 source / 6 imported · 1 updated, 5 unchanged',
+        'Tales: 15 source / 14 imported / 1 skipped · 1 created, 13 unchanged, 1 kept as changed in TaleArt',
+      ]);
+      const lines = [...root.querySelectorAll('.import-difference-records > li')].map((li) =>
+        [li.querySelector('.import-difference-record'), ...li.querySelectorAll('.import-difference-lines > li')]
+          .map((node) => node?.textContent?.trim())
+          .join(' | '),
+      );
+      expect(lines).toEqual([
+        '"Checkout" (id 2003) | no longer at the source; kept in TaleArt',
+        'A record (id 2004) | no longer at the source; kept in TaleArt',
+        '"Up to 70% off" (id 4001) in "Summer sale" | title: changed at the source, kept as changed in TaleArt',
+        '"summer" in "Summer sale" | segments: label no longer at the source; the tag stays',
       ]);
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });

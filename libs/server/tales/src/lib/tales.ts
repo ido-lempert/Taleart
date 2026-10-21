@@ -602,6 +602,114 @@ export async function orderTales(
 }
 
 /**
+ * Sets the order of a zone's placements when `decide` says so, on the
+ * caller's transaction: the zone is locked as {@link orderTaleGroups} locks
+ * it, `decide` gets the placed groups' ids by position and answers the new
+ * order (every one of them once, {@link OrderMismatchError} otherwise), or null
+ * to leave it. Returns the order before and after, or null when the zone does
+ * not exist. The importer uses it to keep an order a person changed.
+ */
+export async function orderTaleGroupsWhen(
+  db: Db,
+  zoneId: string,
+  decide: (current: readonly string[]) => readonly string[] | null,
+): Promise<{ before: string[]; after: string[] } | null> {
+  if ((await zoneProjectId(db, zoneId)) === null) return null;
+  await lockZone(db, zoneId);
+  const { rows } = await db.query<{ id: string }>(
+    'SELECT tale_group_id AS id FROM zone_tale_groups WHERE zone_id = $1 ORDER BY position, tale_group_id',
+    [zoneId],
+  );
+  const before = rows.map((r) => r.id);
+  const next = decide(before);
+  if (next === null || sameOrder(next, before)) return { before, after: before };
+  const after = next.map((id) => id.toLowerCase());
+  if (!isPermutation(after, before)) {
+    throw new OrderMismatchError('taleGroupIds must list every tale group of the zone exactly once');
+  }
+  await db.query(REORDER_PLACEMENTS_SQL, [zoneId, after]);
+  return { before, after };
+}
+
+/**
+ * Sets the order of a tale group's tales when `decide` says so, on the
+ * caller's transaction, as {@link orderTaleGroupsWhen} does for a zone: the
+ * group row is locked as {@link orderTales} locks it. Returns the order
+ * before and after, or null when the group does not exist.
+ */
+export async function orderTalesWhen(
+  db: Db,
+  taleGroupId: string,
+  decide: (current: readonly string[]) => readonly string[] | null,
+): Promise<{ before: string[]; after: string[] } | null> {
+  if (!UUID.test(taleGroupId)) return null;
+  const group = await db.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR NO KEY UPDATE', [taleGroupId]);
+  if (group.rows.length === 0) return null;
+  const { rows } = await db.query<{ id: string }>(
+    'SELECT id FROM tales WHERE tale_group_id = $1 ORDER BY position, id',
+    [taleGroupId],
+  );
+  const before = rows.map((r) => r.id);
+  const next = decide(before);
+  if (next === null || sameOrder(next, before)) return { before, after: before };
+  const after = next.map((id) => id.toLowerCase());
+  if (!isPermutation(after, before)) {
+    throw new OrderMismatchError('taleIds must list every tale of the tale group exactly once');
+  }
+  await db.query(REORDER_TALES_SQL, [taleGroupId, after]);
+  return { before, after };
+}
+
+const sameOrder = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((id, i) => id.toLowerCase() === b[i]);
+
+/**
+ * Renames a tale group when `decide` says so, on the caller's transaction:
+ * the group row is locked, `decide` gets its current name and answers the new
+ * one, or null to leave it. Returns the name before and after, or null when
+ * the group does not exist.
+ */
+export async function renameTaleGroupWhen(
+  db: Db,
+  taleGroupId: string,
+  decide: (current: string) => string | null,
+): Promise<{ before: string; after: string } | null> {
+  if (!UUID.test(taleGroupId)) return null;
+  const { rows } = await db.query<{ name: string }>('SELECT name FROM tale_groups WHERE id = $1 FOR NO KEY UPDATE', [
+    taleGroupId,
+  ]);
+  if (rows.length === 0) return null;
+  const before = rows[0].name;
+  const next = decide(before);
+  if (next === null || next === before) return { before, after: before };
+  await db.query('UPDATE tale_groups SET name = $2 WHERE id = $1', [taleGroupId, next]);
+  return { before, after: next };
+}
+
+/**
+ * Retitles a tale when `decide` says so, as {@link renameTaleGroupWhen} does
+ * for a group, with the tale row locked. Returns the title before and after
+ * and the tale's group, or null when the tale does not exist.
+ */
+export async function renameTaleWhen(
+  db: Db,
+  taleId: string,
+  decide: (current: string) => string | null,
+): Promise<{ before: string; after: string; taleGroupId: string } | null> {
+  if (!UUID.test(taleId)) return null;
+  const { rows } = await db.query<{ title: string; taleGroupId: string }>(
+    'SELECT title, tale_group_id AS "taleGroupId" FROM tales WHERE id = $1 FOR NO KEY UPDATE',
+    [taleId],
+  );
+  if (rows.length === 0) return null;
+  const { title: before, taleGroupId } = rows[0];
+  const next = decide(before);
+  if (next === null || next === before) return { before, after: before, taleGroupId };
+  await db.query('UPDATE tales SET title = $2 WHERE id = $1', [taleId, next]);
+  return { before, after: next, taleGroupId };
+}
+
+/**
  * Sets a tale group's stored status (AD-6): publish, pause, archive or
  * restore, as {@link canSetStatus} allows; the current status again changes
  * nothing. The group row is locked, so concurrent changes apply one after the
@@ -775,6 +883,20 @@ export async function createTale(
   });
 }
 
+/** A tale group's name, or null when it does not exist. Ids that are not UUIDs never match. */
+export async function taleGroupName(db: Db, taleGroupId: string): Promise<string | null> {
+  if (!UUID.test(taleGroupId)) return null;
+  const { rows } = await db.query<{ name: string }>('SELECT name FROM tale_groups WHERE id = $1', [taleGroupId]);
+  return rows[0]?.name ?? null;
+}
+
+/** A tale's title, or null when it does not exist. Ids that are not UUIDs never match. */
+export async function taleTitle(db: Db, taleId: string): Promise<string | null> {
+  if (!UUID.test(taleId)) return null;
+  const { rows } = await db.query<{ title: string }>('SELECT title FROM tales WHERE id = $1', [taleId]);
+  return rows[0]?.title ?? null;
+}
+
 /** True when a tale with this id exists. Ids that are not UUIDs never match. */
 export async function taleExists(db: Db, taleId: string): Promise<boolean> {
   if (!UUID.test(taleId)) return false;
@@ -830,6 +952,29 @@ export async function setTaleMediaIfNone(db: Db, taleId: string, media: StoredTa
   const { rowCount } = await db.query(
     'UPDATE tales SET media_key = $2, media_content_type = $3 WHERE id = $1 AND media_key IS NULL',
     [taleId, media.key, media.contentType],
+  );
+  if ((rowCount ?? 0) > 0) return true;
+  if (!(await taleExists(db, taleId))) throw new TaleNotFoundError(taleId);
+  return false;
+}
+
+/**
+ * Points a tale at newly stored media only while it still holds `expectedKey`,
+ * in one conditional update: when the tale holds other media (a person
+ * replaced it) or none, nothing changes and the answer is false. The file of
+ * `expectedKey` is not deleted here; other tales may reference it (AD-11).
+ * Throws {@link TaleNotFoundError}.
+ */
+export async function replaceTaleMediaIf(
+  db: Db,
+  taleId: string,
+  expectedKey: string,
+  media: StoredTaleMedia,
+): Promise<boolean> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const { rowCount } = await db.query(
+    'UPDATE tales SET media_key = $3, media_content_type = $4 WHERE id = $1 AND media_key = $2',
+    [taleId, expectedKey, media.key, media.contentType],
   );
   if ((rowCount ?? 0) > 0) return true;
   if (!(await taleExists(db, taleId))) throw new TaleNotFoundError(taleId);
