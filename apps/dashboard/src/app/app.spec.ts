@@ -2283,10 +2283,53 @@ describe('App', () => {
       expect(root.querySelector('#import-token')).not.toBeNull();
     });
 
+    it('tries a first read that failed on a server error again at the next poll', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(fixture, { error: { code: 'internal', message: 'Something went wrong' } }, 500);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Something went wrong');
+      await answerPoll(fixture, job('running', { progress: progress([3, 1], [3, 0], [0, 0]) }));
+      expect(root.querySelector('[role=alert]')).toBeNull();
+      expect(rows(root, 'Progress')[0]).toBe('Zones: 3 read / 1 written');
+      await answerPoll(fixture, job('failed', { error: 'Stopped', finishedAt: '2026-10-20T12:00:03.000Z' }));
+    });
+
+    it('follows another import when only the import id in the URL changes', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(fixture, job('running', { progress: progress([3, 2], [4, 3], [8, 6]) }));
+      expect(rows(root, 'Progress')[0]).toBe('Zones: 3 read / 2 written');
+
+      const page = fixture.debugElement.query(By.css('app-import-job-page')).componentInstance;
+      await TestBed.inject(Router).navigateByUrl('/projects/p1/import/j2');
+      await tick();
+      // The same page, now following j2; a read of j1 still in flight is ignored.
+      expect(fixture.debugElement.query(By.css('app-import-job-page')).componentInstance).toBe(page);
+      for (const req of http.match(`${importsUrl}/j1`)) req.flush(job('running', { progress: progress([3, 3], [5, 5], [9, 9]) }));
+      await tick();
+      fixture.detectChanges();
+      expect(root.querySelector('[aria-label=Progress]')).toBeNull();
+      expect(root.textContent).toContain('Loading the import');
+
+      http.expectOne(`${importsUrl}/j2`).flush({ ...job('failed', { error: 'another tool answered 500 when listing apps' }), id: 'j2' });
+      await tick();
+      fixture.detectChanges();
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('another tool answered 500 when listing apps');
+      await tick();
+      http.expectNone(`${importsUrl}/j1`);
+      http.expectNone(`${importsUrl}/j2`);
+    });
+
     it('shows the message of an import it cannot read, without polling again', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       await answerPoll(fixture, { error: { code: 'not_found', message: 'This project has no import with this id' } }, 404);
       expect(root.querySelector('[role=alert]')?.textContent).toContain('This project has no import with this id');
+      await tick();
+      http.expectNone(`${importsUrl}/j1`);
+    });
+
+    it('does not read again an import it may not read', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      await answerPoll(fixture, { error: { code: 'forbidden', message: 'Only admins can do this' } }, 403);
+      expect(root.querySelector('[role=alert]')?.textContent).toContain('Only admins can do this');
       await tick();
       http.expectNone(`${importsUrl}/j1`);
     });

@@ -12,7 +12,13 @@ import {
   PasskeyFailedError,
   type PasskeyVerifier,
 } from '@taleart/server-access';
-import { encryptToken, runImportJob, startImportWorker, type ImportWorker } from '@taleart/server-importer';
+import {
+  encryptToken,
+  recoverStaleJobs,
+  runImportJob,
+  startImportWorker,
+  type ImportWorker,
+} from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
@@ -3341,6 +3347,36 @@ describe('Management API v1: projects and zones', () => {
       expect(list).toHaveLength(50);
       const times = list.map((j: { createdAt: string }) => Date.parse(j.createdAt));
       expect([...times].sort((a, b) => b - a)).toEqual(times);
+    });
+
+    it('clears the progress of a recovered job, which then counts again from the start', async () => {
+      const project = await createProject();
+      const stale = progress([3, 2], [5, 4], [11, 9]);
+      const { rows } = await pool.query(
+        `INSERT INTO import_jobs (project_id, source_app_id, status, token_ciphertext, started_at, attempts, progress)
+         VALUES ($1, '1001', 'running', $2, now(), 1, $3) RETURNING id`,
+        [project.id, encryptToken(FAKE_another tool_TOKEN, tokenKey), JSON.stringify(stale)],
+      );
+      const id = rows[0].id as string;
+      expect(await recoverStaleJobs(pool, 0, 3)).toEqual({ requeued: 1, failed: 0 });
+      const recovered = await (await send('GET', `/projects/${project.id}/imports/${id}`)).json();
+      expect(recovered).toMatchObject({ status: 'queued', startedAt: null, progress: null });
+
+      fake.control.delayMs = 30;
+      startWorker();
+      const seen: { status: string; progress: ReturnType<typeof progress> | null }[] = [];
+      const until = Date.now() + 15_000;
+      for (;;) {
+        const job = await (await send('GET', `/projects/${project.id}/imports/${id}`)).json();
+        seen.push(job);
+        if (job.status === 'done' || job.status === 'failed') break;
+        if (Date.now() > until) throw new Error(`Import still ${job.status}`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(seen[seen.length - 1]).toMatchObject({ status: 'done', progress: progress([3, 3], [6, 6], [15, 15]) });
+      const running = seen.filter((j) => j.status === 'running' && j.progress !== null);
+      // It counted again from the start, below the stale values.
+      expect(running.some((j) => (j.progress?.tales.written ?? 0) < stale.tales.written)).toBe(true);
     });
 
     it('answers the list of an unknown project with project_not_found', async () => {
