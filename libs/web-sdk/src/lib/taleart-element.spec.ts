@@ -275,6 +275,89 @@ describe('TaleartElement', () => {
     expect(items(el)).toEqual([]);
   });
 
+  describe('with a banner frame', () => {
+    const withBanner = (frames: DeliveryZone['frames']) =>
+      fetchMock.mockImplementation(async () => respond(200, { ...zone, frames }));
+    const slideButtons = (el: TaleartElement) => [
+      ...(el.shadowRoot?.querySelectorAll<HTMLButtonElement>('.banner button.b-open') ?? []),
+    ];
+
+    it("renders the bar and the banner in the zone's frame order, skipping unknown types", async () => {
+      withBanner([
+        { id: 'f2', type: 'banner', settings: { aspectRatio: '3:1', showDots: false } },
+        { id: 'f0', type: 'feed', settings: {} },
+        { id: 'f1', type: 'bar', settings: {} },
+      ]);
+      const el = await mount();
+      const frames = [...(el.shadowRoot?.children ?? [])].filter((node) => node.tagName !== 'STYLE');
+      expect(frames.map((node) => node.className)).toEqual(['banner', 'bar']);
+      const banner = el.shadowRoot?.querySelector<HTMLElement>('.banner');
+      expect(banner?.dataset['ratio']).toBe('3:1');
+      expect(banner?.querySelector('.b-dots')).toBeNull();
+      // The group without tales gets a bar item but no slide.
+      expect(slideButtons(el).map((b) => b.getAttribute('aria-label'))).toEqual(['Summer', 'Winter']);
+      expect(items(el)).toHaveLength(3);
+      expect(el.shadowRoot?.querySelector('style')?.textContent).toContain('.b-viewport');
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('renders nothing for a zone whose only frame is a banner and no group has a tale', async () => {
+      fetchMock.mockImplementation(async () =>
+        respond(200, { ...zone, frames: [{ id: 'f2', type: 'banner', settings: {} }], taleGroups: [zone.taleGroups[2]] }),
+      );
+      const el = await mount();
+      expect(el.shadowRoot?.childNodes.length).toBe(0);
+    });
+
+    it('opens the viewer at the activated slide group and returns focus to that slide', async () => {
+      withBanner([
+        { id: 'f1', type: 'bar', settings: {} },
+        { id: 'f2', type: 'banner', settings: {} },
+      ]);
+      const el = await mount();
+      slideButtons(el)[1].click();
+      const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
+      expect(dialog.hasAttribute('open')).toBe(true);
+      expect(dialog.getAttribute('aria-label')).toBe('Winter');
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(dialog.hasAttribute('open')).toBe(false);
+      expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
+      // The viewed group shows the seen ring in the bar.
+      expect(items(el)[1].hasAttribute('data-seen')).toBe(true);
+    });
+
+    it('shows the slide of the group shown last when the viewer closes', async () => {
+      withBanner([{ id: 'f2', type: 'banner', settings: {} }]);
+      const el = await mount();
+      slideButtons(el)[0].click();
+      const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(dialog.getAttribute('aria-label')).toBe('Winter');
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
+      expect(slideButtons(el)[1].closest('.b-slide')?.hasAttribute('inert')).toBe(false);
+    });
+
+    it("stops the banner's autoplay timer when the element is removed or reloads", async () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: false }));
+      withBanner([{ id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } }]);
+      const timeouts = vi.spyOn(globalThis, 'clearTimeout');
+      const el = await mount();
+      const track = () => el.shadowRoot?.querySelector<HTMLElement>('.b-track');
+      const first = track();
+      expect(first?.getAttribute('aria-live')).toBe('off');
+      timeouts.mockClear();
+      el.zoneKey = 'tak_other';
+      await settle();
+      expect(timeouts).toHaveBeenCalled();
+      expect(track()).not.toBe(first);
+      timeouts.mockClear();
+      el.remove();
+      expect(timeouts).toHaveBeenCalled();
+    });
+  });
+
   it('accepts the API URL and key as properties, and waits until both are set', async () => {
     const el = await mount({});
     expect(fetchMock).not.toHaveBeenCalled();

@@ -118,9 +118,9 @@ export const BAR_STYLES = `
 }
 `;
 
-// The group's cover: the first tale with media: its image, or that video's first frame
+// The group's cover (the bar's, and a banner slide's): the first tale with media: its image, or that video's first frame
 // (metadata only, never autoplayed); a neutral placeholder with no media.
-function cover(group: DeliveryTaleGroup): HTMLElement {
+export function coverMedia(group: DeliveryTaleGroup): HTMLElement {
   const media = group.tales.find((tale) => tale.media)?.media;
   let el: HTMLElement;
   if (media?.kind === 'image') {
@@ -184,7 +184,7 @@ export function renderBar(
     setItemSeen(button, group.name, seen.has(group.id));
     const ring = document.createElement('span');
     ring.className = 'ring';
-    ring.appendChild(cover(group));
+    ring.appendChild(coverMedia(group));
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = group.name;
