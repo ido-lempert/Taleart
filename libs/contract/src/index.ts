@@ -88,6 +88,13 @@ export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
 export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
 export type ImportMediaFailure = Schemas['ImportMediaFailure'];
 export type ImportTagFailure = Schemas['ImportTagFailure'];
+export type ImportPreviewRequest = Schemas['ImportPreviewRequest'];
+export type ImportPreview = Schemas['ImportPreview'];
+export type ImportPreviewZone = Schemas['ImportPreviewZone'];
+export type ImportSelection = Schemas['ImportSelection'];
+export type ImportEntityChoice = Schemas['ImportEntityChoice'];
+export type ImportNotSelected = Schemas['ImportNotSelected'];
+export type ImportNotSelectedZone = Schemas['ImportNotSelectedZone'];
 export type ErrorCode = Schemas['ErrorCode'];
 export type ErrorBody = Schemas['ErrorBody'];
 /**
@@ -119,6 +126,9 @@ export const IMPORT_NOT_IMPORTED_BY_DESIGN: readonly string[] = ['Conversion rec
 
 /** The most differences one import report stores; the rest are only counted. */
 export const MAX_IMPORT_REPORT_DIFFERENCES = 5000;
+
+/** The most zones a preview lists and a selection may pick; the report lists as many not-selected zones. */
+export const MAX_IMPORT_SELECTED_ZONES = 500;
 
 /** The http-only cookie holding the session token (AD-9). */
 export const SESSION_COOKIE = 'taleart_session';
@@ -465,6 +475,7 @@ export const ErrorCodes = {
   another toolTokenInvalid: 'another tool_token_invalid',
   another toolUnavailable: 'another tool_unavailable',
   importerNotConfigured: 'importer_not_configured',
+  importSelectionInvalid: 'import_selection_invalid',
   invalidStatusTransition: 'invalid_status_transition',
   stageNotFound: 'stage_not_found',
   stageKeyTaken: 'stage_key_taken',

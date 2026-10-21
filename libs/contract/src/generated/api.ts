@@ -352,6 +352,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/imports/another tool/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Show what a another tool app holds before importing it (admins only).
+         * @description Reads the app's instances (zones) with their story group and story counts through the another tool External API, so the admin can pick what to import. The token is used for this call only: it is not stored and no job is created. At most 500 zones are listed (`zonesBeyond` counts the rest); counting reads at most 100 lists in at most 20 seconds, and a zone whose counts were not read has null counts. The answer's `selectionKey` names the zones listed and is valid for 30 minutes: a start with a selection must carry it. A token another tool refuses answers 400 `another tool_token_invalid`; an app the token cannot read 400 `import_selection_invalid`; another tool unreachable, or its app or instance list unreadable, 502 `another tool_unavailable`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         */
+        post: operations["previewanother toolApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/imports": {
         parameters: {
             query?: never;
@@ -369,7 +391,7 @@ export interface paths {
         put?: never;
         /**
          * Start importing a another tool app into the project (admins only).
-         * @description Stores a queued import job and answers at once (AD-8); a background worker runs it. The token is stored encrypted with the job only until the job ends. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         * @description Stores a queued import job and answers at once (AD-8); a background worker runs it. The token is stored encrypted with the job only until the job ends. Without `selection` everything is imported; with it, only the picked zones and entity types. A selection whose key is invalid, expired or for another project, app or person, that names a zone the key does not, or that asks for media or tags without tale groups, answers 400 `import_selection_invalid` and creates no job; a malformed one 400 `validation_failed`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
          */
         post: operations["startImport"];
         delete?: never;
@@ -1455,6 +1477,68 @@ export interface components {
             token: string;
             /** @description The id of the another tool app to import, from the apps list. */
             appId: string;
+            selection?: components["schemas"]["ImportSelection"];
+        };
+        ImportPreviewRequest: {
+            /** @description A another tool API token. Used for this call only; never stored. */
+            token: string;
+            /** @description The id of the another tool app, from the apps list. */
+            appId: string;
+        };
+        /** @description A another tool instance of the app, which an import makes a zone. */
+        ImportPreviewZone: {
+            /** @description The instance's id at the source. */
+            id: string;
+            name: string;
+            /** @description How many story groups the instance lists; null when they were not counted. */
+            taleGroups: number | null;
+            /** @description How many stories its story groups list; null when they were not all counted. */
+            tales: number | null;
+        };
+        /** @description What an app holds, to pick what to import. Holds no token. */
+        ImportPreview: {
+            appId: string;
+            appName: string;
+            zones: components["schemas"]["ImportPreviewZone"][];
+            /** @description How many more instances the app has than are listed; they cannot be picked. */
+            zonesBeyond: number;
+            /** @description False when some counts were not read (null), to keep the preview short. */
+            countsComplete: boolean;
+            /** @description Proves which zones this preview listed; a start with a selection carries it. */
+            selectionKey: string;
+            /**
+             * Format: date-time
+             * @description When the selection key stops being accepted.
+             */
+            expiresAt: string;
+        };
+        /**
+         * @description An entity type an import may leave out: tale groups and tales, tale media, or labels as tags. Zones are always imported, the picked ones.
+         * @enum {string}
+         */
+        ImportEntityChoice: "taleGroups" | "media" | "tags";
+        /** @description What to import. Media and tags need tale groups. */
+        ImportSelection: {
+            /** @description The preview's selection key. */
+            selectionKey: string;
+            /** @description The source ids of the zones (instances) to import, all listed by the preview. */
+            zones: string[];
+            /** @description Import story groups as tale groups and stories as tales. */
+            taleGroups: boolean;
+            /** @description Copy tale media. */
+            media: boolean;
+            /** @description Import labels as tags. */
+            tags: boolean;
+        };
+        ImportNotSelectedZone: {
+            sourceId: string;
+            name: string;
+        };
+        /** @description What the import left out because it was not picked. */
+        ImportNotSelected: {
+            /** @description The zones not picked (at most 500 listed; zones.notSelected counts them all). */
+            zones: components["schemas"]["ImportNotSelectedZone"][];
+            entities: components["schemas"]["ImportEntityChoice"][];
         };
         /** @enum {string} */
         ImportStatus: "queued" | "running" | "done" | "failed";
@@ -1468,6 +1552,8 @@ export interface components {
             source: number;
             imported: number;
             skipped: number;
+            /** @description How many of the skipped were left out because they were not picked. Absent when none were. */
+            notSelected?: number;
         };
         ImportReport: {
             zones: components["schemas"]["ImportCount"];
@@ -1487,6 +1573,8 @@ export interface components {
             differencesOmitted?: number;
             /** @description What the import never brings across, listed once, such as conversion records and stats. */
             notImportedByDesign?: string[];
+            /** @description What was left out because it was not picked. Absent when the import took everything. */
+            notSelected?: components["schemas"]["ImportNotSelected"];
         };
         /**
          * @description What the source record becomes in TaleArt (the app is the project; a label is a tag).
@@ -1584,7 +1672,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2092,6 +2180,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["another toolApp"][];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+            503: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    previewanother toolApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The app's zones with their counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreview"];
                 };
             };
             400: components["responses"]["Error"];
@@ -3223,9 +3343,10 @@ export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["s
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const ringStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["RingStyle"]> = ["gradient", "solid", "none"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
+export const importEntityChoiceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportEntityChoice"]> = ["taleGroups", "media", "tags"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale", "tag"];
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "internal_error"];
