@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  type BannerSettings,
   type BarSettings,
   canSetStatus,
   CONTENT_STATUS_HTTP_CODES,
@@ -57,6 +58,27 @@ describe('bar frame schema', () => {
       showTitles: { type: 'boolean', default: true },
       alignment: { enum: ['start', 'center'], default: 'start' },
       gap: { type: 'integer', minimum: 4, maximum: 24, default: 12 },
+    };
+    expect(Object.keys(schema.properties)).toEqual(Object.keys(fields));
+    for (const [key, expected] of Object.entries(fields)) expect(schema.properties[key]).toMatchObject(expected);
+    expect(schema.additionalProperties).toBe(false);
+  });
+});
+
+describe('banner frame schema', () => {
+  // The schema file is the source of the R3 fields; BannerSettings mirrors it.
+  const schema = JSON.parse(readFileSync(join(__dirname, '../../frame-types/banner.schema.json'), 'utf8')) as {
+    properties: Record<string, object>;
+    additionalProperties: boolean;
+  };
+
+  it('has the R3 fields with their values and defaults, and nothing else', () => {
+    const fields: Record<keyof BannerSettings, object> = {
+      aspectRatio: { enum: ['16:9', '3:1', '1:1'], default: '16:9' },
+      autoplay: { type: 'boolean', default: true },
+      intervalSeconds: { type: 'integer', minimum: 3, maximum: 15, default: 5 },
+      showDots: { type: 'boolean', default: true },
+      loop: { type: 'boolean', default: true },
     };
     expect(Object.keys(schema.properties)).toEqual(Object.keys(fields));
     for (const [key, expected] of Object.entries(fields)) expect(schema.properties[key]).toMatchObject(expected);
