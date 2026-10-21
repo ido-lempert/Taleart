@@ -304,6 +304,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The project's media (epic Tale Studio R5), which Tale Studio's image and video elements pick from.
+         * @description The project's uploads (newest first), then its tales' media, then media its tales' documents use (such as a copied group's), each key once. Unknown project 404 `project_not_found`.
+         */
+        get: operations["listProjectMedia"];
+        put?: never;
+        /**
+         * Upload an image (GIF included) or a video to the project's media.
+         * @description The body is the file's bytes, with its type declared as one of the tale media types. The server checks the bytes' magic number against the declared type and stores the file through the storage port without transcoding it (AD-11), streaming it to storage. Images are at most 10 MB, videos 100 MB; a project holds at most 500 files and 2 GB (PROJECT_MEDIA_MAX_FILES, PROJECT_MEDIA_MAX_BYTES). Admins and content managers upload. Checked in this order, all but the last three before the body is read (with `Connection: close`): too many uploads at once in this process 429 `upload_busy`; unknown project 404 `project_not_found`; another declared type 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over the type's limit 413 `media_too_large`; a full project 409 `media_limit_reached` or 413 `media_storage_full`; then, while it streams, first bytes of another type 415, and a body other than its declared length 400; the caps again when the row is inserted.
+         */
+        post: operations["uploadProjectMedia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/media/file": {
+        parameters: {
+            query: {
+                /** @description The media's storage key, as the list names it. */
+                key: string;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * A file of the project's media, with a session (for Tale Studio).
+         * @description Answers one byte range (206) for videos. A key that is not the project's media answers 404 `media_not_found`.
+         */
+        get: operations["getProjectMediaFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/fonts": {
         parameters: {
             query?: never;
@@ -995,7 +1046,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale.
-         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11). Setting `live` on a tale that has nothing published yet (from any status) also publishes its draft document (AD-15) in the same transaction, after checking it again; a tale that already has a published document keeps it. When the draft no longer passes the check, the status still changes, the draft is not published, and the answer says so with `draftNotPublished: true`.
+         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11). Setting `live` on a tale that has nothing published yet (from any status) also publishes its draft document (AD-15) in the same transaction, after checking it again; a tale that already has a published document keeps it. When the draft no longer passes the check, the status still changes, the draft is not published, and the answer says so with `draftNotPublished: true` and why in `draftNotPublishedReason`.
          */
         put: operations["setTaleStatus"];
         post?: never;
@@ -1092,7 +1143,7 @@ export interface paths {
         put?: never;
         /**
          * Publish a tale's draft document.
-         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. A tale with no draft answers 409 `nothing_to_publish`; publishing never empties the published document. The draft is checked again first (400 `invalid_tale_document` with `pointer`). The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. A tale with no draft answers 409 `nothing_to_publish`; publishing never empties the published document. The draft is checked again first (400 `invalid_tale_document` with `pointer`), with the publish rule too: every visible image and video needs alt text (`a11y.label`) or `a11y.decorative` (epic Tale Studio R12), refused with a message naming the element. The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
          */
         post: operations["publishTaleDocument"];
         delete?: never;
@@ -1567,22 +1618,80 @@ export interface components {
         /** @description A tale document as delivered (AD-15): hidden elements are removed, and so are the editor-only fields `hidden` and `locked`. Clients ignore fields they do not know and skip element types they do not know. */
         DeliveryTaleDocument: {
             version: number;
-            canvas: components["schemas"]["Canvas"];
+            canvas: components["schemas"]["DeliveryCanvas"];
             durationMs?: number;
             /** @description The visible elements, first at the bottom of the z-order. */
             elements: components["schemas"]["DeliveryTaleElement"][];
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry; `text` in version 1. */
+            /** @description A key of the element-type registry, such as `text`, `image` or `video`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
-            /** @description The type's props, as its schema in `tale-document/element-types/` defines them. */
+            /** @description The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's or video's `mediaKey` is replaced by `url`, its public URL (AD-11). */
             props: Record<string, never>;
         };
         TaleDocument: components["schemas"]["v1.schema"];
         TextElementProps: components["schemas"]["text.schema"];
+        ImageElementProps: components["schemas"]["image.schema"];
+        VideoElementProps: components["schemas"]["video.schema"];
+        /** @description An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
+        MediaBackground: {
+            /** @constant */
+            type: "media";
+            /** @description The storage key of an image of the tale's project, as the server made it. */
+            mediaKey: string;
+            /** @enum {string} */
+            fit: "cover" | "contain";
+            color: components["schemas"]["Color"];
+        };
+        /** @description A solid background colour. */
+        ColorBackground: {
+            /** @constant */
+            type: "color";
+            color: components["schemas"]["Color"];
+        };
+        /** @description The canvas as delivered: a colour background as stored; a media background with its storage key replaced by the public `url` (AD-11). */
+        DeliveryCanvas: {
+            background: components["schemas"]["ColorBackground"] | components["schemas"]["DeliveryMediaBackground"];
+        };
+        DeliveryMediaBackground: {
+            /** @enum {string} */
+            type: "media";
+            /**
+             * Format: uri
+             * @description The public URL of the image (AD-11).
+             */
+            url: string;
+            /** @enum {string} */
+            fit: "cover" | "contain";
+            /** @description The band colour, as `#RRGGBB` or `#RRGGBBAA`. */
+            color: string;
+        };
+        /** @description An image or video of a project (epic Tale Studio R5): one of its uploads, a tale's media, or media its tales' documents use. A tale document references it by `key`. */
+        ProjectMedia: {
+            /** @description The storage key a document's `mediaKey` names. */
+            key: string;
+            kind: components["schemas"]["MediaKind"];
+            contentType: components["schemas"]["MediaContentType"];
+            /** @description Where the Management API serves the file, with a session. */
+            url: string;
+            /**
+             * @description `upload` for a file uploaded to the project's media, `tale` for a tale's media, `document` for media only documents use.
+             * @enum {string}
+             */
+            source: "upload" | "tale" | "document";
+            /** @description For `tale`, the title of a tale holding it. */
+            taleTitle?: string;
+            /** @description For `upload`, the file's size. */
+            sizeBytes?: number;
+            /**
+             * Format: date-time
+             * @description For `upload`, when it was uploaded.
+             */
+            createdAt?: string;
+        };
         /** @description A font face uploaded to a project (epic Tale Studio R18). */
         ProjectFont: {
             /** Format: uuid */
@@ -1619,6 +1728,8 @@ export interface components {
         TaleStatusResult: components["schemas"]["Tale"] & {
             /** @description Present and true when the tale went live with nothing published yet and its draft document no longer passes the checks, so the draft was not published (AD-15). */
             draftNotPublished?: boolean;
+            /** @description With `draftNotPublished`, why the draft was not published, such as an image without alt text, named as Tale Studio names it. */
+            draftNotPublishedReason?: string;
         };
         PublishedTaleDocument: {
             /** @description The published document, the one the Delivery API serves, or null when none is published. */
@@ -1951,7 +2062,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -1962,16 +2073,6 @@ export interface components {
         };
         /** @description A colour as #RRGGBB or #RRGGBBAA. */
         Color: string;
-        /** @description A solid background colour. */
-        ColorBackground: {
-            /** @constant */
-            type: "color";
-            color: components["schemas"]["Color"];
-        };
-        /** @description The 9:16 stage of the tale. */
-        Canvas: {
-            background: components["schemas"]["ColorBackground"];
-        };
         /** @description Where an element sits, as fractions (0 to 1) of the canvas width (x, w) and height (y, h), and its rotation in degrees about its centre. */
         Box: {
             x: number;
@@ -1989,6 +2090,10 @@ export interface components {
         ElementId: string;
         /** @description A key of the element-type registry. */
         ElementType: string;
+        /** @description The 9:16 stage of the tale. */
+        Canvas: {
+            background: components["schemas"]["ColorBackground"] | components["schemas"]["MediaBackground"];
+        };
         /** @description One element. `hidden` and `locked` are editor state and are never delivered. */
         Element: {
             id: components["schemas"]["ElementId"];
@@ -2010,7 +2115,7 @@ export interface components {
              */
             version: 1;
             canvas: components["schemas"]["Canvas"];
-            /** @description How long the tale shows, in milliseconds, when it has no video. */
+            /** @description How long the tale shows, in milliseconds, when it has no video; 7000 when left out. With a video element the tale plays for the video's length. */
             durationMs?: number;
             /** @description The elements, first at the bottom of the z-order. */
             elements: components["schemas"]["Element"][];
@@ -2019,12 +2124,22 @@ export interface components {
                 Color: string;
                 /** @description The 9:16 stage of the tale. */
                 Canvas: {
-                    background: components["schemas"]["ColorBackground"];
+                    background: components["schemas"]["ColorBackground"] | components["schemas"]["MediaBackground"];
                 };
                 /** @description A solid background colour. */
                 ColorBackground: {
                     /** @constant */
                     type: "color";
+                    color: components["schemas"]["Color"];
+                };
+                /** @description An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
+                MediaBackground: {
+                    /** @constant */
+                    type: "media";
+                    /** @description The storage key of an image of the tale's project, as the server made it. */
+                    mediaKey: string;
+                    /** @enum {string} */
+                    fit: "cover" | "contain";
                     color: components["schemas"]["Color"];
                 };
                 /** @description Where an element sits, as fractions (0 to 1) of the canvas width (x, w) and height (y, h), and its rotation in degrees about its centre. */
@@ -2103,6 +2218,40 @@ export interface components {
             background?: "none" | "box" | "highlight";
             /** @description The box or highlight colour as #RRGGBB or #RRGGBBAA. */
             backgroundColor?: string;
+        };
+        /**
+         * ImageElementProps
+         * @description The props of an image element (epic Tale Studio R5): an image (GIF included) of the tale's project, by its storage key (AD-11), never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).
+         */
+        "image.schema": {
+            /** @description The storage key of an image of the tale's project, as the server made it. */
+            mediaKey: string;
+            /**
+             * @description How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.
+             * @enum {string}
+             */
+            fit: "cover" | "contain";
+            /** @description The corner radius as a fraction of the canvas height; 0 when left out. */
+            radius?: number;
+            /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
+            opacity?: number;
+        };
+        /**
+         * VideoElementProps
+         * @description The props of a video element (epic Tale Studio R5): an MP4 or WebM video of the tale's project, by its storage key (AD-11), never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).
+         */
+        "video.schema": {
+            /** @description The storage key of a video of the tale's project, as the server made it. */
+            mediaKey: string;
+            /**
+             * @description How the media fills its box: `cover` crops it to fill the box, `contain` shows all of it.
+             * @enum {string}
+             */
+            fit: "cover" | "contain";
+            /** @description The corner radius as a fraction of the canvas height; 0 when left out. */
+            radius?: number;
+            /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
+            opacity?: number;
         };
     };
     responses: {
@@ -2522,6 +2671,114 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listProjectMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's media. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMedia"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    uploadProjectMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/png": string;
+                "image/jpeg": string;
+                "image/gif": string;
+                "image/webp": string;
+                "video/mp4": string;
+                "video/webm": string;
+            };
+        };
+        responses: {
+            /** @description The uploaded media. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMedia"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            411: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getProjectMediaFile: {
+        parameters: {
+            query: {
+                /** @description The media's storage key, as the list names it. */
+                key: string;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                    "video/*": string;
+                };
+            };
+            /** @description One byte range of the file. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not modified. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -4058,6 +4315,10 @@ export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["s
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
 export const ringStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["RingStyle"]> = ["gradient", "solid", "none"];
 export const deliveryFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryFont"]["style"]> = ["normal", "italic"];
+export const mediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaBackground"]["fit"]> = ["cover", "contain"];
+export const deliveryMediaBackgroundTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryMediaBackground"]["type"]> = ["media"];
+export const deliveryMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["DeliveryMediaBackground"]["fit"]> = ["cover", "contain"];
+export const projectMediaSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectMedia"]["source"]> = ["upload", "tale", "document"];
 export const projectFontStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["style"]> = ["normal", "italic"];
 export const projectFontFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ProjectFont"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
@@ -4067,7 +4328,8 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "internal_error"];
+export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];
 export const textSchemaFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
@@ -4075,3 +4337,5 @@ export const textSchemaWeightValues: ReadonlyArray<FlattenedDeepRequired<compone
 export const textSchemaAlignValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["align"]> = ["start", "center", "end"];
 export const textSchemaDirectionValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["direction"]> = ["auto", "rtl", "ltr"];
 export const textSchemaBackgroundValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["background"]> = ["none", "box", "highlight"];
+export const imageSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["image.schema"]["fit"]> = ["cover", "contain"];
+export const videoSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["video.schema"]["fit"]> = ["cover", "contain"];

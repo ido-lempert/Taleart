@@ -12,18 +12,27 @@ import {
   untracked,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { ErrorCodes, type ProjectFont } from '@taleart/contract/core';
+import { ErrorCodes, type MediaKind, type ProjectFont, type ProjectMedia } from '@taleart/contract/core';
 import { loadProjectFont, projectFontIds } from '@taleart/contract/project-fonts';
 import {
   cleanText,
+  DEFAULT_TALE_DURATION_MS,
   ELEMENT_TEXT_RULE,
   emptyTaleDocument,
   elementBounds,
+  hasAltText,
+  hasVideoElement,
   isOutsideSafeArea,
+  MAX_TALE_DURATION_MS,
+  MAX_TALE_VIDEO_MS,
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
+  MEDIA_FITS,
+  MIN_TALE_DURATION_MS,
+  NEW_MEDIA_BOX,
   NEW_TEXT_BOX,
   TALE_SAFE_AREA,
+  type MediaElement,
   type PublishedTaleDocument,
   type TaleDocument,
   type TaleElement,
@@ -43,12 +52,14 @@ import {
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { projectFontFileUrl, ProjectFontsService } from '../project-fonts.service';
+import { projectMediaSrc } from '../project-media.service';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
 import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
 import { sameDocument, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
+import { FIT_NAMES, TaleMediaPicker, TaleMediaStyle, type MediaChange } from './tale-media';
 import {
   boundsOf,
   clamp,
@@ -119,6 +130,20 @@ const REORDERED: Record<ReorderCommand, [string, string]> = {
   back: ['moved to the back', 'Already at the back'],
 };
 const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
+const KIND_NAMES: Readonly<Record<TaleElement['type'], string>> = { text: 'Text', image: 'Image', video: 'Video' };
+/** How people read an element's type: "Text", "Image" or "Video". */
+export const kindName = (element: { type: TaleElement['type'] }): string => KIND_NAMES[element.type];
+
+/** The media picker while it is open: what it picks for, and of which kind. */
+interface OpenPicker {
+  purpose: 'add' | 'replace' | 'background';
+  kind: MediaKind;
+  heading: string;
+  /** The element whose media `replace` changes. */
+  elementId: string | null;
+  currentKey: string | null;
+  returnFocus: HTMLElement | null;
+}
 
 /** How the canvas draws a text, as the Web SDK renders it: each value from the contract's `resolveTextStyle`. */
 export interface TextView {
@@ -181,7 +206,7 @@ export function newTextProps(text: string): TextElementProps {
  */
 @Component({
   selector: 'app-tale-studio-page',
-  imports: [RouterLink, Icon, TaleLayerMenu, TaleTextStyle],
+  imports: [RouterLink, Icon, TaleLayerMenu, TaleTextStyle, TaleMediaPicker, TaleMediaStyle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .studio {
@@ -231,6 +256,12 @@ export function newTextProps(text: string): TextElementProps {
     }
     .el__line {
       display: block;
+    }
+    .el__media {
+      display: block;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
     }
     .el__glyphs.is-highlight {
       -webkit-box-decoration-break: clone;
@@ -445,11 +476,20 @@ export function newTextProps(text: string): TextElementProps {
                   <img class="canvas__media" [src]="store.mediaSrc(t)" alt="" />
                 }
               }
+              @if (d.canvas.background.type === 'media') {
+                <!-- The background image (R2), over its band colour, as the Web SDK paints it. -->
+                <img
+                  class="canvas__media"
+                  [src]="mediaSrc(d.canvas.background.mediaKey)"
+                  alt=""
+                  [style.object-fit]="d.canvas.background.fit"
+                />
+              }
               @for (el of d.elements; track el.id; let i = $index) {
                 @let v = view(el);
                 @if (el.hidden) {
                   <!-- A hidden layer is not drawn; it stays in the layers list. -->
-                } @else if (editingId() === el.id) {
+                } @else if (editingId() === el.id && el.type === 'text') {
                   <textarea
                     class="el-edit"
                     [id]="'studio-edit-' + el.id"
@@ -475,6 +515,59 @@ export function newTextProps(text: string): TextElementProps {
                     (blur)="stopEditing()"
                     (keydown.escape)="stopEditing(true)"
                   ></textarea>
+                } @else if (el.type !== 'text') {
+                  <!-- An image or video (R5), as the Web SDK renders it: the media fills the box with its fit. -->
+                  <button
+                    type="button"
+                    class="el"
+                    [id]="'studio-el-' + el.id"
+                    [class.is-selected]="isSelected(el.id)"
+                    [class.is-locked]="el.locked"
+                    [attr.aria-pressed]="isSelected(el.id)"
+                    [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
+                    [attr.aria-label]="kind(el) + ': ' + name(el)"
+                    [attr.aria-describedby]="'layer-state-' + el.id"
+                    [attr.aria-keyshortcuts]="keyShortcuts"
+                    [style.left.%]="el.box.x * 100"
+                    [style.top.%]="el.box.y * 100"
+                    [style.width.%]="el.box.w * 100"
+                    [style.height.%]="el.box.h * 100"
+                    [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
+                    [style.z-index]="i + 1"
+                    (click)="pick($event, el.id)"
+                    (contextmenu)="openMenuAt($event, el, 'canvas')"
+                    (keydown)="onKey($event, el)"
+                    (pointerdown)="dragStart($event, el)"
+                    (pointermove)="dragMove($event)"
+                    (pointerup)="dragEnd($event)"
+                    (pointercancel)="dragEnd($event)"
+                  >
+                    @if (el.type === 'video') {
+                      <video
+                        class="el__media"
+                        [src]="mediaSrc(el.props.mediaKey)"
+                        [muted]="true"
+                        muted
+                        playsinline
+                        preload="metadata"
+                        aria-hidden="true"
+                        [style.object-fit]="el.props.fit"
+                        [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
+                        [style.opacity]="el.props.opacity ?? 1"
+                        (loadedmetadata)="videoLoaded(el.props.mediaKey, $any($event.target))"
+                      ></video>
+                    } @else {
+                      <img
+                        class="el__media"
+                        [src]="mediaSrc(el.props.mediaKey)"
+                        alt=""
+                        draggable="false"
+                        [style.object-fit]="el.props.fit"
+                        [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
+                        [style.opacity]="el.props.opacity ?? 1"
+                      />
+                    }
+                  </button>
                 } @else {
                   <button
                     type="button"
@@ -555,9 +648,34 @@ export function newTextProps(text: string): TextElementProps {
                 >
                   <app-icon name="plus" /> Add text
                 </button>
+                <button
+                  type="button"
+                  class="btn btn--secondary"
+                  id="studio-add-image"
+                  [disabled]="d.elements.length >= maxElements || !projectId()"
+                  (click)="openPicker('add', 'image')"
+                >
+                  <app-icon name="image" /> Add image
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--secondary"
+                  id="studio-add-video"
+                  [disabled]="d.elements.length >= maxElements || !projectId()"
+                  [attr.aria-disabled]="hasVideo() ? 'true' : null"
+                  [attr.aria-describedby]="hasVideo() ? 'studio-video-hint' : null"
+                  (click)="openPicker('add', 'video')"
+                >
+                  <app-icon name="video" /> Add video
+                </button>
               </div>
+              @if (hasVideo()) {
+                <p class="field__hint" id="studio-video-hint">
+                  A tale holds one video, and plays for its length. Delete it to add another.
+                </p>
+              }
               <p class="field__hint" id="studio-keys">
-                Select a text to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
+                Select a layer to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
                 stops editing. Dragging snaps to the centre, the safe areas and other layers; hold Alt to place freely.
                 On the canvas and in the layers list: {{ keys.forward }} and {{ keys.backward }} reorder,
                 {{ keys.front }} and {{ keys.back }} bring to the front or the back, H hides, L locks, D duplicates,
@@ -601,8 +719,8 @@ export function newTextProps(text: string): TextElementProps {
                           (contextmenu)="openMenuAt($event, row.el, 'list')"
                         >
                           <span class="layer__line">
-                            <app-icon name="text" />
-                            <span class="visually-hidden">Text: </span>
+                            <app-icon [name]="row.el.type" />
+                            <span class="visually-hidden">{{ kind(row.el) }}: </span>
                             <span class="layer__name">{{ row.name }}</span>
                           </span>
                           <span class="layer__state" [id]="'layer-state-' + row.el.id">
@@ -617,6 +735,12 @@ export function newTextProps(text: string): TextElementProps {
                             }
                             @if (row.lowContrast) {
                               <span class="layer__warning"><app-icon name="alert" /> Low contrast</span>
+                            }
+                            @if (row.missingAlt) {
+                              <span class="layer__warning"><app-icon name="alert" /> Needs alt text</span>
+                            }
+                            @if (row.longVideo) {
+                              <span class="layer__warning"><app-icon name="alert" /> Longer than 15 s</span>
                             }
                           </span>
                         </div>
@@ -678,26 +802,28 @@ export function newTextProps(text: string): TextElementProps {
               </section>
               @if (selected(); as el) {
                 <fieldset class="field selected">
-                  <legend class="field__label">Selected text</legend>
+                  <legend class="field__label">Selected {{ kind(el).toLowerCase() }}</legend>
                   @if (el.locked) {
                     <p class="field__hint">{{ lockedHint }}</p>
                   }
-                  <div class="field">
-                    <label class="field__label" for="studio-text">Text</label>
-                    <textarea
-                      id="studio-text"
-                      class="input"
-                      aria-describedby="studio-text-hint"
-                      [readOnly]="el.locked"
-                      [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
-                      [value]="el.props.text"
-                      (input)="typeText(el.id, $any($event.target))"
-                      (blur)="sealHistory()"
-                    ></textarea>
-                    <span class="field__hint" id="studio-text-hint">
-                      {{ textNotice() || 'Up to ' + maxText.toLocaleString('en') + ' characters.' }}
-                    </span>
-                  </div>
+                  @if (el.type === 'text') {
+                    <div class="field">
+                      <label class="field__label" for="studio-text">Text</label>
+                      <textarea
+                        id="studio-text"
+                        class="input"
+                        aria-describedby="studio-text-hint"
+                        [readOnly]="el.locked"
+                        [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
+                        [value]="el.props.text"
+                        (input)="typeText(el.id, $any($event.target))"
+                        (blur)="sealHistory()"
+                      ></textarea>
+                      <span class="field__hint" id="studio-text-hint">
+                        {{ textNotice() || 'Up to ' + maxText.toLocaleString('en') + ' characters.' }}
+                      </span>
+                    </div>
+                  }
                   <div class="row">
                     <div class="field">
                       <label class="field__label" for="studio-x">Left (%)</label>
@@ -728,19 +854,77 @@ export function newTextProps(text: string): TextElementProps {
                       />
                     </div>
                   </div>
-                  <app-tale-text-style
-                    [elementId]="el.id"
-                    [props]="el.props"
-                    [locked]="el.locked"
-                    [themeFont]="themeFont()"
-                    [backdrop]="backdrop()"
-                    [projectFonts]="projectFonts()"
-                    [projectId]="projectId() ?? null"
-                    (changed)="restyle(el.id, $event)"
-                    (notice)="say($event)"
-                  />
                   <div class="row">
-                    <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">Delete text</button>
+                    <div class="field">
+                      <label class="field__label" for="studio-w">Width (%)</label>
+                      <input
+                        id="studio-w"
+                        class="input"
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        [readOnly]="el.locked"
+                        [value]="percent(el.box.w)"
+                        (change)="setSize(el.id, 'w', $any($event.target))"
+                      />
+                    </div>
+                    <div class="field">
+                      <label class="field__label" for="studio-h">Height (%)</label>
+                      <input
+                        id="studio-h"
+                        class="input"
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        [readOnly]="el.locked"
+                        [value]="percent(el.box.h)"
+                        (change)="setSize(el.id, 'h', $any($event.target))"
+                      />
+                    </div>
+                    <div class="field">
+                      <label class="field__label" for="studio-rotation">Rotation (°)</label>
+                      <input
+                        id="studio-rotation"
+                        class="input"
+                        type="number"
+                        min="-180"
+                        max="180"
+                        step="1"
+                        [readOnly]="el.locked"
+                        [value]="el.box.rotation"
+                        (change)="setRotation(el.id, $any($event.target))"
+                      />
+                    </div>
+                  </div>
+                  @if (el.type !== 'text') {
+                    <app-tale-media-style
+                      [element]="el"
+                      [videoSeconds]="el.type === 'video' ? (videoSeconds().get(el.props.mediaKey) ?? null) : null"
+                      [locked]="el.locked"
+                      [lockedHint]="lockedHint"
+                      (changed)="restyleMedia(el.id, $event)"
+                      (notice)="say($event)"
+                      (replace)="openPicker('replace', el.type, el.id)"
+                    />
+                  } @else {
+                    <app-tale-text-style
+                      [elementId]="el.id"
+                      [props]="el.props"
+                      [locked]="el.locked"
+                      [themeFont]="themeFont()"
+                      [backdrop]="backdrop()"
+                      [projectFonts]="projectFonts()"
+                      [projectId]="projectId() ?? null"
+                      (changed)="restyle(el.id, $event)"
+                      (notice)="say($event)"
+                    />
+                  }
+                  <div class="row">
+                    <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">
+                      Delete {{ kind(el).toLowerCase() }}
+                    </button>
                   </div>
                 </fieldset>
               } @else if (selection().length > 1) {
@@ -787,11 +971,73 @@ export function newTextProps(text: string): TextElementProps {
                   </div>
                 </div>
                 <span class="field__hint" id="studio-bg-hint">
-                  As #RRGGBB, or #RRGGBBAA with transparency. It fills the canvas behind the tale's media.
+                  @if (d.canvas.background.type === 'media') {
+                    As #RRGGBB, or #RRGGBBAA with transparency. It fills the bands the background image leaves, and
+                    shows until the image does.
+                  } @else {
+                    As #RRGGBB, or #RRGGBBAA with transparency. It fills the canvas behind the tale's media.
+                  }
                 </span>
                 @if (hexError()) {
                   <span class="field__error" id="studio-bg-error">{{ hexError() }}</span>
                 }
+                <div class="row">
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    id="studio-bg-media"
+                    [disabled]="!projectId()"
+                    (click)="openPicker('background', 'image')"
+                  >
+                    @if (d.canvas.background.type === 'media') {
+                      Choose another background image…
+                    } @else {
+                      Background image…
+                    }
+                  </button>
+                  @if (d.canvas.background.type === 'media') {
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--sm"
+                      id="studio-bg-media-remove"
+                      (click)="removeBackgroundMedia()"
+                    >
+                      Remove background image
+                    </button>
+                  }
+                </div>
+                @if (d.canvas.background.type === 'media') {
+                  <div class="field">
+                    <label class="field__label" for="studio-bg-fit">Background image fit</label>
+                    <select id="studio-bg-fit" class="input" (change)="setBackgroundFit($any($event.target).value)">
+                      @for (fit of fits; track fit) {
+                        <option [value]="fit" [selected]="fit === d.canvas.background.fit">{{ fitNames[fit] }}</option>
+                      }
+                    </select>
+                  </div>
+                }
+                <div class="field">
+                  <label class="field__label" for="studio-duration">Duration (seconds)</label>
+                  <input
+                    id="studio-duration"
+                    class="input"
+                    type="number"
+                    [min]="minDuration"
+                    [max]="maxDuration"
+                    step="0.5"
+                    aria-describedby="studio-duration-hint"
+                    [readOnly]="hasVideo()"
+                    [value]="durationSeconds()"
+                    (change)="setDuration($any($event.target))"
+                  />
+                  <span class="field__hint" id="studio-duration-hint">
+                    @if (hasVideo()) {
+                      The tale plays for its video's length.
+                    } @else {
+                      How long the tale shows, from {{ minDuration }} to {{ maxDuration }} seconds.
+                    }
+                  </span>
+                </div>
                 <label class="checkbox">
                   <input type="checkbox" [checked]="guides()" (change)="showGuides($any($event.target).checked)" />
                   Show safe areas
@@ -800,6 +1046,19 @@ export function newTextProps(text: string): TextElementProps {
             </div>
           </div>
           <p class="visually-hidden" aria-live="polite">{{ announcement() }}</p>
+          @if (picker(); as p) {
+            @if (projectId(); as projectId) {
+              <app-tale-media-picker
+                [projectId]="projectId"
+                [kind]="p.kind"
+                [heading]="p.heading"
+                [currentKey]="p.currentKey"
+                [returnFocus]="p.returnFocus"
+                (chosen)="pickedMedia($event)"
+                (closed)="closePicker()"
+              />
+            }
+          }
           @if (menu(); as m) {
             <app-tale-layer-menu
               [items]="m.items"
@@ -915,6 +1174,18 @@ export class TaleStudioPage implements OnChanges {
   /** The layers list's one tab stop (roving tabindex): a layer and its column. */
   private readonly active = signal<{ id: string; col: number } | null>(null);
   protected readonly lockedHint = LOCKED;
+  protected readonly fits = MEDIA_FITS;
+  protected readonly fitNames = FIT_NAMES;
+  protected readonly minDuration = MIN_TALE_DURATION_MS / 1000;
+  protected readonly maxDuration = MAX_TALE_DURATION_MS / 1000;
+  /** The length in seconds of each video the canvas loaded, by key, for the 15 s warning (R5). */
+  protected readonly videoSeconds = signal<ReadonlyMap<string, number>>(new Map());
+  /** The media picker, while it is open (R5). */
+  protected readonly picker = signal<OpenPicker | null>(null);
+  /** True when the tale holds its one video: it then plays for the video's length (R5). */
+  protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
+  /** The tale's duration in seconds, as the duration field shows it: 7 when the document sets none. */
+  protected readonly durationSeconds = computed(() => (this.doc()?.durationMs ?? DEFAULT_TALE_DURATION_MS) / 1000);
 
   protected readonly tale = computed(() => this.store.tale(this.taleId()));
   // The tale's project: the theme is read again only when it changes, not on each store refresh.
@@ -931,7 +1202,7 @@ export class TaleStudioPage implements OnChanges {
   /** What lies behind texts, for their contrast checks (R12): the canvas colour, and whether media covers it. */
   protected readonly backdrop = computed<TextBackdrop>(() => ({
     canvasColor: this.doc()?.canvas.background.color ?? '#000000',
-    overMedia: !!this.tale()?.media,
+    overMedia: !!this.tale()?.media || this.doc()?.canvas.background.type === 'media',
   }));
   // Each text's canvas look, kept per props object, so unchanged texts keep their view.
   private readonly views = new WeakMap<object, { themeFont: string | null; view: TextView }>();
@@ -944,9 +1215,13 @@ export class TaleStudioPage implements OnChanges {
     (this.doc()?.elements ?? [])
       .map((el) => ({
         el,
-        name: layerName(el),
+        name: layerName(el, this.doc()?.elements ?? [el]),
         outside: isOutsideSafeArea(el.box),
-        lowContrast: textContrast(resolveTextStyle(el.props), this.backdrop()).kind === 'low',
+        lowContrast: el.type === 'text' && textContrast(resolveTextStyle(el.props), this.backdrop()).kind === 'low',
+        // An image or video without alt text or the decorative mark keeps the tale from being published (R12).
+        missingAlt: el.type !== 'text' && !el.hidden && !hasAltText(el),
+        // A video over 15 s plays only its first 15 s (R5).
+        longVideo: el.type === 'video' && (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
       .reverse(),
   );
@@ -1071,7 +1346,7 @@ export class TaleStudioPage implements OnChanges {
     }
     const before = textContrast(resolveTextStyle(element.props), this.backdrop()).kind;
     const recorded = this.change(change.label, (elements) =>
-      elements.map((e) => (e.id === id ? { ...e, props: { ...e.props, ...change.patch } } : e)),
+      elements.map((e) => (e.id === id && e.type === 'text' ? { ...e, props: { ...e.props, ...change.patch } } : e)),
     );
     // Only a recorded step is announced; the contrast line is not live, so a change of its warning is said here.
     if (!recorded) return;
@@ -1234,6 +1509,9 @@ export class TaleStudioPage implements OnChanges {
       }
       this.autosave.pause();
       const revision = this.autosave.savedRevision;
+      // The draft the server checks: a refusal's pointer names an element of this one, which may
+      // differ from what the canvas shows once more changes are made while it is on its way.
+      const sent = this.autosave.savedDocument;
       const send = (publishedRevision: number) =>
         action === 'publish'
           ? this.documents.publish(taleId, revision, publishedRevision)
@@ -1252,8 +1530,18 @@ export class TaleStudioPage implements OnChanges {
       if (result.value === null) {
         if (result.stale) this.autosave.conflict(result);
         else if (result.code === ErrorCodes.invalidTaleDocument) {
+          // The refused element, such as an image without alt text (R12), is selected and named.
+          const index = /^\/elements\/(\d+)/.exec(result.pointer)?.[1];
+          const id = index === undefined ? undefined : sent.elements[Number(index)]?.id;
+          const element = id === undefined ? undefined : this.element(id);
+          if (element) {
+            this.invalidId.set(element.id);
+            this.selectOnly(element.id);
+          }
           this.error.set(
-            'The draft could not be published because something in it is not valid. Fix it, then try again.',
+            element && /\/a11y\/label$/.test(result.pointer)
+              ? `The draft could not be published. ${result.message} It is selected.`
+              : 'The draft could not be published because something in it is not valid. Fix it, then try again.',
           );
         } else if (result.code === ErrorCodes.nothingToPublish) {
           this.error.set('There is nothing to publish yet: change the tale first.');
@@ -1430,7 +1718,17 @@ export class TaleStudioPage implements OnChanges {
   }
 
   protected name(element: TaleElement): string {
-    return layerName(element);
+    return layerName(element, this.doc()?.elements ?? [element]);
+  }
+
+  protected kind(element: { type: TaleElement['type'] }): string {
+    return kindName(element);
+  }
+
+  /** Where the canvas loads a file of the project's media, with the session. */
+  protected mediaSrc(key: string): string {
+    const projectId = this.projectId();
+    return projectId ? projectMediaSrc(projectId, key) : '';
   }
 
   protected percent(value: number): number {
@@ -1483,8 +1781,9 @@ export class TaleStudioPage implements OnChanges {
     return true;
   }
 
-  private setBox(id: string, box: Partial<TaleElementBox>): void {
-    this.change('Text moved', (elements) =>
+  private setBox(id: string, box: Partial<TaleElementBox>, label?: string): void {
+    const element = this.element(id);
+    this.change(label ?? `${element ? kindName(element) : 'Layer'} moved`, (elements) =>
       elements.map((e) => {
         if (e.id !== id) return e;
         const next = { ...e.box, ...box };
@@ -1569,7 +1868,7 @@ export class TaleStudioPage implements OnChanges {
     if (this.isHeld()) return;
     this.selectOnly(id);
     const element = this.element(id);
-    if (!element || element.hidden) return;
+    if (!element || element.hidden || element.type !== 'text') return;
     if (element.locked) {
       this.say(LOCKED);
       return;
@@ -1597,7 +1896,7 @@ export class TaleStudioPage implements OnChanges {
    */
   protected typeText(id: string, field: HTMLTextAreaElement): void {
     const element = this.element(id);
-    if (!element) return;
+    if (!element || element.type !== 'text') return;
     if (element.locked || this.held()) {
       field.value = element.props.text;
       this.say(this.held() || LOCKED);
@@ -1619,7 +1918,7 @@ export class TaleStudioPage implements OnChanges {
     // Typing in one text is one step until a pause or leaving the field; its own undo stays the browser's.
     this.change(
       'Text edited',
-      (elements) => elements.map((e) => (e.id === id ? { ...e, props: { ...e.props, text } } : e)),
+      (elements) => elements.map((e) => (e.id === id && e.type === 'text' ? { ...e, props: { ...e.props, text } } : e)),
       `text:${id}`,
     );
   }
@@ -1649,8 +1948,8 @@ export class TaleStudioPage implements OnChanges {
     field.value = String(applied);
     this.say(
       applied === requested
-        ? `Text moved to ${name} ${applied}%`
-        : `Text moved to ${name} ${applied}%, as far as it goes`,
+        ? `${kindName(element)} moved to ${name} ${applied}%`
+        : `${kindName(element)} moved to ${name} ${applied}%, as far as it goes`,
     );
   }
 
@@ -1676,7 +1975,7 @@ export class TaleStudioPage implements OnChanges {
     const above = elements.slice(last + 1).find(keep);
     const below = [...elements.slice(0, first)].reverse().find(keep);
     const next = (origin === 'canvas' ? (above ?? below) : (below ?? above)) ?? null;
-    const done = indexes.length === 1 ? 'Text deleted' : `${indexes.length} layers deleted`;
+    const done = indexes.length === 1 ? `${kindName(elements[first])} deleted` : `${indexes.length} layers deleted`;
     this.change(done, (list) => list.filter((e) => !gone.has(e.id)));
     this.selectOnly(next?.id ?? null);
     if (this.editingId() !== null && gone.has(this.editingId() as string)) this.editingId.set(null);
@@ -1730,6 +2029,10 @@ export class TaleStudioPage implements OnChanges {
       case 'duplicate': {
         const element = one === null ? undefined : this.element(one);
         if (!element) return;
+        if (element.type === 'video') {
+          this.say('A tale holds one video, so it cannot be duplicated');
+          break;
+        }
         if (doc.elements.length >= MAX_TALE_ELEMENTS) {
           this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
           break;
@@ -1860,7 +2163,7 @@ export class TaleStudioPage implements OnChanges {
     const key = `move:${[...ids].join(',')}`;
     if (!repeat) this.history.seal();
     this.change(
-      movable.length === 1 ? 'Text moved' : `${movable.length} layers moved`,
+      movable.length === 1 ? `${kindName(movable[0])} moved` : `${movable.length} layers moved`,
       (elements) => elements.map((e) => (ids.has(e.id) ? { ...e, box: moveBox(e.box, step.dx, step.dy) } : e)),
       key,
     );
@@ -1868,7 +2171,11 @@ export class TaleStudioPage implements OnChanges {
     const stay = locked ? `; ${locked === 1 ? 'a locked layer stays' : `${locked} locked layers stay`}` : '';
     if (movable.length === 1) {
       const moved = this.element(movable[0].id);
-      if (moved) this.say(`Text moved to left ${this.percent(moved.box.x)}%, top ${this.percent(moved.box.y)}%${stay}`);
+      if (moved) {
+        this.say(
+          `${kindName(moved)} moved to left ${this.percent(moved.box.x)}%, top ${this.percent(moved.box.y)}%${stay}`,
+        );
+      }
     } else this.say(`${movable.length} layers moved${stay}`);
   }
 
@@ -1944,10 +2251,12 @@ export class TaleStudioPage implements OnChanges {
     this.snapLines.set(null);
     if (!drag.moved) return;
     const moved = this.doc();
+    const one = drag.boxes.size === 1 ? this.element([...drag.boxes.keys()][0]) : undefined;
+    const label = one ? `${kindName(one)} moved` : `${drag.boxes.size} layers moved`;
     if (moved) {
       // The drag's step: from the document before it to the one it shows now.
       this.doc.set(drag.before);
-      this.commit(drag.boxes.size === 1 ? 'Text moved' : `${drag.boxes.size} layers moved`, moved);
+      this.commit(label, moved);
     }
     this.dragged = true;
     // A click may not follow (the pointer was released elsewhere); it is only ignored straight after.
@@ -1957,7 +2266,7 @@ export class TaleStudioPage implements OnChanges {
       return e?.locked && !e.hidden;
     }).length;
     const stay = locked ? `; ${locked === 1 ? 'a locked layer stays' : `${locked} locked layers stay`}` : '';
-    this.say(drag.boxes.size === 1 ? `Text moved${stay}` : `${drag.boxes.size} layers moved${stay}`);
+    this.say(`${label}${stay}`);
   }
 
   // The menu's items for the selection: reorder and delete for several layers, and hide, lock and duplicate for one.
@@ -2037,9 +2346,10 @@ export class TaleStudioPage implements OnChanges {
     this.hexError.set('');
     const doc = this.doc();
     if (!doc || doc.canvas.background.color === color) return;
+    // A background image keeps its image: the colour is its band colour then (R2).
     this.commit('Background colour changed', {
       ...doc,
-      canvas: { ...doc.canvas, background: { type: 'color', color } },
+      canvas: { ...doc.canvas, background: { ...doc.canvas.background, color } },
     });
     this.say(`Background colour set to ${color}`);
   }
@@ -2058,6 +2368,236 @@ export class TaleStudioPage implements OnChanges {
     this.hexError.set('');
     field.value = color;
     this.setBackground(color);
+  }
+
+  /**
+   * Opens the media picker (R5): to add an image or a video, to replace the selected one's media,
+   * or to choose the background image. A tale holds one video, so a second is refused here.
+   */
+  protected openPicker(purpose: OpenPicker['purpose'], kind: MediaKind, elementId: string | null = null): void {
+    if (this.isHeld()) return;
+    if (purpose === 'add' && kind === 'video' && this.hasVideo()) {
+      this.say('A tale holds one video. Delete it to add another.');
+      return;
+    }
+    const doc = this.doc();
+    const element = elementId === null ? undefined : this.element(elementId);
+    if (element?.locked) {
+      this.say(LOCKED);
+      return;
+    }
+    const background = doc?.canvas.background;
+    const currentKey =
+      purpose === 'background'
+        ? background?.type === 'media'
+          ? background.mediaKey
+          : null
+        : element && element.type !== 'text'
+          ? element.props.mediaKey
+          : null;
+    const heading =
+      purpose === 'background'
+        ? 'Choose a background image'
+        : purpose === 'replace'
+          ? `Choose another ${kind}`
+          : `Add ${kind === 'image' ? 'an image' : 'a video'}`;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.picker.set({ purpose, kind, heading, elementId, currentKey, returnFocus });
+  }
+
+  /** A canvas video read its length: one over 15 s is flagged, as only its first 15 s will play. */
+  protected videoLoaded(key: string, video: HTMLVideoElement): void {
+    const seconds = video.duration;
+    if (!Number.isFinite(seconds) || this.videoSeconds().get(key) === seconds) return;
+    this.videoSeconds.set(new Map([...this.videoSeconds(), [key, seconds]]));
+  }
+
+  protected closePicker(): void {
+    this.picker.set(null);
+  }
+
+  /** The picker's choice: a new image or video, another file for the selected one, or the background image. */
+  protected pickedMedia(media: ProjectMedia): void {
+    const open = this.picker();
+    this.picker.set(null);
+    if (!open || this.isHeld()) return;
+    const doc = this.doc();
+    if (!doc) return;
+    if (open.purpose === 'background') {
+      if (media.kind !== 'image') return;
+      const fit = doc.canvas.background.type === 'media' ? doc.canvas.background.fit : 'cover';
+      this.commit('Background image set', {
+        ...doc,
+        canvas: {
+          ...doc.canvas,
+          background: { type: 'media', mediaKey: media.key, fit, color: doc.canvas.background.color },
+        },
+      });
+      this.say('Background image set');
+      return;
+    }
+    if (open.purpose === 'replace' && open.elementId !== null) {
+      const id = open.elementId;
+      const element = this.element(id);
+      if (!element || element.type !== media.kind) return;
+      const kind = kindName(element);
+      this.change(`${kind} replaced`, (elements) =>
+        elements.map((e) =>
+          e.id === id && e.type !== 'text' ? { ...e, props: { ...e.props, mediaKey: media.key } } : e,
+        ),
+      );
+      this.say(`${kind} replaced`);
+      this.focusSoon(`studio-el-${id}`);
+      return;
+    }
+    this.addMedia(media);
+  }
+
+  // Adds an image or video of the project's media over the other layers, with no alt text yet: the
+  // layers list and the inspector say it needs some before publishing (R12).
+  private addMedia(media: ProjectMedia): void {
+    const doc = this.doc();
+    if (!doc) return;
+    if (doc.elements.length >= MAX_TALE_ELEMENTS) {
+      this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
+      return;
+    }
+    if (media.kind === 'video' && this.hasVideo()) {
+      this.say('A tale holds one video. Delete it to add another.');
+      return;
+    }
+    const base = {
+      id: crypto.randomUUID(),
+      box: { ...NEW_MEDIA_BOX },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: { mediaKey: media.key, fit: 'cover' as const },
+    };
+    const element: MediaElement = media.kind === 'video' ? { ...base, type: 'video' } : { ...base, type: 'image' };
+    const kind = kindName(element);
+    this.change(`${kind} added`, (elements) => [...elements, element]);
+    this.selectOnly(element.id);
+    this.say(`${kind} added. Give it alt text, or mark it decorative, before publishing.`);
+    this.focusSoon(`media-alt-${element.id}`);
+  }
+
+  /** Applies a change from the media inspector as one step in the history, and says what changed. */
+  protected restyleMedia(id: string, change: MediaChange): void {
+    if (this.isHeld()) return;
+    const element = this.element(id);
+    if (!element || element.type === 'text') return;
+    if (element.locked) {
+      this.say(LOCKED);
+      return;
+    }
+    const recorded = this.change(change.label, (elements) =>
+      elements.map((e) => {
+        if (e.id !== id || e.type === 'text') return e;
+        return {
+          ...e,
+          a11y: change.a11y ?? e.a11y,
+          props: change.props ? { ...e.props, ...change.props } : e.props,
+        };
+      }),
+    );
+    if (recorded) {
+      if (this.invalidId() === id) this.invalidId.set(null);
+      this.say(change.said);
+    }
+  }
+
+  /** Applies a width or height field (a percentage of the canvas), keeping the box on the canvas. */
+  protected setSize(id: string, axis: 'w' | 'h', field: HTMLInputElement): void {
+    const element = this.element(id);
+    if (!element) return;
+    const name = axis === 'w' ? 'width' : 'height';
+    if (this.isHeld() || element.locked) {
+      field.value = String(this.percent(element.box[axis]));
+      if (element.locked) this.say(LOCKED);
+      return;
+    }
+    const requested = Number(field.value);
+    if (field.value.trim() === '' || !Number.isFinite(requested)) {
+      field.value = String(this.percent(element.box[axis]));
+      this.say(`Enter a number for ${name}; it stays at ${field.value}%`);
+      return;
+    }
+    const size = round(clamp(requested / 100, 0.01, 1));
+    this.setBox(id, { [axis]: size }, `${kindName(element)} resized`);
+    const applied = this.percent(this.element(id)?.box[axis] ?? size);
+    field.value = String(applied);
+    this.say(`${kindName(element)} ${name} set to ${applied}%`);
+  }
+
+  /** Applies the rotation field, in degrees from -180 to 180 about the box's centre. */
+  protected setRotation(id: string, field: HTMLInputElement): void {
+    const element = this.element(id);
+    if (!element) return;
+    if (this.isHeld() || element.locked) {
+      field.value = String(element.box.rotation);
+      if (element.locked) this.say(LOCKED);
+      return;
+    }
+    const requested = Number(field.value);
+    if (field.value.trim() === '' || !Number.isFinite(requested)) {
+      field.value = String(element.box.rotation);
+      this.say(`Enter a number of degrees from -180 to 180; it stays at ${field.value}°`);
+      return;
+    }
+    const rotation = Math.round(clamp(requested, -180, 180) * 10) / 10;
+    field.value = String(rotation);
+    this.setBox(id, { rotation }, `${kindName(element)} rotated`);
+    this.say(`${kindName(element)} rotated to ${rotation}°`);
+  }
+
+  /** Applies the duration field (R5): 3 to 15 seconds, for a tale without a video. */
+  protected setDuration(field: HTMLInputElement): void {
+    const doc = this.doc();
+    if (!doc) return;
+    const current = this.durationSeconds();
+    if (this.isHeld() || this.hasVideo()) {
+      field.value = String(current);
+      if (this.hasVideo()) this.say("The tale plays for its video's length.");
+      return;
+    }
+    const requested = Number(field.value);
+    if (field.value.trim() === '' || !Number.isFinite(requested)) {
+      field.value = String(current);
+      this.say(`Enter a number of seconds from ${this.minDuration} to ${this.maxDuration}; it stays at ${current}`);
+      return;
+    }
+    const seconds = clamp(Math.round(requested * 2) / 2, this.minDuration, this.maxDuration);
+    field.value = String(seconds);
+    this.commit('Duration changed', { ...doc, durationMs: Math.round(seconds * 1000) });
+    this.say(
+      seconds === requested
+        ? `Duration set to ${seconds} seconds`
+        : `Duration set to ${seconds} seconds, as far as it goes`,
+    );
+  }
+
+  protected setBackgroundFit(fit: string): void {
+    const doc = this.doc();
+    if (this.isHeld() || !doc || doc.canvas.background.type !== 'media') return;
+    if (!(MEDIA_FITS as readonly string[]).includes(fit)) return;
+    const value = fit as (typeof MEDIA_FITS)[number];
+    this.commit('Background fit changed', {
+      ...doc,
+      canvas: { ...doc.canvas, background: { ...doc.canvas.background, fit: value } },
+    });
+    this.say(`Background image fit set to ${FIT_NAMES[value]}`);
+  }
+
+  protected removeBackgroundMedia(): void {
+    const doc = this.doc();
+    if (this.isHeld() || !doc || doc.canvas.background.type !== 'media') return;
+    this.commit('Background image removed', {
+      ...doc,
+      canvas: { ...doc.canvas, background: { type: 'color', color: doc.canvas.background.color } },
+    });
+    this.say('Background image removed; the background colour shows');
+    this.focusSoon('studio-bg-media');
   }
 
   protected showGuides(on: boolean): void {
@@ -2084,6 +2624,10 @@ export class TaleStudioPage implements OnChanges {
       if (element) {
         this.invalidId.set(element.id);
         this.selectOnly(element.id);
+        if (element.type !== 'text') {
+          const kind = kindName(element).toLowerCase();
+          return `This ${kind} could not be saved: ${result.message}. It is selected on the canvas.`;
+        }
         return 'A text could not be saved: it is too long or holds something a text cannot. It is selected on the canvas.';
       }
       return 'The tale could not be saved because something in it is not valid. Reload the page and try again.';

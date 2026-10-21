@@ -99,6 +99,11 @@ export class TaleAutosaver {
     return this.current !== this.saved;
   }
 
+  /** The document last saved: the draft a publish or discard acts on. */
+  get savedDocument(): TaleDocument {
+    return this.saved;
+  }
+
   /** The revision of the document last saved, which publishing and discarding are based on. */
   get savedRevision(): number {
     return this.revision;

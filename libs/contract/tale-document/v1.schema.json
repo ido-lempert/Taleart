@@ -13,7 +13,7 @@
     },
     "canvas": { "$ref": "#/$defs/Canvas" },
     "durationMs": {
-      "description": "How long the tale shows, in milliseconds, when it has no video.",
+      "description": "How long the tale shows, in milliseconds, when it has no video; 7000 when left out. With a video element the tale plays for the video's length.",
       "type": "integer",
       "minimum": 3000,
       "maximum": 15000
@@ -37,7 +37,9 @@
       "additionalProperties": false,
       "required": ["background"],
       "properties": {
-        "background": { "$ref": "#/$defs/ColorBackground" }
+        "background": {
+          "oneOf": [{ "$ref": "#/$defs/ColorBackground" }, { "$ref": "#/$defs/MediaBackground" }]
+        }
       }
     },
     "ColorBackground": {
@@ -47,6 +49,23 @@
       "required": ["type", "color"],
       "properties": {
         "type": { "type": "string", "const": "color" },
+        "color": { "$ref": "#/$defs/Color" }
+      }
+    },
+    "MediaBackground": {
+      "description": "An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "mediaKey", "fit", "color"],
+      "properties": {
+        "type": { "type": "string", "const": "media" },
+        "mediaKey": {
+          "description": "The storage key of an image of the tale's project, as the server made it.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp|mp4|webm)$"
+        },
+        "fit": { "type": "string", "enum": ["cover", "contain"] },
         "color": { "$ref": "#/$defs/Color" }
       }
     },

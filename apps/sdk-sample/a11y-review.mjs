@@ -1493,6 +1493,127 @@ try {
     );
     await slowContext.close();
   }
+
+  // 13. Images and video in a tale document (Tale Studio 7.5, epic R5, R12): an image read by its alt
+  //     text, a decorative image and the background hidden, a video muted and inline that runs the tale
+  //     for its length, and under reduced motion stays on its first frame until Play.
+  {
+    const mediaEl = (n, type, y, props, a11y) => ({
+      id: `00000000-0000-4000-8000-00000000010${n}`,
+      type,
+      box: { x: 0.1, y, w: 0.8, h: 0.2, rotation: n === 1 ? 8 : 0 },
+      a11y,
+      props: { fit: 'cover', ...props },
+    });
+    const z = zone({
+      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      taleGroups: [
+        {
+          id: 'gm',
+          name: 'Media',
+          cover: null,
+          tales: [
+            {
+              id: 'm1',
+              title: 'Media tale',
+              media: null,
+              document: {
+                version: 1,
+                canvas: {
+                  background: { type: 'media', url: `${API}/media/media/bg.svg`, fit: 'contain', color: '#1f3a5f' },
+                },
+                elements: [
+                  mediaEl(
+                    1,
+                    'image',
+                    0.15,
+                    { url: `${API}/media/media/bike.svg`, radius: 0.03 },
+                    { label: 'A red bicycle' },
+                  ),
+                  mediaEl(
+                    2,
+                    'image',
+                    0.4,
+                    { url: `${API}/media/media/pattern.svg`, opacity: 0.6 },
+                    { decorative: true },
+                  ),
+                  mediaEl(3, 'video', 0.65, { url: `${API}/media/media/runway.webm` }, { label: 'Runway clip' }),
+                ],
+              },
+            },
+            textTale('m2', 'After the video', ['The next tale']),
+          ],
+        },
+      ],
+    });
+    const readMedia = (page) =>
+      page.evaluate(() => {
+        const dialog = document.querySelector('taleart-view').shadowRoot.querySelector('dialog');
+        const video = dialog.querySelector('.ta-canvas video');
+        return {
+          images: [...dialog.querySelectorAll('.ta-canvas img.ta-media')].map((img) => ({
+            alt: img.alt,
+            hidden: img.getAttribute('aria-hidden'),
+          })),
+          background: dialog.querySelector('.ta-bg')?.getAttribute('aria-hidden') ?? null,
+          video: video && {
+            muted: video.muted,
+            inline: video.playsInline,
+            label: video.getAttribute('aria-label'),
+            paused: video.paused,
+            time: video.currentTime,
+          },
+        };
+      });
+
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await openSample(context, { zone: z });
+    await view(page).locator('button.item').first().click();
+    await dialogOf(page).waitFor();
+    await page.waitForTimeout(400);
+    const shown = await readMedia(page);
+    check(
+      '1.1.1',
+      shown.images.length === 2 &&
+        shown.images[0].alt === 'A red bicycle' &&
+        shown.images[0].hidden === null &&
+        shown.images[1].alt === '' &&
+        shown.images[1].hidden === 'true' &&
+        shown.background === 'true',
+      'an image is read by its alt text; a decorative image and the background image are hidden',
+    );
+    check(
+      '2.2.2',
+      shown.video?.muted && shown.video.inline && shown.video.label === 'Runway clip' && !shown.video.paused,
+      'a video element plays muted and inline, named by its alt text',
+    );
+    await axe(page, 'viewer on a tale with images and a video');
+    await shot(page, 'media-tale');
+    // The 2 s video runs the tale: the next tale shows once it ends.
+    await page.waitForTimeout(1000);
+    const next = await viewerStatus(page, 'Media, tale 2 of 2');
+    check('R5', next === 'Media, tale 2 of 2', `the tale plays for its video's length, then moves on (${next})`);
+    check('4.1.2', page.errors.length === 0, 'no console errors on the media tale');
+    await context.close();
+
+    const reducedContext = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const reduced = await openSample(reducedContext, { zone: z });
+    await view(reduced).locator('button.item').first().click();
+    await dialogOf(reduced).waitFor();
+    await reduced.waitForTimeout(1500);
+    const still = await readMedia(reduced);
+    check(
+      '2.3.3',
+      still.video?.paused && still.video.time < 0.1,
+      'under reduced motion the video does not play by itself and stays on its first frame',
+    );
+    const play = dialogOf(reduced).locator('button.pause');
+    check('2.2.2', (await play.getAttribute('aria-label')) === 'Play', 'under reduced motion the Play button plays it');
+    await play.click();
+    await reduced.waitForTimeout(500);
+    check('2.2.2', !(await readMedia(reduced)).video?.paused, 'Play plays the video');
+    await reducedContext.close();
+  }
 } finally {
   await browser.close();
   server.kill();

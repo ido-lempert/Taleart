@@ -6,6 +6,7 @@ import {
   InvalidScheduleError,
   InvalidStatusTransitionError,
   isMediaKeyInUse,
+  withMediaKeyDeletionGuard,
   findPublishedMedia,
   listDeliveryTaleGroups,
   getTaleGroup,
@@ -650,8 +651,9 @@ describe('delivery', () => {
             // The delivered document (AD-15); a tale without one shows its media only.
             document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] },
             fonts: [],
+            mediaKeys: new Set(),
           },
-          { id: t2, title: 'Two', media: null, document: null, fonts: [] },
+          { id: t2, title: 'Two', media: null, document: null, fonts: [], mediaKeys: new Set() },
         ],
       },
       // B has no live tale, so it is left out.
@@ -829,12 +831,43 @@ describe('copy to zone', () => {
     expect(statements()).not.toContain('COMMIT');
   });
 
-  it('tells whether any tale still references a media key', async () => {
+  it('tells whether any tale, cover, document or upload still references a media key', async () => {
     const used = fakeDb([{ rows: [{}] }]);
     expect(await isMediaKeyInUse(used.db, 'tales/a.png')).toBe(true);
     expect(used.query.mock.calls[0][1]).toEqual(['tales/a.png']);
+    expect(used.query.mock.calls[0][0]).toMatch(
+      /FROM tale_media WHERE storage_key = \$1[\s\S]*FROM project_media WHERE storage_key = \$1/,
+    );
     const unused = fakeDb([{ rows: [] }]);
     expect(await isMediaKeyInUse(unused.db, 'tales/a.png')).toBe(false);
+  });
+
+  it('decides and deletes under the key lock, in one transaction on one connection', async () => {
+    const { db, statements, query } = fakeDb([{ rows: [] }, { rows: [] }]);
+    const order: string[] = [];
+    const decided = await withMediaKeyDeletionGuard(db, 'tales/a.png', async (inUse) => {
+      order.push(`decide ${inUse}`, ...statements());
+      return 'deleted';
+    });
+    expect(decided).toBe('deleted');
+    // The lock is taken first, the read follows on the same connection, and the decision runs before COMMIT.
+    expect(order).toEqual([
+      'decide false',
+      'BEGIN',
+      expect.stringMatching(/^SELECT pg_advisory_xact_lock\(hashtextextended\('media:' \|\| \$1, 0\)\)/),
+      expect.stringMatching(/FROM tales WHERE media_key = \$1/),
+    ]);
+    expect(statements().at(-1)).toBe('COMMIT');
+    expect(query.mock.calls[1][1]).toEqual(['tales/a.png']);
+    expect((db.connect as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(1);
+    const used = fakeDb([{ rows: [] }, { rows: [{}] }]);
+    expect(await withMediaKeyDeletionGuard(used.db, 'tales/a.png', async (inUse) => inUse)).toBe(true);
+    // A failed delete rolls back, which lets the lock go.
+    const failed = fakeDb([]);
+    await expect(
+      withMediaKeyDeletionGuard(failed.db, 'tales/a.png', async () => Promise.reject(new Error('disk'))),
+    ).rejects.toThrow('disk');
+    expect(failed.statements()).toContain('ROLLBACK');
   });
 });
 
@@ -930,6 +963,7 @@ describe('status', () => {
     for (const from of ['draft', 'paused']) {
       const first = fakeDb([
         { rows: [{ status: from, draft, unpublished: true }] },
+        { rows: [] },
         { rows: [] },
         { rows: [] },
         { rows: [row] },
