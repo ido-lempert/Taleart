@@ -72,8 +72,15 @@ import { Icon } from '../icon';
                     <span class="muted">{{ zoneCountLabel(project.id) }}</span>
                   </span>
                 </button>
-                @if (auth.isAdmin()) {
-                  <span class="project-card__actions">
+                <span class="project-card__actions">
+                  <a
+                    class="btn btn--secondary btn--sm"
+                    [routerLink]="['/projects', project.id, 'theme']"
+                    [attr.aria-label]="'Theme of ' + project.name"
+                  >
+                    Theme
+                  </a>
+                  @if (auth.isAdmin()) {
                     <button
                       type="button"
                       class="btn btn--secondary btn--sm"
@@ -89,8 +96,8 @@ import { Icon } from '../icon';
                     >
                       Import from Storyly
                     </a>
-                  </span>
-                }
+                  }
+                </span>
               </li>
             }
           </ul>

@@ -4,6 +4,7 @@ import {
   FrameNotFoundError,
   InvalidFrameSettingsError,
   InvalidStageError,
+  InvalidThemeError,
   ProjectNotFoundError,
   StageFrameNotFoundError,
   StageKeyTakenError,
@@ -92,6 +93,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof ProjectNotFoundError ||
     err instanceof UnknownFrameTypeError ||
     err instanceof InvalidFrameSettingsError ||
+    err instanceof InvalidThemeError ||
     err instanceof InvalidStageError ||
     err instanceof StageFrameNotFoundError ||
     err instanceof InvalidTagNameError ||
