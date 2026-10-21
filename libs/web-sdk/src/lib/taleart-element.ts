@@ -1,4 +1,4 @@
-import type { DeliveryFrame, DeliveryZone, Theme } from '@taleart/contract';
+import type { DeliveryFrame, DeliveryZone } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
@@ -12,6 +12,7 @@ import {
 } from './bar';
 import { fetchZone } from './delivery-client';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
+import type { Theme } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';

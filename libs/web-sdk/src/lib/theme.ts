@@ -1,7 +1,7 @@
-// Types only: the SDK keeps its own copy of the theme rules, so nothing from
-// the contract ends up in the bundle (AD-3); a test keeps the copy in step
-// with the contract's `DEFAULT_THEME` and `themeSettingsError`.
-import type { Theme } from '@taleart/contract';
+// The SDK keeps its own copy of the theme rules, so nothing from the contract
+// ends up in the bundle (AD-3); a test keeps the copy in step with the
+// contract's `DEFAULT_THEME` and `themeSettingsError`.
+import type { Theme } from './public-types';
 
 /**
  * TaleArt's default theme, as the contract's `DEFAULT_THEME` (R9): the look

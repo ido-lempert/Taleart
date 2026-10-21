@@ -31,6 +31,16 @@
       "options": {
         "command": "node libs/web-sdk/scripts/check-size.mjs dist/libs/web-sdk/index.js"
       }
+    },
+    "types-check": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node libs/web-sdk/scripts/check-types.mjs dist/libs/web-sdk"
+      }
     }
   }
 }
