@@ -2,8 +2,10 @@ import {
   canSetStatus,
   ErrorCodes,
   isMediaContentType,
+  isValidWindow,
   MAX_TALES_PER_GROUP,
   mediaKind,
+  readContentStatus,
   readTaleStatus,
   taleMediaUrl,
   type ContentStatus,
@@ -19,7 +21,9 @@ import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const GROUP_COLUMNS = 'tale_groups.id, tale_groups.project_id AS "projectId", tale_groups.name, tale_groups.status';
+const GROUP_COLUMNS =
+  'tale_groups.id, tale_groups.project_id AS "projectId", tale_groups.name, tale_groups.status AS "storedStatus", ' +
+  'tale_groups.starts_at AS "startsAt", tale_groups.ends_at AS "endsAt"';
 // A group as a zone lists it: the group's columns and its placement's position.
 const ZONE_GROUP_COLUMNS = `${GROUP_COLUMNS}, zone_tale_groups.position`;
 // Qualified, so the media update can join the tale's old row without ambiguity.
@@ -27,7 +31,17 @@ const ZONE_GROUP_COLUMNS = `${GROUP_COLUMNS}, zone_tale_groups.position`;
 const TALE_COLUMNS =
   'tales.id, tales.tale_group_id AS "taleGroupId", tales.project_id AS "projectId", tales.title, tales.position, ' +
   'tales.media_content_type AS "mediaContentType", tales.status AS "storedStatus", ' +
+  'tales.starts_at AS "startsAt", tales.ends_at AS "endsAt", ' +
   '(SELECT owner.status FROM tale_groups owner WHERE owner.id = tales.tale_group_id) AS "groupStatus"';
+
+// Live content inside its window at $n (AD-6), for the table or alias `t`:
+// at or after its start and before its end; a missing bound is open.
+function liveNow(t: string, param: string): string {
+  return (
+    `${t}.status = 'live' AND (${t}.starts_at IS NULL OR ${t}.starts_at <= ${param}) ` +
+    `AND (${t}.ends_at IS NULL OR ${t}.ends_at > ${param})`
+  );
+}
 
 /**
  * A tale group as this module stores it: everything but its tags, which the
@@ -38,12 +52,38 @@ export type StoredTaleGroup = Omit<TaleGroup, 'tags'>;
 /** A tale group as a zone lists it, with its position in that zone; tags are composed in by the API. */
 export type StoredZoneTaleGroup = Omit<ZoneTaleGroup, 'tags'>;
 
+/** A start and end time to store: ISO 8601 date-times, or null for an open bound. */
+export interface StoredWindow {
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
+// The window columns as pg returns them.
+interface WindowRow {
+  startsAt: Date | null;
+  endsAt: Date | null;
+}
+
 // A tale_groups row as GROUP_COLUMNS reads it, with the placement's position when read through a zone.
-type GroupRow = Omit<StoredTaleGroup, 'tales' | 'zoneIds'>;
+type GroupRow = Omit<StoredTaleGroup, 'tales' | 'zoneIds' | 'status' | 'startsAt' | 'endsAt'> & WindowRow;
 type ZoneGroupRow = GroupRow & { position: number };
 
+// The group's fields as the API returns them: the window in ISO 8601 UTC and the status as read (AD-6).
+type GroupFields = Omit<StoredTaleGroup, 'tales' | 'zoneIds'>;
+
 // A tales row as TALE_COLUMNS reads it. The storage key stays inside the module.
-type TaleRow = Omit<Tale, 'media' | 'status'> & { mediaContentType: string | null; groupStatus: ContentStatus };
+type TaleRow = Omit<Tale, 'media' | 'status' | 'startsAt' | 'endsAt'> &
+  WindowRow & { mediaContentType: string | null; groupStatus: ContentStatus };
+
+function iso(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
+// Computes the status as read from the stored key and the window, now (AD-6).
+function toGroup<T extends GroupRow>(row: T): Omit<T, keyof WindowRow> & GroupFields {
+  const status = readContentStatus(row.storedStatus, row);
+  return { ...row, status, startsAt: iso(row.startsAt), endsAt: iso(row.endsAt) };
+}
 
 // The API derives the media URL from the tale id; the row holds only the key (AD-11).
 function toTale({ mediaContentType, groupStatus, ...tale }: TaleRow): Tale {
@@ -51,7 +91,13 @@ function toTale({ mediaContentType, groupStatus, ...tale }: TaleRow): Tale {
     mediaContentType !== null && isMediaContentType(mediaContentType)
       ? { kind: mediaKind(mediaContentType), contentType: mediaContentType, url: taleMediaUrl(tale.id) }
       : null;
-  return { ...tale, status: readTaleStatus(tale.storedStatus, groupStatus), media };
+  return {
+    ...tale,
+    status: readTaleStatus(tale.storedStatus, groupStatus, tale),
+    startsAt: iso(tale.startsAt),
+    endsAt: iso(tale.endsAt),
+    media,
+  };
 }
 
 /** A tale's stored media: its storage key and content type. */
@@ -255,8 +301,11 @@ async function zoneIdsOf(db: Db, taleGroupIds: string[]): Promise<Map<string, st
   return byGroup;
 }
 
-// Adds each group's tales, by position, and the zones it is placed in.
-async function withTales<T extends GroupRow>(db: Db, groups: T[]): Promise<(T & Omit<StoredTaleGroup, keyof GroupRow>)[]> {
+// Adds each group's tales, by position, and the zones it is placed in; computes its status as read.
+async function withTales<T extends GroupRow>(
+  db: Db,
+  groups: T[],
+): Promise<(Omit<T, keyof GroupRow> & StoredTaleGroup)[]> {
   if (groups.length === 0) return [];
   const ids = groups.map((g) => g.id);
   const tales = await db.query<TaleRow>(
@@ -265,10 +314,10 @@ async function withTales<T extends GroupRow>(db: Db, groups: T[]): Promise<(T & 
   );
   const zoneIds = await zoneIdsOf(db, ids);
   return groups.map((group) => ({
-    ...group,
+    ...toGroup(group),
     zoneIds: zoneIds.get(group.id) ?? [],
     tales: tales.rows.filter((tale) => tale.taleGroupId === group.id).map(toTale),
-  }));
+  })) as (Omit<T, keyof GroupRow> & StoredTaleGroup)[];
 }
 
 /**
@@ -277,7 +326,7 @@ async function withTales<T extends GroupRow>(db: Db, groups: T[]): Promise<(T & 
  */
 export async function listProjectTaleGroups(db: Db, projectId: string): Promise<ProjectTaleGroup[]> {
   if (!UUID.test(projectId)) return [];
-  const { rows } = await db.query<Omit<ProjectTaleGroup, 'zoneIds'>>(
+  const { rows } = await db.query<GroupRow & { taleCount: number }>(
     `SELECT ${GROUP_COLUMNS},
        (SELECT count(*) FROM tales WHERE tales.tale_group_id = tale_groups.id)::int AS "taleCount"
      FROM tale_groups WHERE project_id = $1
@@ -285,7 +334,7 @@ export async function listProjectTaleGroups(db: Db, projectId: string): Promise<
     [projectId],
   );
   const zoneIds = await zoneIdsOf(db, rows.map((g) => g.id));
-  return rows.map((group) => ({ ...group, zoneIds: zoneIds.get(group.id) ?? [] }));
+  return rows.map((group) => ({ ...toGroup(group), zoneIds: zoneIds.get(group.id) ?? [] }));
 }
 
 /**
@@ -318,7 +367,7 @@ export async function createTaleGroup(
       [input.zoneId, group.id, projectId],
     );
     if (withGroup) await withGroup(tx, { taleGroupId: group.id, projectId });
-    return { ...group, position: placed.rows[0].position, zoneIds: [input.zoneId], tales: [] };
+    return { ...toGroup(group), position: placed.rows[0].position, zoneIds: [input.zoneId], tales: [] };
   });
 }
 
@@ -378,13 +427,15 @@ export async function copyTaleGroup(
   return inTransaction(db, async (tx) => {
     await lockZone(tx, zoneId);
     // Shares the source group's row lock, so no tale is added to it mid-copy.
-    const source = await tx.query<{ name: string }>('SELECT name FROM tale_groups WHERE id = $1 FOR SHARE', [
-      taleGroupId,
-    ]);
+    const source = await tx.query<{ name: string } & WindowRow>(
+      'SELECT name, starts_at AS "startsAt", ends_at AS "endsAt" FROM tale_groups WHERE id = $1 FOR SHARE',
+      [taleGroupId],
+    );
     if (source.rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+    // The copy keeps the source's start and end time (AD-6).
     const { rows } = await tx.query<GroupRow>(
-      `INSERT INTO tale_groups (project_id, name) VALUES ($1, $2) RETURNING ${GROUP_COLUMNS}`,
-      [projectId, source.rows[0].name],
+      `INSERT INTO tale_groups (project_id, name, starts_at, ends_at) VALUES ($1, $2, $3, $4) RETURNING ${GROUP_COLUMNS}`,
+      [projectId, source.rows[0].name, source.rows[0].startsAt, source.rows[0].endsAt],
     );
     const group = rows[0];
     // Locking the source tales means a media replace on one of them waits for
@@ -392,8 +443,8 @@ export async function copyTaleGroup(
     // tales and never deletes a file the copy now uses (AD-11).
     await tx.query('SELECT 1 FROM tales WHERE tale_group_id = $1 FOR SHARE', [taleGroupId]);
     await tx.query(
-      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status)
-       SELECT $2, $3, title, position, media_key, media_content_type, status FROM tales
+      `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status, starts_at, ends_at)
+       SELECT $2, $3, title, position, media_key, media_content_type, status, starts_at, ends_at FROM tales
        WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId, group.id, projectId],
     );
@@ -560,6 +611,57 @@ export async function setTaleStatus(db: TransactionalDb, taleId: string, status:
   });
 }
 
+/**
+ * Thrown when a start and end time is not acceptable: the end is not later
+ * than the start (AD-6). The API answers 400 `validation_failed`.
+ */
+export class InvalidScheduleError extends Error {
+  readonly code = ErrorCodes.validationFailed;
+
+  constructor() {
+    super('endsAt must be later than startsAt');
+    this.name = 'InvalidScheduleError';
+  }
+}
+
+/**
+ * Sets or clears a tale group's start and end time (AD-6). Its status as
+ * read follows from the window when it is read; nothing stores `scheduled`
+ * or `expired`. Returns the group with its tales.
+ * Throws {@link TaleGroupNotFoundError} and {@link InvalidScheduleError}.
+ */
+export async function setTaleGroupSchedule(
+  db: Db,
+  taleGroupId: string,
+  window: StoredWindow,
+): Promise<StoredTaleGroup> {
+  if (!UUID.test(taleGroupId)) throw new TaleGroupNotFoundError(taleGroupId);
+  if (!isValidWindow(window)) throw new InvalidScheduleError();
+  const { rows } = await db.query<GroupRow>(
+    `UPDATE tale_groups SET starts_at = $2, ends_at = $3 WHERE id = $1 RETURNING ${GROUP_COLUMNS}`,
+    [taleGroupId, window.startsAt, window.endsAt],
+  );
+  if (rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+  const [group] = await withTales(db, rows);
+  return group;
+}
+
+/**
+ * Sets or clears a tale's start and end time (AD-6), as
+ * {@link setTaleGroupSchedule} does for a group. Returns the tale with its
+ * status as read. Throws {@link TaleNotFoundError} and {@link InvalidScheduleError}.
+ */
+export async function setTaleSchedule(db: Db, taleId: string, window: StoredWindow): Promise<Tale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  if (!isValidWindow(window)) throw new InvalidScheduleError();
+  const { rows } = await db.query<TaleRow>(
+    `UPDATE tales SET starts_at = $2, ends_at = $3 WHERE id = $1 RETURNING ${TALE_COLUMNS}`,
+    [taleId, window.startsAt, window.endsAt],
+  );
+  if (rows.length === 0) throw new TaleNotFoundError(taleId);
+  return toTale(rows[0]);
+}
+
 /** The project of a tale group, or null when it does not exist. Ids that are not UUIDs never match. */
 export async function taleGroupProjectId(db: Db, taleGroupId: string): Promise<string | null> {
   if (!UUID.test(taleGroupId)) return null;
@@ -684,18 +786,24 @@ export interface DeliveryStoredTaleGroup {
 /**
  * The published tale groups placed in the zone, in this zone's order (AD-2,
  * AD-14), each with its published tales by position, for the Delivery API.
- * Published means `live` (AD-6); a live group with no live tale is left out,
- * since it has nothing to play. Each tale carries its storage key, which the API turns into a public
- * URL (AD-11) and never returns on its own.
+ * Published means `live` and inside its start and end time at `now` (AD-6);
+ * a group's tales need their own window and the group's. A live group with no
+ * published tale is left out, since it has nothing to play. Each tale carries
+ * its storage key, which the API turns into a public URL (AD-11) and never
+ * returns on its own.
  */
-export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<DeliveryStoredTaleGroup[]> {
+export async function listDeliveryTaleGroups(
+  db: Db,
+  zoneId: string,
+  now: Date = new Date(),
+): Promise<DeliveryStoredTaleGroup[]> {
   if (!UUID.test(zoneId)) return [];
   const groups = await db.query<{ id: string; name: string }>(
     `SELECT tale_groups.id, tale_groups.name FROM zone_tale_groups
      JOIN tale_groups ON tale_groups.id = zone_tale_groups.tale_group_id
-     WHERE zone_tale_groups.zone_id = $1 AND tale_groups.status = 'live'
+     WHERE zone_tale_groups.zone_id = $1 AND ${liveNow('tale_groups', '$2')}
      ORDER BY zone_tale_groups.position, tale_groups.id`,
-    [zoneId],
+    [zoneId, now],
   );
   if (groups.rows.length === 0) return [];
   const tales = await db.query<{
@@ -706,8 +814,8 @@ export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<De
     contentType: string | null;
   }>(
     `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType"
-     FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND status = 'live' ORDER BY position, id`,
-    [groups.rows.map((g) => g.id)],
+     FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND ${liveNow('tales', '$2')} ORDER BY position, id`,
+    [groups.rows.map((g) => g.id), now],
   );
   // A live group with no live tale has nothing to play, so it is left out.
   return groups.rows
@@ -726,18 +834,23 @@ export async function listDeliveryTaleGroups(db: Db, zoneId: string): Promise<De
 }
 
 /**
- * The stored media a published tale (a `live` tale of a `live` group, AD-6)
- * currently references under `key`, or null when none does: an unknown key,
- * the key of replaced media, or media of draft, paused or archived content
- * (AD-11). A key copies share is public while any published tale references it (AD-14).
+ * The stored media a published tale (a `live` tale of a `live` group, each
+ * inside its start and end time at `now`, AD-6) currently references under
+ * `key`, or null when none does: an unknown key, the key of replaced media,
+ * or media of draft, paused, archived, scheduled or expired content (AD-11).
+ * A key copies share is public while any published tale references it (AD-14).
  */
-export async function findPublishedMedia(db: Db, key: string): Promise<StoredTaleMedia | null> {
+export async function findPublishedMedia(
+  db: Db,
+  key: string,
+  now: Date = new Date(),
+): Promise<StoredTaleMedia | null> {
   const { rows } = await db.query<{ contentType: string | null }>(
     `SELECT tales.media_content_type AS "contentType" FROM tales
      JOIN tale_groups ON tale_groups.id = tales.tale_group_id
-     WHERE tales.media_key = $1 AND tales.status = 'live' AND tale_groups.status = 'live'
+     WHERE tales.media_key = $1 AND ${liveNow('tales', '$2')} AND ${liveNow('tale_groups', '$2')}
      LIMIT 1`,
-    [key],
+    [key, now],
   );
   const contentType = rows[0]?.contentType;
   return isMediaContentType(contentType) ? { key, contentType } : null;

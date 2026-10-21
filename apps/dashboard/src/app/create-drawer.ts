@@ -1,4 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  input,
+  linkedSignal,
+  OnInit,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
@@ -6,10 +17,13 @@ import {
   MEDIA_CONTENT_TYPES,
   type Invitation,
   type IssuedZoneKey,
+  type SetScheduleRequest,
   type SettableStatus,
+  type Tale,
 } from '@taleart/contract';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
+import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { initialSettings, SettingsForm, type Settings } from './settings-form';
 import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 
@@ -149,6 +163,100 @@ export class CreateDrawer implements OnInit {
     return group ? this.store.tagsOf(group.projectId) : [];
   });
 
+  /** The tale group or tale a schedule drawer is for, with its name and current window. */
+  protected readonly scheduleItem = computed(() => {
+    const request = this.request();
+    if (request.kind !== 'schedule') return undefined;
+    if (request.target === 'tale') {
+      const tale = this.store.tale(request.id);
+      return tale && { name: tale.title, kind: 'tale', startsAt: tale.startsAt, endsAt: tale.endsAt };
+    }
+    const group = this.store.projectTaleGroup(request.id) ?? this.store.taleGroup(request.id);
+    return group && { name: group.name, kind: 'tale group', startsAt: group.startsAt, endsAt: group.endsAt };
+  });
+
+  /** The start and end a schedule drawer's fields hold, as `datetime-local` values in the browser's time zone. */
+  protected startText = '';
+  protected endText = '';
+  protected readonly timeZone = localTimeZone();
+  protected readonly describeWindow = describeWindow;
+
+  /**
+   * Turns the tale drawer into the tale's schedule drawer. The drawer stays
+   * open, so focus still returns to what opened the tale drawer.
+   */
+  protected openTaleSchedule(tale: Tale): void {
+    this.store.drawer.set({ kind: 'schedule', target: 'tale', id: tale.id });
+    this.error.set('');
+    // The request input updates only after this handler, so the fields are filled from the tale itself.
+    this.loadSchedule(tale);
+  }
+
+  // What each field showed when loaded, with the stored ISO time behind it. The field holds minutes only,
+  // so an untouched field sends its stored time unchanged, seconds included.
+  private loadedStart = { text: '', iso: null as string | null };
+  private loadedEnd = { text: '', iso: null as string | null };
+
+  private readonly startInput = viewChild<ElementRef<HTMLInputElement>>('scheduleStart');
+  private readonly endInput = viewChild<ElementRef<HTMLInputElement>>('scheduleEnd');
+
+  // Fills the schedule fields from a stored window, in the browser's time zone.
+  private loadSchedule(window: { startsAt: string | null; endsAt: string | null } | undefined): void {
+    const startsAt = window?.startsAt ?? null;
+    const endsAt = window?.endsAt ?? null;
+    this.loadedStart = { text: toLocalInput(startsAt), iso: startsAt };
+    this.loadedEnd = { text: toLocalInput(endsAt), iso: endsAt };
+    this.startText = this.loadedStart.text;
+    this.endText = this.loadedEnd.text;
+  }
+
+  /** Removes the item's start and end time at once: saves no window and closes the drawer. */
+  protected async removeSchedule(): Promise<void> {
+    const request = this.request();
+    if (request.kind !== 'schedule' || this.saving()) return;
+    this.saving.set(true);
+    this.error.set('');
+    const message = await this.store.setSchedule(request.target, request.id, { startsAt: null, endsAt: null });
+    this.saving.set(false);
+    this.error.set(message);
+    if (!message) this.close();
+  }
+
+  // One field's bound in UTC, or the message that refuses it.
+  private scheduleBound(
+    label: string,
+    text: string,
+    loaded: { text: string; iso: string | null },
+    input: ElementRef<HTMLInputElement> | undefined,
+  ): { iso: string | null } | { message: string } {
+    // A half-typed date-time field reports '' as its value; only its validity tells it apart from an empty one.
+    if (input?.nativeElement.validity?.badInput) {
+      return { message: 'Enter a complete date and time, or leave it empty.' };
+    }
+    if (text === loaded.text) return { iso: loaded.iso };
+    const result = parseLocalInput(text);
+    if ('iso' in result) return result;
+    return result.error === 'nonexistent'
+      ? {
+          message: `${label} ${text.replace('T', ' ')} does not exist in ${this.timeZone} because of a daylight-saving change. Pick another time.`,
+        }
+      : { message: 'Enter a complete date and time, or leave it empty.' };
+  }
+
+  // The window the schedule fields hold, in UTC, or the message that refuses it.
+  private scheduleInput(): { schedule: SetScheduleRequest } | { message: string } {
+    const start = this.scheduleBound('Start time', this.startText, this.loadedStart, this.startInput());
+    if ('message' in start) return start;
+    const end = this.scheduleBound('End time', this.endText, this.loadedEnd, this.endInput());
+    if ('message' in end) return end;
+    const startsAt = start.iso;
+    const endsAt = end.iso;
+    if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) {
+      return { message: 'The end time must be later than the start time.' };
+    }
+    return { schedule: { startsAt, endsAt } };
+  }
+
   /** The tale a media drawer is for. */
   protected readonly tale = computed(() => {
     const request = this.request();
@@ -171,6 +279,7 @@ export class CreateDrawer implements OnInit {
         return 'Create link';
       case 'tags':
       case 'renameTaleGroup':
+      case 'schedule':
       case 'frameSettings':
         return 'Save';
       case 'placeTaleGroup':
@@ -243,6 +352,8 @@ export class CreateDrawer implements OnInit {
         return 'Copy to zone';
       case 'removeTaleGroup':
         return 'Remove from this zone';
+      case 'schedule':
+        return 'Schedule';
       case 'zoneKey':
         if (this.issuedKey()) return 'Zone key';
         return this.zoneKeyRequest()?.action === 'rotate'
@@ -288,11 +399,16 @@ export class CreateDrawer implements OnInit {
       const group = tale && this.store.taleGroup(tale.taleGroupId);
       return group ? `In tale group ${group.name}` : '';
     }
+    if (request.kind === 'schedule') {
+      const item = this.scheduleItem();
+      return item ? `${item.kind === 'tale' ? 'Tale' : 'Tale group'} ${item.name}` : '';
+    }
     return '';
   });
 
   ngOnInit(): void {
     this.projectId = this.store.selectedProjectId();
+    if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
@@ -505,6 +621,12 @@ export class CreateDrawer implements OnInit {
           ? await this.store.uploadTaleMedia(request.taleId, this.file)
           : 'Choose an image or video to upload.';
         break;
+      case 'schedule': {
+        const input = this.scheduleInput();
+        message =
+          'message' in input ? input.message : await this.store.setSchedule(request.target, request.id, input.schedule);
+        break;
+      }
     }
     this.saving.set(false);
     this.error.set(message);

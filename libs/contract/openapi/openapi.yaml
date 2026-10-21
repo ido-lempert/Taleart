@@ -760,7 +760,9 @@ paths:
         `Authorization: Bearer <key>`, never a session. A missing, unknown or
         revoked key answers 401 `invalid_zone_key`. CORS is open to any origin,
         without credentials. Tale groups and their tales come in dashboard
-        order; each tale's media URL is absolute and public (AD-11).
+        order; only `live` groups and tales whose start and end times, and
+        their group's, contain the current time are listed (AD-6); each
+        tale's media URL is absolute and public (AD-11).
       security:
         - zoneKey: []
       responses:
@@ -793,8 +795,9 @@ paths:
       summary: Read a published tale's media file, with no credentials.
       description: >-
         Serves only keys that a published tale (a `live` tale of a `live`
-        group, AD-6) currently references; any other key, including the key
-        of replaced media or of draft, paused or archived content, answers
+        group, each inside its start and end time, AD-6) currently
+        references; any other key, including the key of replaced media or of
+        draft, paused, archived, scheduled or expired content, answers
         404 `media_not_found` (AD-11). The response carries the stored
         `Content-Type`, supports one byte range (206, or 416 when
         unsatisfiable) and is open to any origin. It is cached as `public,
@@ -1098,6 +1101,45 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tale-groups/{taleGroupId}/schedule:
+    parameters:
+      - name: taleGroupId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setTaleGroupSchedule
+      summary: Set the start and end time of a tale group.
+      description: >-
+        Sets or clears the start and end time (AD-6). Live content is
+        delivered only while the current time is at or after `startsAt` and
+        before `endsAt`; before it, it reads `scheduled`, after it `expired`;
+        nothing stores those keys. A bound that is not an ISO 8601 date-time
+        with a time zone, a missing field, or an `endsAt` not later than
+        `startsAt`: 400 `validation_failed`, nothing changes. Unknown
+        tale group: 404 `tale_group_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetScheduleRequest'
+      responses:
+        '200':
+          description: The tale group with its new window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tale-groups/{taleGroupId}/tales:
     parameters:
       - name: taleGroupId
@@ -1247,6 +1289,45 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tales/{taleId}/schedule:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setTaleSchedule
+      summary: Set the start and end time of a tale.
+      description: >-
+        Sets or clears the start and end time (AD-6). Live content is
+        delivered only while the current time is at or after `startsAt` and
+        before `endsAt`; before it, it reads `scheduled`, after it `expired`;
+        nothing stores those keys. A bound that is not an ISO 8601 date-time
+        with a time zone, a missing field, or an `endsAt` not later than
+        `startsAt`: 400 `validation_failed`, nothing changes. Unknown
+        tale: 404 `tale_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetScheduleRequest'
+      responses:
+        '200':
+          description: The tale with its new window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1465,7 +1546,7 @@ components:
       description: >-
         A tale group belongs to its project (AD-14). Zones place it, each in
         its own order; its tales, tags and media are the same in every zone.
-      required: [id, projectId, name, status, zoneIds, tales, tags]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, zoneIds, tales, tags]
       properties:
         id:
           type: string
@@ -1478,8 +1559,27 @@ components:
         status:
           $ref: '#/components/schemas/ContentStatus'
           description: >-
+            The group's status as read (AD-6): `scheduled` or `expired` when
+            `storedStatus` is `live` and the current time is before
+            `startsAt` or at or after `endsAt`, else `storedStatus`.
+        storedStatus:
+          $ref: '#/components/schemas/ContentStatus'
+          description: >-
             The status key a person set (AD-6): `draft` for a new group, then
             `live`, `paused` or `archived`.
+        startsAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            Start of the window, ISO 8601 UTC, or null for no start. Before it,
+            live content reads `scheduled` and is not delivered (AD-6).
+        endsAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            End of the window, ISO 8601 UTC, or null for no end; later than
+            `startsAt`. From it on, live content reads `expired` and is not
+            delivered (AD-6).
         zoneIds:
           type: array
           description: Every zone the group is placed in, in the order it was placed; empty when none.
@@ -1511,7 +1611,7 @@ components:
     ProjectTaleGroup:
       type: object
       description: A tale group as the project's list shows it.
-      required: [id, projectId, name, status, taleCount, zoneIds]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, taleCount, zoneIds]
       properties:
         id:
           type: string
@@ -1523,7 +1623,23 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/ContentStatus'
+          description: The group's status as read (AD-6), as on `TaleGroup`.
+        storedStatus:
+          $ref: '#/components/schemas/ContentStatus'
           description: The status key a person set (AD-6).
+        startsAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            Start of the window, ISO 8601 UTC, or null for no start. Before it,
+            live content reads `scheduled` and is not delivered (AD-6).
+        endsAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            End of the window, ISO 8601 UTC, or null for no end; later than
+            `startsAt`. From it on, live content reads `expired` and is not
+            delivered (AD-6).
         taleCount:
           type: integer
           minimum: 0
@@ -1600,7 +1716,7 @@ components:
           description: The zone to place the copy in; its project may differ from the source's.
     Tale:
       type: object
-      required: [id, taleGroupId, projectId, title, position, status, storedStatus, media]
+      required: [id, taleGroupId, projectId, title, position, status, storedStatus, startsAt, endsAt, media]
       properties:
         id:
           type: string
@@ -1620,13 +1736,29 @@ components:
         status:
           $ref: '#/components/schemas/ContentStatus'
           description: >-
-            The tale's status as read (AD-6): `blocked-by-group` when the tale
-            is `live` and its group is `paused`, else `storedStatus`.
+            The tale's status as read (AD-6): `storedStatus` unless it is
+            `live`; then `blocked-by-group` when its group is `paused`, else
+            `scheduled` before `startsAt`, `expired` at or after `endsAt`, else
+            `live`. The group's window does not change the tale's status, but
+            the Delivery API needs both windows to contain the current time.
         storedStatus:
           $ref: '#/components/schemas/ContentStatus'
           description: >-
             The status key a person set: `draft` for a new tale, then `live`,
             `paused` or `archived`.
+        startsAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            Start of the window, ISO 8601 UTC, or null for no start. Before it,
+            live content reads `scheduled` and is not delivered (AD-6).
+        endsAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            End of the window, ISO 8601 UTC, or null for no end; later than
+            `startsAt`. From it on, live content reads `expired` and is not
+            delivered (AD-6).
         media:
           description: The tale's image, GIF or video, or null when it has none.
           oneOf:
@@ -1673,6 +1805,21 @@ components:
           description: >-
             `live` publishes, `paused` pauses (or restores an archived item),
             `archived` archives.
+    SetScheduleRequest:
+      type: object
+      required: [startsAt, endsAt]
+      description: >-
+        The window in which live content is delivered (AD-6). Each bound is an
+        ISO 8601 date-time with `Z` or an offset, stored and returned in UTC,
+        or null for an open bound. `endsAt` must be later than `startsAt`
+        when both are set.
+      properties:
+        startsAt:
+          type: [string, 'null']
+          format: date-time
+        endsAt:
+          type: [string, 'null']
+          format: date-time
     MediaKind:
       type: string
       enum: [image, video]

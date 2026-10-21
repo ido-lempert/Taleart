@@ -16,6 +16,7 @@ import { MAX_TALES_PER_GROUP, type SettableStatus, type TaleGroup, type TaleGrou
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
+import { describeWindow } from '../schedule';
 import { STATUS_LABELS, StatusBadge, statusActions } from '../status';
 
 const TONES = 6;
@@ -188,6 +189,7 @@ export class ZoneDetailPage {
   /** The ids of the groups whose status change is being saved, so their buttons wait for it. */
   protected readonly statusSaving = signal<ReadonlySet<string>>(new Set());
   protected readonly statusActions = statusActions;
+  protected readonly describeWindow = describeWindow;
 
   /** Publishes, pauses, archives or restores a group, then announces its new status. */
   protected async changeStatus(group: TaleGroup, status: SettableStatus): Promise<void> {
@@ -208,7 +210,9 @@ export class ZoneDetailPage {
       this.statusErrors.update((errors) => ({ ...errors, [id]: message }));
       return;
     }
-    this.announce(`${group.name} is now ${STATUS_LABELS[status].toLowerCase()}`);
+    // The status as read after the refresh: publishing a group whose start is ahead makes it scheduled (AD-6).
+    const read = this.store.taleGroup(id)?.status ?? status;
+    this.announce(`${group.name} is now ${STATUS_LABELS[read].toLowerCase()}`);
   }
 
   /** Shows only the groups carrying `tagId`, or every group for ''. */
