@@ -161,6 +161,8 @@ export function importDifferenceText(difference: ImportDifference): string {
       return difference.entity === 'tag'
         ? `${field}: label no longer at the source; the tag stays`
         : 'no longer at the source; kept in TaleArt';
+    case 'movedAtSource':
+      return `${field}: moved to "${difference.record.within ?? ''}" at the source; it stays where it is in TaleArt`;
   }
 }
 

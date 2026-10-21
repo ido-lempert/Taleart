@@ -321,6 +321,10 @@ function contentDb() {
       records.set(key, { ...(records.get(key) ?? {}), ...JSON.parse(p[3]) });
       return { rows: [], rowCount: 1 };
     }
+    if (/DELETE FROM import_records/.test(sql)) {
+      records.delete(`${p[0]}:${p[1]}`);
+      return { rows: [], rowCount: 1 };
+    }
     if (/FROM import_records/.test(sql)) {
       const ids = params[1] as string[];
       return {
@@ -330,14 +334,14 @@ function contentDb() {
         }),
       };
     }
-    if (/SELECT name FROM zones WHERE id = \$1 FOR UPDATE/.test(sql)) {
+    if (/SELECT name FROM zones WHERE id = \$1 FOR NO KEY UPDATE/.test(sql)) {
       return { rows: zones.has(p[0]) ? [{ name: zones.get(p[0]) }] : [] };
     }
     if (/UPDATE zones SET name/.test(sql)) {
       zones.set(p[0], p[1]);
       return { rows: [], rowCount: 1 };
     }
-    if (/SELECT name FROM tale_groups WHERE id = \$1 FOR UPDATE/.test(sql)) {
+    if (/SELECT name FROM tale_groups WHERE id = \$1 FOR NO KEY UPDATE/.test(sql)) {
       const group = groups.get(p[0]);
       return { rows: group ? [{ name: group.name }] : [] };
     }
@@ -1512,6 +1516,11 @@ describe('importContent: label limits and errors (review fixes)', () => {
       'Tags: 100 label(s) with 100 more name(s) were not imported, ' +
         `since one import makes at most ${MAX_IMPORT_TAGS} tags`,
     );
+    // The refused names are not remembered as given, so a later run can still add them.
+    const last = [...fake.groups].find(([, g]) => g.name === 'G10')?.[0] as string;
+    expect(fake.records.get(`taleGroup:${last}`)?.['tags']).toEqual([]);
+    const ninth = [...fake.groups].find(([, g]) => g.name === 'G9')?.[0] as string;
+    expect(fake.records.get(`taleGroup:${ninth}`)?.['tags']).toEqual(names('g8-', 100));
   });
 
   it(`writes at most ${MAX_MERGE_NOTES} merge notes and counts the rest in one`, async () => {
@@ -1569,7 +1578,7 @@ describe('importContent: re-import updates (AD-7)', () => {
       taleGroups: { created: 2, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
       tales: { created: 4, updated: 0, unchanged: 0, keptLocalEdit: 0, removedAtSource: 0 },
     });
-    expect(fake.records.get(`tale:${taleIdOf(fake, 'A')}`)).toEqual({ name: 'A' });
+    expect(fake.records.get(`tale:${taleIdOf(fake, 'A')}`)).toEqual({ name: 'A', group: groupIdOf(fake, 'Summer') });
     // Baselines hold TaleArt values only: names and TaleArt ids, never a source id (AD-7).
     expect(JSON.stringify([...fake.records.values()])).not.toMatch(/"(g1|g2|s1|s2|s3|s4|2001)"/);
     const second = await run(fake);
@@ -1672,7 +1681,7 @@ describe('importContent: re-import updates (AD-7)', () => {
     const report = await run(fake, groups, retitled);
     expect(taleIdOf(fake, 'D')).toBeDefined();
     expect(kept(report)).toEqual([['tale', 's4', 'title']]);
-    expect(fake.records.get(`tale:${taleIdOf(fake, 'D')}`)).toEqual({ name: 'D2' });
+    expect(fake.records.get(`tale:${taleIdOf(fake, 'D')}`)).toEqual({ name: 'D2', group: groupIdOf(fake, 'New') });
   });
 
   it('leaves a record deleted before its update uncounted as changed, without failing', async () => {
@@ -1683,6 +1692,60 @@ describe('importContent: re-import updates (AD-7)', () => {
     const report = await run(fake, groups, retitled);
     expect(report.changes?.tales).toMatchObject({ updated: 0, unchanged: 4 });
     expect(taleIdOf(fake, 'D')).toBeDefined();
-    expect(fake.records.get(`tale:${taleIdOf(fake, 'D')}`)).toEqual({ name: 'D' });
+    // The tale was gone when its update read it: what the import recorded about it is gone too, no empty row stays.
+    expect(fake.records.has(`tale:${taleIdOf(fake, 'D')}`)).toBe(false);
+  });
+
+  it('names a zone without a title "Untitled zone" with a note, never after its source id (AD-7)', async () => {
+    const fake = contentDb();
+    const report = await importContent(fake.db, projectId, [{ id: '2001', name: '  ' }], content([], {}));
+    expect([...fake.zones.values()]).toEqual(['Untitled zone']);
+    expect(report.notes).toContain('Zone 1 of the source has no title, so it is named "Untitled zone"');
+    expect(JSON.stringify([...fake.records.values()])).not.toContain('2001');
+  });
+
+  it('lists a story the source moved to another group, and keeps the tale where it is', async () => {
+    const fake = contentDb();
+    await run(fake);
+    // The source moves C (s3) from Summer (g1) to New (g2).
+    const moved = { g1: stories['g1'].filter((s) => s.id !== 's3'), g2: [...stories['g2'], stories['g1'][2]] };
+    const report = await run(fake, groups, moved);
+    expect(fake.zoneContent('Home page')[0].tales).toEqual(['A', 'B', 'C']);
+    expect(fake.tales.size).toBe(4);
+    expect((report.differences ?? []).filter((d) => d.kind !== 'notHeld')).toEqual([
+      {
+        entity: 'tale',
+        record: { sourceId: 's3', name: 'C', within: 'New', withinSourceId: 'g2', position: 2 },
+        kind: 'movedAtSource',
+        field: 'story_group_id',
+        sourceField: null,
+      },
+    ]);
+  });
+
+  it("tells a person's move from the source's: a note, and a kept local edit only when the source moved it too", async () => {
+    const fake = contentDb();
+    await run(fake);
+    // A person moves C (s3) into New (g2).
+    (fake.tales.get(taleIdOf(fake, 'C')) as Tale).groupId = groupIdOf(fake, 'New');
+    const quiet = await run(fake);
+    expect(quiet.notes).toContain(
+      'Tale "C" in "Summer": a person moved it to another tale group in TaleArt, so it stays there',
+    );
+    expect(quiet.differences ?? []).toEqual([]);
+    // The source then moves it to New too: nothing is left to report.
+    const moved = { g1: stories['g1'].filter((s) => s.id !== 's3'), g2: [...stories['g2'], stories['g1'][2]] };
+    const report = await run(fake, groups, moved);
+    expect(kept(report)).toEqual([]);
+    expect((report.differences ?? []).filter((d) => d.kind === 'movedAtSource')).toEqual([]);
+
+    // Elsewhere: a person moves C into a group of their own, and the source moves it to New.
+    const other = contentDb();
+    await run(other);
+    other.groups.set('00000000-0000-4000-8000-0000000000f9', { name: 'Mine', zoneId: '', position: 9 });
+    (other.tales.get(taleIdOf(other, 'C')) as Tale).groupId = '00000000-0000-4000-8000-0000000000f9';
+    const again = await run(other, groups, moved);
+    expect(kept(again)).toEqual([['tale', 's3', 'story_group_id']]);
+    expect((again.differences ?? []).filter((d) => d.kind === 'movedAtSource')).toEqual([]);
   });
 });

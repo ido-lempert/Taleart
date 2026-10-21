@@ -21,6 +21,8 @@ export {
   createTale,
   taleGroupExists,
   taleExists,
+  taleGroupName,
+  taleTitle,
   taleGroupProjectId,
   taleProjectId,
   getTaleMedia,

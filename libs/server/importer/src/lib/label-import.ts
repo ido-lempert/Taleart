@@ -96,10 +96,21 @@ export class LabelImport {
   }
 
   /** {@link addToGroup} on the caller's transaction, where a re-import records the tags it gave the group. */
-  async addToGroupIn(tx: Db, taleGroupId: string, names: readonly string[]): Promise<void> {
-    const allowed = this.allowed(names);
-    if (allowed.length === 0) return;
-    this.carried(allowed, await addTaleGroupTagsByNameIn(tx, taleGroupId, allowed));
+  async addToGroupIn(
+    tx: Db,
+    taleGroupId: string,
+    decide: (current: readonly string[]) => readonly string[],
+  ): Promise<{ current: string[]; carried: string[] }> {
+    // `decide` sees the group's tags read under its tag lock (compare and set); names past the import's tag
+    // limit are not added, and are not reported as carried.
+    let asked: string[] = [];
+    const { current, added } = await addTaleGroupTagsByNameIn(tx, taleGroupId, (tags) => {
+      asked = this.allowed(decide(tags.map((tag) => tag.name)));
+      return asked;
+    });
+    if (asked.length > 0) this.carried(asked, added);
+    const currentNames = current.map((tag) => tag.name);
+    return { current: currentNames, carried: [...currentNames, ...added.keys()] };
   }
 
   // Records which tag carries each name, in the order the names were read.

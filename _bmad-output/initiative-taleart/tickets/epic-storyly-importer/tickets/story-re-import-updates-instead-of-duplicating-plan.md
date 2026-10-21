@@ -3,14 +3,14 @@ title: 'Re-import updates instead of duplicating'
 type: 'feature'
 ticket: '7'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '596ffbcfb580cabd5169840e1e8300b74099665d'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: 'none'
+review: 'quick'
 review_source: 'pinned'
-lenses_ran: []
+lenses_ran: ['coordinator']
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -123,6 +123,31 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Coordinator review
+- verdicts: 10 findings, all patched
+- findings:
+  - `[patch]` A zone update could deadlock with placement writes. It took the zone row `FOR UPDATE`, then the zone lock, while a create, place or copy into the zone takes the zone lock, then the row's key-share lock through the foreign key. A tag set on a group had the same problem. Fixed:
+    - The new row locks (`renameZoneWhen`, `renameTaleGroupWhen`, `renameTaleWhen`, `orderTalesWhen`) are `FOR NO KEY UPDATE`.
+    - The zone update takes the zone lock (through the order merge) before the row, the same order as the tales module's routes.
+    - Creation (`importZone` and `importLinked`'s create call) retries a `40P01` once.
+    - Integration test: three re-imports, each changing every name, order and label, run while people create, copy, place and re-tag in the same zones. No job fails and no request answers 500.
+  - `[patch]` `addTaleGroupTagsByNameIn` decided which tags to add from tags read outside its lock. Fixed: it takes a `decide` callback, reads the current tags under the `tale_group_tags:` lock in the caller's transaction, and adds what `decide` answers (compare and set). Unit test checks that the lock comes before the read.
+  - `[patch]` The tag baseline recorded names refused by the import's tag limit, so they could never be added later. Fixed: `givenTags` keeps only names the group carries now or was given before. Unit test (`givenTags`) and a worker test at the 1,000-tag limit.
+  - `[patch]` A list holding unreadable records (no usable id) could make linked records look removed. Fixed: a type is not checked for removals when a list it depends on (instances → groups → stories) held unreadable entries, and a note says so. API test covers an unreadable story and an unreadable instance.
+  - `[patch]` `removedAtSource` named records by their baseline name. Fixed: the current TaleArt name is read through the owning module (`findZone`, new `taleGroupName` and `taleTitle`), with the baseline name only as a fallback for a blank one. API test with a group renamed in TaleArt and a group without a baseline.
+  - `[patch]` The zone fallback name `Instance <id>` put a source id into a zone name and its baseline (AD-7). Fixed: `Untitled zone`, with a note. Unit test.
+  - `[patch]` The media same-bytes branch reported `unchanged` even when a person had set media while the download ran. Fixed: under the lock it checks that the tale still holds the import's copy; otherwise it falls through to `keptOwn`. Unit test.
+  - `[patch]` A story moved to another group at the source was reported as if a person had moved it. Fixed: the tale baseline records its group.
+    - A tale still in the group the import put it in, now listed under another group, is a source move: new difference kind `movedAtSource`, and the tale stays where it is.
+    - A tale whose group differs from its recorded one was moved by a person: a note, plus `keptLocalEdit story_group_id` when the source moved it too.
+    - Unit tests cover both cases.
+  - `[patch]` Labels removed at the source were reported only on the first run after they went. Fixed: the baseline keeps `removedTags`, and they are reported on every run while the group carries them, as other records are. The contract text says so. Unit test and API test.
+  - `[patch]` `lockRecord` inserted an empty baseline row and left it when the record was gone. Fixed:
+    - `lockRecord` takes an advisory lock keyed by the record and writes no row.
+    - An update that finds its record gone deletes the record's baseline in the same transaction.
+    - `sweepImportRecords` runs when the worker starts. It removes baselines of records that no longer exist, checked through each record's module (there is no foreign key).
+    - Unit tests and an API test.
+
 ## Verification
 
 **Commands:**
@@ -142,11 +167,13 @@ deferred: []
 - `apps/api/src/app.spec.ts`: 10 integration tests (matrix rows, selection), updated expectations.
 - `apps/dashboard/src/app/pages/`: change text and difference lines; component test.
 
-**Review:** not run (unreviewed build).
+**Review:** coordinator review, 10 findings, all patched (see Review Triage Log).
 
 **Follow-up review recommended:** true. The locking between update and creation paths, the conservative "no baseline" rule and the removal scoping under a partial selection deserve a second look.
 
-**Verification:** after merging `autopilot/foundation` 0f3401f, `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly --skip-nx-cache` passed for all 12 projects against `taleart_w1_test`: api 351, server-importer 223, dashboard 209, server-tales 71, server-targeting 24, contract 95, fake-storyly 14 tests. There were no lint warnings; the only warning is the dashboard bundle budget warning, which was already there.
+**Verification (review fixes):** after merging `autopilot/foundation` fd7b9b8 (web zones story 11), `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly --skip-nx-cache` passed for all 12 projects against `taleart_w1_test`: api 356, server-importer 229, web-sdk 246, dashboard 209, server-tales 72, server-zones 67, server-targeting 24, contract 95, fake-storyly 14 tests. There were no lint warnings; the only warning is the dashboard bundle budget warning, which was already there.
+
+**Verification (build):** after merging `autopilot/foundation` 0f3401f, the same command passed: api 351, server-importer 223, dashboard 209 tests.
 
 **Residual risks:**
 - Records imported before this story have no baseline, so their first re-import keeps every differing value as a local edit (conservative; development data only).

@@ -32,7 +32,7 @@ describe('renameZoneWhen', () => {
       before: 'Home',
       after: 'Home page',
     });
-    expect(query.mock.calls[0][0]).toMatch(/FOR UPDATE/);
+    expect(query.mock.calls[0][0]).toMatch(/FOR NO KEY UPDATE/);
     expect(query.mock.calls[1]).toEqual(['UPDATE zones SET name = $2 WHERE id = $1', [zoneId, 'Home page']]);
 
     query.mockClear();

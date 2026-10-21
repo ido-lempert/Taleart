@@ -25,11 +25,12 @@ import {
   renameTaleWhen,
   taleExists,
   taleGroupExists,
+  taleGroupName,
+  taleTitle as storedTaleTitle,
   TaleGroupFullError,
   TaleGroupNotFoundError,
 } from '@taleart/server-tales';
-import { tagsForTaleGroups } from '@taleart/server-targeting';
-import { createZone, renameZoneWhen, zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
+import { createZone, findZone, renameZoneWhen, zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { decryptToken } from './crypto';
 import { isLabelError, LabelImport } from './label-import';
 import { groupLabels, labelText, MAX_GROUP_LABELS, MAX_GROUP_TAGS, MAX_LABEL_LIST_ENTRIES } from './labels';
@@ -49,12 +50,15 @@ import { findLinkTarget, lockLinkSource, saveLink, unlistedLinks, type LinkSourc
 import {
   countChange,
   emptyChanges,
+  givenTags,
+  deleteRecord,
   lockRecord,
   mergeOrder,
   mergeTags,
   mergeValue,
   recordNames,
   saveRecord,
+  sweepImportRecords,
   type FieldMerge,
   type RecordFields,
   type RecordOutcome,
@@ -247,6 +251,8 @@ const NO_POSITION = 'no source position, placed after the others';
 
 // A blank source title gets a neutral name; the source id never becomes one (AD-7).
 const groupName = (group: SourceStoryGroup): string => group.name.trim() || 'Untitled tale group';
+/** The name of a zone whose instance has no title: neutral, since a source id never becomes a name (AD-7). */
+export const UNTITLED_ZONE = 'Untitled zone';
 // A story without a title shows its group's title at the source.
 const taleTitle = (story: SourceStory, group: string): string => story.name.trim() || group;
 
@@ -267,15 +273,17 @@ async function importZone(
   appId: string | null,
 ): Promise<{ id: string; created: boolean } | null> {
   const source = { projectId, sourceType: 'instance', sourceId: instance.id };
-  return inTransaction(db, async (tx) => {
-    await lockLinkSource(tx, source);
-    const linked = await findLinkTarget(tx, source);
-    if (linked !== null) return (await zoneExists(tx, linked)) ? { id: linked, created: false } : null;
-    const zone = await createZone(tx, { name, projectId });
-    await saveLink(tx, { ...source, targetType: 'zone', targetId: zone.id, appId });
-    await saveRecord(tx, 'zone', zone.id, projectId, { name });
-    return { id: zone.id, created: true };
-  });
+  return retryDeadlockOnce(() =>
+    inTransaction(db, async (tx) => {
+      await lockLinkSource(tx, source);
+      const linked = await findLinkTarget(tx, source);
+      if (linked !== null) return (await zoneExists(tx, linked)) ? { id: linked, created: false } : null;
+      const zone = await createZone(tx, { name, projectId });
+      await saveLink(tx, { ...source, targetType: 'zone', targetId: zone.id, appId });
+      await saveRecord(tx, 'zone', zone.id, projectId, { name });
+      return { id: zone.id, created: true };
+    }),
+  );
 }
 
 /** Runs `work` again once when PostgreSQL broke a deadlock by failing it (40P01). */
@@ -311,9 +319,13 @@ async function updateRecord(
 ): Promise<RecordUpdate | null> {
   return retryDeadlockOnce(() =>
     inTransaction(db, async (tx) => {
-      const baseline = await lockRecord(tx, type, targetId, projectId);
+      const baseline = await lockRecord(tx, type, targetId);
       const result = await apply(tx, baseline);
-      if (result === null) return null;
+      if (result === null) {
+        // The record is gone: so is what the import recorded about it.
+        await deleteRecord(tx, type, targetId);
+        return null;
+      }
       await saveRecord(tx, type, targetId, projectId, result.fields);
       return result.update;
     }),
@@ -362,14 +374,16 @@ async function importLinked(
     if (linked !== null) return (await exists(linked)) ? { id: linked, created: false } : null;
     let createdId = '';
     try {
-      await create(async (tx, targetId) => {
-        await lockLinkSource(tx, source);
-        if ((await findLinkTarget(tx, source)) !== null) throw new AlreadyLinkedError();
-        await saveLink(tx, { ...source, targetType, targetId });
-        // What the import wrote, for re-imports to tell a person's later edit from the source's.
-        await saveRecord(tx, record.type, targetId, source.projectId, record.fields);
-        createdId = targetId;
-      });
+      await retryDeadlockOnce(() =>
+        create(async (tx, targetId) => {
+          await lockLinkSource(tx, source);
+          if ((await findLinkTarget(tx, source)) !== null) throw new AlreadyLinkedError();
+          await saveLink(tx, { ...source, targetType, targetId });
+          // What the import wrote, for re-imports to tell a person's later edit from the source's.
+          await saveRecord(tx, record.type, targetId, source.projectId, record.fields);
+          createdId = targetId;
+        }),
+      );
     } catch (err) {
       // Another import linked it meanwhile: its record stands, so read the link again.
       if (err instanceof AlreadyLinkedError) continue;
@@ -483,6 +497,9 @@ export async function importContent(
   // Story groups and stories are read only for the picked zones: removals among them are looked for only when
   // every zone and the tale groups were picked, since a record of a zone not read is not known to be gone.
   const readEverything = picked === null ? withGroups : withGroups && instances.every((i) => picked.has(i.id));
+  // The source types with records the source listed but that could not be read (no usable id): such a record may
+  // be one an earlier import linked, so no removal is looked for among them.
+  const unreadable = new Set<string>(instances.length < checkedInstances.entries.length ? ['instance'] : []);
   const labels = options.labels ? new LabelImport(db, projectId) : null;
   // A label that cannot become a tag, as a report difference: its text only when it has some.
   const labelDifference = (
@@ -578,7 +595,7 @@ export async function importContent(
       continue;
     }
     seenInstances.add(instance.id);
-    const zoneName = instance.name.trim() || `Instance ${instance.id}`;
+    const zoneName = instance.name.trim() || UNTITLED_ZONE;
     if (picked !== null && notSelected !== null && !picked.has(instance.id)) {
       // Not picked: neither created nor updated, and not taken for removed at the source.
       report.zones.skipped++;
@@ -591,6 +608,11 @@ export async function importContent(
     await beforeEach(report);
     const zone = await importZone(db, projectId, instance, zoneName, appId);
     const zoneId = zone?.id ?? null;
+    if (zone !== null && instance.name.trim() === '') {
+      report.notes.push(
+        `Zone ${instancePlaces.get(instance.id) ?? 1} of the source has no title, so it is named "${UNTITLED_ZONE}"`,
+      );
+    }
     if (zone === null) {
       report.zones.skipped++;
       report.notes.push(`Zone "${text(zoneName)}": its earlier import was deleted, so it was not imported again`);
@@ -605,18 +627,21 @@ export async function importContent(
     const updateZone = async (withOrder: boolean) => {
       if (zone === null) return;
       const zoneUpdate = await updateRecord(db, 'zone', zone.id, projectId, async (tx, baseline) => {
-        const nameMerge = valueMerger(baseline?.name, zoneName);
-        if ((await renameZoneWhen(tx, zone.id, nameMerge.decide)) === null) return null;
-        const fields: RecordFields = { name: nameMerge.result().baseline };
+        // The zone's placement lock first, then its row (no key update), as the tales module's
+        // placement writes take them: an update cannot deadlock with a create, place or copy into the zone.
         let orderWritten = false;
         let orderKept = false;
+        let order: string[] | undefined;
         if (withOrder) {
           const orderMerge = orderMerger(baseline?.order, zoneGroups);
-          await orderTaleGroupsWhen(tx, zone.id, orderMerge.decide);
-          fields.order = orderMerge.result().baseline;
+          if ((await orderTaleGroupsWhen(tx, zone.id, orderMerge.decide)) === null) return null;
+          order = orderMerge.result().baseline;
           orderWritten = orderMerge.result().write !== null;
           orderKept = orderMerge.result().keptLocalEdit;
         }
+        const nameMerge = valueMerger(baseline?.name, zoneName);
+        if ((await renameZoneWhen(tx, zone.id, nameMerge.decide)) === null) return null;
+        const fields: RecordFields = { name: nameMerge.result().baseline, ...(order ? { order } : {}) };
         const kept = [...(nameMerge.result().keptLocalEdit ? ['title'] : []), ...(orderKept ? ['sort_order'] : [])];
         return { fields, update: { written: nameMerge.result().write !== null || orderWritten, kept } };
       });
@@ -637,6 +662,7 @@ export async function importContent(
     const groupPlaces = placeOf(groupList);
     report.taleGroups.source += groupList.entries.length;
     report.taleGroups.skipped += groupList.entries.length - groups.length;
+    if (groupList.entries.length > groups.length) unreadable.add('story_group');
     differences.addList(groupList, listedGroups, parentOf(zoneName, instance.id));
     if (labels) {
       // Listed with the group list, as part of its records; each label's tag exists from now on.
@@ -714,6 +740,7 @@ export async function importContent(
       const positions = placeOf(storyList);
       report.tales.source += storyList.entries.length;
       report.tales.skipped += storyList.entries.length - stories.length;
+      if (storyList.entries.length > stories.length) unreadable.add('story');
       differences.addList(storyList, listedStories, parentOf(name, group.id));
       // The group is skipped: so is each of its stories, once.
       const skipGroup = (note?: string) => {
@@ -768,7 +795,7 @@ export async function importContent(
             db,
             { projectId, sourceType: 'story', sourceId: story.id, appId },
             'tale',
-            { type: 'tale', fields: { name: title } },
+            { type: 'tale', fields: { name: title, group: taleGroupId } },
             (id) => taleExists(db, id),
             (link) => createTale(db, { taleGroupId, title }, (tx, created) => link(tx, created.taleId)),
           );
@@ -798,15 +825,25 @@ export async function importContent(
           groupTales.push(taleId);
         } else {
           // A linked tale: its title follows the source unless a person changed it in TaleArt.
-          let movedTo: string | null = null;
+          // Where the tale is when it is not in the group the source now lists it under: moved at the source
+          // (the tale is where the import put it), or by a person (the import put it elsewhere).
+          let move: 'none' | 'source' | 'person' = 'none';
           const update = await updateRecord(db, 'tale', taleId, projectId, async (tx, baseline) => {
             const merge = valueMerger(baseline?.name, title);
             const renamed = await renameTaleWhen(tx, taleId, merge.decide);
             if (renamed === null) return null;
-            movedTo = renamed.taleGroupId === taleGroupId ? null : renamed.taleGroupId;
-            const result = merge.result();
-            const kept = result.keptLocalEdit ? ['title'] : [];
-            return { fields: { name: result.baseline }, update: { written: result.write !== null, kept } };
+            const kept: string[] = merge.result().keptLocalEdit ? ['title'] : [];
+            if (renamed.taleGroupId !== taleGroupId) {
+              // Without a recorded group (imported before baselines), only the source can have moved it.
+              if (baseline?.group === undefined || baseline.group === renamed.taleGroupId) move = 'source';
+              else {
+                move = 'person';
+                // A kept local edit only when the source moved it too (it lists it outside the recorded group).
+                if (baseline.group !== taleGroupId) kept.push('story_group_id');
+              }
+            }
+            const fields: RecordFields = { name: merge.result().baseline, group: renamed.taleGroupId };
+            return { fields, update: { written: merge.result().write !== null, kept } };
           });
           if (update === null) {
             // Deleted since it was found: it counts as imported, as when it was read, with nothing changed.
@@ -818,10 +855,17 @@ export async function importContent(
                 keptDifference('tale', story, positions.get(story.id) ?? 1, parentOf(name, group.id), field),
               );
             }
-            if (movedTo === null) groupTales.push(taleId);
-            else {
+            if (move === 'none') groupTales.push(taleId);
+            else if (move === 'source') {
+              // An import moves nothing: the tale stays in its tale group, and the move is listed.
+              differences.addOne({
+                ...keptDifference('tale', story, positions.get(story.id) ?? 1, parentOf(name, group.id), ''),
+                kind: 'movedAtSource',
+                field: 'story_group_id',
+              });
+            } else {
               report.notes.push(
-                `Tale "${text(title)}" in "${text(name)}": it is in another tale group in TaleArt, so it stays there`,
+                `Tale "${text(title)}" in "${text(name)}": a person moved it to another tale group in TaleArt, so it stays there`,
               );
             }
           }
@@ -873,11 +917,18 @@ export async function importContent(
           const fields: RecordFields = { name: nameMerge.result().baseline };
           let tagsAdded = false;
           if (labels && withTags) {
-            const carried = ((await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? []).map((t) => t.name);
-            const tagMerge = mergeTags(baseline?.tags, carried, groupTagNames.get(group.id) ?? []);
-            await labels.addToGroupIn(tx, taleGroupId, tagMerge.add);
-            tagsAdded = tagMerge.add.length > 0;
-            fields.tags = tagMerge.baseline;
+            const source = groupTagNames.get(group.id) ?? [];
+            let tagMerge = mergeTags(baseline, [], source);
+            // Compare and set: the merge runs on the tags read under the group's tag lock.
+            const { current, carried } = await labels.addToGroupIn(tx, taleGroupId, (now) => {
+              tagMerge = mergeTags(baseline, now, source);
+              return tagMerge.add;
+            });
+            tagsAdded = carried.length > current.length;
+            // Only names the group carries now, or was given before, count as given: one refused by a limit
+            // can still be added by a later run.
+            fields.tags = givenTags(baseline, carried, source);
+            fields.removedTags = tagMerge.removed;
             removedLabels = tagMerge.removedAtSource;
           }
           const orderMerge = orderMerger(baseline?.order, groupTales);
@@ -967,45 +1018,75 @@ export async function importContent(
       sourceType: string;
       type: RecordType;
       entity: ImportDifferenceEntity;
+      label: string;
       count: ImportChangeCount;
-      exists: (id: string) => Promise<boolean>;
+      /** The record's current name in TaleArt, through its owning module; null when it no longer exists. */
+      currentName: (id: string) => Promise<string | null>;
     }
-    const zoneKind: RemovalKind = {
-      sourceType: 'instance',
-      type: 'zone',
-      entity: 'zone',
-      count: changes.zones,
-      exists: (id) => zoneExists(db, id),
-    };
-    const contentKinds: RemovalKind[] = [
+    const kinds: RemovalKind[] = [
+      {
+        sourceType: 'instance',
+        type: 'zone',
+        entity: 'zone',
+        label: 'Zones',
+        count: changes.zones,
+        currentName: async (id) => (await findZone(db, id))?.name ?? null,
+      },
       {
         sourceType: 'story_group',
         type: 'taleGroup',
         entity: 'taleGroup',
+        label: 'Tale groups',
         count: changes.taleGroups,
-        exists: (id) => taleGroupExists(db, id),
+        currentName: (id) => taleGroupName(db, id),
       },
-      { sourceType: 'story', type: 'tale', entity: 'tale', count: changes.tales, exists: (id) => taleExists(db, id) },
+      {
+        sourceType: 'story',
+        type: 'tale',
+        entity: 'tale',
+        label: 'Tales',
+        count: changes.tales,
+        currentName: (id) => storedTaleTitle(db, id),
+      },
     ];
-    // Story groups and stories count as removed only when this run read them all (see `readEverything`).
-    const kinds = readEverything ? [zoneKind, ...contentKinds] : [zoneKind];
-    const listed = new Map<string, ReadonlySet<string>>([['instance', listedInstances]]);
-    if (readEverything) {
-      listed.set('story_group', listedGroups);
-      listed.set('story', listedStories);
-    }
+    // Story groups and stories count as removed only when this run read them all (see `readEverything`), and
+    // a type counts none while a list it depends on held records that could not be read.
+    const dependsOn: Record<string, string[]> = {
+      instance: ['instance'],
+      story_group: ['instance', 'story_group'],
+      story: ['instance', 'story_group', 'story'],
+    };
+    const checked = kinds.filter((kind) => {
+      if (kind.sourceType !== 'instance' && !readEverything) return false;
+      if (dependsOn[kind.sourceType].some((type) => unreadable.has(type))) {
+        report.notes.push(
+          `${kind.label}: the source listed records that could not be read, so none was looked for as removed at the source`,
+        );
+        return false;
+      }
+      return true;
+    });
+    const sets: Record<string, ReadonlySet<string>> = {
+      instance: listedInstances,
+      story_group: listedGroups,
+      story: listedStories,
+    };
+    const listed = new Map(checked.map((kind) => [kind.sourceType, sets[kind.sourceType]]));
+    if (listed.size === 0) return;
     const unlisted = await unlistedLinks(db, projectId, appId, listed);
-    for (const kind of kinds) {
+    for (const kind of checked) {
       const links = unlisted.filter((link) => link.sourceType === kind.sourceType);
-      const names = await recordNames(
+      // The name it had when the import last wrote it, for a record whose current name is blank.
+      const recorded = await recordNames(
         db,
         kind.type,
         links.map((link) => link.targetId),
       );
       for (const link of links) {
-        if (!(await kind.exists(link.targetId))) continue;
+        const current = await kind.currentName(link.targetId);
+        if (current === null) continue;
         kind.count.removedAtSource++;
-        const name = names.get(link.targetId);
+        const name = current.trim() !== '' ? current : recorded.get(link.targetId);
         differences.addOne({
           entity: kind.entity,
           record: {
@@ -1233,6 +1314,17 @@ export function startImportWorker(db: TransactionalDb, options: ImportWorkerOpti
 
   // Clears what interrupted imports left in storage, once, before the first poll.
   const sweep = async (): Promise<void> => {
+    // Baselines of records deleted in TaleArt, checked through their owning modules (no foreign keys, AD-1).
+    try {
+      const forgotten = await sweepImportRecords(db, {
+        zone: (id) => zoneExists(db, id),
+        taleGroup: (id) => taleGroupExists(db, id),
+        tale: (id) => taleExists(db, id),
+      });
+      if (forgotten > 0) log('info', `Removed ${forgotten} import baseline(s) of records that no longer exist`);
+    } catch (err) {
+      log('error', 'Import worker could not sweep import baselines', err);
+    }
     if (!isSweepable(options.storage)) return;
     try {
       const swept = await sweepImportedMedia(db, options.storage);

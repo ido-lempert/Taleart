@@ -55,7 +55,7 @@ export async function renameZoneWhen(
   decide: (current: string) => string | null,
 ): Promise<{ before: string; after: string } | null> {
   if (!UUID.test(zoneId)) return null;
-  const { rows } = await db.query<{ name: string }>('SELECT name FROM zones WHERE id = $1 FOR UPDATE', [zoneId]);
+  const { rows } = await db.query<{ name: string }>('SELECT name FROM zones WHERE id = $1 FOR NO KEY UPDATE', [zoneId]);
   if (rows.length === 0) return null;
   const before = rows[0].name;
   const next = decide(before);

@@ -643,7 +643,7 @@ export async function orderTalesWhen(
   decide: (current: readonly string[]) => readonly string[] | null,
 ): Promise<{ before: string[]; after: string[] } | null> {
   if (!UUID.test(taleGroupId)) return null;
-  const group = await db.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [taleGroupId]);
+  const group = await db.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR NO KEY UPDATE', [taleGroupId]);
   if (group.rows.length === 0) return null;
   const { rows } = await db.query<{ id: string }>(
     'SELECT id FROM tales WHERE tale_group_id = $1 ORDER BY position, id',
@@ -675,7 +675,7 @@ export async function renameTaleGroupWhen(
   decide: (current: string) => string | null,
 ): Promise<{ before: string; after: string } | null> {
   if (!UUID.test(taleGroupId)) return null;
-  const { rows } = await db.query<{ name: string }>('SELECT name FROM tale_groups WHERE id = $1 FOR UPDATE', [
+  const { rows } = await db.query<{ name: string }>('SELECT name FROM tale_groups WHERE id = $1 FOR NO KEY UPDATE', [
     taleGroupId,
   ]);
   if (rows.length === 0) return null;
@@ -698,7 +698,7 @@ export async function renameTaleWhen(
 ): Promise<{ before: string; after: string; taleGroupId: string } | null> {
   if (!UUID.test(taleId)) return null;
   const { rows } = await db.query<{ title: string; taleGroupId: string }>(
-    'SELECT title, tale_group_id AS "taleGroupId" FROM tales WHERE id = $1 FOR UPDATE',
+    'SELECT title, tale_group_id AS "taleGroupId" FROM tales WHERE id = $1 FOR NO KEY UPDATE',
     [taleId],
   );
   if (rows.length === 0) return null;
@@ -881,6 +881,20 @@ export async function createTale(
     if (withTale) await withTale(tx, { taleId: rows[0].id, projectId });
     return toTale(rows[0]);
   });
+}
+
+/** A tale group's name, or null when it does not exist. Ids that are not UUIDs never match. */
+export async function taleGroupName(db: Db, taleGroupId: string): Promise<string | null> {
+  if (!UUID.test(taleGroupId)) return null;
+  const { rows } = await db.query<{ name: string }>('SELECT name FROM tale_groups WHERE id = $1', [taleGroupId]);
+  return rows[0]?.name ?? null;
+}
+
+/** A tale's title, or null when it does not exist. Ids that are not UUIDs never match. */
+export async function taleTitle(db: Db, taleId: string): Promise<string | null> {
+  if (!UUID.test(taleId)) return null;
+  const { rows } = await db.query<{ title: string }>('SELECT title FROM tales WHERE id = $1', [taleId]);
+  return rows[0]?.title ?? null;
 }
 
 /** True when a tale with this id exists. Ids that are not UUIDs never match. */

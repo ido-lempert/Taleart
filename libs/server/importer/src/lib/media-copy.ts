@@ -328,12 +328,15 @@ export async function importTaleMedia(
           return { outcome: { kind: 'imported', change: 'created' } as const, used: true };
         }
       } else if (earlier.sha256 === copied.sha256) {
-        // The same bytes under another URL: the copy in place stays, and the new fingerprint is recorded.
-        await tx.query(
-          'UPDATE import_media SET source_digest = $3, updated_at = now() WHERE tale_id = $1 AND media_key = $2',
-          [taleId, earlier.key, digest],
-        );
-        return { outcome: { kind: 'imported', change: 'unchanged' } as const, used: false };
+        // The same bytes under another URL: the copy in place stays, and the new fingerprint is recorded, but
+        // only while the tale still holds it (a person may have set media while the download ran).
+        if ((await getTaleMedia(tx, taleId))?.key === earlier.key) {
+          await tx.query(
+            'UPDATE import_media SET source_digest = $3, updated_at = now() WHERE tale_id = $1 AND media_key = $2',
+            [taleId, earlier.key, digest],
+          );
+          return { outcome: { kind: 'imported', change: 'unchanged' } as const, used: false };
+        }
       } else if (await replaceTaleMediaIf(tx, taleId, earlier.key, stored)) {
         // Replaced only while the tale still holds the import's earlier copy: a person's media meanwhile wins.
         await saveImportedMedia(tx, projectId, taleId, copied, digest);

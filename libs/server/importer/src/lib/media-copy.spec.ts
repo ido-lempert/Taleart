@@ -681,6 +681,9 @@ describe('importTaleMedia: re-imports', () => {
     return {
       db: { query, connect: vi.fn(async () => ({ query, release })) } as unknown as TransactionalDb,
       statements,
+      setHolds: (key: string) => {
+        holds = key;
+      },
     };
   }
   const store = () => ({ put: vi.fn(), putStream: vi.fn(), get: vi.fn(), delete: vi.fn(async () => undefined) });
@@ -709,6 +712,19 @@ describe('importTaleMedia: re-imports', () => {
     expect(statements().some((s) => /source_digest = EXCLUDED.source_digest/.test(s))).toBe(true);
     // The earlier copy is left to the sweep: copies of the tale may share it (AD-14).
     expect(storage.delete).not.toHaveBeenCalled();
+  });
+
+  it('reports media a person set during a same-bytes download as kept, not as the import copy', async () => {
+    const { db, statements, setHolds } = fakeDb({ holds: oldKey, digest: 'another', sha256: copied.sha256 });
+    const storage = store();
+    const copy = async () => {
+      setHolds('tales/upload.png');
+      return copied;
+    };
+    const outcome = await importTaleMedia(db, { storage, copy }, 'p', taleId, { media: url, mimeType: 'image/jpeg' });
+    expect(outcome).toEqual({ kind: 'keptOwn', sourceChanged: true });
+    expect(statements().some((s) => /UPDATE import_media SET source_digest/.test(s))).toBe(false);
+    expect(storage.delete).toHaveBeenCalledWith(copied.key);
   });
 
   it('keeps the copy in place when the new download holds the same bytes, recording the new fingerprint', async () => {
