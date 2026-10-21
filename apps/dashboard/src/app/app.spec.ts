@@ -2348,6 +2348,10 @@ describe('App', () => {
       http
         .expectOne(`${API_BASE}/tales/t1/document`)
         .flush({ document: null, revision: 0, published: { document: null, revision: 0 } });
+      // The studio reads the project theme's font, for texts in the theme font (story 7.4).
+      http
+        .expectOne(`${API_BASE}/projects/p1/theme`)
+        .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 500, statusText: 'Down' });
       await settle(fixture);
       expect(root.querySelector('h2.page-header__title')?.textContent).toContain('Tale Studio');
       expect(root.querySelector('.canvas')).not.toBeNull();

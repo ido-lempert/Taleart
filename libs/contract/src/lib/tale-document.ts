@@ -3,6 +3,7 @@
 // type with the schema of its `props`. `contract:generate` turns them into the types below (through
 // openapi.yaml) and into a TypeScript copy of the schemas for validators.
 import type { components } from '../generated/api';
+import type { TextFont } from './text-style';
 
 export { TALE_DOCUMENT_V1_SCHEMA, TALE_ELEMENT_TYPE_REGISTRY } from '../generated/tale-document-schemas';
 
@@ -16,8 +17,11 @@ export type TaleCanvas = Schemas['Canvas'];
 export type TaleElementBox = Schemas['Box'];
 /** What assistive technology is told about an element. */
 export type TaleElementA11y = Schemas['A11y'];
-/** The props of a `text` element, from `element-types/text.schema.json`. */
-export type TextElementProps = Schemas['TextElementProps'];
+/**
+ * The props of a `text` element, from `element-types/text.schema.json`: its text and its optional
+ * style (story 7.4; see `resolveTextStyle`), with the font as a discriminated union of its sources.
+ */
+export type TextElementProps = Omit<Schemas['TextElementProps'], 'font'> & { font?: TextFont };
 
 /** An element of the registered type `T` with props `P`: the fields every element has, keyed by `type`. */
 export type TaleElementOf<T extends string, P> = Omit<Schemas['Element'], 'type' | 'props'> & { type: T; props: P };
@@ -95,18 +99,6 @@ export const TALE_SAFE_AREA = { top: 0.12, bottom: 0.16, side: 0.04 } as const;
 
 /** The canvas background of a new document. */
 export const DEFAULT_CANVAS_COLOR = '#000000';
-
-/**
- * How a text element looks until text styling exists (story 7.4): the same in Tale Studio and the
- * Web SDK. `fontSize` is a fraction of the canvas height (AD-15).
- */
-export const TEXT_ELEMENT_STYLE = {
-  fontSize: 0.04,
-  lineHeight: 1.25,
-  fontWeight: 600,
-  color: '#ffffff',
-  fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-} as const;
 
 /** Where a new text element goes: across the middle of the canvas, inside the safe areas. */
 export const NEW_TEXT_BOX: TaleElementBox = { x: 0.1, y: 0.42, w: 0.8, h: 0.16, rotation: 0 };

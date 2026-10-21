@@ -173,7 +173,8 @@ try {
     const canvas = root.querySelector('dialog .ta-canvas').getBoundingClientRect();
     const box = p.getBoundingClientRect();
     return {
-      markup: p.querySelector(':not(.ta-glyphs)') !== null,
+      // Only the renderer's own line and glyph spans (story 7.4), never markup from the text.
+      markup: p.querySelector(':not(.ta-line, .ta-glyphs)') !== null,
       upperThird: box.top >= canvas.top && box.bottom <= canvas.top + canvas.height / 3,
       ratio: canvas.width / canvas.height,
       // The media is framed as for a tale without a document: full-bleed in the stage.
@@ -518,15 +519,15 @@ try {
   const unseenRing = themedItems.nth(1).locator('.ring');
   check((await css(unseenRing, 'background-color')) === 'rgb(0, 85, 255)', 'the solid ring takes the theme colour');
   check((await css(unseenRing, 'border-top-left-radius')) === '0px', 'a rounded-square item takes corner radius 0');
-  check((await css(themedItems.nth(1).locator('.title'), 'font-family')).startsWith('Georgia'), 'the bar title takes the serif font');
+  check((await css(themedItems.nth(1).locator('.title'), 'font-family')).replace(/^"/, '').startsWith('Georgia'), 'the bar title takes the serif font');
   const themedBanner = themed.locator('taleart-view section.banner');
   check((await css(themedBanner.locator('.b-viewport'), 'border-top-left-radius')) === '0px', 'the banner takes corner radius 0');
-  check((await css(themedBanner, 'font-family')).startsWith('Georgia'), 'the banner takes the serif font');
+  check((await css(themedBanner, 'font-family')).replace(/^"/, '').startsWith('Georgia'), 'the banner takes the serif font');
   await themedItems.first().click();
   const themedDialog = themed.locator('taleart-view dialog.viewer');
   await themedDialog.waitFor();
   await themed.keyboard.press(' ');
-  check((await css(themedDialog, 'font-family')).startsWith('Georgia'), 'the viewer takes the serif font');
+  check((await css(themedDialog, 'font-family')).replace(/^"/, '').startsWith('Georgia'), 'the viewer takes the serif font');
   check(
     (await css(themedDialog.locator('.fill').first(), 'background-color')) === 'rgb(255, 204, 0)',
     'the viewer progress takes the accent',
