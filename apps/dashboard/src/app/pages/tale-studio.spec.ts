@@ -2,11 +2,19 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
-import { elementBounds, type TaleDocument, type ZoneTaleGroup } from '@taleart/contract';
+import {
+  DEFAULT_TEXT_STYLE,
+  DEFAULT_THEME,
+  elementBounds,
+  SYSTEM_FONT_STACKS,
+  type TaleDocument,
+  type ZoneTaleGroup,
+} from '@taleart/contract';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { appRoutes } from '../app.routes';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { TaleStudioPage } from './tale-studio';
+import { ratioText } from './tale-text-style';
 
 const url = `${API_BASE}/tales/t1/document`;
 const tale = {
@@ -72,11 +80,15 @@ describe('TaleStudioPage', () => {
   let fixture: ComponentFixture<TaleStudioPage>;
   let root: HTMLElement;
 
-  async function open(read: Parameters<typeof draftRead>[0]): Promise<void> {
+  async function open(read: Parameters<typeof draftRead>[0], themeFont: string | null = null): Promise<void> {
     fixture = TestBed.createComponent(TaleStudioPage);
     fixture.componentRef.setInput('taleId', 't1');
     fixture.detectChanges();
     http.expectOne(url).flush(draftRead(read));
+    // The project theme's font, for texts in the theme font (story 7.4).
+    http
+      .expectOne(`${API_BASE}/projects/p1/theme`)
+      .flush({ projectId: 'p1', theme: {}, resolved: { ...DEFAULT_THEME, fontFamily: themeFont } });
     await settle(fixture);
     root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
@@ -176,9 +188,11 @@ describe('TaleStudioPage', () => {
         hidden: false,
         locked: false,
         a11y: {},
-        props: { text: 'Hello' },
+        // Every style setting is stored explicitly, the direction included (story 7.4).
+        props: { ...DEFAULT_TEXT_STYLE, text: 'Hello' },
       },
     ]);
+    expect(body.document.elements[0].props).toMatchObject({ direction: 'auto', font: { source: 'system' } });
     expect(status()).toBe('All changes saved');
 
     // The next save is based on the new revision.
@@ -1445,6 +1459,276 @@ describe('TaleStudioPage', () => {
         await settle(fixture);
         expect(status()).toBe('All changes saved');
       });
+    });
+  });
+
+  describe('text style (story 7.4)', () => {
+    const sans = SYSTEM_FONT_STACKS.sans;
+    const serif = SYSTEM_FONT_STACKS.serif;
+    const live = () => root.querySelector('[aria-live=polite]')?.textContent;
+    const field = <T extends HTMLElement>(id: string) => root.querySelector(`#${id}`) as T;
+    const canvasText = () => elements()[0];
+    const glyphs = () => canvasText().querySelector('.el__glyphs') as HTMLElement;
+    const contrast = () => root.querySelector('#ts-contrast')?.textContent?.trim();
+
+    // Sets a field's value and fires its change event, as a person picking or typing and leaving it.
+    async function set(id: string, value: string): Promise<void> {
+      const control = field<HTMLInputElement | HTMLSelectElement>(id);
+      control.value = value;
+      control.dispatchEvent(new Event('change'));
+      await settle(fixture);
+    }
+
+    async function openSelected(props: Record<string, unknown> = {}, themeFont: string | null = null): Promise<void> {
+      const element = { ...existing.elements[0], props: { text: 'Hi', ...props } };
+      await open({ document: { ...existing, elements: [element] } as TaleDocument, revision: 1 }, themeFont);
+      canvasText().click();
+      await settle(fixture);
+    }
+
+    it('shows a text without style as before, and the inspector its defaults', async () => {
+      await openSelected();
+      const el = canvasText();
+      expect(el.style.fontFamily).toBe(sans);
+      expect(el.style.fontSize).toBe('4cqh');
+      // A text stored before styling keeps its weight of 600; the select says so.
+      expect(el.style.fontWeight).toBe('600');
+      expect(field<HTMLSelectElement>('ts-weight').selectedOptions[0].textContent?.trim()).toBe('Semibold (as before)');
+      expect(el.getAttribute('dir')).toBe('auto');
+      expect(field<HTMLSelectElement>('ts-font').value).toBe('sans');
+      expect(field<HTMLSelectElement>('ts-size').value).toBe('medium');
+      expect(field<HTMLSelectElement>('ts-direction').value).toBe('auto');
+      expect(field<HTMLInputElement>('ts-align-center').checked).toBe(true);
+    });
+
+    it('names every control and groups them', async () => {
+      await openSelected({ font: { source: 'name', family: 'Inter' }, background: 'box', size: 0.05 });
+      const inspector = root.querySelector('app-tale-text-style') as HTMLElement;
+      const controls = [...inspector.querySelectorAll<HTMLElement>('input, select')];
+      expect(controls.length).toBeGreaterThan(12);
+      for (const control of controls) {
+        const label = control.closest('label') ?? inspector.querySelector(`label[for="${control.id}"]`);
+        expect(label?.textContent?.trim(), control.id).toBeTruthy();
+      }
+      const legends = [...inspector.querySelectorAll('legend')].map((l) => l.textContent?.trim());
+      expect(legends).toEqual(['Text style', 'Font', 'Colour', 'Alignment and direction', 'Background']);
+      // The direction is chosen inside the alignment group.
+      expect(field('ts-direction').closest('fieldset')?.querySelector('legend')?.textContent?.trim()).toBe(
+        'Alignment and direction',
+      );
+    });
+
+    it('sets a system font as one undoable step, saved to the draft', async () => {
+      await openSelected();
+      await set('ts-font', 'serif');
+      expect(canvasText().style.fontFamily).toBe(serif);
+      expect(live()).toBe('Font set to Serif');
+      const saved = await saveNow(2);
+      expect(saved.document.elements[0].props).toEqual({ text: 'Hi', font: { source: 'system', stack: 'serif' } });
+      (root.querySelector('#studio-undo') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(canvasText().style.fontFamily).toBe(sans);
+      expect(live()).toBe('Undone: Font changed');
+      await saveNow(3);
+    });
+
+    it("uses the project theme's font with the fallback, or the fallback when the theme sets none", async () => {
+      await openSelected({ font: { source: 'theme' }, fallback: 'serif' }, 'Georgia, serif');
+      expect(canvasText().style.fontFamily).toBe(`"Georgia", serif, ${serif}`);
+      expect(root.querySelector('#ts-theme-hint')?.textContent).toContain('Georgia, serif');
+      fixture.destroy();
+      await openSelected({ font: { source: 'theme' } }, null);
+      expect(canvasText().style.fontFamily).toBe(sans);
+      expect(root.querySelector('#ts-theme-hint')?.textContent).toContain('sets no font');
+    });
+
+    it('applies a font name the page loads, and refuses inherit or CSS in it', async () => {
+      await openSelected();
+      await set('ts-font', 'name');
+      // Nothing changes until a valid name is typed; the choice says what to do next.
+      expect(canvasText().style.fontFamily).toBe(sans);
+      expect(live()).toBe('Type a font name the page loads, then leave the field to apply it.');
+      await set('ts-family', 'inherit');
+      const family = field<HTMLInputElement>('ts-family');
+      expect(family.getAttribute('aria-invalid')).toBe('true');
+      expect(root.querySelector('#ts-family-error')?.textContent).toContain('not changed');
+      await set('ts-family', 'x;color:red');
+      expect(family.getAttribute('aria-invalid')).toBe('true');
+      expect(canvasText().style.fontFamily).toBe(sans);
+      await set('ts-family', ' Source Sans 3 ');
+      expect(family.hasAttribute('aria-invalid')).toBe(false);
+      // Quoted, so a name CSS refuses bare still applies.
+      expect(canvasText().style.fontFamily).toBe(`"Source Sans 3", ${sans}`);
+      await set('ts-fallback', 'serif');
+      expect(canvasText().style.fontFamily).toBe(`"Source Sans 3", ${serif}`);
+      const saved = await saveNow(2);
+      expect(saved.document.elements[0].props).toMatchObject({
+        font: { source: 'name', family: 'Source Sans 3' },
+        fallback: 'serif',
+      });
+    });
+
+    it('sets a size preset or a custom size, refusing one out of range', async () => {
+      await openSelected();
+      await set('ts-size', 'large');
+      expect(canvasText().style.fontSize).toBe('6cqh');
+      await set('ts-size', 'custom');
+      expect(live()).toBe('Type a custom size in % of the canvas height, then leave the field to apply it.');
+      await set('ts-size-custom', '25');
+      expect(field<HTMLInputElement>('ts-size-custom').getAttribute('aria-invalid')).toBe('true');
+      expect(canvasText().style.fontSize).toBe('6cqh');
+      await set('ts-size-custom', '0.5');
+      expect(canvasText().style.fontSize).toBe('6cqh');
+      await set('ts-size-custom', '12');
+      expect(canvasText().style.fontSize).toBe('12cqh');
+      expect(live()).toBe('Size set to 12 % of the canvas height');
+      expect((await saveNow(2)).document.elements[0].props).toMatchObject({ size: 0.12 });
+    });
+
+    it('sets the weight, italic, line height and colour, refusing a colour with CSS in it', async () => {
+      await openSelected();
+      await set('ts-weight', 'regular');
+      expect(canvasText().style.fontWeight).toBe('400');
+      const italic = field<HTMLInputElement>('ts-italic');
+      italic.click();
+      await settle(fixture);
+      expect(canvasText().style.fontStyle).toBe('italic');
+      await set('ts-line-height', '4');
+      expect(field<HTMLInputElement>('ts-line-height').getAttribute('aria-invalid')).toBe('true');
+      await set('ts-line-height', '1.6');
+      expect(canvasText().style.lineHeight).toBe('1.6');
+      await set('ts-color-hex', 'red; background:url(x)');
+      expect(field<HTMLInputElement>('ts-color-hex').getAttribute('aria-invalid')).toBe('true');
+      expect(canvasText().style.color).toBe('rgb(255, 255, 255)');
+      await set('ts-color-hex', 'ff0000cc');
+      expect(canvasText().style.color).toBe('rgba(255, 0, 0, 0.8)');
+      await set('ts-color', '#00ff00');
+      // The picker keeps the colour's transparency.
+      expect((await saveNow(2)).document.elements[0].props).toMatchObject({
+        weight: 'regular',
+        italic: true,
+        lineHeight: 1.6,
+        color: '#00ff00cc',
+      });
+    });
+
+    it('aligns to the start, which follows the direction, and sets the direction', async () => {
+      await openSelected({}, null);
+      field<HTMLInputElement>('ts-align-start').click();
+      await settle(fixture);
+      expect(canvasText().style.textAlign).toBe('start');
+      await set('ts-direction', 'rtl');
+      expect(canvasText().getAttribute('dir')).toBe('rtl');
+      await set('ts-direction', 'ltr');
+      expect(canvasText().getAttribute('dir')).toBe('ltr');
+      expect((await saveNow(2)).document.elements[0].props).toMatchObject({ align: 'start', direction: 'ltr' });
+    });
+
+    it('draws a solid box on the element or a highlight behind each line', async () => {
+      await openSelected();
+      await set('ts-background', 'box');
+      expect(canvasText().style.backgroundColor).toBe('rgb(0, 0, 0)');
+      await set('ts-bg-hex', '#ffcc00');
+      expect(canvasText().style.backgroundColor).toBe('rgb(255, 204, 0)');
+      await set('ts-background', 'highlight');
+      expect(canvasText().style.backgroundColor).toBe('');
+      expect(glyphs().style.backgroundColor).toBe('rgb(255, 204, 0)');
+      expect(glyphs().classList.contains('is-highlight')).toBe(true);
+      expect((await saveNow(2)).document.elements[0].props).toMatchObject({
+        background: 'highlight',
+        backgroundColor: '#ffcc00',
+      });
+    });
+
+    it('warns about low contrast, and says when it cannot check over media, never blocking a save', async () => {
+      await openSelected();
+      expect(contrast()).toContain("can't be checked over media");
+      await set('ts-background', 'box');
+      expect(contrast()).toContain('Contrast 21.0:1');
+      await set('ts-bg-hex', '#ffff00');
+      // Rounded down (1.07 reads 1.0), so a ratio just under its minimum never reads as the minimum.
+      expect(contrast()).toMatch(/^Low contrast: 1\.0:1 against its box/);
+      expect(root.querySelector('.layer__state')?.textContent).toContain('Low contrast');
+      // The contrast line is not live; the change that turned the warning on says so.
+      expect(root.querySelector('#ts-contrast')?.hasAttribute('role')).toBe(false);
+      expect(live()).toBe('Background colour set to #ffff00 Low contrast: see the warning under the text style.');
+      await set('ts-bg-hex', '#000000');
+      expect(live()).toBe('Background colour set to #000000 Contrast is enough now.');
+      await set('ts-bg-hex', '#ffff00');
+      expect((await saveNow(2)).document.elements[0].props).toMatchObject({ backgroundColor: '#ffff00' });
+    });
+
+    it('checks against the canvas colour when the tale has no media', async () => {
+      const store = TestBed.inject(DashboardStore);
+      store.taleGroups.set({ z1: [{ ...group, tales: [{ ...tale, media: null }] } as unknown as ZoneTaleGroup] });
+      await openSelected({ color: '#111111' });
+      expect(contrast()).toMatch(/^Low contrast: .* against the canvas colour/);
+    });
+
+    it('rounds contrast ratios down', () => {
+      expect(ratioText(4.4999)).toBe('4.4');
+      expect(ratioText(4.5)).toBe('4.5');
+      expect(ratioText(21)).toBe('21.0');
+    });
+
+    it('announces only a change that made a step', async () => {
+      await openSelected({ weight: 'regular' });
+      await set('ts-weight', 'bold');
+      expect(live()).toBe('Weight set to Bold');
+      await set('ts-direction', 'rtl');
+      expect(live()).toBe('Direction set to right to left');
+      // The same value again is no step and is not announced.
+      (fixture.componentInstance as unknown as { announcement: { set(v: string): void } }).announcement.set('');
+      await set('ts-direction', 'rtl');
+      expect(live()).toBe('');
+      expect((root.querySelector('#studio-undo') as HTMLButtonElement).title).toContain('Text direction changed');
+      await saveNow(2);
+    });
+
+    it('draws the box or highlight and its padding in the in-place editor too, so the text does not move', async () => {
+      await openSelected({ background: 'box', backgroundColor: '#112233' });
+      expect(canvasText().style.paddingInline).toBe('0.5em');
+      key(canvasText(), 'Enter');
+      await settle(fixture);
+      const editor = root.querySelector('textarea.el-edit') as HTMLTextAreaElement;
+      expect(editor.style.backgroundColor).toBe('rgb(17, 34, 51)');
+      expect(editor.style.paddingInline).toBe('0.5em');
+      fixture.destroy();
+      await openSelected({ background: 'highlight', backgroundColor: '#ffcc00' });
+      expect(glyphs().style.paddingInline).toBe('0.25em');
+      key(canvasText(), 'Enter');
+      await settle(fixture);
+      const highlighted = root.querySelector('textarea.el-edit') as HTMLTextAreaElement;
+      expect(highlighted.style.backgroundColor).toBe('rgb(255, 204, 0)');
+      expect(highlighted.style.paddingInline).toBe('0.25em');
+    });
+
+    it('rewrites a refused hex field when a colour is picked, even the same colour', async () => {
+      await openSelected();
+      await set('ts-color-hex', 'nope');
+      const hex = field<HTMLInputElement>('ts-color-hex');
+      expect(hex.getAttribute('aria-invalid')).toBe('true');
+      await set('ts-color', '#ffffff');
+      expect(hex.value).toBe('#ffffff');
+      expect(hex.hasAttribute('aria-invalid')).toBe(false);
+      await set('ts-background', 'box');
+      await set('ts-bg-hex', 'red; background:url(x)');
+      const bgHex = field<HTMLInputElement>('ts-bg-hex');
+      expect(bgHex.getAttribute('aria-invalid')).toBe('true');
+      await set('ts-bg-color', '#336699');
+      expect(bgHex.value).toBe('#336699');
+      expect(bgHex.hasAttribute('aria-invalid')).toBe(false);
+      await saveNow(2);
+    });
+
+    it('keeps a locked layer’s style as it is', async () => {
+      await openSelected();
+      const element = { ...existing.elements[0], locked: true, props: { text: 'Hi' } };
+      fixture.destroy();
+      await open({ document: { ...existing, elements: [element] } as TaleDocument, revision: 1 });
+      canvasText().click();
+      await settle(fixture);
+      expect((root.querySelector('fieldset.text-style') as HTMLFieldSetElement).disabled).toBe(true);
     });
   });
 });

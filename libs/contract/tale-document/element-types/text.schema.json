@@ -1,11 +1,131 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TextElementProps",
-  "description": "The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line.",
+  "description": "The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text (AD-15).",
   "type": "object",
   "additionalProperties": false,
   "required": ["text"],
   "properties": {
-    "text": { "type": "string", "maxLength": 1000 }
+    "text": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "font": {
+      "description": "Where the font comes from: a system stack of the font registry, the project theme's font, or a font-family list the host page loads (the theme's font-list rules, `isFontFamily`). Project fonts join later as another source.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["system", "theme", "name"]
+        },
+        "stack": {
+          "type": "string",
+          "enum": ["sans", "serif", "rounded", "monospace"]
+        },
+        "family": {
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^(?!.*(?:^|[\\s,\"'])(?:[iI][nN][hH][eE][rR][iI][tT]|[iI][nN][iI][tT][iI][aA][lL]|[uU][nN][sS][eE][tT]|[rR][eE][vV][eE][rR][tT]|[rR][eE][vV][eE][rR][tT]-[lL][aA][yY][eE][rR]|[dD][eE][fF][aA][uU][lL][tT])(?=$|[\\s,\"']))\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*(?:,\\s*(?:[A-Za-z][A-Za-z0-9 -]*|\"[A-Za-z0-9 -]+\"|'[A-Za-z0-9 -]+')\\s*)*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "system"
+              }
+            }
+          },
+          "then": {
+            "required": ["stack"],
+            "properties": {
+              "family": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "theme"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stack": false,
+              "family": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "name"
+              }
+            }
+          },
+          "then": {
+            "required": ["family"],
+            "properties": {
+              "stack": false
+            }
+          }
+        }
+      ]
+    },
+    "fallback": {
+      "description": "The system stack used until, or when, the font is not available.",
+      "type": "string",
+      "enum": ["sans", "serif", "rounded", "monospace"]
+    },
+    "size": {
+      "description": "The font size as a fraction of the canvas height.",
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 0.2
+    },
+    "weight": {
+      "type": "string",
+      "enum": ["regular", "medium", "bold"]
+    },
+    "italic": {
+      "type": "boolean"
+    },
+    "color": {
+      "description": "The text colour as #RRGGBB or #RRGGBBAA.",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    "align": {
+      "description": "Where lines sit in the box; `start` and `end` follow the text direction.",
+      "type": "string",
+      "enum": ["start", "center", "end"]
+    },
+    "direction": {
+      "description": "The text direction: `auto` takes it from the first strong character.",
+      "type": "string",
+      "enum": ["auto", "rtl", "ltr"]
+    },
+    "lineHeight": {
+      "description": "The line height as a multiple of the font size.",
+      "type": "number",
+      "minimum": 0.8,
+      "maximum": 3
+    },
+    "background": {
+      "description": "Behind the text: nothing, a solid box filling the element, or a highlight behind each line.",
+      "type": "string",
+      "enum": ["none", "box", "highlight"]
+    },
+    "backgroundColor": {
+      "description": "The box or highlight colour as #RRGGBB or #RRGGBBAA.",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    }
   }
 }

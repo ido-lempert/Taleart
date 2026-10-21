@@ -1944,10 +1944,49 @@ export interface components {
         };
         /**
          * TextElementProps
-         * @description The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line.
+         * @description The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text (AD-15).
          */
         "text.schema": {
             text: string;
+            /** @description Where the font comes from: a system stack of the font registry, the project theme's font, or a font-family list the host page loads (the theme's font-list rules, `isFontFamily`). Project fonts join later as another source. */
+            font?: {
+                /** @enum {string} */
+                source: "system" | "theme" | "name";
+                /** @enum {string} */
+                stack?: "sans" | "serif" | "rounded" | "monospace";
+                family?: string;
+            } & (unknown & unknown & unknown);
+            /**
+             * @description The system stack used until, or when, the font is not available.
+             * @enum {string}
+             */
+            fallback?: "sans" | "serif" | "rounded" | "monospace";
+            /** @description The font size as a fraction of the canvas height. */
+            size?: number;
+            /** @enum {string} */
+            weight?: "regular" | "medium" | "bold";
+            italic?: boolean;
+            /** @description The text colour as #RRGGBB or #RRGGBBAA. */
+            color?: string;
+            /**
+             * @description Where lines sit in the box; `start` and `end` follow the text direction.
+             * @enum {string}
+             */
+            align?: "start" | "center" | "end";
+            /**
+             * @description The text direction: `auto` takes it from the first strong character.
+             * @enum {string}
+             */
+            direction?: "auto" | "rtl" | "ltr";
+            /** @description The line height as a multiple of the font size. */
+            lineHeight?: number;
+            /**
+             * @description Behind the text: nothing, a solid box filling the element, or a highlight behind each line.
+             * @enum {string}
+             */
+            background?: "none" | "box" | "highlight";
+            /** @description The box or highlight colour as #RRGGBB or #RRGGBBAA. */
+            backgroundColor?: string;
         };
     };
     responses: {
@@ -3779,3 +3818,10 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "stage_not_found", "stage_key_taken", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "internal_error"];
+export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name"];
+export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];
+export const textSchemaFallbackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
+export const textSchemaWeightValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["weight"]> = ["regular", "medium", "bold"];
+export const textSchemaAlignValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["align"]> = ["start", "center", "end"];
+export const textSchemaDirectionValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["direction"]> = ["auto", "rtl", "ltr"];
+export const textSchemaBackgroundValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["background"]> = ["none", "box", "highlight"];
