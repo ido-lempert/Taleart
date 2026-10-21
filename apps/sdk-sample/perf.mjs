@@ -9,8 +9,8 @@
 // gzipped size. Exits 1 when cold p75 is over the budget or the bundle over 50 KB gzipped.
 //
 // Run through `nx run sdk-sample:perf`, which builds the API and the SDK first.
-// Environment: TEST_DATABASE_URL (a database whose name ends in _test; rows are added, none
-// removed), PERF_RUNS (default 10), PERF_BUDGET_MS (default 1500).
+// Environment: TEST_DATABASE_URL (a database whose name ends in _test; the rows the run adds are
+// deleted at the end), PERF_RUNS (default 10), PERF_BUDGET_MS (default 1500).
 import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import pg from 'pg';
+import { parse as parseConnectionString } from 'pg-connection-string';
 import { chromium } from 'playwright';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -50,11 +51,14 @@ export function percentile(values, p) {
   return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
 }
 
+// TEST_DATABASE_URL, parsed as pg parses it, so `?db=` and socket forms are judged by the database they reach.
 function testDatabaseUrl() {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error('Set TEST_DATABASE_URL to a database whose name ends in _test');
-  if (!new URL(url).pathname.endsWith('_test'))
+  const { database, db } = parseConnectionString(url);
+  if (!database?.endsWith('_test') || (db !== undefined && !String(db).endsWith('_test'))) {
     throw new Error('TEST_DATABASE_URL must name a database ending in _test');
+  }
   return url;
 }
 
@@ -69,23 +73,31 @@ async function freePort() {
   });
 }
 
-// Spawns a Node process and resolves once its stdout contains `ready`.
-async function start(label, args, env, ready) {
+// Spawns a Node process, adds it to `children` at once (so cleanup kills it whatever happens), and
+// resolves once its output contains `ready`. A process that does not start in 30 s is killed.
+async function start(children, label, args, env, ready) {
   const child = spawn(process.execPath, args, {
     cwd: ROOT,
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  children.push(child);
   let output = '';
+  let started = false;
   await new Promise((done, fail) => {
-    const timer = setTimeout(() => fail(new Error(`${label} did not start:\n${output}`)), 30_000);
+    const timer = setTimeout(() => {
+      child.kill();
+      fail(new Error(`${label} did not start:\n${output}`));
+    }, 30_000);
     child.once('exit', (code) => {
       clearTimeout(timer);
       fail(new Error(`${label} exited with ${code}:\n${output}`));
     });
     const onData = (chunk) => {
+      if (started) return;
       output += chunk;
       if (output.includes(ready)) {
+        started = true;
         clearTimeout(timer);
         child.removeAllListeners('exit');
         done();
@@ -180,8 +192,9 @@ async function makeMedia(browser, count) {
   return { tales: media.tales.map(bytes), covers: media.covers.map(bytes), animated: bytes(media.animated) };
 }
 
-// Signs a new admin in directly in the database, as the API's integration tests do, and returns the session cookie.
-async function signIn(databaseUrl) {
+// Signs a new admin in directly in the database, as the API's integration tests do. Records the
+// user in `seeded` (for cleanup) and returns the session cookie.
+async function signIn(databaseUrl, seeded) {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   try {
@@ -190,6 +203,7 @@ async function signIn(databaseUrl) {
       'INSERT INTO users (name, email, role, webauthn_user_id) VALUES ($1, $2, $3, $4) RETURNING id',
       ['Perf admin', email, 'admin', randomBytes(32).toString('base64url')],
     );
+    seeded.userId = rows[0].id;
     const token = randomBytes(32).toString('base64url');
     const hash = createHash('sha256').update(token, 'utf8').digest('hex');
     await client.query(
@@ -207,7 +221,45 @@ async function signIn(databaseUrl) {
 // bar item shows the first tale's full-size image), the others a still cover.
 const GROUPS = ['New in', 'Summer sale', 'Behind the scenes', 'Top picks', 'Outdoor', 'Kids', 'Beauty', 'Gifts'];
 
-async function seed(apiUrl, cookie, media) {
+// Deletes what the run added: the seeded project with its zone, frames, stages, theme, groups,
+// tales, placements and key, then the admin with their session. Media files go with the temp dir.
+async function removeSeeded(databaseUrl, { userId, projectId }) {
+  if (!userId && !projectId) return;
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query('BEGIN');
+    if (projectId) {
+      for (const table of [
+        'zone_keys',
+        'zone_tale_groups',
+        'tale_group_tags',
+        'tales',
+        'tale_groups',
+        'stages',
+        'frames',
+        'project_themes',
+        'zones',
+        'tags',
+        'invitations',
+        'project_members',
+      ]) {
+        await client.query(`DELETE FROM ${table} WHERE project_id = $1`, [projectId]);
+      }
+      await client.query('DELETE FROM projects WHERE id = $1', [projectId]);
+    }
+    // Sessions and passkeys go with the user.
+    if (userId) await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    await client.end();
+  }
+}
+
+async function seed(apiUrl, cookie, media, seeded) {
   const call = async (method, path, body, contentType = 'application/json') => {
     const res = await fetch(`${apiUrl}/api/v1${path}`, {
       method,
@@ -218,6 +270,7 @@ async function seed(apiUrl, cookie, media) {
     return res.json();
   };
   const project = await call('POST', '/projects', { name: `Perf ${new Date().toISOString()}` });
+  seeded.projectId = project.id;
   const zone = await call('POST', '/zones', { name: 'Home', projectId: project.id });
   await call('POST', `/zones/${zone.id}/frames`, { type: 'bar', settings: {} });
   await call('POST', `/zones/${zone.id}/frames`, { type: 'banner', settings: {} });
@@ -302,38 +355,55 @@ async function main() {
   const gzipped = gzipSync(readFileSync(SDK_BUNDLE), { level: 9 }).length;
   const [apiPort, samplePort] = [await freePort(), await freePort()];
   const apiUrl = `http://127.0.0.1:${apiPort}`;
-  const mediaDir = mkdtempSync(join(tmpdir(), 'taleart-perf-media-'));
+  // Everything the run starts or adds, undone by one cleanup: on success, on failure and on SIGINT/SIGTERM.
   const children = [];
-  const browser = await chromium.launch();
+  const seeded = { userId: null, projectId: null };
+  let browser = null;
+  let mediaDir = null;
+  let cleaned = null;
+  const cleanup = () =>
+    (cleaned ??= (async () => {
+      await browser?.close().catch(() => undefined);
+      for (const child of children) child.kill();
+      if (mediaDir) rmSync(mediaDir, { recursive: true, force: true });
+      await removeSeeded(databaseUrl, seeded).catch((err) => console.error(`Could not remove the seeded rows: ${err}`));
+    })());
+  const onSignal = (signal) => {
+    console.error(`Stopping on ${signal}`);
+    void cleanup().finally(() => process.exit(130));
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
   try {
-    children.push(
-      await start(
-        'API',
-        [API_MAIN],
-        {
-          DATABASE_URL: databaseUrl,
-          PORT: String(apiPort),
-          PUBLIC_API_URL: apiUrl,
-          MEDIA_DIR: mediaDir,
-          IMPORT_TOKEN_KEY: '',
-        },
-        'Delivery API at',
-      ),
+    mediaDir = mkdtempSync(join(tmpdir(), 'taleart-perf-media-'));
+    // Playwright's own signal handlers would exit before this script's cleanup; the cleanup closes the browser.
+    browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
+    await start(
+      children,
+      'API',
+      [API_MAIN],
+      {
+        DATABASE_URL: databaseUrl,
+        PORT: String(apiPort),
+        PUBLIC_API_URL: apiUrl,
+        MEDIA_DIR: mediaDir,
+        IMPORT_TOKEN_KEY: '',
+      },
+      'Delivery API at',
     );
-    children.push(
-      await start(
-        'sample server',
-        [join(ROOT, 'apps/sdk-sample/serve.mjs')],
-        { PORT: String(samplePort) },
-        'SDK sample at',
-      ),
+    await start(
+      children,
+      'sample server',
+      [join(ROOT, 'apps/sdk-sample/serve.mjs')],
+      { PORT: String(samplePort) },
+      'SDK sample at',
     );
     const media = await makeMedia(browser, GROUPS.length);
     const kb = (b) => `${Math.round(b.length / 1024)} KB`;
     console.log(
       `Seeded media: tale images ${media.tales.map(kb).join(', ')}; still covers ~${kb(media.covers[1])}; animated cover ${kb(media.animated)}`,
     );
-    const key = await seed(apiUrl, await signIn(databaseUrl), media);
+    const key = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
     const url = `http://127.0.0.1:${samplePort}/?key=${encodeURIComponent(key)}&api=${encodeURIComponent(apiUrl)}`;
     console.log(
       `Profile: Fast 4G (${FAST_4G.latency} ms latency, 9 Mbps x 0.9 down), CPU ${CPU_SLOWDOWN}x slower, ${DEVICE.viewport.width} x ${DEVICE.viewport.height}`,
@@ -367,9 +437,9 @@ async function main() {
       console.log(`PASS: cold p75 first content ${Math.round(p75)} ms <= ${BUDGET_MS} ms`);
     }
   } finally {
-    await browser.close();
-    for (const child of children) child.kill();
-    rmSync(mediaDir, { recursive: true, force: true });
+    await cleanup();
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
   }
 }
 

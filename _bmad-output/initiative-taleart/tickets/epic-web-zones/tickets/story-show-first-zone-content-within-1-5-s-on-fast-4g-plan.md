@@ -3,14 +3,14 @@ title: 'Show first zone content within 1.5 s on Fast 4G'
 type: 'feature'
 ticket: '11'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: '596ffbcfb580cabd5169840e1e8300b74099665d'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -35,7 +35,7 @@ deferred: []
 - First content = the element's first rendered frame is on the page and the covers of its items in view have loaded (image decoded, video first frame, canvas drawn; a failure counts as settled), at the next animation frame. Marked once per element with User Timing; `taleart:zone` marks the zone's arrival.
 - Pass/fail: cold p75 ≤ 1500 ms (`PERF_BUDGET_MS`), SDK ≤ 50 KB gzipped; prints every run, p50/p75/max, warm numbers, layout shift and seeded media sizes.
 - Seed: a bar and a banner frame; eight live groups of three live 1080 × 1920 JPEG tales (~320 KB); group 1 an animated WebM cover recorded as the dashboard records it (160 px, 15 fps, 400 kbit/s, 3 s), group 3 no cover, the rest 320 px JPEG still covers. Media made in the browser (no server transcoding, AD-11).
-- Only the test database (name ends `_test`); rows added, none removed; temp media dir deleted; child processes killed.
+- Only the test database (`database`, as pg parses it, ends `_test`); seeded rows, temp media dir and child processes removed at the end, also on SIGINT/SIGTERM.
 - Delivery `GET /zone`: `Cache-Control: private, no-cache`, `Vary: Authorization`, Express's ETag, 304 on a match. Key check runs first, so a refused key never gets a 304.
 - SDK stays dependency-free and ≤ 50 KB gzipped; no new console output.
 
@@ -95,6 +95,22 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-21 — Coordinator review
+- verdicts: 12 findings, all patched. Merged `autopilot/foundation` (0f3401f, importer 2.9) first; no conflicts.
+- findings:
+  - `[patch]` A render's first-content work outlived it and released the whole shadow root — `loadFirstContent` takes the render's AbortSignal and its own container; `load()` and `disconnectedCallback` abort it (3 s timer cleared, cover listeners removed); a removed element starts no downloads; tests: a key change within 3 s leaves the new render's pictures held past the old timer; removal starts nothing.
+  - `[patch]` `marked` was set before the mark fired — set in the callback that marks, only for a render still on the page; an aborted render never marks and a later one may; tested.
+  - `[patch]` `taleart:zone` repeated when a render returned early — its own `zoneMarked` flag; tested with an unknown stage.
+  - `[patch]` Reduced-motion canvas covers loaded their image directly — `setCanvasSource` holds it, releases it at once as first content or lazily (IntersectionObserver, 1250 px) otherwise; tested.
+  - `[patch]` `applyCoverMotion` bypassed the hold — `replaceCover` keeps held/first-content state (`data-first`) and the first content follows the replacement; tested.
+  - `[patch]` A still video cover could wait for `loadeddata` a metadata-only browser never fires — it also settles 1 s (`STILL_VIDEO_MAX_MS`) after `loadedmetadata`; documented; tested.
+  - `[patch]` Banner `goTo` added listeners per step — one settled promise per slide.
+  - `[patch]` perf.mjs could orphan children or the temp dir — children tracked before start resolves and killed on timeout; temp dir and browser inside the try; one cleanup also on SIGINT/SIGTERM (Playwright's own signal handlers turned off, which had exited first); checked by interrupting a run.
+  - `[patch]` `_test` guard read only the URL path — parsed with `pg-connection-string` (as pg does), `database` and any `?db=` must end in `_test`; same check in `app.spec.ts`.
+  - `[patch]` Seeded rows stayed in the database — removed at the end (project with zone, frames, groups, tales, placements, key; the admin with session); README says what is added and that SIGKILL leaves them.
+  - `[patch]` `bar.spec.ts` line over 120 — wrapped (and two new lines of this story).
+  - `[patch]` `serve.mjs` threw on a malformed escape — 400.
+
 ## Verification
 
 **Commands:**
@@ -113,11 +129,17 @@ deferred: []
 - `apps/api/src/http/delivery.router.ts`, `apps/api/src/app.spec.ts` -- cache headers and revalidation test.
 - `libs/contract/openapi/openapi.yaml`, `src/generated/api.ts` -- 304 and caching documented.
 
-**Review:** not run (unreviewed, as requested).
+**Review:** coordinator review, 12 findings, all patched (see Review Triage Log).
 
 **Follow-up review recommended:** true. The SDK's loading order changed for every frame (held URLs, lazy covers, banner warming), and the Delivery API gained cache headers on a keyed response.
 
-**Verification:**
+**Verification (after review fixes and the merge of 0f3401f):**
+- `nx run-many -t lint test build` for the twelve projects passed against `taleart_w3_test` (api 342, web-sdk 246, server-importer 193, contract 95 tests).
+- `nx run web-sdk:size`: 12.37 KB gzipped.
+- `nx run sdk-sample:a11y`: no WCAG 2.2 AA violations.
+- `nx run sdk-sample:perf`, three runs of 10 loads: cold p75 1253, 1258, 1255 ms (max 1268); warm p75 754–768 ms. Seeded rows, temp dir and child processes are gone after each run, and after an interrupted (SIGINT) run.
+
+**Verification (first build, before review):**
 - `nx run-many -t lint test build` for the twelve projects passed against `taleart_w3_test` (api 331, web-sdk 235, server-importer 171, contract 95 tests).
 - `nx run web-sdk:size`: 11.78 KB gzipped (was 11.49 KB).
 - `nx run sdk-sample:a11y`: no WCAG 2.2 AA violations, every behaviour check passed.

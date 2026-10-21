@@ -1,4 +1,4 @@
-/** Set when the Delivery API's zone has arrived, before it renders. */
+/** Set once per element when the Delivery API's zone first arrives, before it renders. */
 export const ZONE_MARK = 'taleart:zone';
 
 /**
@@ -11,11 +11,24 @@ export const FIRST_CONTENT_MARK = 'taleart:first-content';
 /** How long pictures out of the first content wait at most for it, in ms. */
 export const HOLD_MAX_MS = 3000;
 
-// True while frames are built inside {@link holdMedia}.
+/**
+ * How long a still video cover (metadata-only preload) may take, after its
+ * metadata, to show its first frame before it counts as settled, in ms: a
+ * browser that loads only metadata never fires `loadeddata`.
+ */
+export const STILL_VIDEO_MAX_MS = 1000;
+
+// True while covers are built inside {@link holdMedia}.
 let holding = false;
 
+// The hidden image that draws each still canvas cover (an animated image under reduced motion).
+const canvasImages = new WeakMap<HTMLCanvasElement, HTMLImageElement>();
+
+// For a cover the first content waits on: what to do when it is replaced (see replaceCover).
+const replacements = new WeakMap<Element, (next: Element) => void>();
+
 /**
- * Sets a cover's URL, or, while frames are built inside {@link holdMedia},
+ * Sets a cover's URL, or, while covers are built inside {@link holdMedia},
  * keeps it in `data-hold` so nothing loads until {@link releaseMedia}.
  */
 export function setSource(el: HTMLImageElement | HTMLVideoElement, url: string): void {
@@ -23,23 +36,62 @@ export function setSource(el: HTMLImageElement | HTMLVideoElement, url: string):
   else el.src = url;
 }
 
-/** Builds frames whose cover pictures do not load until released. */
+/**
+ * Sets the URL of the image that draws a canvas cover: held inside
+ * {@link holdMedia}, else loaded once the canvas comes near the window.
+ */
+export function setCanvasSource(canvas: HTMLCanvasElement, img: HTMLImageElement, url: string): void {
+  canvasImages.set(canvas, img);
+  canvas.dataset['hold'] = url;
+  if (!holding) releaseMedia([canvas], true);
+}
+
+/** Builds covers whose pictures do not load until released. */
 export function holdMedia<T>(build: () => T): T {
+  const outer = holding;
   holding = true;
   try {
     return build();
   } finally {
-    holding = false;
+    holding = outer;
   }
 }
 
-/** Lets held pictures load. */
-export function releaseMedia(els: Iterable<Element>): void {
+// Calls `load` once `el` comes within 1250 px of the window (as browsers lazy-load images),
+// or at once without IntersectionObserver.
+function whenNear(el: Element, load: () => void): void {
+  if (typeof IntersectionObserver !== 'function') return load();
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        observer.disconnect();
+        load();
+      }
+    },
+    { rootMargin: '1250px' },
+  );
+  observer.observe(el);
+}
+
+/**
+ * Lets held pictures load. Images and videos get their URL (an image keeps
+ * `loading="lazy"` unless prioritized); a canvas cover's image loads at once,
+ * or with `lazy` once the canvas comes near the window.
+ */
+export function releaseMedia(els: Iterable<Element>, lazy = false): void {
   for (const el of els) {
     const url = (el as HTMLElement).dataset?.['hold'];
-    if (url === undefined || !(el instanceof HTMLImageElement || el instanceof HTMLVideoElement)) continue;
-    delete el.dataset['hold'];
-    el.src = url;
+    if (url === undefined) continue;
+    if (el instanceof HTMLImageElement || el instanceof HTMLVideoElement) {
+      delete el.dataset['hold'];
+      el.src = url;
+    } else if (el instanceof HTMLCanvasElement) {
+      const img = canvasImages.get(el);
+      if (!img) continue;
+      delete el.dataset['hold'];
+      if (lazy) whenNear(el, () => (img.src = url));
+      else img.src = url;
+    }
   }
 }
 
@@ -66,46 +118,105 @@ export function coversInView(frame: Element): Element[] {
 }
 
 /**
- * Resolves once a cover has its picture: an image loaded and decoded, a video
- * with its first frame, a canvas drawn (`data-ready`), each also on failure;
- * a placeholder at once.
+ * Resolves once a cover has its picture: an image loaded and decoded; a video
+ * with its first frame (`loadeddata`), or, for a still video (metadata-only
+ * preload), {@link STILL_VIDEO_MAX_MS} after its metadata; a canvas drawn
+ * (`data-ready`); each also on failure; a placeholder at once. Resolves at
+ * once when `signal` aborts, and removes its listeners and timers either way.
  */
-export function coverSettled(el: Element): Promise<void> {
+export function coverSettled(el: Element, signal?: AbortSignal): Promise<void> {
   return new Promise((done) => {
-    const settle = () => done();
+    const cleanups: (() => void)[] = [];
+    const settle = () => {
+      for (const cleanup of cleanups.splice(0)) cleanup();
+      done();
+    };
+    const on = (target: EventTarget, type: string, listener: () => void = settle) => {
+      target.addEventListener(type, listener);
+      cleanups.push(() => target.removeEventListener(type, listener));
+    };
+    const after = (ms: number) => {
+      const timer = setTimeout(settle, ms);
+      cleanups.push(() => clearTimeout(timer));
+    };
+    if (signal?.aborted) return settle();
+    if (signal) on(signal, 'abort');
+    const held = (el as HTMLElement).dataset?.['hold'] !== undefined;
     if (el instanceof HTMLImageElement) {
       // A held image has no URL yet, so decode() would fail at once: wait for its load instead.
-      if (typeof el.decode === 'function' && el.dataset['hold'] === undefined) el.decode().then(settle, settle);
-      else if (el.complete && el.dataset['hold'] === undefined) settle();
+      if (typeof el.decode === 'function' && !held) el.decode().then(settle, settle);
+      else if (el.complete && !held) settle();
       else {
-        el.addEventListener('load', settle, { once: true });
-        el.addEventListener('error', settle, { once: true });
+        on(el, 'load');
+        on(el, 'error');
       }
     } else if (el instanceof HTMLVideoElement) {
       // HAVE_CURRENT_DATA: the first frame can show.
-      if (el.readyState >= 2 || el.error) settle();
-      else {
-        el.addEventListener('loadeddata', settle, { once: true });
-        el.addEventListener('error', settle, { once: true });
+      if (!held && (el.readyState >= 2 || el.error)) return settle();
+      on(el, 'loadeddata');
+      on(el, 'error');
+      if (el.preload === 'metadata' && !el.autoplay) {
+        if (!held && el.readyState >= 1) after(STILL_VIDEO_MAX_MS);
+        else on(el, 'loadedmetadata', () => after(STILL_VIDEO_MAX_MS));
       }
     } else if (el instanceof HTMLCanvasElement && !el.hasAttribute('data-ready')) {
-      el.addEventListener('load', settle, { once: true });
+      on(el, 'load');
     } else settle();
+  });
+}
+
+// Resolves once the cover in `el`'s place has settled, following replacements (see replaceCover).
+function slotSettled(el: Element, signal: AbortSignal): Promise<void> {
+  return new Promise((done) => {
+    const wait = (current: Element) => {
+      let replaced = false;
+      replacements.set(current, (next) => {
+        replaced = true;
+        wait(next);
+      });
+      void coverSettled(current, signal).then(() => {
+        if (replaced) return;
+        replacements.delete(current);
+        done();
+      });
+    };
+    wait(el);
   });
 }
 
 /**
  * Loads these covers first: images become eager (covers start lazy) and high
  * fetch priority, so the first content does not share the network with
- * pictures out of view.
+ * pictures out of view. Every one is tagged `data-first`, so a replacement
+ * keeps its place.
  */
 export function prioritize(covers: readonly Element[]): void {
   for (const el of covers) {
+    el.setAttribute('data-first', '');
     if (el instanceof HTMLImageElement) {
       el.setAttribute('fetchpriority', 'high');
       el.removeAttribute('loading');
     }
   }
+}
+
+/**
+ * Replaces a cover with one `build` makes, keeping its loading state: held
+ * when it was held, first content (prioritized, loaded at once) when it was;
+ * the first content then waits on the new cover instead.
+ */
+export function replaceCover(old: HTMLElement, build: () => HTMLElement): void {
+  const first = old.hasAttribute('data-first');
+  const held = old.dataset['hold'] !== undefined;
+  const next = first || held ? holdMedia(build) : build();
+  if (first) {
+    prioritize([next]);
+    releaseMedia([next]);
+  }
+  old.replaceWith(next);
+  const follow = replacements.get(old);
+  replacements.delete(old);
+  follow?.(next);
 }
 
 // Resolves at the next frame the browser paints (at once where there is none).
@@ -117,22 +228,35 @@ function nextPaint(): Promise<void> {
 }
 
 /**
- * Loads the first content first (NFR-006): `covers`, the first frame's covers
- * in view, load at once with high priority; every other picture held under
- * `root` loads once they have settled, or after {@link HOLD_MAX_MS}. With
- * `markIt`, sets {@link FIRST_CONTENT_MARK} at the next paint after they
- * settle. Resolves when both are done.
+ * Loads one render's first content first (NFR-006): `covers`, its first
+ * frame's covers in view, load at once with high priority; every other
+ * picture held under `container` (that render's own) loads once they have
+ * settled, or after {@link HOLD_MAX_MS}. Then, at the next paint, calls
+ * `onShown` while `container` is still on the page. Aborting `signal` (a new
+ * render, or the element leaving the page) stops it: its timer and listeners
+ * go, nothing more loads and `onShown` is not called. Resolves when done or
+ * aborted.
  */
-export function loadFirstContent(root: ParentNode, covers: readonly Element[], markIt: boolean): Promise<void> {
+export function loadFirstContent(
+  container: Element,
+  covers: readonly Element[],
+  signal: AbortSignal,
+  onShown: () => void,
+): Promise<void> {
   prioritize(covers);
   releaseMedia(covers);
-  const settled = Promise.all(covers.map(coverSettled));
+  const settled = Promise.all(covers.map((cover) => slotSettled(cover, signal)));
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const capped = new Promise<void>((done) => (timer = setTimeout(done, HOLD_MAX_MS)));
+  const capped = new Promise<void>((done) => {
+    timer = setTimeout(done, HOLD_MAX_MS);
+    signal.addEventListener('abort', () => done(), { once: true });
+  });
   const released = Promise.race([settled, capped]).then(() => {
     clearTimeout(timer);
-    releaseMedia(root.querySelectorAll('[data-hold]'));
+    if (!signal.aborted) releaseMedia(container.querySelectorAll('[data-hold]'), true);
   });
-  const marked = markIt ? settled.then(nextPaint).then(() => mark(FIRST_CONTENT_MARK)) : settled;
-  return Promise.all([released, marked]).then(() => undefined);
+  const shown = settled.then(nextPaint).then(() => {
+    if (!signal.aborted && container.isConnected) onShown();
+  });
+  return Promise.all([released, shown]).then(() => undefined);
 }

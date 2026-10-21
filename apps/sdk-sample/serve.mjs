@@ -25,11 +25,22 @@ function within(dir, path) {
 
 createServer(async (req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost');
+  let sdkPath = null;
+  if (pathname.startsWith('/sdk/')) {
+    try {
+      sdkPath = decodeURIComponent(pathname.slice('/sdk/'.length));
+    } catch {
+      // A malformed escape names no file.
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Bad request');
+      return;
+    }
+  }
   const file =
     pathname === '/' || pathname === '/index.html'
       ? join(pageDir, 'index.html')
-      : pathname.startsWith('/sdk/')
-        ? within(sdkDir, decodeURIComponent(pathname.slice('/sdk/'.length)))
+      : sdkPath !== null
+        ? within(sdkDir, sdkPath)
         : null;
   try {
     if (!file) throw Object.assign(new Error('not found'), { code: 'ENOENT' });

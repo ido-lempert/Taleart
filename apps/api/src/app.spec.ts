@@ -29,6 +29,7 @@ import { LocalDiskStorage } from '@taleart/server-storage';
 import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
+import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig } from './app';
 import { createPool, migrate } from './db';
 
@@ -36,7 +37,12 @@ import { createPool, migrate } from './db';
 // point at the development database.
 const testDatabaseUrl =
   process.env['TEST_DATABASE_URL'] ?? 'postgres://taleart:taleart@localhost:5432/taleart_test';
-if (!new URL(testDatabaseUrl).pathname.endsWith('_test')) {
+// Parsed as pg parses it, so `?db=` and socket forms are judged by the database they reach.
+const parsedTestDatabase = parseConnectionString(testDatabaseUrl);
+if (
+  !parsedTestDatabase.database?.endsWith('_test') ||
+  (parsedTestDatabase['db'] !== undefined && !String(parsedTestDatabase['db']).endsWith('_test'))
+) {
   throw new Error('TEST_DATABASE_URL must point at a database whose name ends in _test');
 }
 

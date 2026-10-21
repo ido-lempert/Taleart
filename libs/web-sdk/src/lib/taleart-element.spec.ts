@@ -952,6 +952,88 @@ describe('TaleartElement', () => {
       expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([1, 1]);
     });
 
+    it('marks the zone once even when the render shows nothing (an unknown stage)', async () => {
+      const el = await mount({ 'api-url': API, 'zone-key': KEY, stage: 'nope' });
+      el.setAttribute('zone-key', 'tak_other');
+      await paint();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([1, 0]);
+    });
+
+    describe('with covers in view and a picture that never loads', () => {
+      // Everything laid out in view; the bar's video cover (group Winter) never gets a frame.
+      beforeEach(() => {
+        vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
+          { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0 } as DOMRect,
+        );
+        fetchMock.mockImplementation(async () =>
+          respond(200, {
+            ...zone,
+            frames: [
+              { id: 'f1', type: 'bar', settings: {} },
+              { id: 'f2', type: 'banner', settings: { autoplay: false } },
+            ],
+          }),
+        );
+      });
+
+      afterEach(() => vi.useRealTimers());
+
+      const slideImage = (el: TaleartElement) => el.shadowRoot?.querySelector<HTMLImageElement>('.banner img');
+
+      it("keeps a new render's pictures held past the old render's 3 s; marks only the shown render", async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+        el.setAttribute('api-url', API);
+        el.setAttribute('zone-key', KEY);
+        document.body.appendChild(el);
+        await vi.advanceTimersByTimeAsync(1000);
+        const first = slideImage(el);
+        expect(first?.getAttribute('src')).toBeNull();
+
+        // A new key one second in: the first render is dropped before it showed its covers.
+        el.setAttribute('zone-key', 'tak_other');
+        await vi.advanceTimersByTimeAsync(10);
+        const second = slideImage(el) as HTMLImageElement;
+        expect(second).not.toBe(first);
+        await vi.advanceTimersByTimeAsync(2500);
+        // Past the first render's 3 s: the new render's banner still waits for its own first content.
+        expect(second.getAttribute('src')).toBeNull();
+        expect(first?.getAttribute('src')).toBeNull();
+        expect(marks(FIRST_CONTENT_MARK)).toBe(0);
+
+        const root = el.shadowRoot as ShadowRoot;
+        root.querySelector('.bar img.cover')?.dispatchEvent(new Event('load'));
+        root.querySelector('.bar video.cover')?.dispatchEvent(new Event('loadeddata'));
+        await vi.advanceTimersByTimeAsync(50);
+        // The mark waits for the next animation frame (jsdom's own clock).
+        await new Promise((done) => requestAnimationFrame(() => done(undefined)));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(second.getAttribute('src')).toBe(`${API}/media/tales/a.png`);
+        expect(marks(FIRST_CONTENT_MARK)).toBe(1);
+      });
+
+      it('starts no downloads after the element leaves the page, and marks nothing', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+        el.setAttribute('api-url', API);
+        el.setAttribute('zone-key', KEY);
+        document.body.appendChild(el);
+        await vi.advanceTimersByTimeAsync(10);
+        const slide = slideImage(el) as HTMLImageElement;
+        const root = el.shadowRoot as ShadowRoot;
+        const covers = [...root.querySelectorAll('.bar .cover')];
+        el.remove();
+        for (const cover of covers) {
+          cover.dispatchEvent(new Event('load'));
+          cover.dispatchEvent(new Event('loadeddata'));
+        }
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(slide.getAttribute('src')).toBeNull();
+        expect(marks(FIRST_CONTENT_MARK)).toBe(0);
+      });
+    });
+
     it('marks nothing for a refused key', async () => {
       fetchMock.mockImplementation(async () => respond(401, { error: { code: 'invalid_zone_key', message: 'No' } }));
       await mount();
