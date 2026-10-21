@@ -8,8 +8,13 @@ export const SWIPE_MIN_PX = 50;
 export const HOLD_MIN_MS = 250;
 
 /**
- * Full-screen viewer look. Colours are TaleArt's defaults until the theme
- * story; white on black passes contrast, controls are 44 px targets.
+ * Full-screen viewer look, on black. The project's theme (R9) sets the font
+ * and the accent (progress fill and control icons) through the `--ta-*`
+ * custom properties; without a theme font it keeps `system-ui`. The font is
+ * set on its own, never through the `font` shorthand, so a value the browser
+ * refuses cannot drop the size and line height. TaleArt's default accent is
+ * white, 21:1 on black.
+ * Controls are 44 px targets.
  */
 export const VIEWER_STYLES = `
 .viewer {
@@ -25,7 +30,9 @@ export const VIEWER_STYLES = `
   border: 0;
   background: #000;
   color: #fff;
-  font: 14px/1.4 system-ui, sans-serif;
+  font-family: var(--ta-font, system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.4;
   overflow: hidden;
   overscroll-behavior: contain;
   touch-action: pinch-zoom;
@@ -63,7 +70,7 @@ span.media { background: #1f2937; }
 }
 .segments { display: flex; gap: 4px; }
 .segment { flex: 1; height: 3px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.4); }
-.fill { display: block; height: 100%; background: #fff; transform-origin: left; transform: scaleX(0); }
+.fill { display: block; height: 100%; background: var(--ta-accent, #fff); transform-origin: left; transform: scaleX(0); }
 .done .fill { transform: none; }
 .fill.timed { animation: taleart-fill var(--taleart-duration) linear forwards; }
 .viewer[data-paused] .fill { animation-play-state: paused; }
@@ -96,7 +103,7 @@ span.media { background: #1f2937; }
   border: 0;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);
-  color: #fff;
+  color: var(--ta-accent, #fff);
   cursor: pointer;
   pointer-events: auto;
 }

@@ -278,6 +278,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/theme": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The project's theme (epic web zones R9).
+         * @description One theme per project styles every zone's frames and the viewer. `theme` holds the fields the project sets; `resolved` fills the rest with TaleArt's default theme. Unknown project 404 `project_not_found`.
+         */
+        get: operations["getProjectTheme"];
+        /**
+         * Replace the project's theme.
+         * @description The body replaces the stored theme; a field left out takes TaleArt's default (`{}` resets the theme). A value outside its pattern or range, or an unknown field, answers 400 `invalid_theme` naming the field, and nothing is stored. Low contrast is not refused; the dashboard warns.
+         */
+        put: operations["setProjectTheme"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/tags": {
         parameters: {
             query?: never;
@@ -1180,6 +1206,74 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        /** @description A colour as `#rrggbb`; nothing else is accepted, so no value can inject CSS. */
+        ThemeColor: string;
+        /** @enum {string} */
+        RingStyle: "gradient" | "solid" | "none";
+        /** @description The fields of a theme a project sets (epic web zones R9); a field left out takes TaleArt's default, which keeps the look host pages had before themes: a transparent background, and the title colour, font and corner radius of the host page or the frame (`null`). Validated by `themeSettingsError` in `libs/contract`. */
+        ThemeSettings: {
+            /** @default gradient */
+            ringStyle: components["schemas"]["RingStyle"];
+            /**
+             * @description The unseen ring's colours; a gradient runs through them, `solid` uses the first.
+             * @default [
+             *       "#ea580c",
+             *       "#db2777",
+             *       "#7c3aed"
+             *     ]
+             */
+            ringColors: components["schemas"]["ThemeColor"][];
+            /** @default #6b7280 */
+            seenRingColor: components["schemas"]["ThemeColor"];
+            /**
+             * @description The ring's width in px.
+             * @default 2
+             */
+            ringWidth: number;
+            /**
+             * @description Corner radius in px of rounded-square bar items and banner slides; null keeps the frame's own (a quarter of the item size, 12 px on a banner).
+             * @default null
+             */
+            cornerRadius: number | null;
+            /**
+             * @description A CSS font-family list (the host page loads the font): names of letters, digits, spaces and hyphens, bare (starting with a letter) or quoted, never a CSS-wide keyword or `default`. Null inherits the host page's font.
+             * @default null
+             */
+            fontFamily: string | null;
+            /**
+             * @description Titles and banner dots as `#rrggbb`; null inherits the host page's text colour.
+             * @default null
+             */
+            titleColor: string | null;
+            /**
+             * @description Behind the bar and the banner, as `#rrggbb` or `transparent` (the host page shows through).
+             * @default transparent
+             */
+            backgroundColor: string;
+            /**
+             * @description The viewer's progress and button icons.
+             * @default #ffffff
+             */
+            accentColor: components["schemas"]["ThemeColor"];
+        };
+        /** @description A complete theme, every field present (TaleArt's default where the project sets none); `null` takes the host page's or the frame's own value. */
+        Theme: {
+            ringStyle: components["schemas"]["RingStyle"];
+            ringColors: components["schemas"]["ThemeColor"][];
+            seenRingColor: components["schemas"]["ThemeColor"];
+            ringWidth: number;
+            cornerRadius: number | null;
+            fontFamily: string | null;
+            titleColor: string | null;
+            backgroundColor: string;
+            accentColor: components["schemas"]["ThemeColor"];
+        };
+        ProjectTheme: {
+            /** Format: uuid */
+            projectId: string;
+            theme: components["schemas"]["ThemeSettings"];
+            resolved: components["schemas"]["Theme"];
+        };
         DeliveryFrame: {
             /** Format: uuid */
             id: string;
@@ -1203,6 +1297,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
+            /** @description The zone's project theme (R9), every field filled with TaleArt's default where the project sets none. */
+            theme: components["schemas"]["Theme"];
             frames: components["schemas"]["DeliveryFrame"][];
             /** @description The zone's stages, oldest first (R7). A page that names a stage renders only that stage's frame. */
             stages: components["schemas"]["DeliveryStage"][];
@@ -1443,7 +1539,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -1813,6 +1909,61 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectTaleGroup"][];
                 };
             };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getProjectTheme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's theme. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTheme"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    setProjectTheme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThemeSettings"];
+            };
+        };
+        responses: {
+            /** @description The project's new theme. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTheme"];
+                };
+            };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];
@@ -2994,9 +3145,10 @@ export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components
 export const setStatusRequestStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SetStatusRequest"]["status"]> = ["live", "paused", "archived"];
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];
 export const mediaContentTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaContentType"]> = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm"];
+export const ringStyleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["RingStyle"]> = ["gradient", "solid", "none"];
 export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserRole"]> = ["admin", "content_manager"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale"];
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "internal_error"];

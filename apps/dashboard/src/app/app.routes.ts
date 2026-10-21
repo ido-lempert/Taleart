@@ -7,6 +7,7 @@ import { SetupPage } from './pages/setup';
 import { SignInPage } from './pages/sign-in';
 import { ProjectsPage } from './pages/projects';
 import { TaleGroupsPage } from './pages/tale-groups';
+import { ThemePage } from './pages/theme';
 import { ZoneDetailPage } from './pages/zone-detail';
 import { ZonesPage } from './pages/zones';
 
@@ -75,6 +76,13 @@ export const appRoutes: Route[] = [
         component: ProjectsPage,
         title: 'Projects · TaleArt',
         data: { heading: 'Projects', create: 'project', createLabel: 'New project' } satisfies ShellData,
+      },
+      {
+        // The project's theme, for every zone's bar, banner and viewer (epic web zones R9).
+        path: 'projects/:projectId/theme',
+        component: ThemePage,
+        title: 'Theme · TaleArt',
+        data: { heading: 'Projects' } satisfies ShellData,
       },
       {
         // Admins import a Storyly app into this project.

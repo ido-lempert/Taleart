@@ -155,7 +155,7 @@ deferred: []
 
 **Follow-up review recommended:** false. The security findings are patched and tested.
 
-**Verification:** `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` passed for all 12 projects on the merged result, against `taleart_w3_test` (api 277, dashboard 145, server-importer 118, server-storage 14, fake-storyly 12 tests). The only warning is the dashboard bundle budget warning, which was already there.
+**Verification:** after the security fixes and the merge of `autopilot/foundation` (b736f45, web zones story 8), `NX_DAEMON=false npm exec nx -- run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` passed for all 12 projects against `taleart_w3_test`: api 306, dashboard 187, server-importer 143, server-tales 67, server-storage 16, fake-storyly 12 tests. The only warning is the dashboard bundle budget warning, which was already there.
 
 **Residual risks:**
 - Media URL shape and auth (for example signed URLs that need the token) are unconfirmed until story 3's real run.

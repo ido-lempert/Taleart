@@ -23,6 +23,7 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
+import { DEFAULT_THEME } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
@@ -179,7 +180,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -2770,6 +2771,105 @@ describe('Management API v1: projects and zones', () => {
       expect((await send('GET', `/zones/${b.zone.id}/tale-groups`)).status).toBe(200);
     });
   });
+  describe('project theme (R9)', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    function getTheme(projectId: string): Promise<Response> {
+      return globalThis.fetch(`${base}/projects/${projectId}/theme`, { headers: { Cookie: sessionCookie } });
+    }
+
+    function putTheme(projectId: string, body: unknown): Promise<Response> {
+      return globalThis.fetch(`${base}/projects/${projectId}/theme`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it('reads a project with no theme as the default theme', async () => {
+      const project = await createProject();
+      const res = await getTheme(project.id);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ projectId: project.id, theme: {}, resolved: DEFAULT_THEME });
+    });
+
+    it('stores a theme, answers it resolved, and resets it with {}', async () => {
+      const project = await createProject();
+      const settings = { ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0, fontFamily: 'Georgia, serif' };
+      const saved = await putTheme(project.id, settings);
+      expect(saved.status).toBe(200);
+      const expected = { projectId: project.id, theme: settings, resolved: { ...DEFAULT_THEME, ...settings } };
+      expect(await saved.json()).toEqual(expected);
+      expect(await (await getTheme(project.id)).json()).toEqual(expected);
+      const { rows } = await pool.query('SELECT project_id, theme FROM project_themes');
+      expect(rows).toEqual([{ project_id: project.id, theme: settings }]);
+
+      // A save replaces the theme: fields left out return to the default.
+      expect((await (await putTheme(project.id, { titleColor: '#000000' })).json()).theme).toEqual({ titleColor: '#000000' });
+      const reset = await putTheme(project.id, {});
+      expect(await reset.json()).toEqual({ projectId: project.id, theme: {}, resolved: DEFAULT_THEME });
+    });
+
+    it.each([
+      [{ titleColor: 'red' }, "theme.titleColor must be a colour as #rrggbb, or null for the host page's"],
+      [{ titleColor: '#12345' }, "theme.titleColor must be a colour as #rrggbb, or null for the host page's"],
+      [{ backgroundColor: '#123456;x' }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
+      [{ backgroundColor: null }, 'theme.backgroundColor must be a colour as #rrggbb, or transparent'],
+      [{ accentColor: 'transparent' }, 'theme.accentColor must be a colour as #rrggbb'],
+      [{ fontFamily: 'inherit' }, expect.stringMatching(/^theme\.fontFamily /)],
+      [{ fontFamily: 'Georgia, revert-layer' }, expect.stringMatching(/^theme\.fontFamily /)],
+      [{ fontFamily: '-apple-system' }, expect.stringMatching(/^theme\.fontFamily /)],
+      [{ ringColors: [] }, 'theme.ringColors must hold 1 to 3 colours'],
+      [{ ringColors: ['#000000', '#000000', '#000000', '#000000'] }, 'theme.ringColors must hold 1 to 3 colours'],
+      [{ ringWidth: 5 }, 'theme.ringWidth must be at most 4'],
+      [{ cornerRadius: -1 }, 'theme.cornerRadius must be at least 0'],
+      [{ ringWidth: 2.5 }, 'theme.ringWidth must be a whole number'],
+      [{ ringStyle: 'dots' }, 'theme.ringStyle must be one of: gradient, solid, none'],
+      [{ fontFamily: 'a;}b{' }, expect.stringMatching(/^theme\.fontFamily must be a list of font names/)],
+      [{ fontFamily: 'url(x)' }, expect.stringMatching(/^theme\.fontFamily /)],
+      [{ size: 1 }, 'theme has unknown field "size"'],
+      [['#000000'], 'theme must be an object'],
+    ])('refuses %j with invalid_theme and keeps the stored theme', async (body, message) => {
+      const project = await createProject();
+      await putTheme(project.id, { titleColor: '#000000' });
+      const res = await putTheme(project.id, body);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: { code: 'invalid_theme', message } });
+      expect((await (await getTheme(project.id)).json()).theme).toEqual({ titleColor: '#000000' });
+    });
+
+    it('answers 404 for an unknown project', async () => {
+      for (const id of [unknownId, 'nope']) {
+        for (const res of [await getTheme(id), await putTheme(id, {})]) {
+          expect(res.status).toBe(404);
+          expect((await res.json()).error.code).toBe('project_not_found');
+        }
+      }
+    });
+
+    it("lets a content manager edit their project's theme, and no other", async () => {
+      const own = await createProject('Acme');
+      const other = await createProject('Globex');
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, own.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+
+      expect((await putTheme(own.id, { accentColor: '#ffcc00' })).status).toBe(200);
+      for (const res of [await getTheme(other.id), await putTheme(other.id, { accentColor: '#ffcc00' })]) {
+        expect(res.status).toBe(403);
+        expect((await res.json()).error.code).toBe('forbidden');
+      }
+      expect(await pool.query('SELECT 1 FROM project_themes WHERE project_id = $1', [other.id])).toMatchObject({ rowCount: 0 });
+    });
+
+    it('keeps the theme table through a second migration', async () => {
+      const project = await createProject();
+      await putTheme(project.id, { cornerRadius: 0 });
+      await restart();
+      expect((await (await getTheme(project.id)).json()).theme).toEqual({ cornerRadius: 0 });
+    });
+  });
+
   describe('zone keys and the Delivery API', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
     const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
@@ -2856,6 +2956,8 @@ describe('Management API v1: projects and zones', () => {
       expect(await res.json()).toEqual({
         id: zone.id,
         name: zone.name,
+        // The project sets no theme: TaleArt's default (R9).
+        theme: DEFAULT_THEME,
         // Stored as {}, delivered with every default of the bar schema.
         frames: [
           {
@@ -2935,6 +3037,73 @@ describe('Management API v1: projects and zones', () => {
         { id: listed.id, type: 'bar', settings: defaults },
         { id: banner.id, type: 'banner', settings: { ...bannerDefaults, loop: false } },
       ]);
+    });
+
+    it("delivers the zone's project theme with defaults filled in (R9)", async () => {
+      const zone = await createZone();
+      const { key } = await issue(zone.id);
+      const saved = await globalThis.fetch(`${base}/projects/${zone.projectId}/theme`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+        body: JSON.stringify({ ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0, fontFamily: 'Georgia, serif' }),
+      });
+      expect(saved.status).toBe(200);
+
+      expect((await (await deliver(key)).json()).theme).toEqual({
+        ...DEFAULT_THEME,
+        ringStyle: 'solid',
+        ringColors: ['#0055ff'],
+        cornerRadius: 0,
+        fontFamily: 'Georgia, serif',
+      });
+
+      // Another project's theme never reaches this zone.
+      const other = await createProject('Globex');
+      await globalThis.fetch(`${base}/projects/${other.id}/theme`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+        body: JSON.stringify({ titleColor: '#000000' }),
+      });
+      expect((await (await deliver(key)).json()).theme.titleColor).toBeNull();
+    });
+
+    it('saves a theme with PUT and delivers it resolved: explicit values, host-page nulls and transparent', async () => {
+      const zone = await createZone();
+      const { key } = await issue(zone.id);
+      const put = (body: unknown) =>
+        globalThis.fetch(`${base}/projects/${zone.projectId}/theme`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+          body: JSON.stringify(body),
+        });
+
+      // Nothing set: the look before themes.
+      const before = (await (await deliver(key)).json()).theme;
+      expect(before).toEqual(DEFAULT_THEME);
+      expect(before).toMatchObject({ titleColor: null, fontFamily: null, cornerRadius: null, backgroundColor: 'transparent' });
+
+      const explicit = { titleColor: '#000000', backgroundColor: '#fafafa', fontFamily: 'Georgia, serif', cornerRadius: 4 };
+      expect((await put(explicit)).status).toBe(200);
+      expect((await (await deliver(key)).json()).theme).toEqual({ ...DEFAULT_THEME, ...explicit });
+
+      // Back to the host page's values, explicitly.
+      const host = { titleColor: null, backgroundColor: 'transparent', fontFamily: null, cornerRadius: null };
+      const saved = await put(host);
+      expect(saved.status).toBe(200);
+      expect((await saved.json()).theme).toEqual(host);
+      expect((await (await deliver(key)).json()).theme).toEqual(DEFAULT_THEME);
+    });
+
+    it('delivers only valid theme fields when the stored row is invalid', async () => {
+      const zone = await createZone();
+      const { key } = await issue(zone.id);
+      // Written by hand, past the API's validation.
+      await pool.query('INSERT INTO project_themes (project_id, theme) VALUES ($1, $2)', [
+        zone.projectId,
+        JSON.stringify({ titleColor: 'red;}</style>', ringWidth: 9, fontFamily: 'a{b}', cornerRadius: 4, stray: 1 }),
+      ]);
+      const { theme } = await (await deliver(key)).json();
+      expect(theme).toEqual({ ...DEFAULT_THEME, cornerRadius: 4 });
     });
 
     it("delivers the zone's stages, key and frame only, oldest first, and drops deleted ones", async () => {
