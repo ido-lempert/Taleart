@@ -309,6 +309,15 @@ describe('Management API v1: projects and zones', () => {
         alignment: expect.objectContaining({ title: 'Alignment', enum: ['start', 'center'], default: 'start' }),
         gap: expect.objectContaining({ title: 'Gap', type: 'integer', minimum: 4, maximum: 24, default: 12 }),
       });
+      const banner = types.find((t: { key: string }) => t.key === 'banner');
+      expect(banner.schema.additionalProperties).toBe(false);
+      expect(banner.schema.properties).toEqual({
+        aspectRatio: expect.objectContaining({ title: 'Aspect ratio', enum: ['16:9', '3:1', '1:1'], default: '16:9' }),
+        autoplay: expect.objectContaining({ title: 'Autoplay', type: 'boolean', default: true }),
+        intervalSeconds: expect.objectContaining({ title: 'Interval', type: 'integer', minimum: 3, maximum: 15, default: 5 }),
+        showDots: expect.objectContaining({ title: 'Show dots', type: 'boolean', default: true }),
+        loop: expect.objectContaining({ title: 'Loop', type: 'boolean', default: true }),
+      });
     });
 
     it('adds a bar frame to a zone, copying the zone project', async () => {
@@ -516,6 +525,42 @@ describe('Management API v1: projects and zones', () => {
         }
         const [untouched] = await (await fetch(`${base}/zones/${other.zone.id}/frames`)).json();
         expect(untouched.settings).toEqual({});
+      });
+
+      describe('banner', () => {
+        const bannerEdited = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 3, showDots: false, loop: false };
+
+        async function bannerFrame(): Promise<{ zone: { id: string }; frame: { id: string } }> {
+          const zone = await createZone();
+          const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+          return { zone, frame };
+        }
+
+        it('replaces a banner frame settings and keeps them', async () => {
+          const { zone, frame } = await bannerFrame();
+          const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: bannerEdited });
+          expect(res.status).toBe(200);
+          expect(await res.json()).toEqual({ ...frame, settings: bannerEdited });
+          expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([{ ...frame, settings: bannerEdited }]);
+        });
+
+        it.each([
+          [{ intervalSeconds: 2 }, 'settings.intervalSeconds must be at least 3'],
+          [{ intervalSeconds: 16 }, 'settings.intervalSeconds must be at most 15'],
+          [{ intervalSeconds: 4.5 }, 'settings.intervalSeconds must be integer'],
+          [{ aspectRatio: '4:3' }, 'settings.aspectRatio must be one of: 16:9, 3:1, 1:1'],
+          [{ autoplay: 'yes' }, 'settings.autoplay must be boolean'],
+          [{ speed: 1 }, 'settings has unknown property "speed"'],
+        ])('refuses %j with invalid_frame_settings and stores nothing', async (settings, message) => {
+          const { zone, frame } = await bannerFrame();
+          await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: bannerEdited });
+
+          const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: { ...bannerEdited, ...settings } });
+          expect(res.status).toBe(400);
+          expect(await res.json()).toEqual({ error: { code: 'invalid_frame_settings', message } });
+          const [stored] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
+          expect(stored.settings).toEqual(bannerEdited);
+        });
       });
     });
   });
@@ -2117,6 +2162,7 @@ describe('Management API v1: projects and zones', () => {
   });
   describe('zone keys and the Delivery API', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
+    const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
 
     function send(method: string, path: string, cookie = sessionCookie): Promise<Response> {
       return globalThis.fetch(`${base}${path}`, { method, headers: { Cookie: cookie } });
@@ -2231,7 +2277,25 @@ describe('Management API v1: projects and zones', () => {
           type: 'bar',
           settings: { shape: 'rounded-square', size: 'medium', showTitles: false, alignment: 'start', gap: 20 },
         },
-        { id: banner.id, type: 'banner', settings: {} },
+        // Stored as {}, delivered with every default of the banner schema.
+        { id: banner.id, type: 'banner', settings: bannerDefaults },
+      ]);
+    });
+
+    it('delivers a banner frame with its saved settings over the defaults', async () => {
+      const zone = await createZone();
+      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+      const saved = await globalThis.fetch(`${base}/zones/${zone.id}/frames/${banner.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
+        body: JSON.stringify({ settings: { aspectRatio: '3:1', intervalSeconds: 3, showDots: false } }),
+      });
+      expect(saved.status).toBe(200);
+      const { key } = await issue(zone.id);
+
+      const { frames } = await (await deliver(key)).json();
+      expect(frames).toEqual([
+        { id: banner.id, type: 'banner', settings: { ...bannerDefaults, aspectRatio: '3:1', intervalSeconds: 3, showDots: false } },
       ]);
     });
 
@@ -2246,7 +2310,10 @@ describe('Management API v1: projects and zones', () => {
         JSON.stringify({ gap: 40, shape: 'star', size: 'large', color: 'red' }),
       ]);
       await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [listed.id, JSON.stringify(['x'])]);
-      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [banner.id, JSON.stringify({ stray: 1 })]);
+      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [
+        banner.id,
+        JSON.stringify({ stray: 1, intervalSeconds: 40, aspectRatio: '</style>', loop: false }),
+      ]);
       const { key } = await issue(zone.id);
 
       const res = await deliver(key);
@@ -2255,7 +2322,7 @@ describe('Management API v1: projects and zones', () => {
       expect((await res.json()).frames).toEqual([
         { id: bar.id, type: 'bar', settings: { ...defaults, size: 'large' } },
         { id: listed.id, type: 'bar', settings: defaults },
-        { id: banner.id, type: 'banner', settings: {} },
+        { id: banner.id, type: 'banner', settings: { ...bannerDefaults, loop: false } },
       ]);
     });
 
