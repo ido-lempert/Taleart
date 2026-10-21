@@ -1,7 +1,7 @@
 import type { BannerSettings, DeliveryTaleGroup } from '@taleart/contract';
 import { coverMedia } from './bar';
 import { coverSettled } from './first-content';
-import { setIcon, SWIPE_MIN_PX } from './viewer';
+import { isRtl, setIcon, SWIPE_MIN_PX } from './viewer';
 
 /** The frame type this renderer draws (AD-5). */
 export const BANNER_FRAME_TYPE = 'banner';
@@ -117,8 +117,10 @@ span.b-media { background: #e5e7eb; }
 .b-btn:focus-visible { outline: 3px solid #111827; outline-offset: 1px; box-shadow: 0 0 0 5px #fff; }
 .b-btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
 .b-prev, .b-next { top: 50%; margin-top: -22px; }
-.b-prev { left: 8px; }
-.b-next { right: 8px; }
+.b-prev { inset-inline-start: 8px; }
+.b-next { inset-inline-end: 8px; }
+/* Right to left, previous sits on the right and the chevrons point the other way. */
+.b-prev:dir(rtl) svg, .b-next:dir(rtl) svg { transform: scaleX(-1); }
 .b-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px; }
 .b-row .b-rotate { position: static; flex: none; }
 .b-dots { display: flex; justify-content: center; flex-wrap: wrap; }
@@ -130,6 +132,7 @@ span.b-media { background: #e5e7eb; }
   padding: 0;
   border: 0;
   background: none;
+  color: inherit;
   cursor: pointer;
 }
 .b-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
@@ -141,9 +144,14 @@ span.b-media { background: #e5e7eb; }
   border: 2px solid var(--ta-title);
   background: none;
 }
+/* The shown slide's dot takes the theme title colour, else the host page's text colour, so it shows on a dark page too. */
 .b-dot[aria-current="true"]::before,
-.taleart[data-title] .b-dot[aria-current="true"]::before { width: 12px; height: 12px; background: var(--ta-title, #111827); }
+.taleart[data-title] .b-dot[aria-current="true"]::before { width: 12px; height: 12px; background: var(--ta-title, currentColor); }
 .b-dot:focus-visible { outline: 2px solid #111827; outline-offset: -2px; box-shadow: inset 0 0 0 4px #fff; border-radius: 50%; }
+@media (forced-colors: active) {
+  .b-dot::before, .taleart[data-title] .b-dot::before { forced-color-adjust: none; background: GrayText; border: 0; }
+  .b-dot[aria-current="true"]::before, .taleart[data-title] .b-dot[aria-current="true"]::before { background: CanvasText; }
+}
 `;
 
 const ICONS = {
@@ -290,7 +298,8 @@ export function renderBanner(
     warm(index);
     const neighbours = [stepTo(1), stepTo(-1)];
     void settledSlide(index).then(() => neighbours.forEach(warm));
-    track.style.transform = `translateX(${-100 * index}%)`;
+    // Right to left, the slides run leftwards from the first, so the track moves right.
+    track.style.transform = `translateX(${(isRtl(root) ? 100 : -100) * index}%)`;
     slideEls.forEach((slide, n) => {
       const hidden = n !== index;
       slide.toggleAttribute('inert', hidden);
@@ -379,7 +388,8 @@ export function renderBanner(
     if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
       // The click that may follow this pointerup comes at once; a later one is a new tap.
       swipedUntil = Date.now() + SWIPE_CLICK_WINDOW_MS;
-      step(dx < 0 ? 1 : -1);
+      // A swipe toward the start of the line (left, or right in right-to-left) shows the next slide.
+      step((dx < 0) !== isRtl(root) ? 1 : -1);
     }
   });
   viewport.addEventListener('pointercancel', () => (press = null));

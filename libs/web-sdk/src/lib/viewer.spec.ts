@@ -1,5 +1,5 @@
 import type { DeliveryTale, DeliveryTaleGroup } from '@taleart/contract';
-import { HOLD_MIN_MS, IMAGE_DURATION_MS, TaleViewer } from './viewer';
+import { HOLD_MIN_MS, IMAGE_DURATION_MS, TaleViewer, VIEWER_STYLES } from './viewer';
 
 const API = 'https://api.example.com';
 
@@ -222,6 +222,69 @@ describe('TaleViewer', () => {
     expect(pause.getAttribute('aria-label')).toBe('Pause');
     vi.advanceTimersByTime(IMAGE_DURATION_MS - 2000);
     expect(position()).toBe('B, tale 2 of 2');
+  });
+
+  it('leaves Space on the focused Close button to the button, which closes', () => {
+    viewer.open('gb');
+    const close = q<HTMLButtonElement>('.control.close');
+    close.focus();
+    const down = key(' ');
+    expect(down.defaultPrevented).toBe(false);
+    expect(dialog()?.hasAttribute('data-paused')).toBe(false);
+    const up = new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true });
+    close.dispatchEvent(up);
+    expect(up.defaultPrevented).toBe(false);
+    // The browser then clicks the button.
+    close.click();
+    expect(dialog()?.hasAttribute('open')).toBe(false);
+  });
+
+  it('gives the group name its own direction, and the Close button an edge for forced colours', () => {
+    viewer.open('gb');
+    expect(q('.name').getAttribute('dir')).toBe('auto');
+    expect(VIEWER_STYLES).toContain('border: 1px solid transparent;');
+    expect(VIEWER_STYLES).toMatch(/@media \(forced-colors: active\) \{[^}]*\.segment \{ forced-color-adjust: none; background: GrayText; \}/);
+  });
+
+  describe('on a right-to-left page', () => {
+    let spy: ReturnType<typeof vi.spyOn> | undefined;
+    afterEach(() => spy?.mockRestore());
+    beforeEach(() => {
+      const real = window.getComputedStyle.bind(window);
+      spy = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+        const style = real(el, pseudo);
+        return el instanceof HTMLDialogElement ? ({ ...style, direction: 'rtl' } as CSSStyleDeclaration) : style;
+      });
+    });
+
+    it('marks the viewer right to left and mirrors the arrow keys', () => {
+      viewer.open('gb');
+      expect(dialog()?.hasAttribute('data-rtl')).toBe(true);
+      key('ArrowLeft');
+      expect(position()).toBe('B, tale 2 of 2');
+      key('ArrowRight');
+      expect(position()).toBe('B, tale 1 of 2');
+    });
+
+    it('mirrors swipes: toward the right shows the next group', () => {
+      viewer.open('gb');
+      pointer('pointerdown', 100);
+      pointer('pointerup', 200);
+      expect(position()).toBe('C, tale 1 of 2');
+      pointer('pointerdown', 300);
+      pointer('pointerup', 200);
+      expect(position()).toBe('B, tale 1 of 2');
+    });
+
+    it('mirrors a tap that lands on the stage: the right third steps back', () => {
+      viewer.open('gb');
+      key('ArrowLeft');
+      vi.spyOn(q('.stage'), 'getBoundingClientRect').mockReturnValue({ left: 0, right: 300, width: 300, top: 0, bottom: 600, height: 600 } as DOMRect);
+      q('.stage').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, clientX: 280 }));
+      expect(position()).toBe('B, tale 1 of 2');
+      q('.stage').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, clientX: 20 }));
+      expect(position()).toBe('B, tale 2 of 2');
+    });
   });
 
   it('pauses and resumes with the Pause button, and stays paused on the next tale', () => {

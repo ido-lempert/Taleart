@@ -10,18 +10,10 @@
 // key renders nothing and logs a warning.
 // Then playbooks (R8): a zone shaped like each applied MVP playbook renders its preset frame by stage key.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
-//
-// axe-core is not a workspace dependency yet: a pinned build is fetched from cdnjs and checked
-// against its SHA-384 before it is injected.
-import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createServer } from 'node:net';
-import { resolve } from 'node:path';
+// The deeper accessibility review (keyboard walk, zoom, forced colours, RTL…) is a11y-review.mjs.
 import { chromium } from 'playwright';
+import { axeViolations, freePort, loadAxe, startSample } from './a11y-shared.mjs';
 
-const AXE_URL = 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js';
-const AXE_SHA384 = '3NYxCdpLKVHfNs2FHPtg3qqaYuhq85m4mMnlHBlN0JzSpKYKct2PMGYfsKGaKIj4';
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const API = 'http://taleart-api.test';
 
 // A grey 9:16 SVG, served for every media URL.
@@ -89,52 +81,8 @@ const ZONE = {
   ],
 };
 
-async function freePort() {
-  return new Promise((done, fail) => {
-    const server = createServer();
-    server.once('error', fail);
-    server.listen(0, () => {
-      const { port } = server.address();
-      server.close(() => done(port));
-    });
-  });
-}
-
-async function loadAxe() {
-  const res = await fetch(AXE_URL);
-  if (!res.ok) throw new Error(`Could not fetch axe-core: ${res.status}`);
-  const source = Buffer.from(await res.arrayBuffer());
-  const hash = createHash('sha384').update(source).digest('base64');
-  if (hash !== AXE_SHA384) throw new Error(`axe-core at ${AXE_URL} does not match its pinned SHA-384`);
-  return source.toString('utf8');
-}
-
-async function startSample(port) {
-  const child = spawn(process.execPath, [resolve(import.meta.dirname, 'serve.mjs')], {
-    env: { ...process.env, PORT: String(port) },
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
-  await new Promise((done, fail) => {
-    child.once('exit', (code) => fail(new Error(`sample server exited with ${code}`)));
-    child.stdout.on('data', (chunk) => {
-      if (String(chunk).includes('SDK sample at')) done();
-    });
-  });
-  return child;
-}
-
 async function scan(page, label, axe) {
-  await page.addScriptTag({ content: axe });
-  const result = await page.evaluate(
-    (tags) => window.axe.run(document, { runOnly: { type: 'tag', values: tags } }),
-    TAGS,
-  );
-  for (const v of result.violations) {
-    console.error(`[${label}] ${v.id} (${v.impact}): ${v.help}`);
-    for (const node of v.nodes) console.error(`    ${node.target.join(' ')} — ${node.failureSummary}`);
-  }
-  console.log(`[${label}] ${result.violations.length} violations, ${result.passes.length} rules passed`);
-  return result.violations.length;
+  return (await axeViolations(page, label, axe)).length;
 }
 
 function check(ok, message) {

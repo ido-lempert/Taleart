@@ -1,6 +1,14 @@
 import type { DeliveryFrame, DeliveryZone, Theme } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
-import { applyCoverMotion, BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
+import {
+  applyCoverMotion,
+  BAR_FRAME_TYPE,
+  BAR_STYLES,
+  COVER_MOTION_MS,
+  prefersReducedMotion,
+  renderBar,
+  setItemSeen,
+} from './bar';
 import { fetchZone } from './delivery-client';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import { markGroupSeen, seenGroupIds } from './seen';
@@ -88,7 +96,12 @@ export class TaleartElement extends HTMLElement {
   private openerFrameId: string | null = null;
   // The visitor's reduced-motion setting, watched while connected so animated covers follow it (R11, R12).
   private motionQuery: MediaQueryList | null = null;
-  private readonly onMotionChange = (event: MediaQueryListEvent): void => applyCoverMotion(this.root, event.matches);
+  private readonly onMotionChange = (event: MediaQueryListEvent): void => {
+    applyCoverMotion(this.root, event.matches);
+    this.limitCoverMotion();
+  };
+  // Stops animated covers COVER_MOTION_MS after they start moving (WCAG 2.2.2).
+  private coverTimer: ReturnType<typeof setTimeout> | undefined;
   // This element's checked, frozen theme override, and the rendered wrapper with the zone key
   // it was loaded with and the theme the Delivery API sent.
   private themeOverride: Readonly<Partial<Theme>> = Object.freeze({});
@@ -210,8 +223,21 @@ export class TaleartElement extends HTMLElement {
     this.destroyViews();
   }
 
+  // Animated covers that move (no reduced motion) stop on their first frame after COVER_MOTION_MS.
+  private limitCoverMotion(): void {
+    clearTimeout(this.coverTimer);
+    this.coverTimer = undefined;
+    if (prefersReducedMotion() || !this.root.querySelector('.cover[data-animated]')) return;
+    this.coverTimer = setTimeout(() => {
+      this.coverTimer = undefined;
+      applyCoverMotion(this.root, true);
+    }, COVER_MOTION_MS);
+  }
+
   // Stops the current render's first-content work: its timer, listeners, releases and mark.
   private stopFirstContent(): void {
+    clearTimeout(this.coverTimer);
+    this.coverTimer = undefined;
     this.renderAbort?.abort();
     this.renderAbort = null;
   }
@@ -369,6 +395,7 @@ export class TaleartElement extends HTMLElement {
     this.viewer = viewer;
     themed.replaceChildren(...views.map((view) => view.element));
     this.root.replaceChildren(style, themed);
+    this.limitCoverMotion();
     // The first frame's covers in view load first, then the rest of this render's pictures; the
     // first zone content this element shows is marked once, when it is on the page (NFR-006).
     const abort = new AbortController();

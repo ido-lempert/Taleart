@@ -16,6 +16,8 @@ export function renderText(element: DeliveryTaleElement): HTMLElement | null {
   if (text === '') return null;
   const node = document.createElement('p');
   node.className = 'ta-el ta-text';
+  // Its direction from its own first strong character, so a Hebrew line reads right to left on any page.
+  node.dir = 'auto';
   const glyphs = document.createElement('span');
   glyphs.className = 'ta-glyphs';
   glyphs.textContent = text;
