@@ -916,6 +916,7 @@ describe('App', () => {
       await openDrawer(fixture, root);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Apply playbook');
       expect(drawer()?.textContent).toContain('In zone Home bar');
+      expect(drawer()?.querySelector('fieldset')?.hasAttribute('aria-describedby')).toBe(false);
       expect(radios().map((r) => [r.value, r.checked])).toEqual([
         ['home-stories-bar', true],
         ['promo-banner', false],
@@ -941,6 +942,9 @@ describe('App', () => {
       expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
       buttonNamed(drawer() as HTMLElement, 'Cancel').click();
       await settle(fixture);
+      // Cancelling returns focus to the button that opened the drawer.
+      expect(drawer()).toBeNull();
+      expect(document.activeElement).toBe(buttonNamed(section(root), 'Apply playbook'));
     });
 
     it('applies a playbook: the zone gets its frame and stage, and focus moves to the Playbook heading', async () => {
@@ -959,9 +963,10 @@ describe('App', () => {
         stages: [presetStage],
       });
       await settle(fixture);
-      await settle(fixture);
 
+      // Focus moves to the heading as the drawer goes, since the Apply playbook button is gone.
       expect(drawer()).toBeNull();
+      expect(document.activeElement?.id).toBe('playbook-title');
       expect(store.zone('z1')?.playbookKey).toBe('home-stories-bar');
       expect(store.framesOf('z1')).toEqual([frameBar, presetBar]);
       expect(store.stagesOf('z1')).toEqual([presetStage]);
@@ -999,13 +1004,17 @@ describe('App', () => {
       expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
       radios()[1].click();
       await settle(fixture);
-      expect(drawer()?.querySelector('#playbook-conflict')?.textContent).toContain(
-        'already has a stage with the key promo-banner',
-      );
+      const conflict = drawer()?.querySelector('#playbook-conflict');
+      expect(conflict?.textContent).toContain('already has a stage with the key promo-banner');
+      expect(conflict?.getAttribute('role')).toBe('alert');
+      const fieldset = drawer()?.querySelector('fieldset');
+      expect(fieldset?.getAttribute('aria-describedby')).toBe('playbook-conflict');
       buttonNamed(drawer() as HTMLElement, 'Apply').click();
       await settle(fixture);
       http.expectNone(`${API_BASE}/zones/z1/playbook`);
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Delete that stage first');
+      expect(drawer()?.querySelectorAll('[role=alert]')).toHaveLength(1);
+      expect(fieldset?.getAttribute('aria-describedby')).toBe('create-error');
     });
 
     it("shows the API's message in the drawer", async () => {

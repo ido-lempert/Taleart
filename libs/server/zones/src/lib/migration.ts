@@ -59,6 +59,11 @@ export async function migrateZones(db: Db): Promise<void> {
   // playbook registry in libs/contract; a playbook is registry data, not a table.
   await db.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS playbook_key text');
 
+  // Rows created in one transaction (a playbook's frames and stages) keep their
+  // creation order: now() is the transaction's start time, clock_timestamp() is not.
+  await db.query('ALTER TABLE frames ALTER COLUMN created_at SET DEFAULT clock_timestamp()');
+  await db.query('ALTER TABLE stages ALTER COLUMN created_at SET DEFAULT clock_timestamp()');
+
   // One theme per project (epic web zones R9, AD-4): only the fields the
   // project sets, as JSONB; readers fill the rest from TaleArt's default theme.
   await db.query(`

@@ -4,10 +4,7 @@
 import type { BannerSettings, BarSettings } from '../index';
 
 /** One frame a playbook creates: its frame type, its settings, and the stage that shows it. */
-export type PlaybookFrame = (
-  | { type: 'bar'; settings: BarSettings }
-  | { type: 'banner'; settings: BannerSettings }
-) & {
+export type PlaybookFrame = ({ type: 'bar'; settings: BarSettings } | { type: 'banner'; settings: BannerSettings }) & {
   /** The stage created for the frame; its key must be free in the zone. */
   stage: { key: string; name: string };
 };

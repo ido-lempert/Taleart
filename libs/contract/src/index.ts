@@ -458,6 +458,7 @@ export const ErrorCodes = {
   stageKeyTaken: 'stage_key_taken',
   unknownPlaybook: 'unknown_playbook',
   playbookAlreadyApplied: 'playbook_already_applied',
+  concurrentChange: 'concurrent_change',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

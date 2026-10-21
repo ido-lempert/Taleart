@@ -3,7 +3,7 @@ title: 'Apply a playbook to a zone'
 type: 'feature'
 ticket: '10'
 created: '2026-10-21'
-status: 'in-review'
+status: 'built'
 baseline_revision: 'ad0bf8a9aba7ccb6f5faeb7edce79d162536ad46'
 route: 'full'
 route_source: 'auto'
@@ -92,15 +92,25 @@ deferred: []
 - Assumptions (the epic leaves these open; recorded for review, none blocked the build): a zone records one playbook, so applying a different playbook to a zone that has one is refused (409 `playbook_already_applied`) rather than replacing or adding to it, and there is no "remove playbook"; the dashboard hides Apply playbook once a zone has one. A playbook may be applied to a zone that already has frames and stages (R8's verify uses an empty zone, nothing forbids others): its frames come after the existing ones. Idempotency is by the recorded key: re-applying the zone's own playbook creates nothing even if its frames or stages were deleted since. A preset stage key the zone already uses refuses the whole apply (409 `stage_key_taken`) instead of renaming the key, since host pages name stages by key. Preset stage keys equal the playbook keys (`home-stories-bar`, `promo-banner`) and stage names equal the labels; goal texts are my wording. Settings are stored in full (every field explicit), not as defaults. The registry is typed TypeScript data in `libs/contract` (like the theme field definitions), not a JSON file loaded at start: playbooks need no schema compilation, and both the API and the dashboard import it, so no `GET /playbooks` route was added.
 - Contract: `Zone.playbookKey` (required, nullable), `ApplyPlaybookRequest`, `AppliedPlaybook { applied, zone, frames, stages }`, `PUT /zones/{zoneId}/playbook`, error codes `unknown_playbook` (400) and `playbook_already_applied` (409); `PLAYBOOKS`, `findPlaybook`, `Playbook`, `PlaybookFrame` in `src/lib/playbooks.ts`. Regenerated with `contract:generate`.
 - Zones module: `zones.playbook_key` via `ADD COLUMN IF NOT EXISTS`; zone reads share `ZONE_COLUMNS`; `applyPlaybook(db, registry, { zoneId, key })` checks zone (404), key (400), registry (400) before the transaction, then locks the zone row `FOR UPDATE`, compares the recorded key, checks every preset stage key, creates frames and stages through `createFrame`/`createStage` on the transaction connection, and records the key. Errors `PlaybookKeyRequiredError`, `UnknownPlaybookError`, `PlaybookAlreadyAppliedError`. A unit test checks every preset against the shipped frame-type registry.
-- Frames created in one transaction share `created_at` (`now()` is the transaction time), so with several frames per playbook their order would fall to the id tie-break; both MVP presets have one frame. A future multi-frame playbook needs an explicit order.
+- Frame and stage order (review fix): `frames.created_at` and `stages.created_at` now default to `clock_timestamp()` rather than `now()`, which is the transaction start, so rows created in one transaction keep their creation order and a playbook with several frames keeps its order. An integration test applies a 3-frame test preset (`applyPlaybook` takes an optional registry for tests).
 - API: route behind `authorizeParam(pool, 'zone', 'zoneId')` like every zone edit; errors mapped in `errors.ts`. Integration tests cover each API matrix row, including two concurrent applies and a content manager editing the preset frame. Existing zone shape assertions gained `playbookKey: null`.
-- Dashboard: Playbook section first on the zone page (applied label and goal, or "No playbook yet" and Apply playbook); drawer `applyPlaybook` with radios (goal as description), a preview of each frame's settings labelled from the frame-type schema (`describeSettings` in `settings-form.ts`) and its stage name and key, and a conflict warning (other playbook, stage key in use) that also refuses Apply without a request. After applying, the store adds only what the API created, and focus moves to the Playbook heading since the opener is gone.
+- Dashboard: Playbook section first on the zone page (applied label and goal, or "No playbook yet" and Apply playbook); drawer `applyPlaybook` with radios (goal as description), a preview of each frame's settings labelled from the frame-type schema (`describeSettings` in `settings-form.ts`) and its stage name and key, and a conflict warning (other playbook, stage key in use) that also refuses Apply without a request. After applying, the store adds only what the API created, and focus returns to the Playbook heading, since the opener is gone. The drawer's `returnFocus` now also accepts a function that is read when the drawer is removed.
 - Merged `autopilot/foundation` at 7081607 (web zones story 9, SDK theme override) by fast-forward before committing; no file overlapped this story.
 - No SDK, Delivery or sample page change: the created stages render through story 7's `stage` attribute (`?stages=home-stories-bar`).
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+### 2026-10-21 — Coordinator review
+- verdicts: 5 findings, all patched.
+- findings:
+  - `[patch]` An apply racing a manual stage create could deadlock: the zone row lock is now `FOR NO KEY UPDATE`, so the foreign-key key-share locks of concurrent inserts do not wait on it. A deadlock or serialization failure (`40P01`, `40001`) reruns the apply once; a second failure answers 409 `concurrent_change` (new error code in the contract), never 500. Tests: unit tests for retry, give-up and no retry of other errors, and an integration test racing an apply with `POST /stages` of the same key over 8 rounds (one success and one 409 `stage_key_taken`, nothing half written).
+  - `[patch]` The conflict warning was not announced: `#playbook-conflict` has `role="alert"`, and the playbook fieldset's `aria-describedby` names it, or `create-error` once the refusal shows (the `placeTaleGroup` pattern). Component test.
+  - `[patch]` Focus after apply depended on a `setTimeout`: the drawer now takes a return-focus function, and a successful apply points it at the Playbook heading before closing. Tests: focus is on the heading as soon as the drawer is gone, and Cancel returns focus to Apply playbook.
+  - `[patch]` A playbook with several frames could lose its order (shared `created_at`): rows now default to `clock_timestamp()`. Tests: a unit test of insert order and an integration test with a 3-frame test preset read back through the API.
+  - `[patch]` No sample-page check of applied playbooks: `a11y-scan.mjs` renders a stubbed zone shaped like each applied MVP playbook, next to a frame the zone already had, by its stage key. It checks the preset look (bar: circle, start, gap 12, titles; banner: 3:1 with dots), checks there are no console errors or warnings, and runs an axe scan of each.
+- Merged `autopilot/foundation` (still 7081607, already included). Reran: `run-many -t lint test build` for the 12 projects passed (api 321, dashboard 200, web-sdk 217, server-zones 65, contract 94); `web-sdk:size` 11.08 KB gzipped; `sdk-sample:a11y` 0 violations, all checks ok.
 
 ## Verification
 
@@ -125,6 +135,5 @@ deferred: []
 - `nx run sdk-sample:a11y` -- 0 violations, all checks ok.
 
 **Residual risks:**
-- Not reviewed yet. The dashboard flow is covered by unit tests with a stubbed API, not a signed-in browser run against a live API. Applied playbooks were not rendered on the sample page end to end; that path is story 7's `stage` attribute and is covered by integration tests up to the Delivery response.
+- Reviewed by the coordinator; 5 findings patched (see Review Triage Log). The dashboard flow is covered by unit tests with a stubbed API, and the sample page by a stubbed Delivery response. The live end-to-end check in a real browser is planned for merge.
 - The product choices recorded under Implementation Notes await confirmation: one playbook per zone, a refusal rather than a replacement, preset stage keys, and idempotency by the recorded key even after the frames are deleted.
-- A playbook with several frames would need an explicit frame order, because frames created in one transaction share `created_at`.

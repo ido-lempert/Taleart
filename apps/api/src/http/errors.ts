@@ -6,6 +6,7 @@ import {
   InvalidStageError,
   InvalidThemeError,
   PlaybookAlreadyAppliedError,
+  PlaybookConcurrentChangeError,
   PlaybookKeyRequiredError,
   ProjectNotFoundError,
   StageFrameNotFoundError,
@@ -87,6 +88,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof TagExistsError ||
     err instanceof StageKeyTakenError ||
     err instanceof PlaybookAlreadyAppliedError ||
+    err instanceof PlaybookConcurrentChangeError ||
     err instanceof InvalidStatusTransitionError
   ) {
     res.status(409).json(errorBody(err.code, err.message));

@@ -23,9 +23,9 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
-import { DEFAULT_THEME } from '@taleart/contract';
+import { DEFAULT_THEME, PLAYBOOKS, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
-import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
+import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { createApp, type ImporterConfig } from './app';
 import { createPool, migrate } from './db';
@@ -876,6 +876,51 @@ describe('Management API v1: projects and zones', () => {
       const bodies = await Promise.all(results.map((r) => r.json()));
       expect(bodies.map((b) => b.applied).sort()).toEqual([false, true]);
       expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+    });
+
+    it('never fails with 500 when an apply races a manual stage with the same key', async () => {
+      for (let round = 0; round < 8; round++) {
+        const zone = await createZone();
+        const own = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+        const [applied, manual] = await Promise.all([
+          apply(zone.id, { key: 'promo-banner' }),
+          post(`/zones/${zone.id}/stages`, { name: 'Mine', key: 'promo-banner', frameId: own.id }),
+        ]);
+        // Exactly one of them gets the key; the other is refused with stage_key_taken.
+        expect([
+          [200, 409],
+          [409, 201],
+        ]).toContainEqual([applied.status, manual.status]);
+        const refused = applied.status === 409 ? applied : manual;
+        expect((await refused.json()).error.code).toBe('stage_key_taken');
+        const { rows } = await pool.query('SELECT key FROM stages WHERE zone_id = $1', [zone.id]);
+        expect(rows).toEqual([{ key: 'promo-banner' }]);
+        // A refused apply leaves no frame and no key behind.
+        expect(await counts(zone.id)).toEqual({ frames: applied.status === 200 ? 2 : 1, stages: 1 });
+        expect((await zoneListed(zone.id)).playbookKey).toBe(applied.status === 200 ? 'promo-banner' : null);
+      }
+    });
+
+    it("keeps a playbook's frame and stage order in the database", async () => {
+      const zone = await createZone();
+      const [bar, banner] = [PLAYBOOKS[0].frames[0], PLAYBOOKS[1].frames[0]];
+      const three: Playbook = {
+        key: 'three',
+        label: 'Three',
+        goal: 'Test',
+        frames: [
+          { ...banner, stage: { key: 'one', name: 'One' } },
+          { ...bar, stage: { key: 'two', name: 'Two' } },
+          { ...banner, stage: { key: 'three', name: 'Three' } },
+        ],
+      };
+      const registry = loadFrameTypeRegistry(frameTypesDir);
+      const result = await applyPlaybook(pool, registry, { zoneId: zone.id, key: 'three' }, [three]);
+      const frames: { id: string; type: string }[] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
+      expect(frames.map((f) => f.id)).toEqual(result.frames.map((f) => f.id));
+      expect(frames.map((f) => f.type)).toEqual(['banner', 'bar', 'banner']);
+      const stages: { key: string }[] = await (await fetch(`${base}/zones/${zone.id}/stages`)).json();
+      expect(stages.map((s) => s.key)).toEqual(['one', 'two', 'three']);
     });
 
     it('refuses another playbook on a zone that has one, writing nothing', async () => {

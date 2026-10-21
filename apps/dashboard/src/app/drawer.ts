@@ -45,7 +45,11 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 })
 export class Drawer implements OnDestroy {
   readonly heading = input.required<string>();
-  readonly returnFocus = input<HTMLElement | null>(null);
+  /**
+   * Where focus goes when the drawer is removed: an element, or a function read
+   * at that moment, for a caller whose target changes while the drawer is open.
+   */
+  readonly returnFocus = input<HTMLElement | null | (() => HTMLElement | null)>(null);
   /** While true (a save is in flight), Escape, the backdrop and the close button do nothing. */
   readonly busy = input(false);
   readonly closed = output<void>();
@@ -62,7 +66,8 @@ export class Drawer implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    const target = this.returnFocus();
+    const returnFocus = this.returnFocus();
+    const target = typeof returnFocus === 'function' ? returnFocus() : returnFocus;
     if (target?.isConnected) target.focus();
     else this.panel().nativeElement.ownerDocument.getElementById('main')?.focus();
   }

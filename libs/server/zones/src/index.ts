@@ -29,6 +29,7 @@ export {
   PlaybookKeyRequiredError,
   UnknownPlaybookError,
   PlaybookAlreadyAppliedError,
+  PlaybookConcurrentChangeError,
 } from './lib/playbooks';
 export {
   FrameTypeRegistry,
