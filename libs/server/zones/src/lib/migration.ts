@@ -55,6 +55,10 @@ export async function migrateZones(db: Db): Promise<void> {
     );
   `);
 
+  // The key of the playbook applied to the zone (epic web zones R8), from the
+  // playbook registry in libs/contract; a playbook is registry data, not a table.
+  await db.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS playbook_key text');
+
   // One theme per project (epic web zones R9, AD-4): only the fields the
   // project sets, as JSONB; readers fill the rest from TaleArt's default theme.
   await db.query(`

@@ -978,6 +978,58 @@ select {
   font-size: var(--text-sm);
 }
 
+/* ---------- Playbooks ---------- */
+/* A playbook's goal sits under its radio, lined up with the label. */
+.playbook-goal {
+  margin: calc(-1 * var(--space-1)) 0 var(--space-2) calc(18px + var(--space-2));
+}
+
+.playbook-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+}
+
+.playbook-preview__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.playbook-preview__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+}
+
+.playbook-preview__frame {
+  font-weight: 600;
+}
+
+.playbook-preview__settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.playbook-preview__settings dt {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.playbook-preview__settings dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 639.98px) {
   :root {

@@ -83,6 +83,26 @@ export function initialSettings(schema: unknown, stored: Settings | null | undef
   return settings;
 }
 
+/**
+ * Settings as a read-only list of labels and values, in schema order, then
+ * any field the schema does not describe: "Shape: Circle", "Show titles: On",
+ * "Gap: 12". With no schema, every field is labelled from its key.
+ */
+export function describeSettings(schema: unknown, settings: Settings): { label: string; value: string }[] {
+  const fields = settingsFields(schema);
+  const known = new Set(fields.map((f) => f.key));
+  const text = (value: unknown): string =>
+    typeof value === 'boolean' ? (value ? 'On' : 'Off') : typeof value === 'string' ? humanize(value) : String(value);
+  return [
+    ...fields
+      .filter((field) => Object.prototype.hasOwnProperty.call(settings, field.key))
+      .map((field) => ({ label: field.label, value: text(settings[field.key]) })),
+    ...Object.entries(settings)
+      .filter(([key]) => !known.has(key))
+      .map(([key, value]) => ({ label: humanize(key), value: text(value) })),
+  ];
+}
+
 /** True when `value` is one the field can show and its schema allows. */
 export function fieldAccepts(field: SettingsField, value: unknown): boolean {
   switch (field.kind) {

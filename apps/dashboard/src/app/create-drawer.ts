@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DOCUMENT,
   ElementRef,
   inject,
   input,
@@ -16,6 +17,8 @@ import {
   MAX_TALES_PER_GROUP,
   MAX_STAGE_KEY_LENGTH,
   MEDIA_CONTENT_TYPES,
+  PLAYBOOKS,
+  findPlaybook,
   stageKeyFromName,
   type Invitation,
   type IssuedZoneKey,
@@ -27,7 +30,7 @@ import { CoverEditor } from './cover-editor';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
-import { initialSettings, SettingsForm, type Settings } from './settings-form';
+import { describeSettings, initialSettings, SettingsForm, type Settings } from './settings-form';
 import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 
 /**
@@ -44,6 +47,7 @@ import { STATUS_LABELS, StatusBadge, statusActions } from './status';
 })
 export class CreateDrawer implements OnInit {
   protected readonly store = inject(DashboardStore);
+  private readonly document = inject(DOCUMENT);
   readonly request = input.required<DrawerRequest>();
 
   protected readonly error = signal('');
@@ -67,6 +71,49 @@ export class CreateDrawer implements OnInit {
   protected newTag = '';
   /** The zone picked in an "Add to zone…" drawer. */
   protected readonly placeZoneId = signal('');
+
+  /** The playbooks an apply drawer offers (R8). */
+  protected readonly playbooks = PLAYBOOKS;
+  /** The playbook picked in an apply drawer. */
+  protected readonly playbookKey = signal(PLAYBOOKS[0]?.key ?? '');
+
+  /** The zone of an apply playbook drawer. */
+  protected readonly playbookZone = computed(() => {
+    const request = this.request();
+    return request.kind === 'applyPlaybook' ? this.store.zone(request.zoneId) : undefined;
+  });
+
+  /** The picked playbook. */
+  protected readonly pickedPlaybook = computed(() => findPlaybook(this.playbookKey()));
+
+  /** What the picked playbook creates: each frame with its settings as labels and values, and its stage. */
+  protected readonly playbookPreview = computed(() =>
+    (this.pickedPlaybook()?.frames ?? []).map((frame) => ({
+      type: this.store.frameTypeLabel(frame.type),
+      settings: describeSettings(this.store.frameType(frame.type)?.schema, frame.settings as unknown as Settings),
+      stage: frame.stage,
+    })),
+  );
+
+  /**
+   * Why the picked playbook cannot be applied to the zone, or '': the zone has
+   * another playbook, or already uses one of its stage keys. The API refuses both.
+   */
+  protected readonly playbookConflict = computed(() => {
+    const zone = this.playbookZone();
+    const playbook = this.pickedPlaybook();
+    if (!zone || !playbook) return '';
+    if (zone.playbookKey && zone.playbookKey !== playbook.key) {
+      const applied = findPlaybook(zone.playbookKey)?.label ?? zone.playbookKey;
+      return `This zone already has the playbook ${applied}. A zone has one playbook.`;
+    }
+    if (zone.playbookKey === playbook.key) return '';
+    const used = new Set(this.store.stagesOf(zone.id).map((stage) => stage.key));
+    const taken = playbook.frames.find((frame) => used.has(frame.stage.key));
+    return taken
+      ? `This zone already has a stage with the key ${taken.stage.key}. Delete that stage first, then apply ${playbook.label}.`
+      : '';
+  });
 
   /** The key typed in a new stage drawer; follows the name until the user edits it. */
   protected stageKey = '';
@@ -324,6 +371,8 @@ export class CreateDrawer implements OnInit {
       case 'tale':
       case 'stage':
         return 'Add';
+      case 'applyPlaybook':
+        return 'Apply';
       case 'renameStage':
         return 'Save';
       case 'deleteStage':
@@ -419,6 +468,8 @@ export class CreateDrawer implements OnInit {
         return 'Rename stage';
       case 'deleteStage':
         return 'Delete stage';
+      case 'applyPlaybook':
+        return 'Apply playbook';
       case 'zoneKey':
         if (this.issuedKey()) return 'Zone key';
         return this.zoneKeyRequest()?.action === 'rotate'
@@ -438,7 +489,8 @@ export class CreateDrawer implements OnInit {
       request.kind === 'taleGroup' ||
       request.kind === 'stage' ||
       request.kind === 'renameStage' ||
-      request.kind === 'deleteStage'
+      request.kind === 'deleteStage' ||
+      request.kind === 'applyPlaybook'
     ) {
       const zone = this.store.zone(request.zoneId);
       return zone ? `In zone ${zone.name}` : '';
@@ -489,6 +541,8 @@ export class CreateDrawer implements OnInit {
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
     if (this.request().kind === 'renameStage') this.text = this.editedStage()?.name ?? '';
     if (this.request().kind === 'stage') this.stageFrameId = this.stageFrames()[0]?.id ?? '';
+    const applied = this.playbookZone()?.playbookKey;
+    if (applied && findPlaybook(applied)) this.playbookKey.set(applied);
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
     const frame = this.settingsFrame();
     if (frame) this.settings.set(initialSettings(this.settingsSchema(), frame.settings));
@@ -669,6 +723,17 @@ export class CreateDrawer implements OnInit {
         break;
       case 'deleteStage':
         message = await this.store.deleteStage(request.zoneId, request.stageId);
+        break;
+      case 'applyPlaybook':
+        // A conflict the dashboard can see is refused here, without a request; the API refuses it too.
+        message = !this.pickedPlaybook()
+          ? 'Choose a playbook.'
+          : this.playbookConflict() || (await this.store.applyPlaybook(request.zoneId, this.playbookKey()));
+        if (!message) {
+          // The Apply playbook button that opened the drawer is gone once the zone has a playbook,
+          // so focus moves to the Playbook section's heading after the drawer closes.
+          setTimeout(() => this.document.getElementById('playbook-title')?.focus());
+        }
         break;
       case 'placeTaleGroup':
         message = this.placeZoneId()

@@ -864,6 +864,181 @@ describe('App', () => {
     });
   });
 
+  describe('playbooks', () => {
+    const presetBar = {
+      id: 'f9',
+      zoneId: 'z1',
+      projectId: 'p1',
+      type: 'bar',
+      settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+    };
+    const presetStage = {
+      id: 's9',
+      zoneId: 'z1',
+      projectId: 'p1',
+      frameId: 'f9',
+      name: 'Home page stories bar',
+      key: 'home-stories-bar',
+    };
+    const noPlaybookZone = { ...zone, playbookKey: null };
+    const bannerZone = { ...zone, playbookKey: 'promo-banner' };
+    const section = (root: HTMLElement) =>
+      root.querySelector<HTMLElement>('section[aria-labelledby="playbook-title"]') as HTMLElement;
+    const radios = () => [...(drawer()?.querySelectorAll<HTMLInputElement>('input[name=playbook]') ?? [])];
+    const preview = () => drawer()?.querySelector<HTMLElement>('.playbook-preview') ?? null;
+    const settingsShown = () =>
+      [...(preview()?.querySelectorAll('.playbook-preview__settings div') ?? [])].map((d) =>
+        [d.querySelector('dt')?.textContent?.trim(), d.querySelector('dd')?.textContent?.trim()].join(': '),
+      );
+
+    async function openDrawer(fixture: ComponentFixture<App>, root: HTMLElement): Promise<HTMLButtonElement> {
+      const opener = buttonNamed(section(root), 'Apply playbook');
+      opener.click();
+      await settle(fixture);
+      return opener;
+    }
+
+    it('offers Apply playbook on a zone without one', async () => {
+      const { root } = await open('/zones/z1', { projects: [acme], zones: [noPlaybookZone] });
+      expect(section(root).textContent).toContain('No playbook yet.');
+      expect(buttonNamed(section(root), 'Apply playbook')).toBeTruthy();
+    });
+
+    it('names the applied playbook and its goal, with no Apply button', async () => {
+      const { root } = await open('/zones/z1', { projects: [acme], zones: [bannerZone] });
+      expect(section(root).textContent).toContain('Promo banner');
+      expect(section(root).textContent).toContain('wide banner');
+      expect([...section(root).querySelectorAll('button')]).toEqual([]);
+    });
+
+    it('shows what the picked playbook creates before applying it', async () => {
+      const { fixture, root } = await open('/zones/z1', oneZone);
+      await openDrawer(fixture, root);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Apply playbook');
+      expect(drawer()?.textContent).toContain('In zone Home bar');
+      expect(radios().map((r) => [r.value, r.checked])).toEqual([
+        ['home-stories-bar', true],
+        ['promo-banner', false],
+      ]);
+      const goal = drawer()?.querySelector(`#${radios()[0].getAttribute('aria-describedby')}`);
+      expect(goal?.textContent).toContain('row of circles');
+      expect(preview()?.textContent).toContain('Home page stories bar adds');
+      expect(preview()?.textContent).toContain('Bar frame');
+      expect(settingsShown()).toEqual(['Shape: Circle', 'Size: Medium', 'Show titles: On', 'Alignment: Start', 'Gap: 12']);
+      expect(preview()?.textContent).toContain('Stage Home page stories bar, key home-stories-bar');
+
+      radios()[1].click();
+      await settle(fixture);
+      expect(preview()?.textContent).toContain('Banner frame');
+      expect(settingsShown()).toEqual([
+        'Aspect ratio: 3:1',
+        'Autoplay: On',
+        'Interval seconds: 5',
+        'Show dots: On',
+        'Loop: On',
+      ]);
+      expect(preview()?.textContent).toContain('key promo-banner');
+      expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+    });
+
+    it('applies a playbook: the zone gets its frame and stage, and focus moves to the Playbook heading', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, frames: { z1: [frameBar] } });
+      await openDrawer(fixture, root);
+      buttonNamed(drawer() as HTMLElement, 'Apply').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z1/playbook`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ key: 'home-stories-bar' });
+      req.flush({
+        applied: true,
+        zone: { ...zone, playbookKey: 'home-stories-bar' },
+        frames: [presetBar],
+        stages: [presetStage],
+      });
+      await settle(fixture);
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(store.zone('z1')?.playbookKey).toBe('home-stories-bar');
+      expect(store.framesOf('z1')).toEqual([frameBar, presetBar]);
+      expect(store.stagesOf('z1')).toEqual([presetStage]);
+      expect(section(root).textContent).toContain('Home page stories bar');
+      expect(section(root).querySelector('button')).toBeNull();
+      expect(root.querySelector('[aria-label="Stages of Home bar"]')?.textContent).toContain('Frame 2 · Bar');
+      expect(document.activeElement?.id).toBe('playbook-title');
+      // The preset frame is an ordinary frame: its settings open like any other.
+      expect(root.querySelector('[aria-label="Settings of frame 2, Bar"]')).not.toBeNull();
+    });
+
+    it('adds nothing when the API says the zone already had the playbook', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones/z1', oneZone);
+      await openDrawer(fixture, root);
+      buttonNamed(drawer() as HTMLElement, 'Apply').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z1/playbook`)
+        .flush({ applied: false, zone: { ...zone, playbookKey: 'home-stories-bar' }, frames: [], stages: [] });
+      await settle(fixture);
+      expect(store.framesOf('z1')).toEqual([]);
+      expect(store.stagesOf('z1')).toEqual([]);
+      expect(store.zone('z1')?.playbookKey).toBe('home-stories-bar');
+    });
+
+    it('warns about a stage key the zone already uses and refuses without a request', async () => {
+      const mine = { ...presetStage, id: 's1', frameId: 'f1', name: 'Mine', key: 'promo-banner' };
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        frames: { z1: [frameBar] },
+        stages: { z1: [mine] },
+      });
+      await openDrawer(fixture, root);
+      expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
+      radios()[1].click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('#playbook-conflict')?.textContent).toContain(
+        'already has a stage with the key promo-banner',
+      );
+      buttonNamed(drawer() as HTMLElement, 'Apply').click();
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/zones/z1/playbook`);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Delete that stage first');
+    });
+
+    it("shows the API's message in the drawer", async () => {
+      const { fixture, root } = await open('/zones/z1', oneZone);
+      await openDrawer(fixture, root);
+      buttonNamed(drawer() as HTMLElement, 'Apply').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/zones/z1/playbook`).flush(
+        { error: { code: 'playbook_already_applied', message: 'This zone already has the playbook "promo-banner"' } },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('already has the playbook');
+    });
+
+    it('refuses another playbook on a zone that has one, naming it', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture } = await open('/zones/z1', { projects: [acme], zones: [bannerZone] });
+      store.openDrawer({ kind: 'applyPlaybook', zoneId: 'z1' });
+      await settle(fixture);
+      expect(radios().find((r) => r.checked)?.value).toBe('promo-banner');
+      expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
+      radios()[0].click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('#playbook-conflict')?.textContent).toContain(
+        'already has the playbook Promo banner',
+      );
+      buttonNamed(drawer() as HTMLElement, 'Apply').click();
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/zones/z1/playbook`);
+    });
+  });
+
   describe('zone key', () => {
     const activeKey = { prefix: 'tak_AbCdEf', createdAt: '2026-10-20T10:00:00.000Z' };
     const issued = { key: 'tak_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcd', ...activeKey };
