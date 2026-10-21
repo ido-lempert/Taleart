@@ -12,6 +12,9 @@ import {
   MAX_TEXT_LENGTH,
   NEW_TEXT_BOX,
   readingOrder,
+  elementBounds,
+  isOutsideSafeArea,
+  safeAreaBounds,
   TALE_DOCUMENT_V1_SCHEMA,
   TALE_DOCUMENT_VERSION,
   TALE_ELEMENT_TYPE_REGISTRY,
@@ -115,5 +118,39 @@ describe('tale document helpers', () => {
       at('left2', 0.1, 0.1),
     ]);
     expect(ordered.map((e) => e.id)).toEqual(['left', 'left2', 'right', 'low']);
+  });
+
+  it('names the safe part of the canvas from the safe-area constants', () => {
+    const safe = safeAreaBounds();
+    expect(safe.x).toBeCloseTo(0.04);
+    expect(safe.y).toBeCloseTo(0.12);
+    expect(safe.w).toBeCloseTo(0.92);
+    expect(safe.h).toBeCloseTo(0.72);
+  });
+
+  it('measures a rotated box on the 9:16 canvas', () => {
+    expect(elementBounds({ x: 0.1, y: 0.2, w: 0.5, h: 0.1, rotation: 0 })).toEqual({ x: 0.1, y: 0.2, w: 0.5, h: 0.1 });
+    // A quarter turn swaps the box's true width and height: 0.5 × 9 = 4.5 units, 0.1 × 16 = 1.6 units.
+    const turned = elementBounds({ x: 0.25, y: 0.45, w: 0.5, h: 0.1, rotation: 90 });
+    expect(turned.w).toBeCloseTo(1.6 / 9);
+    expect(turned.h).toBeCloseTo(4.5 / 16);
+    expect(turned.x + turned.w / 2).toBeCloseTo(0.5);
+    expect(turned.y + turned.h / 2).toBeCloseTo(0.5);
+    expect(elementBounds({ x: 0.25, y: 0.45, w: 0.5, h: 0.1, rotation: -90 }).h).toBeCloseTo(4.5 / 16);
+  });
+
+  it('warns about an element that reaches outside the safe areas, rotation included', () => {
+    const box = { x: 0.1, y: 0.42, w: 0.8, h: 0.16, rotation: 0 };
+    expect(isOutsideSafeArea(box)).toBe(false);
+    expect(isOutsideSafeArea(NEW_TEXT_BOX)).toBe(false);
+    // On the edges exactly: inside.
+    expect(isOutsideSafeArea({ x: 0.04, y: 0.12, w: 0.92, h: 0.72, rotation: 0 })).toBe(false);
+    expect(isOutsideSafeArea({ ...box, y: 0.75 })).toBe(true); // into the bottom 16%
+    expect(isOutsideSafeArea({ ...box, y: 0.1 })).toBe(true); // into the top 12%
+    expect(isOutsideSafeArea({ ...box, x: 0.02 })).toBe(true); // into a side
+    expect(isOutsideSafeArea({ ...box, x: 0.18, w: 0.8 })).toBe(true);
+    // Upright it fits; turned, its corners reach up into the top area.
+    expect(isOutsideSafeArea({ x: 0.1, y: 0.13, w: 0.8, h: 0.05, rotation: 0 })).toBe(false);
+    expect(isOutsideSafeArea({ x: 0.1, y: 0.13, w: 0.8, h: 0.05, rotation: 20 })).toBe(true);
   });
 });
