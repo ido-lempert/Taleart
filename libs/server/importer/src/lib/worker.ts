@@ -30,8 +30,11 @@ import {
   type ClaimedJob,
 } from './jobs';
 import { findLinkTarget, lockLinkSource, saveLink, type LinkSource } from './links';
+import { storedText, type DifferenceBudget, type ReportText } from './record-shape';
 import {
+  recordsOf,
   StorylyClient,
+  type CheckedEntry,
   type CheckedList,
   type SourceInstance,
   type SourceOrderedRecord,
@@ -102,24 +105,66 @@ export interface ContentSource {
 }
 
 const checkedOf = <T>(list: SourceList<T>): CheckedList<T> =>
-  Array.isArray(list) ? { records: [...list], rejected: [] } : (list as CheckedList<T>);
+  Array.isArray(list)
+    ? { entries: list.map((record: T) => ({ record, differences: [], omitted: 0 })) }
+    : (list as CheckedList<T>);
+
+/** The source record a list belongs to, as its differences name it: already made safe to store. */
+interface DifferenceParent {
+  within: string;
+  withinSourceId: string;
+}
+
+/** What importContent takes besides its source. */
+export interface ImportContentOptions {
+  /** The chosen app's checked entry: its differences come first in the report. */
+  app?: Pick<CheckedEntry<unknown>, 'differences' | 'omitted'>;
+  /** Makes source text safe to store (the token removed, then cut); cut only by default. */
+  text?: ReportText;
+  /** The difference budget the source's checks draw on; refunded for records not listed. */
+  budget?: DifferenceBudget;
+}
 
 /**
- * The report's differences (FR-029): at most {@link MAX_IMPORT_REPORT_DIFFERENCES}
- * stored, the rest counted. `within` names the record each one belongs to.
+ * The report's differences (FR-029), in reading order: at most
+ * {@link MAX_IMPORT_REPORT_DIFFERENCES} stored, the rest counted in
+ * `differencesOmitted`. Each list is listed when it is read, entry by entry
+ * in response order (unreadable records in place), each record once.
  */
-function differenceList(report: ImportReport) {
+function differenceList(report: ImportReport, budget: DifferenceBudget | undefined) {
   const list: ImportDifference[] = [];
   report.differences = list;
-  return (differences: readonly ImportDifference[] | undefined, within: string | null = null) => {
-    for (const difference of differences ?? []) {
+  const omit = (count: number) => {
+    if (count > 0) report.differencesOmitted = (report.differencesOmitted ?? 0) + count;
+  };
+  const addEntry = (entry: Pick<CheckedEntry<unknown>, 'differences' | 'omitted'>, parent: DifferenceParent | null) => {
+    omit(entry.omitted);
+    for (const difference of entry.differences) {
       if (list.length >= MAX_IMPORT_REPORT_DIFFERENCES) {
-        report.differencesOmitted = (report.differencesOmitted ?? 0) + 1;
+        omit(1);
         continue;
       }
-      list.push(within === null ? difference : { ...difference, record: { ...difference.record, within } });
+      list.push(parent === null ? difference : { ...difference, record: { ...difference.record, ...parent } });
     }
   };
+  const addList = <T extends { id: string }>(
+    checked: CheckedList<T>,
+    listed: Set<string>,
+    parent: DifferenceParent | null,
+  ) => {
+    for (const entry of checked.entries) {
+      if (entry.record !== null) {
+        if (listed.has(entry.record.id)) {
+          // A repeated record is listed once: what its check drew from the budget goes back.
+          if (budget) budget.remaining += entry.differences.length;
+          continue;
+        }
+        listed.add(entry.record.id);
+      }
+      addEntry(entry, parent);
+    }
+  };
+  return { addEntry, addList };
 }
 
 /** A link appeared while this import was creating the record: roll the creation back. */
@@ -227,19 +272,28 @@ export async function importContent(
   instanceList: SourceList<SourceInstance>,
   source: ContentSource,
   beforeEach: (sofar: Readonly<ImportReport>) => Promise<void> = async () => undefined,
-  appDifferences: readonly ImportDifference[] = [],
+  options: ImportContentOptions = {},
 ): Promise<ImportReport> {
-  const { records: instances, rejected: rejectedInstances } = checkedOf(instanceList);
+  const text = options.text ?? ((value: string) => storedText(value));
+  const checkedInstances = checkedOf(instanceList);
+  const instances = recordsOf(checkedInstances);
+  const rejectedInstances = checkedInstances.entries.length - instances.length;
   const report: ImportReport & Required<Pick<ImportReport, 'taleGroups' | 'tales'>> = {
-    zones: { source: instances.length + rejectedInstances.length, imported: 0, skipped: rejectedInstances.length },
+    zones: { source: checkedInstances.entries.length, imported: 0, skipped: rejectedInstances },
     taleGroups: emptyCount(),
     tales: emptyCount(),
     notes: [],
     notImportedByDesign: [...IMPORT_NOT_IMPORTED_BY_DESIGN],
   };
-  const addDifferences = differenceList(report);
-  addDifferences(appDifferences);
-  addDifferences(rejectedInstances);
+  const differences = differenceList(report, options.budget);
+  if (options.app) differences.addEntry(options.app, null);
+  differences.addList(checkedInstances, new Set(), null);
+  const listedGroups = new Set<string>();
+  const listedStories = new Set<string>();
+  const parentOf = (name: string, sourceId: string): DifferenceParent => ({
+    within: text(name),
+    withinSourceId: text(sourceId),
+  });
   const seenInstances = new Set<string>();
   const seenGroups = new Set<string>();
   const seenStories = new Set<string>();
@@ -249,24 +303,23 @@ export async function importContent(
       continue;
     }
     seenInstances.add(instance.id);
-    addDifferences(instance.differences);
     await beforeEach(report);
     const zoneName = instance.name.trim() || `Instance ${instance.id}`;
     const zoneId = await importZone(db, projectId, instance, zoneName);
     if (zoneId === null) {
       report.zones.skipped++;
-      report.notes.push(`Zone "${zoneName}": its earlier import was deleted, so it was not imported again`);
+      report.notes.push(`Zone "${text(zoneName)}": its earlier import was deleted, so it was not imported again`);
     } else {
       report.zones.imported++;
       // The source names no widget type, so the zone has no frame yet (epic decision).
-      report.notes.push(`Zone "${zoneName}": frame type unknown`);
+      report.notes.push(`Zone "${text(zoneName)}": frame type unknown`);
     }
 
     const groupList = checkedOf(await source.listStoryGroups(instance.id));
-    const groups = inSourceOrder(groupList.records);
-    report.taleGroups.source += groups.length + groupList.rejected.length;
-    report.taleGroups.skipped += groupList.rejected.length;
-    addDifferences(groupList.rejected, zoneName);
+    const groups = inSourceOrder(recordsOf(groupList));
+    report.taleGroups.source += groupList.entries.length;
+    report.taleGroups.skipped += groupList.entries.length - groups.length;
+    differences.addList(groupList, listedGroups, parentOf(zoneName, instance.id));
     let groupsWithoutZone = 0;
     for (const group of groups) {
       if (seenGroups.has(group.id)) {
@@ -275,23 +328,16 @@ export async function importContent(
       }
       seenGroups.add(group.id);
       const name = groupName(group);
-      addDifferences(group.differences, zoneName);
       const storyList = checkedOf(await source.listStories(group.id));
-      const stories = storyList.records;
-      report.tales.source += stories.length + storyList.rejected.length;
-      report.tales.skipped += storyList.rejected.length;
-      addDifferences(storyList.rejected, name);
-      // A story is listed with its differences the first time it is seen.
-      const seeStory = (story: SourceStory) => {
-        if (seenStories.has(story.id)) return;
-        seenStories.add(story.id);
-        addDifferences(story.differences, name);
-      };
+      const stories = recordsOf(storyList);
+      report.tales.source += storyList.entries.length;
+      report.tales.skipped += storyList.entries.length - stories.length;
+      differences.addList(storyList, listedStories, parentOf(name, group.id));
       // The group is skipped: so is each of its stories, once.
       const skipGroup = (note?: string) => {
         report.taleGroups.skipped++;
         report.tales.skipped += stories.length;
-        for (const story of stories) seeStory(story);
+        for (const story of stories) seenStories.add(story.id);
         if (note) report.notes.push(note);
       };
       if (zoneId === null) {
@@ -311,15 +357,15 @@ export async function importContent(
         );
       } catch (err) {
         if (!(err instanceof ZoneNotFoundError)) throw err;
-        skipGroup(`Tale group "${name}": its zone was deleted during the import`);
+        skipGroup(`Tale group "${text(name)}": its zone was deleted during the import`);
         continue;
       }
       if (taleGroup === null) {
-        skipGroup(`Tale group "${name}": its earlier import was deleted, so it was not imported again`);
+        skipGroup(`Tale group "${text(name)}": its earlier import was deleted, so it was not imported again`);
         continue;
       }
       report.taleGroups.imported++;
-      if (taleGroup.created && group.sortOrder === null) report.notes.push(`Tale group "${name}": ${NO_POSITION}`);
+      if (taleGroup.created && group.sortOrder === null) report.notes.push(`Tale group "${text(name)}": ${NO_POSITION}`);
       const taleGroupId = taleGroup.id;
 
       for (const story of inSourceOrder(stories)) {
@@ -327,7 +373,7 @@ export async function importContent(
           report.tales.skipped++;
           continue;
         }
-        seeStory(story);
+        seenStories.add(story.id);
         const title = taleTitle(story, name);
         await beforeEach(report);
         let tale: { id: string; created: boolean } | null;
@@ -342,28 +388,28 @@ export async function importContent(
         } catch (err) {
           if (err instanceof TaleGroupFullError) {
             report.tales.skipped++;
-            report.notes.push(`Tale "${title}" in "${name}": the tale group already holds ${MAX_TALES_PER_GROUP} tales`);
+            report.notes.push(`Tale "${text(title)}" in "${text(name)}": the tale group already holds ${MAX_TALES_PER_GROUP} tales`);
             continue;
           }
           if (err instanceof TaleGroupNotFoundError) {
             report.tales.skipped++;
-            report.notes.push(`Tale "${title}" in "${name}": its tale group was deleted during the import`);
+            report.notes.push(`Tale "${text(title)}" in "${text(name)}": its tale group was deleted during the import`);
             continue;
           }
           throw err;
         }
         if (tale === null) {
           report.tales.skipped++;
-          report.notes.push(`Tale "${title}" in "${name}": its earlier import was deleted, so it was not imported again`);
+          report.notes.push(`Tale "${text(title)}" in "${text(name)}": its earlier import was deleted, so it was not imported again`);
           continue;
         }
         report.tales.imported++;
-        if (tale.created && story.sortOrder === null) report.notes.push(`Tale "${title}" in "${name}": ${NO_POSITION}`);
+        if (tale.created && story.sortOrder === null) report.notes.push(`Tale "${text(title)}" in "${text(name)}": ${NO_POSITION}`);
       }
     }
     if (groupsWithoutZone > 0) {
       report.notes.push(
-        `Zone "${zoneName}": its ${groupsWithoutZone} tale group(s) were not imported, since the zone was not`,
+        `Zone "${text(zoneName)}": its ${groupsWithoutZone} tale group(s) were not imported, since the zone was not`,
       );
     }
   }
@@ -389,8 +435,12 @@ export function redactDeep<T>(value: T, token: string | null): T {
 // The message stored on a failed job: ours for known failures, a generic one
 // otherwise. The token never appears in it.
 function failureMessage(err: unknown, token: string | null): string {
-  return redact(isKnownFailure(err) ? err.message : 'The import stopped on an internal error. Try again.', token);
+  const message = isKnownFailure(err) ? err.message : 'The import stopped on an internal error. Try again.';
+  return storedText(message, token, FAILURE_MESSAGE_LIMIT);
 }
+
+/** The longest failure reason a job stores. */
+const FAILURE_MESSAGE_LIMIT = 1000;
 
 // The original error for the log, with the token removed from its message and stack.
 function redactedError(err: unknown, token: string | null): Error {
@@ -428,13 +478,21 @@ export async function runImportJob(db: TransactionalDb, job: ClaimedJob, options
     } catch {
       throw new ImportFailure('The stored Storyly token could not be read. Start the import again.');
     }
-    const client = new StorylyClient({ baseUrl: options.storylyApiUrl, token, fetch: options.fetch });
-    const app = (await client.listApps()).records.find((a) => a.id === job.sourceAppId);
-    if (!app) throw new ImportFailure('This Storyly token cannot read the chosen app.');
-    if (!(await setSourceAppName(db, job, app.name))) throw new ClaimLostError();
+    const secret = token;
+    const text: ReportText = (value) => storedText(value, secret);
+    // The report's budget, shared by every check of this import: once spent, differences are only counted.
+    const budget: DifferenceBudget = { remaining: MAX_IMPORT_REPORT_DIFFERENCES };
+    const client = new StorylyClient({ baseUrl: options.storylyApiUrl, token, fetch: options.fetch, budget });
+    const appEntry = (await client.listApps()).entries.find((entry) => entry.record?.id === job.sourceAppId);
+    const app = appEntry?.record;
+    if (!appEntry || !app) throw new ImportFailure('This Storyly token cannot read the chosen app.');
+    // Only the chosen app's differences are listed: the others' go back to the budget.
+    budget.remaining = MAX_IMPORT_REPORT_DIFFERENCES - appEntry.differences.length;
+    if (!(await setSourceAppName(db, job, text(app.name)))) throw new ClaimLostError();
     const instances = await client.listInstances(app.id);
+    // Every source string is already made safe as it is stored; redactDeep is a last guard.
     const report = redactDeep(
-      await importContent(db, job.projectId, instances, client, beat, app.differences),
+      await importContent(db, job.projectId, instances, client, beat, { app: appEntry, text, budget }),
       token,
     );
     if (!(await finishImportJob(db, job, report))) throw new ClaimLostError();

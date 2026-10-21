@@ -1225,6 +1225,8 @@ export interface components {
             name: string | null;
             /** @description The title of the record it belongs to, such as a story's group; null for top-level records. */
             within: string | null;
+            /** @description The source id of the record it belongs to; null for top-level records. */
+            withinSourceId: string | null;
             /** @description The record's place in its source list, from 1. */
             position: number;
         };

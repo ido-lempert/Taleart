@@ -18,7 +18,9 @@ import { Icon } from '../icon';
 import { IMPORT_POLL_INTERVAL_MS, ImportService } from '../import.service';
 import {
   IMPORT_DIFFERENCES_OPEN_LIMIT,
+  IMPORT_DIFFERENCES_PAGE,
   IMPORT_PILL_STYLES,
+  type ImportDifferenceGroupView,
   importCountText,
   importDifferenceGroups,
   importProgressText,
@@ -129,6 +131,9 @@ import {
         padding-left: var(--space-5);
         color: var(--text-secondary);
       }
+      .import-difference-more {
+        padding: 0 var(--space-3) var(--space-3);
+      }
       .import-by-design {
         margin: 0;
       }
@@ -212,23 +217,38 @@ import {
                     <p class="muted">What the source holds that did not come across as it was, record by record.</p>
                   }
                   @for (group of differenceGroups(); track group.entity) {
-                    <details class="import-difference-group" [open]="group.count <= openLimit">
+                    <details
+                      class="import-difference-group"
+                      [open]="isOpen(group)"
+                      (toggle)="toggled(group, $event)"
+                    >
                       <summary>
                         {{ group.label }}: {{ group.count }} {{ group.count === 1 ? 'difference' : 'differences' }} in
                         {{ group.records.length }} {{ group.records.length === 1 ? 'record' : 'records' }}
                       </summary>
-                      <ul class="import-difference-records" [attr.aria-label]="group.label + ' differences'">
-                        @for (record of group.records; track record.key) {
-                          <li>
-                            <span class="import-difference-record">{{ record.label }}</span>
-                            <ul class="import-difference-lines">
-                              @for (line of record.lines; track $index) {
-                                <li>{{ line }}</li>
-                              }
-                            </ul>
-                          </li>
+                      <!-- A closed group renders nothing; an open one renders a page of records at a time. -->
+                      @if (isOpen(group)) {
+                        <ul class="import-difference-records" [attr.aria-label]="group.label + ' differences'">
+                          @for (record of shownRecords(group); track record.key) {
+                            <li>
+                              <span class="import-difference-record">{{ record.label }}</span>
+                              <ul class="import-difference-lines">
+                                @for (line of record.lines; track $index) {
+                                  <li>{{ line }}</li>
+                                }
+                              </ul>
+                            </li>
+                          }
+                        </ul>
+                        @if (group.records.length > shownRecords(group).length) {
+                          <div class="import-difference-more">
+                            <button type="button" class="btn btn--secondary" (click)="showMore(group)">
+                              Show more ({{ group.records.length - shownRecords(group).length }} more
+                              {{ group.records.length - shownRecords(group).length === 1 ? 'record' : 'records' }})
+                            </button>
+                          </div>
                         }
-                      </ul>
+                      }
                     </details>
                   }
                   @if (report.differencesOmitted) {
@@ -297,7 +317,29 @@ export class ImportJobPage implements OnInit {
 
   /** The report's differences, by entity type and record. */
   protected readonly differenceGroups = computed(() => importDifferenceGroups(this.job()?.report?.differences ?? []));
-  protected readonly openLimit = IMPORT_DIFFERENCES_OPEN_LIMIT;
+  /** Groups the viewer opened or closed; the others follow {@link IMPORT_DIFFERENCES_OPEN_LIMIT}. */
+  private readonly openGroups = signal<ReadonlyMap<string, boolean>>(new Map());
+  /** How many records each open group shows. */
+  private readonly shownCounts = signal<ReadonlyMap<string, number>>(new Map());
+
+  protected isOpen(group: ImportDifferenceGroupView): boolean {
+    return this.openGroups().get(group.entity) ?? group.count <= IMPORT_DIFFERENCES_OPEN_LIMIT;
+  }
+
+  protected toggled(group: ImportDifferenceGroupView, event: Event): void {
+    const open = (event.target as HTMLDetailsElement).open;
+    if (open === this.isOpen(group)) return;
+    this.openGroups.update((groups) => new Map(groups).set(group.entity, open));
+  }
+
+  protected shownRecords(group: ImportDifferenceGroupView): ImportDifferenceGroupView['records'] {
+    return group.records.slice(0, this.shownCounts().get(group.entity) ?? IMPORT_DIFFERENCES_PAGE);
+  }
+
+  protected showMore(group: ImportDifferenceGroupView): void {
+    const shown = this.shownRecords(group).length;
+    this.shownCounts.update((counts) => new Map(counts).set(group.entity, shown + IMPORT_DIFFERENCES_PAGE));
+  }
 
   protected readonly statusLabel = importStatusLabel;
   protected readonly statusClass = importStatusClass;
@@ -329,6 +371,8 @@ export class ImportJobPage implements OnInit {
     clearTimeout(this.timer);
     this.job.set(null);
     this.error.set('');
+    this.openGroups.set(new Map());
+    this.shownCounts.set(new Map());
     if (this.auth.isAdmin()) void this.read(importId);
   }
 

@@ -3028,8 +3028,16 @@ describe('Management API v1: projects and zones', () => {
     }
 
     // A field TaleArt does not hold, as a report difference.
-    function notHeld(entity: string, sourceId: string, name: string, within: string | null, position: number, field: string) {
-      return { entity, record: { sourceId, name, within, position }, kind: 'notHeld', field, sourceField: null };
+    function notHeld(
+      entity: string,
+      sourceId: string,
+      name: string,
+      parent: [string, string] | null,
+      position: number,
+      field: string,
+    ) {
+      const [within, withinSourceId] = parent ?? [null, null];
+      return { entity, record: { sourceId, name, within, withinSourceId, position }, kind: 'notHeld', field, sourceField: null };
     }
 
     async function storedJob(importId: string): Promise<{ token_ciphertext: string | null; source_app_id: string }> {
@@ -3113,16 +3121,17 @@ describe('Management API v1: projects and zones', () => {
             'Zone "Checkout": frame type unknown',
           ],
           // Each instance's per-platform token and each story group's cover are not held in TaleArt.
+          // In reading order: the instance list, then each instance's story groups as read.
           differences: [
             notHeld('zone', '2001', 'Home page', null, 1, 'token'),
-            notHeld('taleGroup', '3002', 'New arrivals', 'Home page', 2, 'media'),
-            notHeld('taleGroup', '3003', 'Gift ideas', 'Home page', 3, 'media'),
-            notHeld('taleGroup', '3001', 'Summer sale', 'Home page', 1, 'media'),
             notHeld('zone', '2002', 'Product page', null, 2, 'token'),
-            notHeld('taleGroup', '3005', 'Reviews', 'Product page', 2, 'media'),
-            notHeld('taleGroup', '3004', 'How to wear it', 'Product page', 1, 'media'),
             notHeld('zone', '2003', 'Checkout', null, 3, 'token'),
-            notHeld('taleGroup', '3006', 'Free shipping', 'Checkout', 1, 'media'),
+            notHeld('taleGroup', '3001', 'Summer sale', ['Home page', '2001'], 1, 'media'),
+            notHeld('taleGroup', '3002', 'New arrivals', ['Home page', '2001'], 2, 'media'),
+            notHeld('taleGroup', '3003', 'Gift ideas', ['Home page', '2001'], 3, 'media'),
+            notHeld('taleGroup', '3004', 'How to wear it', ['Product page', '2002'], 1, 'media'),
+            notHeld('taleGroup', '3005', 'Reviews', ['Product page', '2002'], 2, 'media'),
+            notHeld('taleGroup', '3006', 'Free shipping', ['Checkout', '2003'], 1, 'media'),
           ],
           notImportedByDesign: ['Conversion records', 'Stats'],
         },
@@ -3210,7 +3219,13 @@ describe('Management API v1: projects and zones', () => {
       const { differences } = report as {
         differences: {
           entity: string;
-          record: { sourceId: string | null; name: string | null; within: string | null; position: number };
+          record: {
+            sourceId: string | null;
+            name: string | null;
+            within: string | null;
+            withinSourceId: string | null;
+            position: number;
+          };
           kind: string;
           field: string | null;
           sourceField: string | null;
@@ -3220,7 +3235,7 @@ describe('Management API v1: projects and zones', () => {
         [
           d.entity,
           d.record.sourceId ?? `#${d.record.position}`,
-          d.record.within ? `in ${d.record.within}` : null,
+          d.record.within ? `in ${d.record.within} (${d.record.withinSourceId})` : null,
           d.kind,
           d.field,
           d.sourceField ? `<- ${d.sourceField}` : null,
@@ -3245,28 +3260,29 @@ describe('Management API v1: projects and zones', () => {
         notImportedByDesign: ['Conversion records', 'Stats'],
       });
       expect(differenceLines(report)).toEqual([
+        // In reading order: apps, instances, then each list as it is read, records in response order.
         'app 1002 notHeld settings',
-        'zone #2 invalidRecord',
-        'zone #3 invalidRecord',
         'zone 2101 renamed title <- name',
         'zone 2101 notHeld token',
-        'taleGroup 3101 in Odd home renamed clicked_target_cap <- click_target_cap',
-        'taleGroup 3101 in Odd home notHeld media',
-        'taleGroup 3101 in Odd home notHeld pinned',
-        'taleGroup 3101 in Odd home notHeld settings',
-        'taleGroup 3101 in Odd home notHeld clicked_target_cap',
-        'taleGroup 3101 in Odd home unexpected theme',
-        'tale #3 in Odd group invalidRecord',
-        'tale #4 in Odd group invalidRecord',
-        'tale 4101 in Odd group notHeld deep_link',
-        'tale 4101 in Odd group notHeld button_text',
-        'tale 4102 in Odd group renamed sort_order <- sortOrder',
-        'tale 4102 in Odd group notHeld name',
-        'tale 4102 in Odd group unexpected cta_macro',
-        'taleGroup 3102 in Odd home wrongType title',
-        'taleGroup 3102 in Odd home wrongType sort_order',
-        'taleGroup 3102 in Odd home missing status',
-        'tale 4105 in Untitled tale group missing media',
+        'zone #2 invalidRecord',
+        'zone #3 invalidRecord',
+        'taleGroup 3101 in Odd home (2101) renamed clicked_target_cap <- click_target_cap',
+        'taleGroup 3101 in Odd home (2101) notHeld media',
+        'taleGroup 3101 in Odd home (2101) notHeld pinned',
+        'taleGroup 3101 in Odd home (2101) notHeld settings',
+        'taleGroup 3101 in Odd home (2101) notHeld clicked_target_cap',
+        'taleGroup 3101 in Odd home (2101) unexpected theme',
+        'taleGroup 3102 in Odd home (2101) wrongType title',
+        'taleGroup 3102 in Odd home (2101) wrongType sort_order',
+        'taleGroup 3102 in Odd home (2101) missing status',
+        'tale 4101 in Odd group (3101) notHeld deep_link',
+        'tale 4101 in Odd group (3101) notHeld button_text',
+        'tale 4102 in Odd group (3101) renamed sort_order <- sortOrder',
+        'tale 4102 in Odd group (3101) notHeld name',
+        'tale 4102 in Odd group (3101) unexpected cta_macro',
+        'tale #3 in Odd group (3101) invalidRecord',
+        'tale #4 in Odd group (3101) invalidRecord',
+        'tale 4105 in Untitled tale group (3102) missing media',
       ]);
       // A renamed title names the zone, a renamed sort_order places the tale; a wrong title takes the fallback.
       expect(await zonePages(project.id)).toEqual({
@@ -3311,7 +3327,7 @@ describe('Management API v1: projects and zones', () => {
       expect(job['status']).toBe('done');
       expect((job['report'] as { tales: unknown }).tales).toEqual({ source: 16, imported: 15, skipped: 1 });
       expect(differenceLines(job['report']).filter((line) => line.startsWith('tale '))).toEqual([
-        `tale ${stories[0]['id']} in New arrivals unexpected layout`,
+        `tale ${stories[0]['id']} in New arrivals (3002) unexpected layout`,
       ]);
     });
 

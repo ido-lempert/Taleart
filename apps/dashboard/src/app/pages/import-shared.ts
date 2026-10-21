@@ -71,6 +71,9 @@ const ENTITY_ORDER: readonly ImportDifferenceEntity[] = ['app', 'zone', 'taleGro
 /** Groups with up to this many differences start open. */
 export const IMPORT_DIFFERENCES_OPEN_LIMIT = 20;
 
+/** How many records an open group shows at a time; "Show more" adds as many again. */
+export const IMPORT_DIFFERENCES_PAGE = 100;
+
 /** One difference as a line under its record. */
 export function importDifferenceText(difference: ImportDifference): string {
   const field = difference.field ?? '';
@@ -113,7 +116,14 @@ export function importDifferenceGroups(differences: readonly ImportDifference[])
     }
     group.count++;
     const { record } = difference;
-    const key = [difference.entity, record.within ?? '', record.sourceId ?? `#${record.position}`].join('\u0000');
+    // One record: its entity, its parent's source id, and its own source id, or its place in its list when it has
+    // none. Encoded as a JSON array, so no id can pass for a place or for another field.
+    const key = JSON.stringify([
+      difference.entity,
+      record.withinSourceId,
+      record.sourceId,
+      record.sourceId === null ? record.position : null,
+    ]);
     let view = records.get(key);
     if (!view) {
       view = { key, label: importDifferenceRecordLabel(record), lines: [] };

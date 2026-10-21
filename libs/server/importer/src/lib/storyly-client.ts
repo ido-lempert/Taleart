@@ -1,19 +1,14 @@
 import type { ImportDifference, ImportDifferenceEntity } from '@taleart/contract';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
-import { checkRecord } from './record-shape';
+import { checkRecord, storedText, type DifferenceBudget } from './record-shape';
 
 /** The real Storyly External API; `STORYLY_API_URL` overrides it (the fake server in tests). */
 export const DEFAULT_STORYLY_API_URL = 'https://api.storyly.io/external';
 
-/**
- * A checked source record: its id, its title ('' when it has none usable),
- * and how it differs from the shape the import expects (FR-029).
- */
+/** A checked source record: its id and its title ('' when it has none usable). */
 export interface SourceRecord {
   id: string;
   name: string;
-  /** The record's differences; none when absent. */
-  differences?: ImportDifference[];
 }
 
 /** A Storyly app, as the import source. */
@@ -38,14 +33,24 @@ export type SourceStoryGroup = SourceOrderedRecord;
 export type SourceStory = SourceOrderedRecord;
 
 /**
- * A checked list: the records that can be imported, in response order, and
- * one `invalidRecord` difference for each record that cannot (not an object,
- * or no usable id).
+ * One entry of a checked list: the record, or null when it cannot be imported
+ * (not an object, or no usable id); how it differs from the shape the import
+ * expects (FR-029); and how many more differences were found than built.
  */
-export interface CheckedList<T> {
-  records: T[];
-  rejected: ImportDifference[];
+export interface CheckedEntry<T> {
+  record: T | null;
+  differences: ImportDifference[];
+  omitted: number;
 }
+
+/** A checked list: one entry per source record, in response order. */
+export interface CheckedList<T> {
+  entries: CheckedEntry<T>[];
+}
+
+/** The records of a checked list that can be imported, in response order. */
+export const recordsOf = <T>(list: CheckedList<T>): T[] =>
+  list.entries.flatMap((entry) => (entry.record === null ? [] : [entry.record]));
 
 export interface StorylyClientOptions {
   /** Base URL of the External API, without a trailing slash. */
@@ -55,12 +60,14 @@ export interface StorylyClientOptions {
   fetch?: typeof fetch;
   /** How long one request may take; 30 s by default. */
   timeoutMs?: number;
+  /** The report's difference budget, shared with the rest of the import. */
+  budget?: DifferenceBudget;
 }
 
 type AuthMode = 'bearer' | 'query';
 
 // The records of a list response: a bare array, or an object whose `data` is one.
-function recordsOf(body: unknown, what: string): unknown[] {
+function listOf(body: unknown, what: string): unknown[] {
   if (Array.isArray(body)) return body;
   const data = (body as { data?: unknown } | null)?.data;
   if (typeof body === 'object' && body !== null && Array.isArray(data)) return data;
@@ -72,20 +79,20 @@ function checkedList(
   body: unknown,
   what: string,
   entity: ImportDifferenceEntity,
+  token: string,
+  budget: DifferenceBudget | undefined,
 ): CheckedList<SourceOrderedRecord> {
-  const list: CheckedList<SourceOrderedRecord> = { records: [], rejected: [] };
-  recordsOf(body, what).forEach((raw, index) => {
-    const { record, differences } = checkRecord(entity, raw, index + 1);
-    if (record === null) list.rejected.push(...differences);
-    else list.records.push(record);
-  });
-  return list;
+  const text = (value: string) => storedText(value, token);
+  return { entries: listOf(body, what).map((raw, index) => checkRecord(entity, raw, index + 1, { text, budget })) };
 }
 
 // Without the source position, for records that have none.
 const unordered = (list: CheckedList<SourceOrderedRecord>): CheckedList<SourceRecord> => ({
-  records: list.records.map(({ id, name, differences }) => ({ id, name, differences })),
-  rejected: list.rejected,
+  entries: list.entries.map(({ record, differences, omitted }) => ({
+    record: record === null ? null : { id: record.id, name: record.name },
+    differences,
+    omitted,
+  })),
 });
 
 /**
@@ -107,22 +114,32 @@ export class StorylyClient {
 
   /** The apps the token can read, checked. */
   async listApps(): Promise<CheckedList<SourceApp>> {
-    return unordered(checkedList(await this.get('/app', {}, 'apps'), 'apps', 'app'));
+    return unordered(await this.checked('/app', {}, 'apps', 'app'));
   }
 
   /** The instances of one app, checked. */
   async listInstances(appId: string): Promise<CheckedList<SourceInstance>> {
-    return unordered(checkedList(await this.get('/instance', { app_id: appId }, 'instances'), 'instances', 'zone'));
+    return unordered(await this.checked('/instance', { app_id: appId }, 'instances', 'zone'));
   }
 
   /** The story groups of one instance, in response order, checked. */
   async listStoryGroups(instanceId: string): Promise<CheckedList<SourceStoryGroup>> {
-    return checkedList(await this.get('/story-group', { instance_id: instanceId }, 'story groups'), 'story groups', 'taleGroup');
+    return this.checked('/story-group', { instance_id: instanceId }, 'story groups', 'taleGroup');
   }
 
   /** The stories of one story group, in response order, checked. */
   async listStories(storyGroupId: string): Promise<CheckedList<SourceStory>> {
-    return checkedList(await this.get('/story', { story_group_id: storyGroupId }, 'stories'), 'stories', 'tale');
+    return this.checked('/story', { story_group_id: storyGroupId }, 'stories', 'tale');
+  }
+
+  // GETs a list and checks each of its records.
+  private async checked(
+    path: string,
+    query: Record<string, string>,
+    what: string,
+    entity: ImportDifferenceEntity,
+  ): Promise<CheckedList<SourceOrderedRecord>> {
+    return checkedList(await this.get(path, query, what), what, entity, this.options.token, this.options.budget);
   }
 
   // GETs `path` and returns its JSON body. 401 and 403 count as a refused token.

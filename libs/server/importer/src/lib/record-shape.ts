@@ -48,12 +48,36 @@ const SHAPES: Readonly<Record<ImportDifferenceEntity, RecordShape>> = {
   },
 };
 
-/** The longest field name or record title a report stores. */
+
+/** The longest field name, record title or id a report stores. */
 export const REPORT_TEXT_LIMIT = 200;
 
-/** Cuts report text to {@link REPORT_TEXT_LIMIT} characters. */
-export const reportText = (text: string): string =>
-  text.length > REPORT_TEXT_LIMIT ? `${text.slice(0, REPORT_TEXT_LIMIT - 1)}…` : text;
+/** The most differences built for one record; the rest are only counted. */
+export const MAX_DIFFERENCES_PER_RECORD = 50;
+
+/**
+ * Text as a report or job row stores it: the token removed from the whole
+ * text first, then cut to `limit` characters, so a cut never leaves part of
+ * the token behind. Every source string a report holds goes through it.
+ */
+export function storedText(text: string, token: string | null = null, limit = REPORT_TEXT_LIMIT): string {
+  const clean = token ? text.split(token).join('[token]') : text;
+  return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
+}
+
+/** How a report's source strings are made safe to store; {@link storedText} without a token by default. */
+export type ReportText = (text: string) => string;
+
+const cutOnly: ReportText = (text) => storedText(text);
+
+/**
+ * How many more differences the report can take, shared by the checks of one
+ * import: once it reaches 0, records are still checked and their differences
+ * counted, but no more difference objects are built.
+ */
+export interface DifferenceBudget {
+  remaining: number;
+}
 
 /** The fields one record maps from, once checked. */
 export interface CheckedRecord {
@@ -62,14 +86,23 @@ export interface CheckedRecord {
   name: string;
   /** Its source position, or null when it has none usable. */
   sortOrder: number | null;
-  /** How the record differs from its expected shape, in field order. */
-  differences: ImportDifference[];
 }
 
-/** The result of checking one record: the record, or null when it cannot be imported. */
+/**
+ * The result of checking one record: the record, or null when it cannot be
+ * imported; the differences built, in field order; and how many more were
+ * found but not built (the record's cap or the report's budget).
+ */
 export interface RecordCheck {
   record: CheckedRecord | null;
   differences: ImportDifference[];
+  omitted: number;
+}
+
+/** How to check: the report text helper and the budget it draws on. */
+export interface CheckOptions {
+  text?: ReportText;
+  budget?: DifferenceBudget;
 }
 
 const hasField = (record: object, field: string): boolean => Object.prototype.hasOwnProperty.call(record, field);
@@ -84,7 +117,10 @@ function hasValue(value: unknown): boolean {
   if (value === null || value === undefined || value === false) return false;
   if (typeof value === 'string') return value.trim() !== '';
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'object') return Object.keys(value).length > 0;
+  if (typeof value === 'object') {
+    for (const key in value) if (hasField(value, key)) return true;
+    return false;
+  }
   return true;
 }
 
@@ -107,39 +143,69 @@ const sortOrderOf = (value: unknown): number | null => {
  * another name is used under that name. A record that is not an object or has
  * no usable id cannot be imported: it comes back null with one
  * `invalidRecord` difference. Differences carry field names only, never
- * values. `position` is the record's place in its list, from 1.
+ * values, each through `options.text`. At most
+ * {@link MAX_DIFFERENCES_PER_RECORD} are built, and none once the budget is
+ * spent; the rest are counted in `omitted`. The work is linear in the
+ * record's number of fields. `position` is the record's place in its list,
+ * from 1.
  */
 export function checkRecord(
   entity: ImportDifferenceEntity,
   raw: unknown,
   position: number,
-  within: string | null = null,
+  options: CheckOptions = {},
 ): RecordCheck {
   const shape = SHAPES[entity];
+  const text = options.text ?? cutOnly;
+  const budget = options.budget;
   const differences: ImportDifference[] = [];
+  let omitted = 0;
+  let recordRef: ImportDifference['record'] = { sourceId: null, name: null, within: null, withinSourceId: null, position };
+  const add = (kind: ImportDifferenceKind, field: string | null, sourceField: string | null = null) => {
+    if (differences.length >= MAX_DIFFERENCES_PER_RECORD || (budget !== undefined && budget.remaining <= 0)) {
+      omitted++;
+      return;
+    }
+    if (budget !== undefined) budget.remaining--;
+    differences.push({
+      entity,
+      record: recordRef,
+      kind,
+      field: field === null ? null : text(field),
+      sourceField: sourceField === null ? null : text(sourceField),
+    });
+  };
   if (!isPlainObject(raw)) {
-    const record = { sourceId: null, name: null, within, position };
-    return { record: null, differences: [difference(entity, record, 'invalidRecord', null)] };
+    add('invalidRecord', null);
+    return { record: null, differences, omitted };
   }
 
-  // Each expected field's value and the source name it came under.
+  const keys = Object.keys(raw);
+  const expected = [...shape.required, ...shape.notHeld, ...shape.known];
+  const expectedSet = new Set(expected);
+  // The other fields by their name ignoring case, `_` and `-`, built once: the first spelling wins.
+  const others = new Map<string, string>();
+  for (const key of keys) {
+    if (expectedSet.has(key)) continue;
+    const norm = normalized(key);
+    if (!others.has(norm)) others.set(norm, key);
+  }
+
+  // Each expected field's value, found under its name, an alias or another spelling.
   const values = new Map<string, unknown>();
   const renames: { field: string; sourceField: string }[] = [];
   const consumed = new Set<string>();
-  const expected = [...shape.required, ...shape.notHeld, ...shape.known];
-  const expectedSet = new Set(expected);
-  for (const field of expected) if (hasField(raw, field)) consumed.add(field);
   for (const field of expected) {
     if (hasField(raw, field)) {
       values.set(field, raw[field]);
-      continue;
+      consumed.add(field);
     }
-    const aliases = shape.aliases?.[field] ?? [];
-    const sourceField = Object.keys(raw).find(
-      (key) =>
-        !consumed.has(key) &&
-        !expectedSet.has(key) &&
-        (aliases.includes(key) || normalized(key) === normalized(field)),
+  }
+  for (const field of expected) {
+    if (values.has(field)) continue;
+    const candidates = [...(shape.aliases?.[field] ?? []).filter((alias) => hasField(raw, alias)), others.get(normalized(field))];
+    const sourceField = candidates.find(
+      (key): key is string => key !== undefined && !consumed.has(key) && !expectedSet.has(key),
     );
     if (sourceField === undefined) continue;
     consumed.add(sourceField);
@@ -150,21 +216,23 @@ export function checkRecord(
   const id = idOf(values.get('id'));
   const title = values.get('title');
   const name = typeof title === 'string' ? title : '';
-  const record = {
-    sourceId: id === null ? null : reportText(id),
-    name: typeof title === 'string' && title.trim() !== '' ? reportText(title.trim()) : null,
-    within,
+  recordRef = {
+    sourceId: id === null ? null : text(id),
+    name: typeof title === 'string' && title.trim() !== '' ? text(title.trim()) : null,
+    within: null,
+    withinSourceId: null,
     position,
   };
   if (id === null) {
-    return { record: null, differences: [difference(entity, record, 'invalidRecord', null)] };
+    add('invalidRecord', null);
+    return { record: null, differences, omitted };
   }
 
-  for (const { field, sourceField } of renames) differences.push(difference(entity, record, 'renamed', field, sourceField));
+  for (const { field, sourceField } of renames) add('renamed', field, sourceField);
   for (const field of shape.required) {
     if (field === 'id') continue;
     if (!values.has(field)) {
-      differences.push(difference(entity, record, 'missing', field));
+      add('missing', field);
       continue;
     }
     const value = values.get(field);
@@ -172,35 +240,19 @@ export function checkRecord(
       value === null ||
       (field === 'title' && typeof value !== 'string') ||
       (field === 'sort_order' && sortOrderOf(value) === null);
-    if (wrong) differences.push(difference(entity, record, 'wrongType', field));
+    if (wrong) add('wrongType', field);
   }
   for (const field of shape.notHeld) {
     const value = values.get(field);
     if (!hasValue(value)) continue;
     // A story's internal name that repeats its title loses nothing.
     if (entity === 'tale' && field === 'name' && typeof value === 'string' && value.trim() === name.trim()) continue;
-    differences.push(difference(entity, record, 'notHeld', field));
+    add('notHeld', field);
   }
-  for (const key of Object.keys(raw)) {
-    if (!consumed.has(key)) differences.push(difference(entity, record, 'unexpected', key));
+  for (const key of keys) {
+    if (!consumed.has(key)) add('unexpected', key);
   }
 
   const sortOrder = shape.required.includes('sort_order') ? sortOrderOf(values.get('sort_order')) : null;
-  return { record: { id, name, sortOrder, differences }, differences };
-}
-
-function difference(
-  entity: ImportDifferenceEntity,
-  record: ImportDifference['record'],
-  kind: ImportDifferenceKind,
-  field: string | null,
-  sourceField: string | null = null,
-): ImportDifference {
-  return {
-    entity,
-    record,
-    kind,
-    field: field === null ? null : reportText(field),
-    sourceField: sourceField === null ? null : reportText(sourceField),
-  };
+  return { record: { id, name, sortOrder }, differences, omitted };
 }
