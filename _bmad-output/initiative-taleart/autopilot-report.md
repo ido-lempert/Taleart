@@ -156,3 +156,26 @@ Updated 2026-10-20 evening, after the second run. Every foundation story that ne
 - **Web zones 3.3 — publish, pause and archive:** built and merged. Statuses on groups and tales (new content `draft`, existing rows `live`); Delivery and public media serve only live tales of live groups; media now revalidates (`no-cache`, 304 without reading storage); all migrations run under one advisory lock. Review: 5 patches, 1 rejected.
 - **Importer 2.2 — tale groups and tales:** built and merged. Groups placed in their instance's zone at the source position; tales without media; no duplicates on re-run (lock-ordered link protocol, deterministic race test). Imported content arrives as `draft` until importer story 11. Review: 5 patches.
 - **Merged tree:** lint, test and build pass for 12 projects (api 203, web-sdk 59).
+
+## Third parallel batch (2026-10-21)
+
+The user froze importer story 2.3 (real Storyly run) until after the MVP. It is marked blocked, and the importer refactor sweep no longer waits on it. Stories 2.12 (audiences) and 2.13 (interactive components) still wait on it.
+
+Built in parallel worktrees, reviewed, patched and merged into `autopilot/foundation`:
+
+| Story | Merge | Review |
+|---|---|---|
+| Importer 2.4: watch an import's progress and see past imports | `Merge importer story 4` | 4 findings, all patched: a recovered job kept old progress; a failed first read never retried; the page ignored an import ID change in the address bar; no test for the re-claimed case |
+| Web zones 3.5: edit bar settings in the dashboard | `c92b993` | 4 findings, all patched: the Delivery API now cleans stored settings field by field; the form shows the default for an invalid stored value; an emptied number field keeps its value; a field's error clears when the field changes |
+| Web zones 3.4: schedule tale groups and tales | `5faa356` | 7 findings, 6 patched (half-typed dates, seconds kept, daylight-saving gap refused, "No schedule", "Remove schedule", tests for shared media and caching), 1 rejected as by design (a tale reads live while its group is outside its window) |
+
+Verification on the merged tree: `nx run-many -t lint test build` passed for 12 projects (api 231 tests). The web SDK is 6.47 KB gzipped. Screenshots were sent to the user: the zone page with Live, Scheduled and Expired groups, the schedule drawer, the bar settings drawer, the bar on a phone, import progress, and past imports.
+
+Assumptions to confirm with the user:
+- Import history is for admins only, as starting an import is.
+- Bar cover sizes are small 48 px, medium 64 px and large 80 px. The rounded square's corner radius is a quarter of the cover size.
+- A schedule includes its start time and excludes its end time. Draft, Paused and Archived override the schedule. An expired group hides its tales. Copy to zone keeps the schedule.
+- A group's `status` is now its status as read; the saved status is in `storedStatus`.
+- Theme work belongs to stories 3.8 (per project) and 3.9 (override in the SDK settings), not 3.5.
+
+Operational note: a dashboard dev server that had been running before the merges served old drawer templates, and both drawers showed empty. Restarting it fixed this.
