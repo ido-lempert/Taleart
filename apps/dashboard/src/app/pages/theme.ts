@@ -16,7 +16,7 @@ import {
   type Theme,
   type ThemeField,
   type ThemeSettings,
-} from '@taleart/contract';
+} from '@taleart/contract/theme';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { ThemeService } from '../theme.service';

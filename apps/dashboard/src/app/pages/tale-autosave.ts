@@ -1,7 +1,7 @@
 // Tale Studio's autosave (epic Tale Studio R9): saves the document a while after the last change,
 // one save at a time, and keeps trying through network trouble, so no edit is lost silently.
 import { InjectionToken } from '@angular/core';
-import type { TaleDocument } from '@taleart/contract';
+import type { TaleDocument } from '@taleart/contract/tale-document';
 import type { TaleDocumentFailure, TaleDocumentResult } from '../tale-document.service';
 
 /** When autosave saves and retries. */

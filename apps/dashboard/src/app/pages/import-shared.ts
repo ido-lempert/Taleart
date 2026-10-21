@@ -1,4 +1,4 @@
-import { MAX_TAG_NAME_LENGTH } from '@taleart/contract';
+import { MAX_TAG_NAME_LENGTH } from '@taleart/contract/core';
 import type {
   ImportChangeCount,
   ImportCount,
@@ -10,7 +10,7 @@ import type {
   ImportProgressCount,
   ImportStatus,
   ImportTagFailure,
-} from '@taleart/contract';
+} from '@taleart/contract/core';
 
 // What the Import from Storyly pages share: state labels and pills, counts and times.
 

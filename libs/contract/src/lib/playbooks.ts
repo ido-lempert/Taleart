@@ -1,7 +1,7 @@
 // The playbook registry (epic web zones R8): registry data, like the
 // frame-type registry, not a table. A zone records the key of the playbook
 // applied to it; applying one creates its frames and a stage per frame.
-import type { BannerSettings, BarSettings } from '../index';
+import type { BannerSettings, BarSettings } from './core';
 
 /** One frame a playbook creates: its frame type, its settings, and the stage that shows it. */
 export type PlaybookFrame = ({ type: 'bar'; settings: BarSettings } | { type: 'banner'; settings: BannerSettings }) & {

@@ -26,7 +26,7 @@ import {
   type PasskeyResponse,
   type SignedIn,
   type User,
-} from '@taleart/contract';
+} from '@taleart/contract/core';
 import { catchError, firstValueFrom, throwError, type Observable } from 'rxjs';
 import { API_BASE, DashboardStore } from './dashboard.store';
 

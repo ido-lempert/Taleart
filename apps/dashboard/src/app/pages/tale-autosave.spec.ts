@@ -1,4 +1,4 @@
-import type { TaleDocument } from '@taleart/contract';
+import type { TaleDocument } from '@taleart/contract/tale-document';
 import type { TaleDocumentResult } from '../tale-document.service';
 import { isRetryable, TaleAutosaver, type AutosaveState, type AutosaveTiming } from './tale-autosave';
 

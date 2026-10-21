@@ -8,7 +8,7 @@ import {
   type ImportSelection,
   type ImportStarted,
   type StorylyApp,
-} from '@taleart/contract';
+} from '@taleart/contract/core';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from './dashboard.store';
 

@@ -25,7 +25,7 @@ import {
   type SetScheduleRequest,
   type SettableStatus,
   type Tale,
-} from '@taleart/contract';
+} from '@taleart/contract/core';
 import { CoverEditor } from './cover-editor';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
