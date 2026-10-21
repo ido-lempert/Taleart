@@ -9,9 +9,26 @@ import { Pool } from 'pg';
 export const defaultDatabaseUrl =
   'postgres://taleart:taleart@localhost:5432/taleart';
 
-export function createPool(connectionString?: string): Pool {
+/** The pool's size when DATABASE_POOL_MAX is not set. */
+export const DEFAULT_DATABASE_POOL_MAX = 20;
+
+/** How many connections the API's pool holds: DATABASE_POOL_MAX, else {@link DEFAULT_DATABASE_POOL_MAX}. */
+export function databasePoolMax(env: NodeJS.ProcessEnv = process.env): number {
+  const value = Number(env['DATABASE_POOL_MAX']);
+  return Number.isInteger(value) && value > 0 ? value : DEFAULT_DATABASE_POOL_MAX;
+}
+
+/**
+ * Connections the import worker leaves to the API's requests: its media copies
+ * use at most the pool's size less these at once, so dashboard reads and
+ * progress polls are not starved while an import runs.
+ */
+export const DATABASE_CONNECTIONS_FOR_REQUESTS = 6;
+
+export function createPool(connectionString?: string, max = databasePoolMax()): Pool {
   return new Pool({
     connectionString: connectionString ?? process.env['DATABASE_URL'] ?? defaultDatabaseUrl,
+    max,
   });
 }
 

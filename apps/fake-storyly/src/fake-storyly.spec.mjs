@@ -194,4 +194,85 @@ describe('fake Storyly server', () => {
     fake.control.reset();
     expect((await get('/segment?app_id=1001', { headers: { Authorization: 'Bearer nope' } })).status).toBe(401);
   });
+
+  describe('Scale shop (importer story 10)', () => {
+    it('serves the profile: 1,000 stories in 5 instances of 40 groups, with images and videos', async () => {
+      expect(fake.control.useScale({ factor: 0, failures: false })).toEqual({
+        appId: '9001',
+        tales: 1000,
+        mediaBytes: expect.any(Number),
+      });
+      const apps = await (await get('/app', bearer)).json();
+      expect(apps.data.at(-1)).toMatchObject({ id: 9001, title: 'Scale shop' });
+      const instances = await (await get('/instance?app_id=9001', bearer)).json();
+      expect(instances.data).toHaveLength(5);
+      const groups = await (await get(`/story-group?instance_id=${instances.data[0].id}`, bearer)).json();
+      expect(groups.data).toHaveLength(40);
+      expect(groups.data[0].segments).toHaveLength(2);
+      const stories = await (await get(`/story?story_group_id=${groups.data[0].id}`, bearer)).json();
+      expect(stories.data.map((s) => s.sort_order)).toEqual([0, 1, 2, 3, 4]);
+      const labels = await (await get('/segment?app_id=9001', bearer)).json();
+      expect(labels.data).toHaveLength(20);
+      // The same records on every run, the demo apps unchanged.
+      fake.control.reset();
+      expect((await (await get('/app', bearer)).json()).data).toHaveLength(5);
+      fake.control.useScale({ factor: 0, failures: false });
+      expect(await (await get(`/story?story_group_id=${groups.data[0].id}`, bearer)).json()).toEqual(stories);
+    });
+
+    it("streams each story's media with its kind's leading bytes, length and type, and counts it", async () => {
+      fake.control.useScale({ factor: 0, failures: false, instances: 1, groupsPerInstance: 1, storiesPerGroup: 3 });
+      const stories = await (await get('/story?story_group_id=910000', bearer)).json();
+      for (const story of stories.data) {
+        expect(story.media.startsWith(`${fake.mediaUrl}/scale-`)).toBe(true);
+        const res = await fetch(story.media);
+        expect(res.headers.get('content-type')).toBe(story.mime_type);
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        expect(bytes.length).toBe(Number(res.headers.get('content-length')));
+        if (story.mime_type === 'image/jpeg') expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+        else expect(Buffer.from(bytes.subarray(4, 8)).toString('latin1')).toBe('ftyp');
+      }
+      expect(fake.control.stats.mediaRequests).toBe(3);
+      expect(fake.control.stats.maxMediaOpen).toBe(1);
+    });
+
+    it('answers a failing request 429 with Retry-After, or 500 or 503, once, then serves it', async () => {
+      fake.control.useScale({
+        factor: 0,
+        instances: 1,
+        groupsPerInstance: 1,
+        storiesPerGroup: 1,
+        failures: { api429: 1, api500: 0, media429: 0, media503: 1, retryAfterSeconds: 2 },
+      });
+      const first = await get('/instance?app_id=9001', bearer);
+      expect(first.status).toBe(429);
+      expect(first.headers.get('retry-after')).toBe('2');
+      // The token's form does not make it another request.
+      expect((await get(`/instance?app_id=9001&token=${FAKE_STORYLY_TOKEN}`)).status).toBe(200);
+      expect((await get('/story?story_group_id=910000', bearer)).status).toBe(429);
+      const story = (await (await get('/story?story_group_id=910000', bearer)).json()).data[0];
+      expect((await fetch(story.media)).status).toBe(503);
+      expect((await fetch(story.media)).status).toBe(200);
+      expect(fake.control.stats.injected).toEqual({ 429: 2, 503: 1 });
+    });
+
+    it('waits the profile latency times the factor, and paces media to the bandwidth over the factor', async () => {
+      fake.control.useScale({
+        factor: 0.05,
+        failures: false,
+        instances: 1,
+        groupsPerInstance: 1,
+        storiesPerGroup: 1,
+        api: { latencyMs: [400, 400] },
+        media: { ttfbMs: [0, 0], bytesPerSecond: 1_000_000, videoShare: 0, imageBytes: [1_000_000, 1_000_000] },
+      });
+      let started = performance.now();
+      const story = (await (await get('/story?story_group_id=910000', bearer)).json()).data[0];
+      expect(performance.now() - started).toBeGreaterThanOrEqual(18);
+      started = performance.now();
+      // 1 MB at 1 MB/s over 0.05: 50 ms, the last chunk due after about 47 ms.
+      expect((await (await fetch(story.media)).arrayBuffer()).byteLength).toBe(1_000_000);
+      expect(performance.now() - started).toBeGreaterThanOrEqual(40);
+    });
+  });
 });
