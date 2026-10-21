@@ -3697,6 +3697,62 @@ describe('App', () => {
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
+    it('shows the tags row and why a label did not become a tag, after the other entities', async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const blank = { sourceId: null, name: null, within: 'Odd labels', withinSourceId: '3402', position: 1 };
+      const long = {
+        sourceId: null,
+        name: 'A label far too long',
+        within: 'Odd labels',
+        withinSourceId: '3402',
+        position: 3,
+      };
+      const group = {
+        sourceId: '3404',
+        name: 'Bad segments',
+        within: 'Label wall',
+        withinSourceId: '2401',
+        position: 4,
+      };
+      const differences = [
+        { ...difference('tag', blank, 'tagNotImported', 'segments'), reason: 'blank' },
+        { ...difference('tag', long, 'tagNotImported', 'segments'), reason: 'tooLong' },
+        { ...difference('tag', { ...blank, position: 4 }, 'tagNotImported', 'segments'), reason: 'notText' },
+        { ...difference('tag', { ...blank, position: 9 }, 'tagNotImported', 'segments'), reason: 'invalidCharacters' },
+        difference('taleGroup', group, 'wrongType', 'segments'),
+      ];
+      await answerPoll(
+        fixture,
+        job('done', {
+          report: { ...report, tags: { source: 16, imported: 8, skipped: 8 }, differences },
+          finishedAt: '2026-10-20T12:00:09.000Z',
+        }),
+      );
+      expect(rows(root, 'Report')).toEqual([
+        'Zones: 3 source / 3 imported',
+        'Tale groups: 6 source / 6 imported',
+        'Tales: 15 source / 14 imported / 1 skipped',
+        'Tags: 16 source / 8 imported / 8 skipped',
+      ]);
+      const section = root.querySelector('.import-differences') as HTMLElement;
+      expect([...section.querySelectorAll('details summary')].map((s) => s.textContent?.trim())).toEqual([
+        expect.stringContaining('Tale groups'),
+        expect.stringContaining('Tags'),
+      ]);
+      const records = [...section.querySelectorAll('[aria-label="Tags differences"] > li')].map((li) =>
+        [li.querySelector('.import-difference-record'), ...li.querySelectorAll('.import-difference-lines > li')]
+          .map((node) => node?.textContent?.trim())
+          .join(' | '),
+      );
+      expect(records).toEqual([
+        'Record 1 in "Odd labels" | segments: label not imported (blank)',
+        '"A label far too long" in "Odd labels" | segments: label not imported (longer than 40 characters)',
+        'Record 4 in "Odd labels" | segments: label not imported (not text)',
+        'Record 9 in "Odd labels" | segments: label not imported (holds control characters)',
+      ]);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
     it('says when there are no differences, and keeps a long list closed with the omitted count', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       await answerPoll(

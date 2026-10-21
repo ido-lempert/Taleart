@@ -2,8 +2,8 @@
 // `import_links` and `import_media` tables, reads Storyly through its own
 // client (the only place Storyly appears, AD-12), writes zones, tale groups
 // and tales only through @taleart/server-zones and @taleart/server-tales, and
-// copies tale media through the storage port (AD-8, AD-11). Source ids live
-// only in `import_links` (AD-7).
+// tags only through @taleart/server-targeting, and copies tale media through
+// the storage port (AD-8, AD-11). Source ids live only in `import_links` (AD-7).
 export { migrateImporter } from './lib/migration';
 export { parseTokenKey, encryptToken, decryptToken } from './lib/crypto';
 export {
@@ -11,6 +11,7 @@ export {
   DEFAULT_STORYLY_API_URL,
   type SourceApp,
   type SourceInstance,
+  type SourceLabel,
   type SourceStoryGroup,
   type SourceStory,
 } from './lib/storyly-client';

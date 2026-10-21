@@ -1,5 +1,6 @@
 import type { ImportDifference, ImportDifferenceEntity } from '@taleart/contract';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
+import { labelText, MAX_LABEL_LIST_ENTRIES } from './labels';
 import { checkRecord, storedText, type DifferenceBudget } from './record-shape';
 
 /** The real Storyly External API; `STORYLY_API_URL` overrides it (the fake server in tests). */
@@ -26,8 +27,40 @@ export interface SourceOrderedRecord extends SourceRecord {
   sortOrder: number | null;
 }
 
-/** A Storyly story group: it becomes a tale group placed in its instance's zone. */
-export type SourceStoryGroup = SourceOrderedRecord;
+/**
+ * A Storyly story group: it becomes a tale group placed in its instance's
+ * zone. `segments` (its labels) is the source's value, unchecked: the label
+ * import reads it.
+ */
+export interface SourceStoryGroup extends SourceOrderedRecord {
+  segments?: unknown;
+}
+
+/**
+ * A label of the app's labels list (Storyly's segments): a record with an id,
+ * or a bare string with none. `label` is its name as the source gave it,
+ * unchecked: the label import reads it, and a record's name that is absent or
+ * not text is already a difference of the record.
+ */
+export interface SourceLabel {
+  /** The record's id; null for a bare string or a record without a usable id. */
+  id: string | null;
+  /** The label's text, or null when it has none. */
+  text: string | null;
+  /**
+   * True when the record is already a difference that covers its label: no
+   * usable id (`invalidRecord`), or a name that is absent or not text.
+   */
+  reported: boolean;
+}
+
+/** A checked labels list: at most {@link MAX_LABEL_LIST_ENTRIES} entries, with `beyond` counting the rest. */
+export interface CheckedLabelList extends CheckedList<SourceLabel> {
+  beyond: number;
+}
+
+/** The largest response body read from Storyly; a larger one fails that call. */
+export const MAX_STORYLY_RESPONSE_BYTES = 20 * 1024 * 1024;
 
 /**
  * A Storyly story: it becomes a tale of its group's tale group. `media` (the
@@ -72,6 +105,37 @@ export interface StorylyClientOptions {
 }
 
 type AuthMode = 'bearer' | 'query';
+
+// A response body as text, read up to `limit` bytes: a longer one is refused before or while reading.
+async function readLimited(res: Response, limit: number, what: string): Promise<string> {
+  const tooLarge = () =>
+    new StorylyUnavailableError(`Storyly's ${what} response is larger than ${limit / (1024 * 1024)} MB`);
+  const declared = Number(res.headers.get('content-length') ?? '');
+  if (Number.isFinite(declared) && declared > limit) {
+    await res.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  if (res.body === null) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel().catch(() => undefined);
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    if (err instanceof StorylyUnavailableError) throw err;
+    throw new StorylyUnavailableError(`Storyly's ${what} response broke off`);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 // The records of a list response: a bare array, or an object whose `data` is one.
 function listOf(body: unknown, what: string): unknown[] {
@@ -134,6 +198,32 @@ export class StorylyClient {
     return this.checked('/story-group', { instance_id: instanceId }, 'story groups', 'taleGroup');
   }
 
+  /**
+   * The app's labels (Storyly's segments list), in response order: records
+   * checked as the `tag` entity, bare strings taken as they are. A record
+   * without a usable id still names its label (tags need no source id). At
+   * most {@link MAX_LABEL_LIST_ENTRIES} entries are checked; `beyond` counts the rest.
+   */
+  async listLabels(appId: string): Promise<CheckedLabelList> {
+    const all = listOf(await this.get('/segment', { app_id: appId }, 'labels'), 'labels');
+    const text = (value: string) => storedText(value, this.options.token);
+    const budget = this.options.budget;
+    const entries = all.slice(0, MAX_LABEL_LIST_ENTRIES).map((raw, index): CheckedEntry<SourceLabel> => {
+      if (typeof raw === 'string') {
+        return { record: { id: null, text: raw, reported: false }, differences: [], omitted: 0 };
+      }
+      const { record, differences, omitted } = checkRecord('tag', raw, index + 1, { text, budget });
+      if (record !== null) {
+        const label = typeof record.label === 'string' ? record.label : null;
+        return { record: { id: record.id, text: label, reported: label === null }, differences, omitted };
+      }
+      // An object without a usable id: listed as invalidRecord, but its label can still become a tag.
+      const label = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? labelText(raw) : null;
+      return { record: label === null ? null : { id: null, text: label, reported: true }, differences, omitted };
+    });
+    return { entries, beyond: Math.max(0, all.length - MAX_LABEL_LIST_ENTRIES) };
+  }
+
   /** The stories of one story group, in response order, checked. */
   async listStories(storyGroupId: string): Promise<CheckedList<SourceStory>> {
     return this.checked('/story', { story_group_id: storyGroupId }, 'stories', 'tale');
@@ -160,8 +250,9 @@ export class StorylyClient {
       }
       if (!res.ok) throw new StorylyUnavailableError(`Storyly answered ${res.status} when listing ${what}`);
       this.mode = mode;
+      const body = await readLimited(res, MAX_STORYLY_RESPONSE_BYTES, what);
       try {
-        return await res.json();
+        return JSON.parse(body);
       } catch {
         throw new StorylyUnavailableError(`Storyly's ${what} response is not JSON`);
       }

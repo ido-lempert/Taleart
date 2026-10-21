@@ -29,6 +29,7 @@ import {
   maxCoverBytes,
   MEDIA_CONTENT_TYPES,
   mediaKind,
+  hasControlCharacter,
   normalizeTagName,
   publicMediaUrl,
   taleGroupCoverUrl,
@@ -153,6 +154,14 @@ describe('tags', () => {
     expect(normalizeTagName('a'.repeat(40))).toBe('a'.repeat(40));
     expect(normalizeTagName('a'.repeat(41))).toBeNull();
     expect(normalizeTagName('\u{1F31E}'.repeat(40))).toBe('\u{1F31E}'.repeat(40));
+  });
+
+  it('refuses a tag name holding a control character, NUL included', () => {
+    for (const name of ['a\u0000b', 'a\u0007b', 'a\nb', 'a\u001fb', 'a\u007fb']) {
+      expect(normalizeTagName(name)).toBeNull();
+    }
+    expect(hasControlCharacter('plain text')).toBe(false);
+    expect(normalizeTagName(' summer\n')).toBe('summer');
   });
 });
 

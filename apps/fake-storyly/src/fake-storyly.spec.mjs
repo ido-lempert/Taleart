@@ -17,7 +17,7 @@ describe('fake Storyly server', () => {
     const res = await get('/app', bearer);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.map((a) => a.title)).toEqual(['Demo shop', 'Odd shop', 'Clean shop', 'Media shop']);
+    expect(body.data.map((a) => a.title)).toEqual(['Demo shop', 'Odd shop', 'Clean shop', 'Media shop', 'Label shop']);
     expect((await get(`/app?token=${FAKE_STORYLY_TOKEN}`)).status).toBe(200);
   });
 
@@ -155,5 +155,33 @@ describe('fake Storyly server', () => {
     const declared = await fetch(`${fake.mediaUrl}/too-large-declared.mp4`);
     expect(declared.headers.get('content-length')).toBe(String(100 * 1024 * 1024 + 1));
     await declared.body.cancel();
+  });
+
+  it("lists an app's labels and its groups' labels, with Label shop's odd ones, and fails on request", async () => {
+    const demo = await (await get('/segment?app_id=1001', bearer)).json();
+    expect(demo.data.map((l) => l.name)).toEqual(['summer', 'new', 'vip', 'returning']);
+    const home = await (await get('/story-group?instance_id=2001', bearer)).json();
+    expect(home.data.map((g) => g.segments)).toEqual([['summer', 'vip'], ['new'], []]);
+
+    const odd = await (await get('/segment?app_id=1005', bearer)).json();
+    expect(odd.data).toHaveLength(8);
+    expect(odd.data[0]).toBe('Loyal');
+    const wall = await (await get('/story-group?instance_id=2401', bearer)).json();
+    expect(wall.data.map((g) => g.title)).toEqual([
+      'Case twins',
+      'Odd labels',
+      'JSON labels',
+      'Bad segments',
+      'No labels',
+    ]);
+    expect(typeof wall.data[2].segments).toBe('string');
+    expect(await (await get('/segment?app_id=1003', bearer)).json()).toEqual({ data: [] });
+
+    fake.control.failSegments = 'status';
+    expect((await get('/segment?app_id=1001', bearer)).status).toBe(500);
+    fake.control.failSegments = 'shape';
+    expect(await (await get('/segment?app_id=1001', bearer)).json()).toEqual({ unexpected: true });
+    fake.control.reset();
+    expect((await get('/segment?app_id=1001', { headers: { Authorization: 'Bearer nope' } })).status).toBe(401);
   });
 });

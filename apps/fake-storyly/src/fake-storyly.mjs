@@ -159,10 +159,11 @@ function sendList(res, mode, body, origin) {
 /**
  * Starts the fake on `port` (0 picks a free one). Resolves to its base URL,
  * the base URL of its media (`mediaUrl`), the port, `close()`, and `control`:
- * - `failInstances`, `failStoryGroups`, `failStories`: 'status' answers that
- *   list with a 500, 'shape' with an unexpected shape; null serves it.
+ * - `failInstances`, `failStoryGroups`, `failStories`, `failSegments`: 'status'
+ *   answers that list with a 500, 'shape' with an unexpected shape; null serves it.
  * - `data.storyGroups` (by instance id) and `data.stories` (by story group
- *   id): the served lists, which tests may change; `reset()` restores the
+ *   id) and `data.segments` (the labels list, by app id): the served lists,
+ *   which tests may change; `reset()` restores the
  *   fixtures and clears the failure switches.
  * - `delayMs`: how long each answer waits, so a review can watch an import
  *   run; 0 answers at once. `reset()` sets it back to 0.
@@ -175,6 +176,7 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
     failInstances: null,
     failStoryGroups: null,
     failStories: null,
+    failSegments: null,
     delayMs: 0,
     data: {},
     requests: [],
@@ -182,8 +184,13 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
       control.failInstances = null;
       control.failStoryGroups = null;
       control.failStories = null;
+      control.failSegments = null;
       control.delayMs = 0;
-      control.data = { storyGroups: readFixture('story-groups.json'), stories: readFixture('stories.json') };
+      control.data = {
+        storyGroups: readFixture('story-groups.json'),
+        stories: readFixture('stories.json'),
+        segments: readFixture('segments.json'),
+      };
     },
   };
   control.reset();
@@ -231,6 +238,11 @@ export async function startFakeStoryly({ port = 0, host = '127.0.0.1' } = {}) {
         control.data.storyGroups[url.searchParams.get('instance_id') ?? ''],
         origin,
       );
+      return;
+    }
+    if (path === '/segment') {
+      // The labels list: its path and shape are guesses until the real run (importer story 3).
+      sendList(res, control.failSegments, control.data.segments[url.searchParams.get('app_id') ?? ''], origin);
       return;
     }
     if (path === '/story') {

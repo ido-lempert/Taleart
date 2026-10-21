@@ -5,7 +5,7 @@ export class InvalidTagNameError extends Error {
   readonly code = ErrorCodes.validationFailed;
 
   constructor() {
-    super(`A tag name holds 1 to ${MAX_TAG_NAME_LENGTH} characters`);
+    super(`A tag name holds 1 to ${MAX_TAG_NAME_LENGTH} characters and no control characters`);
     this.name = 'InvalidTagNameError';
   }
 }
@@ -27,5 +27,15 @@ export class TagNotFoundError extends Error {
   constructor(readonly tagId: string) {
     super('A tag id does not match a tag of this project');
     this.name = 'TagNotFoundError';
+  }
+}
+
+/** Thrown when the project of the tags is gone. */
+export class TagProjectNotFoundError extends Error {
+  readonly code = ErrorCodes.projectNotFound;
+
+  constructor(readonly projectId: string) {
+    super('The project no longer exists');
+    this.name = 'TagProjectNotFoundError';
   }
 }

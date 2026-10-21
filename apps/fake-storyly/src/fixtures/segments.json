@@ -1,0 +1,91 @@
+{
+  "1001": {
+    "data": [
+      {
+        "id": 5001,
+        "app_id": 1001,
+        "account_id": 501,
+        "name": "summer",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 5002,
+        "app_id": 1001,
+        "account_id": 501,
+        "name": "new",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 5003,
+        "app_id": 1001,
+        "account_id": 501,
+        "name": "vip",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 5004,
+        "app_id": 1001,
+        "account_id": 501,
+        "name": "returning",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
+  },
+  "1005": {
+    "data": [
+      "Loyal",
+      {
+        "id": 5101,
+        "app_id": 1005,
+        "account_id": 501,
+        "name": "vip",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 5102,
+        "app_id": 1005,
+        "account_id": 501,
+        "title": "Renamed label",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 5103,
+        "app_id": 1005,
+        "account_id": 501,
+        "name": 42,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "app_id": 1005,
+        "account_id": 501,
+        "name": "No id",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 5104,
+        "app_id": 1005,
+        "account_id": 501,
+        "name": "   ",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      {
+        "id": 5105,
+        "app_id": 1005,
+        "account_id": 501,
+        "name": "A label far too long to be a TaleArt tag name, sixty chars",
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      },
+      ""
+    ]
+  }
+}

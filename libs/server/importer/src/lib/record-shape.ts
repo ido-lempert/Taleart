@@ -1,4 +1,5 @@
 import type { ImportDifference, ImportDifferenceEntity, ImportDifferenceKind } from '@taleart/contract';
+import { printable } from './labels';
 
 /**
  * The shape the import expects of one kind of source record (FR-029, AD-8):
@@ -16,6 +17,8 @@ interface RecordShape {
   known: readonly string[];
   /** Other names an expected field may come under, besides spellings that differ only in case, `_` or `-`. */
   aliases?: Readonly<Record<string, readonly string[]>>;
+  /** The field that names the record; `title` by default. */
+  nameField?: string;
 }
 
 const SHAPES: Readonly<Record<ImportDifferenceEntity, RecordShape>> = {
@@ -46,6 +49,15 @@ const SHAPES: Readonly<Record<ImportDifferenceEntity, RecordShape>> = {
     notHeld: ['deep_link', 'outlink', 'button_text', 'settings', 'target_cap', 'studio_image', 'thumbnail', 'name'],
     known: ['type', 'mime_type', 'media_raw', 'ts_start', 'ts_end', 'story_group_id', 'account_id', 'ts_created', 'ts_updated'],
   },
+  // A record of the labels list (the segments endpoint): its name becomes a tag. Its shape is a guess until the
+  // real run (story 3); a bare string in the list is a label too and is not checked here.
+  tag: {
+    required: ['id', 'name'],
+    notHeld: [],
+    known: ['app_id', 'account_id', 'ts_created', 'ts_updated'],
+    aliases: { name: ['title', 'value', 'label'] },
+    nameField: 'name',
+  },
 };
 
 
@@ -61,7 +73,8 @@ export const MAX_DIFFERENCES_PER_RECORD = 50;
  * the token behind. Every source string a report holds goes through it.
  */
 export function storedText(text: string, token: string | null = null, limit = REPORT_TEXT_LIMIT): string {
-  const clean = token ? text.split(token).join('[token]') : text;
+  // Control characters (NUL above all, which jsonb refuses) are shown as U+FFFD.
+  const clean = printable(token ? text.split(token).join('[token]') : text);
   return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
 }
 
@@ -90,6 +103,10 @@ export interface CheckedRecord {
   media?: unknown;
   /** A story's `mime_type` value as the source gave it, unchecked; stories only. */
   mimeType?: unknown;
+  /** A story group's `segments` value (its labels) as the source gave it, unchecked; story groups only. */
+  segments?: unknown;
+  /** A label record's `name` value as the source gave it, unchecked; label records only. */
+  label?: unknown;
 }
 
 /**
@@ -218,7 +235,8 @@ export function checkRecord(
   }
 
   const id = idOf(values.get('id'));
-  const title = values.get('title');
+  const nameField = shape.nameField ?? 'title';
+  const title = values.get(nameField);
   const name = typeof title === 'string' ? title : '';
   recordRef = {
     sourceId: id === null ? null : text(id),
@@ -242,7 +260,7 @@ export function checkRecord(
     const value = values.get(field);
     const wrong =
       value === null ||
-      (field === 'title' && typeof value !== 'string') ||
+      (field === nameField && typeof value !== 'string') ||
       (field === 'sort_order' && sortOrderOf(value) === null);
     if (wrong) add('wrongType', field);
   }
@@ -263,5 +281,7 @@ export function checkRecord(
     record.media = values.get('media');
     record.mimeType = values.get('mime_type');
   }
+  if (entity === 'taleGroup') record.segments = values.get('segments');
+  if (entity === 'tag') record.label = values.get('name');
   return { record, differences, omitted };
 }

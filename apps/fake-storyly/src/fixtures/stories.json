@@ -903,5 +903,145 @@
         "ts_end": null
       }
     ]
+  },
+  "3401": {
+    "data": [
+      {
+        "id": 4401,
+        "story_group_id": 3401,
+        "account_id": 501,
+        "title": "Label story 1",
+        "name": "Label story 1",
+        "type": 1,
+        "status": 1,
+        "sort_order": 0,
+        "media": "https://media.example/fake/story-4401.jpg",
+        "media_raw": null,
+        "studio_image": null,
+        "mime_type": "image/jpeg",
+        "thumbnail": null,
+        "deep_link": null,
+        "outlink": null,
+        "button_text": null,
+        "settings": {},
+        "target_cap": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_start": null,
+        "ts_updated": "2026-09-01 10:00:00",
+        "ts_end": null
+      }
+    ]
+  },
+  "3402": {
+    "data": [
+      {
+        "id": 4402,
+        "story_group_id": 3402,
+        "account_id": 501,
+        "title": "Label story 2",
+        "name": "Label story 2",
+        "type": 1,
+        "status": 1,
+        "sort_order": 0,
+        "media": "https://media.example/fake/story-4402.jpg",
+        "media_raw": null,
+        "studio_image": null,
+        "mime_type": "image/jpeg",
+        "thumbnail": null,
+        "deep_link": null,
+        "outlink": null,
+        "button_text": null,
+        "settings": {},
+        "target_cap": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_start": null,
+        "ts_updated": "2026-09-01 10:00:00",
+        "ts_end": null
+      }
+    ]
+  },
+  "3403": {
+    "data": [
+      {
+        "id": 4403,
+        "story_group_id": 3403,
+        "account_id": 501,
+        "title": "Label story 3",
+        "name": "Label story 3",
+        "type": 1,
+        "status": 1,
+        "sort_order": 0,
+        "media": "https://media.example/fake/story-4403.jpg",
+        "media_raw": null,
+        "studio_image": null,
+        "mime_type": "image/jpeg",
+        "thumbnail": null,
+        "deep_link": null,
+        "outlink": null,
+        "button_text": null,
+        "settings": {},
+        "target_cap": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_start": null,
+        "ts_updated": "2026-09-01 10:00:00",
+        "ts_end": null
+      }
+    ]
+  },
+  "3404": {
+    "data": [
+      {
+        "id": 4404,
+        "story_group_id": 3404,
+        "account_id": 501,
+        "title": "Label story 4",
+        "name": "Label story 4",
+        "type": 1,
+        "status": 1,
+        "sort_order": 0,
+        "media": "https://media.example/fake/story-4404.jpg",
+        "media_raw": null,
+        "studio_image": null,
+        "mime_type": "image/jpeg",
+        "thumbnail": null,
+        "deep_link": null,
+        "outlink": null,
+        "button_text": null,
+        "settings": {},
+        "target_cap": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_start": null,
+        "ts_updated": "2026-09-01 10:00:00",
+        "ts_end": null
+      }
+    ]
+  },
+  "3405": {
+    "data": [
+      {
+        "id": 4405,
+        "story_group_id": 3405,
+        "account_id": 501,
+        "title": "Label story 5",
+        "name": "Label story 5",
+        "type": 1,
+        "status": 1,
+        "sort_order": 0,
+        "media": "https://media.example/fake/story-4405.jpg",
+        "media_raw": null,
+        "studio_image": null,
+        "mime_type": "image/jpeg",
+        "thumbnail": null,
+        "deep_link": null,
+        "outlink": null,
+        "button_text": null,
+        "settings": {},
+        "target_cap": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_start": null,
+        "ts_updated": "2026-09-01 10:00:00",
+        "ts_end": null
+      }
+    ]
   }
 }

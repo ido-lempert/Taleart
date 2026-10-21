@@ -49,6 +49,18 @@
       "is_inbox_story": false,
       "settings": {},
       "detailed_info": {}
+    },
+    {
+      "id": 1005,
+      "token": "fake-app-token-1005",
+      "title": "Label shop",
+      "category": "shopping",
+      "store_type": "web",
+      "store_id": "label-shop.example",
+      "account_id": 501,
+      "is_inbox_story": false,
+      "settings": {},
+      "detailed_info": {}
     }
   ]
 }
