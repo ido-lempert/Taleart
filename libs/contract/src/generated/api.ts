@@ -459,6 +459,59 @@ export interface paths {
         patch: operations["updateZoneFrame"];
         trace?: never;
     };
+    "/zones/{zoneId}/stages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List a zone's stages, oldest first.
+         * @description A stage is a named place on a host page that shows one of the zone's frames (epic web zones R7). Unknown zone: 404 `zone_not_found`.
+         */
+        get: operations["listZoneStages"];
+        put?: never;
+        /**
+         * Add a stage that shows one of the zone's frames.
+         * @description The name is trimmed and must not be blank; the key must match `^[a-z0-9]+(-[a-z0-9]+)*$` and be at most 64 characters (400 `validation_failed`). A frame that is not one of the zone's answers 400 `frame_not_found`; a key another stage of the zone has answers 409 `stage_key_taken`. Unknown zone: 404 `zone_not_found`. The stage takes its project from the zone (AD-4).
+         */
+        post: operations["createZoneStage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/zones/{zoneId}/stages/{stageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a stage.
+         * @description A page that names its key renders nothing for it from then on. Unknown zone: 404 `zone_not_found`; a stage that is not in the zone: 404 `stage_not_found`.
+         */
+        delete: operations["deleteZoneStage"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a stage; its key and frame stay.
+         * @description The name is trimmed and must not be blank (400 `validation_failed`). Host pages name the stage by its key, which a rename never changes. Unknown zone: 404 `zone_not_found`; a stage that is not in the zone: 404 `stage_not_found`.
+         */
+        patch: operations["renameZoneStage"];
+        trace?: never;
+    };
     "/zones/{zoneId}/key": {
         parameters: {
             query?: never;
@@ -497,7 +550,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The zone of the zone key, with its frames and tale groups (Delivery API).
+         * The zone of the zone key, with its frames, stages and tale groups (Delivery API).
          * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed (AD-6); each tale's media URL is absolute and public (AD-11).
          */
         get: operations["getDeliveryZone"];
@@ -921,6 +974,32 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description A named place on a host page that shows one of its zone's frames (epic web zones R7). A page renders it with `<taleart-view stage="<key>">`. */
+        Stage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            zoneId: string;
+            /** Format: uuid */
+            projectId: string;
+            /**
+             * Format: uuid
+             * @description The frame of the zone the stage shows.
+             */
+            frameId: string;
+            name: string;
+            /** @description Unique in the zone; set on create and never changed. */
+            key: string;
+        };
+        CreateStageRequest: {
+            name: string;
+            key: string;
+            /** Format: uuid */
+            frameId: string;
+        };
+        RenameStageRequest: {
+            name: string;
+        };
         /** @description A tale group belongs to its project (AD-14). Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
         TaleGroup: {
             /** @description The group's cover, still or animated, or null when it has none; then the bar shows its first published tale's media. */
@@ -1111,11 +1190,22 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        DeliveryStage: {
+            /** @description The key a host page names in `<taleart-view stage="<key>">`. */
+            key: string;
+            /**
+             * Format: uuid
+             * @description The id of one of the zone's frames, in `frames`.
+             */
+            frameId: string;
+        };
         DeliveryZone: {
             /** Format: uuid */
             id: string;
             name: string;
             frames: components["schemas"]["DeliveryFrame"][];
+            /** @description The zone's stages, oldest first (R7). A page that names a stage renders only that stage's frame. */
+            stages: components["schemas"]["DeliveryStage"][];
             /** @description The published tale groups placed in the zone, in this zone's order (AD-2, AD-14); every frame shows all of them. */
             taleGroups: components["schemas"]["DeliveryTaleGroup"][];
         };
@@ -1344,7 +1434,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "invalid_status_transition" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "frame_not_found" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "invalid_status_transition" | "stage_not_found" | "stage_key_taken" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2046,6 +2136,117 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    listZoneStages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The zone's stages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stage"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createZoneStage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStageRequest"];
+            };
+        };
+        responses: {
+            /** @description The created stage. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteZoneStage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stage is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    renameZoneStage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zoneId: string;
+                stageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameStageRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed stage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stage"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
     getZoneKey: {
         parameters: {
             query?: never;
@@ -2128,7 +2329,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The zone, its frames oldest first, and its tale groups by position. */
+            /** @description The zone, its frames and stages oldest first, and its tale groups by position. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2788,4 +2989,4 @@ export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["sc
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale"];
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "frame_not_found", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "invalid_status_transition", "stage_not_found", "stage_key_taken", "internal_error"];

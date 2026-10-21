@@ -684,6 +684,124 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /zones/{zoneId}/stages:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listZoneStages
+      summary: List a zone's stages, oldest first.
+      description: >-
+        A stage is a named place on a host page that shows one of the zone's
+        frames (epic web zones R7). Unknown zone: 404 `zone_not_found`.
+      responses:
+        '200':
+          description: The zone's stages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Stage'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createZoneStage
+      summary: Add a stage that shows one of the zone's frames.
+      description: >-
+        The name is trimmed and must not be blank; the key must match
+        `^[a-z0-9]+(-[a-z0-9]+)*$` and be at most 64 characters (400
+        `validation_failed`). A frame that is not one of the zone's answers 400
+        `frame_not_found`; a key another stage of the zone has answers 409
+        `stage_key_taken`. Unknown zone: 404 `zone_not_found`. The stage takes
+        its project from the zone (AD-4).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStageRequest'
+      responses:
+        '201':
+          description: The created stage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /zones/{zoneId}/stages/{stageId}:
+    parameters:
+      - name: zoneId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stageId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: renameZoneStage
+      summary: Rename a stage; its key and frame stay.
+      description: >-
+        The name is trimmed and must not be blank (400 `validation_failed`).
+        Host pages name the stage by its key, which a rename never changes.
+        Unknown zone: 404 `zone_not_found`; a stage that is not in the zone:
+        404 `stage_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameStageRequest'
+      responses:
+        '200':
+          description: The renamed stage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteZoneStage
+      summary: Delete a stage.
+      description: >-
+        A page that names its key renders nothing for it from then on. Unknown
+        zone: 404 `zone_not_found`; a stage that is not in the zone: 404
+        `stage_not_found`.
+      responses:
+        '204':
+          description: The stage is deleted.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /zones/{zoneId}/key:
     parameters:
       - name: zoneId
@@ -754,7 +872,7 @@ paths:
         description: Delivery API (AD-2), for SDKs. Accepts zone keys only.
     get:
       operationId: getDeliveryZone
-      summary: The zone of the zone key, with its frames and tale groups (Delivery API).
+      summary: The zone of the zone key, with its frames, stages and tale groups (Delivery API).
       description: >-
         Served under `/delivery/v1`. Accepts only a zone key in
         `Authorization: Bearer <key>`, never a session. A missing, unknown or
@@ -767,7 +885,7 @@ paths:
         - zoneKey: []
       responses:
         '200':
-          description: The zone, its frames oldest first, and its tale groups by position.
+          description: The zone, its frames and stages oldest first, and its tale groups by position.
           content:
             application/json:
               schema:
@@ -1650,6 +1768,54 @@ components:
           type: object
           additionalProperties: true
           description: The frame's new settings, valid against its type's JSON Schema.
+    Stage:
+      type: object
+      description: >-
+        A named place on a host page that shows one of its zone's frames (epic
+        web zones R7). A page renders it with `<taleart-view stage="<key>">`.
+      required: [id, zoneId, projectId, frameId, name, key]
+      properties:
+        id:
+          type: string
+          format: uuid
+        zoneId:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        frameId:
+          type: string
+          format: uuid
+          description: The frame of the zone the stage shows.
+        name:
+          type: string
+        key:
+          type: string
+          description: Unique in the zone; set on create and never changed.
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 64
+    CreateStageRequest:
+      type: object
+      required: [name, key, frameId]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        key:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 64
+        frameId:
+          type: string
+          format: uuid
+    RenameStageRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
     TaleGroup:
       type: object
       description: >-
@@ -2027,9 +2193,20 @@ components:
           description: >-
             The frame's settings, with every field the stored settings leave
             out filled with its default from the type's JSON Schema.
+    DeliveryStage:
+      type: object
+      required: [key, frameId]
+      properties:
+        key:
+          type: string
+          description: The key a host page names in `<taleart-view stage="<key>">`.
+        frameId:
+          type: string
+          format: uuid
+          description: The id of one of the zone's frames, in `frames`.
     DeliveryZone:
       type: object
-      required: [id, name, frames, taleGroups]
+      required: [id, name, frames, stages, taleGroups]
       properties:
         id:
           type: string
@@ -2040,6 +2217,13 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeliveryFrame'
+        stages:
+          type: array
+          description: >-
+            The zone's stages, oldest first (R7). A page that names a stage
+            renders only that stage's frame.
+          items:
+            $ref: '#/components/schemas/DeliveryStage'
         taleGroups:
           type: array
           description: >-
@@ -2467,6 +2651,8 @@ components:
         - storyly_unavailable
         - importer_not_configured
         - invalid_status_transition
+        - stage_not_found
+        - stage_key_taken
         - internal_error
     ErrorBody:
       type: object

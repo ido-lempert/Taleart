@@ -172,7 +172,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_links, import_jobs, zone_keys, tale_group_tags, tags, tales, zone_tale_groups, tale_groups, stages, frames, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -562,6 +562,203 @@ describe('Management API v1: projects and zones', () => {
           expect(stored.settings).toEqual(bannerEdited);
         });
       });
+    });
+  });
+
+  describe('stages', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+
+    function send(method: string, path: string, body?: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method,
+        headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    }
+
+    // A zone with a bar and a banner frame.
+    async function setup(): Promise<{ zone: { id: string; projectId: string }; bar: { id: string }; banner: { id: string } }> {
+      const zone = await createZone();
+      const bar = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
+      return { zone, bar, banner };
+    }
+
+    async function stagesOf(zoneId: string): Promise<{ id: string; name: string; key: string; frameId: string }[]> {
+      const res = await fetch(`${base}/zones/${zoneId}/stages`);
+      expect(res.status).toBe(200);
+      return res.json();
+    }
+
+    it('creates stages with trimmed names in the zone project and lists them oldest first', async () => {
+      const { zone, bar, banner } = await setup();
+      const created = await post(`/zones/${zone.id}/stages`, { name: '  Top bar ', key: 'top-bar', frameId: bar.id });
+      expect(created.status).toBe(201);
+      const top = await created.json();
+      expect(top).toEqual({
+        id: expect.any(String),
+        zoneId: zone.id,
+        projectId: zone.projectId,
+        frameId: bar.id,
+        name: 'Top bar',
+        key: 'top-bar',
+      });
+      const hero = await (await post(`/zones/${zone.id}/stages`, { name: 'Hero', key: 'hero', frameId: banner.id })).json();
+      // A second stage may show the same frame.
+      const again = await (await post(`/zones/${zone.id}/stages`, { name: 'Footer', key: 'footer', frameId: bar.id })).json();
+
+      expect(await stagesOf(zone.id)).toEqual([top, hero, again]);
+      const other = await createZone();
+      expect(await stagesOf(other.id)).toEqual([]);
+      const { rows } = await pool.query('SELECT project_id FROM stages');
+      expect(rows.every((row) => row.project_id === zone.projectId)).toBe(true);
+    });
+
+    it('refuses a blank name, a bad key or a missing frame with validation_failed, storing nothing', async () => {
+      const { zone, bar } = await setup();
+      for (const body of [
+        { key: 'top', frameId: bar.id },
+        { name: '   ', key: 'top', frameId: bar.id },
+        { name: 'Top', frameId: bar.id },
+        { name: 'Top', key: 'Top Bar', frameId: bar.id },
+        { name: 'Top', key: '-top', frameId: bar.id },
+        { name: 'Top', key: 'top_bar', frameId: bar.id },
+        { name: 'Top', key: 'a'.repeat(65), frameId: bar.id },
+        { name: 'Top', key: 'top' },
+      ]) {
+        const res = await post(`/zones/${zone.id}/stages`, body);
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
+      }
+      expect(await stagesOf(zone.id)).toEqual([]);
+      expect((await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'a'.repeat(64), frameId: bar.id })).status).toBe(201);
+    });
+
+    it("refuses a frame that is not one of the zone's frames with frame_not_found", async () => {
+      const { zone } = await setup();
+      const other = await setup();
+      for (const frameId of [other.bar.id, unknownId, 'f1']) {
+        const res = await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: { code: 'frame_not_found', message: expect.any(String) } });
+      }
+      expect(await stagesOf(zone.id)).toEqual([]);
+    });
+
+    it('refuses a key another stage of the zone has with 409, and allows it in another zone', async () => {
+      const { zone, bar, banner } = await setup();
+      expect((await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).status).toBe(201);
+      const taken = await post(`/zones/${zone.id}/stages`, { name: 'Other', key: 'top', frameId: banner.id });
+      expect(taken.status).toBe(409);
+      expect(await taken.json()).toEqual({ error: { code: 'stage_key_taken', message: expect.any(String) } });
+      expect(await stagesOf(zone.id)).toHaveLength(1);
+
+      const other = await setup();
+      const elsewhere = await post(`/zones/${other.zone.id}/stages`, { name: 'Top', key: 'top', frameId: other.bar.id });
+      expect(elsewhere.status).toBe(201);
+    });
+
+    it('renames a stage, keeping its key and frame', async () => {
+      const { zone, bar } = await setup();
+      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
+      const res = await send('PATCH', `/zones/${zone.id}/stages/${stage.id}`, { name: ' Hero ', key: 'hero', frameId: unknownId });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ...stage, name: 'Hero' });
+      expect(await stagesOf(zone.id)).toEqual([{ ...stage, name: 'Hero' }]);
+
+      const blank = await send('PATCH', `/zones/${zone.id}/stages/${stage.id}`, { name: ' ' });
+      expect(blank.status).toBe(400);
+      expect((await blank.json()).error.code).toBe('validation_failed');
+      expect((await send('PATCH', `/zones/${zone.id}/stages/${stage.id}`)).status).toBe(400);
+    });
+
+    it('deletes a stage, freeing its key', async () => {
+      const { zone, bar } = await setup();
+      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
+      const res = await send('DELETE', `/zones/${zone.id}/stages/${stage.id}`);
+      expect(res.status).toBe(204);
+      expect(await stagesOf(zone.id)).toEqual([]);
+      expect((await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).status).toBe(201);
+    });
+
+    it('answers stage_not_found for an unknown stage or a stage of another zone', async () => {
+      const { zone } = await setup();
+      const other = await setup();
+      const theirs = await (
+        await post(`/zones/${other.zone.id}/stages`, { name: 'Top', key: 'top', frameId: other.bar.id })
+      ).json();
+      for (const stageId of [unknownId, 'nope', theirs.id]) {
+        for (const [method, body] of [
+          ['PATCH', { name: 'Hero' }],
+          ['DELETE', undefined],
+        ] as const) {
+          const res = await send(method, `/zones/${zone.id}/stages/${stageId}`, body);
+          expect(res.status).toBe(404);
+          expect(await res.json()).toEqual({ error: { code: 'stage_not_found', message: expect.any(String) } });
+        }
+      }
+      expect(await stagesOf(other.zone.id)).toEqual([theirs]);
+    });
+
+    it('answers zone_not_found on every stage route of an unknown zone', async () => {
+      for (const [method, path, body] of [
+        ['GET', `/zones/${unknownId}/stages`, undefined],
+        ['POST', `/zones/${unknownId}/stages`, { name: 'Top', key: 'top', frameId: unknownId }],
+        ['PATCH', `/zones/${unknownId}/stages/${unknownId}`, { name: 'Top' }],
+        ['DELETE', `/zones/${unknownId}/stages/${unknownId}`, undefined],
+      ] as const) {
+        const res = await send(method, path, body);
+        expect(res.status).toBe(404);
+        expect((await res.json()).error.code).toBe('zone_not_found');
+      }
+    });
+
+    it('refuses with 403 on every stage route of a zone in a project the caller cannot access', async () => {
+      const { zone, bar } = await setup();
+      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
+      const own = await createProject('Own');
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, own.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+
+      for (const [method, path, body] of [
+        ['GET', `/zones/${zone.id}/stages`, undefined],
+        ['POST', `/zones/${zone.id}/stages`, { name: 'Mine', key: 'mine', frameId: bar.id }],
+        ['PATCH', `/zones/${zone.id}/stages/${stage.id}`, { name: 'Mine' }],
+        ['DELETE', `/zones/${zone.id}/stages/${stage.id}`, undefined],
+      ] as const) {
+        const res = await send(method, path, body);
+        expect(res.status).toBe(403);
+        expect((await res.json()).error.code).toBe('forbidden');
+      }
+      const { rows } = await pool.query('SELECT name FROM stages');
+      expect(rows).toEqual([{ name: 'Top' }]);
+    });
+
+    it("keeps a stage's frame in its own zone in the database too", async () => {
+      const { zone } = await setup();
+      const other = await setup();
+      await expect(
+        pool.query('INSERT INTO stages (zone_id, project_id, frame_id, name, key) VALUES ($1, $2, $3, $4, $5)', [
+          zone.id,
+          zone.projectId,
+          other.bar.id,
+          'Sneaky',
+          'sneaky',
+        ]),
+      ).rejects.toThrow(/foreign key/);
+    });
+
+    it('keeps stages when the migration runs again', async () => {
+      const { zone, bar } = await setup();
+      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
+      await restart();
+      await restart();
+      expect(await stagesOf(zone.id)).toEqual([stage]);
+      const { rows } = await pool.query<{ conname: string }>(
+        "SELECT conname FROM pg_constraint WHERE conrelid = 'stages'::regclass AND contype = 'f'",
+      );
+      expect(rows).toHaveLength(3);
     });
   });
 
@@ -2647,6 +2844,7 @@ describe('Management API v1: projects and zones', () => {
             settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
           },
         ],
+        stages: [],
         taleGroups: [],
       });
     });
@@ -2717,6 +2915,36 @@ describe('Management API v1: projects and zones', () => {
         { id: listed.id, type: 'bar', settings: defaults },
         { id: banner.id, type: 'banner', settings: { ...bannerDefaults, loop: false } },
       ]);
+    });
+
+    it("delivers the zone's stages, key and frame only, oldest first, and drops deleted ones", async () => {
+      const zone = await createZone();
+      const circle = await (await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: { shape: 'circle' } })).json();
+      const square = await (
+        await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: { shape: 'rounded-square' } })
+      ).json();
+      const round = await (await post(`/zones/${zone.id}/stages`, { name: 'Round bar', key: 'round', frameId: circle.id })).json();
+      await post(`/zones/${zone.id}/stages`, { name: 'Square bar', key: 'square', frameId: square.id });
+      // Another zone's stages never show.
+      const other = await createZone();
+      const otherFrame = await (await post(`/zones/${other.id}/frames`, { type: 'bar' })).json();
+      await post(`/zones/${other.id}/stages`, { name: 'Elsewhere', key: 'elsewhere', frameId: otherFrame.id });
+      const { key } = await issue(zone.id);
+
+      const body = await (await deliver(key)).json();
+      expect(body.stages).toEqual([
+        { key: 'round', frameId: circle.id },
+        { key: 'square', frameId: square.id },
+      ]);
+      expect(body.frames.map((f: { id: string; settings: { shape: string } }) => [f.id, f.settings.shape])).toEqual([
+        [circle.id, 'circle'],
+        [square.id, 'rounded-square'],
+      ]);
+      expect(JSON.stringify(body.stages)).not.toContain('Round bar');
+      expect(JSON.stringify(body.stages)).not.toContain(round.id);
+
+      expect((await send('DELETE', `/zones/${zone.id}/stages/${round.id}`)).status).toBe(204);
+      expect((await (await deliver(key)).json()).stages).toEqual([{ key: 'square', frameId: square.id }]);
     });
 
     describe('tale groups and public media', () => {

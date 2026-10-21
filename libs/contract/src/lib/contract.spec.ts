@@ -17,6 +17,9 @@ import {
   ERROR_CODES,
   ErrorCodes,
   IMPORT_STATUSES,
+  isStageKey,
+  MAX_STAGE_KEY_LENGTH,
+  stageKeyFromName,
   invitationPath,
   isImportActive,
   isErrorBody,
@@ -252,5 +255,28 @@ describe('imports', () => {
         expect(isValidWindow({ startsAt: start, endsAt: start })).toBe(false);
       });
     });
+  });
+});
+
+describe('stage keys (epic web zones R7)', () => {
+  it('accepts lowercase words joined by single hyphens, up to 64 characters', () => {
+    for (const key of ['home', 'home-top', 'bar-2', '2024', 'a'.repeat(MAX_STAGE_KEY_LENGTH)]) {
+      expect(isStageKey(key)).toBe(true);
+    }
+  });
+
+  it('refuses anything else', () => {
+    for (const key of ['', 'Home', 'home top', '-home', 'home-', 'home--top', 'home_top', 'héro', 'a'.repeat(65), 7, null]) {
+      expect(isStageKey(key)).toBe(false);
+    }
+  });
+
+  it('suggests a key from a name', () => {
+    expect(stageKeyFromName(' Home page: Top bar! ')).toBe('home-page-top-bar');
+    expect(stageKeyFromName('Héro Bänner 2')).toBe('hero-banner-2');
+    expect(stageKeyFromName('***')).toBe('');
+    const long = stageKeyFromName(`${'a'.repeat(63)} b`);
+    expect(long).toBe('a'.repeat(63));
+    expect(isStageKey(long)).toBe(true);
   });
 });

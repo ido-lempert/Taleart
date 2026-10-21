@@ -14,7 +14,9 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
   MAX_TALES_PER_GROUP,
+  MAX_STAGE_KEY_LENGTH,
   MEDIA_CONTENT_TYPES,
+  stageKeyFromName,
   type Invitation,
   type IssuedZoneKey,
   type SetScheduleRequest,
@@ -65,6 +67,42 @@ export class CreateDrawer implements OnInit {
   protected newTag = '';
   /** The zone picked in an "Add to zone…" drawer. */
   protected readonly placeZoneId = signal('');
+
+  /** The key typed in a new stage drawer; follows the name until the user edits it. */
+  protected stageKey = '';
+  private stageKeyEdited = false;
+  /** The frame picked in a new stage drawer. */
+  protected stageFrameId = '';
+  protected readonly maxStageKey = MAX_STAGE_KEY_LENGTH;
+
+  /** The zone of a stage drawer. */
+  protected readonly stageZoneId = computed(() => {
+    const request = this.request();
+    return request.kind === 'stage' || request.kind === 'renameStage' || request.kind === 'deleteStage'
+      ? request.zoneId
+      : '';
+  });
+
+  /** The frames a new stage can show: the zone's frames. */
+  protected readonly stageFrames = computed(() => this.store.framesOf(this.stageZoneId()));
+
+  /** The stage a rename or delete drawer is for. */
+  protected readonly editedStage = computed(() => {
+    const request = this.request();
+    return request.kind === 'renameStage' || request.kind === 'deleteStage'
+      ? this.store.stage(request.zoneId, request.stageId)
+      : undefined;
+  });
+
+  /** Typing a stage name suggests its key, until the key is edited by hand. */
+  protected stageNameChanged(name: string): void {
+    if (!this.stageKeyEdited) this.stageKey = stageKeyFromName(name);
+  }
+
+  /** Any edit of the key by hand stops it following the name, even when it is emptied. */
+  protected stageKeyChanged(): void {
+    this.stageKeyEdited = true;
+  }
 
   /** The tale group an "Add to zone…", "Copy to zone…", "Rename" or "Remove from this zone" drawer is for. */
   protected readonly placementGroup = computed(() => {
@@ -125,7 +163,10 @@ export class CreateDrawer implements OnInit {
 
   /** True for the drawers whose submit removes or revokes something. */
   protected readonly destructive = computed(
-    () => this.zoneKeyRequest()?.action === 'revoke' || this.request().kind === 'removeTaleGroup',
+    () =>
+      this.zoneKeyRequest()?.action === 'revoke' ||
+      this.request().kind === 'removeTaleGroup' ||
+      this.request().kind === 'deleteStage',
   );
 
   /** The frame a settings drawer edits. */
@@ -281,7 +322,12 @@ export class CreateDrawer implements OnInit {
     switch (this.request().kind) {
       case 'frame':
       case 'tale':
+      case 'stage':
         return 'Add';
+      case 'renameStage':
+        return 'Save';
+      case 'deleteStage':
+        return 'Delete';
       case 'taleMedia':
         return 'Upload';
       case 'cover':
@@ -367,6 +413,12 @@ export class CreateDrawer implements OnInit {
         return 'Remove from this zone';
       case 'schedule':
         return 'Schedule';
+      case 'stage':
+        return 'New stage';
+      case 'renameStage':
+        return 'Rename stage';
+      case 'deleteStage':
+        return 'Delete stage';
       case 'zoneKey':
         if (this.issuedKey()) return 'Zone key';
         return this.zoneKeyRequest()?.action === 'rotate'
@@ -380,7 +432,14 @@ export class CreateDrawer implements OnInit {
   /** The zone or tale group the new item goes into, for the drawer's context line. */
   protected readonly context = computed(() => {
     const request = this.request();
-    if (request.kind === 'frame' || request.kind === 'frameSettings' || request.kind === 'taleGroup') {
+    if (
+      request.kind === 'frame' ||
+      request.kind === 'frameSettings' ||
+      request.kind === 'taleGroup' ||
+      request.kind === 'stage' ||
+      request.kind === 'renameStage' ||
+      request.kind === 'deleteStage'
+    ) {
       const zone = this.store.zone(request.zoneId);
       return zone ? `In zone ${zone.name}` : '';
     }
@@ -428,6 +487,8 @@ export class CreateDrawer implements OnInit {
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
+    if (this.request().kind === 'renameStage') this.text = this.editedStage()?.name ?? '';
+    if (this.request().kind === 'stage') this.stageFrameId = this.stageFrames()[0]?.id ?? '';
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
     const frame = this.settingsFrame();
     if (frame) this.settings.set(initialSettings(this.settingsSchema(), frame.settings));
@@ -589,6 +650,25 @@ export class CreateDrawer implements OnInit {
         break;
       case 'renameTaleGroup':
         message = await this.store.renameTaleGroup(request.taleGroupId, this.text);
+        break;
+      case 'stage':
+        message = !this.stageKey.trim()
+          ? 'Enter a key: lowercase letters, digits and hyphens.'
+          : this.stageFrameId
+            ? await this.store.createStage(request.zoneId, {
+                name: this.text,
+                key: this.stageKey.trim(),
+                frameId: this.stageFrameId,
+              })
+            : 'Choose a frame.';
+        break;
+      case 'renameStage':
+        message = this.editedStage()
+          ? await this.store.renameStage(request.zoneId, request.stageId, this.text)
+          : 'This stage no longer exists.';
+        break;
+      case 'deleteStage':
+        message = await this.store.deleteStage(request.zoneId, request.stageId);
         break;
       case 'placeTaleGroup':
         message = this.placeZoneId()

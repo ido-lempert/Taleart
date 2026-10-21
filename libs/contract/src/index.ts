@@ -23,6 +23,9 @@ export type FrameType = Schemas['FrameType'];
 export type Frame = Schemas['Frame'];
 export type CreateFrameRequest = Schemas['CreateFrameRequest'];
 export type UpdateFrameRequest = Schemas['UpdateFrameRequest'];
+export type Stage = Schemas['Stage'];
+export type CreateStageRequest = Schemas['CreateStageRequest'];
+export type RenameStageRequest = Schemas['RenameStageRequest'];
 export type TaleGroup = Schemas['TaleGroup'];
 export type ZoneTaleGroup = Schemas['ZoneTaleGroup'];
 export type ProjectTaleGroup = Schemas['ProjectTaleGroup'];
@@ -59,6 +62,7 @@ export type PasskeyResponse = Schemas['PasskeyResponse'];
 export type ZoneKeyInfo = Schemas['ZoneKeyInfo'];
 export type IssuedZoneKey = Schemas['IssuedZoneKey'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
+export type DeliveryStage = Schemas['DeliveryStage'];
 export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
 export type DeliveryTale = Schemas['DeliveryTale'];
@@ -154,6 +158,36 @@ export function normalizeTagName(value: unknown): string | null {
   const name = value.trim();
   const length = [...name].length;
   return length >= 1 && length <= MAX_TAG_NAME_LENGTH ? name : null;
+}
+
+/** The most characters a stage key holds (epic web zones R7). */
+export const MAX_STAGE_KEY_LENGTH = 64;
+
+/**
+ * A stage key: lowercase letters and digits in words joined by single
+ * hyphens, such as `home-top`. A host page names it in
+ * `<taleart-view stage="<key>">`, so it is set on create and never changes.
+ */
+export const STAGE_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** True when `value` is a valid stage key: {@link STAGE_KEY_PATTERN}, at most {@link MAX_STAGE_KEY_LENGTH} characters. */
+export function isStageKey(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_STAGE_KEY_LENGTH && STAGE_KEY_PATTERN.test(value);
+}
+
+/**
+ * A stage key suggested from a stage name: lowercase ASCII letters and digits,
+ * every other run of characters a hyphen, trimmed to {@link MAX_STAGE_KEY_LENGTH}.
+ * '' when the name has no letter or digit to keep.
+ */
+export function stageKeyFromName(name: string): string {
+  const words = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return words.join('-').slice(0, MAX_STAGE_KEY_LENGTH).replace(/-+$/, '');
 }
 
 /** The most tales one tale group holds (FR-010). */
@@ -365,6 +399,8 @@ export const ErrorCodes = {
   storylyUnavailable: 'storyly_unavailable',
   importerNotConfigured: 'importer_not_configured',
   invalidStatusTransition: 'invalid_status_transition',
+  stageNotFound: 'stage_not_found',
+  stageKeyTaken: 'stage_key_taken',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

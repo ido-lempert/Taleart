@@ -42,6 +42,63 @@
         }
       </section>
 
+      <section class="card section zone-section" aria-labelledby="stages-title">
+        <div class="section__header">
+          <h3 class="section__title" id="stages-title">Stages</h3>
+          @if (frames().length > 0) {
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm"
+              (click)="store.openDrawer({ kind: 'stage', zoneId: zone.id }, $event)"
+            >
+              <app-icon name="plus" /> Add stage
+            </button>
+          }
+        </div>
+        @if (stages().length > 0) {
+          <ul class="stage-list" [attr.aria-label]="'Stages of ' + zone.name">
+            @for (stage of stages(); track stage.id) {
+              <li class="stage-row">
+                <div class="stage-row__info">
+                  <span class="stage-row__name" [id]="'stage-name-' + stage.id">{{ stage.name }}</span>
+                  <code class="key-prefix"><span class="visually-hidden">Key: </span>{{ stage.key }}</code>
+                  <span class="muted"><span class="visually-hidden">Shows </span>{{ store.frameName(zone.id, stage.frameId) }}</span>
+                </div>
+                <div class="key-actions">
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    [attr.aria-describedby]="'stage-name-' + stage.id"
+                    (click)="store.openDrawer({ kind: 'renameStage', zoneId: zone.id, stageId: stage.id }, $event)"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    [attr.aria-describedby]="'stage-name-' + stage.id"
+                    (click)="store.openDrawer({ kind: 'deleteStage', zoneId: zone.id, stageId: stage.id }, $event)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            }
+          </ul>
+          <p class="muted">
+            A page shows one stage with <code>&lt;taleart-view stage="key"&gt;</code>; without a stage it shows every
+            frame in order.
+          </p>
+        } @else if (frames().length > 0) {
+          <p class="muted">
+            No stages yet. Add a stage to place one of this zone's frames on a page; without a stage a page shows every
+            frame in order.
+          </p>
+        } @else {
+          <p class="muted">Add a frame first, then a stage to place it on a page.</p>
+        }
+      </section>
+
       <section class="card section zone-section" aria-labelledby="key-title">
         <div class="section__header">
           <h3 class="section__title" id="key-title">Zone key</h3>
