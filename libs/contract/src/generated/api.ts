@@ -599,7 +599,7 @@ export interface paths {
         };
         /**
          * The zone of the zone key, with its frames, stages and tale groups (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed (AD-6); each tale's media URL is absolute and public (AD-11).
+         * @description Served under `/delivery/v1`. Accepts only a zone key in `Authorization: Bearer <key>`, never a session. A missing, unknown or revoked key answers 401 `invalid_zone_key`. CORS is open to any origin, without credentials. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed (AD-6); each tale's media URL is absolute and public (AD-11). The zone is cached as `private, no-cache`, varies by `Authorization` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once (NFR-006).
          */
         get: operations["getDeliveryZone"];
         put?: never;
@@ -2573,6 +2573,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeliveryZone"];
                 };
+            };
+            /** @description The client's copy, named by `If-None-Match`, is still current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Error"];
             default: components["responses"]["Error"];

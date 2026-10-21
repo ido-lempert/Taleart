@@ -3,6 +3,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 const root = resolve(import.meta.dirname, '../..');
 const pageDir = resolve(root, 'apps/sdk-sample');
@@ -33,7 +34,15 @@ createServer(async (req, res) => {
   try {
     if (!file) throw Object.assign(new Error('not found'), { code: 'ENOENT' });
     const data = await readFile(file);
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    const type = TYPES[extname(file)] ?? 'application/octet-stream';
+    const headers = { 'Content-Type': type, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' };
+    // Compressed, as a host's CDN serves the SDK, so the perf measurement sees realistic transfer sizes.
+    if (type.startsWith('text/') && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
+      res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip' });
+      res.end(gzipSync(data));
+      return;
+    }
+    res.writeHead(200, headers);
     res.end(data);
   } catch (err) {
     const missing = err.code === 'ENOENT' || err.code === 'EISDIR';

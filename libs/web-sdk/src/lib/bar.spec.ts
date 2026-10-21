@@ -111,6 +111,50 @@ describe('covers', () => {
     expect(img?.hasAttribute('data-animated')).toBe(false);
   });
 
+  it('starts image covers lazy and decoded off the main thread, with the URL set after `loading`', () => {
+    const img = coverOf(renderBar(withCover(still), new Set(), {}, false)) as HTMLImageElement;
+    expect(img.getAttribute('loading')).toBe('lazy');
+    expect(img.decoding).toBe('async');
+    // Attribute order shows `loading` was set first, so the browser never starts an eager load.
+    const names = [...img.attributes].map((a) => a.name);
+    expect(names.indexOf('loading')).toBeLessThan(names.indexOf('src'));
+  });
+
+  it('marks a still canvas ready when its picture is drawn or fails to load', () => {
+    const images: { onload: (() => void) | null; onerror: (() => void) | null; naturalWidth: number; naturalHeight: number }[] = [];
+    vi.stubGlobal(
+      'Image',
+      class {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        naturalWidth = 160;
+        naturalHeight = 160;
+        src = '';
+        constructor() {
+          images.push(this);
+        }
+      },
+    );
+    try {
+      const drawn = coverOf(renderBar(withCover(gif), new Set(), {}, true)) as HTMLCanvasElement;
+      const failed = coverOf(renderBar(withCover(gif), new Set(), {}, true)) as HTMLCanvasElement;
+      const loads = vi.fn();
+      drawn.addEventListener('load', loads);
+      failed.addEventListener('load', loads);
+      expect(drawn.hasAttribute('data-ready')).toBe(false);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+      images[0].onload?.();
+      images[1].onerror?.();
+      expect(drawn.hasAttribute('data-ready')).toBe(true);
+      expect(drawn.width).toBe(160);
+      expect(failed.hasAttribute('data-ready')).toBe(true);
+      expect(loads).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("falls back to the first tale's image, or a video's first frame, without a cover", () => {
     expect(coverOf(renderBar(withCover(null), new Set(), {}, false))?.getAttribute('src')).toBe(`${API}/media/tales/first.png`);
     const video = coverOf(renderBar(withCover(null, [tale('t1', 'video', `${API}/media/tales/v.mp4`)]), new Set(), {}, false));

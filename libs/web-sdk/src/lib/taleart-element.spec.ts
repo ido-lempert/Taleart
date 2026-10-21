@@ -1,4 +1,5 @@
 import type { DeliveryZone } from '@taleart/contract';
+import { FIRST_CONTENT_MARK, ZONE_MARK } from './first-content';
 import { configureZone, defineTaleartElement, TALEART_ELEMENT_TAG, TaleartElement } from './taleart-element';
 
 const API = 'https://api.example.com';
@@ -922,5 +923,76 @@ describe('TaleartElement', () => {
     expect(el.shadowRoot?.querySelector<HTMLVideoElement>('video.cover')?.autoplay).toBe(false);
     el.remove();
     expect(removeListener).toHaveBeenCalledWith(listener);
+  });
+
+  describe('first content (NFR-006)', () => {
+    let markSpy: ReturnType<typeof vi.spyOn>;
+    const marks = (name: string) => markSpy.mock.calls.filter(([n]) => n === name).length;
+    // The first-content mark waits for the next animation frame.
+    const paint = async () => {
+      await settle();
+      await new Promise((done) => requestAnimationFrame(() => done(undefined)));
+      await settle();
+    };
+
+    beforeEach(async () => {
+      // Earlier tests' elements may still be waiting for a frame to mark.
+      await paint();
+      markSpy = vi.spyOn(performance, 'mark');
+    });
+
+    it('marks the zone and the first content once per element, not again on a reload', async () => {
+      const el = await mount();
+      await paint();
+      expect(marks(ZONE_MARK)).toBe(1);
+      expect(marks(FIRST_CONTENT_MARK)).toBe(1);
+      el.setAttribute('zone-key', 'tak_other');
+      await paint();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([1, 1]);
+    });
+
+    it('marks nothing for a refused key', async () => {
+      fetchMock.mockImplementation(async () => respond(401, { error: { code: 'invalid_zone_key', message: 'No' } }));
+      await mount();
+      await paint();
+      expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([0, 0]);
+    });
+
+    it("loads the first frame's covers in view first, high priority, and the other pictures after them", async () => {
+      // Everything laid out in view: the bar is the first frame, the banner the second.
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
+        { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0 } as DOMRect,
+      );
+      fetchMock.mockImplementation(async () =>
+        respond(200, {
+          ...zone,
+          frames: [
+            { id: 'f1', type: 'bar', settings: {} },
+            { id: 'f2', type: 'banner', settings: { autoplay: false } },
+          ],
+        }),
+      );
+      const el = await mount();
+      const root = el.shadowRoot as ShadowRoot;
+      const barImage = root.querySelector<HTMLImageElement>('.bar img.cover') as HTMLImageElement;
+      const barVideo = root.querySelector<HTMLVideoElement>('.bar video.cover') as HTMLVideoElement;
+      const slideImage = root.querySelector<HTMLImageElement>('.banner img') as HTMLImageElement;
+      expect(barImage.getAttribute('src')).toBe(`${API}/media/tales/a.png`);
+      expect(barImage.getAttribute('fetchpriority')).toBe('high');
+      expect(barImage.hasAttribute('loading')).toBe(false);
+      expect(barVideo.getAttribute('src')).toBe(`${API}/media/tales/b.mp4#t=0.001`);
+      // The banner waits until the bar's image has loaded and its video has its first frame.
+      barImage.dispatchEvent(new Event('load'));
+      await paint();
+      expect(slideImage.getAttribute('src')).toBeNull();
+      expect(marks(FIRST_CONTENT_MARK)).toBe(0);
+
+      barVideo.dispatchEvent(new Event('loadeddata'));
+      await paint();
+      expect(slideImage.getAttribute('src')).toBe(`${API}/media/tales/a.png`);
+      expect(slideImage.hasAttribute('fetchpriority')).toBe(false);
+      expect(marks(FIRST_CONTENT_MARK)).toBe(1);
+    });
   });
 });

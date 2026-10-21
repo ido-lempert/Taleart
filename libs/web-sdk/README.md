@@ -72,6 +72,58 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 - With an override, colour contrast is the host page's responsibility: keep titles at 4.5:1 and rings at 3:1 against the
   background (WCAG 2.2 AA).
 
+## Fast first content
+
+The budget (NFR-006) is the first zone content visible within 1.5 s at p75 on a mid-tier phone over Fast 4G, with
+the SDK at most 50 KB gzipped. What the SDK does:
+
+- The first frame's covers in view load first, eager and at high fetch priority; every other picture (bar covers out
+  of view, the other frames) waits until they have loaded, at most 3 s. Bar covers out of view stay lazy.
+- A banner loads the slide shown, then the slides next to it once that slide has its picture; the rest stay lazy.
+- Covers and slides have fixed boxes, so nothing inside the element shifts when pictures arrive.
+- The Delivery API answers `Cache-Control: private, no-cache` with an ETag: a repeat visit revalidates the zone and
+  gets 304 while it is unchanged, and a paused or unpublished group still disappears at once.
+- Performance marks, for your own monitoring: `taleart:zone` when the zone has arrived, and `taleart:first-content`
+  when the element's first frame is on the page with its covers in view loaded (once per element; with several
+  elements, the earliest is the page's first zone content).
+
+```js
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) if (entry.name === 'taleart:first-content') console.log(entry.startTime);
+}).observe({ type: 'mark', buffered: true });
+```
+
+What the host page does:
+
+```html
+<head>
+  <!-- Fetch the SDK early. -->
+  <link rel="modulepreload" href="https://your-cdn.example/taleart/index.js" />
+  <!-- Connect to the API early: once for the Delivery API call (CORS, no credentials), once for media. -->
+  <link rel="preconnect" href="https://api.example.com" crossorigin />
+  <link rel="preconnect" href="https://api.example.com" />
+  <style>
+    /* Reserve the frame's height, so the page does not shift when it renders: 94 px for the default bar. */
+    taleart-view { display: block; min-height: 94px; }
+  </style>
+</head>
+```
+
+- Serve the SDK compressed (gzip or brotli), as any CDN does.
+- Give tale groups a cover in the dashboard: a still cover is a 320 px JPEG of about 20 KB, while a group without one
+  shows its first tale's full-size image in the bar, often 300 KB or more.
+
+### Measuring
+
+`nx run sdk-sample:perf` builds the API and the SDK, starts the API on `TEST_DATABASE_URL` (a database whose name
+ends in `_test`; it adds a project, never removes rows), seeds a zone with a bar and a banner frame and eight tale
+groups (an animated cover first, a group without a cover third, still covers for the rest; three 1080 x 1920 JPEG
+tales each), serves the sample page and loads it in headless Chromium with Chrome DevTools' Fast 4G (165 ms latency,
+9 Mbps x 0.9 down, 1.5 Mbps x 0.9 up), a 4x slower CPU and a 412 x 823 phone screen. Each run is a cold load (empty
+cache) and a warm reload; it reads `taleart:first-content` and prints every run, p50, p75 and max, layout shift and
+the SDK's gzipped size. It fails when cold p75 is over 1.5 s or the SDK over 50 KB gzipped. `PERF_RUNS` (default 10),
+`PERF_BUDGET_MS` (default 1500) and `PERF_DEBUG=1` (the first load's requests) tune it.
+
 ## Building
 
 Run `nx build web-sdk` to build the library, and `nx run web-sdk:size` to check the 50 KB gzip budget.

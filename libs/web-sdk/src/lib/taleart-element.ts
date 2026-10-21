@@ -2,6 +2,7 @@ import type { DeliveryFrame, DeliveryZone, Theme } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import { applyCoverMotion, BAR_FRAME_TYPE, BAR_STYLES, renderBar, setItemSeen } from './bar';
 import { fetchZone } from './delivery-client';
+import { coversInView, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import { markGroupSeen, seenGroupIds } from './seen';
 import { applyTheme, readThemeOverride } from './theme';
 import { TaleViewer, VIEWER_STYLES } from './viewer';
@@ -94,6 +95,8 @@ export class TaleartElement extends HTMLElement {
   private themed: { element: HTMLElement; zoneKey: string; theme: unknown } | null = null;
   // True while the `theme` attribute present at upgrade is to be skipped, because a script set the property first.
   private skipThemeAttribute = false;
+  // True once this element has set its first-content mark.
+  private marked = false;
 
   constructor() {
     super();
@@ -234,7 +237,9 @@ export class TaleartElement extends HTMLElement {
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
       const zone = await fetchZone(apiUrl, zoneKey);
-      if (id === this.loadId) this.render(zone, focusGroup, zoneKey);
+      if (id !== this.loadId) return;
+      if (!this.marked) mark(ZONE_MARK);
+      this.render(zone, focusGroup, zoneKey);
     } catch (err) {
       if (id !== this.loadId) return;
       this.root.replaceChildren();
@@ -303,7 +308,8 @@ export class TaleartElement extends HTMLElement {
 
     for (const frame of frames) {
       if (frame.type === BAR_FRAME_TYPE) {
-        const bar = renderBar(zone.taleGroups, seen, frame.settings);
+        // Cover pictures are held until the first content is laid out (loadFirstContent).
+        const bar = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings));
         const items = new Map<string, HTMLButtonElement>();
         for (const button of bar.querySelectorAll<HTMLButtonElement>('button.item')) {
           items.set(button.dataset['taleGroupId'] ?? '', button);
@@ -325,9 +331,11 @@ export class TaleartElement extends HTMLElement {
         views.push(view);
       } else if (frame.type === BANNER_FRAME_TYPE) {
         let view: FrameView | null = null;
-        const banner = renderBanner(zone.taleGroups, frame.settings, (groupId) => {
-          if (view) openFrom(view, groupId);
-        });
+        const banner = holdMedia(() =>
+          renderBanner(zone.taleGroups, frame.settings, (groupId) => {
+            if (view) openFrom(view, groupId);
+          }),
+        );
         if (banner) {
           view = {
             frameId: frame.id,
@@ -346,6 +354,10 @@ export class TaleartElement extends HTMLElement {
     this.viewer = viewer;
     themed.replaceChildren(...views.map((view) => view.element));
     this.root.replaceChildren(style, themed);
+    // The first frame's covers in view load first, then the rest; the first zone content this
+    // element shows is marked once (NFR-006), for hosts and the perf measurement.
+    void loadFirstContent(this.root, coversInView(views[0].element), !this.marked);
+    this.marked = true;
     if (focusTarget) {
       // The frame that opened the viewer first, then any frame with the group, then the opener's (or the first) frame as it is.
       const { groupId, frameId } = focusTarget;
