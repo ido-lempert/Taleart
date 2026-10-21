@@ -8,6 +8,7 @@
 // the bar, the banner, the seen ring and the viewer; then the zone's SDK theme override wins over it.
 // Last, stages: two <taleart-view stage> elements show their own frames, and an unknown stage
 // key renders nothing and logs a warning.
+// Then playbooks (R8): a zone shaped like each applied MVP playbook renders its preset frame by stage key.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 //
 // axe-core is not a workspace dependency yet: a pinned build is fetched from cdnjs and checked
@@ -389,6 +390,82 @@ try {
   check(stagedFocus === 'ga', 'closing the viewer returns focus to the staged bar item');
   violations += await scan(staged, 'two stages and an unknown stage', axe);
   await staging.close();
+
+  // Playbooks (R8): a zone shaped as the API leaves it after each MVP playbook is applied, its
+  // preset frame and a stage per frame (libs/contract/src/lib/playbooks.ts), next to a frame the
+  // zone already had. The page names the playbook's stage key and gets exactly the preset frame.
+  const PLAYBOOK_ZONES = {
+    'home-stories-bar': {
+      frame: {
+        id: 'p1',
+        type: 'bar',
+        settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+      },
+    },
+    'promo-banner': {
+      frame: {
+        id: 'p2',
+        type: 'banner',
+        settings: { aspectRatio: '3:1', autoplay: true, intervalSeconds: 5, showDots: true, loop: true },
+      },
+    },
+  };
+  for (const [stageKey, { frame }] of Object.entries(PLAYBOOK_ZONES)) {
+    const playbookContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const played = await playbookContext.newPage();
+    const playedErrors = [];
+    played.on('console', (msg) => {
+      if (msg.type() === 'error' || msg.type() === 'warning') playedErrors.push(msg.text());
+    });
+    played.on('pageerror', (err) => playedErrors.push(String(err)));
+    await played.route(`${API}/delivery/v1/zone`, (route) =>
+      route.fulfill({
+        json: {
+          ...ZONE,
+          frames: [{ id: 'own', type: 'bar', settings: { shape: 'rounded-square', gap: 20 } }, frame],
+          stages: [{ key: stageKey, frameId: frame.id }],
+        },
+        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+      }),
+    );
+    await played.route(`${API}/media/**`, (route) =>
+      route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+    );
+    await played.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}&stages=${stageKey}`);
+    const view = `taleart-view[stage="${stageKey}"]`;
+    await played.locator(`${view} ${frame.type === 'bar' ? '.bar' : 'section.banner'}`).waitFor();
+    const look = await played.evaluate((selector) => {
+      const root = document.querySelector(selector).shadowRoot;
+      const bar = root.querySelector('.bar');
+      const banner = root.querySelector('section.banner');
+      return {
+        bars: root.querySelectorAll('.bar').length,
+        banners: root.querySelectorAll('section.banner').length,
+        shape: bar?.dataset.shape ?? null,
+        align: bar?.dataset.align ?? null,
+        titles: bar ? (bar.dataset.titles ?? 'shown') : null,
+        gap: bar ? getComputedStyle(bar).columnGap : null,
+        titlesShown: bar ? [...root.querySelectorAll('.title')].filter((t) => getComputedStyle(t).display !== 'none').length : 0,
+        ratio: banner?.dataset.ratio ?? null,
+        dots: root.querySelectorAll('.b-dot').length,
+      };
+    }, view);
+    if (frame.type === 'bar') {
+      check(
+        look.bars === 1 && look.banners === 0 && look.shape === 'circle' && look.align === 'start' && look.gap === '12px',
+        'the "Home page stories bar" stage shows only its preset bar: circle, start, gap 12',
+      );
+      check(look.titles !== 'hidden' && look.titlesShown === 3, 'the preset bar shows each group’s title');
+    } else {
+      check(
+        look.banners === 1 && look.bars === 0 && look.ratio === '3:1' && look.dots === 3,
+        'the "Promo banner" stage shows only its preset banner: 3:1 with dots',
+      );
+    }
+    check(playedErrors.length === 0, `no console errors or warnings for the ${stageKey} stage${playedErrors.length ? `: ${playedErrors.join('; ')}` : ''}`);
+    violations += await scan(played, `${stageKey} playbook stage`, axe);
+    await playbookContext.close();
+  }
 
   // The project's theme (R9), as the dashboard saves it: every frame and the viewer follow.
   const themedContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

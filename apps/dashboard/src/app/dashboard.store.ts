@@ -3,6 +3,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   isErrorBody,
+  type AppliedPlaybook,
   type Frame,
   type FrameType,
   type Invitation,
@@ -52,7 +53,8 @@ export type DrawerRequest =
   | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction }
   | { kind: 'stage'; zoneId: string }
   | { kind: 'renameStage'; zoneId: string; stageId: string }
-  | { kind: 'deleteStage'; zoneId: string; stageId: string };
+  | { kind: 'deleteStage'; zoneId: string; stageId: string }
+  | { kind: 'applyPlaybook'; zoneId: string };
 
 /** What a schedule drawer sets the start and end time of (AD-6). */
 export type ScheduleTarget = 'taleGroup' | 'tale';
@@ -431,6 +433,26 @@ export class DashboardStore {
       ...all,
       [zoneId]: (all[zoneId] ?? []).map((frame) => (frame.id === saved.id ? saved : frame)),
     }));
+    return '';
+  }
+
+  /**
+   * Applies a playbook to a zone (R8): the API creates its frames and a stage
+   * for each in one transaction and records the key on the zone. Applying the
+   * zone's own playbook again creates nothing, so only what the API created is added here.
+   */
+  async applyPlaybook(zoneId: string, key: string): Promise<string> {
+    let result: AppliedPlaybook;
+    try {
+      result = await firstValueFrom(
+        this.http.put<AppliedPlaybook>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/playbook`, { key }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'The playbook was not applied. Try again.');
+    }
+    this.zones.update((zones) => zones.map((zone) => (zone.id === zoneId ? result.zone : zone)));
+    this.frames.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.frames] }));
+    this.stages.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.stages] }));
     return '';
   }
 

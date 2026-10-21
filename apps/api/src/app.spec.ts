@@ -23,10 +23,10 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
-import { DEFAULT_THEME } from '@taleart/contract';
+import { DEFAULT_THEME, PLAYBOOKS, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import { ensureTags } from '@taleart/server-targeting';
-import { loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
+import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { createApp, type ImporterConfig } from './app';
 import { createPool, migrate } from './db';
@@ -160,7 +160,7 @@ describe('Management API v1: projects and zones', () => {
     return (await post('/projects', { name })).json();
   }
 
-  async function createZone(): Promise<{ id: string; name: string; projectId: string }> {
+  async function createZone(): Promise<{ id: string; name: string; projectId: string; playbookKey: string | null }> {
     const project = await createProject();
     return (await post('/zones', { name: 'Home page bar', projectId: project.id })).json();
   }
@@ -218,7 +218,7 @@ describe('Management API v1: projects and zones', () => {
     const created = await post('/zones', { name: 'Home page bar', projectId: project.id });
     expect(created.status).toBe(201);
     const zone = await created.json();
-    expect(zone).toEqual({ id: expect.any(String), name: 'Home page bar', projectId: project.id });
+    expect(zone).toEqual({ id: expect.any(String), name: 'Home page bar', projectId: project.id, playbookKey: null });
 
     const list = await (await fetch(`${base}/zones`)).json();
     expect(list).toEqual([zone]);
@@ -295,7 +295,7 @@ describe('Management API v1: projects and zones', () => {
     const zones = await (await fetch(`${base}/zones`)).json();
     expect(projects).toEqual([{ id: project.id, name: 'Acme' }]);
     expect(zones).toEqual([
-      { id: expect.any(String), name: 'Home page bar', projectId: project.id },
+      { id: expect.any(String), name: 'Home page bar', projectId: project.id, playbookKey: null },
     ]);
   });
 
@@ -774,6 +774,237 @@ describe('Management API v1: projects and zones', () => {
         "SELECT conname FROM pg_constraint WHERE conrelid = 'stages'::regclass AND contype = 'f'",
       );
       expect(rows).toHaveLength(3);
+    });
+  });
+
+  describe('playbooks', () => {
+    const unknownId = '00000000-0000-4000-8000-000000000000';
+    const barSettings = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
+    const bannerSettings = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
+
+    function apply(zoneId: string, body: unknown): Promise<Response> {
+      return fetch(`${base}/zones/${zoneId}/playbook`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function counts(zoneId: string): Promise<{ frames: number; stages: number }> {
+      const frames = await pool.query('SELECT 1 FROM frames WHERE zone_id = $1', [zoneId]);
+      const stages = await pool.query('SELECT 1 FROM stages WHERE zone_id = $1', [zoneId]);
+      return { frames: frames.rowCount ?? 0, stages: stages.rowCount ?? 0 };
+    }
+
+    async function zoneListed(zoneId: string): Promise<{ playbookKey: string | null }> {
+      const zones: { id: string; playbookKey: string | null }[] = await (await fetch(`${base}/zones`)).json();
+      const zone = zones.find((z) => z.id === zoneId);
+      if (!zone) throw new Error('zone not listed');
+      return zone;
+    }
+
+    it('lists zones with no playbook as null', async () => {
+      const zone = await createZone();
+      expect(zone.playbookKey).toBeNull();
+      expect(await (await fetch(`${base}/zones`)).json()).toEqual([zone]);
+    });
+
+    it('applies "Home page stories bar": a bar frame with the preset settings, its stage, and the key on the zone', async () => {
+      const zone = await createZone();
+      const res = await apply(zone.id, { key: 'home-stories-bar' });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({
+        applied: true,
+        zone: { ...zone, playbookKey: 'home-stories-bar' },
+        frames: [{ id: expect.any(String), zoneId: zone.id, projectId: zone.projectId, type: 'bar', settings: barSettings }],
+        stages: [
+          {
+            id: expect.any(String),
+            zoneId: zone.id,
+            projectId: zone.projectId,
+            frameId: body.frames[0].id,
+            name: 'Home page stories bar',
+            key: 'home-stories-bar',
+          },
+        ],
+      });
+      expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual(body.frames);
+      expect(await (await fetch(`${base}/zones/${zone.id}/stages`)).json()).toEqual(body.stages);
+      expect(await (await fetch(`${base}/zones`)).json()).toEqual([body.zone]);
+    });
+
+    it('applies "Promo banner" to another zone, and the Delivery API returns its frame and stage', async () => {
+      const first = await createZone();
+      await apply(first.id, { key: 'home-stories-bar' });
+      const zone = await createZone();
+      const body = await (await apply(zone.id, { key: 'promo-banner' })).json();
+      expect(body.frames.map((f: { type: string; settings: unknown }) => [f.type, f.settings])).toEqual([
+        ['banner', bannerSettings],
+      ]);
+      expect(body.stages.map((s: { key: string; name: string }) => [s.key, s.name])).toEqual([
+        ['promo-banner', 'Promo banner'],
+      ]);
+      expect((await zoneListed(first.id)).playbookKey).toBe('home-stories-bar');
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const delivered = await (
+        await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } })
+      ).json();
+      expect(delivered.frames).toEqual([{ id: body.frames[0].id, type: 'banner', settings: bannerSettings }]);
+      expect(delivered.stages).toEqual([{ key: 'promo-banner', frameId: body.frames[0].id }]);
+    });
+
+    it('adds the preset after the frames and stages a zone already has', async () => {
+      const zone = await createZone();
+      const own = await (await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: { gap: 20 } })).json();
+      const ownStage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: own.id })).json();
+      const body = await (await apply(zone.id, { key: 'promo-banner' })).json();
+      expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([own, body.frames[0]]);
+      expect(await (await fetch(`${base}/zones/${zone.id}/stages`)).json()).toEqual([ownStage, body.stages[0]]);
+    });
+
+    it('creates nothing when the same playbook is applied again', async () => {
+      const zone = await createZone();
+      const first = await (await apply(zone.id, { key: 'home-stories-bar' })).json();
+      const again = await apply(zone.id, { key: 'home-stories-bar' });
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({ applied: false, zone: first.zone, frames: [], stages: [] });
+      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+    });
+
+    it('applies once when the same playbook is applied twice at the same time', async () => {
+      const zone = await createZone();
+      const results = await Promise.all([apply(zone.id, { key: 'promo-banner' }), apply(zone.id, { key: 'promo-banner' })]);
+      expect(results.map((r) => r.status)).toEqual([200, 200]);
+      const bodies = await Promise.all(results.map((r) => r.json()));
+      expect(bodies.map((b) => b.applied).sort()).toEqual([false, true]);
+      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+    });
+
+    it('never fails with 500 when an apply races a manual stage with the same key', async () => {
+      for (let round = 0; round < 8; round++) {
+        const zone = await createZone();
+        const own = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+        const [applied, manual] = await Promise.all([
+          apply(zone.id, { key: 'promo-banner' }),
+          post(`/zones/${zone.id}/stages`, { name: 'Mine', key: 'promo-banner', frameId: own.id }),
+        ]);
+        // Exactly one of them gets the key; the other is refused with stage_key_taken.
+        expect([
+          [200, 409],
+          [409, 201],
+        ]).toContainEqual([applied.status, manual.status]);
+        const refused = applied.status === 409 ? applied : manual;
+        expect((await refused.json()).error.code).toBe('stage_key_taken');
+        const { rows } = await pool.query('SELECT key FROM stages WHERE zone_id = $1', [zone.id]);
+        expect(rows).toEqual([{ key: 'promo-banner' }]);
+        // A refused apply leaves no frame and no key behind.
+        expect(await counts(zone.id)).toEqual({ frames: applied.status === 200 ? 2 : 1, stages: 1 });
+        expect((await zoneListed(zone.id)).playbookKey).toBe(applied.status === 200 ? 'promo-banner' : null);
+      }
+    });
+
+    it("keeps a playbook's frame and stage order in the database", async () => {
+      const zone = await createZone();
+      const [bar, banner] = [PLAYBOOKS[0].frames[0], PLAYBOOKS[1].frames[0]];
+      const three: Playbook = {
+        key: 'three',
+        label: 'Three',
+        goal: 'Test',
+        frames: [
+          { ...banner, stage: { key: 'one', name: 'One' } },
+          { ...bar, stage: { key: 'two', name: 'Two' } },
+          { ...banner, stage: { key: 'three', name: 'Three' } },
+        ],
+      };
+      const registry = loadFrameTypeRegistry(frameTypesDir);
+      const result = await applyPlaybook(pool, registry, { zoneId: zone.id, key: 'three' }, [three]);
+      const frames: { id: string; type: string }[] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
+      expect(frames.map((f) => f.id)).toEqual(result.frames.map((f) => f.id));
+      expect(frames.map((f) => f.type)).toEqual(['banner', 'bar', 'banner']);
+      const stages: { key: string }[] = await (await fetch(`${base}/zones/${zone.id}/stages`)).json();
+      expect(stages.map((s) => s.key)).toEqual(['one', 'two', 'three']);
+    });
+
+    it('refuses another playbook on a zone that has one, writing nothing', async () => {
+      const zone = await createZone();
+      await apply(zone.id, { key: 'home-stories-bar' });
+      const res = await apply(zone.id, { key: 'promo-banner' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: { code: 'playbook_already_applied', message: expect.any(String) } });
+      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+      expect((await zoneListed(zone.id)).playbookKey).toBe('home-stories-bar');
+    });
+
+    it('refuses a playbook whose stage key the zone already uses, creating no frame and recording no key', async () => {
+      const zone = await createZone();
+      const own = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      await post(`/zones/${zone.id}/stages`, { name: 'Mine', key: 'promo-banner', frameId: own.id });
+      const res = await apply(zone.id, { key: 'promo-banner' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: { code: 'stage_key_taken', message: expect.stringContaining('promo-banner') },
+      });
+      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+      expect((await zoneListed(zone.id)).playbookKey).toBeNull();
+    });
+
+    it('refuses a missing or unknown key with 400', async () => {
+      const zone = await createZone();
+      for (const body of [{}, { key: '' }, { key: 3 }]) {
+        const res = await apply(zone.id, body);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      const res = await apply(zone.id, { key: 'nope' });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: { code: 'unknown_playbook', message: expect.any(String) } });
+      expect(await counts(zone.id)).toEqual({ frames: 0, stages: 0 });
+    });
+
+    it('answers zone_not_found for an unknown zone', async () => {
+      for (const zoneId of [unknownId, 'nope']) {
+        const res = await apply(zoneId, { key: 'promo-banner' });
+        expect(res.status).toBe(404);
+        expect((await res.json()).error.code).toBe('zone_not_found');
+      }
+    });
+
+    it('refuses with 403 on a zone in a project the caller cannot access', async () => {
+      const zone = await createZone();
+      const own = await createProject('Own');
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, own.id, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      const res = await apply(zone.id, { key: 'promo-banner' });
+      expect(res.status).toBe(403);
+      expect((await res.json()).error.code).toBe('forbidden');
+      expect(await counts(zone.id)).toEqual({ frames: 0, stages: 0 });
+    });
+
+    it('lets a content manager of the project apply a playbook and edit its frame', async () => {
+      const zone = await createZone();
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, zone.projectId, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      const body = await (await apply(zone.id, { key: 'home-stories-bar' })).json();
+      expect(body.applied).toBe(true);
+      const settings = { ...barSettings, shape: 'rounded-square', gap: 20 };
+      const edited = await fetch(`${base}/zones/${zone.id}/frames/${body.frames[0].id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings }),
+      });
+      expect(edited.status).toBe(200);
+      expect((await edited.json()).settings).toEqual(settings);
+    });
+
+    it('keeps the applied key when the migration runs again', async () => {
+      const zone = await createZone();
+      await apply(zone.id, { key: 'promo-banner' });
+      await restart();
+      await restart();
+      expect((await zoneListed(zone.id)).playbookKey).toBe('promo-banner');
     });
   });
 
