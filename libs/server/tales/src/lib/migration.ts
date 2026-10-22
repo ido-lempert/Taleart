@@ -2,6 +2,7 @@ import type { Db } from '@taleart/server-access';
 import { recordTaleFonts } from './project-fonts';
 import { checkTaleDocument } from './tale-document';
 import { migrateTaleMediaDocuments } from './tale-media-document';
+import { publishDraftGoingLive, SHOWN_STATUS_STEP } from './tales';
 
 /** The status keys that are stored (AD-6); the others are computed when content is read. */
 const STORED_STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'] as const;
@@ -278,7 +279,67 @@ export async function migrateTales(db: Db): Promise<void> {
     `CREATE INDEX IF NOT EXISTS tales_media_out_of_step_idx ON tales (id)
      WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key`,
   );
+  // Before the media step below, so the tales it makes live get their published media document there.
+  await migrateShownStatus(db);
   await migrateTaleMediaDocuments(db);
+}
+
+/**
+ * The shown-status step (epic UX rework R6, AD-6 amended 2026-10-23), run once: a tale group shows
+ * On or Off and a tale Shown or Hidden over the same stored keys, new tales start `live`, and a
+ * group turned On shows its tales. So the `draft` tales of groups that were never live become
+ * `live`; the `draft` tales of a group that is or may have been live stay `draft` (Hidden).
+ *
+ * "Never live" is a group stored `draft`: no status change sets `draft` (publish, pause, archive
+ * and restore set `live`, `paused` and `archived`), and rows from before statuses were filled with
+ * `live`, so a `draft` group has never been `live`. No status history is stored, so a `paused`
+ * group (paused from live, or restored from archived) and an `archived` group may have been live,
+ * and their draft tales stay Hidden. A group stored `draft` is not delivered, so making its tales
+ * `live` changes nothing any visitor sees until a person turns the group On.
+ *
+ * Each tale made `live` with a draft document and no published document has its draft published,
+ * as going live always did (AD-15), unless it no longer passes; a tale with no document yet gets
+ * its published media document from the media step that follows.
+ *
+ * Done once, recorded in `tales_migrations` in the same transaction: tales stored `draft` later
+ * (kept copies) are not made live by a later start. The step's time also marks which tales with
+ * neither media nor a document were created before it, and so keep the legacy placeholder
+ * (`hasPublishedDocument`).
+ */
+export async function migrateShownStatus(client: Db): Promise<{ applied: boolean; madeLive: number; published: number }> {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS tales_migrations (
+      step text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await client.query('BEGIN');
+  try {
+    const step = await client.query(
+      'INSERT INTO tales_migrations (step) VALUES ($1) ON CONFLICT (step) DO NOTHING RETURNING step',
+      [SHOWN_STATUS_STEP],
+    );
+    if (step.rows.length === 0) {
+      await client.query('COMMIT');
+      return { applied: false, madeLive: 0, published: 0 };
+    }
+    const { rows } = await client.query<{ id: string; draft: unknown; unpublished: boolean }>(
+      `UPDATE tales SET status = 'live'
+       FROM tale_groups g
+       WHERE g.id = tales.tale_group_id AND g.status = 'draft' AND tales.status = 'draft'
+       RETURNING tales.id, tales.draft_document AS draft, tales.document IS NULL AS unpublished`,
+    );
+    let published = 0;
+    for (const row of rows) {
+      if (!row.unpublished || row.draft === null) continue;
+      if ((await publishDraftGoingLive(client, row.id, row.draft)) === null) published++;
+    }
+    await client.query('COMMIT');
+    return { applied: true, madeLive: rows.length, published };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
 }
 
 // True when a stored document passes the document check, as the Delivery API requires.

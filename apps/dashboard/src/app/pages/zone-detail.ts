@@ -14,8 +14,15 @@ import {
 import { RouterLink } from '@angular/router';
 import {
   findPlaybook,
+  groupShownStatus,
+  isSwitchable,
   MAX_TALES_PER_GROUP,
+  SHOWN_STATUS_LABELS,
+  switchStatus,
+  taleShownStatus,
+  type ContentStatus,
   type SettableStatus,
+  type Tale,
   type TaleGroup,
   type TaleGroupTag,
   type Zone,
@@ -24,7 +31,7 @@ import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { describeWindow } from '../schedule';
-import { STATUS_LABELS, StatusBadge, statusActions } from '../status';
+import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 
 const TONES = 6;
 
@@ -35,15 +42,16 @@ type Direction = 'earlier' | 'later';
  * One zone: its playbook, its frames, its stages, its zone key and its tale groups, each a row of 9:16 tale cards with
  * the group's tags. A group can be placed in several zones (AD-14): its row says
  * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Each group
- * shows its status (AD-6) with the Publish, Pause, Archive or Restore buttons it
- * allows, and each tale card that is not live shows its status. Groups and tales reorder by drag, or by their move earlier
+ * has its On/Off switch and each tale card its Shown/Hidden switch (AD-6 amended, epic UX rework R6),
+ * with Archive or Restore beside the group's; a status the switch does not say (scheduled, blocked
+ * by group, archived) shows as a badge. Groups and tales reorder by drag, or by their move earlier
  * and later buttons (the single-pointer and keyboard alternative, WCAG 2.2 SC
  * 2.5.7). Tag chips above the groups filter them; groups do not reorder while
  * a filter is on, since the order covers every group of the zone.
  */
 @Component({
   selector: 'app-zone-detail-page',
-  imports: [RouterLink, Icon, StatusBadge, CdkDropList, CdkDrag, CdkDragHandle],
+  imports: [RouterLink, Icon, StatusBadge, ShowSwitch, CdkDropList, CdkDrag, CdkDragHandle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './zone-detail.html',
   styles: `
@@ -61,11 +69,13 @@ type Direction = 'earlier' | 'later';
     }
     .group__header {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: var(--space-3);
     }
+    /* The name keeps room to read; the actions move to their own line when they do not fit beside it. */
     .group__name {
-      flex: 1;
+      flex: 1 1 10rem;
       min-width: 0;
     }
     .group__name h4 {
@@ -80,6 +90,7 @@ type Direction = 'earlier' | 'later';
     }
     .group__actions {
       display: flex;
+      flex: 1 1 auto;
       flex-wrap: wrap;
       gap: var(--space-2);
       justify-content: flex-end;
@@ -231,33 +242,67 @@ export class ZoneDetailPage {
     source: this.zoneId,
     computation: () => ({}),
   });
-  /** The ids of the groups whose status change is being saved, so their buttons wait for it. */
+  /** The ids of the groups and tales whose status change is being saved, so their controls wait for it. */
   protected readonly statusSaving = signal<ReadonlySet<string>>(new Set());
   protected readonly statusActions = statusActions;
+  protected readonly needsBadge = needsBadge;
+  protected readonly isSwitchable = isSwitchable;
   protected readonly describeWindow = describeWindow;
 
-  /** Publishes, pauses, archives or restores a group, then announces its new status. */
+  /** "On" or "Off" for a group, "Shown" or "Hidden" for a tale, from its stored key (AD-6 amended). */
+  protected shownLabel(stored: ContentStatus, kind: StatusKind): string {
+    return SHOWN_STATUS_LABELS[kind === 'group' ? groupShownStatus(stored) : taleShownStatus(stored)];
+  }
+
+  /** Turns a group On (stores live) or Off (stores paused), then announces it. */
+  protected async switchGroup(group: TaleGroup, on: boolean): Promise<void> {
+    const status = switchStatus(group.storedStatus, on);
+    if (status) await this.changeStatus(group, status);
+  }
+
+  /** Archives or restores a group, or sets what its switch asked for, then announces its new status. */
   protected async changeStatus(group: TaleGroup, status: SettableStatus): Promise<void> {
     const id = group.id;
+    const message = await this.saving(group.id, id, () => this.store.setTaleGroupStatus(id, status));
+    if (message) return;
+    // The status as read after the refresh: turning on a group whose start is ahead makes it scheduled (AD-6).
+    const read = this.store.taleGroup(id)?.status ?? status;
+    this.announce(`${group.name} is now ${statusLabel(read, 'group').toLowerCase()}`);
+  }
+
+  /** Shows (stores live) or hides (stores paused) a tale from its card, at once, then announces it. */
+  protected async switchTale(group: TaleGroup, tale: Tale, on: boolean): Promise<void> {
+    const status = switchStatus(tale.storedStatus, on);
+    if (!status) return;
+    let read: ContentStatus = status;
+    let warning = '';
+    const message = await this.saving(group.id, tale.id, async () => {
+      const result = await this.store.setTaleStatus(tale.id, status);
+      if (result.tale) read = result.tale.status;
+      warning = result.warning;
+      return result.message;
+    });
+    if (message) return;
+    if (warning) this.statusErrors.update((errors) => ({ ...errors, [group.id]: warning }));
+    this.announce(`${tale.title} is now ${statusLabel(read, 'tale').toLowerCase()}${warning ? `. ${warning}` : ''}`);
+  }
+
+  // Runs one status change for `savingId`, showing the API's message under the group `groupId`.
+  private async saving(groupId: string, savingId: string, change: () => Promise<string>): Promise<string> {
     this.statusErrors.update((errors) => {
       const next = { ...errors };
-      delete next[id];
+      delete next[groupId];
       return next;
     });
-    this.statusSaving.update((ids) => new Set(ids).add(id));
-    const message = await this.store.setTaleGroupStatus(id, status);
+    this.statusSaving.update((ids) => new Set(ids).add(savingId));
+    const message = await change();
     this.statusSaving.update((ids) => {
       const next = new Set(ids);
-      next.delete(id);
+      next.delete(savingId);
       return next;
     });
-    if (message) {
-      this.statusErrors.update((errors) => ({ ...errors, [id]: message }));
-      return;
-    }
-    // The status as read after the refresh: publishing a group whose start is ahead makes it scheduled (AD-6).
-    const read = this.store.taleGroup(id)?.status ?? status;
-    this.announce(`${group.name} is now ${STATUS_LABELS[read].toLowerCase()}`);
+    if (message) this.statusErrors.update((errors) => ({ ...errors, [groupId]: message }));
+    return message;
   }
 
   /** Shows only the groups carrying `tagId`, or every group for ''. */

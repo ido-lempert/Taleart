@@ -329,8 +329,9 @@ async function seed(apiUrl, cookie, media, seeded) {
     },
   }));
   const document = { version: 1, canvas: { background: { type: 'color', color: '#1f3a5f' } }, elements };
-  await call('PUT', `/tales/${tale.id}/document`, { document, revision: 0 });
-  await call('PUT', `/tales/${tale.id}/status`, { status: 'live' });
+  const saved = await call('PUT', `/tales/${tale.id}/document`, { document, revision: 0 });
+  // A new tale is already shown (AD-6 amended), so the saved draft shows once it is published.
+  await call('POST', `/tales/${tale.id}/document/publish`, { revision: saved.revision, publishedRevision: saved.published.revision });
   await call('PUT', `/tale-groups/${group.id}/status`, { status: 'live' });
   const fontKey = (await call('POST', `/zones/${fontZone.id}/key`)).key;
   return { key, fontKey };

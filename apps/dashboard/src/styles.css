@@ -338,6 +338,92 @@ select {
   color: #475467;
 }
 
+/* ---------- On/Off and Shown/Hidden switch (AD-6 amended, epic UX rework R6) ---------- */
+/* A 44x24 target (WCAG 2.2 SC 2.5.8); the state is in aria-checked and in the text beside it. */
+.show-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.show-switch__button {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  border: 1.5px solid #6b7280;
+  border-radius: var(--radius-pill);
+  background: #e5e7eb;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.show-switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+  transition: transform 120ms ease;
+}
+
+.show-switch--on .show-switch__button {
+  border-color: #067647;
+  background: #067647;
+}
+
+.show-switch--on .show-switch__thumb {
+  transform: translateX(20px);
+}
+
+.show-switch__button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.show-switch__button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.show-switch__state {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .show-switch__button,
+  .show-switch__thumb {
+    transition: none;
+  }
+}
+
+/* On a tale card: below the position badge, on a dark plate so it reads over any media. */
+.tale-card__switch {
+  position: absolute;
+  /* Above the card's open button, which covers the card. */
+  z-index: 1;
+  top: calc(var(--space-2) + 28px);
+  left: var(--space-2);
+  padding: 2px var(--space-2) 2px 2px;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 62%);
+  color: #fff;
+}
+
+.tale-card__switch .show-switch__state {
+  font-size: var(--text-xs);
+}
+
+.tale-card__switch .show-switch__button {
+  border-color: #d1d5db;
+}
+
 /* A tale's start and end time in its drawer, with the button that edits them. */
 .schedule-summary {
   display: flex;
@@ -346,10 +432,10 @@ select {
   gap: var(--space-2);
 }
 
-/* A tale card's status, below its position badge. */
+/* A tale card's status, below its switch. */
 .tale-card__status {
   position: absolute;
-  top: calc(var(--space-2) + 28px);
+  top: calc(var(--space-2) + 60px);
   left: var(--space-2);
 }
 

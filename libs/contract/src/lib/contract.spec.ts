@@ -4,6 +4,14 @@ import {
   type BannerSettings,
   type BarSettings,
   canSetStatus,
+  type ContentStatus,
+  groupShownStatus,
+  isSwitchable,
+  NEW_TALE_GROUP_STATUS,
+  NEW_TALE_STATUS,
+  SHOWN_STATUS_LABELS,
+  switchStatus,
+  taleShownStatus,
   CONTENT_STATUS_HTTP_CODES,
   CONTENT_STATUSES,
   isContentStatus,
@@ -213,12 +221,75 @@ describe('imports', () => {
       expect(canSetStatus('processing', 'live')).toBe(false);
     });
 
-    it('reads a live tale of a paused group as blocked-by-group, else its own key', () => {
+    it('reads a live tale of a draft or paused group as blocked-by-group, else its own key', () => {
       expect(readTaleStatus('live', 'paused')).toBe('blocked-by-group');
+      expect(readTaleStatus('live', 'draft')).toBe('blocked-by-group');
       expect(readTaleStatus('live', 'live')).toBe('live');
       expect(readTaleStatus('paused', 'paused')).toBe('paused');
       expect(readTaleStatus('draft', 'paused')).toBe('draft');
-      expect(readTaleStatus('live', 'draft')).toBe('live');
+      expect(readTaleStatus('paused', 'draft')).toBe('paused');
+      expect(readTaleStatus('live', 'archived')).toBe('live');
+    });
+
+    describe('shown status (AD-6 amended 2026-10-23)', () => {
+      it('shows a group live as On, draft or paused as Off, and archived as Archived', () => {
+        expect(CONTENT_STATUSES.map((s) => [s, groupShownStatus(s)])).toEqual([
+          ['draft', 'off'],
+          ['live', 'on'],
+          ['scheduled', 'off'],
+          ['processing', 'off'],
+          ['invalid-media', 'off'],
+          ['paused', 'off'],
+          ['blocked-by-group', 'off'],
+          ['expired', 'off'],
+          ['quota-reached', 'off'],
+          ['archived', 'archived'],
+        ]);
+      });
+
+      it('shows a tale live as Shown, draft or paused as Hidden, and archived as Archived', () => {
+        expect(taleShownStatus('live')).toBe('shown');
+        expect(taleShownStatus('draft')).toBe('hidden');
+        expect(taleShownStatus('paused')).toBe('hidden');
+        expect(taleShownStatus('processing')).toBe('hidden');
+        expect(taleShownStatus('archived')).toBe('archived');
+      });
+
+      it('names each shown status once', () => {
+        expect(SHOWN_STATUS_LABELS).toEqual({ on: 'On', off: 'Off', shown: 'Shown', hidden: 'Hidden', archived: 'Archived' });
+      });
+
+      it('turns on or shows by storing live, and off or hides by storing paused', () => {
+        expect(switchStatus('draft', true)).toBe('live');
+        expect(switchStatus('paused', true)).toBe('live');
+        expect(switchStatus('live', false)).toBe('paused');
+      });
+
+      it('changes nothing when content is already there, archived, or in a key a process set', () => {
+        expect(switchStatus('live', true)).toBeNull();
+        expect(switchStatus('draft', false)).toBeNull();
+        expect(switchStatus('paused', false)).toBeNull();
+        expect(switchStatus('archived', true)).toBeNull();
+        expect(switchStatus('archived', false)).toBeNull();
+        expect(switchStatus('processing', true)).toBeNull();
+        expect(['draft', 'live', 'paused'].every((s) => isSwitchable(s as ContentStatus))).toBe(true);
+        expect(['archived', 'processing', 'invalid-media', 'quota-reached'].some((s) => isSwitchable(s as ContentStatus))).toBe(false);
+      });
+
+      it('every status the switch sets is one a person may set from where it starts', () => {
+        for (const from of CONTENT_STATUSES) {
+          for (const on of [true, false]) {
+            const to = switchStatus(from, on);
+            if (to !== null) expect(canSetStatus(from, to)).toBe(true);
+          }
+        }
+      });
+
+      it('starts new tales live (Shown) and new groups draft (Off)', () => {
+        expect(NEW_TALE_STATUS).toBe('live');
+        expect(taleShownStatus(NEW_TALE_STATUS)).toBe('shown');
+        expect(groupShownStatus(NEW_TALE_GROUP_STATUS)).toBe('off');
+      });
     });
 
     describe('schedules', () => {
