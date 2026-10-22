@@ -20,42 +20,90 @@ off. The automated scan and its fixes are recorded first.
 ## Method
 
 `nx run dashboard-e2e:a11y` (new; `apps/dashboard-e2e/src/a11y.spec.ts` and `wcag.ts`) starts the built API on a
-fresh `_e2e_test` database and the dashboard, signs up with a virtual passkey (Chromium's WebAuthn emulation), creates
-a zone from the default template and a group with two tales from media, turns it On, and adds groups in every state
-the filters name (Off; On and scheduled for next month; in no zone; archived). It then scans 25 states in headless
-Chromium and fails on any finding:
+fresh `_e2e_test` database and the dashboard. It signs up with a virtual passkey (Chromium's WebAuthn emulation) and a
+long project name ("Northwind Traders International Marketing", the top bar's worst case). It creates a zone from the
+default template (first submitting it empty, for the form error) and a group with two tales from media, turns it On,
+and adds groups in every state the filters name (Off; On and scheduled for next month; in no zone; archived). It then
+scans 27 states in headless Chromium and fails on any finding:
 
-1. **axe-core 4.10.2** (pinned, SHA-384 checked), tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`.
+1. **axe-core 4.10.2**, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`. It is read from `node_modules`
+   when a package brings it, else from a local copy under `dist/.cache/axe-core` (fetched once, SHA-384 checked on
+   every read).
 2. **2.4.7 Focus visible and 2.4.11 Focus not obscured:** a Tab walk from the top of the page (or through the open
-   dialog until focus cycles), 3 to 38 stops per state. At each stop the control with focus must look different
-   from the same control blurred (pixels compared around it and its three nearest ancestors), and part of it must be
-   the topmost element at one of nine sampled points.
-3. **2.5.8 Target size:** every visible control is at least 24 × 24 px, or a 24 px circle on its centre touches no
-   other control and no other small control's circle; links in a sentence are exempt.
-4. **1.4.10 Reflow** (once per screen): at 320 × 640 CSS px, no sideways page scroll and nothing past the right edge
-   outside a scroll area.
-5. **1.4.12 Text spacing** (once per screen): with line height 1.5, letter spacing 0.12 em, word spacing 0.16 em and
-   paragraph spacing 2 em applied (also inside shadow roots), no text is cut that was whole before.
+   dialog until focus cycles), 3 to 38 stops per state. A walk that reaches its limit without cycling is a finding.
+   - 2.4.7: the control with focus must look different from the same control blurred. Along at least one side of
+     the control, a line at least 1 CSS px thick and half the side long must change. An ancestor's change counts
+     only if its outline, box shadow, border colour or background changed (a card that draws its link's ring).
+   - 2.4.11: part of the control must be the topmost element at one of nine sampled points.
+3. **2.5.8 Target size:** every visible, uncovered control (buttons, links, fields, and the button, switch, tab,
+   radio, checkbox, option, menuitem(radio/checkbox), slider and gridcell roles, in nested shadow roots too) is at
+   least 24 × 24 px. A smaller control passes if a 24 px circle on its centre touches no other control and no other
+   small control's circle. Links in a sentence are exempt.
+4. **1.4.10 Reflow** (once per screen), at 320 × 640 CSS px:
+   - no sideways page scroll;
+   - nothing past the left or right edge, unless inside a box that scrolls or cuts its overflow;
+   - no box cutting off content (`hidden` or `clip` overflow) that it showed whole at full width.
+5. **1.4.12 Text spacing** (once per screen, at full width and at 320 px). With line height 1.5, letter spacing
+   0.12 em, word spacing 0.16 em and paragraph spacing 2 em applied (also inside shadow roots), it compares the same
+   nodes before and after:
+   - no box newly cuts off its text;
+   - no two lines of text newly overlap. This compares line boxes clipped to what their scroll areas show, and
+     only within one layer: text under a sticky or fixed bar may pass under it by design.
+6. **Keyboard and announcements** (R18):
+   - tabs move with the arrow keys, Home and End, keep focus and `aria-selected` together, and show their panel;
+   - the ⋯ menu button opens on Enter with a visible focus on its first item, Down moves, and Escape closes and
+     returns focus;
+   - a switch toggles by Space and the live region says "Autumn is now on …" / "… off";
+   - move buttons on the zone page and in the group view announce "… moved to position n of m", and focus stays
+     on the group's or tale's move controls, also when one of them becomes disabled;
+   - an empty zone name gives an alert tied to the field, with focus on it;
+   - one focus walk of the zone page at 320 × 640, where the top bar takes two rows;
+   - each focus screenshot checks that the control is on screen and on top.
 
 Run it: `E2E_DATABASE_URL=postgres://…/<name>_e2e_test NX_DAEMON=false node_modules/.bin/nx run dashboard-e2e:a11y`.
-Optional: `E2E_SCREENSHOTS=<dir>` saves a screenshot per state, one at 320 px per screen and one per finding;
-`E2E_A11Y_REPORT=<file>` writes every state's findings and Tab stops as JSON. `E2E_API_PORT` and
-`E2E_DASHBOARD_PORT` move the servers. `dashboard-e2e:e2e` no longer runs it (`--grep-invert @a11y`).
+Optional:
+- `E2E_SCREENSHOTS=<dir>` saves a screenshot per state, one at 320 px per screen and one per finding;
+- `E2E_A11Y_REPORT=<file>` writes every state's findings and Tab stops as JSON;
+- `E2E_API_PORT` and `E2E_DASHBOARD_PORT` move the servers.
+
+`dashboard-e2e:e2e` no longer runs it (`--grep-invert @a11y`).
 
 ## Result
 
-Before the fixes 15 of 25 states had findings (4 distinct issues). After them **all 25 states pass**: 0 axe
+Before the fixes, 15 of the first 25 states had findings (4 distinct issues). The review pass found a fifth issue and
+a gap, and the stricter checks of that pass were run once more on the dashboard without the fixes: they report all
+the issues below. After the fixes **all 27 states pass and every keyboard and announcement check passes**: 0 axe
 violations, no unseen or hidden focus, no small targets, no reflow or text-spacing finding.
 
 | # | Criterion | Screen(s) | Finding | Fix |
 |---|---|---|---|---|
 | 1 | 1.4.10 Reflow | every shell page and drawer at 320 px | The top bar (title, project switcher, New, Sign out) was 325 to 329 px wide: the page scrolled sideways. | Under 375 px the top bar wraps its actions to a second row (`app.css`). |
 | 2 | 1.4.3 Contrast (axe) | New zone drawer | The chosen template's description (`--text-muted` on `--surface-sunken`) was 4.4:1. | Template descriptions use `--text-secondary` (6.8:1 on that background) (`styles.css`). |
-| 3 | 2.4.11 Focus not obscured | zone page on a phone | A control scrolled into view by Tab (the last group's "Not visible: starts …" indicator) landed under the fixed bottom bar. | `scroll-padding-top` for the sticky top bar (two rows under 375 px) and, on phones, `scroll-padding-bottom` for the bottom bar (`styles.css`). |
-| 4 | 2.4.7 Focus visible | Tale Studio | An image filling the canvas showed no focus ring: its outer ring was cut off by the canvas edge. | The canvas element's ring is drawn again inside its edge (a `::after` overlay, `tale-studio.ts`). |
+| 3 | 2.4.11 Focus not obscured | zone page on a phone and at 320 px | A control scrolled into view by Tab landed under the fixed bottom bar (the last group's "Not visible: starts …" indicator) or the sticky top bar. | `scroll-padding-top` for the sticky top bar (two rows under 375 px) and, on phones, `scroll-padding-bottom` for the bottom bar (`styles.css`). |
+| 4 | 2.4.7 Focus visible | Tale Studio | An image filling the canvas showed no focus ring: its outer ring was cut off by the canvas edge. | The canvas element's ring is drawn again inside its edge: a `::after` overlay at `z-index: 0`, above the media and below badges, and thinner on elements about 30 px or less (`tale-studio.ts`). |
+| 5 | 1.4.10 Reflow | top bar, long project name | The project switcher kept its full width (up to 150 px on phones). | The switcher and its select shrink (`min-width: 0`, the select at 100 % of the switcher), and the wrapped actions take the second row (`app.css`). |
+| 6 | 3.3.1 Error identification (good practice) | New zone and Name and slug drawers | A refused zone left focus on Create: the alert was read, but the user had to find the field. | Focus moves to the refused field (name, slug, template or project) (`create-drawer.ts`). |
 
-Unit checks of the four fixes: `apps/dashboard-e2e/scripts/dashboard-a11y-css.test.mjs` (in `dashboard-e2e:test`).
+Unit checks:
+- fixes 1 to 5: `apps/dashboard-e2e/scripts/dashboard-a11y-css.test.mjs` (in `dashboard-e2e:test`, whitespace- and
+  comment-insensitive);
+- the tiny-element ring: `tale-shapes.spec.ts`;
+- fix 6: `app.spec.ts`.
+
 Screenshots before and after: `shots-8.17/` in the build's scratchpad (see the plan).
+
+### R18, item by item
+
+| R18 says | Covered by |
+|---|---|
+| Switches and toggles are named and expose their state | axe (`aria-toggle-field-name`, `button-name`, ARIA rules) in every state; the a11y spec's keyboard test (Space on "Autumn on site", `aria-checked`). Walk 4.1–4.2. |
+| ⋯ menus follow the menu button pattern | Keyboard test (Enter opens on the first item with visible focus, Down, Escape returns focus, `aria-expanded`); the state with the menu open scanned by axe. Walk 3.7. |
+| Tabs follow the tab pattern | Keyboard test (Left, Right with wrap, Home, End; focus, `aria-selected` and the shown panel together). Walk 5.1–5.2. |
+| Reorder works by keyboard and is announced | Keyboard test (zone page groups) and the group view test (tales, focus when a button becomes disabled). Walk 3.8. |
+| Status changes are announced in a live region | Keyboard test (switch → "Autumn is now on/off"; moves → "moved to position"). Walk 4.2, 4.5, 6.4. |
+| Targets are at least 24 × 24 px (2.5.8) | Target size check in all 27 states. |
+| Focus is never hidden by the drawer or sticky headers (2.4.11) | The focus walk in all walked states, including the zone page at 320 px (two-row bar) and on a phone (bottom bar); `focusShot` asserts on top. |
+| A person completes the first-run path with only a keyboard and a screen reader | The walk below (hitl, open). |
 
 ### What the scan cannot judge
 
@@ -71,6 +119,9 @@ Screenshots before and after: `shots-8.17/` in the build's scratchpad (see the p
 
 1. The walk below (hitl). Record each step's result and any finding; findings become fixes in this story.
 2. The scan runs in Chromium only; Safari and Firefox are seen only in the walk.
+3. Tale Studio 7.10 (not merged at this review) adds a contrast badge `.el__warn` at `z-index: 1` inside canvas
+   elements; the focus ring overlay here is at `z-index: 0`, so the badge stays above it. Re-run the scan after 7.10
+   merges.
 
 ## Keyboard and screen-reader walk
 
@@ -82,7 +133,24 @@ on:
 - **Windows:** NVDA with Firefox or Chrome. Browse mode (reading) and focus mode (forms) switch by themselves; Insert+Space
   switches by hand.
 
-Start on a fresh install (no admin yet), e.g. `nx run api:serve` on an empty database and `nx run dashboard:serve`.
+Start on a fresh install (no admin yet), on a **throwaway database, never the development one**. From the workspace
+root, in two terminals (the first drops and creates `taleart_walk_e2e_test`; the e2e guard refuses any name not
+ending in `_e2e_test` and the databases of `DATABASE_URL` or `TEST_DATABASE_URL`):
+
+```sh
+NX_DAEMON=false node_modules/.bin/nx run api:build
+E2E_DATABASE_URL=postgres://taleart:taleart@localhost:5432/taleart_walk_e2e_test PORT=3413 \
+  PUBLIC_API_URL=http://localhost:3413 RP_ORIGIN=http://localhost:4313 RP_ID=localhost \
+  node apps/dashboard-e2e/scripts/start-api.mjs
+```
+
+```sh
+E2E_API_PORT=3413 E2E_DASHBOARD_PORT=4313 node apps/dashboard-e2e/scripts/serve-dashboard.mjs
+```
+
+Open `http://localhost:4313`. Afterwards stop both and drop the database
+(`psql postgres://taleart:taleart@localhost:5432/postgres -c 'DROP DATABASE taleart_walk_e2e_test'`).
+
 Have two images on disk (any PNG or JPEG). Wording of announcements can differ by screen reader; record what you hear
 when it differs in meaning, not in punctuation.
 
@@ -105,11 +173,12 @@ Mark each row **Pass**, **Fail** or **N/A**, and write what you heard in Notes w
 |---|---|---|---|---|
 | 2.1 | On Zones, find the New zone button (Tab, or the screen reader's buttons list). | "New zone, button". Empty state text is readable. | | |
 | 2.2 | Press Enter. | Dialog "New zone" announced; focus on its title or first field. Tab stays inside the drawer. | | |
-| 2.3 | Tab to Zone name, type "Home top". | "Zone name, edit text". | | |
-| 2.4 | Tab to the Template group. | "Template, group"; "Stories bar, radio button, selected, 1 of 3" (or the count shown), with its description read after it. | | |
-| 2.5 | Arrow Down / Up through the templates, back to Stories bar. | Each choice and its description is read; the choice changes with the arrow. | | |
-| 2.6 | Tab to Create, press Enter. | The drawer closes; the zone page opens; focus on the heading "Home top" (or the page start); the checklist "Set up this zone, 1 of 3 done" (or similar) is reachable. | | |
-| 2.7 | Press Escape in a reopened New zone drawer. | The drawer closes and focus returns to the button that opened it. | | |
+| 2.3 | Leave Zone name empty; Tab to Create and press Enter. | The error is announced at once (an alert, such as "name is required"); focus moves to Zone name, read as invalid, with the error as its description. | | |
+| 2.4 | Type "Home top" in Zone name. | "Zone name, edit text". | | |
+| 2.5 | Tab to the Template group. | "Template, group"; "Stories bar, radio button, selected, 1 of 3" (or the count shown), with its description read after it. | | |
+| 2.6 | Arrow Down / Up through the templates, back to Stories bar. | Each choice and its description is read; the choice changes with the arrow. | | |
+| 2.7 | Tab to Create, press Enter. | The drawer closes; the zone page opens; focus on the heading "Home top" (or the page start); the checklist "Set up this zone, 1 of 3 done" (or similar) is reachable. | | |
+| 2.8 | Press Escape in a reopened New zone drawer. | The drawer closes and focus returns to the button that opened it. | | |
 
 ### 3. Group with two tales from media
 
@@ -118,11 +187,12 @@ Mark each row **Pass**, **Fail** or **N/A**, and write what you heard in Notes w
 | 3.1 | Read the setup checklist with the reading keys (VO+arrows / NVDA arrows). | Heading "Set up this zone"; each step a button followed by "Done" or "To do". | | |
 | 3.2 | Activate the "New tale group" button (or the checklist's group step). | Dialog "New tale group" announced; focus inside. | | |
 | 3.3 | Tab to Tale group name, type "Summer sale". | "Tale group name, edit text". | | |
-| 3.4 | Tab to "Images or videos (optional)", press Enter or Space; pick the two images in the file dialog by keyboard (macOS: Cmd+Shift+G to type a path; Shift+arrows to pick two). | The control is announced with its name; after picking, the drawer says two files are chosen. | | |
+| 3.4 | Tab to "Images or videos (optional)", press Enter or Space; pick the two images in the file dialog by keyboard (macOS: Cmd+Shift+G to type a path; Shift+arrows to pick two). | The control is announced with its name; after picking, the file field itself says "2 files" (the browser's wording; it varies by browser) and its hint is read. | | |
 | 3.5 | Tab to Create, press Enter. | "Uploading…" announced once, then the result; the drawer closes when done; focus returns to a sensible place (the new group's row or the button). | | |
 | 3.6 | Find the group row. | List "Tale groups in Home top"; the row reads "Summer sale" (a button that opens the group), "2 of 2 shown", the switch, the indicator, and "More for Summer sale, menu button". | | |
 | 3.7 | Open the ⋯ menu (Enter on "More for Summer sale"); move with arrows; Escape. | "Menu" with items Rename, Cover, Tags, Schedule, …; a disabled item says why; Escape closes it and focus returns to the ⋯ button. | | |
-| 3.8 | Move a group with "Move … later" (needs two groups; skip if one). | "… moved to position 2 of 2"; focus stays on the control. | | |
+| 3.8 | Open the group (Enter on "Summer sale"). Tab to "Move beach day later" (the first tale, named after its file), press Enter. | "beach day moved to position 2 of 2". The tale is now last, so its Later button is disabled (and hidden): focus moves to "Move beach day earlier", which is announced. | | |
+| 3.9 | Press Enter again, then Escape. | "beach day moved to position 1 of 2"; focus moves to "Move beach day later". Escape closes the view; focus returns to "Summer sale". | | |
 
 ### 4. Turn the group On
 

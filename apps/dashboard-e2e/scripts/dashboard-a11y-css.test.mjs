@@ -1,18 +1,28 @@
 // `nx run dashboard-e2e:test`: the dashboard CSS fixes of the WCAG 2.2 AA scan (story 8.17), checked
-// in the stylesheets. `nx run dashboard-e2e:a11y` checks them in the browser.
+// in the stylesheets, whatever their whitespace and comments. `nx run dashboard-e2e:a11y` checks them
+// in the browser.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
+/** CSS without comments, with runs of whitespace as one space and none around punctuation. */
+export function normalize(css) {
+  return css
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([{}:;,()>])\s*/g, '$1')
+    .trim();
+}
+
 const src = resolve(import.meta.dirname, '../../dashboard/src');
-const styles = readFileSync(`${src}/styles.css`, 'utf8');
-const appCss = readFileSync(`${src}/app/app.css`, 'utf8');
-const studio = readFileSync(`${src}/app/pages/tale-studio.ts`, 'utf8');
+const styles = normalize(readFileSync(`${src}/styles.css`, 'utf8'));
+const appCss = normalize(readFileSync(`${src}/app/app.css`, 'utf8'));
+const studio = normalize(readFileSync(`${src}/app/pages/tale-studio.ts`, 'utf8'));
 
 /** The value of a custom property of `:root`. */
 function token(name) {
-  const match = styles.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'));
+  const match = styles.match(new RegExp(`${name}:(#[0-9a-f]{6})`, 'i'));
   assert.ok(match, `${name} is defined`);
   return match[1];
 }
@@ -30,51 +40,71 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** The declarations of the first rule whose selector is exactly `selector`, after `from`. */
-function rule(css, selector, from = 0) {
-  const at = css.indexOf(`${selector} {`, from);
+/** The declarations of the first rule whose selector is exactly `selector` (normalized CSS). */
+function rule(css, selector) {
+  const head = `${normalize(selector)}{`;
+  let at = css.indexOf(head);
+  // A selector must start the rule: after `}`, `{`, `;` or at the start.
+  while (at > 0 && !'{};'.includes(css[at - 1])) at = css.indexOf(head, at + 1);
   assert.ok(at >= 0, `${selector} has a rule`);
-  return css.slice(at, css.indexOf('}', at));
+  return css.slice(at + head.length, css.indexOf('}', at));
 }
 
-/** The text of the `@media` block for `query`. */
+/** The body of the `@media` block for `query` (normalized CSS). */
 function media(css, query) {
-  const at = css.indexOf(`@media ${query} {`);
+  const head = `@media${normalize(query)}{`;
+  const at = css.indexOf(head);
   assert.ok(at >= 0, `@media ${query} exists`);
   let depth = 0;
-  for (let i = css.indexOf('{', at); i < css.length; i++) {
+  for (let i = at + head.length - 1; i < css.length; i++) {
     if (css[i] === '{') depth++;
-    if (css[i] === '}' && --depth === 0) return css.slice(at, i);
+    if (css[i] === '}' && --depth === 0) return css.slice(at + head.length, i);
   }
   return css.slice(at);
 }
 
+test('normalize ignores whitespace and comments', () => {
+  assert.equal(normalize('a  {\n  color : red ; /* x */\n}'), 'a{color:red;}');
+  assert.equal(rule('x{a:b;}y{c:d;}', 'y'), 'c:d;');
+});
+
 test('a template description is readable on the chosen option (1.4.3)', () => {
-  assert.match(rule(styles, '.template-option__desc'), /color:\s*var\(--text-secondary\)/);
-  assert.match(rule(styles, '.template-option:has(input:checked)'), /background:\s*var\(--surface-sunken\)/);
+  assert.match(rule(styles, '.template-option__desc'), /color:var\(--text-secondary\)/);
+  assert.match(rule(styles, '.template-option:has(input:checked)'), /background:var\(--surface-sunken\)/);
   assert.ok(contrast(token('--text-secondary'), token('--surface-sunken')) >= 4.5);
   // Why the change: the muted grey is under 4.5:1 on the chosen option's background.
   assert.ok(contrast(token('--text-muted'), token('--surface-sunken')) < 4.5);
 });
 
 test('focus scrolls clear of the sticky top bar and the phone bottom bar (2.4.11)', () => {
-  assert.match(rule(styles, 'html'), /scroll-padding-top:\s*calc\(var\(--topbar-height\)/);
-  assert.match(media(styles, '(max-width: 639.98px)'), /scroll-padding-bottom:\s*calc\(var\(--bottombar-height\)/);
+  assert.match(rule(styles, 'html'), /scroll-padding-top:calc\(var\(--topbar-height\)/);
+  assert.match(media(styles, '(max-width: 639.98px)'), /scroll-padding-bottom:calc\(var\(--bottombar-height\)/);
   // Where the top bar wraps to two rows, the padding covers both.
-  assert.match(media(styles, '(max-width: 374.98px)'), /scroll-padding-top:\s*calc\(2 \* var\(--topbar-height\)/);
+  assert.match(media(styles, '(max-width: 374.98px)'), /scroll-padding-top:calc\(2 \* var\(--topbar-height\)/);
 });
 
-test('the top bar wraps instead of scrolling sideways at 320 px (1.4.10)', () => {
+test('the top bar wraps and its project switcher shrinks instead of scrolling sideways at 320 px (1.4.10)', () => {
   const narrow = media(appCss, '(max-width: 374.98px)');
-  assert.match(narrow, /\.topbar \{[^}]*flex-wrap:\s*wrap/);
-  assert.match(narrow, /\.topbar__actions \{[^}]*margin-left:\s*auto/);
+  assert.match(rule(narrow, '.topbar'), /flex-wrap:wrap/);
+  assert.match(rule(narrow, '.topbar__actions'), /margin-left:auto/);
+  assert.match(rule(appCss, '.switcher'), /min-width:0/);
+  const select = rule(appCss, '.switcher__select');
+  assert.match(select, /width:100%/);
+  assert.match(select, /min-width:0/);
 });
 
-test('a canvas element that fills the canvas shows its focus ring inside (2.4.7)', () => {
-  const ring = rule(studio, '    .el:focus-visible::after');
-  assert.match(ring, /position:\s*absolute/);
-  assert.match(ring, /inset:\s*0/);
-  assert.match(ring, /pointer-events:\s*none/);
-  assert.match(ring, /inset 0 0 0 2px var\(--ink\)/);
-  assert.match(ring, /inset 0 0 0 5px #fff/);
+test('a canvas element that fills the canvas shows its focus ring inside, under its badges (2.4.7)', () => {
+  const ring = rule(studio, '.el:focus-visible::after');
+  for (const part of [
+    /position:absolute/,
+    /inset:0/,
+    /z-index:0/,
+    /pointer-events:none/,
+    /inset 0 0 0 2px var\(--ink\)/,
+    /inset 0 0 0 5px #fff/,
+  ]) {
+    assert.match(ring, part);
+  }
+  // Thinner on a tiny element.
+  assert.match(rule(studio, '.el--tiny:focus-visible::after'), /inset 0 0 0 1px var\(--ink\),inset 0 0 0 2px #fff/);
 });
