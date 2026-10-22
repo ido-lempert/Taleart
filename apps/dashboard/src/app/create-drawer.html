@@ -203,7 +203,10 @@
               [attr.aria-invalid]="error() ? 'true' : null"
               [attr.aria-describedby]="error() ? 'create-error' : null"
             />
-            <p class="field__hint">A group holds up to {{ maxTales }} tales.</p>
+            <p class="field__hint">
+              A set of tales shown as one item: one circle in a bar or one slide in a banner. It holds up to
+              {{ maxTales }} tales and can show in several zones.
+            </p>
           </div>
           <div class="field">
             <label class="field__label" for="create-group-files">Images or videos (optional)</label>
