@@ -183,6 +183,13 @@ export interface InStepOptions {
    * "not updated yet" until the person publishes it (epic UX rework R6).
    */
   migration?: boolean;
+  /**
+   * An import's first media for a tale whose draft is still exactly what the import made (epic Tale
+   * Studio R17: its button): a `live` tale with nothing published publishes that draft, with the
+   * media merged in, so an imported tale is delivered with its media and button together, never
+   * as a button alone.
+   */
+  publishDraft?: boolean;
 }
 
 // The tale row as the media steps read it, locked; absent columns read as null.
@@ -251,9 +258,13 @@ export async function bringTaleMediaInStep(
   const draft = mergeTaleMedia(row.draft ?? row.published, media, merge) as TaleDocument;
   // A tale with nothing published gets a media document only while it is `live` and, outside the
   // migration, has no studio draft either (a new tale from media is published at creation).
+  const publishDraft = options.publishDraft === true && row.published === null && row.draft !== null;
   const published =
-    row.published !== null || (row.status === 'live' && (options.migration === true || row.draft === null))
-      ? (mergeTaleMedia(row.published, media, merge) as TaleDocument)
+    row.published !== null ||
+    (row.status === 'live' && (options.migration === true || row.draft === null || publishDraft))
+      ? publishDraft
+        ? draft
+        : (mergeTaleMedia(row.published, media, merge) as TaleDocument)
       : null;
   for (const [before, after] of [
     [row.draft ?? row.published, draft],
@@ -266,7 +277,8 @@ export async function bringTaleMediaInStep(
   const draftChanged = draft !== row.draft;
   const publishedChanged = published !== row.published;
   // Made from the media alone: the migration's, which a rollback takes away again.
-  const created = (row.draft === null && row.published === null) || (row.published === null && published !== null);
+  const created =
+    (row.draft === null && row.published === null) || (row.published === null && published !== null && !publishDraft);
   await tx.query(
     `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + $3,
        document = $4::jsonb, document_revision = document_revision + $5, document_media_key = media_key,

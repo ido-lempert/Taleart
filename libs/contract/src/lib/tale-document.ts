@@ -983,6 +983,13 @@ export function isSwipeUpBox(box: TaleElementBox): boolean {
 /** Where a new button goes: centred, above the bottom safe area. */
 export const NEW_BUTTON_BOX: TaleElementBox = { x: 0.2, y: 0.74, w: 0.6, h: 0.07, rotation: 0 };
 
+/**
+ * Where the importer puts the button of a tale whose source story has a call to action (epic Tale
+ * Studio R17): centred, its bottom edge on the bottom safe area ({@link TALE_SAFE_AREA}), the
+ * height of {@link NEW_BUTTON_BOX}.
+ */
+export const IMPORTED_BUTTON_BOX: TaleElementBox = { x: 0.2, y: 0.77, w: 0.6, h: 0.07, rotation: 0 };
+
 /** Where a new image button goes: a square box (on the 9:16 canvas) above the bottom safe area. */
 export const NEW_IMAGE_BUTTON_BOX: TaleElementBox = { x: 0.35, y: 0.5, w: 0.3, h: 0.16875, rotation: 0 };
 
