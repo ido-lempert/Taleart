@@ -1,8 +1,12 @@
 import {
   canSetStatus,
+  EDITOR_ONLY_ELEMENT_FIELDS,
   ErrorCodes,
   isMediaContentType,
   isValidWindow,
+  LEGACY_PLACEHOLDER_COLOR,
+  LEGACY_TALE_DURATION_MS,
+  TALE_DOCUMENT_VERSION,
   MAX_TALES_PER_GROUP,
   mediaKind,
   projectFontIds,
@@ -29,6 +33,7 @@ import {
   lockMediaKeyForDeletion,
 } from './document-media';
 import { deliveryProjectFonts, recordTaleFonts, withoutProjectFonts, type StoredFontFile } from './project-fonts';
+import { bringTaleMediaInStep, mergeTaleMedia } from './tale-media-document';
 import {
   checkDocumentFonts,
   checkDocumentMedia,
@@ -532,9 +537,9 @@ export async function copyTaleGroup(
     // Each copy keeps its tale's published and draft documents (AD-15), starting their own revisions.
     await tx.query(
       `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status,
-         starts_at, ends_at, document, draft_document)
+         starts_at, ends_at, document, draft_document, document_media_key)
        SELECT $2, $3, title, position, media_key, media_content_type, status, starts_at, ends_at, document,
-              draft_document FROM tales
+              draft_document, document_media_key FROM tales
        WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId, group.id, projectId],
     );
@@ -1047,8 +1052,9 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
     // The status, schedule and position are the new row's own: a draft, unscheduled, last.
     const { rows } = await tx.query<TaleRow>(
       `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type,
-                          draft_document, draft_revision)
-       SELECT tale_group_id, project_id, title || ' (copy)', $2, media_key, media_content_type, $3::jsonb, 1
+                          document_media_key, draft_document, draft_revision)
+       SELECT tale_group_id, project_id, title || ' (copy)', $2, media_key, media_content_type, document_media_key,
+              $3::jsonb, 1
        FROM tales WHERE id = $1
        RETURNING ${TALE_COLUMNS}`,
       [taleId, next, JSON.stringify(document)],
@@ -1094,35 +1100,42 @@ export async function getTaleMedia(db: Db, taleId: string): Promise<StoredTaleMe
 }
 
 /**
- * Points the tale at newly stored media. Returns the updated tale and the key
- * it pointed at before (null when none). A copied tale shares its media's key
- * (AD-14), so the caller deletes that file only through {@link withMediaKeyDeletionGuard}
- * says no tale references it any more. Throws {@link TaleNotFoundError}.
+ * Points the tale at newly stored media, and brings its documents in step (R16): their `taleMedia`
+ * element takes the new key, or the media goes in at the bottom of a document that has none; a
+ * tale with no draft gets one of only its media (see {@link bringTaleMediaInStep}). One
+ * transaction. Returns the updated tale and the key it pointed at before (null when none). A copied
+ * tale shares its media's key (AD-14), so the caller deletes that file only through
+ * {@link withMediaKeyDeletionGuard}, when nothing references it any more. Throws {@link TaleNotFoundError}.
  */
 export async function setTaleMedia(
-  db: Db,
+  db: TransactionalDb,
   taleId: string,
   media: StoredTaleMedia,
 ): Promise<{ tale: Tale; previousKey: string | null }> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  // The subquery locks the row and reads the old key in the same statement.
-  const { rows } = await db.query<TaleRow & { previousKey: string | null }>(
-    `UPDATE tales SET media_key = $2, media_content_type = $3
-     FROM (SELECT id AS old_id, media_key AS old_key FROM tales WHERE id = $1 FOR UPDATE) old
-     WHERE tales.id = old.old_id
-     RETURNING ${TALE_COLUMNS}, old.old_key AS "previousKey"`,
-    [taleId, media.key, media.contentType],
-  );
-  if (rows.length === 0) throw new TaleNotFoundError(taleId);
-  const { previousKey, ...row } = rows[0];
-  return { tale: toTale(row), previousKey };
+  return inTransaction(db, async (tx) => {
+    // The subquery locks the row and reads the old key in the same statement.
+    const { rows } = await tx.query<TaleRow & { previousKey: string | null }>(
+      `UPDATE tales SET media_key = $2, media_content_type = $3
+       FROM (SELECT id AS old_id, media_key AS old_key FROM tales WHERE id = $1 FOR UPDATE) old
+       WHERE tales.id = old.old_id
+       RETURNING ${TALE_COLUMNS}, old.old_key AS "previousKey"`,
+      [taleId, media.key, media.contentType],
+    );
+    if (rows.length === 0) throw new TaleNotFoundError(taleId);
+    await bringTaleMediaInStep(tx, taleId);
+    const { previousKey, ...row } = rows[0];
+    return { tale: toTale(row), previousKey };
+  });
 }
 
 /**
  * Points a tale that holds no media at newly stored media, in one conditional
- * update: when the tale already holds media (another writer got there first),
+ * update, and brings its documents in step (R16) in the caller's transaction:
+ * when the tale already holds media (another writer got there first),
  * nothing changes and the answer is false, so no one's media is ever replaced
- * and no previous key needs deleting. Throws {@link TaleNotFoundError}.
+ * and no previous key needs deleting. Run it in a transaction, as the importer
+ * does. Throws {@link TaleNotFoundError}.
  */
 export async function setTaleMediaIfNone(db: Db, taleId: string, media: StoredTaleMedia): Promise<boolean> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
@@ -1130,7 +1143,10 @@ export async function setTaleMediaIfNone(db: Db, taleId: string, media: StoredTa
     'UPDATE tales SET media_key = $2, media_content_type = $3 WHERE id = $1 AND media_key IS NULL',
     [taleId, media.key, media.contentType],
   );
-  if ((rowCount ?? 0) > 0) return true;
+  if ((rowCount ?? 0) > 0) {
+    await bringTaleMediaInStep(db, taleId);
+    return true;
+  }
   if (!(await taleExists(db, taleId))) throw new TaleNotFoundError(taleId);
   return false;
 }
@@ -1138,9 +1154,12 @@ export async function setTaleMediaIfNone(db: Db, taleId: string, media: StoredTa
 /**
  * Points a tale at newly stored media only while it still holds `expectedKey`,
  * in one conditional update: when the tale holds other media (a person
- * replaced it) or none, nothing changes and the answer is false. The file of
+ * replaced it) or none, nothing changes and the answer is false. Its documents
+ * are brought in step (R16) as a re-import does it: only a `taleMedia` element
+ * that still shows `expectedKey` takes the new key, so media a person picked
+ * in Tale Studio, or their removal of the element, is kept. The file of
  * `expectedKey` is not deleted here; other tales may reference it (AD-11).
- * Throws {@link TaleNotFoundError}.
+ * Run it in a transaction, as the importer does. Throws {@link TaleNotFoundError}.
  */
 export async function replaceTaleMediaIf(
   db: Db,
@@ -1153,7 +1172,10 @@ export async function replaceTaleMediaIf(
     'UPDATE tales SET media_key = $3, media_content_type = $4 WHERE id = $1 AND media_key = $2',
     [taleId, expectedKey, media.key, media.contentType],
   );
-  if ((rowCount ?? 0) > 0) return true;
+  if ((rowCount ?? 0) > 0) {
+    await bringTaleMediaInStep(db, taleId, { expectedKey });
+    return true;
+  }
   if (!(await taleExists(db, taleId))) throw new TaleNotFoundError(taleId);
   return false;
 }
@@ -1229,6 +1251,42 @@ export interface DeliveryStoredTaleGroup {
 }
 
 /**
+ * The document a tale is delivered with (R16): its published document, with the tale's media
+ * composed in (as the migration would, under the tale's id as the element id, so the answer stays
+ * the same between reads) while the tale is out of step, or as the whole document when the
+ * published one is missing or no longer passes; a tale with neither shows its title on the legacy
+ * placeholder colour for 5 s, as a tale without media always did.
+ */
+export function deliveredWithTaleMedia(
+  taleId: string,
+  stored: KeyedDeliveryDocument | null,
+  key: string | null,
+  contentType: string | null,
+  inStep: string | null,
+): KeyedDeliveryDocument {
+  if (key !== null && isMediaContentType(contentType) && (stored === null || inStep !== key)) {
+    const media = { key, kind: mediaKind(contentType) };
+    const merged = mergeTaleMedia(stored, media, { id: taleId, legacyTiming: inStep === null });
+    // Delivered without the editor-only fields (AD-15), as every other element.
+    const elements = merged.elements.map((element) => {
+      const delivered: Record<string, unknown> = { ...(element as object) };
+      for (const field of EDITOR_ONLY_ELEMENT_FIELDS) delete delivered[field];
+      return delivered;
+    });
+    return { ...merged, elements } as KeyedDeliveryDocument;
+  }
+  return stored ?? EMPTY_DELIVERED_DOCUMENT;
+}
+
+/** What a tale with neither media nor a document is delivered with (R16): the legacy placeholder for 5 s. */
+const EMPTY_DELIVERED_DOCUMENT: KeyedDeliveryDocument = {
+  version: TALE_DOCUMENT_VERSION,
+  canvas: { background: { type: 'color', color: LEGACY_PLACEHOLDER_COLOR } },
+  durationMs: LEGACY_TALE_DURATION_MS,
+  elements: [],
+};
+
+/**
  * The published tale groups placed in the zone, in this zone's order (AD-2,
  * AD-14), each with its published tales by position, for the Delivery API.
  * Published means `live` and inside its start and end time at `now` (AD-6);
@@ -1269,19 +1327,28 @@ export async function listDeliveryTaleGroups(
     document: unknown;
     revision: number;
     documentBytes: number | null;
+    inStep: string | null;
   }>(
     `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType",
-       project_id AS "projectId", document, document_revision AS revision,
+       project_id AS "projectId", document, document_revision AS revision, document_media_key AS "inStep",
        octet_length(document::text) AS "documentBytes"
      FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND ${liveNow('tales', '$2')} ORDER BY position, id`,
     [groups.rows.map((g) => g.id), now],
   );
-  // Checked in full once per tale and revision (every save raises it), then kept.
+  // Checked in full once per tale and revision (every save raises it), then kept. Every tale is
+  // delivered with a document (R16): its media is composed in while the tale is out of step.
+  const composed = new Set<string>();
   const documents = new Map(
-    tales.rows.map((tale) => [
-      tale.id,
-      deliverableTaleDocument(tale.document, `${tale.id}:${tale.revision}`, tale.documentBytes ?? undefined),
-    ]),
+    tales.rows.map((tale) => {
+      const stored = deliverableTaleDocument(
+        tale.document,
+        `${tale.id}:${tale.revision}`,
+        tale.documentBytes ?? undefined,
+      );
+      const delivered = deliveredWithTaleMedia(tale.id, stored, tale.key, tale.contentType, tale.inStep);
+      if (delivered !== stored && tale.key !== null) composed.add(tale.id);
+      return [tale.id, delivered];
+    }),
   );
   // The project fonts each delivered document uses (R18), of the tale's own project only (AD-4).
   const fontsUsed = tales.rows.map((tale) => ({ tale, ids: projectFontIds(documents.get(tale.id)) }));
@@ -1322,7 +1389,11 @@ export async function listDeliveryTaleGroups(
           media: key !== null && isMediaContentType(contentType) ? { key, contentType } : null,
           document: documents.get(id) ?? null,
           fonts: fontsOf.get(id) ?? [],
-          mediaKeys: media.get(id) ?? new Set<string>(),
+          // A composed document shows the tale's own media, which the public route serves by its tale (AD-11).
+          mediaKeys:
+            composed.has(id) && key !== null
+              ? new Set([...(media.get(id) ?? []), key])
+              : (media.get(id) ?? new Set<string>()),
         })),
     }))
     .filter((group) => group.tales.length > 0);

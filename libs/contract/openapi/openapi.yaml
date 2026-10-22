@@ -2776,7 +2776,11 @@ components:
             `startsAt`. From it on, live content reads `expired` and is not
             delivered (AD-6).
         media:
-          description: The tale's image, GIF or video, or null when it has none.
+          description: >-
+            The tale's image, GIF or video, or null when it has none. Kept
+            for SDKs from before documents: the document holds the same media
+            as its `taleMedia` element (epic Tale Studio R16), and current
+            SDKs render only the document.
           oneOf:
             - $ref: '#/components/schemas/TaleMedia'
             - type: 'null'
@@ -3096,7 +3100,9 @@ components:
         cover:
           description: >-
             The group's cover, or null when it has none; the bar then shows
-            its first tale's media.
+            its first tale's lowest media element (the document's media
+            background, else its first image or video element), or, when that
+            tale has no media, its canvas colour (epic Tale Studio R16).
           oneOf:
             - $ref: '#/components/schemas/DeliveryCover'
             - type: 'null'
@@ -3115,14 +3121,21 @@ components:
         title:
           type: string
         media:
-          description: The tale's image, GIF or video, or null when it has none.
+          description: >-
+            The tale's image, GIF or video, or null when it has none. Kept
+            for SDKs from before documents: the document holds the same media
+            as its `taleMedia` element (epic Tale Studio R16), and current
+            SDKs render only the document.
           oneOf:
             - $ref: '#/components/schemas/DeliveryMedia'
             - type: 'null'
         document:
           description: >-
-            The tale's document (AD-15) as SDKs render it over the media, or
-            null when the tale has none: then it shows its media only.
+            The tale's document (AD-15) as SDKs render it. Every delivered
+            tale has one (epic Tale Studio R16): a tale whose media is not
+            yet in its published document gets it composed in, and a tale
+            with neither gets an empty one. Null only from servers before
+            R16.
           oneOf:
             - $ref: '#/components/schemas/DeliveryTaleDocument'
             - type: 'null'

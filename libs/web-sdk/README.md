@@ -115,7 +115,8 @@ What the host page does:
 
 - Serve the SDK compressed (gzip or brotli), as any CDN does.
 - Give tale groups a cover in the dashboard: a still cover is a 320 px JPEG of about 20 KB, while a group without one
-  shows its first tale's full-size image in the bar, often 300 KB or more.
+  shows its first tale's lowest media element (its full-size image, often 300 KB or more) in the bar, or that tale's
+  background colour when it has no media.
 
 ### Project fonts
 

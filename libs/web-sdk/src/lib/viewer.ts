@@ -1,15 +1,28 @@
 import {
   DEFAULT_TALE_DURATION_MS,
+  isStageTaleMedia,
+  LEGACY_PLACEHOLDER_COLOR,
+  LEGACY_TALE_DURATION_MS,
   MAX_TALE_VIDEO_MS,
-  type DeliveryTale,
+  type DeliveryTaleDocument,
+  type DeliveryTaleElement,
   type DeliveryTaleGroup,
 } from '@taleart/contract';
 import { prefersReducedMotion } from './bar';
 import { loadTaleFonts } from './document/fonts';
+import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
 
-/** How long an image, or a tale without playable media, shows when it has no document. */
-export const IMAGE_DURATION_MS = 5000;
+/** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
+export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
+
+// A tale a server from before R16 sent without a document: the legacy placeholder, for 5 s.
+const NO_DOCUMENT: DeliveryTaleDocument = {
+  version: 1,
+  canvas: { background: { type: 'color', color: LEGACY_PLACEHOLDER_COLOR } },
+  durationMs: LEGACY_TALE_DURATION_MS,
+  elements: [],
+};
 /** A document's video that makes no progress for this long while it should play ends its tale. */
 export const VIDEO_STALL_MS = 5000;
 /** Horizontal travel that makes a pointer gesture a swipe between groups. */
@@ -182,10 +195,11 @@ export interface TaleViewerOptions {
 
 /**
  * The full-screen tale viewer: a modal `<dialog>` in `root` that plays a
- * zone's tale groups in order. Images show for {@link IMAGE_DURATION_MS}
- * (a tale with a document for its `durationMs`, 7 s by default), videos to their end; a document's
- * video element is the tale's video when its media is no video (R5). A tale with a document
- * (AD-15) shows its elements over its media on a 9:16 canvas; its text is
+ * zone's tale groups in order. Every tale is a document (AD-15, R16), shown for its `durationMs`
+ * (7 s by default), or for its video: the tale's own media video to its end, else a document's
+ * video element (R5). The tale's own media, while it fills the canvas from the bottom, is drawn
+ * full-bleed in the stage, as tale media always was; the other elements show over it on a 9:16
+ * canvas; its text is
  * selectable, and a tap on it does not step. Tap or arrow keys step through tales (and across
  * groups), a swipe moves between groups, a hold or Space pauses (Space on the focused Close
  * button closes, as on any button), and Escape
@@ -513,34 +527,35 @@ export class TaleViewer {
     this.statusTimer = setTimeout(() => (status.textContent = text), 0);
 
     const current = g.tales[tale];
-    const doc = current.document;
-    this.duration = doc ? (doc.durationMs ?? DEFAULT_TALE_DURATION_MS) : IMAGE_DURATION_MS;
-    // The media is framed the same with or without a document: full-bleed in the stage. A tale
-    // with a document but no media shows its canvas colour instead, and the canvas carries the
-    // tale's name.
-    this.media = doc && !current.media ? null : this.renderMedia(current);
+    // Every tale is a document (R16). The tale's own media, while it is the bottom element and
+    // fills the canvas, is drawn full-bleed in the stage behind the canvas, as tale media always
+    // was, and keeps its rules: a video runs the tale for its whole length, with sound where the
+    // browser allows it. The canvas carries the tale's name.
+    const doc = current.document ?? NO_DOCUMENT;
+    this.duration = doc.durationMs ?? DEFAULT_TALE_DURATION_MS;
+    const elements = Array.isArray(doc.elements) ? doc.elements : [];
+    const own = isStageTaleMedia(elements[0], 0) ? elements[0] : null;
+    this.media = own && this.renderStageMedia(own);
     if (this.media) stage.prepend(this.media);
-    // Behind a document tale's media, its canvas colour fills the stage, such as the bands a
-    // contained image leaves; without a document the stage stays the viewer's black.
-    stage.style.backgroundColor = (current.media && doc && canvasColor(doc)) || '';
-    if (doc) {
-      // Its project fonts load now that it opens (R18); its text shows the fallback stack until then.
-      loadTaleFonts(current);
-      // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
-      this.layer = renderTaleDocument(doc, {
-        background: !current.media,
-        label: current.media ? undefined : current.title || `Tale ${tale + 1}`,
-        reducedMotion: this.reduced,
-      });
-      this.parts.top.before(this.layer);
-      // Its video element (R5) runs the tale: it plays, pauses and ends with it. Next to a tale
-      // video it only loops along, muted.
-      const docVideo = this.layer.querySelector('video');
-      if (docVideo && !this.video) this.useVideo(docVideo, true);
-      else if (docVideo) {
-        docVideo.loop = true;
-        this.alongside.push(docVideo);
-      }
+    // Behind the stage media, the canvas colour fills the stage, such as the bands a contained
+    // image leaves; without stage media the canvas paints its own colour.
+    stage.style.backgroundColor = (this.media && canvasColor(doc)) || '';
+    // Its project fonts load now that it opens (R18); its text shows the fallback stack until then.
+    loadTaleFonts(current);
+    // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
+    this.layer = renderTaleDocument(this.media ? { ...doc, elements: elements.slice(1) } : doc, {
+      background: !this.media,
+      label: current.title || `Tale ${tale + 1}`,
+      reducedMotion: this.reduced,
+    });
+    this.parts.top.before(this.layer);
+    // Its video element (R5) runs the tale: it plays, pauses and ends with it. Next to the tale's
+    // own video it only loops along, muted.
+    const docVideo = this.layer.querySelector('video');
+    if (docVideo && !this.video) this.useVideo(docVideo, true);
+    else if (docVideo) {
+      docVideo.loop = true;
+      this.alongside.push(docVideo);
     }
     this.options.onGroupShown?.(g.id);
     if (this.reduced) {
@@ -553,30 +568,31 @@ export class TaleViewer {
     else this.startTimed();
   }
 
-  private renderMedia(tale: DeliveryTale): HTMLElement {
-    const label = tale.title || `Tale ${this.tale + 1}`;
-    const media = tale.media;
-    if (media?.kind === 'image') {
-      const img = el('img', 'media');
-      img.alt = label;
-      img.src = media.url;
-      img.draggable = false;
-      return img;
-    }
-    if (media?.kind === 'video') {
+  // The tale's own media in the stage (R16), as the viewer always drew a tale's media: full-bleed
+  // with the element's fit, named by its alt text or hidden when decorative. A video is the tale's
+  // clock, uncapped, and plays with sound where the browser allows it. Null without a usable URL.
+  private renderStageMedia(element: DeliveryTaleElement): HTMLElement | null {
+    const props = element.props as { url?: unknown; fit?: unknown };
+    const url = mediaUrl(props.url);
+    if (!url) return null;
+    let media: HTMLElement | null;
+    if (element.type === 'video') {
       const video = el('video', 'media');
-      video.setAttribute('aria-label', label);
       video.playsInline = true;
       // Under reduced motion the video waits on its first frame (`#t` paints it in Safari) until Play.
       video.preload = this.reduced ? 'metadata' : 'auto';
-      video.src = this.reduced ? `${media.url}#t=0.001` : media.url;
+      video.src = this.reduced ? `${url}#t=0.001` : url;
+      video.style.objectFit = props.fit === 'cover' ? 'cover' : 'contain';
+      const label = element.a11y?.decorative === true ? '' : (element.a11y?.label ?? '').trim();
+      if (label) video.setAttribute('aria-label', label);
       this.useVideo(video);
-      return video;
+      media = video;
+    } else {
+      media = renderImage(element, { reducedMotion: this.reduced });
+      if (media) media.className = 'media';
     }
-    const placeholder = el('span', 'media');
-    placeholder.setAttribute('role', 'img');
-    placeholder.setAttribute('aria-label', label);
-    return placeholder;
+    if (media && element.a11y?.decorative === true) media.setAttribute('aria-hidden', 'true');
+    return media;
   }
 
   // Makes `video` the current tale's clock: the tale ends when it ends (or, under reduced motion,

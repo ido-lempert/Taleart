@@ -1417,7 +1417,7 @@ export interface components {
              * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered (AD-6).
              */
             endsAt: string | null;
-            /** @description The tale's image, GIF or video, or null when it has none. */
+            /** @description The tale's image, GIF or video, or null when it has none. Kept for SDKs from before documents: the document holds the same media as its `taleMedia` element (epic Tale Studio R16), and current SDKs render only the document. */
             media: components["schemas"]["TaleMedia"] | null;
         };
         TaleMedia: {
@@ -1584,7 +1584,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
-            /** @description The group's cover, or null when it has none; the bar then shows its first tale's media. */
+            /** @description The group's cover, or null when it has none; the bar then shows its first tale's lowest media element (the document's media background, else its first image or video element), or, when that tale has no media, its canvas colour (epic Tale Studio R16). */
             cover: components["schemas"]["DeliveryCover"] | null;
             /** @description The group's published tales by position. */
             tales: components["schemas"]["DeliveryTale"][];
@@ -1593,9 +1593,9 @@ export interface components {
             /** Format: uuid */
             id: string;
             title: string;
-            /** @description The tale's image, GIF or video, or null when it has none. */
+            /** @description The tale's image, GIF or video, or null when it has none. Kept for SDKs from before documents: the document holds the same media as its `taleMedia` element (epic Tale Studio R16), and current SDKs render only the document. */
             media: components["schemas"]["DeliveryMedia"] | null;
-            /** @description The tale's document (AD-15) as SDKs render it over the media, or null when the tale has none: then it shows its media only. */
+            /** @description The tale's document (AD-15) as SDKs render it. Every delivered tale has one (epic Tale Studio R16): a tale whose media is not yet in its published document gets it composed in, and a tale with neither gets an empty one. Null only from servers before R16. */
             document: components["schemas"]["DeliveryTaleDocument"] | null;
             /** @description The project fonts the document's visible text uses (epic Tale Studio R18), left out when it uses none. SDKs fetch them only when the tale opens. */
             fonts?: components["schemas"]["DeliveryFont"][];
@@ -2235,6 +2235,8 @@ export interface components {
             radius?: number;
             /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
             opacity?: number;
+            /** @description True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one. */
+            taleMedia?: boolean;
         };
         /**
          * VideoElementProps
@@ -2252,6 +2254,8 @@ export interface components {
             radius?: number;
             /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
             opacity?: number;
+            /** @description True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one. */
+            taleMedia?: boolean;
         };
     };
     responses: {

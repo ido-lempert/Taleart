@@ -28,6 +28,10 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1
+    },
+    "taleMedia": {
+      "description": "True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one.",
+      "type": "boolean"
     }
   }
 }

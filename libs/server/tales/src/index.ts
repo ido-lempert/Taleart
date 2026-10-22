@@ -1,6 +1,6 @@
 // Public interface of the tales module (AD-1). It owns the `tale_groups`,
 // `zone_tale_groups` (zone placements, AD-14), `tales` (including each tale's
-// media key and document, AD-15), `project_fonts` and `tale_fonts` (R18), and `project_media` and
+// media key and document, AD-15, kept in step with each other, R16), `project_fonts` and `tale_fonts` (R18), and `project_media` and
 // `tale_media` (R5) tables,
 // and reads zones only through @taleart/server-zones.
 // Tale groups carry no tags here: the targeting module owns them and the API composes them in.
@@ -26,9 +26,6 @@ export {
   taleGroupProjectId,
   taleProjectId,
   getTaleMedia,
-  setTaleMedia,
-  setTaleMediaIfNone,
-  replaceTaleMediaIf,
   getTaleGroupCover,
   setTaleGroupCover,
   isMediaKeyInUse,
@@ -76,6 +73,21 @@ export const setTaleGroupStatus = thenClearFonts(tales.setTaleGroupStatus);
 export const setTaleStatus = thenClearFonts(tales.setTaleStatus);
 export const setTaleGroupSchedule = thenClearFonts(tales.setTaleGroupSchedule);
 export const setTaleSchedule = thenClearFonts(tales.setTaleSchedule);
+// A tale's media is an element of its documents (R16), so setting it can make a key public or private.
+export const setTaleMedia = thenClearFonts(tales.setTaleMedia);
+export const setTaleMediaIfNone = thenClearFonts(tales.setTaleMediaIfNone);
+export const replaceTaleMediaIf = thenClearFonts(tales.replaceTaleMediaIf);
+
+export {
+  bringTaleMediaInStep,
+  continueTaleMediaMigration,
+  mergeTaleMedia,
+  migrateTaleMediaDocuments,
+  taleMediaDocument,
+  type InStepOutcome,
+  type TaleMediaMigration,
+  type TaleMediaMigrationOptions,
+} from './lib/tale-media-document';
 
 export {
   listProjectFonts,

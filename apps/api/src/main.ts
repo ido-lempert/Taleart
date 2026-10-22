@@ -9,7 +9,7 @@ import {
   type ImportWorker,
 } from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
-import { DEFAULT_PROJECT_MEDIA_LIMITS } from '@taleart/server-tales';
+import { continueTaleMediaMigration, DEFAULT_PROJECT_MEDIA_LIMITS } from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
@@ -107,6 +107,16 @@ async function start(): Promise<void> {
     log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
   });
   server.on('error', (err) => log('error', 'server error', err));
+
+  // The start-up migration brings tales' media into their documents for at most 10 s (Tale Studio
+  // R16); the rest is finished here, beside requests. Delivery composes any tale not yet done.
+  continueTaleMediaMigration(pool)
+    .then(({ merged, skipped, done }) => {
+      if (merged > 0 || skipped > 0 || !done) {
+        log(done ? 'info' : 'warn', `Tale media in documents: ${merged} tale(s) merged, ${skipped} left out of step`);
+      }
+    })
+    .catch((err) => log('error', 'tale media migration failed', err));
 
   // On shutdown the API stops taking requests first, then the worker gets up
   // to SHUTDOWN_DEADLINE_MS to finish the job in progress. A job cut off by the
