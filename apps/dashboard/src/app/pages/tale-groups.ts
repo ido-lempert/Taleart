@@ -64,7 +64,7 @@ import { VisibilityIndicator } from '../visibility';
                     <span class="ring" aria-hidden="true">{{ group.name.charAt(0) }}</span>
                     <div class="group-row__name">
                       <h3 [id]="'project-group-' + group.id">{{ group.name }}</h3>
-                      <app-visibility [visibility]="group.visibility" viewing="group" />
+                      <app-visibility [visibility]="group.visibility" viewing="group" [anyZone]="true" />
                       <p class="muted">
                         <app-status-badge [status]="group.status" kind="group" />
                         <span class="visually-hidden">Tales: </span>{{ group.taleCount }} / {{ maxTales }}

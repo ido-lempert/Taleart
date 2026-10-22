@@ -7,7 +7,7 @@ import {
   type DeliveryZone,
 } from '@taleart/contract';
 import { zoneForKey, type KeyZone } from '@taleart/server-access';
-import { listDeliveryTaleGroups, zoneSetups } from '@taleart/server-tales';
+import { listDeliveryTaleGroups } from '@taleart/server-tales';
 import { findZone, getProjectTheme, listDeliveryStages, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
 import { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
@@ -85,13 +85,12 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         res.status(401).json(errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE));
         return;
       }
-      // A zone that is not set up (no display, no key: epic UX rework R7) delivers no tale group, by
-      // the rule the Management API's indicator says "Not visible: zone has no display" with.
-      const setup = (await zoneSetups(pool, [zoneId])).get(zoneId) ?? [];
+      // A zone without a display delivers no tale group (epic UX rework R7): its setup is part of
+      // the Delivery filter (`deliveredPlacement`), the rule the Management API's indicator reads.
       const [frames, stages, taleGroups, theme] = await Promise.all([
         listFrames(pool, zoneId),
         listDeliveryStages(pool, zoneId),
-        setup.length === 0 ? listDeliveryTaleGroups(pool, zoneId) : [],
+        listDeliveryTaleGroups(pool, zoneId),
         getProjectTheme(pool, zone.projectId),
       ]);
       // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).

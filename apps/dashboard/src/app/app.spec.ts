@@ -964,6 +964,21 @@ describe('App', () => {
         stages: [presetStage],
       });
       await settle(fixture);
+      // The new frame changes what the indicators say (epic UX rework R7), so the store reads them again.
+      const installedLater = {
+        ...zone,
+        playbookKey: 'home-stories-bar',
+        visibility: { visible: false, reasons: [{ code: 'zone-not-installed', subject: 'zone' }] },
+      };
+      await flushRefresh(fixture, {
+        projects: [acme],
+        zones: [installedLater],
+        frames: { z1: [frameBar, presetBar] },
+        stages: { z1: [presetStage] },
+      });
+      expect(root.querySelector('.page-header app-visibility .visibility__line')?.textContent?.trim()).toBe(
+        'Not visible: zone not installed',
+      );
 
       // Focus moves to the heading as the drawer goes, since the Apply playbook button is gone.
       expect(drawer()).toBeNull();
@@ -989,6 +1004,8 @@ describe('App', () => {
         .expectOne(`${API_BASE}/zones/z1/playbook`)
         .flush({ applied: false, zone: { ...zone, playbookKey: 'home-stories-bar' }, frames: [], stages: [] });
       await settle(fixture);
+      const applied = { ...zone, playbookKey: 'home-stories-bar' };
+      await flushRefresh(fixture, { projects: [acme], zones: [applied] });
       expect(store.framesOf('z1')).toEqual([]);
       expect(store.stagesOf('z1')).toEqual([]);
       expect(store.zone('z1')?.playbookKey).toBe('home-stories-bar');
@@ -3108,7 +3125,7 @@ describe('App', () => {
       const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] > li')];
       expect(rows.map((r) => text(r.querySelector('app-visibility .visibility__line')))).toEqual([
         'Not visible: not in any zone',
-        'Visible on site',
+        'Visible on site in at least one zone',
       ]);
     });
   });

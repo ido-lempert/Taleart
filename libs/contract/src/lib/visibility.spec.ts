@@ -4,25 +4,21 @@ import {
   taleContentReasons,
   VISIBILITY_REASON_CODES,
   VISIBILITY_REASON_ORDER,
-  visibilityInZones,
   visibilityOf,
   visibilityReasonText,
   visibilitySummary,
   VISIBLE_ON_SITE_TEXT,
-  zoneSetupReasons,
-  zoneVisibility,
   type VisibilityReason,
 } from './visibility';
 
 const groupOff: VisibilityReason = { code: 'group-off', subject: 'group' };
 const hidden: VisibilityReason = { code: 'tale-hidden', subject: 'tale' };
 const noDisplay: VisibilityReason = { code: 'zone-no-display', subject: 'zone' };
-const notInstalled: VisibilityReason = { code: 'zone-not-installed', subject: 'zone' };
 
 describe('visibility (epic UX rework R7)', () => {
   it('orders every reason code the contract defines, each once', () => {
     expect([...VISIBILITY_REASON_ORDER].sort()).toEqual([...VISIBILITY_REASON_CODES].sort());
-    expect(VISIBILITY_REASON_CODES).toHaveLength(13);
+    expect(VISIBILITY_REASON_CODES).toHaveLength(15);
   });
 
   it('is visible exactly when there is no reason', () => {
@@ -42,34 +38,6 @@ describe('visibility (epic UX rework R7)', () => {
     ]);
   });
 
-  it('names a zone without display or key', () => {
-    expect(zoneSetupReasons({ hasDisplay: true, installed: true })).toEqual([]);
-    expect(zoneSetupReasons({ hasDisplay: false, installed: false })).toEqual([noDisplay, notInstalled]);
-  });
-
-  describe('visibilityInZones', () => {
-    it('is visible with no reason of its own and one set-up zone', () => {
-      expect(visibilityInZones([], [[noDisplay], []])).toEqual({ visible: true, reasons: [] });
-    });
-
-    it('lists every zone reason only when no zone is set up', () => {
-      expect(visibilityInZones([groupOff], [[noDisplay], []]).reasons).toEqual([groupOff]);
-      expect(visibilityInZones([groupOff], [[noDisplay], [notInstalled]]).reasons).toEqual([
-        groupOff,
-        noDisplay,
-        notInstalled,
-      ]);
-      expect(visibilityInZones([], [[noDisplay], [noDisplay]]).reasons).toEqual([noDisplay]);
-    });
-
-    it('is not visible in no zone', () => {
-      expect(visibilityInZones([], [])).toEqual({
-        visible: false,
-        reasons: [{ code: 'not-in-any-zone', subject: 'group' }],
-      });
-    });
-  });
-
   it("leaves a group's no-shown-tales out of a tale's reasons", () => {
     expect(taleContentReasons([hidden], [{ code: 'no-shown-tales', subject: 'group' }, groupOff])).toEqual([
       hidden,
@@ -77,12 +45,10 @@ describe('visibility (epic UX rework R7)', () => {
     ]);
   });
 
-  it('says a zone with nothing delivered has no shown tales', () => {
-    expect(zoneVisibility({ hasDisplay: true, installed: true }, true).visible).toBe(true);
-    expect(zoneVisibility({ hasDisplay: true, installed: false }, false).reasons).toEqual([
-      notInstalled,
-      { code: 'no-shown-tales', subject: 'zone' },
-    ]);
+  it('words a zone with nothing visible apart from a zone with no tale group', () => {
+    expect(visibilityReasonText({ code: 'no-visible-groups', subject: 'zone' }, 'zone')).toBe('no visible tale group');
+    expect(visibilityReasonText({ code: 'no-tale-groups', subject: 'zone' }, 'zone')).toBe('no tale groups yet');
+    expect(visibilityReasonText({ code: 'no-shown-tales', subject: 'group' }, 'group')).toBe('no shown tales');
   });
 
   describe('plain words', () => {

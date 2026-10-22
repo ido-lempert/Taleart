@@ -125,3 +125,12 @@ export async function zoneIdsWithFrames(db: Db, zoneIds: readonly string[]): Pro
   );
   return new Set(rows.map((row) => row.zoneId));
 }
+
+/**
+ * SQL that is true when the zone whose id is the expression `zoneId` has a display: until epic UX
+ * rework stories 5 and 6, a frame. The zones module owns the `frames` table; other modules build
+ * their visibility and Delivery rules with this (R7).
+ */
+export function zoneHasDisplaySql(zoneId: string): string {
+  return `EXISTS (SELECT 1 FROM frames zf WHERE zf.zone_id = ${zoneId})`;
+}

@@ -102,3 +102,28 @@ deferred: []
 
 **Manual checks:**
 - Playwright on a fresh database: zone page with a visible and a not-visible group, the tale card dots, and the reason list on hover and on focus (`shots-8.2/`).
+
+## Review fixes (2026-10-22)
+
+- **Zone setup is now part of the one rule.** The zones module exports `zoneHasDisplaySql` and the access module exports `zoneInstalledSql`; the tales module builds `ZONE_SETUP_CLAUSES` from them.
+  - `deliveredGroup` (used by the public cover, media and font routes) needs a placement in a set-up zone. The reasons of a group read for any zone include every zone's setup reasons when none of its zones is set up.
+  - `deliveredPlacement` (used by the Delivery list) is "the group's own reasons are false and the zone is set up". The Delivery router makes no extra query.
+  - `zoneDelivers` and `zoneReasonsSql` cover the zone itself.
+  - The separate `zoneSetups` lookups and the contract's `zoneSetupReasons`, `visibilityInZones` and `zoneVisibility` are gone.
+  - Revoking a key clears this process's public caches.
+- **One clock.** Each read takes one `now` and binds it as `$2::timestamptz` in every reason query. `withTales` reads visibility in two queries: group reasons once, and tale reasons once for all of its tales.
+- **Zone wording.** New codes `no-visible-groups` ("no visible tale group") and `no-tale-groups` ("no tale groups yet"). `no-shown-tales` is now used only for groups. The Tale groups page says "Visible on site in at least one zone" and "Not visible in any zone because:".
+- **Tooltip.** The tooltip is a manual popover in the top layer, so no card clips it.
+  - On a tale card it sits beside the card (right, else left), never over the switch or the move buttons; a line's tooltip sits beside the line, or below it when there is no room (`tipPosition`).
+  - It stays open for 150 ms after the pointer leaves, so the pointer can reach it.
+  - It closes with Escape anywhere or a press elsewhere, and follows its line when the page scrolls. A press toggles it, and the focus that a press gives does not open it.
+  - A visible dot has no description, so screen readers do not read the line twice. Nothing renders while the visibility is unknown.
+- The store refreshes after a playbook is applied.
+- **Tests.**
+  - An oracle compares, row by row, the pre-8.2 predicate kept as text in the spec with `deliveredTale`, `deliveredGroup`, `deliveredPlacement` and `zoneDelivers`, over a generated matrix: 3,360 tales and 700 groups. The matrix covers every stored key; window bounds that are null, past, future and exactly now; the document, draft and media key combinations; and tales created before and after the step, with and without the `tales_migrations` row. The group, placement and zone predicates are compared with the old rule plus "placed in a zone with a frame and an active key".
+  - A test checks that a start exactly at now shows the tale and an end exactly at now hides it.
+  - Indicator fixtures cover a legacy tale with nothing published and an out-of-step tale with only a draft.
+  - The cover, tale media and font routes answer 404 for a group placed only in a zone without a display, and 200 again once that zone is set up.
+  - Zone wording is tested for a zone with no groups and a zone whose groups are not visible.
+  - Dashboard specs cover Escape after a hover open, a press elsewhere, the click toggle, tip placement, the any-zone wording, the empty render and the refresh after applying a playbook.
+- **Behaviour change:** revoking a zone's key now makes the media of what it showed private until the zone has a key again. An existing test said otherwise and was changed.

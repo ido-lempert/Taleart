@@ -451,6 +451,8 @@ export class DashboardStore {
     this.zones.update((zones) => zones.map((zone) => (zone.id === zoneId ? result.zone : zone)));
     this.frames.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.frames] }));
     this.stages.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.stages] }));
+    // Its frames give the zone a display (epic UX rework R7): its groups' and tales' indicators change.
+    void this.refresh();
     return '';
   }
 

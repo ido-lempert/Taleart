@@ -118,3 +118,12 @@ export async function zoneIdsWithActiveKey(db: Db, zoneIds: readonly string[]): 
   );
   return new Set(rows.map((row) => row.zoneId));
 }
+
+/**
+ * SQL that is true when the zone whose id is the expression `zoneId` is installed: it has an
+ * active key (until the site key of epic UX rework story 6). The access module owns `zone_keys`;
+ * other modules build their visibility and Delivery rules with this (R7).
+ */
+export function zoneInstalledSql(zoneId: string): string {
+  return `EXISTS (SELECT 1 FROM zone_keys zk WHERE zk.zone_id = ${zoneId} AND zk.revoked_at IS NULL)`;
+}

@@ -1,9 +1,12 @@
-// The one rule for what the Delivery API delivers (AD-6, AD-15) and why content is not visible
-// (epic UX rework R7). Each reason is one SQL clause; a tale or group is delivered exactly when
-// none of its clauses holds (`deliveredTale`, `deliveredGroup`), and the Management API's
-// indicator lists the clauses that hold (`taleReasonsSql`, `groupReasonsSql`). Both are built
-// from the same clause lists below, so the indicator and the site cannot disagree.
-import type { VisibilityReason, VisibilityReasonCode } from '@taleart/contract';
+// The one rule for what the Delivery API delivers and the public media, cover and font routes
+// serve (AD-6, AD-11, AD-15), and why content is not visible (epic UX rework R7). Each reason is
+// one SQL clause. Content is delivered exactly when none of its clauses holds (`deliveredTale`,
+// `deliveredGroup`, `deliveredPlacement`, `zoneDelivers`); the Management API's indicator lists the
+// clauses that hold (`taleReasonsSql`, `groupReasonsSql`, `zoneReasonsSql`). Both are built from
+// the clause lists below, so the indicator and the site cannot disagree.
+import type { VisibilityReason, VisibilityReasonCode, VisibilitySubject } from '@taleart/contract';
+import { zoneInstalledSql } from '@taleart/server-access';
+import { zoneHasDisplaySql } from '@taleart/server-zones';
 
 /** The tales migration step after which new tales start live (AD-6 amended 2026-10-23); see migration.ts. */
 export const SHOWN_STATUS_STEP = 'shown-status';
@@ -31,14 +34,17 @@ export function hasPublishedDocument(t: string): string {
   );
 }
 
-/** One reason content is not visible, as an SQL clause on the row `t` at the time `param`. */
+/** One reason content is not visible, as an SQL clause on the row (or zone id) `t` at the time `param`. */
 export interface ReasonClause {
-  code: VisibilityReasonCode;
-  subject: 'group' | 'tale';
-  /** The condition; the reason holds when it IS TRUE (a null never holds). */
+  /** The reason it gives; a clause with `reasons` gives those instead. */
+  code?: VisibilityReasonCode;
+  subject?: VisibilitySubject;
+  /** The condition; the clause holds when it IS TRUE (a null never holds). */
   when(t: string, param: string): string;
   /** The window bound the reason names (`starts-at`, `ended-at`). */
   at?(t: string): string;
+  /** The reasons it gives while it holds, as a jsonb array, when they are not one fixed code. */
+  reasons?(t: string, param: string): string;
 }
 
 // The stored keys a person sets with the switch, Archive and Restore; any other key was set by
@@ -63,10 +69,19 @@ export const TALE_REASON_CLAUSES: readonly ReasonClause[] = [
 ];
 
 /**
- * A tale group's reasons (R7): its stored key, its window, whether it is placed in a zone, and
- * whether it has a delivered tale. The zone's own setup (display, key) is added by the caller.
+ * What a zone needs before the site shows anything in it (R7), on a zone id expression: a display
+ * (a frame, until stories 5 and 6) and an installed key (an active zone key, until story 6).
  */
-export const GROUP_REASON_CLAUSES: readonly ReasonClause[] = [
+export const ZONE_SETUP_CLAUSES: readonly ReasonClause[] = [
+  { code: 'zone-no-display', subject: 'zone', when: (z) => `NOT ${zoneHasDisplaySql(z)}` },
+  { code: 'zone-not-installed', subject: 'zone', when: (z) => `NOT ${zoneInstalledSql(z)}` },
+];
+
+/**
+ * A tale group's own reasons (R7), wherever it is placed: its stored key, its window, whether it
+ * is placed in a zone, and whether it has a delivered tale.
+ */
+export const GROUP_OWN_REASON_CLAUSES: readonly ReasonClause[] = [
   { code: 'archived', subject: 'group', when: (g) => `${g}.status = 'archived'` },
   { code: 'group-off', subject: 'group', when: (g) => `${g}.status IN ('draft', 'paused')` },
   // A key a process set, such as `processing` or `quota-reached`.
@@ -86,18 +101,69 @@ export const GROUP_REASON_CLAUSES: readonly ReasonClause[] = [
   },
 ];
 
+/**
+ * A tale group's reasons read for any zone (R7): its own, and, when it is placed but none of its
+ * zones is set up, every one of its zones' setup reasons. The public routes serve its media only
+ * while none holds.
+ */
+export const GROUP_REASON_CLAUSES: readonly ReasonClause[] = [
+  ...GROUP_OWN_REASON_CLAUSES,
+  {
+    when: (g) =>
+      `EXISTS (SELECT 1 FROM zone_tale_groups dz WHERE dz.tale_group_id = ${g}.id) ` +
+      `AND NOT EXISTS (SELECT 1 FROM zone_tale_groups dz WHERE dz.tale_group_id = ${g}.id ` +
+      `AND ${zoneSetUp('dz.zone_id')})`,
+    reasons: (g, p) =>
+      `COALESCE((SELECT jsonb_agg(DISTINCT r) FROM zone_tale_groups dz ` +
+      `CROSS JOIN LATERAL jsonb_array_elements(${reasonsSql(ZONE_SETUP_CLAUSES, 'dz.zone_id', p)}) r ` +
+      `WHERE dz.tale_group_id = ${g}.id), '[]'::jsonb)`,
+  },
+];
+
+/**
+ * A zone's reasons (R7), on a zone id expression: its setup, and whether a tale group placed in it
+ * is delivered there.
+ */
+export const ZONE_REASON_CLAUSES: readonly ReasonClause[] = [
+  ...ZONE_SETUP_CLAUSES,
+  {
+    code: 'no-tale-groups',
+    subject: 'zone',
+    when: (z) => `NOT EXISTS (SELECT 1 FROM zone_tale_groups zp WHERE zp.zone_id = ${z})`,
+  },
+  {
+    code: 'no-visible-groups',
+    subject: 'zone',
+    when: (z, p) =>
+      `EXISTS (SELECT 1 FROM zone_tale_groups zp WHERE zp.zone_id = ${z}) ` +
+      `AND NOT EXISTS (SELECT 1 FROM zone_tale_groups zp JOIN tale_groups zg ON zg.id = zp.tale_group_id ` +
+      `WHERE zp.zone_id = ${z} AND ${noReason(GROUP_OWN_REASON_CLAUSES, 'zg', p)})`,
+  },
+];
+
 // True when no clause holds: the Delivery filter.
 function noReason(clauses: readonly ReasonClause[], t: string, param: string): string {
   return `(${clauses.map((c) => `(${c.when(t, param)}) IS NOT TRUE`).join(' AND ')})`;
 }
 
-// The clauses that hold, as a jsonb array of `{ code, subject, at? }`: the indicator.
+// The reasons of the clauses that hold, as one jsonb array of `{ code, subject, at? }`: the indicator.
 function reasonsSql(clauses: readonly ReasonClause[], t: string, param: string): string {
   const items = clauses.map((c) => {
-    const fields = [`'code', '${c.code}'`, `'subject', '${c.subject}'`, ...(c.at ? [`'at', ${c.at(t)}`] : [])];
-    return `CASE WHEN (${c.when(t, param)}) IS TRUE THEN jsonb_build_object(${fields.join(', ')}) END`;
+    const given =
+      c.reasons?.(t, param) ??
+      `jsonb_build_array(jsonb_build_object(${[
+        `'code', '${c.code}'`,
+        `'subject', '${c.subject}'`,
+        ...(c.at ? [`'at', ${c.at(t)}`] : []),
+      ].join(', ')}))`;
+    return `CASE WHEN (${c.when(t, param)}) IS TRUE THEN ${given} ELSE '[]'::jsonb END`;
   });
-  return `to_jsonb(array_remove(ARRAY[${items.join(', ')}]::jsonb[], NULL))`;
+  return `(${items.join(' || ')})`;
+}
+
+/** True when the zone (an id expression) is set up: it has a display and is installed (R7). */
+export function zoneSetUp(zoneId: string): string {
+  return noReason(ZONE_SETUP_CLAUSES, zoneId, 'NULL');
 }
 
 /**
@@ -110,13 +176,26 @@ export function deliveredTale(t: string, param: string): string {
 }
 
 /**
- * A group the Delivery API delivers at $n, for the tale_groups alias `g`: none of
- * {@link GROUP_REASON_CLAUSES} holds, so it is live in its window, with a delivered tale, and
- * placed in a zone (AD-6, AD-14). The one rule for the Delivery list and the public cover, media
- * and font lookups.
+ * A group delivered somewhere at $n, for the tale_groups alias `g`: none of
+ * {@link GROUP_REASON_CLAUSES} holds, so it is live in its window, with a delivered tale, and placed
+ * in a zone that has a display and a key (AD-6, AD-14, R7). The rule the public cover, media and
+ * font routes serve by.
  */
 export function deliveredGroup(g: string, param: string): string {
   return noReason(GROUP_REASON_CLAUSES, g, param);
+}
+
+/**
+ * A group the Delivery API delivers in the zone `zoneId` (an id expression) where it is placed:
+ * none of its own reasons holds and the zone is set up (R7).
+ */
+export function deliveredPlacement(g: string, zoneId: string, param: string): string {
+  return `${noReason(GROUP_OWN_REASON_CLAUSES, g, param)} AND ${zoneSetUp(zoneId)}`;
+}
+
+/** A zone (an id expression) the site shows something in: none of {@link ZONE_REASON_CLAUSES} holds. */
+export function zoneDelivers(zoneId: string, param: string): string {
+  return noReason(ZONE_REASON_CLAUSES, zoneId, param);
 }
 
 /** The reasons of {@link TALE_REASON_CLAUSES} that hold for the tale `t` at `param`, as a jsonb array. */
@@ -124,15 +203,27 @@ export function taleReasonsSql(t: string, param: string): string {
   return reasonsSql(TALE_REASON_CLAUSES, t, param);
 }
 
-/** The reasons of {@link GROUP_REASON_CLAUSES} that hold for the group `g` at `param`, as a jsonb array. */
-export function groupReasonsSql(g: string, param: string): string {
-  return reasonsSql(GROUP_REASON_CLAUSES, g, param);
+/**
+ * The reasons that hold for the group `g` at `param`, as a jsonb array: in the zone `zoneId` (an id
+ * expression where it is placed) its own and that zone's setup reasons; without one, for any zone
+ * ({@link GROUP_REASON_CLAUSES}).
+ */
+export function groupReasonsSql(g: string, param: string, zoneId?: string): string {
+  if (zoneId === undefined) return reasonsSql(GROUP_REASON_CLAUSES, g, param);
+  return `(${reasonsSql(GROUP_OWN_REASON_CLAUSES, g, param)} || ${reasonsSql(ZONE_SETUP_CLAUSES, zoneId, param)})`;
 }
 
-/** Reasons as pg returns them from {@link taleReasonsSql} or {@link groupReasonsSql}, with `at` in ISO 8601 UTC. */
+/** The reasons of {@link ZONE_REASON_CLAUSES} that hold for the zone (an id expression), as a jsonb array. */
+export function zoneReasonsSql(zoneId: string, param: string): string {
+  return reasonsSql(ZONE_REASON_CLAUSES, zoneId, param);
+}
+
+/** Reasons as pg returns them from the SQL above, with `at` in ISO 8601 UTC. */
 export function readReasons(value: unknown): VisibilityReason[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item: { code: VisibilityReason['code']; subject: VisibilityReason['subject']; at?: string }) =>
-    item.at ? { code: item.code, subject: item.subject, at: new Date(item.at).toISOString() } : { code: item.code, subject: item.subject },
+  return value.map((item: { code: VisibilityReasonCode; subject: VisibilitySubject; at?: string }) =>
+    item.at
+      ? { code: item.code, subject: item.subject, at: new Date(item.at).toISOString() }
+      : { code: item.code, subject: item.subject },
   );
 }

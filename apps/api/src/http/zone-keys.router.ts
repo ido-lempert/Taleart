@@ -1,4 +1,5 @@
 import { issueZoneKey, revokeZoneKey, zoneKeyInfo } from '@taleart/server-access';
+import { clearPublicFontCache, clearPublicMediaCache } from '@taleart/server-tales';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
@@ -44,6 +45,9 @@ export function zoneKeysRouter(pool: Pool): Router {
     try {
       await existingZoneProject(pool, req.params.zoneId);
       await revokeZoneKey(pool, req.params.zoneId);
+      // An uninstalled zone serves nothing (epic UX rework R7): forget this process's public answers.
+      clearPublicMediaCache();
+      clearPublicFontCache();
       res.sendStatus(204);
     } catch (err) {
       next(err);

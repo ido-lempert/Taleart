@@ -1,8 +1,6 @@
 // "Visible on site" or "Not visible because…" (epic UX rework R7): the shapes, the order of the
-// reasons, how a zone's setup and content reasons combine, and their plain words. The server
-// computes each reason from the same SQL clauses its Delivery filter is made of
-// (`libs/server/tales`), so the indicator and the site cannot disagree; this file only combines
-// them, and the Delivery API and the Management API call the same combination.
+// reasons and their plain words. The server computes every reason from the SQL clauses its
+// Delivery filter is made of (`libs/server/tales`), so the indicator and the site cannot disagree.
 import type { components } from '../generated/api';
 import { visibilityReasonCodeValues, visibilityReasonSubjectValues } from '../generated/api';
 
@@ -27,7 +25,9 @@ export const VISIBILITY_REASON_ORDER: readonly VisibilityReasonCode[] = [
   'ended-at',
   'zone-no-display',
   'zone-not-installed',
+  'no-tale-groups',
   'no-shown-tales',
+  'no-visible-groups',
 ];
 
 /** Every reason code, as the contract lists them. */
@@ -63,42 +63,6 @@ export function visibilityOf(reasons: readonly VisibilityReason[]): Visibility {
   return { visible: sorted.length === 0, reasons: sorted };
 }
 
-/** What a zone needs before the site shows anything in it (R7): a display and an installed key. */
-export interface ZoneSetup {
-  /** The zone has a display: until stories 5 and 6, a frame. */
-  hasDisplay: boolean;
-  /** The zone is installed: until stories 5 and 6, it has an active zone key. */
-  installed: boolean;
-}
-
-/**
- * The reasons a zone shows nothing whatever its content (R7): `zone-no-display`,
- * `zone-not-installed`. The Delivery API delivers no tale group in a zone with any of them; the
- * Management API adds them to the zone's, its placements' and their tales' reasons.
- */
-export function zoneSetupReasons(setup: ZoneSetup): VisibilityReason[] {
-  const reasons: VisibilityReason[] = [];
-  if (!setup.hasDisplay) reasons.push({ code: 'zone-no-display', subject: 'zone' });
-  if (!setup.installed) reasons.push({ code: 'zone-not-installed', subject: 'zone' });
-  return reasons;
-}
-
-/**
- * Content's visibility given its own reasons and the setup reasons of each zone it is placed in
- * (R7). It is visible when it has no reason of its own and at least one of its zones is set up;
- * otherwise the reasons are its own and, unless one of its zones is set up, every zone's. Content
- * in no zone at all is not visible (`not-in-any-zone`).
- */
-export function visibilityInZones(
-  contentReasons: readonly VisibilityReason[],
-  zoneSetups: readonly (readonly VisibilityReason[])[],
-): Visibility {
-  const setUp = zoneSetups.some((setup) => setup.length === 0);
-  const reasons = [...contentReasons, ...(setUp ? [] : zoneSetups.flat())];
-  if (zoneSetups.length === 0 && reasons.length === 0) reasons.push({ code: 'not-in-any-zone', subject: 'group' });
-  return visibilityOf(reasons);
-}
-
 /**
  * A tale's own reasons with its group's (R7). A group's `no-shown-tales` is left out: it follows
  * from its tales' own reasons, so a tale with none of its own makes it false.
@@ -108,16 +72,6 @@ export function taleContentReasons(
   groupReasons: readonly VisibilityReason[],
 ): VisibilityReason[] {
   return [...taleReasons, ...groupReasons.filter((reason) => reason.code !== 'no-shown-tales')];
-}
-
-/**
- * A zone's visibility (R7): its setup reasons, and `no-shown-tales` when none of the tale groups
- * placed in it has a reason-free placement, so nothing would be delivered.
- */
-export function zoneVisibility(setup: ZoneSetup, groupsDelivered: boolean): Visibility {
-  const reasons = zoneSetupReasons(setup);
-  if (!groupsDelivered) reasons.push({ code: 'no-shown-tales', subject: 'zone' });
-  return visibilityOf(reasons);
 }
 
 /** What the indicator says when content is visible. */
@@ -148,7 +102,11 @@ export function visibilityReasonText(
     case 'archived':
       return own ? 'archived' : `${reason.subject} is archived`;
     case 'no-shown-tales':
-      return reason.subject === 'zone' ? 'no tale group is on with a shown tale' : 'no shown tales';
+      return 'no shown tales';
+    case 'no-visible-groups':
+      return 'no visible tale group';
+    case 'no-tale-groups':
+      return 'no tale groups yet';
     case 'not-in-any-zone':
       return own ? 'not in any zone' : 'group is not in any zone';
     case 'starts-at':

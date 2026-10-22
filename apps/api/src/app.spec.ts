@@ -32,16 +32,19 @@ import {
   clearDeliveryCache,
   clearPublicFontCache,
   deliveredGroup,
+  deliveredPlacement,
   deliveredTale,
   groupReasonsSql,
   taleReasonsSql,
+  zoneDelivers,
+  zoneReasonsSql,
   continueTaleMediaMigration,
   migrateTaleMediaDocuments,
   sweepUnusedProjectMediaFiles,
 } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig, type ProjectMediaOptions } from './app';
 import { createPool, databasePoolMax, migrate } from './db';
@@ -174,7 +177,7 @@ const VISIBLE = { visible: true, reasons: [] };
 // Any visibility, where a test is about something else.
 const SOME_VISIBILITY = expect.objectContaining({ visible: expect.any(Boolean), reasons: expect.any(Array) });
 // A new zone: no display, no key, nothing placed (R7).
-const NEW_ZONE_VISIBILITY = notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone'), why('no-shown-tales', 'zone'));
+const NEW_ZONE_VISIBILITY = notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone'), why('no-tale-groups', 'zone'));
 
 // The session cookie the content tests send; set before each test.
 let sessionCookie = '';
@@ -915,7 +918,7 @@ describe('Management API v1: projects and zones', () => {
         zone: {
           ...zone,
           playbookKey: 'home-stories-bar',
-          visibility: notVisible(why('zone-not-installed', 'zone'), why('no-shown-tales', 'zone')),
+          visibility: notVisible(why('zone-not-installed', 'zone'), why('no-tale-groups', 'zone')),
         },
         frames: [{ id: expect.any(String), zoneId: zone.id, projectId: zone.projectId, type: 'bar', settings: barSettings }],
         stages: [
@@ -2167,6 +2170,8 @@ describe('Management API v1: projects and zones', () => {
 
     it("replacing a shared file on the copy keeps it for the source; the last tale's replace deletes it", async () => {
       const { staging, production, g, one } = await setup();
+      // Installed, so its delivered media is public (R7).
+      await postKey(staging.id);
       await publish('tale-groups', g.id);
       await publish('tales', one.id);
       const c: Listed = await (await copy(g.id, production.id)).json();
@@ -3554,7 +3559,7 @@ describe('Management API v1: projects and zones', () => {
 
       expect(await (await send('GET', '/auth/state')).json()).toEqual({ setupRequired: false, user });
       expect(await (await send('GET', '/projects')).json()).toEqual([a.project]);
-      expect(await (await send('GET', '/zones')).json()).toEqual([a.zone]);
+      expect(await (await send('GET', '/zones')).json()).toEqual([{ ...a.zone, visibility: SOME_VISIBILITY }]);
       expect((await send('GET', `/zones/${a.zone.id}/tale-groups`)).status).toBe(200);
       expect((await send('GET', `/zones/${b.zone.id}/tale-groups`)).status).toBe(403);
 
@@ -3734,7 +3739,10 @@ describe('Management API v1: projects and zones', () => {
     it('lets an admin reach every project', async () => {
       const { a, b } = await twoProjects();
       expect(await (await send('GET', '/projects')).json()).toEqual([a.project, b.project]);
-      expect(await (await send('GET', '/zones')).json()).toEqual([a.zone, b.zone]);
+      expect(await (await send('GET', '/zones')).json()).toEqual([
+        { ...a.zone, visibility: SOME_VISIBILITY },
+        { ...b.zone, visibility: SOME_VISIBILITY },
+      ]);
       expect((await send('GET', `/zones/${b.zone.id}/tale-groups`)).status).toBe(200);
     });
   });
@@ -4401,8 +4409,11 @@ describe('Management API v1: projects and zones', () => {
         expect(res.headers.get('etag')).toBe(`"${new URL(url).pathname.slice('/media/'.length)}"`);
         expect(Buffer.from(await res.arrayBuffer())).toEqual(png);
 
-        // Still public after the zone key is revoked: media never needs the key.
+        // Media never needs the key, but a zone whose key is revoked is not installed, so nothing
+        // shows in it and its media is private until it has a key again (epic UX rework R7).
         await send('DELETE', `/zones/${zone.id}/key`);
+        expect((await getPublic(url)).status).toBe(404);
+        await issue(zone.id);
         expect((await getPublic(url)).status).toBe(200);
       });
 
@@ -4738,6 +4749,7 @@ describe('Management API v1: projects and zones', () => {
           const { zone, group, l1, l2, urls } = await liveZone();
           await expectStatus('tales', l2.id, 'paused', 200);
           const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
+          await postKey(target.id);
           const res = await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id });
           expect(res.status).toBe(201);
           const copy: Group = await res.json();
@@ -4954,6 +4966,7 @@ describe('Management API v1: projects and zones', () => {
         it('keeps a key copies share public while one copy is in its window, and 404 once neither is', async () => {
           const { zone, group, l1, urls } = await liveZone();
           const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
+          await postKey(target.id);
           const copy: Scheduled = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id })).json();
           await publish('tale-groups', copy.id);
           const copiedL1 = copy.tales[0].id;
@@ -5574,6 +5587,18 @@ describe('Management API v1: projects and zones', () => {
       expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(404);
     });
 
+    it('keeps a font private while its group is placed only in a zone without a display (R7)', async () => {
+      const shown = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      await publish('tale-groups', shown.group.id);
+      await publish('tales', shown.tale.id);
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts')).rows[0].storage_key as string;
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(200);
+      const bare = await (await post('/zones', { name: 'Bare', projectId: shown.zone.projectId })).json();
+      expect((await fetch(`${base}/zones/${bare.id}/tale-groups/${shown.group.id}`, { method: 'PUT' })).status).toBe(201);
+      expect((await fetch(`${base}/zones/${shown.zone.id}/tale-groups/${shown.group.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(404);
+    });
+
     it('draws project-font texts in their fallback stack in a copy in another project', async () => {
       const { zone, group, font } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
       const fontOf = async (copy: { tales: { id: string }[] }) =>
@@ -5864,6 +5889,7 @@ describe('Management API v1: projects and zones', () => {
 
     it("delivers public URLs for a published tale's media and serves them only while it is delivered", async () => {
       const { zone, group, tale } = await setup();
+      await postKey(zone.id);
       const image = await uploaded(zone.projectId);
       const hidden = await uploaded(zone.projectId, 'image/gif', gif);
       const video = await uploaded(zone.projectId, 'video/mp4', mp4);
@@ -6216,6 +6242,7 @@ describe('Management API v1: projects and zones', () => {
 
       it('refuses to publish a sticker without alt text, then delivers each new element with URLs', async () => {
         const { zone, group, tale } = await setup();
+        await postKey(zone.id);
         const sticker = await uploaded(zone.projectId);
         const elements = [
           item(1, 'shape', rounded, { a11y: { decorative: true } }),
@@ -7445,7 +7472,17 @@ describe('Management API v1: projects and zones', () => {
       const groupRows = await pool.query<{ delivered: boolean; reasons: unknown[] }>(
         `SELECT ${deliveredGroup('g', 'now()')} AS delivered, ${groupReasonsSql('g', 'now()')} AS reasons FROM tale_groups g`,
       );
-      for (const row of [...tales.rows, ...groupRows.rows]) expect(row.delivered).toBe(row.reasons.length === 0);
+      const placementRows = await pool.query<{ delivered: boolean; reasons: unknown[] }>(
+        `SELECT ${deliveredPlacement('g', 'z.zone_id', 'now()')} AS delivered,
+           ${groupReasonsSql('g', 'now()', 'z.zone_id')} AS reasons
+         FROM zone_tale_groups z JOIN tale_groups g ON g.id = z.tale_group_id`,
+      );
+      const zoneRows = await pool.query<{ delivered: boolean; reasons: unknown[] }>(
+        `SELECT ${zoneDelivers('z.id', 'now()')} AS delivered, ${zoneReasonsSql('z.id', 'now()')} AS reasons FROM zones z`,
+      );
+      for (const row of [...tales.rows, ...groupRows.rows, ...placementRows.rows, ...zoneRows.rows]) {
+        expect(row.delivered).toBe(row.reasons.length === 0);
+      }
     }
 
     async function taleIn(f: Fixture, taleId: string): Promise<ListedTale | undefined> {
@@ -7589,6 +7626,14 @@ describe('Management API v1: projects and zones', () => {
         fix: (f) => schedule('tale-groups', f.groupId, null, null),
       },
       {
+        name: 'zone has no visible group',
+        on: 'zone',
+        reason: () => why('no-visible-groups', 'zone'),
+        omits: 'everything',
+        breakIt: async (f) => expect((await setStatus('tale-groups', f.groupId, 'paused')).status).toBe(200),
+        fix: (f) => publish('tale-groups', f.groupId),
+      },
+      {
         name: 'zone has no display',
         on: 'zone',
         reason: () => why('zone-no-display', 'zone'),
@@ -7668,7 +7713,8 @@ describe('Management API v1: projects and zones', () => {
     });
 
     it('covers every reason code with a fixture', () => {
-      const codes = new Set(cases.map((c) => c.reason().code));
+      // `no-tale-groups` has its own test: a zone with no placement has no group to fix.
+      const codes = new Set([...cases.map((c) => c.reason().code), 'no-tale-groups']);
       expect([...codes].sort()).toEqual([...VISIBILITY_REASON_CODES].sort());
     });
 
@@ -7693,7 +7739,7 @@ describe('Management API v1: projects and zones', () => {
         if (c.omits === 'group') expect(site.groups).not.toContain(f.groupId);
         expect(site.tales).not.toContain(f.taleId);
         // The zone's placement and its tales say it too.
-        if (c.on === 'zone') {
+        if (c.on === 'zone' && expected.code.startsWith('zone-')) {
           expect((await placement(f))?.visibility.reasons).toContainEqual(expected);
           expect((await taleIn(f, f.taleId))?.visibility.reasons).toContainEqual(expected);
         }
@@ -7719,6 +7765,238 @@ describe('Management API v1: projects and zones', () => {
       // ...while the group and its tale, read for every zone, are visible through the set-up one.
       expect((await projectGroup(f)).visibility).toEqual(VISIBLE);
       expect((await (await setStatus('tales', f.taleId, 'live')).json()).visibility).toEqual(VISIBLE);
+    });
+
+    it('words a zone with no tale group apart from one whose groups are not visible', async () => {
+      const f = await fixture();
+      const empty = await (await post('/zones', { name: 'Empty', projectId: f.projectId })).json();
+      await postKey(empty.id);
+      expect(await zoneVisibility(empty.id)).toEqual(notVisible(why('no-tale-groups', 'zone')));
+      expect((await setStatus('tale-groups', f.groupId, 'paused')).status).toBe(200);
+      expect(await zoneVisibility(f.zoneId)).toEqual(notVisible(why('no-visible-groups', 'zone')));
+      await expectAgreement(f);
+    });
+
+    it('agrees on a legacy tale with nothing published and an out-of-step tale with only a draft', async () => {
+      const f = await fixture();
+      // From before the shown-status step, with neither media nor a document: the legacy placeholder.
+      const legacy = (await (await post(`/tale-groups/${f.groupId}/tales`, { title: 'Legacy' })).json()).id;
+      await asLegacy(legacy);
+      // Media out of step with only a studio draft: its media alone is not what its person saw.
+      const drafted = (await (await post(`/tale-groups/${f.groupId}/tales`, { title: 'Drafted' })).json()).id;
+      await pool.query(
+        `UPDATE tales SET media_key = 'tales/x.png', media_content_type = 'image/png', document = NULL,
+           document_media_key = NULL, draft_document = '{"version":1}'::jsonb WHERE id = $1`,
+        [drafted],
+      );
+      expect((await taleIn(f, legacy))?.visibility).toEqual(VISIBLE);
+      expect((await taleIn(f, drafted))?.visibility).toEqual(notVisible(why('not-updated-yet', 'tale')));
+      const site = await delivered(f.key);
+      expect(site.tales).toContain(legacy);
+      expect(site.tales).not.toContain(drafted);
+      await expectAgreement(f);
+    });
+
+    it('serves a cover and tale media publicly only while the group is placed in a set-up zone', async () => {
+      const f = await fixture();
+      const cover = await fetch(`${base}/tale-groups/${f.groupId}/cover`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+        body: png,
+      });
+      expect(cover.status).toBe(200);
+      const keys = async () => {
+        const { rows } = await pool.query<{ cover: string; media: string }>(
+          `SELECT g.cover_key AS cover, t.media_key AS media FROM tale_groups g JOIN tales t ON t.tale_group_id = g.id
+           WHERE t.id = $1`,
+          [f.taleId],
+        );
+        return rows[0];
+      };
+      const { cover: coverKey, media: mediaKey } = await keys();
+      const status = async (key: string) => (await globalThis.fetch(`${origin}/media/${key}`)).status;
+      expect([await status(coverKey), await status(mediaKey)]).toEqual([200, 200]);
+      // Placed only in a zone without a display (or key): nothing of it is public.
+      const bare = await (await post('/zones', { name: 'Bare', projectId: f.projectId })).json();
+      expect((await send('PUT', `/zones/${bare.id}/tale-groups/${f.groupId}`)).status).toBe(201);
+      expect((await send('DELETE', `/zones/${f.zoneId}/tale-groups/${f.groupId}`)).status).toBe(204);
+      expect([await status(coverKey), await status(mediaKey)]).toEqual([404, 404]);
+      expect((await projectGroup(f)).visibility).toEqual(
+        notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')),
+      );
+      // Its zone gets a display and a key: public again.
+      await postKey(bare.id);
+      expect([await status(coverKey), await status(mediaKey)]).toEqual([200, 200]);
+      expect((await projectGroup(f)).visibility).toEqual(VISIBLE);
+    });
+
+    // The Delivery filter before story 8.2, kept as text: the new clause-built predicates must answer
+    // exactly as it does (tales), or as it does plus "placed in a zone with a frame and an active key"
+    // (groups and placements, R7), row by row over every combination.
+    describe('oracle: the clause-built Delivery filter against the rule before story 8.2', () => {
+      const oldLiveNow = (t: string, p: string) =>
+        `${t}.status = 'live' AND (${t}.starts_at IS NULL OR ${t}.starts_at <= ${p}) ` +
+        `AND (${t}.ends_at IS NULL OR ${t}.ends_at > ${p})`;
+      const oldHasPublished = (t: string) =>
+        `(${t}.document IS NOT NULL ` +
+        `OR (${t}.media_key IS NOT NULL AND ${t}.document_media_key IS DISTINCT FROM ${t}.media_key ` +
+        `AND (${t}.document IS NOT NULL OR ${t}.draft_document IS NULL)) ` +
+        `OR (${t}.created_at < COALESCE((SELECT applied_at FROM tales_migrations WHERE step = 'shown-status'), ` +
+        `'infinity'::timestamptz)))`;
+      const oldTale = (t: string, p: string) => `${oldLiveNow(t, p)} AND ${oldHasPublished(t)}`;
+      const oldGroup = (g: string, p: string) =>
+        `${oldLiveNow(g, p)} ` +
+        `AND EXISTS (SELECT 1 FROM tales ot WHERE ot.tale_group_id = ${g}.id AND ${oldTale('ot', p)}) ` +
+        `AND EXISTS (SELECT 1 FROM zone_tale_groups oz WHERE oz.tale_group_id = ${g}.id)`;
+      const setUp = (zone: string) =>
+        `EXISTS (SELECT 1 FROM frames of WHERE of.zone_id = ${zone}) ` +
+        `AND EXISTS (SELECT 1 FROM zone_keys ok WHERE ok.zone_id = ${zone} AND ok.revoked_at IS NULL)`;
+      const setUpPlacement = (g: string) =>
+        `EXISTS (SELECT 1 FROM zone_tale_groups sp WHERE sp.tale_group_id = ${g}.id AND ${setUp('sp.zone_id')})`;
+      const STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'];
+
+      async function compare(db: Pool | PoolClient, now: Date): Promise<number> {
+        const p = '$1::timestamptz';
+        const tales = await db.query<{ rows: number; differ: number; reasonsDiffer: number }>(
+          `SELECT count(*)::int AS rows,
+             count(*) FILTER (WHERE (${deliveredTale('t', p)}) IS DISTINCT FROM COALESCE(${oldTale('t', p)}, false))::int AS differ,
+             count(*) FILTER (WHERE (${deliveredTale('t', p)}) <> (jsonb_array_length(${taleReasonsSql('t', p)}) = 0))::int
+               AS "reasonsDiffer"
+           FROM tales t`,
+          [now],
+        );
+        const groups = await db.query<{ rows: number; differ: number; reasonsDiffer: number }>(
+          `SELECT count(*)::int AS rows,
+             count(*) FILTER (WHERE (${deliveredGroup('g', p)})
+               IS DISTINCT FROM COALESCE(${oldGroup('g', p)} AND ${setUpPlacement('g')}, false))::int AS differ,
+             count(*) FILTER (WHERE (${deliveredGroup('g', p)}) <> (jsonb_array_length(${groupReasonsSql('g', p)}) = 0))::int
+               AS "reasonsDiffer"
+           FROM tale_groups g`,
+          [now],
+        );
+        const placements = await db.query<{ rows: number; differ: number; reasonsDiffer: number }>(
+          `SELECT count(*)::int AS rows,
+             count(*) FILTER (WHERE (${deliveredPlacement('g', 'z.zone_id', p)})
+               IS DISTINCT FROM COALESCE(${oldGroup('g', p)} AND ${setUp('z.zone_id')}, false))::int AS differ,
+             count(*) FILTER (WHERE (${deliveredPlacement('g', 'z.zone_id', p)})
+               <> (jsonb_array_length(${groupReasonsSql('g', p, 'z.zone_id')}) = 0))::int AS "reasonsDiffer"
+           FROM zone_tale_groups z JOIN tale_groups g ON g.id = z.tale_group_id`,
+          [now],
+        );
+        const zones = await db.query<{ rows: number; differ: number }>(
+          `SELECT count(*)::int AS rows,
+             count(*) FILTER (WHERE (${zoneDelivers('z.id', p)}) IS DISTINCT FROM (${setUp('z.id')} AND EXISTS (
+               SELECT 1 FROM zone_tale_groups zz JOIN tale_groups g ON g.id = zz.tale_group_id
+               WHERE zz.zone_id = z.id AND ${oldGroup('g', p)})))::int AS differ,
+             count(*) FILTER (WHERE (${zoneDelivers('z.id', p)}) <> (jsonb_array_length(${zoneReasonsSql('z.id', p)}) = 0))::int
+               AS "reasonsDiffer"
+           FROM zones z`,
+          [now],
+        );
+        for (const result of [tales, groups, placements, zones]) {
+          expect(result.rows[0]).toEqual(expect.objectContaining({ differ: 0 }));
+          expect(result.rows[0]).toEqual(expect.objectContaining({ reasonsDiffer: 0 }));
+        }
+        return tales.rows[0].rows + groups.rows[0].rows;
+      }
+
+      it('answers as before for every status, window, document and age, with and without the step recorded', async () => {
+        const now = new Date('2026-10-22T12:00:00.000Z');
+        const hour = 60 * 60 * 1000;
+        const bounds = [null, new Date(now.getTime() - hour), new Date(now.getTime() + hour), now];
+        const project = await createProject();
+        const ready = await (await post('/zones', { name: 'Ready', projectId: project.id })).json();
+        await postKey(ready.id);
+        const bare = await (await post('/zones', { name: 'Bare', projectId: project.id })).json();
+        const keyless = await (await post('/zones', { name: 'Keyless', projectId: project.id })).json();
+        expect((await post(`/zones/${keyless.id}/frames`, { type: 'bar', settings: {} })).status).toBe(201);
+        const { rows: step } = await pool.query<{ appliedAt: Date }>(
+          "SELECT applied_at AS \"appliedAt\" FROM tales_migrations WHERE step = 'shown-status'",
+        );
+        const applied = step[0].appliedAt;
+        const created = [new Date(applied.getTime() - 24 * hour), new Date(applied.getTime() + 24 * hour)];
+
+        // Tales: every stored key x window x document state x age, in one live group of the ready zone.
+        const host = await (await post(`/zones/${ready.id}/tale-groups`, { name: 'Host' })).json();
+        await pool.query("UPDATE tale_groups SET status = 'live' WHERE id = $1", [host.id]);
+        await pool.query(
+          `INSERT INTO tales (tale_group_id, project_id, title, position, status, starts_at, ends_at, document,
+             draft_document, media_key, media_content_type, document_media_key, created_at)
+           SELECT $1, $2, 'm', (row_number() OVER ())::int - 1, s, st, en, doc, draft, mk,
+             CASE WHEN mk IS NULL THEN NULL ELSE 'image/png' END, dmk, ca
+           FROM unnest($3::text[]) s
+           CROSS JOIN unnest($4::timestamptz[]) st
+           CROSS JOIN unnest($4::timestamptz[]) en
+           CROSS JOIN (VALUES (NULL::jsonb), ('{"version":1}'::jsonb)) d(doc)
+           CROSS JOIN (VALUES (NULL::jsonb), ('{"version":1}'::jsonb)) dr(draft)
+           CROSS JOIN (VALUES (NULL::text), ('tales/k1.png')) m(mk)
+           CROSS JOIN (VALUES (NULL::text), ('tales/k1.png'), ('tales/k2.png')) dm(dmk)
+           CROSS JOIN unnest($5::timestamptz[]) ca
+           WHERE st IS NULL OR en IS NULL OR en > st`,
+          [host.id, project.id, STATUSES, bounds, created],
+        );
+
+        // Groups: every stored key x window x (a delivered tale or not) x placement (none, ready, bare,
+        // keyless, ready and bare).
+        const placements = [[], [ready.id], [bare.id], [keyless.id], [ready.id, bare.id]];
+        const { rows: groups } = await pool.query<{ id: string; name: string }>(
+          `INSERT INTO tale_groups (project_id, name, status, starts_at, ends_at)
+           SELECT $1, shown || ':' || placed, s, st, en
+           FROM unnest($2::text[]) s CROSS JOIN unnest($3::timestamptz[]) st CROSS JOIN unnest($3::timestamptz[]) en
+           CROSS JOIN generate_series(0, 1) shown CROSS JOIN generate_series(0, 4) placed
+           WHERE st IS NULL OR en IS NULL OR en > st
+           RETURNING id, name`,
+          [project.id, STATUSES, bounds],
+        );
+        for (const group of groups) {
+          const [shownFlag, placed] = group.name.split(':').map(Number);
+          const shown = shownFlag === 1;
+          await pool.query(
+            `INSERT INTO tales (tale_group_id, project_id, title, position, status, document)
+             VALUES ($1, $2, 't', 0, $3, '{"version":1}'::jsonb)`,
+            [group.id, project.id, shown ? 'live' : 'paused'],
+          );
+          for (const zoneId of placements[placed]) {
+            await pool.query(
+              `INSERT INTO zone_tale_groups (zone_id, tale_group_id, project_id, position)
+               VALUES ($1, $2, $3, (SELECT COALESCE(MAX(position), -1) + 1 FROM zone_tale_groups WHERE zone_id = $1))`,
+              [zoneId, group.id, project.id],
+            );
+          }
+        }
+
+        expect(await compare(pool, now)).toBeGreaterThan(3000);
+        // Without the step recorded, every tale counts as from before it.
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query("DELETE FROM tales_migrations WHERE step = 'shown-status'");
+          await compare(client, now);
+          await client.query('ROLLBACK');
+        } finally {
+          client.release();
+        }
+      });
+
+      it('shows content from its start, inclusive, until its end, exclusive', async () => {
+        const f = await fixture();
+        const at = new Date('2026-10-22T12:00:00.000Z');
+        const read = async () =>
+          (
+            await pool.query<{ reasons: { code: string }[]; delivered: boolean }>(
+              `SELECT ${taleReasonsSql('t', '$2::timestamptz')} AS reasons, ${deliveredTale('t', '$2::timestamptz')} AS delivered
+               FROM tales t WHERE t.id = $1`,
+              [f.taleId, at],
+            )
+          ).rows[0];
+        await pool.query('UPDATE tales SET starts_at = $2, ends_at = NULL WHERE id = $1', [f.taleId, at]);
+        expect(await read()).toEqual({ reasons: [], delivered: true });
+        await pool.query('UPDATE tales SET starts_at = NULL, ends_at = $2 WHERE id = $1', [f.taleId, at]);
+        expect(await read()).toEqual({
+          reasons: [{ code: 'ended-at', subject: 'tale', at: expect.any(String) }],
+          delivered: false,
+        });
+      });
     });
 
     it('returns the visibility on status and schedule answers', async () => {

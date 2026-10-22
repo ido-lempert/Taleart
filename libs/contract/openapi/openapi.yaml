@@ -2881,7 +2881,8 @@ components:
         group is stored `draft` or `paused`. `tale-hidden`: the tale is.
         `group-blocked`: a process set the group's key (`processing`,
         `invalid-media`, `quota-reached`). `archived`. `no-shown-tales`: a
-        group has no delivered tale, or a zone no delivered group.
+        group has no delivered tale. `no-visible-groups`: a zone has tale
+        groups but delivers none. `no-tale-groups`: a zone has none.
         `not-in-any-zone`. `starts-at` and `ended-at`: outside the window.
         `zone-no-display`: the zone has no frame. `zone-not-installed`: the
         zone has no active key. `media-processing`: the tale is stored
@@ -2901,6 +2902,8 @@ components:
         - media-processing
         - media-problem
         - not-updated-yet
+        - no-visible-groups
+        - no-tale-groups
     ContentStatus:
       type: string
       description: >-

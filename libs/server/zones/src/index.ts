@@ -18,6 +18,7 @@ export {
   zoneExists,
   zoneProjectId,
   zoneIdsWithFrames,
+  zoneHasDisplaySql,
   ZoneNotFoundError,
   FrameNotFoundError,
 } from './lib/frames';
