@@ -573,10 +573,24 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
       right: 0;
       height: 1px;
     }
+    /*
+     * The ring outside, and again inside: an element that fills the canvas has its outer ring cut
+     * off by the canvas edge (WCAG 2.4.7).
+     */
     .el:focus-visible {
       outline: 3px solid #fff;
       outline-offset: 1px;
       box-shadow: 0 0 0 5px var(--ink);
+    }
+    .el:focus-visible::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      box-shadow:
+        inset 0 0 0 2px var(--ink),
+        inset 0 0 0 5px #fff;
     }
     .el-edit {
       resize: none;

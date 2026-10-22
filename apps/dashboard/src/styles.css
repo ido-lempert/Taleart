@@ -84,6 +84,22 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* A control scrolled into view by focus stays clear of the sticky top bar (WCAG 2.4.11). */
+  scroll-padding-top: calc(var(--topbar-height) + var(--space-2));
+}
+
+@media (max-width: 639.98px) {
+  html {
+    /* And of the fixed bottom bar on phones. */
+    scroll-padding-bottom: calc(var(--bottombar-height) + var(--space-2));
+  }
+}
+
+@media (max-width: 374.98px) {
+  html {
+    /* The top bar takes two rows here (see .topbar in app.css). */
+    scroll-padding-top: calc(2 * var(--topbar-height) + var(--space-2));
+  }
 }
 
 body {
@@ -1180,6 +1196,8 @@ select {
 
 .template-option__desc {
   margin: 0 0 0 calc(18px + 56px + 2 * var(--space-3));
+  /* The chosen option sits on --surface-sunken, where --text-muted is under 4.5:1. */
+  color: var(--text-secondary);
 }
 
 /* A small sketch of the display: circles for a bar, a wide block for a banner, a dashed box for none. */
