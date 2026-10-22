@@ -97,6 +97,17 @@ export function renderImage(element: DeliveryTaleElement, context: RenderContext
 }
 
 /**
+ * An image sticker (epic Tale Studio R6): an image element that always shows the whole picture
+ * (`contain`) and has no corner radius, with its alt text, hidden when decorative, and still under
+ * reduced motion. Null without a usable URL.
+ */
+export function renderSticker(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
+  const { opacity, url } = element.props as { url?: unknown; opacity?: unknown };
+  const props = { url, opacity, fit: 'contain' } as unknown as DeliveryTaleElement['props'];
+  return renderImage({ ...element, props }, context);
+}
+
+/**
  * A video element (epic Tale Studio R5): a muted, inline `<video>` (AD-16) named by its alt text,
  * filling its box with its fit. It does not play by itself: the viewer plays it with the tale (the
  * tale then lasts as long as the video) and pauses it with the viewer. Under reduced motion it

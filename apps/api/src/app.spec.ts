@@ -5853,6 +5853,118 @@ describe('Management API v1: projects and zones', () => {
       expect(await sweepUnusedProjectMediaFiles(pool, new LocalDiskStorage(mediaDir))).toBe(1);
       expect(storedUploads()).toEqual([kept.slice('media/'.length)]);
     });
+
+    describe('shapes, emoji and image stickers (epic Tale Studio R6, story 7.6)', () => {
+      function item(n: number, type: string, props: unknown, extra: Record<string, unknown> = {}) {
+        return {
+          id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+          type,
+          box: { x: 0.1, y: 0.2 + n * 0.05, w: 0.4, h: 0.1, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props,
+          ...extra,
+        };
+      }
+      const rounded = { shape: 'rectangle', fill: '#ff0000', stroke: '#000000', strokeWidth: 0.01, radius: 0.04 };
+      const line = { shape: 'line', stroke: '#ffffff', strokeWidth: 0.004 };
+
+      it('saves shapes, emoji and a sticker, recording the sticker as media of the tale', async () => {
+        const { zone, tale } = await setup();
+        const sticker = await uploaded(zone.projectId, 'image/gif', gif);
+        const value = doc([
+          item(1, 'shape', rounded, { a11y: { decorative: true } }),
+          item(2, 'shape', { shape: 'ellipse', fill: '#00ff0080', opacity: 0.5 }),
+          item(3, 'shape', line, { a11y: { label: 'Divider' } }),
+          item(4, 'emoji', { emoji: '👩🏽‍💻' }, { a11y: { label: 'woman technologist' } }),
+          item(5, 'sticker', { mediaKey: sticker, opacity: 0.8 }, { a11y: { label: 'A party hat' } }),
+        ]);
+        const res = await save(tale.id, value, 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document).toEqual(value);
+        const rows = await pool.query('SELECT storage_key, document, content_type FROM tale_media WHERE tale_id = $1', [
+          tale.id,
+        ]);
+        expect(rows.rows).toEqual([{ storage_key: sticker, document: 'draft', content_type: 'image/gif' }]);
+      });
+
+      it('refuses bad shapes, anything but one emoji, and a sticker key of the wrong kind or project', async () => {
+        const { zone, tale } = await setup();
+        const other = await createProject('Other');
+        const foreign = await uploaded(other.id);
+        const photo = await uploaded(zone.projectId, 'image/jpeg', jpeg);
+        const video = await uploaded(zone.projectId, 'video/mp4', mp4);
+        const refused = async (value: unknown, pointer: string) => {
+          const res = await save(tale.id, value, 0);
+          expect(res.status).toBe(400);
+          expect((await res.json()).error).toMatchObject({ code: 'invalid_tale_document', pointer });
+        };
+        await refused(doc([item(1, 'shape', { shape: 'star' })]), '/elements/0/props/shape');
+        await refused(doc([item(1, 'shape', { shape: 'rectangle', fill: 'red' })]), '/elements/0/props/fill');
+        const css = { shape: 'rectangle', fill: '#fff;background:url(x)' };
+        await refused(doc([item(1, 'shape', css)]), '/elements/0/props/fill');
+        await refused(doc([item(1, 'shape', { shape: 'rectangle', svg: '<svg onload=x>' })]), '/elements/0/props/svg');
+        await refused(doc([item(1, 'shape', { ...rounded, strokeWidth: 0.5 })]), '/elements/0/props/strokeWidth');
+        expect((await save(tale.id, doc([item(1, 'shape', { shape: 'ellipse', radius: 0.1 })]), 0)).status).toBe(400);
+        expect((await save(tale.id, doc([item(1, 'shape', { ...line, fill: '#000000' })]), 0)).status).toBe(400);
+        for (const emoji of ['abc', '😀😀', '<img src=x onerror=alert(1)>', '😀‮', '']) {
+          await refused(doc([item(1, 'emoji', { emoji })]), '/elements/0/props/emoji');
+        }
+        const image = { emoji: '😀', url: 'https://cdn.example/1f600.png' };
+        await refused(doc([item(1, 'emoji', image)]), '/elements/0/props/url');
+        await refused(doc([item(1, 'sticker', { mediaKey: photo })]), '/elements/0/props/mediaKey');
+        await refused(doc([item(1, 'sticker', { mediaKey: video })]), '/elements/0/props/mediaKey');
+        await refused(doc([item(1, 'sticker', { mediaKey: foreign })]), '/elements/0/props/mediaKey');
+        const unknown = 'media/00000000-0000-4000-8000-000000000000.png';
+        await refused(doc([item(1, 'sticker', { mediaKey: unknown })]), '/elements/0/props/mediaKey');
+        expect((await state(tale.id)).revision).toBe(0);
+      });
+
+      it('refuses to publish a sticker without alt text, then delivers each new element with URLs', async () => {
+        const { zone, group, tale } = await setup();
+        const sticker = await uploaded(zone.projectId);
+        const elements = [
+          item(1, 'shape', rounded, { a11y: { decorative: true } }),
+          item(2, 'shape', { shape: 'ellipse', fill: '#00ff00' }, { a11y: { decorative: true } }),
+          item(3, 'shape', line, { a11y: { decorative: true } }),
+          item(4, 'emoji', { emoji: '🎉' }, { a11y: { label: 'party popper' } }),
+          item(5, 'sticker', { mediaKey: sticker }),
+        ];
+        expect((await save(tale.id, doc(elements), 0)).status).toBe(200);
+        const refused = await publishDraft(tale.id);
+        expect(refused.status).toBe(400);
+        expect((await refused.json()).error).toEqual({
+          code: 'invalid_tale_document',
+          message: '"Sticker 1" needs alt text, or must be marked decorative, before the tale is published.',
+          pointer: '/elements/4/a11y/label',
+        });
+        elements[4] = item(5, 'sticker', { mediaKey: sticker }, { a11y: { decorative: true } });
+        expect((await save(tale.id, doc(elements), 1)).status).toBe(200);
+        expect((await publishDraft(tale.id)).status).toBe(200);
+        expect((await getPublic(sticker)).status).toBe(404);
+        await publish('tale-groups', group.id);
+        await publish('tales', tale.id);
+        expect((await getPublic(sticker)).status).toBe(200);
+        const [deliveredGroup] = await delivered(zone.id);
+        const document = deliveredGroup.tales[0].document as { elements: { type: string; props: unknown }[] };
+        expect(document.elements.map((e) => e.type)).toEqual(['shape', 'shape', 'shape', 'emoji', 'sticker']);
+        expect(document.elements[3]).toMatchObject({ a11y: { label: 'party popper' }, props: { emoji: '🎉' } });
+        expect(document.elements[4].props).toEqual({ url: `${publicApiUrl}/media/${sticker}` });
+        expect(JSON.stringify(document)).not.toContain('mediaKey');
+      });
+
+      it('keeps a sticker file while a document uses it', async () => {
+        const { tale } = await setup();
+        expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
+        const { media_key: oldKey } = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [tale.id]))
+          .rows[0];
+        const value = doc([item(1, 'sticker', { mediaKey: oldKey }, { a11y: { decorative: true } })]);
+        expect((await save(tale.id, value, 0)).status).toBe(200);
+        expect((await putTaleMedia(tale.id, 'image/png', png)).status).toBe(200);
+        expect(existsSync(join(mediaDir, oldKey))).toBe(true);
+      });
+    });
   });
 
   describe('imports from Storyly', () => {

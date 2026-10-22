@@ -137,6 +137,14 @@ default). When the visitor prefers reduced motion, the video waits on its first 
 is drawn once to a canvas. Under a CSP, the API origin must be allowed in `img-src` and `media-src`, as it already is
 for tale media.
 
+### Shapes, emoji and stickers in tales
+
+Shapes (rectangles, ellipses and lines) are built from their checked colours and sizes through CSSOM, never from SVG
+or CSS text, and are hidden from assistive technology unless they have a label. An emoji is text in the platform's
+emoji fonts (no emoji images are downloaded), announced by its label, the emoji's name. An image sticker is an image of
+the project's media shown whole, with its alt text or hidden when decorative, and still under reduced motion. An SDK
+that predates a type skips it and shows the rest of the tale.
+
 ### Measuring
 
 `nx run sdk-sample:perf` builds the API and the SDK, starts the API on `TEST_DATABASE_URL` (a database whose name
