@@ -15,15 +15,16 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
   MAX_TALES_PER_GROUP,
-  MAX_STAGE_KEY_LENGTH,
+  MAX_ZONE_SLUG_LENGTH,
   MEDIA_CONTENT_TYPES,
   PLAYBOOKS,
   findPlaybook,
   isSwitchable,
   SHOWN_STATUS_LABELS,
-  stageKeyFromName,
   switchStatus,
   taleShownStatus,
+  uniqueZoneSlug,
+  zoneSlugFromName,
   type ContentStatus,
   type Invitation,
   type IssuedZoneKey,
@@ -64,6 +65,26 @@ export class CreateDrawer implements OnInit {
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected text = '';
   protected projectId = '';
+  /** The slug typed in a new zone drawer; empty lets the API make one from the name (epic UX rework R1). */
+  protected slug = '';
+  protected readonly maxSlug = MAX_ZONE_SLUG_LENGTH;
+  /** True when the drawer's error is about the slug, so only the slug field is marked invalid. */
+  protected readonly slugError = signal(false);
+
+  /** The zone a "Name and slug" drawer edits. */
+  protected readonly editedZone = computed(() => {
+    const request = this.request();
+    return request.kind === 'editZone' ? this.store.zone(request.zoneId) : undefined;
+  });
+
+  /** The slug the API makes from the typed name when none is given; '' when the name has no Latin letter or digit. */
+  protected generatedSlug(): string {
+    const base = zoneSlugFromName(this.text);
+    if (!base) return '';
+    // Made unique against the picked project's zones, as the API does.
+    const taken = new Set(this.store.zones().filter((z) => z.projectId === this.projectId).map((z) => z.slug));
+    return uniqueZoneSlug(base, (slug) => taken.has(slug));
+  }
   protected frameType = '';
   /** The image or video picked in the file input, if any. */
   protected file: File | null = null;
@@ -95,18 +116,22 @@ export class CreateDrawer implements OnInit {
   /** The picked playbook. */
   protected readonly pickedPlaybook = computed(() => findPlaybook(this.playbookKey()));
 
-  /** What the picked playbook creates: each frame with its settings as labels and values, and its stage. */
-  protected readonly playbookPreview = computed(() =>
-    (this.pickedPlaybook()?.frames ?? []).map((frame) => ({
-      type: this.store.frameTypeLabel(frame.type),
-      settings: describeSettings(this.store.frameType(frame.type)?.schema, frame.settings as unknown as Settings),
-      stage: frame.stage,
-    })),
-  );
+  /** What the picked playbook sets: its display with its settings as labels and values. */
+  protected readonly playbookPreview = computed(() => {
+    const frame = this.pickedPlaybook()?.frame;
+    return frame
+      ? [
+          {
+            type: this.store.frameTypeLabel(frame.type),
+            settings: describeSettings(this.store.frameType(frame.type)?.schema, frame.settings as unknown as Settings),
+          },
+        ]
+      : [];
+  });
 
   /**
    * Why the picked playbook cannot be applied to the zone, or '': the zone has
-   * another playbook, or already uses one of its stage keys. The API refuses both.
+   * another playbook, or already has a display (AD-17). The API refuses both.
    */
   protected readonly playbookConflict = computed(() => {
     const zone = this.playbookZone();
@@ -117,10 +142,8 @@ export class CreateDrawer implements OnInit {
       return `This zone already has the playbook ${applied}. A zone has one playbook.`;
     }
     if (zone.playbookKey === playbook.key) return '';
-    const used = new Set(this.store.stagesOf(zone.id).map((stage) => stage.key));
-    const taken = playbook.frames.find((frame) => used.has(frame.stage.key));
-    return taken
-      ? `This zone already has a stage with the key ${taken.stage.key}. Delete that stage first, then apply ${playbook.label}.`
+    return zone.frame
+      ? `This zone already has a ${this.store.frameTypeLabel(zone.frame.type)} display. A playbook sets the display of a zone without one; change this zone's display type instead.`
       : '';
   });
 
@@ -129,42 +152,6 @@ export class CreateDrawer implements OnInit {
     const ids = [this.playbookConflict() && !this.error() ? 'playbook-conflict' : '', this.error() ? 'create-error' : ''];
     return ids.filter(Boolean).join(' ') || null;
   });
-
-  /** The key typed in a new stage drawer; follows the name until the user edits it. */
-  protected stageKey = '';
-  private stageKeyEdited = false;
-  /** The frame picked in a new stage drawer. */
-  protected stageFrameId = '';
-  protected readonly maxStageKey = MAX_STAGE_KEY_LENGTH;
-
-  /** The zone of a stage drawer. */
-  protected readonly stageZoneId = computed(() => {
-    const request = this.request();
-    return request.kind === 'stage' || request.kind === 'renameStage' || request.kind === 'deleteStage'
-      ? request.zoneId
-      : '';
-  });
-
-  /** The frames a new stage can show: the zone's frames. */
-  protected readonly stageFrames = computed(() => this.store.framesOf(this.stageZoneId()));
-
-  /** The stage a rename or delete drawer is for. */
-  protected readonly editedStage = computed(() => {
-    const request = this.request();
-    return request.kind === 'renameStage' || request.kind === 'deleteStage'
-      ? this.store.stage(request.zoneId, request.stageId)
-      : undefined;
-  });
-
-  /** Typing a stage name suggests its key, until the key is edited by hand. */
-  protected stageNameChanged(name: string): void {
-    if (!this.stageKeyEdited) this.stageKey = stageKeyFromName(name);
-  }
-
-  /** Any edit of the key by hand stops it following the name, even when it is emptied. */
-  protected stageKeyChanged(): void {
-    this.stageKeyEdited = true;
-  }
 
   /** The tale group an "Add to zone…", "Copy to zone…", "Rename" or "Remove from this zone" drawer is for. */
   protected readonly placementGroup = computed(() => {
@@ -227,15 +214,14 @@ export class CreateDrawer implements OnInit {
   protected readonly destructive = computed(
     () =>
       this.zoneKeyRequest()?.action === 'revoke' ||
-      this.request().kind === 'removeTaleGroup' ||
-      this.request().kind === 'deleteStage',
+      this.request().kind === 'removeTaleGroup',
   );
 
-  /** The frame a settings drawer edits. */
+  /** The display a settings drawer edits. */
   protected readonly settingsFrame = computed(() => {
     const request = this.request();
-    if (request.kind !== 'frameSettings') return undefined;
-    return this.store.framesOf(request.zoneId).find((f) => f.id === request.frameId);
+    if (request.kind !== 'displaySettings') return undefined;
+    return this.store.displayOf(request.zoneId) ?? undefined;
   });
 
   /** The JSON Schema of that frame's type, which builds the form. */
@@ -382,16 +368,12 @@ export class CreateDrawer implements OnInit {
 
   protected readonly submitLabel = computed(() => {
     switch (this.request().kind) {
-      case 'frame':
+      case 'display':
+        return 'Set display';
       case 'tale':
-      case 'stage':
         return 'Add';
       case 'applyPlaybook':
         return 'Apply';
-      case 'renameStage':
-        return 'Save';
-      case 'deleteStage':
-        return 'Delete';
       case 'taleMedia':
         return 'Upload';
       case 'cover':
@@ -401,7 +383,8 @@ export class CreateDrawer implements OnInit {
       case 'tags':
       case 'renameTaleGroup':
       case 'schedule':
-      case 'frameSettings':
+      case 'displaySettings':
+      case 'editZone':
         return 'Save';
       case 'placeTaleGroup':
         return 'Add';
@@ -449,11 +432,11 @@ export class CreateDrawer implements OnInit {
         return 'New project';
       case 'zone':
         return 'New zone';
-      case 'frame':
-        return 'Add frame';
-      case 'frameSettings': {
+      case 'display':
+        return 'Choose a display';
+      case 'displaySettings': {
         const frame = this.settingsFrame();
-        return `${frame ? this.store.frameTypeLabel(frame.type) : 'Frame'} settings`;
+        return `${frame ? this.store.frameTypeLabel(frame.type) : 'Display'} settings`;
       }
       case 'taleGroup':
         return 'New tale group';
@@ -469,6 +452,8 @@ export class CreateDrawer implements OnInit {
         return 'Tags';
       case 'renameTaleGroup':
         return 'Rename tale group';
+      case 'editZone':
+        return 'Name and slug';
       case 'placeTaleGroup':
         return 'Add to zone';
       case 'copyTaleGroup':
@@ -477,12 +462,6 @@ export class CreateDrawer implements OnInit {
         return 'Remove from this zone';
       case 'schedule':
         return 'Schedule';
-      case 'stage':
-        return 'New stage';
-      case 'renameStage':
-        return 'Rename stage';
-      case 'deleteStage':
-        return 'Delete stage';
       case 'applyPlaybook':
         return 'Apply playbook';
       case 'zoneKey':
@@ -499,12 +478,9 @@ export class CreateDrawer implements OnInit {
   protected readonly context = computed(() => {
     const request = this.request();
     if (
-      request.kind === 'frame' ||
-      request.kind === 'frameSettings' ||
+      request.kind === 'display' ||
+      request.kind === 'displaySettings' ||
       request.kind === 'taleGroup' ||
-      request.kind === 'stage' ||
-      request.kind === 'renameStage' ||
-      request.kind === 'deleteStage' ||
       request.kind === 'applyPlaybook'
     ) {
       const zone = this.store.zone(request.zoneId);
@@ -554,8 +530,11 @@ export class CreateDrawer implements OnInit {
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
-    if (this.request().kind === 'renameStage') this.text = this.editedStage()?.name ?? '';
-    if (this.request().kind === 'stage') this.stageFrameId = this.stageFrames()[0]?.id ?? '';
+    const edited = this.editedZone();
+    if (edited) {
+      this.text = edited.name;
+      this.slug = edited.slug;
+    }
     const applied = this.playbookZone()?.playbookKey;
     if (applied && findPlaybook(applied)) this.playbookKey.set(applied);
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
@@ -701,19 +680,31 @@ export class CreateDrawer implements OnInit {
       case 'project':
         message = await this.store.createProject(this.text);
         break;
-      case 'zone':
-        message = await this.store.createZone(this.text, this.projectId);
+      case 'zone': {
+        const slug = this.slug.trim();
+        // A name with no Latin letter or digit (a Hebrew name, say) gives no slug: one is required then.
+        if (!slug && this.text.trim() && !this.generatedSlug()) {
+          message = 'This name gives no slug. Enter a slug: lowercase letters, digits and hyphens.';
+          this.slugError.set(true);
+          break;
+        }
+        const result = await this.store.createZone(this.text, this.projectId, slug);
+        message = result.message;
+        this.slugError.set(result.field === 'slug');
         if (!message) this.store.selectProject(this.projectId);
         break;
-      case 'frame':
-        message = await this.store.createFrame(request.zoneId, this.frameType);
+      }
+      case 'display':
+        message = this.frameType
+          ? await this.store.setDisplay(request.zoneId, this.frameType)
+          : 'Choose a display type.';
         break;
-      case 'frameSettings':
+      case 'displaySettings':
         // A repeated refusal must mark its field again, so the old message goes first.
         this.error.set('');
         message = this.settingsFrame()
-          ? await this.store.updateFrameSettings(request.zoneId, request.frameId, this.settings())
-          : 'This frame no longer exists.';
+          ? await this.store.updateDisplay(request.zoneId, { settings: this.settings() })
+          : 'This zone has no display.';
         break;
       case 'taleGroup':
         message = await this.store.createTaleGroup(request.zoneId, this.text);
@@ -738,25 +729,22 @@ export class CreateDrawer implements OnInit {
       case 'renameTaleGroup':
         message = await this.store.renameTaleGroup(request.taleGroupId, this.text);
         break;
-      case 'stage':
-        message = !this.stageKey.trim()
-          ? 'Enter a key: lowercase letters, digits and hyphens.'
-          : this.stageFrameId
-            ? await this.store.createStage(request.zoneId, {
-                name: this.text,
-                key: this.stageKey.trim(),
-                frameId: this.stageFrameId,
-              })
-            : 'Choose a frame.';
+      case 'editZone': {
+        const zone = this.editedZone();
+        const name = this.text.trim();
+        const slug = this.slug.trim();
+        if (!zone) {
+          message = 'This zone no longer exists.';
+          break;
+        }
+        const change = { ...(name !== zone.name && { name }), ...(slug !== zone.slug && { slug }) };
+        const result = Object.keys(change).length
+          ? await this.store.updateZone(zone.id, change)
+          : { message: '', field: null };
+        message = result.message;
+        this.slugError.set(result.field === 'slug');
         break;
-      case 'renameStage':
-        message = this.editedStage()
-          ? await this.store.renameStage(request.zoneId, request.stageId, this.text)
-          : 'This stage no longer exists.';
-        break;
-      case 'deleteStage':
-        message = await this.store.deleteStage(request.zoneId, request.stageId);
-        break;
+      }
       case 'applyPlaybook':
         // A conflict the dashboard can see is refused here, without a request; the API refuses it too.
         message = !this.pickedPlaybook()

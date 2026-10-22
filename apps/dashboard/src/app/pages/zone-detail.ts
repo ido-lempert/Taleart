@@ -31,6 +31,7 @@ import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { describeWindow } from '../schedule';
+import { describeSettings, type Settings } from '../settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
 
@@ -40,7 +41,7 @@ const TONES = 6;
 type Direction = 'earlier' | 'later';
 
 /**
- * One zone: its playbook, its frames, its stages, its zone key and its tale groups, each a row of 9:16 tale cards with
+ * One zone: its playbook, its display (one frame, AD-17), its zone key and its tale groups, each a row of 9:16 tale cards with
  * the group's tags. A group can be placed in several zones (AD-14): its row says
  * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Each group
  * has its On/Off switch and each tale card its Shown/Hidden switch (AD-6 amended, epic UX rework R6),
@@ -110,42 +111,47 @@ type Direction = 'earlier' | 'later';
     .zone-section {
       min-width: 0;
     }
-    .frame-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2) var(--space-4);
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-    .frame-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-    }
-    .stage-list {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-3);
-      margin: 0 0 var(--space-3);
-      padding: 0;
-      list-style: none;
-    }
-    .stage-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-2) var(--space-4);
-    }
-    .stage-row__info {
+    .display-row {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: var(--space-2) var(--space-3);
-      min-width: 0;
+      margin: 0 0 var(--space-3);
     }
-    .stage-row__name {
+    .display-settings {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1) var(--space-4);
+      margin: 0 0 var(--space-3);
+      font-size: var(--text-sm);
+    }
+    .display-settings div {
+      display: flex;
+      gap: var(--space-1);
+    }
+    .display-settings dt {
+      color: var(--text-muted);
+    }
+    .display-settings dt::after {
+      content: ':';
+    }
+    .display-settings dd {
+      margin: 0;
+    }
+    .display-type .field {
+      margin: 0;
+    }
+    .display-type__controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .display-type__controls .select {
+      width: auto;
+      min-width: 10rem;
+    }
+    .playbook-applied__name {
       font-weight: 600;
       overflow-wrap: anywhere;
     }
@@ -173,6 +179,10 @@ type Direction = 'earlier' | 'later';
     .zone-visibility {
       margin-top: var(--space-2);
     }
+    .zone-edit {
+      align-self: flex-start;
+      margin-top: var(--space-2);
+    }
     .key-actions {
       display: flex;
       flex-wrap: wrap;
@@ -190,11 +200,22 @@ export class ZoneDetailPage {
 
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected readonly zone = computed(() => this.store.zone(this.zoneId()));
-  protected readonly frames = computed(() => this.store.framesOf(this.zoneId()));
+  /** The zone's display: its one frame, or null (AD-17). */
+  protected readonly display = computed(() => this.store.displayOf(this.zoneId()));
+  /** The display's settings as labels and values, the type's defaults filled in by the API on delivery. */
+  protected readonly displaySettings = computed(() => {
+    const display = this.display();
+    return display
+      ? describeSettings(this.store.frameType(display.type)?.schema, display.settings as unknown as Settings)
+      : [];
+  });
+  /** The type picked in the Display card; follows the display's type until changed by hand. */
+  protected readonly pickedType = linkedSignal(() => this.display()?.type ?? '');
+  protected readonly changingType = signal(false);
+  /** The API's message when it refused a display change; cleared when the zone changes. */
+  protected readonly displayError = linkedSignal({ source: this.zoneId, computation: () => '' });
   /** The playbook applied to the zone (R8), when the registry still has it. */
   protected readonly appliedPlaybook = computed(() => findPlaybook(this.zone()?.playbookKey));
-  /** The zone's stages, each showing one of its frames on a page (R7). */
-  protected readonly stages = computed(() => this.store.stagesOf(this.zoneId()));
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
   /** The zone's active key (prefix and date only), or null. */
   protected readonly zoneKey = computed(() => this.store.zoneKey(this.zoneId()));
@@ -256,6 +277,26 @@ export class ZoneDetailPage {
   /** "On" or "Off" for a group, "Shown" or "Hidden" for a tale, from its stored key (AD-6 amended). */
   protected shownLabel(stored: ContentStatus, kind: StatusKind): string {
     return SHOWN_STATUS_LABELS[kind === 'group' ? groupShownStatus(stored) : taleShownStatus(stored)];
+  }
+
+  protected pickType(event: Event): void {
+    this.pickedType.set((event.target as HTMLSelectElement).value);
+    this.displayError.set('');
+  }
+
+  /** Changes the display's type; the API resets its settings to that type's defaults (AD-17), then announces it. */
+  protected async changeDisplayType(event: Event): Promise<void> {
+    event.preventDefault();
+    const zoneId = this.zoneId();
+    const type = this.pickedType();
+    if (this.changingType() || !type || type === this.display()?.type) return;
+    this.changingType.set(true);
+    const message = await this.store.updateDisplay(zoneId, { type });
+    this.changingType.set(false);
+    this.displayError.set(message);
+    if (!message) {
+      this.announce(`The display is now a ${this.store.frameTypeLabel(type).toLowerCase()}, with its default settings.`);
+    }
   }
 
   /** Turns a group On (stores live) or Off (stores paused), then announces it. */

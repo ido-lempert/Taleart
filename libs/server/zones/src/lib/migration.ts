@@ -2,7 +2,9 @@ import type { Db } from '@taleart/server-access';
 
 /**
  * Forward-only migration for the tables the zones module owns. Runs after the
- * access migration, because every zone references a project (AD-4).
+ * access migration, because every zone references a project (AD-4). The
+ * `stages` table of a database from before the UX rework stays until
+ * `foldStagesIntoZones` (fold.ts) turns its stages into zones and drops it.
  */
 export async function migrateZones(db: Db): Promise<void> {
   await db.query(`
@@ -31,38 +33,24 @@ export async function migrateZones(db: Db): Promise<void> {
       FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id)
     );
   `);
-  await db.query('CREATE INDEX IF NOT EXISTS frames_zone_id_idx ON frames (zone_id, created_at)');
-
-  // Lets stages reference (frame, zone) together, so a stage's frame is always
-  // one of its own zone's frames.
-  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS frames_id_zone_id_key ON frames (id, zone_id)');
-
-  // A stage is a named place on a host page that shows one of its zone's
-  // frames (epic web zones R7). Its key, unique in the zone, is what a page
-  // names; its project is its zone's (AD-4).
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS stages (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      zone_id uuid NOT NULL,
-      project_id uuid NOT NULL REFERENCES projects(id),
-      frame_id uuid NOT NULL,
-      name text NOT NULL,
-      key text NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id),
-      FOREIGN KEY (frame_id, zone_id) REFERENCES frames (id, zone_id) ON DELETE CASCADE,
-      CONSTRAINT stages_zone_id_key_key UNIQUE (zone_id, key)
-    );
-  `);
+  // A zone's frame is found through the unique index `frames_zone_id_key` (one display per zone),
+  // which `foldStagesIntoZones` creates; the older frames_zone_id_idx is dropped there.
 
   // The key of the playbook applied to the zone (epic web zones R8), from the
   // playbook registry in libs/contract; a playbook is registry data, not a table.
+  // Since AD-17 only a "created from template" note.
   await db.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS playbook_key text');
 
-  // Rows created in one transaction (a playbook's frames and stages) keep their
-  // creation order: now() is the transaction's start time, clock_timestamp() is not.
+  // Rows created in one transaction keep their creation order: now() is the
+  // transaction's start time, clock_timestamp() is not.
   await db.query('ALTER TABLE frames ALTER COLUMN created_at SET DEFAULT clock_timestamp()');
-  await db.query('ALTER TABLE stages ALTER COLUMN created_at SET DEFAULT clock_timestamp()');
+
+  // A zone's slug (epic UX rework R1, AD-17): what a host page names in
+  // `zone="…"`, unique in its project. Null only until `foldStagesIntoZones`
+  // fills it on a database from before the rework and makes it NOT NULL;
+  // NULLs never clash in the unique index.
+  await db.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS slug text');
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS zones_project_id_slug_key ON zones (project_id, slug)');
 
   // One theme per project (epic web zones R9, AD-4): only the fields the
   // project sets, as JSONB; readers fill the rest from TaleArt's default theme.
