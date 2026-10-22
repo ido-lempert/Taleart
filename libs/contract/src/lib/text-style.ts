@@ -5,8 +5,12 @@
 import type { components } from '../generated/api';
 import { isFontId, projectFontAlias } from './project-fonts';
 import {
+  buttonFontSize,
   elementBounds,
+  resolveButtonStyle,
   resolveShapeStyle,
+  resolveSwipeUpStyle,
+  SWIPE_UP_FONT_SIZE,
   TALE_CANVAS_ASPECT,
   type CanvasRect,
   type TaleElementBox,
@@ -389,4 +393,33 @@ export function textBackdropAt(
   }
   if (tint === null || base.overMedia) return base;
   return { canvasColor: compositeColor(tint, compositeColor(base.canvasColor, STAGE_COLOR)), overMedia: false };
+}
+
+/**
+ * The label of a button or of the swipe-up link as a text style, for its contrast check (R7, R12):
+ * bold, at the size it is drawn, its colour on its fill (a filled button) or pill (the swipe-up
+ * link), or on what lies behind it (an outline button). Null for other elements.
+ */
+export function linkLabelStyle(element: { type: string; box: { h: number }; props: unknown }): TextStyle | null {
+  if (element.type === 'button') {
+    const look = resolveButtonStyle(element.props);
+    return {
+      ...DEFAULT_TEXT_STYLE,
+      size: buttonFontSize(element.box),
+      color: look.color,
+      background: look.variant === 'filled' ? 'box' : 'none',
+      backgroundColor: look.fill,
+    };
+  }
+  if (element.type === 'swipe-up') {
+    const look = resolveSwipeUpStyle(element.props);
+    return {
+      ...DEFAULT_TEXT_STYLE,
+      size: SWIPE_UP_FONT_SIZE,
+      color: look.color,
+      background: 'box',
+      backgroundColor: look.background,
+    };
+  }
+  return null;
 }

@@ -6704,6 +6704,96 @@ describe('Management API v1: projects and zones', () => {
         expect(existsSync(join(mediaDir, oldKey))).toBe(true);
       });
     });
+
+    describe('buttons, image buttons and the swipe-up link (epic Tale Studio R7, R14, story 7.7)', () => {
+      const SWIPE_BOX = { x: 0.2, y: 0.87, w: 0.6, h: 0.09, rotation: 0 };
+      function item(n: number, type: string, props: unknown, extra: Record<string, unknown> = {}) {
+        return {
+          id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+          type,
+          box: type === 'swipe-up' ? { ...SWIPE_BOX } : { x: 0.2, y: 0.5 + n * 0.05, w: 0.6, h: 0.07, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props,
+          ...extra,
+        };
+      }
+      const button = (href?: string) => ({
+        label: 'Shop now',
+        variant: 'filled',
+        color: '#111827',
+        fill: '#ffffff',
+        ...(href === undefined ? {} : { href }),
+      });
+      const swipeUp = (href?: string) => ({
+        label: 'See more',
+        color: '#ffffff',
+        background: '#000000b3',
+        ...(href === undefined ? {} : { href }),
+      });
+
+      it('refuses a javascript:, data: or ftp: destination, a relative one, credentials and one over 2,048 characters', async () => {
+        const { tale } = await setup();
+        const refused = async (value: unknown, pointer: string) => {
+          const res = await save(tale.id, value, 0);
+          expect(res.status).toBe(400);
+          expect((await res.json()).error).toMatchObject({ code: 'invalid_tale_document', pointer });
+        };
+        for (const href of [
+          'javascript:alert(1)',
+          'data:text/html,<script>alert(1)</script>',
+          'ftp://example.com/file',
+          '/relative',
+          'https://user:pass@example.com',
+          `https://example.com/${'a'.repeat(2029)}`,
+          `java${String.fromCharCode(9)}script:alert(1)`,
+        ]) {
+          await refused(doc([item(1, 'button', button(href))]), '/elements/0/props/href');
+          await refused(doc([item(1, 'swipe-up', swipeUp(href))]), '/elements/0/props/href');
+        }
+        await refused(doc([item(1, 'swipe-up', swipeUp()), item(2, 'swipe-up', swipeUp())]), '/elements/1/type');
+        await refused(doc([item(1, 'swipe-up', swipeUp(), { box: { ...SWIPE_BOX, y: 0.3 } })]), '/elements/0/box');
+        expect((await state(tale.id)).revision).toBe(0);
+      });
+
+      it('refuses to publish a link without a destination, then delivers each link with its href and image URL', async () => {
+        const { zone, group, tale } = await setup();
+        await postKey(zone.id);
+        const image = await uploaded(zone.projectId);
+        const elements = [
+          item(1, 'button', button('https://example.com/shop')),
+          item(2, 'image-button', { mediaKey: image, href: 'https://example.com/look', newTab: true }, {
+            a11y: { label: 'Shop the look' },
+          }),
+          item(3, 'swipe-up', swipeUp()),
+        ];
+        expect((await save(tale.id, doc(elements), 0)).status).toBe(200);
+        const refused = await publishDraft(tale.id);
+        expect(refused.status).toBe(400);
+        expect((await refused.json()).error).toEqual({
+          code: 'invalid_tale_document',
+          message: '"See more" needs a web address before the tale can be updated.',
+          pointer: '/elements/2/props/href',
+        });
+        elements[2] = item(3, 'swipe-up', swipeUp('https://example.com/more'));
+        expect((await save(tale.id, doc(elements), 1)).status).toBe(200);
+        expect((await publishDraft(tale.id)).status).toBe(200);
+        await publish('tale-groups', group.id);
+        await publish('tales', tale.id);
+        expect((await getPublic(image)).status).toBe(200);
+        const [deliveredGroup] = await delivered(zone.id);
+        const document = deliveredGroup.tales[0].document as { elements: { type: string; props: unknown }[] };
+        expect(document.elements.map((e) => e.type)).toEqual(['button', 'image-button', 'swipe-up']);
+        expect(document.elements[0].props).toMatchObject({ href: 'https://example.com/shop' });
+        expect(document.elements[1].props).toEqual({
+          url: `${publicApiUrl}/media/${image}`,
+          href: 'https://example.com/look',
+          newTab: true,
+        });
+        expect(JSON.stringify(document)).not.toContain('mediaKey');
+      });
+    });
   });
 
   describe('existing tales become documents (epic Tale Studio R16, story 7.11)', () => {

@@ -37,7 +37,9 @@ import {
   elementName,
   hasAltText,
   hasVideoElement,
+  isLinkElement,
   isMediaElement,
+  isSwipeUpBox,
   isOutsideSafeArea,
   isTaleMediaElement,
   stageTaleMedia,
@@ -47,17 +49,29 @@ import {
   MAX_TALE_VIDEO_MS,
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
+  MAX_SWIPE_UP_ELEMENTS,
   MEDIA_FITS,
   MIN_TALE_DURATION_MS,
   SHAPE_KINDS,
+  BUTTON_OUTLINE_WIDTH,
+  buttonFontSize,
+  linkLabel,
+  NEW_BUTTON_BOX,
   NEW_EMOJI_BOX,
+  NEW_IMAGE_BUTTON_BOX,
   NEW_LINE_BOX,
   NEW_MEDIA_BOX,
   NEW_SHAPE_BOX,
   NEW_STICKER_BOX,
   NEW_TEXT_BOX,
+  newButtonProps,
   newShapeProps,
+  newSwipeUpProps,
+  resolveButtonStyle,
   resolveShapeStyle,
+  resolveSwipeUpStyle,
+  SWIPE_UP_BOX,
+  SWIPE_UP_FONT_SIZE,
   TALE_SAFE_AREA,
   type MediaElement,
   type ShapeElement,
@@ -70,6 +84,7 @@ import {
 } from '@taleart/contract/tale-document';
 import {
   DEFAULT_TEXT_STYLE,
+  linkLabelStyle,
   resolveTextStyle,
   TEXT_BOX_PADDING_EM,
   TEXT_HIGHLIGHT_PADDING_EM,
@@ -78,6 +93,7 @@ import {
   textContrast,
   textFontFamily,
   type TextBackdrop,
+  type TextStyle,
 } from '@taleart/contract/text-style';
 import { DashboardStore } from '../dashboard.store';
 import { formatLocal } from '../schedule';
@@ -92,6 +108,7 @@ import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autos
 import { changeCount, sameDocument, siteVersion, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
 import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } from './tale-media';
+import { needsLinkUrl, TaleLinkStyle } from './tale-links';
 import {
   SHAPE_NAMES,
   TaleEmojiPicker,
@@ -166,6 +183,7 @@ interface OpenMenu {
 }
 
 const LOCKED = 'This layer is locked. Unlock it in the layers list to move or edit it.';
+const PINNED = 'The swipe-up link is pinned to the bottom of the tale: it does not move.';
 const REORDERED: Record<ReorderCommand, [string, string]> = {
   forward: ['brought forward', 'Already at the front'],
   backward: ['sent backward', 'Already at the back'],
@@ -180,6 +198,9 @@ const KIND_NAMES: Readonly<Record<TaleElement['type'], string>> = {
   shape: 'Shape',
   emoji: 'Emoji',
   sticker: 'Sticker',
+  button: 'Button',
+  'image-button': 'Image button',
+  'swipe-up': 'Swipe-up link',
 };
 /** How people read an element's type: "Text", "Image", "Video", "Emoji", "Sticker", or a shape's ("Ellipse"). */
 export const kindName = (element: { type: TaleElement['type']; props?: unknown }): string => {
@@ -220,12 +241,48 @@ export function shapeView(props: unknown): ShapeView {
   };
 }
 
+/** How the canvas draws a button or the swipe-up link, as the Web SDK renders it (R7). */
+export interface LinkView {
+  label: string;
+  color: string;
+  background: string | null;
+  border: string | null;
+  radius: string | null;
+  fontSize: string;
+}
+
+/** The canvas look of a button or swipe-up link: each value from the contract's resolvers. */
+export function linkView(element: { type: string; box: TaleElementBox; props: unknown }): LinkView {
+  const label = linkLabel((element.props as { label?: unknown }).label);
+  const size = (n: number) => `${Math.round(n * 100000) / 1000}cqh`;
+  if (element.type === 'swipe-up') {
+    const look = resolveSwipeUpStyle(element.props);
+    return { label, color: look.color, background: look.background, border: null, radius: null, fontSize: size(SWIPE_UP_FONT_SIZE) };
+  }
+  const look = resolveButtonStyle(element.props);
+  return {
+    label,
+    color: look.color,
+    background: look.variant === 'filled' ? look.fill : null,
+    border: look.variant === 'outline' ? `${size(BUTTON_OUTLINE_WIDTH)} solid ${look.fill}` : null,
+    radius: look.radius > 0 ? size(look.radius) : null,
+    fontSize: size(buttonFontSize(element.box)),
+  };
+}
+
+/** The style whose contrast a layer's label is checked for (R12): a text's, or a button's or swipe-up link's label. */
+export function labelStyleOf(element: { type: string; box: TaleElementBox; props: unknown }): TextStyle | null {
+  return element.type === 'text' ? resolveTextStyle(element.props) : linkLabelStyle(element);
+}
+
 /** The media picker while it is open: what it picks for, and of which kind. */
 interface OpenPicker {
   purpose: 'add' | 'replace' | 'background';
   kind: MediaKind;
   /** Picks an image sticker: PNG, WebP and GIF images only (R6). */
   sticker: boolean;
+  /** Picks the image of an image button (R7). */
+  imageButton?: boolean;
   heading: string;
   /** The element whose media `replace` changes. */
   elementId: string | null;
@@ -312,6 +369,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     TaleEmojiPicker,
     TaleShapeStyle,
     TaleEmojiStyle,
+    TaleLinkStyle,
     DuplicateTale,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -428,6 +486,48 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
       line-height: 1;
       white-space: nowrap;
       pointer-events: none;
+    }
+    .el__link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      width: 100%;
+      height: 100%;
+      padding: 0 0.8em;
+      overflow: hidden;
+      font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      pointer-events: none;
+    }
+    .el__swipe {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.2em;
+      width: 100%;
+      height: 100%;
+      font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .el__swipe-arrow {
+      width: 0.7em;
+      height: 0.7em;
+      border-top: 0.16em solid currentColor;
+      border-left: 0.16em solid currentColor;
+      transform: translateY(0.2em) rotate(45deg);
+    }
+    .el__swipe-label {
+      max-width: 100%;
+      padding: 0.35em 1em;
+      overflow: hidden;
+      border-radius: 999px;
+      text-overflow: ellipsis;
     }
     .el__glyphs.is-highlight {
       -webkit-box-decoration-break: clone;
@@ -793,6 +893,33 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                         style="object-fit: contain"
                         [style.opacity]="el.props.opacity ?? 1"
                       />
+                    } @else if (el.type === 'image-button') {
+                      <!-- An image button shows its whole image (R7). -->
+                      <img
+                        class="el__media"
+                        [src]="mediaSrc(el.props.mediaKey)"
+                        alt=""
+                        draggable="false"
+                        style="object-fit: contain"
+                        [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
+                      />
+                    } @else if (el.type === 'button') {
+                      @let b = link(el);
+                      <span
+                        class="el__link"
+                        [style.color]="b.color"
+                        [style.background-color]="b.background"
+                        [style.border]="b.border"
+                        [style.border-radius]="b.radius"
+                        [style.font-size]="b.fontSize"
+                        [textContent]="b.label"
+                      ></span>
+                    } @else if (el.type === 'swipe-up') {
+                      @let b = link(el);
+                      <span class="el__swipe" [style.color]="b.color" [style.font-size]="b.fontSize">
+                        <span class="el__swipe-arrow"></span>
+                        <span class="el__swipe-label" [style.background-color]="b.background" [textContent]="b.label"></span>
+                      </span>
                     } @else if (el.type === 'shape') {
                       @let s = shape(el);
                       <span
@@ -953,6 +1080,42 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                   <app-icon name="sticker" /> Add sticker
                 </button>
               </div>
+              <div class="row">
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  id="studio-add-button"
+                  [disabled]="d.elements.length >= maxElements"
+                  (click)="addButton()"
+                >
+                  <app-icon name="button" /> Add button
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  id="studio-add-image-button"
+                  [disabled]="d.elements.length >= maxElements || !projectId()"
+                  (click)="openPicker('add', 'image', null, false, true)"
+                >
+                  <app-icon name="image-button" /> Add image button
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  id="studio-add-swipe-up"
+                  [disabled]="d.elements.length >= maxElements"
+                  [attr.aria-disabled]="swipeUpLimitReached() ? 'true' : null"
+                  [attr.aria-describedby]="swipeUpLimitReached() ? 'studio-swipe-up-hint' : null"
+                  (click)="addSwipeUp()"
+                >
+                  <app-icon name="swipe-up" /> Add swipe-up link
+                </button>
+              </div>
+              @if (swipeUpLimitReached()) {
+                <p class="field__hint" id="studio-swipe-up-hint">
+                  A tale holds one swipe-up link. Delete it to add another.
+                </p>
+              }
               @if (videoLimitReached()) {
                 <p class="field__hint" id="studio-video-hint">
                   A tale holds one video, and plays for its length. Delete it to add another.
@@ -1013,6 +1176,9 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             }
                             @if (row.missingAlt) {
                               <span class="layer__warning"><app-icon name="alert" /> Needs alt text</span>
+                            }
+                            @if (row.missingLink) {
+                              <span class="layer__warning"><app-icon name="alert" /> Needs a web address</span>
                             }
                             @if (row.longVideo) {
                               <span class="layer__warning"><app-icon name="alert" /> Longer than 15 s</span>
@@ -1099,86 +1265,98 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       </span>
                     </div>
                   }
-                  <div class="row">
-                    <div class="field">
-                      <label class="field__label" for="studio-x">Left (%)</label>
-                      <input
-                        id="studio-x"
-                        class="input"
-                        type="number"
-                        min="0"
-                        [attr.max]="maxPercent(el.box.w)"
-                        step="1"
-                        [readOnly]="el.locked"
-                        [value]="percent(el.box.x)"
-                        (change)="setPosition(el.id, 'x', $any($event.target))"
-                      />
+                  @if (el.type !== 'swipe-up') {
+                    <div class="row">
+                      <div class="field">
+                        <label class="field__label" for="studio-x">Left (%)</label>
+                        <input
+                          id="studio-x"
+                          class="input"
+                          type="number"
+                          min="0"
+                          [attr.max]="maxPercent(el.box.w)"
+                          step="1"
+                          [readOnly]="el.locked"
+                          [value]="percent(el.box.x)"
+                          (change)="setPosition(el.id, 'x', $any($event.target))"
+                        />
+                      </div>
+                      <div class="field">
+                        <label class="field__label" for="studio-y">Top (%)</label>
+                        <input
+                          id="studio-y"
+                          class="input"
+                          type="number"
+                          min="0"
+                          [attr.max]="maxPercent(el.box.h)"
+                          step="1"
+                          [readOnly]="el.locked"
+                          [value]="percent(el.box.y)"
+                          (change)="setPosition(el.id, 'y', $any($event.target))"
+                        />
+                      </div>
                     </div>
-                    <div class="field">
-                      <label class="field__label" for="studio-y">Top (%)</label>
-                      <input
-                        id="studio-y"
-                        class="input"
-                        type="number"
-                        min="0"
-                        [attr.max]="maxPercent(el.box.h)"
-                        step="1"
-                        [readOnly]="el.locked"
-                        [value]="percent(el.box.y)"
-                        (change)="setPosition(el.id, 'y', $any($event.target))"
-                      />
+                    <div class="row">
+                      <div class="field">
+                        <label class="field__label" for="studio-w">Width (%)</label>
+                        <input
+                          id="studio-w"
+                          class="input"
+                          type="number"
+                          min="1"
+                          max="100"
+                          step="1"
+                          [readOnly]="el.locked"
+                          [value]="percent(el.box.w)"
+                          (change)="setSize(el.id, 'w', $any($event.target))"
+                        />
+                      </div>
+                      <div class="field">
+                        <label class="field__label" for="studio-h">Height (%)</label>
+                        <input
+                          id="studio-h"
+                          class="input"
+                          type="number"
+                          min="1"
+                          max="100"
+                          step="1"
+                          [readOnly]="el.locked"
+                          [value]="percent(el.box.h)"
+                          (change)="setSize(el.id, 'h', $any($event.target))"
+                        />
+                      </div>
+                      <div class="field">
+                        <label class="field__label" for="studio-rotation">Rotation (°)</label>
+                        <input
+                          id="studio-rotation"
+                          class="input"
+                          type="number"
+                          min="-180"
+                          max="180"
+                          step="1"
+                          [readOnly]="el.locked"
+                          [value]="el.box.rotation"
+                          (change)="setRotation(el.id, $any($event.target))"
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <div class="row">
-                    <div class="field">
-                      <label class="field__label" for="studio-w">Width (%)</label>
-                      <input
-                        id="studio-w"
-                        class="input"
-                        type="number"
-                        min="1"
-                        max="100"
-                        step="1"
-                        [readOnly]="el.locked"
-                        [value]="percent(el.box.w)"
-                        (change)="setSize(el.id, 'w', $any($event.target))"
-                      />
-                    </div>
-                    <div class="field">
-                      <label class="field__label" for="studio-h">Height (%)</label>
-                      <input
-                        id="studio-h"
-                        class="input"
-                        type="number"
-                        min="1"
-                        max="100"
-                        step="1"
-                        [readOnly]="el.locked"
-                        [value]="percent(el.box.h)"
-                        (change)="setSize(el.id, 'h', $any($event.target))"
-                      />
-                    </div>
-                    <div class="field">
-                      <label class="field__label" for="studio-rotation">Rotation (°)</label>
-                      <input
-                        id="studio-rotation"
-                        class="input"
-                        type="number"
-                        min="-180"
-                        max="180"
-                        step="1"
-                        [readOnly]="el.locked"
-                        [value]="el.box.rotation"
-                        (change)="setRotation(el.id, $any($event.target))"
-                      />
-                    </div>
-                  </div>
+                  }
                   @if (el.type === 'shape') {
                     <app-tale-shape-style
                       [element]="el"
                       [locked]="el.locked"
                       (changed)="restyleElement(el.id, $event)"
                       (notice)="say($event)"
+                    />
+                  } @else if (el.type === 'button' || el.type === 'image-button' || el.type === 'swipe-up') {
+                    <app-tale-link-style
+                      [element]="el"
+                      [locked]="el.locked"
+                      [lockedHint]="lockedHint"
+                      [backdrop]="selectedBackdrop()"
+                      (changed)="restyleElement(el.id, $event)"
+                      (notice)="say($event)"
+                      (replace)="openPicker('replace', 'image', el.id, false, true)"
                     />
                   } @else if (el.type === 'emoji') {
                     <app-tale-emoji-style
@@ -1531,6 +1709,10 @@ export class TaleStudioPage implements OnChanges {
   protected readonly emojiFont = EMOJI_FONT_STACK;
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
   protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
+  /** True when the tale holds its swipe-up link: a tale holds one (R7). */
+  protected readonly swipeUpLimitReached = computed(
+    () => (this.doc()?.elements.filter((e) => e.type === 'swipe-up').length ?? 0) >= MAX_SWIPE_UP_ELEMENTS,
+  );
   /** True when the tale holds its one video; the tale's own media video (R16) does not count, as before documents. */
   protected readonly videoLimitReached = computed(() => limitedVideoCount(this.doc()) >= MAX_VIDEO_ELEMENTS);
   /** The tale's duration in seconds, as the duration field shows it: 7 when the document sets none. */
@@ -1564,6 +1746,8 @@ export class TaleStudioPage implements OnChanges {
   private restylingId: string | null = null;
   // Each shape's canvas look, kept per props object.
   private readonly shapes = new WeakMap<object, ShapeView>();
+  // Each link's canvas look, kept per props object and box (a button's label size follows its height).
+  private readonly links = new WeakMap<object, { box: TaleElementBox; view: LinkView }>();
   /** The one selected layer's id, or null when none or several are selected. */
   protected readonly selectedId = computed(() => (this.selection().length === 1 ? this.selection()[0] : null));
   protected readonly selected = computed(() => this.doc()?.elements.find((e) => e.id === this.selectedId()) ?? null);
@@ -1574,13 +1758,15 @@ export class TaleStudioPage implements OnChanges {
       .map((el, i, elements) => ({
         el,
         name: layerName(el, this.doc()?.elements ?? [el]),
-        // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design.
-        outside: el !== this.stageMedia() && isOutsideSafeArea(el.box),
-        lowContrast:
-          el.type === 'text' &&
-          textContrast(resolveTextStyle(el.props), textBackdropAt(elements, i, this.backdrop())).kind === 'low',
-        // An image, video or sticker without alt text or the decorative mark keeps the tale from being updated (R12).
+        // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design, as the
+        // swipe-up link sits in the bottom safe area (R7).
+        outside: el !== this.stageMedia() && el.type !== 'swipe-up' && isOutsideSafeArea(el.box),
+        lowContrast: this.isLowContrast(elements, i, this.backdrop()),
+        // An image, video or sticker without alt text or the decorative mark, or an image button
+        // without alt text, keeps the tale from being updated (R12).
         missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
+        // So does a button, image button or swipe-up link without a web address (R7).
+        missingLink: isLinkElement(el) && !el.hidden && needsLinkUrl(el),
         // A video over 15 s plays only its first 15 s (R5); the tale's own media video plays in full (R16).
         longVideo:
           el.type === 'video' &&
@@ -2240,6 +2426,15 @@ export class TaleStudioPage implements OnChanges {
     return view;
   }
 
+  /** How the canvas draws a button or the swipe-up link, kept per props and box. */
+  protected link(element: TaleElement): LinkView {
+    const kept = this.links.get(element.props);
+    if (kept && kept.box === element.box) return kept.view;
+    const view = linkView(element);
+    this.links.set(element.props, { box: element.box, view });
+    return view;
+  }
+
   protected emojiSize(box: TaleElementBox): string {
     return emojiFontSize(box);
   }
@@ -2302,7 +2497,13 @@ export class TaleStudioPage implements OnChanges {
     setTimeout(() => this.announcement.set(said), 0);
   }
 
-  /** The ids of the texts of `doc` with low contrast against what lies behind each (R12). */
+  /** True when the label of the element at `index` (a text, a button or the swipe-up link) has low contrast (R7, R12). */
+  private isLowContrast(elements: readonly TaleElement[], index: number, base: TextBackdrop): boolean {
+    const style = labelStyleOf(elements[index]);
+    return style !== null && textContrast(style, textBackdropAt(elements, index, base)).kind === 'low';
+  }
+
+  /** The ids of the texts and links of `doc` with low contrast against what lies behind each (R7, R12). */
   private lowContrastIds(doc: TaleDocument): Set<string> {
     const base: TextBackdrop = {
       canvasColor: doc.canvas.background.color,
@@ -2311,8 +2512,7 @@ export class TaleStudioPage implements OnChanges {
     };
     const low = new Set<string>();
     doc.elements.forEach((e, i) => {
-      if (e.type !== 'text' || e.hidden) return;
-      if (textContrast(resolveTextStyle(e.props), textBackdropAt(doc.elements, i, base)).kind === 'low') low.add(e.id);
+      if (!e.hidden && this.isLowContrast(doc.elements, i, base)) low.add(e.id);
     });
     return low;
   }
@@ -2324,7 +2524,7 @@ export class TaleStudioPage implements OnChanges {
     const now = this.lowContrastIds(next);
     const notes: string[] = [];
     next.elements.forEach((e, i) => {
-      if (e.type !== 'text' || e.id === this.restylingId || was.has(e.id) === now.has(e.id)) return;
+      if (labelStyleOf(e) === null || e.id === this.restylingId || was.has(e.id) === now.has(e.id)) return;
       if (!now.has(e.id) && !before.elements.some((b) => b.id === e.id)) return;
       const name = elementName(next.elements, i);
       notes.push(now.has(e.id) ? `"${name}" now has low contrast.` : `"${name}" has enough contrast now.`);
@@ -2366,6 +2566,13 @@ export class TaleStudioPage implements OnChanges {
   // Every change to the document comes here: it is recorded in the history, shown, and autosaved.
   // A change that leaves the document as it was is no step. True when a step was recorded.
   private commit(label: string, next: TaleDocument, mergeKey: string | null = null): boolean {
+    // The swipe-up link stays pinned to the bottom safe area (R7): no move, resize or rotation sticks.
+    if (next.elements.some((e) => e.type === 'swipe-up' && !isSwipeUpBox(e.box))) {
+      next = {
+        ...next,
+        elements: next.elements.map((e) => (e.type === 'swipe-up' ? { ...e, box: { ...SWIPE_UP_BOX } } : e)),
+      };
+    }
     const before = this.doc();
     if (!before || next === before || JSON.stringify(next) === JSON.stringify(before)) return false;
     if (this.held()) {
@@ -2639,6 +2846,10 @@ export class TaleStudioPage implements OnChanges {
           this.say('A tale holds one video, so it cannot be duplicated');
           break;
         }
+        if (element.type === 'swipe-up') {
+          this.say('A tale holds one swipe-up link, so it cannot be duplicated');
+          break;
+        }
         if (doc.elements.length >= MAX_TALE_ELEMENTS) {
           this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
           break;
@@ -2755,9 +2966,16 @@ export class TaleStudioPage implements OnChanges {
     if (this.isHeld()) return;
     // Hidden layers are not on the canvas: they neither move nor hold the group back, as when dragging.
     const selected = (this.doc()?.elements ?? []).filter((e) => this.isSelected(e.id) && !e.hidden);
-    const movable = selected.filter((e) => !e.locked);
+    // The swipe-up link is pinned to the bottom safe area (R7): it stays, as a locked layer does.
+    const movable = selected.filter((e) => !e.locked && e.type !== 'swipe-up');
     if (movable.length === 0) {
-      this.say(selected.length ? LOCKED : 'Hidden layers do not move. Show them first.');
+      this.say(
+        selected.some((e) => e.type === 'swipe-up')
+          ? PINNED
+          : selected.length
+            ? LOCKED
+            : 'Hidden layers do not move. Show them first.',
+      );
       return;
     }
     const step = clampMove(
@@ -2793,7 +3011,9 @@ export class TaleStudioPage implements OnChanges {
     const before = this.doc();
     if (!canvas || canvas.width === 0 || canvas.height === 0 || !before) return;
     if (!this.isSelected(element.id)) this.selectOnly(element.id);
-    const moving = (this.doc()?.elements ?? []).filter((e) => this.isSelected(e.id) && !e.locked && !e.hidden);
+    const moving = (this.doc()?.elements ?? []).filter(
+      (e) => this.isSelected(e.id) && !e.locked && !e.hidden && e.type !== 'swipe-up',
+    );
     this.drag = {
       id: element.id,
       boxes: new Map(moving.map((e) => [e.id, e.box])),
@@ -2822,7 +3042,7 @@ export class TaleStudioPage implements OnChanges {
     if (drag.locked) {
       // A locked layer stays; the drag says why once.
       this.drag = null;
-      this.say(LOCKED);
+      this.say(this.element(drag.id)?.type === 'swipe-up' && !this.element(drag.id)?.locked ? PINNED : LOCKED);
       return;
     }
     drag.moved = true;
@@ -2987,6 +3207,7 @@ export class TaleStudioPage implements OnChanges {
     kind: MediaKind,
     elementId: string | null = null,
     sticker = false,
+    imageButton = false,
   ): void {
     if (this.isHeld()) return;
     if (purpose === 'add' && kind === 'video' && this.videoLimitReached()) {
@@ -3011,7 +3232,11 @@ export class TaleStudioPage implements OnChanges {
     const heading =
       purpose === 'background'
         ? 'Choose a background image'
-        : sticker
+        : imageButton
+          ? purpose === 'replace'
+            ? 'Choose another image for the button'
+            : 'Add an image button'
+          : sticker
           ? purpose === 'replace'
             ? 'Choose another sticker image'
             : 'Add an image sticker'
@@ -3019,7 +3244,7 @@ export class TaleStudioPage implements OnChanges {
             ? `Choose another ${kind}`
             : `Add ${kind === 'image' ? 'an image' : 'a video'}`;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    this.picker.set({ purpose, kind, sticker, heading, elementId, currentKey, returnFocus });
+    this.picker.set({ purpose, kind, sticker, imageButton, heading, elementId, currentKey, returnFocus });
   }
 
   /** A canvas video read its length: one over 15 s is flagged, as only its first 15 s will play. */
@@ -3059,7 +3284,9 @@ export class TaleStudioPage implements OnChanges {
       const fits =
         element?.type === 'sticker'
           ? media.kind === 'image' && STICKER_CONTENT_TYPES.includes(media.contentType)
-          : element?.type === media.kind;
+          : element?.type === 'image-button'
+            ? media.kind === 'image'
+            : element?.type === media.kind;
       if (!element || !fits) return;
       const kind = kindName(element);
       this.change(`${kind} replaced`, (elements) =>
@@ -3071,7 +3298,75 @@ export class TaleStudioPage implements OnChanges {
       this.focusSoon(`studio-el-${id}`);
       return;
     }
-    this.addMedia(media, open.sticker);
+    if (open.imageButton) this.addImageButton(media);
+    else this.addMedia(media, open.sticker);
+  }
+
+  // Adds an image button (R7) over the other layers, with no alt text or web address yet: the
+  // inspector and the layers list say it needs both before the tale is updated.
+  private addImageButton(media: ProjectMedia): void {
+    if (media.kind !== 'image' || !this.roomForLayer()) return;
+    const element: TaleElement = {
+      id: crypto.randomUUID(),
+      type: 'image-button',
+      box: { ...NEW_IMAGE_BUTTON_BOX },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: { mediaKey: media.key },
+    };
+    this.change('Image button added', (elements) => [...elements, element]);
+    this.selectOnly(element.id);
+    this.say('Image button added. Give it a web address and alt text before updating the tale.');
+    this.focusSoon(`link-href-${element.id}`);
+  }
+
+  // True when the tale has room for one more layer; otherwise says so.
+  private roomForLayer(): boolean {
+    if ((this.doc()?.elements.length ?? 0) < MAX_TALE_ELEMENTS) return true;
+    this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
+    return false;
+  }
+
+  /** Adds a button (R7) above the bottom safe area, with no web address yet. */
+  protected addButton(): void {
+    if (this.isHeld() || !this.roomForLayer()) return;
+    const element: TaleElement = {
+      id: crypto.randomUUID(),
+      type: 'button',
+      box: { ...NEW_BUTTON_BOX },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: newButtonProps(),
+    };
+    this.change('Button added', (elements) => [...elements, element]);
+    this.selectOnly(element.id);
+    this.say('Button added. Give it a web address before updating the tale.');
+    this.focusSoon(`link-href-${element.id}`);
+  }
+
+  /** Adds the swipe-up link (R7), pinned to the bottom safe area; a tale holds one. */
+  protected addSwipeUp(): void {
+    if (this.isHeld()) return;
+    if (this.swipeUpLimitReached()) {
+      this.say('A tale holds one swipe-up link. Delete it to add another.');
+      return;
+    }
+    if (!this.roomForLayer()) return;
+    const element: TaleElement = {
+      id: crypto.randomUUID(),
+      type: 'swipe-up',
+      box: { ...SWIPE_UP_BOX },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: newSwipeUpProps(),
+    };
+    this.change('Swipe-up link added', (elements) => [...elements, element]);
+    this.selectOnly(element.id);
+    this.say('Swipe-up link added at the bottom of the tale. Give it a web address before updating the tale.');
+    this.focusSoon(`link-href-${element.id}`);
   }
 
   // Adds an image, video or image sticker of the project's media over the other layers, with no alt
