@@ -54,7 +54,7 @@ function isZone(body: unknown): body is DeliveryZone {
   return (
     typeof zone === 'object' &&
     zone !== null &&
-    Array.isArray(zone.frames) &&
+    typeof zone.frame === 'object' &&
     Array.isArray(zone.taleGroups) &&
     zone.taleGroups.every((g) => typeof g === 'object' && g !== null && Array.isArray(g.tales))
   );

@@ -3,12 +3,14 @@ import type { Db } from '@taleart/server-access';
 import type { FrameTypeRegistry } from './frame-types';
 import { ZONE_COLUMNS, type StoredZone } from './zones';
 
+// A zone has at most one frame, its display (AD-5 amended, AD-17). The API and the code keep the
+// name `frame` for the row; the dashboard says Display.
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const FRAME_COLUMNS =
-  'id, zone_id AS "zoneId", project_id AS "projectId", type, settings';
+const FRAME_COLUMNS = 'id, zone_id AS "zoneId", project_id AS "projectId", type, settings';
 
-/** Thrown when a frame request names a zone that does not exist. */
+/** Thrown when a request names a zone that does not exist. */
 export class ZoneNotFoundError extends Error {
   readonly code = ErrorCodes.zoneNotFound;
 
@@ -18,13 +20,33 @@ export class ZoneNotFoundError extends Error {
   }
 }
 
-/** Thrown when a frame id does not match a frame of the zone. */
-export class FrameNotFoundError extends Error {
-  readonly code = ErrorCodes.frameNotFound;
+/** Thrown when a display is changed on a zone that has none. */
+export class DisplayNotFoundError extends Error {
+  readonly code = ErrorCodes.displayNotFound;
 
-  constructor(readonly frameId: string) {
-    super('frameId does not match a frame of this zone');
-    this.name = 'FrameNotFoundError';
+  constructor(readonly zoneId: string) {
+    super('This zone has no display yet');
+    this.name = 'DisplayNotFoundError';
+  }
+}
+
+/** Thrown when a zone that already has a display is given another one: a zone has one display. */
+export class DisplayExistsError extends Error {
+  readonly code = ErrorCodes.displayExists;
+
+  constructor(readonly zoneId: string) {
+    super('This zone already has a display; a zone has one. Change its type or settings instead.');
+    this.name = 'DisplayExistsError';
+  }
+}
+
+/** Thrown when a display change names neither a type nor settings. */
+export class EmptyDisplayChangeError extends Error {
+  readonly code = ErrorCodes.validationFailed;
+
+  constructor() {
+    super('type or settings is required');
+    this.name = 'EmptyDisplayChangeError';
   }
 }
 
@@ -38,7 +60,7 @@ export async function zoneProjectId(db: Db, zoneId: string): Promise<string | nu
   return rows[0]?.project_id ?? null;
 }
 
-/** The zone with this id, or null when it does not exist. Ids that are not UUIDs never match. */
+/** The zone with this id, with its display, or null when it does not exist. Ids that are not UUIDs never match. */
 export async function findZone(db: Db, zoneId: string): Promise<StoredZone | null> {
   if (!UUID.test(zoneId)) return null;
   const { rows } = await db.query<StoredZone>(`SELECT ${ZONE_COLUMNS} FROM zones WHERE id = $1`, [zoneId]);
@@ -50,21 +72,13 @@ export async function zoneExists(db: Db, zoneId: string): Promise<boolean> {
   return (await zoneProjectId(db, zoneId)) !== null;
 }
 
-/** The zone's frames, oldest first. */
-export async function listFrames(db: Db, zoneId: string): Promise<Frame[]> {
-  if ((await zoneProjectId(db, zoneId)) === null) throw new ZoneNotFoundError(zoneId);
-  const { rows } = await db.query<Frame>(
-    `SELECT ${FRAME_COLUMNS} FROM frames WHERE zone_id = $1 ORDER BY created_at, id`,
-    [zoneId],
-  );
-  return rows;
-}
-
 /**
- * Adds a frame to a zone. The frame takes its project from the zone (AD-4),
- * and its settings must match the type's schema (AD-5). Missing settings are `{}`.
+ * Gives a zone its display: a frame of a registered type whose settings match the type's schema
+ * (AD-5). Missing settings are the type's defaults. The frame takes its project from the zone
+ * (AD-4). A zone that already has a display is refused ({@link DisplayExistsError}), also when
+ * two requests race: the unique index on `frames (zone_id)` keeps one.
  */
-export async function createFrame(
+export async function setDisplay(
   db: Db,
   registry: FrameTypeRegistry,
   input: { zoneId: string; type: string; settings?: unknown },
@@ -72,64 +86,83 @@ export async function createFrame(
   const projectId = await zoneProjectId(db, input.zoneId);
   if (projectId === null) throw new ZoneNotFoundError(input.zoneId);
 
-  const settings = input.settings === undefined ? {} : input.settings;
+  const settings = input.settings === undefined ? registry.withDefaults(input.type, {}) : input.settings;
   registry.validate(input.type, settings);
 
   const { rows } = await db.query<Frame>(
-    `INSERT INTO frames (zone_id, project_id, type, settings) VALUES ($1, $2, $3, $4)
+    `INSERT INTO frames (zone_id, project_id, type, settings)
+     SELECT $1, $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM frames WHERE zone_id = $1)
+     ON CONFLICT DO NOTHING
      RETURNING ${FRAME_COLUMNS}`,
     [input.zoneId, projectId, input.type, JSON.stringify(settings)],
   );
+  if (!rows[0]) throw new DisplayExistsError(input.zoneId);
   return rows[0];
 }
 
+/** Thrown when the display's type changed while a change was being made, twice in a row; it can be tried again. */
+export class DisplayConcurrentChangeError extends Error {
+  readonly code = ErrorCodes.concurrentChange;
+
+  constructor() {
+    super("The zone's display changed meanwhile. Try again.");
+    this.name = 'DisplayConcurrentChangeError';
+  }
+}
+
 /**
- * Replaces a frame's settings. They must match the schema of the frame's type
- * (AD-5); nothing is stored otherwise. A frame of another zone is not found.
+ * Changes a zone's display: a new `type` resets the settings to that type's defaults unless
+ * `settings` is given too; `settings` replaces them and must match the schema of the display's
+ * (new) type (AD-5). Nothing is stored when they do not. The display keeps its id (AD-10).
+ *
+ * The write holds only while the display still has the type the settings were checked against:
+ * when another change switched it meanwhile, the change is checked again against the new type,
+ * once, and then refused with {@link DisplayConcurrentChangeError}.
  */
-export async function updateFrameSettings(
+export async function updateDisplay(
   db: Db,
   registry: FrameTypeRegistry,
-  input: { zoneId: string; frameId: string; settings: unknown },
+  input: { zoneId: string; type?: string; settings?: unknown },
 ): Promise<Frame> {
   if ((await zoneProjectId(db, input.zoneId)) === null) throw new ZoneNotFoundError(input.zoneId);
-  if (!UUID.test(input.frameId)) throw new FrameNotFoundError(input.frameId);
-  const found = await db.query<{ type: string }>('SELECT type FROM frames WHERE id = $1 AND zone_id = $2', [
-    input.frameId,
-    input.zoneId,
-  ]);
-  const frame = found.rows[0];
-  if (!frame) throw new FrameNotFoundError(input.frameId);
+  if (input.type === undefined && input.settings === undefined) throw new EmptyDisplayChangeError();
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const found = await db.query<{ id: string; type: string }>(
+      'SELECT id, type FROM frames WHERE zone_id = $1 ORDER BY created_at, id LIMIT 1',
+      [input.zoneId],
+    );
+    const display = found.rows[0];
+    if (!display) throw new DisplayNotFoundError(input.zoneId);
 
-  registry.validate(frame.type, input.settings);
+    const type = input.type ?? display.type;
+    const settings =
+      input.settings !== undefined
+        ? input.settings
+        : type !== display.type
+          ? registry.withDefaults(type, {})
+          : undefined;
+    if (settings === undefined) {
+      // The same type and no settings: nothing changes.
+      const same = await db.query<Frame>(`SELECT ${FRAME_COLUMNS} FROM frames WHERE id = $1`, [display.id]);
+      if (same.rows[0]) return same.rows[0];
+      throw new DisplayNotFoundError(input.zoneId);
+    }
+    registry.validate(type, settings);
 
-  const { rows } = await db.query<Frame>(
-    `UPDATE frames SET settings = $3 WHERE id = $1 AND zone_id = $2 RETURNING ${FRAME_COLUMNS}`,
-    [input.frameId, input.zoneId, JSON.stringify(input.settings)],
-  );
-  // Deleted between the read and the write.
-  if (!rows[0]) throw new FrameNotFoundError(input.frameId);
-  return rows[0];
+    const { rows } = await db.query<Frame>(
+      `UPDATE frames SET type = $2, settings = $3 WHERE id = $1 AND type = $4 RETURNING ${FRAME_COLUMNS}`,
+      [display.id, type, JSON.stringify(settings), display.type],
+    );
+    if (rows[0]) return rows[0];
+    // Deleted, or its type changed, between the read and the write: read it again.
+  }
+  throw new DisplayConcurrentChangeError();
 }
 
 /**
- * The zones among `zoneIds` that have a frame: a display, until a zone holds one display (epic UX
- * rework stories 5 and 6, R7 "zone has no display").
- */
-export async function zoneIdsWithFrames(db: Db, zoneIds: readonly string[]): Promise<Set<string>> {
-  const ids = zoneIds.filter((id) => UUID.test(id));
-  if (ids.length === 0) return new Set();
-  const { rows } = await db.query<{ zoneId: string }>(
-    'SELECT DISTINCT zone_id AS "zoneId" FROM frames WHERE zone_id = ANY($1::uuid[])',
-    [ids],
-  );
-  return new Set(rows.map((row) => row.zoneId));
-}
-
-/**
- * SQL that is true when the zone whose id is the expression `zoneId` has a display: until epic UX
- * rework stories 5 and 6, a frame. The zones module owns the `frames` table; other modules build
- * their visibility and Delivery rules with this (R7).
+ * SQL that is true when the zone whose id is the expression `zoneId` has a display: its frame row
+ * (AD-17). The zones module owns the `frames` table; other modules build their visibility and
+ * Delivery rules with this (epic UX rework R7).
  */
 export function zoneHasDisplaySql(zoneId: string): string {
   return `EXISTS (SELECT 1 FROM frames zf WHERE zf.zone_id = ${zoneId})`;

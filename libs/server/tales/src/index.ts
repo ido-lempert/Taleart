@@ -33,6 +33,7 @@ export {
   isMediaKeyInUse,
   withMediaKeyDeletionGuard,
   orderTaleGroups,
+  copyZonePlacements,
   orderTales,
   orderTaleGroupsWhen,
   orderTalesWhen,
