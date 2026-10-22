@@ -1,4 +1,11 @@
-import { readingOrder, type DeliveryTaleDocument, type DeliveryTaleElement } from '@taleart/contract';
+import {
+  isLinkElement,
+  readingOrder,
+  SWIPE_UP_BOX,
+  type DeliveryTaleDocument,
+  type DeliveryTaleElement,
+} from '@taleart/contract';
+import { renderButton, renderImageButton, renderSwipeUp } from './links';
 import { mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
 import { renderEmoji, renderShape } from './shapes';
 import { renderText } from './text';
@@ -18,6 +25,9 @@ export const ELEMENT_RENDERERS: ReadonlyMap<string, ElementRenderer> = new Map<s
   ['shape', renderShape],
   ['emoji', renderEmoji],
   ['sticker', renderSticker],
+  ['button', renderButton],
+  ['image-button', renderImageButton],
+  ['swipe-up', renderSwipeUp],
 ]);
 
 /**
@@ -70,6 +80,44 @@ export const DOCUMENT_STYLES = `
   user-select: none;
   -webkit-user-select: none;
 }
+.ta-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  white-space: nowrap;
+  font-weight: 700;
+  line-height: 1.2;
+  -webkit-tap-highlight-color: transparent;
+}
+.ta-cta:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; }
+.ta-button { padding: 0 0.8em; text-overflow: ellipsis; }
+.ta-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.ta-fill { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ta-swipe { flex-direction: column; gap: 0.2em; overflow: visible; }
+.ta-swipe-arrow {
+  width: 0.7em;
+  height: 0.7em;
+  border-top: 0.16em solid currentColor;
+  border-left: 0.16em solid currentColor;
+  transform: translateY(0.2em) rotate(45deg);
+}
+.ta-swipe-label { padding: 0.35em 1em; border-radius: 999px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+@media (forced-colors: active) { .ta-cta { border: 1px solid LinkText; } }
 .ta-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .ta-hl {
   -webkit-box-decoration-break: clone;
@@ -167,7 +215,13 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
     ? doc.elements.filter((e) => isPlaceable(e) && (e as { hidden?: unknown }).hidden !== true)
     : [];
   const layer = new Map(elements.map((element, i) => [element, i + 1]));
+  // One swipe-up link per tale (R7): the server refuses a second; one that comes anyway is skipped.
+  let swipeUp = false;
   for (const element of readingOrder(elements)) {
+    if (element.type === 'swipe-up') {
+      if (swipeUp) continue;
+      swipeUp = true;
+    }
     const render = ELEMENT_RENDERERS.get(element.type);
     if (!render) {
       if (!warned.has(element.type)) {
@@ -178,7 +232,8 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
     }
     const node = render(element, context);
     if (!node) continue;
-    const { x, y, w, h, rotation } = element.box;
+    // The swipe-up link is pinned to the bottom safe area, whatever its box says.
+    const { x, y, w, h, rotation } = element.type === 'swipe-up' ? SWIPE_UP_BOX : element.box;
     const style = node.style;
     style.left = `${x * 100}%`;
     style.top = `${y * 100}%`;
@@ -186,7 +241,8 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
     style.height = `${h * 100}%`;
     if (rotation) style.transform = `rotate(${rotation}deg)`;
     style.zIndex = String(layer.get(element));
-    if (element.a11y?.decorative === true) node.setAttribute('aria-hidden', 'true');
+    // A link is never hidden from assistive technology: it is focusable, and named by its label or alt text.
+    if (element.a11y?.decorative === true && !isLinkElement(element)) node.setAttribute('aria-hidden', 'true');
     canvas.appendChild(node);
   }
   area.appendChild(canvas);

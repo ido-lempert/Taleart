@@ -138,6 +138,7 @@ export {
 } from './lib/document-media';
 export {
   AltTextRequiredError,
+  LinkUrlRequiredError,
   checkDocumentFonts,
   checkDocumentMedia,
   checkPublishableDocument,
