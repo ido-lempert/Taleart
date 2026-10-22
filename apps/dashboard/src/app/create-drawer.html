@@ -29,13 +29,13 @@
               name="text"
               autocomplete="off"
               [(ngModel)]="text"
-              [attr.aria-invalid]="error() ? 'true' : null"
-              [attr.aria-describedby]="error() ? 'create-error' : null"
+              [attr.aria-invalid]="error() && !slugError() ? 'true' : null"
+              [attr.aria-describedby]="error() && !slugError() ? 'create-zone-hint create-error' : 'create-zone-hint'"
             />
-            <p class="field__hint">One spot in your app or site, with one display (a bar or a banner).</p>
+            <p class="field__hint" id="create-zone-hint">One spot in your app or site, with one display (a bar or a banner).</p>
           </div>
           <div class="field">
-            <label class="field__label" for="create-slug">Slug (optional)</label>
+            <label class="field__label" for="create-slug">Slug</label>
             <input
               id="create-slug"
               class="input input--mono"
@@ -45,11 +45,20 @@
               autocapitalize="off"
               [maxlength]="maxSlug"
               [(ngModel)]="slug"
-              [attr.aria-invalid]="error() ? 'true' : null"
-              [attr.aria-describedby]="error() ? 'create-slug-hint create-error' : 'create-slug-hint'"
+              [attr.aria-invalid]="error() && slugError() ? 'true' : null"
+              [attr.aria-describedby]="error() && slugError() ? 'create-slug-hint create-error' : 'create-slug-hint'"
             />
             <p class="field__hint" id="create-slug-hint">
-              Lowercase letters, digits and hyphens, unique in the project. Made from the name when left empty.
+              Lowercase letters, digits and hyphens, unique in the project; a page names the zone with it.
+              @if (!slug.trim()) {
+                @if (generatedSlug(); as generated) {
+                  Left empty, it is <code>{{ generated }}</code>.
+                } @else if (text.trim()) {
+                  This name gives none: enter one.
+                } @else {
+                  Left empty, it is made from the name.
+                }
+              }
             </p>
           </div>
           <div class="field">
@@ -61,6 +70,43 @@
               }
             </select>
           </div>
+        }
+        @case ('editZone') {
+          @if (editedZone()) {
+            <div class="field">
+              <label class="field__label" for="create-text">Zone name</label>
+              <input
+                id="create-text"
+                class="input"
+                name="text"
+                autocomplete="off"
+                [(ngModel)]="text"
+                [attr.aria-invalid]="error() && !slugError() ? 'true' : null"
+                [attr.aria-describedby]="error() && !slugError() ? 'create-error' : null"
+              />
+            </div>
+            <div class="field">
+              <label class="field__label" for="create-slug">Slug</label>
+              <input
+                id="create-slug"
+                class="input input--mono"
+                name="slug"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="off"
+                [maxlength]="maxSlug"
+                [(ngModel)]="slug"
+                [attr.aria-invalid]="error() && slugError() ? 'true' : null"
+                [attr.aria-describedby]="error() && slugError() ? 'edit-slug-hint create-error' : 'edit-slug-hint'"
+              />
+              <p class="field__hint" id="edit-slug-hint">
+                Lowercase letters, digits and hyphens, unique in the project. A page names the zone with it, so a page
+                that uses the old slug needs the new one.
+              </p>
+            </div>
+          } @else {
+            <p class="muted">This zone no longer exists.</p>
+          }
         }
         @case ('display') {
           <div class="field">

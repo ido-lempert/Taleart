@@ -100,10 +100,24 @@ export async function setDisplay(
   return rows[0];
 }
 
+/** Thrown when the display's type changed while a change was being made, twice in a row; it can be tried again. */
+export class DisplayConcurrentChangeError extends Error {
+  readonly code = ErrorCodes.concurrentChange;
+
+  constructor() {
+    super("The zone's display changed meanwhile. Try again.");
+    this.name = 'DisplayConcurrentChangeError';
+  }
+}
+
 /**
  * Changes a zone's display: a new `type` resets the settings to that type's defaults unless
  * `settings` is given too; `settings` replaces them and must match the schema of the display's
  * (new) type (AD-5). Nothing is stored when they do not. The display keeps its id (AD-10).
+ *
+ * The write holds only while the display still has the type the settings were checked against:
+ * when another change switched it meanwhile, the change is checked again against the new type,
+ * once, and then refused with {@link DisplayConcurrentChangeError}.
  */
 export async function updateDisplay(
   db: Db,
@@ -112,34 +126,37 @@ export async function updateDisplay(
 ): Promise<Frame> {
   if ((await zoneProjectId(db, input.zoneId)) === null) throw new ZoneNotFoundError(input.zoneId);
   if (input.type === undefined && input.settings === undefined) throw new EmptyDisplayChangeError();
-  const found = await db.query<{ id: string; type: string }>(
-    'SELECT id, type FROM frames WHERE zone_id = $1 ORDER BY created_at, id LIMIT 1',
-    [input.zoneId],
-  );
-  const display = found.rows[0];
-  if (!display) throw new DisplayNotFoundError(input.zoneId);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const found = await db.query<{ id: string; type: string }>(
+      'SELECT id, type FROM frames WHERE zone_id = $1 ORDER BY created_at, id LIMIT 1',
+      [input.zoneId],
+    );
+    const display = found.rows[0];
+    if (!display) throw new DisplayNotFoundError(input.zoneId);
 
-  const type = input.type ?? display.type;
-  const settings =
-    input.settings !== undefined
-      ? input.settings
-      : type !== display.type
-        ? registry.withDefaults(type, {})
-        : undefined;
-  if (settings === undefined) {
-    // The same type and no settings: nothing changes.
-    const same = await db.query<Frame>(`SELECT ${FRAME_COLUMNS} FROM frames WHERE id = $1`, [display.id]);
-    return same.rows[0];
+    const type = input.type ?? display.type;
+    const settings =
+      input.settings !== undefined
+        ? input.settings
+        : type !== display.type
+          ? registry.withDefaults(type, {})
+          : undefined;
+    if (settings === undefined) {
+      // The same type and no settings: nothing changes.
+      const same = await db.query<Frame>(`SELECT ${FRAME_COLUMNS} FROM frames WHERE id = $1`, [display.id]);
+      if (same.rows[0]) return same.rows[0];
+      throw new DisplayNotFoundError(input.zoneId);
+    }
+    registry.validate(type, settings);
+
+    const { rows } = await db.query<Frame>(
+      `UPDATE frames SET type = $2, settings = $3 WHERE id = $1 AND type = $4 RETURNING ${FRAME_COLUMNS}`,
+      [display.id, type, JSON.stringify(settings), display.type],
+    );
+    if (rows[0]) return rows[0];
+    // Deleted, or its type changed, between the read and the write: read it again.
   }
-  registry.validate(type, settings);
-
-  const { rows } = await db.query<Frame>(
-    `UPDATE frames SET type = $2, settings = $3 WHERE id = $1 RETURNING ${FRAME_COLUMNS}`,
-    [display.id, type, JSON.stringify(settings)],
-  );
-  // Deleted between the read and the write.
-  if (!rows[0]) throw new DisplayNotFoundError(input.zoneId);
-  return rows[0];
+  throw new DisplayConcurrentChangeError();
 }
 
 /**

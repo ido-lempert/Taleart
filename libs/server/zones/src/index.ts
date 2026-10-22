@@ -26,6 +26,7 @@ export {
   DisplayNotFoundError,
   DisplayExistsError,
   EmptyDisplayChangeError,
+  DisplayConcurrentChangeError,
 } from './lib/frames';
 export {
   applyPlaybook,

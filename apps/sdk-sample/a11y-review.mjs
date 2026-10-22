@@ -85,18 +85,68 @@ const groups = (names = ['Summer sale', 'New arrivals', 'Stories']) => [
     tales: [textTale('c1', 'מבצע קיץ', ['מבצע קיץ: 50% off on all shoes!', 'Free shipping — משלוח חינם'])],
   },
 ];
+// The page under review. A zone has one display (AD-17), so `frames` here lists the displays the
+// page shows: one zone per entry, each with its own key and its own <taleart-view>, in this order,
+// all showing the same tale groups (see `zonesOf`).
 const zone = (overrides = {}) => ({
   id: 'z1',
   name: 'Home',
+  slug: 'home',
   theme: DEFAULT_THEME,
   frames: [
     { id: 'f1', type: 'bar', settings: {} },
     { id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } },
   ],
-  stages: [],
   taleGroups: groups(),
   ...overrides,
 });
+
+// The zones a page fixture stands for, keyed by their zone keys: one zone per display, as the
+// Delivery API sends it (`frame`). `legacy` keeps the pre-rework `frames` list too, for the SDK
+// build from before the rework that the R16 comparison loads.
+function zonesOf(page, { legacy = false } = {}) {
+  const { frames = [], ...rest } = page;
+  return Object.fromEntries(
+    frames.map((frame, i) => [
+      i === 0 ? 'tak_review' : `tak_review_${i + 1}`,
+      {
+        ...rest,
+        id: i === 0 ? rest.id : `${rest.id}-${i + 1}`,
+        slug: i === 0 ? rest.slug : `${rest.slug}-${i + 1}`,
+        frame,
+        ...(legacy && { frames: [frame], stages: [] }),
+      },
+    ]),
+  );
+}
+
+// Answers the Delivery API by the request's key, as the API does.
+function deliverZones(zones) {
+  return (route) => {
+    const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
+    return zones[key]
+      ? route.fulfill({ json: zones[key], headers: CORS })
+      : route.fulfill({ status: 401, json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } }, headers: CORS });
+  };
+}
+
+// In the page: the first match of a selector across every <taleart-view>'s shadow root (an element
+// with an open viewer first), and every match. The page shows one element per zone (AD-17).
+const TA_HELPERS = () => {
+  const roots = () =>
+    [...document.querySelectorAll('taleart-view')]
+      .map((v) => v.shadowRoot)
+      .filter(Boolean)
+      .sort((a, b) => Number(!!b.querySelector('dialog[open]')) - Number(!!a.querySelector('dialog[open]')));
+  window.__taOne = (selector) => {
+    for (const root of roots()) {
+      const found = root.querySelector(selector);
+      if (found) return found;
+    }
+    return null;
+  };
+  window.__taAll = (selector) => roots().flatMap((root) => [...root.querySelectorAll(selector)]);
+};
 
 // ---- Results ----
 
@@ -117,7 +167,7 @@ async function axe(page, label) {
 async function shot(page, name, { frames = false } = {}) {
   if (!shotsDir) return;
   const path = resolve(shotsDir, `${name}.png`);
-  if (frames) await page.locator('taleart-view').first().screenshot({ path });
+  if (frames) await page.locator('#views').screenshot({ path });
   else await page.screenshot({ path });
 }
 
@@ -172,7 +222,8 @@ async function openSample(
   const errors = [];
   page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
   page.on('pageerror', (err) => errors.push(String(err)));
-  await page.route(`${API}/delivery/v1/zone`, (route) => route.fulfill({ json: z, headers: CORS }));
+  const zones = zonesOf(z);
+  await page.route(`${API}/delivery/v1/zone`, deliverZones(zones));
   await page.route(`${API}/media/**`, (route) =>
     route.request().url().endsWith('.webm')
       ? route.fulfill({ body: videoBytes, contentType: 'video/webm', headers: { 'Access-Control-Allow-Origin': '*' } })
@@ -190,14 +241,15 @@ async function openSample(
       { dir, lang, host },
     );
   }
-  await page.goto(`http://localhost:${port}/?key=tak_review&api=${encodeURIComponent(API)}${query}`);
+  await page.goto(`http://localhost:${port}/?keys=${Object.keys(zones).join(',')}&api=${encodeURIComponent(API)}${query}`);
   await page.locator('taleart-view button.item, taleart-view section.banner').first().waitFor();
   page.errors = errors;
   return page;
 }
 
-const view = (page) => page.locator('taleart-view').first();
-const dialogOf = (page) => page.locator('taleart-view dialog.viewer');
+// Every zone the page shows, and the open viewer (each element has its own, closed until used).
+const view = (page) => page.locator('#views');
+const dialogOf = (page) => page.locator('taleart-view dialog.viewer[open]');
 
 // The focused element, looking through shadow roots: what it is, its name, focus ring and whether
 // anything covers it (2.4.11: at least part of it must show).
@@ -276,7 +328,7 @@ const WHITE = { r: 255, g: 255, b: 255, a: 1 };
 const shadowStyle = (page, selector, props, pseudo = null) =>
   page.evaluate(
     ({ selector, props, pseudo }) => {
-      const el = document.querySelector('taleart-view').shadowRoot.querySelector(selector);
+      const el = __taOne(selector);
       if (!el) return null;
       const style = getComputedStyle(el, pseudo);
       return Object.fromEntries(props.map((p) => [p, style.getPropertyValue(p)]));
@@ -310,7 +362,7 @@ const targets = (page) =>
 async function viewerStatus(page, expected) {
   await page
     .waitForFunction(
-      (t) => document.querySelector('taleart-view')?.shadowRoot?.querySelector('dialog .sr-only')?.textContent === t,
+      (t) => __taOne('dialog .sr-only')?.textContent === t,
       expected,
       { timeout: 2000 },
     )
@@ -327,6 +379,14 @@ const axeSource = await loadAxe();
 const port = await freePort();
 const server = await startSample(port);
 const browser = await chromium.launch();
+{
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => {
+    const context = await newContext(...args);
+    await context.addInitScript(TA_HELPERS);
+    return context;
+  };
+}
 try {
   await makeVideo(browser);
 
@@ -369,14 +429,12 @@ try {
     );
     // Chromium keeps aria-current out of the CDP tree: read it from the DOM.
     const currentDot = await page.evaluate(() =>
-      document
-        .querySelector('taleart-view')
-        .shadowRoot.querySelector('.b-dot[aria-current="true"]')
+      __taOne('.b-dot[aria-current="true"]')
         ?.getAttribute('aria-label'),
     );
     check('4.1.2', currentDot === 'Show Summer sale', 'banner: the shown slide’s dot is aria-current');
     const hiddenSlides = await page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.b-slide')].map(
+      [...__taAll('.b-slide')].map(
         (s) => s.hasAttribute('inert') && s.getAttribute('aria-hidden') === 'true',
       ),
     );
@@ -424,7 +482,7 @@ try {
     // Operate the banner by keyboard: rotation button, dots, previous and next, then the slide opens the viewer.
     const slide = () =>
       page.evaluate(() =>
-        [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.b-dot')].findIndex(
+        [...__taAll('.b-dot')].findIndex(
           (d) => d.getAttribute('aria-current') === 'true',
         ),
       );
@@ -447,7 +505,7 @@ try {
       'Space on the rotation button stops it',
     );
     const live = await page.evaluate(() =>
-      document.querySelector('taleart-view').shadowRoot.querySelector('.b-track').getAttribute('aria-live'),
+      __taOne('.b-track').getAttribute('aria-live'),
     );
     check('4.1.3', live === 'polite', 'stopped, the slide list announces slide changes politely');
     await page.keyboard.press('Shift+Tab'); // slide
@@ -477,7 +535,7 @@ try {
     await dialog.waitFor();
     check('2.1.1', await dialog.isVisible(), 'Enter on a bar item opens the viewer');
     const isModal = await page.evaluate(() =>
-      document.querySelector('taleart-view').shadowRoot.querySelector('dialog').matches(':modal'),
+      __taOne('dialog').matches(':modal'),
     );
     check('4.1.2', isModal, 'the viewer is a modal dialog (the page behind it is inert)');
     const dialogTree = await dialog.ariaSnapshot();
@@ -490,7 +548,7 @@ try {
       'the live region says "Summer sale, tale 1 of 3"',
     );
     const liveRegion = await page.evaluate(() =>
-      document.querySelector('taleart-view').shadowRoot.querySelector('dialog .sr-only').getAttribute('aria-live'),
+      __taOne('dialog .sr-only').getAttribute('aria-live'),
     );
     check('4.1.3', liveRegion === 'polite', 'the tale position is a polite live region');
 
@@ -544,7 +602,7 @@ try {
 
     // Each control by Enter and by Space.
     const focusByName = async (name) => {
-      await page.evaluate(() => document.querySelector('taleart-view').shadowRoot.querySelector('dialog').focus());
+      await page.evaluate(() => __taOne('dialog').focus());
       for (let i = 0; i < 6; i++) {
         await page.keyboard.press('Tab');
         if ((await focusInfo(page)).name === name) return true;
@@ -585,7 +643,7 @@ try {
     );
     if ((await dialog.getAttribute('data-paused')) === null) await page.keyboard.press(' ');
     const videoName = await page.evaluate(() => {
-      const dialog = document.querySelector('taleart-view').shadowRoot.querySelector('dialog');
+      const dialog = __taOne('dialog');
       return dialog.querySelector('video.media')?.getAttribute('aria-hidden') === 'true'
         ? dialog.querySelector('.ta-canvas')?.getAttribute('aria-label')
         : null;
@@ -744,7 +802,7 @@ try {
     await page.mouse.move(1, 1);
     const playing = () =>
       page.evaluate(() => {
-        const video = document.querySelector('taleart-view').shadowRoot.querySelector('video.cover[data-animated]');
+        const video = __taOne('video.cover[data-animated]');
         return video ? !video.paused : false;
       });
     await page.waitForTimeout(800);
@@ -754,7 +812,7 @@ try {
     // Hover pauses the banner; the rotation button stops it.
     const index = () =>
       page.evaluate(() =>
-        [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.b-dot')].findIndex(
+        [...__taAll('.b-dot')].findIndex(
           (d) => d.getAttribute('aria-current') === 'true',
         ),
       );
@@ -783,7 +841,7 @@ try {
       'with reduced motion slides change without a transition',
     );
     const coverStill = await still.evaluate(() => {
-      const video = document.querySelector('taleart-view').shadowRoot.querySelector('video.cover[data-animated]');
+      const video = __taOne('video.cover[data-animated]');
       return video ? video.paused && !video.autoplay : true;
     });
     check('2.3.3', coverStill, 'with reduced motion an animated cover stays on its first frame');
@@ -826,7 +884,7 @@ try {
     await dialog.waitFor();
     await page.keyboard.press(' ');
     const boxes = await page.evaluate(() => {
-      const root = document.querySelector('taleart-view').shadowRoot;
+      const root = { querySelector: __taOne };
       const r = (s) => root.querySelector(s).getBoundingClientRect();
       return { pause: r('dialog .control.pause'), close: r('dialog .control.close'), name: r('dialog .name') };
     });
@@ -853,19 +911,19 @@ try {
     const SPACING =
       '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }';
     const before = await page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.title')].map(
+      [...__taAll('.title')].map(
         (t) => t.scrollWidth <= t.clientWidth,
       ),
     );
     await page.evaluate((css) => {
-      for (const root of [document, document.querySelector('taleart-view').shadowRoot]) {
+      for (const root of [document, ...[...document.querySelectorAll('taleart-view')].map((v) => v.shadowRoot)]) {
         const style = document.createElement('style');
         style.textContent = css;
         (root.head ?? root).appendChild(style);
       }
     }, SPACING);
     const clipped = await page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.title')].map((t) => ({
+      [...__taAll('.title')].map((t) => ({
         name: t.textContent,
         fits: t.scrollWidth <= t.clientWidth,
         tall: t.scrollHeight <= t.clientHeight + 1,
@@ -885,7 +943,7 @@ try {
     await page.keyboard.press('ArrowRight');
     await viewerStatus(page, 'Summer sale, tale 2 of 3');
     const texts = await page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('dialog .ta-text')].map((p) => {
+      [...__taAll('dialog .ta-text')].map((p) => {
         const canvas = p.closest('.ta-canvas').getBoundingClientRect();
         const g = p.querySelector('.ta-glyphs').getBoundingClientRect();
         return (
@@ -913,7 +971,7 @@ try {
     const dialog = dialogOf(page);
     await dialog.waitFor();
     const frame = await page.evaluate(() =>
-      document.querySelector('taleart-view').shadowRoot.querySelector('dialog .frame').getBoundingClientRect().toJSON(),
+      __taOne('dialog .frame').getBoundingClientRect().toJSON(),
     );
     check(
       '1.3.4',
@@ -1011,7 +1069,7 @@ try {
     await page.mouse.move(1, 1);
     await axe(page, 'bar and banner in forced colours');
     const dotStyles = await page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.b-dot')].map((d) => {
+      [...__taAll('.b-dot')].map((d) => {
         const s = getComputedStyle(d, '::before');
         return {
           bg: s.backgroundColor,
@@ -1044,7 +1102,7 @@ try {
     await dialog.waitFor();
     await page.keyboard.press(' ');
     const seg = await page.evaluate(() => {
-      const root = document.querySelector('taleart-view').shadowRoot;
+      const root = { querySelector: __taOne };
       const s = getComputedStyle(root.querySelector('dialog .control.close'));
       return { border: s.borderTopStyle, color: s.color };
     });
@@ -1063,7 +1121,7 @@ try {
     await axe(page, 'RTL host page: bar and banner');
     const shownMedia = async () =>
       page.evaluate(() => {
-        const root = document.querySelector('taleart-view').shadowRoot;
+        const root = { querySelector: __taOne };
         const viewport = root.querySelector('.b-viewport').getBoundingClientRect();
         const slide = root.querySelector('.b-slide:not([inert])').getBoundingClientRect();
         return Math.abs(slide.left - viewport.left) < 2 && Math.abs(slide.width - viewport.width) < 2;
@@ -1075,7 +1133,7 @@ try {
     check('1.3.2', await shownMedia(), 'RTL: after Next the shown slide is in the slide area (not off-screen)');
     const rtlIndex = () =>
       page.evaluate(() =>
-        [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.b-dot')].findIndex(
+        [...__taAll('.b-dot')].findIndex(
           (d) => d.getAttribute('aria-current') === 'true',
         ),
       );
@@ -1089,7 +1147,7 @@ try {
     await page.waitForTimeout(500);
     check('1.3.2', await shownMedia(), 'RTL: after a swipe the shown slide is in the slide area');
     const sides = await page.evaluate(() => {
-      const root = document.querySelector('taleart-view').shadowRoot;
+      const root = { querySelector: __taOne };
       return {
         prev: root.querySelector('.b-prev').getBoundingClientRect().x,
         next: root.querySelector('.b-next').getBoundingClientRect().x,
@@ -1097,7 +1155,7 @@ try {
     });
     check('1.3.2', sides.prev > sides.next, 'RTL: Previous slide sits on the right and Next on the left');
     const flips = await page.evaluate(() => {
-      const root = document.querySelector('taleart-view').shadowRoot;
+      const root = { querySelector: __taOne };
       const t = (s) => getComputedStyle(root.querySelector(s + ' svg')).transform;
       return { next: t('.b-next'), rotate: t('.b-rotate') };
     });
@@ -1108,7 +1166,7 @@ try {
     );
     await shot(page, '15-rtl-bar-banner', { frames: true });
     const titleDir = await page.evaluate(
-      () => getComputedStyle(document.querySelector('taleart-view').shadowRoot.querySelector('.title')).direction,
+      () => getComputedStyle(__taOne('.title')).direction,
     );
     check('1.3.2', titleDir === 'rtl', 'RTL: bar titles run right to left');
     await view(page).locator('button.item').nth(2).click();
@@ -1116,7 +1174,7 @@ try {
     await dialog.waitFor();
     await page.keyboard.press(' ');
     const zones = await page.evaluate(() => {
-      const root = document.querySelector('taleart-view').shadowRoot;
+      const root = { querySelector: __taOne };
       return {
         prev: root.querySelector('dialog .zone.prev').getBoundingClientRect().x,
         next: root.querySelector('dialog .zone.next').getBoundingClientRect().x,
@@ -1128,7 +1186,7 @@ try {
       'RTL: in the viewer, Previous tale is the right third and Next tale the left',
     );
     const head = await page.evaluate(() => {
-      const root = document.querySelector('taleart-view').shadowRoot;
+      const root = { querySelector: __taOne };
       const x = (s) => root.querySelector(s).getBoundingClientRect();
       return {
         name: x('dialog .name').right,
@@ -1142,7 +1200,7 @@ try {
       'RTL: the group name is on the right and Close at the far left',
     );
     const lines = await page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('dialog .ta-text')].map((p) => ({
+      [...__taAll('dialog .ta-text')].map((p) => ({
         dir: p.dir,
         base: getComputedStyle(p).direction,
       })),
@@ -1177,14 +1235,14 @@ try {
     await dialogOf(p2).waitFor();
     await p2.keyboard.press(' ');
     const first = await p2.evaluate(() => {
-      const p = document.querySelector('taleart-view').shadowRoot.querySelector('dialog .ta-text');
+      const p = __taOne('dialog .ta-text');
       return getComputedStyle(p).direction === 'rtl' || p.matches(':dir(rtl)');
     });
     check('1.3.2', first, 'LTR page: the Hebrew-first line of a mixed text tale runs right to left');
     await ltr.close();
   }
 
-  // 10. Stages: two staged bars on one page keep distinct, named controls.
+  // 10. Two zones, two displays (AD-17): a bar zone and a banner zone on one page keep distinct, named controls.
   {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const z = zone({
@@ -1192,13 +1250,19 @@ try {
         { id: 'f1', type: 'bar', settings: { shape: 'circle' } },
         { id: 'f2', type: 'banner', settings: { autoplay: false } },
       ],
-      stages: [
-        { key: 'top', frameId: 'f1' },
-        { key: 'hero', frameId: 'f2' },
-      ],
     });
-    const page = await openSample(context, { zone: z, query: '&stages=top,hero' });
-    await axe(page, 'stages: a bar stage and a banner stage');
+    const page = await openSample(context, { zone: z });
+    await page.locator('taleart-view section.banner').waitFor();
+    const named = await page.evaluate(() =>
+      __taAll('button').map((b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').trim()),
+    );
+    check('4.1.2', named.every((n) => n !== ''), 'two zones: every control of both displays has a name');
+    check(
+      '1.3.1',
+      (await page.locator('#views h2').allTextContents()).join() === 'Zone 1,Zone 2',
+      'two zones: each display sits under its own heading',
+    );
+    await axe(page, 'two zones: a bar zone and a banner zone');
     await context.close();
   }
 
@@ -1258,7 +1322,7 @@ try {
       '@font-face { font-family: "Sample Serif"; src: local("Georgia"), local("DejaVu Serif"), local("Times New Roman"); }';
     const read = (page) =>
       page.evaluate(() =>
-        [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('dialog .ta-text')].map((p) => {
+        [...__taAll('dialog .ta-text')].map((p) => {
           const s = getComputedStyle(p);
           const g = p.querySelector('.ta-glyphs');
           const gs = getComputedStyle(g);
@@ -1365,7 +1429,7 @@ try {
       await page.evaluate((css) => {
         const style = document.createElement('style');
         style.textContent = css;
-        document.querySelector('taleart-view').shadowRoot.appendChild(style);
+        for (const v of document.querySelectorAll('taleart-view')) v.shadowRoot.appendChild(style.cloneNode(true));
       }, '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }');
       const spaced = await read(page);
       check(
@@ -1432,7 +1496,7 @@ try {
     };
     const readFont = (page) =>
       page.evaluate((alias) => {
-        const p = [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('dialog .ta-text')].find((t) =>
+        const p = [...__taAll('dialog .ta-text')].find((t) =>
           t.textContent.startsWith('Brand font'),
         );
         return {
@@ -1557,7 +1621,7 @@ try {
     });
     const readMedia = (page) =>
       page.evaluate(() => {
-        const dialog = document.querySelector('taleart-view').shadowRoot.querySelector('dialog');
+        const dialog = __taOne('dialog');
         const video = dialog.querySelector('.ta-canvas video');
         return {
           images: [...dialog.querySelectorAll('.ta-canvas img.ta-media')].map((img) => ({
@@ -1713,7 +1777,7 @@ try {
     await dialogOf(page).waitFor();
     await page.waitForTimeout(400);
     const shown = await page.evaluate(() => {
-      const dialog = document.querySelector('taleart-view').shadowRoot.querySelector('dialog');
+      const dialog = __taOne('dialog');
       const canvas = dialog.querySelector('.ta-canvas').getBoundingClientRect();
       const box = (node) => {
         const r = node.getBoundingClientRect();
@@ -1883,7 +1947,8 @@ try {
           route.fulfill({ body: legacyBundle, contentType: 'text/javascript; charset=utf-8' }),
         );
       }
-      await page.route(`${API}/delivery/v1/zone`, (route) => route.fulfill({ json: z, headers: CORS }));
+      // The SDK build from before the rework reads `frames`; the current one reads `frame` (AD-17).
+      await page.route(`${API}/delivery/v1/zone`, deliverZones(zonesOf(z, { legacy })));
       await page.route(`${API}/media/**`, (route) => {
         const url = route.request().url();
         const headers = { 'Access-Control-Allow-Origin': '*' };
@@ -1897,7 +1962,7 @@ try {
       await page.locator('taleart-view button.item').first().click();
       await page.locator('taleart-view dialog.viewer').waitFor();
       await page.evaluate(() => {
-        const dialog = document.querySelector('taleart-view').shadowRoot.querySelector('dialog');
+        const dialog = __taOne('dialog');
         dialog.querySelector('.top').style.visibility = 'hidden';
         dialog.focus();
       });
@@ -1905,7 +1970,7 @@ try {
       const png = await page.screenshot();
       // Which SDK drew it: the release before drew a tale without a document with no canvas at all.
       const canvas = await page.evaluate(
-        () => !!document.querySelector('taleart-view').shadowRoot.querySelector('dialog .ta-area'),
+        () => !!__taOne('dialog .ta-area'),
       );
       await context.close();
       return { png, errors, canvas };
@@ -1986,7 +2051,7 @@ try {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page = await openSample(context, { zone: coverZone });
     const covers = await page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('button.item')].map((item) => ({
+      [...__taAll('button.item')].map((item) => ({
         name: item.getAttribute('aria-label'),
         title: item.querySelector('.title')?.textContent,
         tag: item.querySelector('.cover')?.tagName,

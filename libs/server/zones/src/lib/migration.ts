@@ -33,7 +33,8 @@ export async function migrateZones(db: Db): Promise<void> {
       FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id)
     );
   `);
-  await db.query('CREATE INDEX IF NOT EXISTS frames_zone_id_idx ON frames (zone_id, created_at)');
+  // A zone's frame is found through the unique index `frames_zone_id_key` (one display per zone),
+  // which `foldStagesIntoZones` creates; the older frames_zone_id_idx is dropped there.
 
   // The key of the playbook applied to the zone (epic web zones R8), from the
   // playbook registry in libs/contract; a playbook is registry data, not a table.

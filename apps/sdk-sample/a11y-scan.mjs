@@ -2,13 +2,14 @@
 // open full-screen viewer, with axe-core in headless Chromium. The Delivery API and media are
 // stubbed, so no API, database or key is needed. Also drives the viewer by keyboard and checks
 // that focus returns to the bar item and the viewed group shows the seen ring after a reload.
-// Then the banner frame of the same zone: rotating and stopped, its controls, swipe, opening the
-// viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
+// A zone has one display (AD-17): the page places a second zone, whose display is a banner, below
+// the bar zone (`?keys=`), with its own key. The banner: rotating and stopped, its controls, swipe,
+// opening the viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
+// Then two zones with two bars, each with its own shape and its own named items, and an unknown key
+// that renders nothing and logs one error.
+// Then playbooks (R8): a zone whose display is each MVP playbook's preset renders it.
 // Then a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
-// the bar, the banner, the seen ring and the viewer; then the zone's SDK theme override wins over it.
-// Last, stages: two <taleart-view stage> elements show their own frames, and an unknown stage
-// key renders nothing and logs a warning.
-// Then playbooks (R8): a zone shaped like each applied MVP playbook renders its preset frame by stage key.
+// the bar, the banner, the seen ring and the viewer; then the zones' SDK theme override wins over it.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 // The deeper accessibility review (keyboard walk, zoom, forced colours, RTL…) is a11y-review.mjs.
 import { chromium } from 'playwright';
@@ -37,12 +38,9 @@ const DEFAULT_THEME = {
 const ZONE = {
   id: 'z1',
   name: 'Home',
+  slug: 'home-top',
   theme: DEFAULT_THEME,
-  frames: [
-    { id: 'f1', type: 'bar', settings: {} },
-    { id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } },
-  ],
-  stages: [],
+  frame: { id: 'f1', type: 'bar', settings: {} },
   taleGroups: [
     // A group with its own cover (R12), and two that fall back to their first tale's image.
     {
@@ -95,6 +93,26 @@ const ZONE = {
   ],
 };
 
+// The same zone's groups shown by a second zone whose display is a banner (AD-17).
+const bannerZone = (settings) => ({ ...ZONE, id: 'z2', name: 'Home promo', slug: 'home-promo', frame: { id: 'f2', type: 'banner', settings } });
+
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' };
+
+// Serves the Delivery API by key: each key in `zones` reads its zone; any other key is refused.
+async function serve(page, zones) {
+  await page.route(`${API}/delivery/v1/zone`, (route) => {
+    const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
+    return zones[key]
+      ? route.fulfill({ json: zones[key], headers: CORS })
+      : route.fulfill({ status: 401, json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } }, headers: CORS });
+  });
+  await page.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+}
+
+const pageUrl = (port, keys, extra = '') => `http://localhost:${port}/?keys=${keys.join(',')}&api=${encodeURIComponent(API)}${extra}`;
+
 async function scan(page, label, axe) {
   return (await axeViolations(page, label, axe)).length;
 }
@@ -104,12 +122,12 @@ function check(ok, message) {
   console.log(`ok - ${message}`);
 }
 
-// The shadow DOM's focused element of <taleart-view>, described for checks.
-const focused = (page) =>
-  page.evaluate(() => {
-    const active = document.querySelector('taleart-view')?.shadowRoot?.activeElement;
+// The focused element in the shadow DOM of the page's `index`th <taleart-view>, described for checks.
+const focused = (page, index = 0) =>
+  page.evaluate((i) => {
+    const active = document.querySelectorAll('taleart-view')[i]?.shadowRoot?.activeElement;
     return active ? { tag: active.tagName, group: active.dataset.taleGroupId ?? null, label: active.getAttribute('aria-label') } : null;
-  });
+  }, index);
 
 const axe = await loadAxe();
 const port = await freePort();
@@ -122,17 +140,15 @@ try {
   const errors = [];
   page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
   page.on('pageerror', (err) => errors.push(String(err)));
-  await page.route(`${API}/delivery/v1/zone`, (route) =>
-    route.fulfill({ json: ZONE, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' } }),
-  );
-  await page.route(`${API}/media/**`, (route) =>
-    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
-  );
+  await serve(page, { tak_bar: ZONE, tak_banner: bannerZone({ intervalSeconds: 3 }) });
 
-  await page.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  await page.goto(pageUrl(port, ['tak_bar', 'tak_banner']));
+  // The bar zone's element, then the banner zone's.
+  const barView = page.locator('taleart-view').nth(0);
+  const bannerView = page.locator('taleart-view').nth(1);
   // A tall page, so a wheel that reached it would scroll it.
   await page.addStyleTag({ content: 'body { min-height: 300vh; }' });
-  const items = page.locator('taleart-view button.item');
+  const items = barView.locator('button.item');
   await items.first().waitFor();
   violations += await scan(page, 'bar', axe);
   // With the default theme the frames keep the look before themes: the host page's text colour and font, no background.
@@ -144,7 +160,8 @@ try {
       color: title.color === body.color,
       font: title.fontFamily === body.fontFamily,
       background: getComputedStyle(root.querySelector('.bar')).backgroundColor,
-      bannerRadius: getComputedStyle(root.querySelector('.b-viewport')).borderTopLeftRadius,
+      bannerRadius: getComputedStyle(document.querySelectorAll('taleart-view')[1].shadowRoot.querySelector('.b-viewport'))
+        .borderTopLeftRadius,
     };
   });
   check(looks.color && looks.font, "by default bar titles take the host page's text colour and font");
@@ -152,13 +169,13 @@ try {
   check(looks.bannerRadius === '12px', 'by default the banner keeps its 12 px radius');
 
   await items.first().click();
-  const dialog = page.locator('taleart-view dialog.viewer');
+  const dialog = barView.locator('dialog.viewer');
   await dialog.waitFor();
   // Paused first, so no check below races the automatic advance.
   await page.keyboard.press(' ');
   check((await dialog.getAttribute('data-paused')) !== null, 'Space pauses');
   check((await dialog.getAttribute('aria-label')) === 'Summer sale', 'the viewer opens on the activated group');
-  const position = page.locator('taleart-view dialog .sr-only');
+  const position = barView.locator('dialog .sr-only');
   const at = async (text, message) => {
     // The live region is filled a task after each change.
     await page.waitForFunction(
@@ -174,11 +191,11 @@ try {
   await page.keyboard.press('ArrowRight');
   await at('Summer sale, tale 2 of 2', 'ArrowRight steps to the next tale');
   // Tale 2 has a tale document (AD-15, AD-16): its text over the media, as live, selectable text.
-  const textEl = page.locator('taleart-view dialog p.ta-text').first();
+  const textEl = barView.locator('dialog p.ta-text').first();
   const glyphs = textEl.locator('.ta-glyphs');
   check((await textEl.textContent()) === '<b>Hello</b>', 'the text element shows its text literally, as a text node');
   check(
-    (await page.locator('taleart-view dialog p.ta-text').nth(1).textContent()) === 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦',
+    (await barView.locator('dialog p.ta-text').nth(1).textContent()) === 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦',
     'right-to-left text with isolates and an emoji ZWJ sequence renders as written',
   );
   const placed = await page.evaluate(() => {
@@ -231,13 +248,13 @@ try {
   await at('Summer sale, tale 1 of 2', 'ArrowLeft steps back');
   await page.keyboard.press('Alt+ArrowRight');
   await at('Summer sale, tale 1 of 2', 'Alt+ArrowRight is left to the browser');
-  await page.locator('taleart-view dialog .zone.next').click();
+  await barView.locator('dialog .zone.next').click();
   await at('Summer sale, tale 2 of 2', 'a tap on the right steps forward');
-  await page.locator('taleart-view dialog .zone.prev').click();
+  await barView.locator('dialog .zone.prev').click();
   await at('Summer sale, tale 1 of 2', 'a tap on the left steps back');
   check((await dialog.getAttribute('data-paused')) !== null, 'stepping keeps the viewer paused');
 
-  const box = await page.locator('taleart-view dialog .stage').boundingBox();
+  const box = await barView.locator('dialog .stage').boundingBox();
   const y = box.y + box.height / 2;
   await page.mouse.move(box.x + box.width * 0.8, y);
   await page.mouse.down();
@@ -271,11 +288,11 @@ try {
   check((await items.nth(2).getAttribute('data-seen')) === null, 'an unviewed group does not');
   violations += await scan(page, 'bar with seen ring', axe);
 
-  // The banner frame (R3) of the same zone, below the bar.
-  const banner = page.locator('taleart-view section.banner');
+  // The banner (R3): the display of the second zone, below the bar zone.
+  const banner = bannerView.locator('section.banner');
   const slideShown = () =>
     page.evaluate(() =>
-      [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('.b-dot')].findIndex(
+      [...document.querySelectorAll('taleart-view')[1].shadowRoot.querySelectorAll('.b-dot')].findIndex(
         (dot) => dot.getAttribute('aria-current') === 'true',
       ),
     );
@@ -304,11 +321,12 @@ try {
   violations += await scan(page, 'banner stopped', axe);
 
   await banner.locator('.b-slide:not([inert]) .b-open').click();
-  await dialog.waitFor();
-  check((await dialog.getAttribute('aria-label')) === 'New arrivals', 'activating a slide opens the viewer at its group');
+  const bannerDialog = bannerView.locator('dialog.viewer');
+  await bannerDialog.waitFor();
+  check((await bannerDialog.getAttribute('aria-label')) === 'New arrivals', 'activating a slide opens the viewer at its group');
   await page.keyboard.press('Escape');
-  await dialog.waitFor({ state: 'hidden' });
-  const back = await focused(page);
+  await bannerDialog.waitFor({ state: 'hidden' });
+  const back = await focused(page, 1);
   check(back?.group === 'gb' && back?.tag === 'BUTTON' && back?.label === 'New arrivals', 'closing returns focus to the banner slide');
   check(errors.length === 0, `no console errors${errors.length ? `: ${errors.join('; ')}` : ''}`);
 
@@ -316,16 +334,8 @@ try {
   const reduced = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
   const still = await reduced.newPage();
   const settings = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 3, showDots: false, loop: true };
-  await still.route(`${API}/delivery/v1/zone`, (route) =>
-    route.fulfill({
-      json: { ...ZONE, frames: [ZONE.frames[0], { id: 'f2', type: 'banner', settings }] },
-      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
-    }),
-  );
-  await still.route(`${API}/media/**`, (route) =>
-    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
-  );
-  await still.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  await serve(still, { tak_bar: ZONE, tak_banner: bannerZone(settings) });
+  await still.goto(pageUrl(port, ['tak_bar', 'tak_banner']));
   const stillBanner = still.locator('taleart-view section.banner');
   await stillBanner.waitFor();
   const ratioBox = await stillBanner.locator('.b-viewport').boundingBox();
@@ -341,16 +351,8 @@ try {
   // A 3:1 banner on a 390 px phone with autoplay: no control overlaps another, targets are 44 px.
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const narrow = await phone.newPage();
-  await narrow.route(`${API}/delivery/v1/zone`, (route) =>
-    route.fulfill({
-      json: { ...ZONE, frames: [{ id: 'f2', type: 'banner', settings: { aspectRatio: '3:1', intervalSeconds: 3 } }] },
-      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
-    }),
-  );
-  await narrow.route(`${API}/media/**`, (route) =>
-    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
-  );
-  await narrow.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
+  await serve(narrow, { tak_banner: bannerZone({ aspectRatio: '3:1', intervalSeconds: 3 }) });
+  await narrow.goto(pageUrl(port, ['tak_banner']));
   const narrowBanner = narrow.locator('taleart-view section.banner');
   await narrowBanner.waitFor();
   const boxes = {
@@ -370,73 +372,66 @@ try {
   violations += await scan(narrow, 'phone 3:1 banner', axe);
   await phone.close();
 
-  // Stages (R7): two bar frames of one zone, circle and rounded-square, each placed by its own
-  // <taleart-view stage>; an unknown stage key renders nothing and logs a warning.
-  const staging = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const staged = await staging.newPage();
-  const stagedErrors = [];
-  const warnings = [];
-  staged.on('console', (msg) => {
-    if (msg.type() === 'error') stagedErrors.push(msg.text());
-    if (msg.type() === 'warning') warnings.push(msg.text());
+  // Two zones on one page (AD-17), each a bar with its own shape and its own tale groups, so every
+  // control has its own name; a third element with an unknown key renders nothing and logs one error.
+  const twoZones = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const placed2 = await twoZones.newPage();
+  const placedErrors = [];
+  const placedWarnings = [];
+  placed2.on('console', (msg) => {
+    if (msg.type() === 'error') placedErrors.push(msg.text());
+    if (msg.type() === 'warning') placedWarnings.push(msg.text());
   });
-  staged.on('pageerror', (err) => stagedErrors.push(String(err)));
-  await staged.route(`${API}/delivery/v1/zone`, (route) =>
-    route.fulfill({
-      json: {
-        ...ZONE,
-        frames: [
-          { id: 'f1', type: 'bar', settings: { shape: 'circle' } },
-          { id: 'f2', type: 'banner', settings: {} },
-          { id: 'f3', type: 'bar', settings: { shape: 'rounded-square' } },
-        ],
-        stages: [
-          { key: 'round', frameId: 'f1' },
-          { key: 'square', frameId: 'f3' },
-        ],
-      },
-      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
-    }),
-  );
-  await staged.route(`${API}/media/**`, (route) =>
-    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
-  );
-  await staged.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}&stages=round,square,nope`);
-  await staged.locator('taleart-view[stage="square"] .bar').waitFor();
-  await staged.locator('taleart-view[stage="round"] .bar').waitFor();
-  // The third element's response may land last; its warning ends the loads.
-  for (let i = 0; i < 40 && warnings.length === 0; i++) await staged.waitForTimeout(50);
-  const shapes = await staged.evaluate(() =>
+  placed2.on('pageerror', (err) => placedErrors.push(String(err)));
+  const roundZone = { ...ZONE, frame: { id: 'f1', type: 'bar', settings: { shape: 'circle' } } };
+  const squareZone = {
+    ...ZONE,
+    id: 'z3',
+    name: 'Shop',
+    slug: 'shop',
+    frame: { id: 'f3', type: 'bar', settings: { shape: 'rounded-square' } },
+    taleGroups: [
+      { id: 'gd', name: 'Gifts', cover: null, tales: [image('d1', 'Wrapped')] },
+      { id: 'ge', name: 'Sale', cover: null, tales: [image('e1', 'Half price')] },
+    ],
+  };
+  await serve(placed2, { tak_round: roundZone, tak_square: squareZone });
+  await placed2.goto(pageUrl(port, ['tak_round', 'tak_square', 'tak_nope']));
+  const views = placed2.locator('taleart-view');
+  await views.nth(0).locator('.bar').waitFor();
+  await views.nth(1).locator('.bar').waitFor();
+  // The third element's response may land last; its error ends the loads.
+  for (let i = 0; i < 40 && !placedErrors.some((e) => e.includes('TaleArt')); i++) await placed2.waitForTimeout(50);
+  const shapes = await placed2.evaluate(() =>
     [...document.querySelectorAll('taleart-view')].map((view) => ({
-      stage: view.getAttribute('stage'),
       bars: [...view.shadowRoot.querySelectorAll('.bar')].map((bar) => bar.dataset.shape),
-      banners: view.shadowRoot.querySelectorAll('section.banner').length,
+      labels: [...view.shadowRoot.querySelectorAll('button.item')].map((b) => b.getAttribute('aria-label')),
       nodes: view.shadowRoot.childNodes.length,
     })),
   );
   check(
-    JSON.stringify(shapes.map((s) => [s.stage, s.bars])) === JSON.stringify([['round', ['circle']], ['square', ['rounded-square']], ['nope', []]]),
-    'two elements naming two stages each show their own bar shape',
+    JSON.stringify(shapes.map((s) => s.bars)) === JSON.stringify([['circle'], ['rounded-square'], []]),
+    'two zones on one page each show their own display',
   );
-  check(shapes.every((s) => s.banners === 0), 'a staged element does not render the zone’s other frames');
-  check(shapes[2].nodes === 0, 'an unknown stage key renders nothing');
-  check(warnings.length === 1 && warnings[0].includes('"nope"'), 'an unknown stage key logs one warning');
-  check(stagedErrors.length === 0, `no console errors with stages${stagedErrors.length ? `: ${stagedErrors.join('; ')}` : ''}`);
-  await staged.locator('taleart-view[stage="square"] button.item').first().click();
-  const stagedDialog = staged.locator('taleart-view[stage="square"] dialog.viewer');
-  await stagedDialog.waitFor();
-  await staged.keyboard.press('Escape');
-  await stagedDialog.waitFor({ state: 'hidden' });
-  const stagedFocus = await staged.evaluate(
-    () => document.querySelector('taleart-view[stage="square"]').shadowRoot.activeElement?.dataset.taleGroupId ?? null,
-  );
-  check(stagedFocus === 'ga', 'closing the viewer returns focus to the staged bar item');
-  violations += await scan(staged, 'two stages and an unknown stage', axe);
-  await staging.close();
+  const allLabels = shapes.flatMap((s) => s.labels);
+  check(new Set(allLabels).size === allLabels.length && allLabels.length === 5, 'every bar item on the page has its own name');
+  check(shapes[2].nodes === 0, 'an unknown key renders nothing');
+  // The browser itself also reports the refused request (401) on the console.
+  const sdkErrors = placedErrors.filter((e) => !e.startsWith('Failed to load resource'));
+  check(sdkErrors.length === 1 && sdkErrors[0].includes('TaleArt'), `an unknown key logs one error${sdkErrors.length === 1 ? '' : `: ${placedErrors.join('; ')}`}`);
+  check(placedWarnings.length === 0, 'no warnings with two zones');
+  await views.nth(1).locator('button.item').first().click();
+  const placedDialog = views.nth(1).locator('dialog.viewer');
+  await placedDialog.waitFor();
+  check((await placedDialog.getAttribute('aria-label')) === 'Gifts', "the second zone's item opens its own group");
+  await placed2.keyboard.press('Escape');
+  await placedDialog.waitFor({ state: 'hidden' });
+  check((await focused(placed2, 1))?.group === 'gd', "closing the viewer returns focus to the second zone's bar item");
+  violations += await scan(placed2, 'two zones and an unknown key', axe);
+  await twoZones.close();
 
-  // Playbooks (R8): a zone shaped as the API leaves it after each MVP playbook is applied, its
-  // preset frame and a stage per frame (libs/contract/src/lib/playbooks.ts), next to a frame the
-  // zone already had. The page names the playbook's stage key and gets exactly the preset frame.
+  // Playbooks (R8): a zone shaped as the API leaves it after each MVP playbook is applied: its
+  // display is the playbook's preset (libs/contract/src/lib/playbooks.ts).
   const PLAYBOOK_ZONES = {
     'home-stories-bar': {
       frame: {
@@ -453,7 +448,7 @@ try {
       },
     },
   };
-  for (const [stageKey, { frame }] of Object.entries(PLAYBOOK_ZONES)) {
+  for (const [playbookKey, { frame }] of Object.entries(PLAYBOOK_ZONES)) {
     const playbookContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const played = await playbookContext.newPage();
     const playedErrors = [];
@@ -461,21 +456,9 @@ try {
       if (msg.type() === 'error' || msg.type() === 'warning') playedErrors.push(msg.text());
     });
     played.on('pageerror', (err) => playedErrors.push(String(err)));
-    await played.route(`${API}/delivery/v1/zone`, (route) =>
-      route.fulfill({
-        json: {
-          ...ZONE,
-          frames: [{ id: 'own', type: 'bar', settings: { shape: 'rounded-square', gap: 20 } }, frame],
-          stages: [{ key: stageKey, frameId: frame.id }],
-        },
-        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
-      }),
-    );
-    await played.route(`${API}/media/**`, (route) =>
-      route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
-    );
-    await played.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}&stages=${stageKey}`);
-    const view = `taleart-view[stage="${stageKey}"]`;
+    await serve(played, { tak_scan: { ...ZONE, slug: playbookKey, frame } });
+    await played.goto(pageUrl(port, ['tak_scan']));
+    const view = 'taleart-view';
     await played.locator(`${view} ${frame.type === 'bar' ? '.bar' : 'section.banner'}`).waitFor();
     const look = await played.evaluate((selector) => {
       const root = document.querySelector(selector).shadowRoot;
@@ -496,17 +479,17 @@ try {
     if (frame.type === 'bar') {
       check(
         look.bars === 1 && look.banners === 0 && look.shape === 'circle' && look.align === 'start' && look.gap === '12px',
-        'the "Home page stories bar" stage shows only its preset bar: circle, start, gap 12',
+        'a zone from "Home page stories bar" shows its preset bar: circle, start, gap 12',
       );
       check(look.titles !== 'hidden' && look.titlesShown === 3, 'the preset bar shows each group’s title');
     } else {
       check(
         look.banners === 1 && look.bars === 0 && look.ratio === '3:1' && look.dots === 3,
-        'the "Promo banner" stage shows only its preset banner: 3:1 with dots',
+        'a zone from "Promo banner" shows its preset banner: 3:1 with dots',
       );
     }
-    check(playedErrors.length === 0, `no console errors or warnings for the ${stageKey} stage${playedErrors.length ? `: ${playedErrors.join('; ')}` : ''}`);
-    violations += await scan(played, `${stageKey} playbook stage`, axe);
+    check(playedErrors.length === 0, `no console errors or warnings for the ${playbookKey} zone${playedErrors.length ? `: ${playedErrors.join('; ')}` : ''}`);
+    violations += await scan(played, `${playbookKey} playbook zone`, axe);
     await playbookContext.close();
   }
 
@@ -522,24 +505,12 @@ try {
     fontFamily: 'Georgia, serif',
     accentColor: '#ffcc00',
   };
-  await themed.route(`${API}/delivery/v1/zone`, (route) =>
-    route.fulfill({
-      json: {
-        ...ZONE,
-        theme: THEME,
-        frames: [
-          { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } },
-          { id: 'f2', type: 'banner', settings: { autoplay: false } },
-        ],
-      },
-      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
-    }),
-  );
-  await themed.route(`${API}/media/**`, (route) =>
-    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
-  );
-  await themed.goto(`http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}`);
-  const themedItems = themed.locator('taleart-view button.item');
+  await serve(themed, {
+    tak_bar: { ...ZONE, theme: THEME, frame: { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } } },
+    tak_banner: { ...bannerZone({ autoplay: false }), theme: THEME },
+  });
+  await themed.goto(pageUrl(port, ['tak_bar', 'tak_banner']));
+  const themedItems = themed.locator('taleart-view').nth(0).locator('button.item');
   await themedItems.first().waitFor();
   const css = (locator, prop) => locator.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
   const unseenRing = themedItems.nth(1).locator('.ring');
@@ -550,7 +521,7 @@ try {
   check((await css(themedBanner.locator('.b-viewport'), 'border-top-left-radius')) === '0px', 'the banner takes corner radius 0');
   check((await css(themedBanner, 'font-family')).replace(/^"/, '').startsWith('Georgia'), 'the banner takes the serif font');
   await themedItems.first().click();
-  const themedDialog = themed.locator('taleart-view dialog.viewer');
+  const themedDialog = themed.locator('taleart-view').nth(0).locator('dialog.viewer');
   await themedDialog.waitFor();
   await themed.keyboard.press(' ');
   check((await css(themedDialog, 'font-family')).replace(/^"/, '').startsWith('Georgia'), 'the viewer takes the serif font');
@@ -570,9 +541,9 @@ try {
   violations += await scan(themed, 'themed bar and banner', axe);
   await themedContext.close();
 
-  // The zone's SDK theme override (R9): a red project ring, overridden in blue for the zone in the
-  // sample page's configuration, on a bar stage and a banner stage; an invalid ringWidth is ignored
-  // with a warning; without the override the project's values return.
+  // The zones' SDK theme override (R9): a red project ring, overridden in blue for each zone in the
+  // sample page's configuration, on a bar zone and a banner zone; an invalid ringWidth is ignored
+  // with one warning per zone; without the override the project's values return.
   const overrideContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const overridden = await overrideContext.newPage();
   const overrideWarnings = [];
@@ -582,31 +553,16 @@ try {
     if (msg.type() === 'error') overrideErrors.push(msg.text());
   });
   overridden.on('pageerror', (err) => overrideErrors.push(String(err)));
-  await overridden.route(`${API}/delivery/v1/zone`, (route) =>
-    route.fulfill({
-      json: {
-        ...ZONE,
-        theme: { ...DEFAULT_THEME, ringStyle: 'solid', ringColors: ['#ff0000'], ringWidth: 3, cornerRadius: 16 },
-        frames: [
-          { id: 'f1', type: 'bar', settings: {} },
-          { id: 'f2', type: 'banner', settings: { autoplay: false } },
-        ],
-        stages: [
-          { key: 'top', frameId: 'f1' },
-          { key: 'hero', frameId: 'f2' },
-        ],
-      },
-      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
-    }),
-  );
-  await overridden.route(`${API}/media/**`, (route) =>
-    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
-  );
+  const projectTheme = { ...DEFAULT_THEME, ringStyle: 'solid', ringColors: ['#ff0000'], ringWidth: 3, cornerRadius: 16 };
+  await serve(overridden, {
+    tak_top: { ...ZONE, theme: projectTheme },
+    tak_hero: { ...bannerZone({ autoplay: false }), theme: projectTheme },
+  });
   const sdkTheme = encodeURIComponent(JSON.stringify({ ringColors: ['#0000ff'], cornerRadius: 0, ringWidth: 9 }));
-  const stagedUrl = `http://localhost:${port}/?key=tak_scan&api=${encodeURIComponent(API)}&stages=top,hero`;
+  const twoZoneUrl = pageUrl(port, ['tak_top', 'tak_hero']);
   const overrideLooks = async () => {
-    const bar = overridden.locator('taleart-view[stage="top"] .bar');
-    const banner = overridden.locator('taleart-view[stage="hero"] section.banner');
+    const bar = overridden.locator('taleart-view').nth(0).locator('.bar');
+    const banner = overridden.locator('taleart-view').nth(1).locator('section.banner');
     await bar.waitFor();
     await banner.waitFor();
     return {
@@ -616,18 +572,18 @@ try {
       bannerRadius: await css(banner.locator('.b-viewport'), 'border-top-left-radius'),
     };
   };
-  await overridden.goto(`${stagedUrl}&theme=${sdkTheme}`);
+  await overridden.goto(`${twoZoneUrl}&theme=${sdkTheme}`);
   const withOverride = await overrideLooks();
-  check(withOverride.ring === 'rgb(0, 0, 255)', "the zone's SDK ring colour wins over the project's in the bar stage");
-  check(withOverride.bannerRing === '#0000ff', 'the banner stage takes the zone override too');
-  check(withOverride.bannerRadius === '0px', "the banner stage takes the zone's SDK corner radius");
+  check(withOverride.ring === 'rgb(0, 0, 255)', "the zone's SDK ring colour wins over the project's in the bar zone");
+  check(withOverride.bannerRing === '#0000ff', "the banner zone takes its zone's override too");
+  check(withOverride.bannerRadius === '0px', "the banner zone takes its zone's SDK corner radius");
   check(withOverride.width === '3px', "an invalid SDK ringWidth is ignored and the project's width applies");
   check(
-    overrideWarnings.length === 1 && overrideWarnings[0].includes('"ringWidth"'),
-    'the invalid SDK ringWidth logs one warning naming the field',
+    overrideWarnings.length === 2 && overrideWarnings.every((w) => w.includes('"ringWidth"')),
+    'the invalid SDK ringWidth logs one warning per configured zone, naming the field',
   );
   violations += await scan(overridden, 'SDK theme override', axe);
-  await overridden.goto(stagedUrl);
+  await overridden.goto(twoZoneUrl);
   const withoutOverride = await overrideLooks();
   check(withoutOverride.ring === 'rgb(255, 0, 0)', "without the SDK value the project's ring colour returns");
   check(withoutOverride.bannerRadius === '16px', "without the SDK value the project's corner radius returns");

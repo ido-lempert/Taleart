@@ -7,6 +7,7 @@ import {
   UnknownFrameTypeError,
 } from './frame-types';
 import {
+  DisplayConcurrentChangeError,
   DisplayExistsError,
   DisplayNotFoundError,
   EmptyDisplayChangeError,
@@ -254,7 +255,7 @@ describe('display', () => {
         .mockResolvedValueOnce({ rows: [{}] });
       await updateDisplay({ query } as unknown as Db, registry, { zoneId, type: 'banner' });
       expect(query.mock.calls[2][0]).toMatch(/UPDATE frames SET type = \$2, settings = \$3/);
-      expect(query.mock.calls[2][1]).toEqual([frameId, 'banner', '{"loop":true}']);
+      expect(query.mock.calls[2][1]).toEqual([frameId, 'banner', '{"loop":true}', 'bar']);
     });
 
     it('validates settings against the new type, and writes nothing when they do not match', async () => {
@@ -273,7 +274,47 @@ describe('display', () => {
         .mockResolvedValueOnce(display)
         .mockResolvedValueOnce({ rows: [frame] });
       expect(await updateDisplay({ query } as unknown as Db, registry, { zoneId, settings: { gap: 4 } })).toBe(frame);
-      expect(query.mock.calls[2][1]).toEqual([frameId, 'bar', '{"gap":4}']);
+      expect(query.mock.calls[2][1]).toEqual([frameId, 'bar', '{"gap":4}', 'bar']);
+    });
+
+    it('writes only while the display still has the type it read, checking again once, then refuses', async () => {
+      const banner = { rows: [{ id: frameId, type: 'banner' }] };
+      const saved = { id: frameId, zoneId, projectId, type: 'banner', settings: {} };
+      // The type switched to banner between the read and the write: the settings are checked again against banner.
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(banner)
+        .mockResolvedValueOnce({ rows: [saved] });
+      expect(await updateDisplay({ query } as unknown as Db, registry, { zoneId, settings: {} })).toBe(saved);
+      expect(query.mock.calls[2][0]).toMatch(/WHERE id = \$1 AND type = \$4/);
+      expect(query.mock.calls[2][1]).toEqual([frameId, 'bar', '{}', 'bar']);
+      expect(query.mock.calls[4][1]).toEqual([frameId, 'banner', '{}', 'banner']);
+
+      // Settings for a bar on a display that became a banner are refused, nothing written.
+      const switched = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(banner);
+      await expect(
+        updateDisplay({ query: switched } as unknown as Db, registry, { zoneId, settings: { gap: 4 } }),
+      ).rejects.toBeInstanceOf(InvalidFrameSettingsError);
+
+      // Two misses in a row: a concurrent change.
+      const busy = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(
+        updateDisplay({ query: busy } as unknown as Db, registry, { zoneId, settings: { gap: 4 } }),
+      ).rejects.toBeInstanceOf(DisplayConcurrentChangeError);
     });
 
     it('changes nothing for the same type without settings', async () => {

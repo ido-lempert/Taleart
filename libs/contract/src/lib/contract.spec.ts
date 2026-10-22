@@ -370,5 +370,8 @@ describe('zone slugs (epic UX rework R1)', () => {
     const next = uniqueZoneSlug(long, (s) => s === long);
     expect(next).toBe(`${'a'.repeat(62)}-2`);
     expect(isZoneSlug(next)).toBe(true);
+    // A base made longer than a slug (a long name plus "-banner-1") is cut to one.
+    expect(uniqueZoneSlug(`${'a'.repeat(60)}-banner-1`, () => false)).toBe(`${'a'.repeat(60)}-ban`);
+    expect(zoneSlugFromName('דף הבית')).toBe('');
   });
 });
