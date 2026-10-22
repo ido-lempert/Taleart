@@ -25,6 +25,7 @@ import {
   type TaleGroupCover,
   type ZoneTaleGroup,
 } from '@taleart/contract';
+import { randomUUID } from 'node:crypto';
 import type { Db } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 import {
@@ -183,8 +184,11 @@ export class TaleGroupNotFoundError extends Error {
 export class TaleGroupNotInProjectError extends Error {
   readonly code = ErrorCodes.taleGroupNotFound;
 
-  constructor(readonly taleGroupId: string) {
-    super("taleGroupId does not match a tale group of the zone's project");
+  constructor(
+    readonly taleGroupId: string,
+    owner = "the zone's project",
+  ) {
+    super(`taleGroupId does not match a tale group of ${owner}`);
     this.name = 'TaleGroupNotInProjectError';
   }
 }
@@ -1124,6 +1128,129 @@ export async function copyTaleWithDocument(
     if (rows.length === 0) throw new TaleNotFoundError(taleId);
     await recordTaleFonts(tx, rows[0].id, 'draft', document, false);
     await recordTaleMedia(tx, rows[0].id, 'draft', document, false);
+    const [tale] = await visibleTales(tx, [toTale(rows[0])]);
+    return tale;
+  });
+}
+
+/** A tale's document, with each element given the new id `ids` holds for it (made on first use). */
+function withNewElementIds(doc: unknown, ids: Map<string, string>): unknown {
+  if (typeof doc !== 'object' || doc === null || !Array.isArray((doc as { elements?: unknown }).elements)) return doc;
+  const elements = (doc as { elements: unknown[] }).elements.map((element) => {
+    if (typeof element !== 'object' || element === null) return element;
+    const id = (element as { id?: unknown }).id;
+    if (typeof id !== 'string') return element;
+    let next = ids.get(id);
+    if (next === undefined) {
+      next = randomUUID();
+      ids.set(id, next);
+    }
+    return { ...element, id: next };
+  });
+  return { ...doc, elements };
+}
+
+/**
+ * Duplicates a tale with its documents (epic Tale Studio R11, PRD FR-012) into its own tale group
+ * or another group of its project (`taleGroupId`; {@link TaleGroupNotInProjectError} for a group
+ * that does not exist or is in another project, AD-4). The copy:
+ * - is stored `paused` (Hidden, owner decision 2026-10-22), so it never shows twice on the site;
+ * - is placed right after the original in the original's group (the later tales move one on), or
+ *   last in another group; the target group's row is locked, so the {@link MAX_TALES_PER_GROUP}
+ *   check ({@link TaleGroupFullError}) and the positions hold under concurrent adds and duplicates;
+ * - holds the original's published document as its published document and the original's draft
+ *   as its draft (AD-15), each at revision 1 (0 when absent), so "Update tale" means the same on
+ *   both; every element gets a new id, the same new id in both documents;
+ * - shares the original's storage keys, never copying a file (AD-14): its tale media and the media
+ *   and project fonts its documents use, recorded in `tale_media` and `tale_fonts` for the copy, so
+ *   a file the copy uses is never judged unused while the copy holds it ({@link isMediaKeyInUse});
+ * - keeps the title (with " (copy)"), start and end time, R16 media state and creation time, so
+ *   it is delivered as the original is once shown (`hasPublishedDocument`).
+ * Throws {@link TaleNotFoundError}.
+ */
+export async function duplicateTale(
+  db: TransactionalDb,
+  taleId: string,
+  input: { taleGroupId?: string } = {},
+): Promise<Tale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const wanted = input.taleGroupId;
+  if (wanted !== undefined && !UUID.test(wanted)) throw new TaleGroupNotInProjectError(wanted, "the tale's project");
+
+  return inTransaction(db, async (tx) => {
+    const of = await tx.query<{ groupId: string; projectId: string }>(
+      'SELECT tale_group_id AS "groupId", project_id AS "projectId" FROM tales WHERE id = $1',
+      [taleId],
+    );
+    if (of.rows.length === 0) throw new TaleNotFoundError(taleId);
+    const { groupId, projectId } = of.rows[0];
+    const targetId = (wanted ?? groupId).toLowerCase();
+    // The target group first, then the source row, in the order copyTaleWithDocument takes them.
+    const target = await tx.query<{ projectId: string }>(
+      'SELECT project_id AS "projectId" FROM tale_groups WHERE id = $1 FOR UPDATE',
+      [targetId],
+    );
+    if (target.rows[0]?.projectId !== projectId) throw new TaleGroupNotInProjectError(targetId, "the tale's project");
+    // Share locked: a media replace or a document write on the original waits for this copy to
+    // commit, so its "still referenced" check sees the copy, and the documents copied keep their
+    // `tale_media` rows until the copy's own are recorded (as copyTaleGroup reasons).
+    const source = await tx.query<{ position: number; groupId: string; document: unknown; draft: unknown }>(
+      `SELECT position, tale_group_id AS "groupId", document, draft_document AS draft
+       FROM tales WHERE id = $1 FOR SHARE`,
+      [taleId],
+    );
+    if (source.rows.length === 0) throw new TaleNotFoundError(taleId);
+    // Its project fonts stay until this commits: a font being deleted went first (and the original
+    // no longer used it) or waits and then sees the copy's references (R18).
+    await tx.query(
+      `SELECT f.id FROM project_fonts f
+       WHERE f.id IN (SELECT font_id FROM tale_fonts WHERE tale_id = $1)
+       ORDER BY f.id FOR SHARE`,
+      [taleId],
+    );
+
+    const stats = await tx.query<{ count: number; next: number }>(
+      `SELECT count(*)::int AS count, COALESCE(MAX(position), -1) + 1 AS next
+       FROM tales WHERE tale_group_id = $1`,
+      [targetId],
+    );
+    if (stats.rows[0].count >= MAX_TALES_PER_GROUP) throw new TaleGroupFullError(targetId);
+    let position = stats.rows[0].next;
+    if (source.rows[0].groupId === targetId) {
+      position = source.rows[0].position + 1;
+      await tx.query('UPDATE tales SET position = position + 1 WHERE tale_group_id = $1 AND position >= $2', [
+        targetId,
+        position,
+      ]);
+    }
+
+    const ids = new Map<string, string>();
+    const document = withNewElementIds(source.rows[0].document, ids);
+    const draft = withNewElementIds(source.rows[0].draft, ids);
+    const { rows } = await tx.query<TaleRow>(
+      `INSERT INTO tales (tale_group_id, project_id, title, position, status, starts_at, ends_at, media_key,
+         media_content_type, document_media_key, document_created_by_migration, document, document_revision,
+         draft_document, draft_revision, created_at)
+       SELECT $2, project_id, title || ' (copy)', $3, 'paused', starts_at, ends_at, media_key, media_content_type,
+              document_media_key, document_created_by_migration, $4::jsonb,
+              CASE WHEN $4::jsonb IS NULL THEN 0 ELSE 1 END, $5::jsonb,
+              CASE WHEN $5::jsonb IS NULL THEN 0 ELSE 1 END, created_at
+       FROM tales WHERE id = $1
+       RETURNING ${TALE_COLUMNS}`,
+      [
+        taleId,
+        targetId,
+        position,
+        document === null ? null : JSON.stringify(document),
+        draft === null ? null : JSON.stringify(draft),
+      ],
+    );
+    const copyId = rows[0].id;
+    const deliverable = isCheckedDocument(document);
+    await recordTaleFonts(tx, copyId, 'draft', draft, false);
+    await recordTaleFonts(tx, copyId, 'published', document, deliverable);
+    await recordTaleMedia(tx, copyId, 'draft', draft, false);
+    await recordTaleMedia(tx, copyId, 'published', document, deliverable);
     const [tale] = await visibleTales(tx, [toTale(rows[0])]);
     return tale;
   });

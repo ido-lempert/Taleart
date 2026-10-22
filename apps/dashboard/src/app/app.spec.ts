@@ -1753,8 +1753,100 @@ describe('App', () => {
     });
   });
 
+  describe('duplicate a tale (epic Tale Studio R11)', () => {
+    const autumn = { ...group, id: 'g9', name: 'Autumn', position: 1, tales: [] };
+    const projectGroups = {
+      p1: [
+        { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: ['z1'] },
+        { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 2, zoneIds: ['z1'] },
+        { id: 'g5', projectId: 'p1', name: 'Winter', taleCount: 100, zoneIds: [] },
+      ],
+    };
+    const data: Data = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }, autumn] }, projectGroups };
+
+    function options(): { label: string; disabled: boolean; selected: boolean }[] {
+      return [...(drawer()?.querySelectorAll<HTMLOptionElement>('select[name=taleGroupId] option') ?? [])].map((o) => ({
+        label: o.textContent?.trim() ?? '',
+        disabled: o.disabled,
+        selected: o.selected,
+      }));
+    }
+
+    it('duplicates a tale from its card into another group, announces it, and the new card shows Hidden', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+
+      const button = root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]');
+      expect(button?.getAttribute('aria-label')).toBe('Duplicate A');
+      button?.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Duplicate tale');
+      expect(drawer()?.textContent).toContain('A copy of A with its content and media. The copy is hidden until you show it.');
+      // The tale's own group first and chosen, each with its room; a full group cannot be chosen.
+      expect(options()).toEqual([
+        { label: 'Summer (this group): 2 / 100', disabled: false, selected: true },
+        { label: 'Autumn: 3 / 100', disabled: false, selected: false },
+        { label: 'Winter: 100 / 100, full', disabled: true, selected: false },
+      ]);
+      expect(drawer()?.querySelector('#duplicate-hint')?.textContent).toBe('The copy goes right after the original.');
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=taleGroupId]') ?? null, 'g9');
+      await settle(fixture);
+      expect(drawer()?.querySelector('#duplicate-hint')?.textContent).toBe('The copy goes last in Autumn.');
+
+      buttonNamed(drawer() as HTMLElement, 'Duplicate').click();
+      await settle(fixture);
+      const copy = { ...taleA, id: 't9', taleGroupId: 'g9', title: 'A (copy)', position: 0, status: 'paused', storedStatus: 'paused' };
+      const req = http.expectOne(`${API_BASE}/tales/t1/duplicate`);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ taleGroupId: 'g9' });
+      req.flush(copy, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...group, tales: [taleA, taleB] }, { ...autumn, tales: [copy] }] } });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(
+        'Duplicated as A (copy) in Autumn. The copy is hidden until you show it.',
+      );
+      const card = root.querySelector('[data-duplicate="t9"]')?.closest('.tale-card');
+      expect(card?.querySelector('.show-switch__state')?.textContent?.trim()).toBe('Hidden');
+      expect(card?.querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it("keeps the drawer open with the API's message when the group is full, and refuses a full group at once", async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      root.querySelector<HTMLButtonElement>('[data-duplicate="t2"]')?.click();
+      await settle(fixture);
+      const select = drawer()?.querySelector<HTMLSelectElement>('select[name=taleGroupId]') ?? null;
+      choose(select, 'g5');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Duplicate').click();
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/tales/t2/duplicate`);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Winter already holds 100 tales');
+
+      choose(select, 'g1');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Duplicate').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t2/duplicate`)
+        .flush(
+          { error: { code: 'tale_group_full', message: 'A tale group holds at most 100 tales' } },
+          { status: 409, statusText: 'Conflict' },
+        );
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('A tale group holds at most 100 tales');
+      expect(select?.getAttribute('aria-invalid')).toBe('true');
+
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(document.activeElement?.getAttribute('data-duplicate')).toBe('t2');
+    });
+  });
+
   describe('statuses', () => {
-    const draft = { ...group, id: 'g2', name: 'Draft one', status: 'draft', storedStatus: 'draft', position: 1, tales: [] };
+    const draft ={ ...group, id: 'g2', name: 'Draft one', status: 'draft', storedStatus: 'draft', position: 1, tales: [] };
     const paused = { ...group, id: 'g3', name: 'Paused one', status: 'paused', storedStatus: 'paused', position: 2, tales: [] };
     const archived = { ...group, id: 'g4', name: 'Archived one', status: 'archived', storedStatus: 'archived', position: 3, tales: [] };
     const hiddenTale = { ...taleB, status: 'paused', storedStatus: 'paused' };
