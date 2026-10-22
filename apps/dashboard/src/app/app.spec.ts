@@ -1359,6 +1359,48 @@ describe('App', () => {
         taleGroupIds: ['g1', 'g2'],
       });
     });
+
+    for (const outcome of ['saved', 'refused'] as const) {
+      it(`keeps a switch turned while a group reorder is pending once the order is ${outcome}`, async () => {
+        const winter = { ...groupB, status: 'live', storedStatus: 'live', startsAt: null, endsAt: null, tales: [] };
+        const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }, winter] } });
+        const summerSwitch = () =>
+          root.querySelector<HTMLButtonElement>('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked');
+
+        drop(fixture, 'Tale groups in Home bar', 1, 0);
+        await settle(fixture);
+        const order = http.expectOne(`${API_BASE}/zones/z1/tale-groups/order`);
+
+        root.querySelector<HTMLButtonElement>('[role=switch][aria-label="Summer on site"]')?.click();
+        await settle(fixture);
+        http
+          .expectOne(`${API_BASE}/tale-groups/g1/status`)
+          .flush({ ...group, status: 'paused', storedStatus: 'paused', tales: [] });
+        await settle(fixture);
+        expect(summerSwitch()).toBe('false');
+
+        if (outcome === 'saved') {
+          order.flush([
+            { ...winter, position: 0 },
+            { ...group, position: 1, tales: [] },
+          ]);
+        } else {
+          order.flush(
+            { error: { code: 'validation_failed', message: 'The order is out of date' } },
+            { status: 409, statusText: 'Conflict' },
+          );
+        }
+        await settle(fixture);
+        expect(groupNames(root)).toEqual(outcome === 'saved' ? ['Winter', 'Summer'] : ['Summer', 'Winter']);
+        expect(summerSwitch()).toBe('false');
+
+        const paused = { ...group, status: 'paused', storedStatus: 'paused', tales: [] };
+        const groups = outcome === 'saved' ? [{ ...winter, position: 0 }, { ...paused, position: 1 }] : [paused, winter];
+        await flushRefresh(fixture, { ...oneZone, groups: { z1: groups } });
+        await settle(fixture);
+        expect(summerSwitch()).toBe('false');
+      });
+    }
   });
 
   describe('zone placements', () => {

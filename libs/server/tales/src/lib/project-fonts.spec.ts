@@ -162,7 +162,8 @@ describe('project fonts', () => {
     expect(sql).toMatch(/t\.status = 'live'/);
     // The delivered-group rule: live in its window, with a live tale, placed in a zone.
     expect(sql).toMatch(/g\.status = 'live'[\s\S]*FROM tales dt[\s\S]*FROM zone_tale_groups dz/);
-    expect(sql).not.toMatch(/jsonb|draft_document/);
+    // No document is read: the draft is only checked for null (hasPublishedDocument).
+    expect(sql).not.toMatch(/jsonb|draft_document(?! IS NULL)/);
     expect(await findPublishedFont(fakeDb([{ rows: [] }]).db, 'fonts/b.woff2')).toBeNull();
   });
 

@@ -44,7 +44,7 @@ import {
   type TransactionalDb,
 } from './tales';
 import type { DbConnection } from '@taleart/server-access';
-import { migrateTales } from './migration';
+import { migrateShownStatus, migrateTales } from './migration';
 import { InvalidTaleDocumentError } from './tale-document';
 import { ZoneNotFoundError } from '@taleart/server-zones';
 
@@ -250,6 +250,45 @@ describe('rename', () => {
     const bad = fakeDb([]);
     await expect(renameTaleGroup(bad.db, 'nope', 'B')).rejects.toBeInstanceOf(TaleGroupNotFoundError);
     expect(bad.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('migrateShownStatus: a failing publish', () => {
+  const taleId = '00000000-0000-4000-8000-0000000000a1';
+  const draft = { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] };
+  // A connection on which the step runs and publishing the one made-live tale's draft throws `publishError`.
+  function connection(publishError: Error, rollbackError?: Error) {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('INSERT INTO tales_migrations')) return { rows: [{ step: 'shown-status' }] };
+      if (sql.includes('FROM tale_groups WHERE status')) return { rows: [{ id: groupId }] };
+      if (sql.includes("UPDATE tales SET status = 'live'")) return { rows: [{ id: taleId, draft, unpublished: true }] };
+      if (sql.includes('SET document = draft_document')) throw publishError;
+      if (sql === 'ROLLBACK' && rollbackError) throw rollbackError;
+      return { rows: [] };
+    });
+    return { query, db: { query, release: vi.fn() } as unknown as DbConnection };
+  }
+  const statements = (query: ReturnType<typeof vi.fn>) => query.mock.calls.map((c) => String(c[0]).trim());
+
+  it("keeps the tale's status change and logs a database error on that tale", async () => {
+    const { query, db } = connection(Object.assign(new Error('check violated'), { code: '23514' }));
+    const log = vi.fn();
+    expect(await migrateShownStatus(db, { log })).toEqual({ applied: true, madeLive: 1, published: 0 });
+    expect(statements(query)).toContain('ROLLBACK TO SAVEPOINT shown_status_publish');
+    expect(statements(query)).toContain('COMMIT');
+    expect(log).toHaveBeenCalledWith('warn', expect.stringContaining(`Tale ${taleId}: made live`));
+  });
+
+  it('fails the step on any other error, such as a lost connection, reporting it even when the rollback fails', async () => {
+    const lost = new Error('Connection terminated unexpectedly');
+    const { query, db } = connection(lost, new Error('Client was closed'));
+    await expect(migrateShownStatus(db, { log: vi.fn() })).rejects.toBe(lost);
+    expect(statements(query)).not.toContain('ROLLBACK TO SAVEPOINT shown_status_publish');
+    expect(statements(query)).not.toContain('COMMIT');
+    expect(statements(query)).toContain('ROLLBACK');
+
+    const shutdown = connection(Object.assign(new Error('terminating connection'), { code: '57P01' }));
+    await expect(migrateShownStatus(shutdown.db, { log: vi.fn() })).rejects.toThrow('terminating connection');
   });
 });
 
