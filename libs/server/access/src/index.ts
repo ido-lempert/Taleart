@@ -1,6 +1,6 @@
 // Public interface of the access module (AD-1). It owns the `projects`,
 // `users`, `passkeys`, `sessions`, `auth_challenges`, `project_members`,
-// `invitations` and `zone_keys` tables; other modules reach them only through these exports.
+// `invitations`, `zone_keys` and `site_keys` tables; other modules reach them only through these exports.
 export type { Db, DbConnection, TransactionalDb } from './lib/db';
 export { inTransaction } from './lib/db';
 export { migrateAccess } from './lib/migration';
@@ -26,7 +26,9 @@ export {
   InvitationInvalidError,
   EmailTakenError,
   ZoneKeyNotFoundError,
+  SiteKeyNotFoundError,
 } from './lib/errors';
+export { issueSiteKey, revokeSiteKey, siteKeyInfo, projectForSiteKey } from './lib/siteKeys';
 export {
   migrateZoneKeys,
   issueZoneKey,

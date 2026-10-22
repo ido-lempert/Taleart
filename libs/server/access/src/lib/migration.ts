@@ -1,4 +1,5 @@
 import type { Db } from './db';
+import { migrateSiteKeys } from './siteKeys';
 
 /**
  * Forward-only migration for the tables the access module owns.
@@ -92,4 +93,7 @@ export async function migrateAccess(db: Db): Promise<void> {
       used_by uuid REFERENCES users (id) ON DELETE SET NULL
     );
   `);
+
+  // A project's site key (AD-9 amended, epic UX rework R3).
+  await migrateSiteKeys(db);
 }

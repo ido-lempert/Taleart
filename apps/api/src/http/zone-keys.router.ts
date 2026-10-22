@@ -33,9 +33,10 @@ export function zoneKeysRouter(pool: Pool): Router {
   router.post('/:zoneId/key', zoneAccess, requireAdmin, async (req, res, next) => {
     try {
       const projectId = await existingZoneProject(pool, req.params.zoneId);
-      res
-        .status(201)
-        .json(await issueZoneKey(pool, { zoneId: req.params.zoneId, projectId, createdBy: caller(res).id }));
+      const issued = await issueZoneKey(pool, { zoneId: req.params.zoneId, projectId, createdBy: caller(res).id });
+      // The secret is in this body only: no cache keeps it.
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(201).json(issued);
     } catch (err) {
       next(err);
     }
