@@ -85,11 +85,23 @@ describe('renderEmoji', () => {
     expect(node.querySelector('img')).toBeNull();
   });
 
+  it('hides a decorative emoji, even with a label, on its own node', () => {
+    const decorative = renderEmoji(
+      element('emoji', { emoji: '🎉' }, { label: 'party popper', decorative: true }),
+    ) as HTMLElement;
+    expect(decorative.getAttribute('aria-hidden')).toBe('true');
+    expect(decorative.hasAttribute('role')).toBe(false);
+    expect(decorative.hasAttribute('aria-label')).toBe(false);
+    const bare = renderEmoji(element('emoji', { emoji: '🎉' }, { decorative: true })) as HTMLElement;
+    expect(bare.getAttribute('aria-hidden')).toBe('true');
+  });
+
   it('stays text without a label, and never parses markup', () => {
     const plain = renderEmoji(element('emoji', { emoji: '<img src=x onerror=alert(1)>' })) as HTMLElement;
     expect(plain.textContent).toBe('<img src=x onerror=alert(1)>');
     expect(plain.children).toHaveLength(0);
     expect(plain.hasAttribute('role')).toBe(false);
+    expect(plain.hasAttribute('aria-hidden')).toBe(false);
     expect(renderEmoji(element('emoji', { emoji: '‮\u0000' }))).toBeNull();
     expect(renderEmoji(element('emoji', { emoji: 42 }))).toBeNull();
   });

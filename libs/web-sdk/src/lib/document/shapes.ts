@@ -70,10 +70,8 @@ export function renderEmoji(element: DeliveryTaleElement): HTMLElement | null {
   node.textContent = emoji;
   node.style.fontFamily = EMOJI_FONT_STACK;
   node.style.fontSize = emojiFontSize(element.box);
+  // Named, an image with its name; decorative, hidden; neither, plain text read by the emoji's own name.
   const label = labelOf(element);
-  if (label) {
-    node.setAttribute('role', 'img');
-    node.setAttribute('aria-label', label);
-  }
+  if (label || element.a11y?.decorative === true) name(node, label);
   return node;
 }

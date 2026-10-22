@@ -9,9 +9,9 @@ import {
   MAX_SHAPE_RADIUS,
   MAX_STROKE_WIDTH,
   resolveShapeStyle,
+  SHAPE_NAMES,
   type EmojiElement,
   type ShapeElement,
-  type ShapeKind,
   type TaleElementA11y,
 } from '@taleart/contract/tale-document';
 import { Drawer } from '../drawer';
@@ -84,7 +84,7 @@ export const EMOJI_GROUPS: readonly EmojiGroup[] = [
   ),
 ];
 
-/** The number of emoji in a row of the picker, for the up and down arrows. */
+/** The number of emoji in a row of the picker's grids. */
 export const EMOJI_COLUMNS = 8;
 
 /** The picker's emoji whose name holds every word of `query`, in order of the groups. */
@@ -104,10 +104,62 @@ export function emojiName(emoji: string): string | null {
   return null;
 }
 
+/** The picker's layout: each group's rows of {@link EMOJI_COLUMNS}, each cell the emoji's index in the flat list. */
+export type EmojiLayout = readonly (readonly (readonly number[])[])[];
+
+/** The layout of `counts` emoji per group: rows of {@link EMOJI_COLUMNS}, numbered across the groups. */
+export function emojiLayout(counts: readonly number[]): EmojiLayout {
+  let next = 0;
+  return counts.map((count) => {
+    const rows: number[][] = [];
+    for (let i = 0; i < count; i++) {
+      if (i % EMOJI_COLUMNS === 0) rows.push([]);
+      rows[rows.length - 1].push(next++);
+    }
+    return rows;
+  });
+}
+
 /**
- * The emoji picker (R6, R13), in a drawer: a search by name and the emoji in groups, each a button
- * named by its Unicode name. The list is one tab stop: the arrow keys move between emoji (up and
- * down by a row), Home and End go to the first and last, and Enter or Space picks one.
+ * Where a key moves focus in the picker's grids (WAI-ARIA grid): Left and Right to the previous or
+ * next emoji, across rows and groups; Up and Down to the row above or below by visual column, from
+ * one group's last row into the next group's first (and back), clamped to the last emoji of a short
+ * row; Home and End to the first and last emoji of the row, and with Ctrl to the first and last
+ * emoji of all. Null for another key, or the same index where it cannot move.
+ */
+export function emojiGridMove(layout: EmojiLayout, index: number, key: string, ctrl = false): number | null {
+  const rows = layout.flat();
+  const r = rows.findIndex((row) => row.includes(index));
+  if (r < 0) return null;
+  const row = rows[r];
+  const column = row.indexOf(index);
+  const last = rows[rows.length - 1];
+  const inRow = (target: readonly number[] | undefined) =>
+    target ? target[Math.min(column, target.length - 1)] : index;
+  switch (key) {
+    case 'ArrowRight':
+      return Math.min(index + 1, last[last.length - 1]);
+    case 'ArrowLeft':
+      return Math.max(index - 1, 0);
+    case 'ArrowDown':
+      return inRow(rows[r + 1]);
+    case 'ArrowUp':
+      return inRow(rows[r - 1]);
+    case 'Home':
+      return ctrl ? 0 : row[0];
+    case 'End':
+      return ctrl ? last[last.length - 1] : row[row.length - 1];
+    default:
+      return null;
+  }
+}
+
+/**
+ * The emoji picker (R6, R13), in a drawer: a search by name, and the emoji in one WAI-ARIA grid per
+ * group, labelled by the group's name and described by the usage hint, with rows of
+ * {@link EMOJI_COLUMNS} cells, each a button named by the emoji's Unicode name. All the grids are
+ * one tab stop (roving tabindex); the arrow keys, Home and End move as {@link emojiGridMove} says,
+ * and Enter or Space picks the emoji. How many emoji a search shows is announced, clearing it too.
  */
 @Component({
   selector: 'app-tale-emoji-picker',
@@ -118,12 +170,14 @@ export function emojiName(emoji: string): string | null {
       margin: 0 0 var(--space-4);
     }
     .emoji-grid {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+    .emoji-row {
       display: grid;
       grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: var(--space-1);
-      margin: 0;
-      padding: 0;
-      list-style: none;
     }
     .emoji-choice {
       display: grid;
@@ -159,42 +213,55 @@ export function emojiName(emoji: string): string | null {
             class="input"
             type="search"
             autocomplete="off"
-            aria-describedby="emoji-hint"
+            aria-describedby="emoji-search-hint"
             [value]="query()"
             (input)="search($any($event.target).value)"
           />
-          <span class="field__hint" id="emoji-hint">
-            The arrow keys move between emoji, Enter adds one. Its name is what screen readers say; you can edit it.
-          </span>
+          <span class="field__hint" id="emoji-search-hint">The emoji below show only those whose name matches.</span>
         </div>
+        <p class="field__hint" id="emoji-hint">
+          In the emoji grids, the arrow keys move between emoji, Home and End go to the start and end of a row (with
+          Ctrl, of all), and Enter adds the emoji. Its name is what screen readers say; you can edit it.
+        </p>
         <p class="visually-hidden" role="status">{{ status() }}</p>
         @if (groups().length === 0) {
           <p class="muted">No emoji has that name.</p>
         }
-        @for (g of groups(); track g.name) {
-          <section class="emoji-group" [attr.aria-labelledby]="'emoji-group-' + $index">
-            <h3 class="field__label" [id]="'emoji-group-' + $index">{{ g.name }}</h3>
-            <ul class="emoji-grid" [attr.aria-labelledby]="'emoji-group-' + $index">
-              @for (choice of g.emoji; track choice.emoji) {
-                @let i = indexOf(choice);
-                <li>
-                  <button
-                    type="button"
-                    class="emoji-choice"
-                    [id]="'emoji-choice-' + i"
-                    [attr.aria-label]="choice.name"
-                    [attr.aria-current]="choice.emoji === current() ? 'true' : null"
-                    [attr.tabindex]="i === active() ? 0 : -1"
-                    [style.font-family]="emojiFont"
-                    (focus)="active.set(i)"
-                    (keydown)="move($event, i)"
-                    (click)="chosen.emit(choice)"
-                  >
-                    {{ choice.emoji }}
-                  </button>
-                </li>
+        @for (g of groups(); track g.name; let gi = $index) {
+          <section class="emoji-group">
+            <h3 class="field__label" [id]="'emoji-group-' + gi">{{ g.name }}</h3>
+            <div
+              class="emoji-grid"
+              role="grid"
+              [attr.aria-labelledby]="'emoji-group-' + gi"
+              aria-describedby="emoji-hint"
+              [attr.aria-rowcount]="g.rows.length"
+              [attr.aria-colcount]="columns"
+            >
+              @for (row of g.rows; track $index; let ri = $index) {
+                <div class="emoji-row" role="row" [attr.aria-rowindex]="ri + 1">
+                  @for (choice of row; track choice.emoji; let ci = $index) {
+                    @let i = indexOf(choice);
+                    <div role="gridcell" [attr.aria-colindex]="ci + 1">
+                      <button
+                        type="button"
+                        class="emoji-choice"
+                        [id]="'emoji-choice-' + i"
+                        [attr.aria-label]="choice.name"
+                        [attr.aria-current]="choice.emoji === current() ? 'true' : null"
+                        [attr.tabindex]="i === active() ? 0 : -1"
+                        [style.font-family]="emojiFont"
+                        (focus)="active.set(i)"
+                        (keydown)="move($event, i)"
+                        (click)="chosen.emit(choice)"
+                      >
+                        {{ choice.emoji }}
+                      </button>
+                    </div>
+                  }
+                </div>
               }
-            </ul>
+            </div>
           </section>
         }
       </div>
@@ -210,41 +277,51 @@ export class TaleEmojiPicker {
   readonly closed = output<void>();
 
   protected readonly emojiFont = EMOJI_FONT_STACK;
+  protected readonly columns = EMOJI_COLUMNS;
   protected readonly query = signal('');
+  /** True once the search was used: from then on, every change of what it shows is announced. */
+  private readonly searched = signal(false);
   /** The emoji shown, in order: every emoji, or those whose name matches the search. */
   private readonly shown = computed(() => searchEmoji(this.query()));
+  /** The groups that show any emoji, each in rows of {@link EMOJI_COLUMNS}. */
   protected readonly groups = computed(() => {
     const shown = new Set(this.shown());
-    return EMOJI_GROUPS.map((g) => ({ name: g.name, emoji: g.emoji.filter((e) => shown.has(e)) })).filter(
-      (g) => g.emoji.length > 0,
-    );
+    return EMOJI_GROUPS.map((g) => g.emoji.filter((e) => shown.has(e)))
+      .map((emoji, i) => ({ name: EMOJI_GROUPS[i].name, emoji }))
+      .filter((g) => g.emoji.length > 0)
+      .map((g) => ({
+        name: g.name,
+        rows: Array.from({ length: Math.ceil(g.emoji.length / EMOJI_COLUMNS) }, (_, r) =>
+          g.emoji.slice(r * EMOJI_COLUMNS, (r + 1) * EMOJI_COLUMNS),
+        ),
+      }));
   });
-  /** The list's one tab stop. */
+  private readonly layout = computed(() =>
+    emojiLayout(this.groups().map((g) => g.rows.reduce((n, row) => n + row.length, 0))),
+  );
+  /** The grids' one tab stop. */
   protected readonly active = signal(0);
-  protected readonly status = computed(() => (this.query().trim() ? `${this.shown().length} emoji found` : ''));
+  protected readonly status = computed(() => {
+    if (!this.searched()) return '';
+    const n = this.shown().length;
+    if (!this.query().trim()) return `Search cleared: all ${n} emoji shown`;
+    return n === 0 ? 'No emoji found' : `${n} emoji found`;
+  });
 
   protected indexOf(choice: EmojiChoice): number {
     return this.shown().indexOf(choice);
   }
 
   protected search(value: string): void {
+    this.searched.set(true);
     this.query.set(value);
     this.active.set(0);
   }
 
   protected move(event: KeyboardEvent, index: number): void {
-    const last = this.shown().length - 1;
-    const steps: Record<string, number> = {
-      ArrowRight: index + 1,
-      ArrowLeft: index - 1,
-      ArrowDown: index + EMOJI_COLUMNS,
-      ArrowUp: index - EMOJI_COLUMNS,
-      Home: 0,
-      End: last,
-    };
-    if (!(event.key in steps)) return;
+    const next = emojiGridMove(this.layout(), index, event.key, event.ctrlKey || event.metaKey);
+    if (next === null) return;
     event.preventDefault();
-    const next = Math.min(last, Math.max(0, steps[event.key]));
     this.active.set(next);
     (event.currentTarget as HTMLElement).ownerDocument.getElementById(`emoji-choice-${next}`)?.focus();
   }
@@ -261,12 +338,8 @@ export interface ElementChange {
   said: string;
 }
 
-/** The names people read for each shape. */
-export const SHAPE_NAMES: Readonly<Record<ShapeKind, string>> = {
-  rectangle: 'Rectangle',
-  ellipse: 'Ellipse',
-  line: 'Line',
-};
+/** The names people read for each shape, from the contract. */
+export { SHAPE_NAMES };
 
 const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 

@@ -22,6 +22,7 @@ import {
   emojiFontSize,
   emptyTaleDocument,
   elementBounds,
+  elementName,
   hasAltText,
   hasVideoElement,
   isMediaElement,
@@ -1414,6 +1415,10 @@ export class TaleStudioPage implements OnChanges {
   protected readonly selectedBackdrop = computed<TextBackdrop>(() => this.backdropOf(this.selectedId() ?? ''));
   // Each text's canvas look, kept per props object, so unchanged texts keep their view.
   private readonly views = new WeakMap<object, { themeFont: string | null; view: TextView }>();
+  /** The contrast changes of the last change, said with its announcement (see `say`). */
+  private contrastNote = '';
+  /** The text a text-style change is restyling: it says its own contrast change. */
+  private restylingId: string | null = null;
   // Each shape's canvas look, kept per props object.
   private readonly shapes = new WeakMap<object, ShapeView>();
   /** The one selected layer's id, or null when none or several are selected. */
@@ -1558,9 +1563,11 @@ export class TaleStudioPage implements OnChanges {
     }
     const backdrop = this.backdropOf(id);
     const before = textContrast(resolveTextStyle(element.props), backdrop).kind;
+    this.restylingId = id;
     const recorded = this.change(change.label, (elements) =>
       elements.map((e) => (e.id === id && e.type === 'text' ? { ...e, props: { ...e.props, ...change.patch } } : e)),
     );
+    this.restylingId = null;
     // Only a recorded step is announced; the contrast line is not live, so a change of its warning is said here.
     if (!recorded) return;
     const after = textContrast(resolveTextStyle({ ...element.props, ...change.patch }), backdrop).kind;
@@ -1976,9 +1983,42 @@ export class TaleStudioPage implements OnChanges {
   }
 
   protected say(text: string): void {
+    // A text whose contrast verdict the last change turned is named once, with what the change says.
+    const note = this.contrastNote;
+    this.contrastNote = '';
+    const said = note ? `${text} ${note}`.trim() : text;
     // Cleared first, so the same message twice is announced twice.
     this.announcement.set('');
-    setTimeout(() => this.announcement.set(text), 0);
+    setTimeout(() => this.announcement.set(said), 0);
+  }
+
+  /** The ids of the texts of `doc` with low contrast against what lies behind each (R12). */
+  private lowContrastIds(doc: TaleDocument): Set<string> {
+    const base: TextBackdrop = {
+      canvasColor: doc.canvas.background.color,
+      overMedia: !!this.tale()?.media || doc.canvas.background.type === 'media',
+    };
+    const low = new Set<string>();
+    doc.elements.forEach((e, i) => {
+      if (e.type !== 'text' || e.hidden) return;
+      if (textContrast(resolveTextStyle(e.props), textBackdropAt(doc.elements, i, base)).kind === 'low') low.add(e.id);
+    });
+    return low;
+  }
+
+  // What a change did to the contrast of texts other than the one being restyled (which says it
+  // itself): a move, reorder, hide or restyle of another layer can turn a text's verdict (R12).
+  private contrastChange(before: TaleDocument, next: TaleDocument): string {
+    const was = this.lowContrastIds(before);
+    const now = this.lowContrastIds(next);
+    const notes: string[] = [];
+    next.elements.forEach((e, i) => {
+      if (e.type !== 'text' || e.id === this.restylingId || was.has(e.id) === now.has(e.id)) return;
+      if (!now.has(e.id) && !before.elements.some((b) => b.id === e.id)) return;
+      const name = elementName(next.elements, i);
+      notes.push(now.has(e.id) ? `"${name}" now has low contrast.` : `"${name}" has enough contrast now.`);
+    });
+    return notes.join(' ');
   }
 
   private element(id: string): TaleElement | undefined {
@@ -2010,6 +2050,9 @@ export class TaleStudioPage implements OnChanges {
       return false;
     }
     this.history.record(label, before, next, mergeKey);
+    this.contrastNote = this.contrastChange(before, next);
+    // Said with the change's own announcement; alone when the change says nothing.
+    if (this.contrastNote) setTimeout(() => this.contrastNote && this.say(''), 0);
     this.doc.set(next);
     this.notice.set('');
     this.syncHistory();

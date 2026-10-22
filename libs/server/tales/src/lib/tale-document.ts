@@ -12,7 +12,7 @@ import {
   MAX_VIDEO_ELEMENTS,
   missingAltText,
   missingAltTextMessage,
-  mediaElementName,
+  elementName,
   documentMediaRefs,
   projectFontIds,
   projectFontRefs,
@@ -247,8 +247,8 @@ export function draftProblem(err: InvalidTaleDocumentError | TaleDocumentTooLarg
   const element = Array.isArray(elements) && Number.isInteger(index) ? (elements[index] as unknown) : undefined;
   if (typeof element !== 'object' || element === null) return 'Something in it is not valid.';
   const e = element as { type?: unknown; props?: { text?: unknown }; a11y?: { label?: string } };
-  if (typeof e.type === 'string' && isMediaElement({ type: e.type })) {
-    return `"${mediaElementName(elements as { type: string }[], index)}" has a setting that is not valid.`;
+  if (typeof e.type === 'string' && (isMediaElement({ type: e.type }) || e.type === 'shape' || e.type === 'emoji')) {
+    return `"${elementName(elements as { type: string }[], index)}" has a setting that is not valid.`;
   }
   if (e.type === 'text' && typeof e.props?.text === 'string') {
     const words = [...e.props.text.trim().replace(/\s+/g, ' ')];

@@ -1690,6 +1690,7 @@ try {
                       decorative: true,
                     },
                   ),
+                  el(7, 'emoji', { x: 0.4, y: 0.83, w: 0.2, h: 0.1125 }, { emoji: '✨' }, { decorative: true }),
                 ],
               },
             },
@@ -1722,7 +1723,7 @@ try {
           box: box(node),
         };
       });
-      const emoji = dialog.querySelector('.ta-emoji');
+      const [emoji, sparkles] = dialog.querySelectorAll('.ta-emoji');
       return {
         shapes,
         emoji: {
@@ -1732,6 +1733,7 @@ try {
           font: getComputedStyle(emoji).fontFamily,
           images: emoji.querySelectorAll('img').length,
         },
+        decorativeEmoji: sparkles && [sparkles.getAttribute('aria-hidden'), sparkles.getAttribute('role')],
         stickers: [...dialog.querySelectorAll('.ta-canvas img.ta-media')].map((img) => ({
           alt: img.alt,
           hidden: img.getAttribute('aria-hidden'),
@@ -1777,12 +1779,19 @@ try {
         shown.stickers.every((s) => s.fit === 'contain'),
       'a sticker is read by its alt text and a decorative sticker is skipped; both show whole',
     );
+    check(
+      '1.1.1',
+      shown.decorativeEmoji?.[0] === 'true' && shown.decorativeEmoji[1] === null,
+      'a decorative emoji is hidden from assistive technology',
+    );
     // What a screen reader is given: the dot, the emoji's name and the sticker's alt text, in reading order.
     const tree = await dialogOf(page).locator('.ta-canvas').ariaSnapshot();
     const order = ['A red dot', 'party popper', 'A party hat'].map((name) => tree.indexOf(name));
     check(
       '1.3.2',
-      order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])) && !tree.includes('img ""'),
+      order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])) &&
+        !tree.includes('img ""') &&
+        !tree.includes('✨'),
       'the accessibility tree holds the named shape, the emoji and the sticker in reading order, nothing unnamed',
     );
     await axe(page, 'viewer on a tale with shapes, emoji and stickers');
