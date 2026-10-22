@@ -55,12 +55,17 @@
         </div>
       </header>
 
-      @if (store.apiDown()) {
-        <div class="banner" role="alert">
-          <app-icon name="alert" />
-          <span>Could not reach the API. Is it running on port 3333?</span>
-        </div>
-      }
+      <!-- Always present, so a polite screen reader hears the banner come and go; focus stays put. -->
+      <div class="api-status" role="status">
+        @if (store.apiDown()) {
+          <div class="banner" id="api-banner">
+            <app-icon name="alert" />
+            <span>We can't reach TaleArt. Retrying…</span>
+          </div>
+        } @else if (reconnected()) {
+          <span class="visually-hidden">Connected to TaleArt again.</span>
+        }
+      </div>
 
       <main id="main" class="content" tabindex="-1">
         <router-outlet />
