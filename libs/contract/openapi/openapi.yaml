@@ -2376,8 +2376,17 @@ components:
           minLength: 1
     Zone:
       type: object
-      required: [id, name, slug, projectId, createdFromTemplate, frame, visibility]
+      required: [id, name, slug, projectId, createdFromTemplate, frame, visibility, firstVisibleAt]
       properties:
+        firstVisibleAt:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When the zone was first read as visible on the site (epic UX rework
+            R9), or null while it never was. Set once, by the API, the first
+            time it returns the zone with `visibility.visible` true, and never
+            cleared: the dashboard hides the zone's setup checklist from then
+            on, for every user, even when the zone later stops being visible.
         visibility:
           $ref: '#/components/schemas/Visibility'
           description: >-

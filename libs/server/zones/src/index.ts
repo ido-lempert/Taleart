@@ -1,5 +1,5 @@
 // Public interface of the zones module (AD-1). It owns the `zones` (with each
-// zone's slug and "created from template" note), `frames` (a zone's one display, AD-17)
+// zone's slug, "created from template" note and when it was first visible), `frames` (a zone's one display, AD-17)
 // and `project_themes` tables and the frame-type registry, and checks projects
 // only through @taleart/server-access.
 export { migrateZones } from './lib/migration';
@@ -9,6 +9,7 @@ export {
   createZone,
   updateZone,
   renameZoneWhen,
+  markZonesFirstVisible,
   ProjectNotFoundError,
   InvalidZoneError,
   SlugTakenError,

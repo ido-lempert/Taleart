@@ -369,6 +369,7 @@ describe('Management API v1: projects and zones', () => {
       slug: 'home-page-bar',
       projectId: project.id,
       createdFromTemplate: null,
+      firstVisibleAt: null,
       frame: null,
       visibility: NEW_ZONE_VISIBILITY,
     });
@@ -454,6 +455,7 @@ describe('Management API v1: projects and zones', () => {
         slug: 'home-page-bar',
         projectId: project.id,
         createdFromTemplate: null,
+        firstVisibleAt: null,
         frame: null,
         visibility: NEW_ZONE_VISIBILITY,
       },
@@ -1166,6 +1168,7 @@ describe('Management API v1: projects and zones', () => {
         slug: 'home',
         projectId: project.id,
         createdFromTemplate: 'stories-bar',
+        firstVisibleAt: null,
         // Its display is set; it still has no key and nothing placed (R7).
         frame: { id: expect.any(String), zoneId: zone.id, projectId: project.id, type: 'bar', settings: barSettings },
         visibility: notVisible(why('zone-not-installed', 'zone'), why('no-tale-groups', 'zone')),
@@ -8427,6 +8430,151 @@ describe('Management API v1: projects and zones', () => {
       const at = future();
       const res = await send('PUT', `/tales/${f.otherId}/schedule`, { startsAt: at, endsAt: null });
       expect((await res.json()).visibility).toEqual(notVisible(why('group-off', 'group'), why('starts-at', 'tale', at)));
+    });
+  });
+
+  describe('a zone remembers when it was first visible (epic UX rework R9, story 8.9)', () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+    interface ListedZone {
+      id: string;
+      visibility: { visible: boolean; reasons: { code: string }[] };
+      firstVisibleAt: string | null;
+    }
+
+    async function listedZone(zoneId: string): Promise<ListedZone> {
+      const zones: ListedZone[] = await (await fetch(`${base}/zones`)).json();
+      const zone = zones.find((z) => z.id === zoneId);
+      if (!zone) throw new Error('zone not listed');
+      return zone;
+    }
+
+    async function stored(zoneId: string): Promise<Date | null> {
+      const { rows } = await pool.query<{ at: Date | null }>('SELECT first_visible_at AS at FROM zones WHERE id = $1', [
+        zoneId,
+      ]);
+      return rows[0].at;
+    }
+
+    // Installs the zone with the project's site key and a display, and places a group that is Off
+    // with one tale from media: everything but the group's switch.
+    async function almostVisible(): Promise<{ zoneId: string; groupId: string }> {
+      const zone = await createZone();
+      await withDisplay(zone.id);
+      expect((await post(`/projects/${zone.projectId}/site-key`, {})).status).toBe(201);
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'One' })).json();
+      const res = await fetch(`${base}/tales/${tale.id}/media`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+        body: png,
+      });
+      expect(res.status).toBe(200);
+      return { zoneId: zone.id, groupId: group.id };
+    }
+
+    it('is null for a new zone, in the create answer and the list', async () => {
+      const res = await post('/zones', { name: 'Home', projectId: (await createProject()).id });
+      expect(res.status).toBe(201);
+      const created: ListedZone = await res.json();
+      expect(created.firstVisibleAt).toBeNull();
+      expect((await listedZone(created.id)).firstVisibleAt).toBeNull();
+      expect(await stored(created.id)).toBeNull();
+    });
+
+    it('stays null while the zone is not visible', async () => {
+      const { zoneId } = await almostVisible();
+      const zone = await listedZone(zoneId);
+      expect(zone.visibility.visible).toBe(false);
+      expect(zone.firstVisibleAt).toBeNull();
+      expect(await stored(zoneId)).toBeNull();
+    });
+
+    it('is set the first time the zone is read as visible, and kept when it stops being visible', async () => {
+      const { zoneId, groupId } = await almostVisible();
+      await publish('tale-groups', groupId);
+
+      const first = await listedZone(zoneId);
+      expect(first.visibility.visible).toBe(true);
+      expect(first.firstVisibleAt).toMatch(ISO);
+      expect((await stored(zoneId))?.toISOString()).toBe(first.firstVisibleAt);
+
+      // A later read does not move it.
+      expect((await listedZone(zoneId)).firstVisibleAt).toBe(first.firstVisibleAt);
+
+      // Turned Off: not visible any more, but the zone was visible once.
+      expect((await setStatus('tale-groups', groupId, 'paused')).status).toBe(200);
+      const off = await listedZone(zoneId);
+      expect(off.visibility.visible).toBe(false);
+      expect(off.firstVisibleAt).toBe(first.firstVisibleAt);
+
+      // On again: still the first time.
+      await publish('tale-groups', groupId);
+      expect((await listedZone(zoneId)).firstVisibleAt).toBe(first.firstVisibleAt);
+    });
+
+    it('answers it on a rename too, and the same value from concurrent first reads', async () => {
+      const { zoneId, groupId } = await almostVisible();
+      await publish('tale-groups', groupId);
+      const reads = await Promise.all([listedZone(zoneId), listedZone(zoneId), listedZone(zoneId)]);
+      expect(new Set(reads.map((r) => r.firstVisibleAt)).size).toBe(1);
+      expect(reads[0].firstVisibleAt).toMatch(ISO);
+
+      const res = await fetch(`${base}/zones/${zoneId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Renamed' }),
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).firstVisibleAt).toBe(reads[0].firstVisibleAt);
+    });
+
+    it('marks an unmarked visible zone when it is renamed', async () => {
+      const { zoneId, groupId } = await almostVisible();
+      await publish('tale-groups', groupId);
+      expect(await stored(zoneId)).toBeNull();
+      const res = await fetch(`${base}/zones/${zoneId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Renamed' }),
+      });
+      expect(res.status).toBe(200);
+      const renamed: ListedZone = await res.json();
+      expect(renamed.visibility.visible).toBe(true);
+      expect(renamed.firstVisibleAt).toMatch(ISO);
+      expect((await stored(zoneId))?.toISOString()).toBe(renamed.firstVisibleAt);
+    });
+
+    it('still lists the zones when marking fails, and marks the zone on a later read', async () => {
+      const { zoneId, groupId } = await almostVisible();
+      await publish('tale-groups', groupId);
+      // Another transaction holds the zone's row past the mark's lock timeout.
+      const holder = await pool.connect();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT id FROM zones WHERE id = $1 FOR UPDATE', [zoneId]);
+        const res = await fetch(`${base}/zones`);
+        expect(res.status).toBe(200);
+        const zone = ((await res.json()) as ListedZone[]).find((z) => z.id === zoneId);
+        expect(zone?.visibility.visible).toBe(true);
+        expect(zone?.firstVisibleAt).toBeNull();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not record zones as first visible'));
+      } finally {
+        await holder.query('ROLLBACK');
+        holder.release();
+        warn.mockRestore();
+      }
+      expect((await listedZone(zoneId)).firstVisibleAt).toMatch(ISO);
+    });
+
+    it('keeps the column when the migrations run again', async () => {
+      const { zoneId, groupId } = await almostVisible();
+      await publish('tale-groups', groupId);
+      const at = (await listedZone(zoneId)).firstVisibleAt;
+      await restart();
+      expect((await listedZone(zoneId)).firstVisibleAt).toBe(at);
     });
   });
 
