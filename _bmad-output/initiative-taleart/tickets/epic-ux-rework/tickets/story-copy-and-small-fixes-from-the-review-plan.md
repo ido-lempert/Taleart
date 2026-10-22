@@ -89,3 +89,13 @@ deferred: []
 
 **Manual checks:**
 - Playwright (`shots-8.15/`): stop the API → banner; start it → banner gone; Tale Studio with help closed and "Back to <group>"; help open.
+
+## Review fixes (2026-10-22)
+
+- **Reconnect is its own service** (`api-reconnect.ts`, `ApiReconnect`, timing from the `API_RETRY_TIMING` token, no mutable global). Each try times out after 15 s; tries never overlap, except that `online` starts a fresh one and the stale try then schedules nothing. Timer tries are skipped while the tab is hidden or the browser is offline; becoming visible or coming online tries at once. `apiRetryDelay` falls back to 30 s with no delays.
+- **"Connected to TaleArt again."** only after a try that reached the API (not when sign-out or a 401 clears the banner). It clears after 5 s, on navigation and on sign-out.
+- **One load per user:** `DashboardStore.loadFor(user)` shares a running load between the sign-in effect and a reconnect that read the auth state.
+- **Help popover** also closes when focus leaves it and when a layer menu opens.
+- **Disabled "Add to zone…"**: the reason shows under it on hover and focus (`.disabled-reason__tip`, also its description; no title). Buttons with `aria-disabled="true"` get no hover styling.
+- **Back link** returns to the zone the studio was opened from: the tale drawer's link carries `?zone=`, bound to the studio's `zone` input; a zone that does not list the tale falls back to the first that does. A change of `zone` alone does not reload the tale. "Open the copy" keeps it.
+- **Tests:** `api-reconnect.spec.ts` with fake timers (backoff, timeout, online during a hung try, hidden, offline, announcement and its clearing, 401, auth path, destroy); app specs for 401 during a retry and sign-out while down, with no sleeps; studio specs for the zone query, focusout and the layer menu.

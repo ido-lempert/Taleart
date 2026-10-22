@@ -266,6 +266,7 @@ export class DashboardStore {
   /** Forgets all loaded data, for example after sign-out. */
   reset(): void {
     this.generation++;
+    this.loadingFor = null;
     this.projects.set([]);
     this.zones.set([]);
     this.frameTypes.set([]);
@@ -295,6 +296,25 @@ export class DashboardStore {
       awaited = this.latestRefresh;
       await awaited;
     }
+  }
+
+  /** The signed-in user whose data is loading, and that load, until it ends; reset() forgets both. */
+  private loadingFor: object | null = null;
+  private userLoad: Promise<void> = Promise.resolve();
+
+  /**
+   * Loads a signed-in user's data: the shell's sign-in effect and a reconnect that read the auth
+   * state share one load while it runs, whichever asks first.
+   */
+  loadFor(user: object): Promise<void> {
+    if (user !== this.loadingFor) {
+      this.loadingFor = user;
+      const load = this.refresh().finally(() => {
+        if (this.userLoad === load) this.loadingFor = null;
+      });
+      this.userLoad = load;
+    }
+    return this.userLoad;
   }
 
   /**

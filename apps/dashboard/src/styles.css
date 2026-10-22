@@ -168,7 +168,7 @@ select {
   color: #fff;
 }
 
-.btn--primary:hover:not(:disabled) {
+.btn--primary:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--ember-strong-hover);
 }
 
@@ -178,7 +178,7 @@ select {
   color: var(--ink);
 }
 
-.btn--secondary:hover:not(:disabled) {
+.btn--secondary:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--surface-sunken);
 }
 
@@ -187,7 +187,7 @@ select {
   color: var(--ink);
 }
 
-.btn--ghost:hover:not(:disabled) {
+.btn--ghost:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--surface-sunken);
 }
 
@@ -647,6 +647,30 @@ select {
 .empty__text {
   max-width: 360px;
   color: var(--text-muted);
+}
+
+/* A disabled action and why, shown under it on hover and focus (it is also its description). */
+.disabled-reason {
+  position: relative;
+  display: inline-flex;
+}
+.disabled-reason__tip {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: #fff;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.disabled-reason:hover .disabled-reason__tip,
+.disabled-reason:focus-within .disabled-reason__tip {
+  opacity: 1;
 }
 
 /* ---------- Banner ---------- */
@@ -1286,7 +1310,7 @@ select {
   background: var(--danger-text);
   color: #fff;
 }
-.btn--danger:hover:not(:disabled) {
+.btn--danger:hover:not(:disabled):not([aria-disabled='true']) {
   background: #912018;
 }
 
