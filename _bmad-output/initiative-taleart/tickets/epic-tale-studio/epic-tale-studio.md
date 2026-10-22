@@ -78,8 +78,8 @@ R5 (parent R13; PRD FR-032, FR-010; digest: media layers): **Image and video ele
 
 R6 (parent R13; PRD FR-032; digest: stickers): **Shapes, stickers and emoji**
    - Shapes are rectangle (with corner radius), ellipse and line, each with fill, stroke colour, stroke width and opacity.
-   - A sticker is either an emoji, rendered as text with the platform's emoji font, or an image sticker. An image sticker is a PNG, WebP or GIF from the project's media, with alt text or marked decorative.
-   - Each emoji sticker has an accessible name taken from its Unicode name, and the author can edit it.
+   - Stickers are of two element types: an **emoji** (its own `emoji` type), rendered as text with the platform's emoji font, and an **image sticker** (`sticker`), a PNG, WebP or GIF from the project's media, with alt text or marked decorative.
+   - Each emoji has an accessible name taken from its Unicode name, and the author can edit it; a decorative emoji is hidden from screen readers.
    Verify: add a rounded rectangle, an ellipse, a line, an emoji and an image sticker, and see each on the sample page; a screen reader announces the emoji's name and skips a decorative sticker.
 
 R7 (parent R13; PRD FR-016; digest: calls to action): **Calls to action**

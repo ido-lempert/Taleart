@@ -71,6 +71,21 @@ const ZONE = {
               a11y: {},
               props: { text: 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦' },
             },
+            // A decorative shape and an emoji named by its Unicode name (Tale Studio story 7.6).
+            {
+              id: '00000000-0000-4000-8000-000000000003',
+              type: 'shape',
+              box: { x: 0.1, y: 0.78, w: 0.8, h: 0.04, rotation: 0 },
+              a11y: { decorative: true },
+              props: { shape: 'rectangle', fill: '#ffcc00', radius: 0.02 },
+            },
+            {
+              id: '00000000-0000-4000-8000-000000000004',
+              type: 'emoji',
+              box: { x: 0.375, y: 0.43, w: 0.25, h: 0.140625, rotation: 0 },
+              a11y: { label: 'sun' },
+              props: { emoji: '☀️' },
+            },
           ],
         }),
       ],
@@ -186,6 +201,18 @@ try {
   check(
     Math.abs(placed.ratio - 9 / 16) < 0.01 && placed.over,
     "the canvas is 9:16 with the tale's media under the text",
+  );
+  const extras = await page.evaluate(() => {
+    const root = document.querySelector('taleart-view').shadowRoot;
+    const emoji = root.querySelector('dialog .ta-emoji');
+    return {
+      emoji: emoji && [emoji.getAttribute('role'), emoji.getAttribute('aria-label'), emoji.textContent],
+      shape: root.querySelector('dialog .ta-shape')?.getAttribute('aria-hidden') ?? null,
+    };
+  });
+  check(
+    extras.emoji?.join() === 'img,sun,☀️' && extras.shape === 'true',
+    'an emoji is text named by its label, and a decorative shape is hidden from assistive technology',
   );
   violations += await scan(page, 'viewer with a text element', axe);
   await glyphs.click({ clickCount: 3 });

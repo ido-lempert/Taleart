@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
+import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
 import {
   DEFAULT_another tool_API_URL,
@@ -25,6 +25,8 @@ function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void
 }
 
 async function start(): Promise<void> {
+  // Emoji elements are checked with the RegExp v flag (Node.js 22 or later); without it the API does not start.
+  assertEmojiCheckSupported();
   const pool = createPool();
   await migrate(pool);
   // The build copies libs/contract/frame-types next to main.js. Read at every

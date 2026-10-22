@@ -3191,7 +3191,9 @@ components:
           type: string
         type:
           type: string
-          description: A key of the element-type registry, such as `text`, `image` or `video`.
+          description: >-
+            A key of the element-type registry, such as `text`, `image`,
+            `video`, `shape`, `emoji` or `sticker`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
@@ -3200,8 +3202,8 @@ components:
           type: object
           description: >-
             The type's props, as its schema in `tale-document/element-types/`
-            defines them, except that an image's or video's `mediaKey` is
-            replaced by `url`, its public URL (AD-11).
+            defines them, except that an image's, video's or image
+            sticker's `mediaKey` is replaced by `url`, its public URL (AD-11).
     TaleDocument:
       $ref: '../tale-document/v1.schema.json'
     TextElementProps:
@@ -3210,6 +3212,12 @@ components:
       $ref: '../tale-document/element-types/image.schema.json'
     VideoElementProps:
       $ref: '../tale-document/element-types/video.schema.json'
+    ShapeElementProps:
+      $ref: '../tale-document/element-types/shape.schema.json'
+    EmojiElementProps:
+      $ref: '../tale-document/element-types/emoji.schema.json'
+    StickerElementProps:
+      $ref: '../tale-document/element-types/sticker.schema.json'
     MediaBackground:
       $ref: '../tale-document/v1.schema.json#/$defs/MediaBackground'
     ColorBackground:

@@ -2,7 +2,7 @@
 // elements, whose array order is the z-order, first at the bottom (AD-15).
 import {
   elementBounds,
-  mediaElementName,
+  elementName,
   TALE_SAFE_AREA,
   type CanvasRect,
   type TaleElement,
@@ -29,18 +29,15 @@ export const round = (value: number): number => Math.round(value * 10000) / 1000
 export const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
 /**
- * A short name for a layer, from its content: a text's first 40 characters on one line; an image's
- * or video's alt text, else its type and place among its kind ("Image 2", R5), which needs the
- * document's `elements` (without them it is the first of its kind).
+ * A short name for a layer, from its content, as the contract's `elementName` gives it (shared with
+ * the server's refusals): a text's first 40 characters on one line; an image's, video's or image
+ * sticker's alt text, else its type and place among its kind ("Image 2"); an emoji with its name
+ * ("🎉 party popper"); a shape's label, else its shape and place ("Rectangle 1"). Without the
+ * document's `elements` it is the first of its kind.
  */
 export function layerName(element: TaleElement, elements: readonly TaleElement[] = [element]): string {
-  if (element.type !== 'text') {
-    const index = elements.indexOf(element);
-    return index < 0 ? mediaElementName([element], 0) : mediaElementName(elements, index);
-  }
-  const characters = [...element.props.text.trim().replace(/\s+/g, ' ')];
-  if (characters.length === 0) return 'Empty text';
-  return characters.length > 40 ? `${characters.slice(0, 40).join('')}…` : characters.join('');
+  const index = elements.indexOf(element);
+  return index < 0 ? elementName([element], 0) : elementName(elements, index);
 }
 
 /**

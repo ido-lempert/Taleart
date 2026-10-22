@@ -1,5 +1,6 @@
 import { readingOrder, type DeliveryTaleDocument, type DeliveryTaleElement } from '@taleart/contract';
-import { mediaFit, mediaUrl, renderImage, renderVideo, stillImage, type RenderContext } from './media';
+import { mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
+import { renderEmoji, renderShape } from './shapes';
 import { renderText } from './text';
 
 /** Renders one element of its type as DOM, or null to render nothing. */
@@ -14,6 +15,9 @@ export const ELEMENT_RENDERERS: ReadonlyMap<string, ElementRenderer> = new Map<s
   ['text', renderText],
   ['image', renderImage],
   ['video', renderVideo],
+  ['shape', renderShape],
+  ['emoji', renderEmoji],
+  ['sticker', renderSticker],
 ]);
 
 /**
@@ -53,6 +57,19 @@ export const DOCUMENT_STYLES = `
 }
 .ta-line { display: block; }
 .ta-media { display: block; pointer-events: none; -webkit-user-drag: none; }
+.ta-shape { pointer-events: none; }
+.ta-stroke { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); }
+.ta-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: visible;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
 .ta-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .ta-hl {
   -webkit-box-decoration-break: clone;
