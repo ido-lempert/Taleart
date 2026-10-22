@@ -36,6 +36,7 @@ import { describeSettings, type Settings } from '../settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
+import { SiteKeyCard } from './site-key-card';
 
 const TONES = 6;
 
@@ -66,6 +67,7 @@ type Direction = 'earlier' | 'later';
     CdkDrag,
     CdkDragHandle,
     DuplicateTale,
+    SiteKeyCard,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './zone-detail.html',

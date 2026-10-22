@@ -128,7 +128,7 @@ describe('import throughput (epic R6)', () => {
     pool = createPool(testDatabaseUrl);
     await migrate(pool);
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     const { startFakeStoryly } = (await import(pathToFileURL(fakeStorylyModule).href)) as {
       startFakeStoryly(): Promise<FakeStoryly>;

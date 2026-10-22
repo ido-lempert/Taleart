@@ -20,6 +20,7 @@ import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import { zoneKeysRouter } from './http/zone-keys.router';
+import { siteKeyRouter } from './http/site-key.router';
 import { zonesRouter } from './http/zones.router';
 
 /** Management API base path (AD-2, versioned per the spine conventions). */
@@ -95,6 +96,7 @@ export function createApp(
   v1.use('/projects', projectTaleGroupsRouter(pool));
   v1.use('/projects', importsRouter(pool, importer));
   v1.use('/projects', projectThemeRouter(pool));
+  v1.use('/projects', siteKeyRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));
   v1.use('/projects', projectMediaRouter(pool, storage, media));
   v1.use('/frame-types', frameTypesRouter(frameTypes));

@@ -8,6 +8,8 @@
 // Then two zones with two bars, each with its own shape and its own named items, and an unknown key
 // that renders nothing and logs one error.
 // Then playbooks (R8): a zone whose display is each MVP playbook's preset renders it.
+// Then one site key with zones named by slug (epic UX rework R3): two zones, an unknown slug, and a
+// theme override for one slug only.
 // Then a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
 // the bar, the banner, the seen ring and the viewer; then the zones' SDK theme override wins over it.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
@@ -540,6 +542,66 @@ try {
   );
   violations += await scan(themed, 'themed bar and banner', axe);
   await themedContext.close();
+
+  // One site key for the project, zones named by slug (epic UX rework R3): the sample page's
+  // `?siteKey=…&zones=a,b,c` places one element per slug. Each shows its own display, an unknown slug
+  // renders nothing and logs one error, and a theme override for one slug changes only that zone.
+  const siteContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const sitePage = await siteContext.newPage();
+  const siteErrors = [];
+  sitePage.on('console', (msg) => {
+    if (msg.type() === 'error' && !msg.text().startsWith('Failed to load resource')) siteErrors.push(msg.text());
+  });
+  sitePage.on('pageerror', (err) => siteErrors.push(String(err)));
+  const siteTheme = { ...DEFAULT_THEME, ringStyle: 'solid', ringColors: ['#ff0000'], ringWidth: 3 };
+  const bySlug = {
+    'home-top': { ...ZONE, slug: 'home-top', theme: siteTheme },
+    'home-promo': { ...bannerZone({ autoplay: false }), theme: siteTheme },
+  };
+  const siteRequests = [];
+  await sitePage.route(
+    (url) => url.href.startsWith(`${API}/delivery/v1/zone?`),
+    (route) => {
+      const url = new URL(route.request().url());
+      const slug = url.searchParams.get('zone') ?? '';
+      const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
+      siteRequests.push(slug);
+      return key === 'tas_site' && bySlug[slug]
+        ? route.fulfill({ json: bySlug[slug], headers: CORS })
+        : route.fulfill({
+            status: 401,
+            json: { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } },
+            headers: CORS,
+          });
+    },
+  );
+  await sitePage.route(`${API}/media/**`, (route) =>
+    route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
+  );
+  const siteTop = encodeURIComponent(JSON.stringify({ ringColors: ['#0000ff'] }));
+  await sitePage.goto(
+    `http://localhost:${port}/?siteKey=tas_site&zones=home-top,home-promo,nope&api=${encodeURIComponent(API)}&theme=${siteTop}&themeZone=home-top`,
+  );
+  const siteViews = sitePage.locator('taleart-view');
+  await siteViews.nth(0).locator('.bar').waitFor();
+  await siteViews.nth(1).locator('section.banner').waitFor();
+  for (let i = 0; i < 40 && siteErrors.length === 0; i++) await sitePage.waitForTimeout(50);
+  const siteLooks = await sitePage.evaluate(() =>
+    [...document.querySelectorAll('taleart-view')].map((view) => ({
+      bar: !!view.shadowRoot.querySelector('.bar'),
+      banner: !!view.shadowRoot.querySelector('section.banner'),
+      nodes: view.shadowRoot.childNodes.length,
+      ring: view.shadowRoot.querySelector('.taleart')?.style.getPropertyValue('--ta-ring') ?? null,
+    })),
+  );
+  check(siteLooks[0].bar && !siteLooks[0].banner, 'a site key and the slug home-top show that zone\'s bar');
+  check(siteLooks[1].banner && !siteLooks[1].bar, 'the same site key and the slug home-promo show that zone\'s banner');
+  check(siteLooks[2].nodes === 0, 'an unknown slug renders nothing');
+  check(siteErrors.length === 1 && siteErrors[0].includes('TaleArt'), `an unknown slug logs one error${siteErrors.length === 1 ? '' : `: ${siteErrors.join('; ')}`}`);
+  check(siteLooks[0].ring === '#0000ff' && siteLooks[1].ring === '#ff0000', 'a theme override for one slug changes only that zone');
+  check(new Set(siteRequests).size === siteRequests.length, 'one request per zone');
+  violations += await scan(sitePage, 'site key with two zones and an unknown slug', axe);
+  await siteContext.close();
 
   // The zones' SDK theme override (R9): a red project ring, overridden in blue for each zone in the
   // sample page's configuration, on a bar zone and a banner zone; an invalid ringWidth is ignored
