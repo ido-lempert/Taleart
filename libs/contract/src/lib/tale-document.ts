@@ -42,11 +42,23 @@ export type VideoElementProps = Schemas['VideoElementProps'];
 export type ImageElement = TaleElementOf<'image', ImageElementProps>;
 /** A video of the tale's project, by storage key; a tale holds at most one (epic Tale Studio R5). */
 export type VideoElement = TaleElementOf<'video', VideoElementProps>;
+/** The props of a `shape` element, from `element-types/shape.schema.json` (epic Tale Studio R6). */
+export type ShapeElementProps = Schemas['ShapeElementProps'];
+/** The props of an `emoji` element, from `element-types/emoji.schema.json` (epic Tale Studio R6). */
+export type EmojiElementProps = Schemas['EmojiElementProps'];
+/** The props of a `sticker` element, from `element-types/sticker.schema.json` (epic Tale Studio R6). */
+export type StickerElementProps = Schemas['StickerElementProps'];
+/** A rectangle, ellipse or line built from whitelisted values (epic Tale Studio R6). */
+export type ShapeElement = TaleElementOf<'shape', ShapeElementProps>;
+/** One emoji, drawn as text in the platform's emoji font and named by its label (epic Tale Studio R6). */
+export type EmojiElement = TaleElementOf<'emoji', EmojiElementProps>;
+/** An image sticker: a PNG, WebP or GIF of the tale's project, by storage key (epic Tale Studio R6). */
+export type StickerElement = TaleElementOf<'sticker', StickerElementProps>;
 /** An element that shows media of the tale's project. */
-export type MediaElement = ImageElement | VideoElement;
+export type MediaElement = ImageElement | VideoElement | StickerElement;
 
 /** Every element type of the registry, a discriminated union keyed by `type` (AD-15). */
-export type TaleElement = TextElement | ImageElement | VideoElement;
+export type TaleElement = TextElement | ImageElement | VideoElement | ShapeElement | EmojiElement | StickerElement;
 
 /** The registered element type keys. */
 export type TaleElementType = TaleElement['type'];
@@ -318,16 +330,20 @@ export interface DocumentMediaRef {
   visible: boolean;
 }
 
-/** True when the element is an `image` or a `video`. */
+/** The element types that show media of the tale's project by storage key. */
+export const MEDIA_ELEMENT_TYPES = ['image', 'video', 'sticker'] as const;
+
+/** True when the element is an `image`, a `video` or an image `sticker`. */
 export function isMediaElement<T extends { type: string }>(
   element: T,
-): element is Extract<T, { type: 'image' | 'video' }> {
-  return element.type === 'image' || element.type === 'video';
+): element is Extract<T, { type: (typeof MEDIA_ELEMENT_TYPES)[number] }> {
+  return (MEDIA_ELEMENT_TYPES as readonly string[]).includes(element.type);
 }
 
 /**
- * The media keys a document of any trust references: each image and video element's `mediaKey`,
- * and the canvas's media background. Values that are not strings are skipped; the schema refuses them.
+ * The media keys a document of any trust references: each image, video and image sticker
+ * element's `mediaKey`, and the canvas's media background. Values that are not strings are
+ * skipped; the schema refuses them.
  */
 export function documentMediaRefs(doc: unknown): DocumentMediaRef[] {
   const refs: DocumentMediaRef[] = [];
@@ -340,11 +356,13 @@ export function documentMediaRefs(doc: unknown): DocumentMediaRef[] {
   if (!Array.isArray(elements)) return refs;
   elements.forEach((element: unknown, i) => {
     const e = element as { type?: unknown; hidden?: unknown; props?: { mediaKey?: unknown } } | null;
-    if ((e?.type !== 'image' && e?.type !== 'video') || typeof e.props?.mediaKey !== 'string') return;
+    if (typeof e?.type !== 'string' || !isMediaElement({ type: e.type }) || typeof e.props?.mediaKey !== 'string') {
+      return;
+    }
     refs.push({
       key: e.props.mediaKey,
       pointer: `/elements/${i}/props/mediaKey`,
-      kind: e.type,
+      kind: e.type === 'video' ? 'video' : 'image',
       visible: e.hidden !== true,
     });
   });
@@ -362,10 +380,12 @@ export function hasVideoElement(doc: { elements: readonly { type: string }[] } |
   return !!doc?.elements.some((element) => element.type === 'video');
 }
 
+const MEDIA_NAMES: Readonly<Record<string, string>> = { image: 'Image', video: 'Video', sticker: 'Sticker' };
+
 /**
  * How Tale Studio, and refusals, name a media element: its alt text, shortened to 40 characters,
  * or its type and its place among the elements of that type from the bottom of the z-order, such
- * as "Image 2".
+ * as "Image 2" or "Sticker 1".
  */
 export function mediaElementName(
   elements: readonly { type: string; a11y?: { label?: string } }[],
@@ -377,9 +397,9 @@ export function mediaElementName(
     const characters = [...label];
     return characters.length > 40 ? `${characters.slice(0, 40).join('')}…` : label;
   }
-  const type = element?.type === 'video' ? 'video' : 'image';
+  const type = element && Object.prototype.hasOwnProperty.call(MEDIA_NAMES, element.type) ? element.type : 'image';
   const n = elements.slice(0, index + 1).filter((e) => e.type === type).length;
-  return `${type === 'video' ? 'Video' : 'Image'} ${n}`;
+  return `${MEDIA_NAMES[type]} ${n}`;
 }
 
 /** True when the element tells assistive technology what it shows, or is marked as showing nothing to tell (R12). */
@@ -388,17 +408,16 @@ export function hasAltText(element: { a11y?: { label?: string; decorative?: bool
 }
 
 /**
- * The first visible image or video that has neither alt text nor the decorative mark (R12), which
- * keeps a tale from being published; null when there is none. Drafts may hold such elements.
+ * The first visible image, video or image sticker that has neither alt text nor the decorative
+ * mark (R12), which keeps a tale from being published; null when there is none. Drafts may hold
+ * such elements.
  */
 export function missingAltText(doc: {
   elements: readonly { type: string; hidden?: boolean; a11y?: { label?: string; decorative?: boolean } }[];
-}): { index: number; name: string; type: 'image' | 'video' } | null {
-  const index = doc.elements.findIndex(
-    (e) => (e.type === 'image' || e.type === 'video') && e.hidden !== true && !hasAltText(e),
-  );
+}): { index: number; name: string; type: MediaElement['type'] } | null {
+  const index = doc.elements.findIndex((e) => isMediaElement({ type: e.type }) && e.hidden !== true && !hasAltText(e));
   if (index < 0) return null;
-  const type = doc.elements[index].type === 'video' ? 'video' : 'image';
+  const type = doc.elements[index].type as MediaElement['type'];
   return { index, name: mediaElementName(doc.elements, index), type };
 }
 
@@ -409,9 +428,9 @@ export function missingAltTextMessage(found: { name: string }): string {
 
 /**
  * The document with its media keys turned into URLs, as the Delivery API returns it (AD-11): each
- * image and video element's `mediaKey` becomes `url`, and a media background's too. `resolve`
- * gives the URL of a key, or null for a key that is not to be delivered: that element is left out,
- * and that background becomes its colour.
+ * image, video and image sticker element's `mediaKey` becomes `url`, and a media background's
+ * too. `resolve` gives the URL of a key, or null for a key that is not to be delivered: that
+ * element is left out, and that background becomes its colour.
  */
 export function resolveDocumentMedia<D extends { canvas: unknown; elements: readonly unknown[] }>(
   doc: D,
@@ -426,10 +445,129 @@ export function resolveDocumentMedia<D extends { canvas: unknown; elements: read
   }
   const elements = doc.elements.flatMap((element) => {
     const e = element as { type?: unknown; props?: { mediaKey?: unknown } };
-    if (e.type !== 'image' && e.type !== 'video') return [element];
+    if (typeof e.type !== 'string' || !isMediaElement({ type: e.type })) return [element];
     const { mediaKey, ...props } = e.props ?? {};
     const url = typeof mediaKey === 'string' ? resolve(mediaKey) : null;
     return url === null ? [] : [{ ...e, props: { ...props, url } }];
   });
   return { ...doc, canvas: { ...(doc.canvas as object), background } as DeliveryCanvas, elements };
+}
+
+// ---- Shapes, emoji and image stickers (epic Tale Studio R6, R12, R14; AD-16) ----
+
+/** The shapes a `shape` element draws. */
+export type ShapeKind = ShapeElementProps['shape'];
+
+/** Every shape, in the order Tale Studio offers them. */
+export const SHAPE_KINDS: readonly ShapeKind[] = ['rectangle', 'ellipse', 'line'];
+
+/** The widest stroke, as a fraction of the canvas height. */
+export const MAX_STROKE_WIDTH = 0.05;
+
+/** The largest corner radius of a rectangle, as a fraction of the canvas height. */
+export const MAX_SHAPE_RADIUS = 0.5;
+
+const HEX_COLOR = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/** A shape's look with every value checked again: what Tale Studio and the Web SDK draw. */
+export interface ShapeStyle {
+  shape: ShapeKind;
+  /** The fill colour, or null for none (a line has none). */
+  fill: string | null;
+  /** The stroke colour, or null for none. */
+  stroke: string | null;
+  /** The stroke width as a fraction of the canvas height; 0 without a stroke colour. */
+  strokeWidth: number;
+  /** A rectangle's corner radius as a fraction of the canvas height; 0 for other shapes. */
+  radius: number;
+  opacity: number;
+}
+
+const numberIn = (value: unknown, min: number, max: number, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
+const colorOrNull = (value: unknown): string | null =>
+  typeof value === 'string' && HEX_COLOR.test(value) ? value : null;
+
+/**
+ * A shape's props of any trust as the values to draw (AD-16): each checked again, and one that
+ * fails takes its default (none, 0 or 1). Null when `shape` is not a known shape.
+ */
+export function resolveShapeStyle(props: unknown): ShapeStyle | null {
+  const p = (typeof props === 'object' && props !== null ? props : {}) as Record<string, unknown>;
+  const shape = p['shape'];
+  if (shape !== 'rectangle' && shape !== 'ellipse' && shape !== 'line') return null;
+  const stroke = colorOrNull(p['stroke']);
+  return {
+    shape,
+    fill: shape === 'line' ? null : colorOrNull(p['fill']),
+    stroke,
+    strokeWidth: stroke === null ? 0 : numberIn(p['strokeWidth'], 0, MAX_STROKE_WIDTH, 0),
+    radius: shape === 'rectangle' ? numberIn(p['radius'], 0, MAX_SHAPE_RADIUS, 0) : 0,
+    opacity: numberIn(p['opacity'], 0, 1, 1),
+  };
+}
+
+/** The props of a new shape: white; a rectangle slightly rounded, a line a thin stroke. */
+export function newShapeProps(shape: ShapeKind): ShapeElementProps {
+  if (shape === 'line') return { shape, stroke: '#FFFFFF', strokeWidth: 0.006 };
+  if (shape === 'ellipse') return { shape, fill: '#FFFFFF' };
+  return { shape, fill: '#FFFFFF', radius: 0.02 };
+}
+
+/** Where a new rectangle or ellipse goes: centred, inside the safe areas. */
+export const NEW_SHAPE_BOX: TaleElementBox = { x: 0.3, y: 0.4, w: 0.4, h: 0.2, rotation: 0 };
+
+/** Where a new line goes: across the middle, its box a little taller than its stroke. */
+export const NEW_LINE_BOX: TaleElementBox = { x: 0.2, y: 0.48, w: 0.6, h: 0.04, rotation: 0 };
+
+/** Where a new emoji goes: a square box (on the 9:16 canvas) in the middle. */
+export const NEW_EMOJI_BOX: TaleElementBox = { x: 0.375, y: 0.43, w: 0.25, h: 0.140625, rotation: 0 };
+
+/** Where a new image sticker goes: a square box (on the 9:16 canvas) in the middle. */
+export const NEW_STICKER_BOX: TaleElementBox = { x: 0.3, y: 0.3875, w: 0.4, h: 0.225, rotation: 0 };
+
+/**
+ * The platform's colour emoji fonts, never a downloaded font or an emoji image (R6): an emoji is
+ * text, so it is announced and stays sharp.
+ */
+export const EMOJI_FONT_STACK =
+  '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", "Segoe UI Symbol", sans-serif';
+
+/** How much of the shorter side of its box an emoji's glyph fills. */
+export const EMOJI_BOX_FILL = 0.8;
+
+/**
+ * An emoji's font size, as CSS: the glyph fills {@link EMOJI_BOX_FILL} of the shorter side of its
+ * box on the 9:16 canvas, in the canvas's height units (`cqh`).
+ */
+export function emojiFontSize(box: { w: number; h: number }): string {
+  const side = Math.min(box.h, (box.w * TALE_CANVAS_ASPECT.width) / TALE_CANVAS_ASPECT.height);
+  return `${Math.round(side * EMOJI_BOX_FILL * 100000) / 1000}cqh`;
+}
+
+/** The most UTF-16 code units an emoji holds, as the schema states it. */
+export const MAX_EMOJI_LENGTH = 64;
+
+let emojiPattern: RegExp | null = null;
+
+// One RGI emoji (Unicode's recommended set: single emoji, keycaps, flags, modifier, tag and ZWJ
+// sequences). The `v` flag's `\p{RGI_Emoji}` states it exactly; a runtime without the flag uses an
+// approximation of the same shapes.
+function emojiRegExp(): RegExp {
+  if (emojiPattern) return emojiPattern;
+  try {
+    emojiPattern = new RegExp('^\\p{RGI_Emoji}$', 'v');
+  } catch {
+    const part = '\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier}|[\\u{E0020}-\\u{E007F}])*';
+    emojiPattern = new RegExp(
+      `^(?:\\p{Regional_Indicator}{2}|[#*0-9]\\uFE0F?\\u20E3|${part}(?:\\u200D${part})*)$`,
+      'u',
+    );
+  }
+  return emojiPattern;
+}
+
+/** True when `value` is exactly one emoji (an RGI emoji; R6, R14): what an `emoji` element holds. */
+export function isEmojiGlyph(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_EMOJI_LENGTH && emojiRegExp().test(value);
 }

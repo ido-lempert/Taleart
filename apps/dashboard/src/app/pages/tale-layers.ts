@@ -28,12 +28,38 @@ export type ReorderCommand = 'forward' | 'backward' | 'front' | 'back';
 export const round = (value: number): number => Math.round(value * 10000) / 10000;
 export const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
+const SHAPE_LAYER_NAMES: Readonly<Record<string, string>> = {
+  rectangle: 'Rectangle',
+  ellipse: 'Ellipse',
+  line: 'Line',
+};
+
+// The first 40 characters of a label on one line, or ''.
+function shortLabel(label: string | undefined): string {
+  const characters = [...(label ?? '').trim().replace(/\s+/g, ' ')];
+  return characters.length > 40 ? `${characters.slice(0, 40).join('')}…` : characters.join('');
+}
+
 /**
- * A short name for a layer, from its content: a text's first 40 characters on one line; an image's
- * or video's alt text, else its type and place among its kind ("Image 2", R5), which needs the
- * document's `elements` (without them it is the first of its kind).
+ * A short name for a layer, from its content: a text's first 40 characters on one line; an image's,
+ * video's or image sticker's alt text, else its type and place among its kind ("Image 2", R5),
+ * which needs the document's `elements` (without them it is the first of its kind); an emoji with
+ * its name ("🎉 party popper"); a shape's label, else its shape and place among the shapes of that
+ * kind ("Rectangle 1", R6).
  */
 export function layerName(element: TaleElement, elements: readonly TaleElement[] = [element]): string {
+  if (element.type === 'emoji') {
+    const label = shortLabel(element.a11y.label);
+    return label ? `${element.props.emoji} ${label}` : element.props.emoji;
+  }
+  if (element.type === 'shape') {
+    const label = shortLabel(element.a11y.label);
+    if (label) return label;
+    const list = elements.includes(element) ? elements : [element];
+    const below = list.slice(0, list.indexOf(element) + 1);
+    const n = below.filter((e) => e.type === 'shape' && e.props.shape === element.props.shape).length;
+    return `${SHAPE_LAYER_NAMES[element.props.shape] ?? 'Shape'} ${n}`;
+  }
   if (element.type !== 'text') {
     const index = elements.indexOf(element);
     return index < 0 ? mediaElementName([element], 0) : mediaElementName(elements, index);

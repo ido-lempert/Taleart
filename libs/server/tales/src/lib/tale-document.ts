@@ -3,7 +3,9 @@ import {
   ELEMENT_TEXT_RULE,
   ErrorCodes,
   hasDisallowedCharacter,
+  isEmojiGlyph,
   isFontFamily,
+  isMediaElement,
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
@@ -134,6 +136,10 @@ const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
       throw new InvalidTaleDocumentError(`${pointer}/font/family`, 'must be a font-family list the theme accepts');
     }
   },
+  // One RGI emoji, drawn as text (R6, R14): no other text, markup or control characters.
+  emoji: (props, pointer) => {
+    if (!isEmojiGlyph(props['emoji'])) throw new InvalidTaleDocumentError(`${pointer}/emoji`, 'must be one emoji');
+  },
 };
 
 interface Validators {
@@ -241,7 +247,7 @@ export function draftProblem(err: InvalidTaleDocumentError | TaleDocumentTooLarg
   const element = Array.isArray(elements) && Number.isInteger(index) ? (elements[index] as unknown) : undefined;
   if (typeof element !== 'object' || element === null) return 'Something in it is not valid.';
   const e = element as { type?: unknown; props?: { text?: unknown }; a11y?: { label?: string } };
-  if (e.type === 'image' || e.type === 'video') {
+  if (typeof e.type === 'string' && isMediaElement({ type: e.type })) {
     return `"${mediaElementName(elements as { type: string }[], index)}" has a setting that is not valid.`;
   }
   if (e.type === 'text' && typeof e.props?.text === 'string') {

@@ -1614,6 +1614,182 @@ try {
     check('2.2.2', !(await readMedia(reduced)).video?.paused, 'Play plays the video');
     await reducedContext.close();
   }
+
+  // 14. Shapes, emoji and image stickers in a tale document (Tale Studio 7.6, epic R6, R12): shapes
+  //     drawn from their values and hidden unless named, an emoji announced by its name as text in the
+  //     platform's emoji font, a sticker read by its alt text and a decorative one skipped.
+  {
+    const el = (n, type, box, props, a11y = {}) => ({
+      id: `00000000-0000-4000-8000-00000000020${n}`,
+      type,
+      box: { rotation: 0, ...box },
+      a11y,
+      props,
+    });
+    const z = zone({
+      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      taleGroups: [
+        {
+          id: 'gs',
+          name: 'Stickers',
+          cover: null,
+          tales: [
+            {
+              id: 's1',
+              title: 'Sticker tale',
+              media: null,
+              document: {
+                version: 1,
+                canvas: { background: { type: 'color', color: '#1f3a5f' } },
+                elements: [
+                  el(
+                    1,
+                    'shape',
+                    { x: 0.1, y: 0.14, w: 0.8, h: 0.2 },
+                    { shape: 'rectangle', fill: '#ffcc00', stroke: '#000000', strokeWidth: 0.005, radius: 0.03 },
+                    { decorative: true },
+                  ),
+                  el(
+                    2,
+                    'shape',
+                    { x: 0.1, y: 0.38, w: 0.3, h: 0.15 },
+                    { shape: 'ellipse', fill: '#e63946' },
+                    {
+                      label: 'A red dot',
+                    },
+                  ),
+                  el(
+                    3,
+                    'shape',
+                    { x: 0.1, y: 0.56, w: 0.8, h: 0.02, rotation: -10 },
+                    { shape: 'line', stroke: '#ffffff', strokeWidth: 0.004 },
+                    { decorative: true },
+                  ),
+                  el(
+                    4,
+                    'emoji',
+                    { x: 0.55, y: 0.38, w: 0.25, h: 0.140625 },
+                    { emoji: '🎉' },
+                    { label: 'party popper' },
+                  ),
+                  el(
+                    5,
+                    'sticker',
+                    { x: 0.1, y: 0.62, w: 0.35, h: 0.2 },
+                    { url: `${API}/media/media/hat.png` },
+                    {
+                      label: 'A party hat',
+                    },
+                  ),
+                  el(
+                    6,
+                    'sticker',
+                    { x: 0.55, y: 0.62, w: 0.35, h: 0.2 },
+                    { url: `${API}/media/media/star.gif` },
+                    {
+                      decorative: true,
+                    },
+                  ),
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await openSample(context, { zone: z });
+    await view(page).locator('button.item').first().click();
+    await dialogOf(page).waitFor();
+    await page.waitForTimeout(400);
+    const shown = await page.evaluate(() => {
+      const dialog = document.querySelector('taleart-view').shadowRoot.querySelector('dialog');
+      const canvas = dialog.querySelector('.ta-canvas').getBoundingClientRect();
+      const box = (node) => {
+        const r = node.getBoundingClientRect();
+        return { x: (r.left - canvas.left) / canvas.width, w: r.width / canvas.width };
+      };
+      const shapes = [...dialog.querySelectorAll('.ta-shape')].map((node) => {
+        const style = getComputedStyle(node);
+        return {
+          hidden: node.getAttribute('aria-hidden'),
+          role: node.getAttribute('role'),
+          label: node.getAttribute('aria-label'),
+          fill: style.backgroundColor,
+          radius: style.borderTopLeftRadius,
+          border: style.borderTopWidth,
+          bar: node.querySelector('.ta-stroke') ? getComputedStyle(node.querySelector('.ta-stroke')).height : null,
+          box: box(node),
+        };
+      });
+      const emoji = dialog.querySelector('.ta-emoji');
+      return {
+        shapes,
+        emoji: {
+          role: emoji.getAttribute('role'),
+          label: emoji.getAttribute('aria-label'),
+          text: emoji.textContent,
+          font: getComputedStyle(emoji).fontFamily,
+          images: emoji.querySelectorAll('img').length,
+        },
+        stickers: [...dialog.querySelectorAll('.ta-canvas img.ta-media')].map((img) => ({
+          alt: img.alt,
+          hidden: img.getAttribute('aria-hidden'),
+          fit: getComputedStyle(img).objectFit,
+        })),
+      };
+    });
+    const [rect, dot, line] = shown.shapes;
+    check(
+      'R6',
+      shown.shapes.length === 3 &&
+        rect.fill === 'rgb(255, 204, 0)' &&
+        rect.radius !== '0px' &&
+        rect.border !== '0px' &&
+        dot.radius === '50%' &&
+        line.bar !== null &&
+        line.bar !== '0px' &&
+        Math.abs(rect.box.x - 0.1) < 0.01 &&
+        Math.abs(rect.box.w - 0.8) < 0.01,
+      'a rounded rectangle, an ellipse and a line draw from their values at their boxes',
+    );
+    check(
+      '1.1.1',
+      rect.hidden === 'true' && line.hidden === 'true' && dot.role === 'img' && dot.label === 'A red dot',
+      'decorative shapes are hidden from assistive technology; a named shape is an image with its name',
+    );
+    check(
+      '1.1.1',
+      shown.emoji.role === 'img' &&
+        shown.emoji.label === 'party popper' &&
+        shown.emoji.text === '🎉' &&
+        shown.emoji.images === 0 &&
+        /Emoji/.test(shown.emoji.font),
+      `the emoji is text in the emoji fonts, announced by its name (${shown.emoji.font.slice(0, 40)}…)`,
+    );
+    check(
+      '1.1.1',
+      shown.stickers.length === 2 &&
+        shown.stickers[0].alt === 'A party hat' &&
+        shown.stickers[0].hidden === null &&
+        shown.stickers[1].alt === '' &&
+        shown.stickers[1].hidden === 'true' &&
+        shown.stickers.every((s) => s.fit === 'contain'),
+      'a sticker is read by its alt text and a decorative sticker is skipped; both show whole',
+    );
+    // What a screen reader is given: the dot, the emoji's name and the sticker's alt text, in reading order.
+    const tree = await dialogOf(page).locator('.ta-canvas').ariaSnapshot();
+    const order = ['A red dot', 'party popper', 'A party hat'].map((name) => tree.indexOf(name));
+    check(
+      '1.3.2',
+      order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])) && !tree.includes('img ""'),
+      'the accessibility tree holds the named shape, the emoji and the sticker in reading order, nothing unnamed',
+    );
+    await axe(page, 'viewer on a tale with shapes, emoji and stickers');
+    await shot(page, 'shapes-tale');
+    check('4.1.2', page.errors.length === 0, 'no console errors on the shapes tale');
+    await context.close();
+  }
 } finally {
   await browser.close();
   server.kill();

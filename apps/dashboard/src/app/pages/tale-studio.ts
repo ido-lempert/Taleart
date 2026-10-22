@@ -18,10 +18,13 @@ import {
   cleanText,
   DEFAULT_TALE_DURATION_MS,
   ELEMENT_TEXT_RULE,
+  EMOJI_FONT_STACK,
+  emojiFontSize,
   emptyTaleDocument,
   elementBounds,
   hasAltText,
   hasVideoElement,
+  isMediaElement,
   isOutsideSafeArea,
   MAX_TALE_DURATION_MS,
   MAX_TALE_VIDEO_MS,
@@ -29,10 +32,19 @@ import {
   MAX_TEXT_LENGTH,
   MEDIA_FITS,
   MIN_TALE_DURATION_MS,
+  SHAPE_KINDS,
+  NEW_EMOJI_BOX,
+  NEW_LINE_BOX,
   NEW_MEDIA_BOX,
+  NEW_SHAPE_BOX,
+  NEW_STICKER_BOX,
   NEW_TEXT_BOX,
+  newShapeProps,
+  resolveShapeStyle,
   TALE_SAFE_AREA,
   type MediaElement,
+  type ShapeElement,
+  type ShapeKind,
   type PublishedTaleDocument,
   type TaleDocument,
   type TaleElement,
@@ -45,6 +57,7 @@ import {
   TEXT_BOX_PADDING_EM,
   TEXT_HIGHLIGHT_PADDING_EM,
   textCssWeight,
+  textBackdropAt,
   textContrast,
   textFontFamily,
   type TextBackdrop,
@@ -59,7 +72,15 @@ import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
 import { sameDocument, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
-import { FIT_NAMES, TaleMediaPicker, TaleMediaStyle, type MediaChange } from './tale-media';
+import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } from './tale-media';
+import {
+  SHAPE_NAMES,
+  TaleEmojiPicker,
+  TaleEmojiStyle,
+  TaleShapeStyle,
+  type ElementChange,
+  type EmojiChoice,
+} from './tale-shapes';
 import {
   boundsOf,
   clamp,
@@ -130,14 +151,59 @@ const REORDERED: Record<ReorderCommand, [string, string]> = {
   back: ['moved to the back', 'Already at the back'],
 };
 const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
-const KIND_NAMES: Readonly<Record<TaleElement['type'], string>> = { text: 'Text', image: 'Image', video: 'Video' };
-/** How people read an element's type: "Text", "Image" or "Video". */
-export const kindName = (element: { type: TaleElement['type'] }): string => KIND_NAMES[element.type];
+const KIND_NAMES: Readonly<Record<TaleElement['type'], string>> = {
+  text: 'Text',
+  image: 'Image',
+  video: 'Video',
+  shape: 'Shape',
+  emoji: 'Emoji',
+  sticker: 'Sticker',
+};
+/** How people read an element's type: "Text", "Image", "Video", "Emoji", "Sticker", or a shape's ("Ellipse"). */
+export const kindName = (element: { type: TaleElement['type']; props?: unknown }): string => {
+  const shape = element.type === 'shape' ? (element.props as { shape?: ShapeKind } | undefined)?.shape : undefined;
+  return (shape && SHAPE_NAMES[shape]) || KIND_NAMES[element.type];
+};
+
+/** How the canvas draws a shape, as the Web SDK renders it: each value from the contract's `resolveShapeStyle`. */
+export interface ShapeView {
+  fill: string | null;
+  border: string | null;
+  radius: string | null;
+  opacity: number;
+  /** A line's bar: its thickness and colour; null for a rectangle or an ellipse. */
+  line: { height: string; color: string | null } | null;
+}
+
+/** The canvas look of a shape's props. */
+export function shapeView(props: unknown): ShapeView {
+  const look = resolveShapeStyle(props);
+  if (!look) return { fill: null, border: null, radius: null, opacity: 1, line: null };
+  const stroked = look.stroke !== null && look.strokeWidth > 0;
+  if (look.shape === 'line') {
+    return {
+      fill: null,
+      border: null,
+      radius: null,
+      opacity: look.opacity,
+      line: { height: `${look.strokeWidth * 100}cqh`, color: stroked ? look.stroke : null },
+    };
+  }
+  return {
+    fill: look.fill,
+    border: stroked ? `${look.strokeWidth * 100}cqh solid ${look.stroke}` : null,
+    radius: look.shape === 'ellipse' ? '50%' : look.radius > 0 ? `${look.radius * 100}cqh` : null,
+    opacity: look.opacity,
+    line: null,
+  };
+}
 
 /** The media picker while it is open: what it picks for, and of which kind. */
 interface OpenPicker {
   purpose: 'add' | 'replace' | 'background';
   kind: MediaKind;
+  /** Picks an image sticker: PNG, WebP and GIF images only (R6). */
+  sticker: boolean;
   heading: string;
   /** The element whose media `replace` changes. */
   elementId: string | null;
@@ -206,7 +272,17 @@ export function newTextProps(text: string): TextElementProps {
  */
 @Component({
   selector: 'app-tale-studio-page',
-  imports: [RouterLink, Icon, TaleLayerMenu, TaleTextStyle, TaleMediaPicker, TaleMediaStyle],
+  imports: [
+    RouterLink,
+    Icon,
+    TaleLayerMenu,
+    TaleTextStyle,
+    TaleMediaPicker,
+    TaleMediaStyle,
+    TaleEmojiPicker,
+    TaleShapeStyle,
+    TaleEmojiStyle,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .studio {
@@ -261,6 +337,31 @@ export function newTextProps(text: string): TextElementProps {
       display: block;
       width: 100%;
       height: 100%;
+      pointer-events: none;
+    }
+    .el__shape {
+      position: relative;
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .el__stroke {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    .el__emoji {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      line-height: 1;
+      white-space: nowrap;
       pointer-events: none;
     }
     .el__glyphs.is-highlight {
@@ -516,7 +617,7 @@ export function newTextProps(text: string): TextElementProps {
                     (keydown.escape)="stopEditing(true)"
                   ></textarea>
                 } @else if (el.type !== 'text') {
-                  <!-- An image or video (R5), as the Web SDK renders it: the media fills the box with its fit. -->
+                  <!-- An image, video, shape, emoji or sticker (R5, R6), as the Web SDK renders it. -->
                   <button
                     type="button"
                     class="el"
@@ -556,7 +657,7 @@ export function newTextProps(text: string): TextElementProps {
                         [style.opacity]="el.props.opacity ?? 1"
                         (loadedmetadata)="videoLoaded(el.props.mediaKey, $any($event.target))"
                       ></video>
-                    } @else {
+                    } @else if (el.type === 'image') {
                       <img
                         class="el__media"
                         [src]="mediaSrc(el.props.mediaKey)"
@@ -566,6 +667,42 @@ export function newTextProps(text: string): TextElementProps {
                         [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
                         [style.opacity]="el.props.opacity ?? 1"
                       />
+                    } @else if (el.type === 'sticker') {
+                      <!-- An image sticker shows the whole image (R6). -->
+                      <img
+                        class="el__media"
+                        [src]="mediaSrc(el.props.mediaKey)"
+                        alt=""
+                        draggable="false"
+                        style="object-fit: contain"
+                        [style.opacity]="el.props.opacity ?? 1"
+                      />
+                    } @else if (el.type === 'shape') {
+                      @let s = shape(el);
+                      <span
+                        class="el__shape"
+                        [style.background-color]="s.fill"
+                        [style.border]="s.border"
+                        [style.border-radius]="s.radius"
+                        [style.opacity]="s.opacity"
+                      >
+                        @if (s.line; as line) {
+                          <span
+                            class="el__stroke"
+                            [style.height]="line.height"
+                            [style.background-color]="line.color"
+                          ></span>
+                        }
+                      </span>
+                    } @else {
+                      <!-- An emoji is text in the platform's emoji fonts, sized to its box (R6). -->
+                      <span
+                        class="el__emoji"
+                        aria-hidden="true"
+                        [style.font-family]="emojiFont"
+                        [style.font-size]="emojiSize(el.box)"
+                        [textContent]="el.props.emoji"
+                      ></span>
                     }
                   </button>
                 } @else {
@@ -667,6 +804,37 @@ export function newTextProps(text: string): TextElementProps {
                   (click)="openPicker('add', 'video')"
                 >
                   <app-icon name="video" /> Add video
+                </button>
+              </div>
+              <div class="row">
+                @for (shape of shapeKinds; track shape) {
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    [id]="'studio-add-' + shape"
+                    [disabled]="d.elements.length >= maxElements"
+                    (click)="addShape(shape)"
+                  >
+                    <app-icon name="shape" /> Add {{ shapeNames[shape].toLowerCase() }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  id="studio-add-emoji"
+                  [disabled]="d.elements.length >= maxElements"
+                  (click)="openEmojiPicker()"
+                >
+                  <app-icon name="emoji" /> Add emoji
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--secondary btn--sm"
+                  id="studio-add-sticker"
+                  [disabled]="d.elements.length >= maxElements || !projectId()"
+                  (click)="openPicker('add', 'image', null, true)"
+                >
+                  <app-icon name="sticker" /> Add sticker
                 </button>
               </div>
               @if (hasVideo()) {
@@ -898,15 +1066,33 @@ export function newTextProps(text: string): TextElementProps {
                       />
                     </div>
                   </div>
-                  @if (el.type !== 'text') {
+                  @if (el.type === 'shape') {
+                    <app-tale-shape-style
+                      [element]="el"
+                      [locked]="el.locked"
+                      (changed)="restyleElement(el.id, $event)"
+                      (notice)="say($event)"
+                    />
+                  } @else if (el.type === 'emoji') {
+                    <app-tale-emoji-style
+                      [element]="el"
+                      [locked]="el.locked"
+                      [lockedHint]="lockedHint"
+                      (changed)="restyleElement(el.id, $event)"
+                      (notice)="say($event)"
+                      (replace)="openEmojiPicker(el.id)"
+                    />
+                  } @else if (el.type !== 'text') {
                     <app-tale-media-style
                       [element]="el"
                       [videoSeconds]="el.type === 'video' ? (videoSeconds().get(el.props.mediaKey) ?? null) : null"
                       [locked]="el.locked"
                       [lockedHint]="lockedHint"
-                      (changed)="restyleMedia(el.id, $event)"
+                      (changed)="restyleElement(el.id, $event)"
                       (notice)="say($event)"
-                      (replace)="openPicker('replace', el.type, el.id)"
+                      (replace)="
+                        openPicker('replace', el.type === 'video' ? 'video' : 'image', el.id, el.type === 'sticker')
+                      "
                     />
                   } @else {
                     <app-tale-text-style
@@ -914,7 +1100,7 @@ export function newTextProps(text: string): TextElementProps {
                       [props]="el.props"
                       [locked]="el.locked"
                       [themeFont]="themeFont()"
-                      [backdrop]="backdrop()"
+                      [backdrop]="selectedBackdrop()"
                       [projectFonts]="projectFonts()"
                       [projectId]="projectId() ?? null"
                       (changed)="restyle(el.id, $event)"
@@ -1052,12 +1238,22 @@ export function newTextProps(text: string): TextElementProps {
                 [projectId]="projectId"
                 [kind]="p.kind"
                 [heading]="p.heading"
+                [stickers]="p.sticker"
                 [currentKey]="p.currentKey"
                 [returnFocus]="p.returnFocus"
                 (chosen)="pickedMedia($event)"
                 (closed)="closePicker()"
               />
             }
+          }
+          @if (emojiPicker(); as e) {
+            <app-tale-emoji-picker
+              [heading]="e.heading"
+              [current]="e.current"
+              [returnFocus]="e.returnFocus"
+              (chosen)="pickedEmoji($event)"
+              (closed)="emojiPicker.set(null)"
+            />
           }
           @if (menu(); as m) {
             <app-tale-layer-menu
@@ -1182,6 +1378,16 @@ export class TaleStudioPage implements OnChanges {
   protected readonly videoSeconds = signal<ReadonlyMap<string, number>>(new Map());
   /** The media picker, while it is open (R5). */
   protected readonly picker = signal<OpenPicker | null>(null);
+  /** The emoji picker, while it is open (R6): to add an emoji, or to replace the one `elementId` names. */
+  protected readonly emojiPicker = signal<{
+    elementId: string | null;
+    current: string | null;
+    heading: string;
+    returnFocus: HTMLElement | null;
+  } | null>(null);
+  protected readonly shapeKinds = SHAPE_KINDS;
+  protected readonly shapeNames = SHAPE_NAMES;
+  protected readonly emojiFont = EMOJI_FONT_STACK;
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
   protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
   /** The tale's duration in seconds, as the duration field shows it: 7 when the document sets none. */
@@ -1199,13 +1405,17 @@ export class TaleStudioPage implements OnChanges {
   /** The project's fonts (R18), which the inspector offers; null until read, or when they cannot be read. */
   protected readonly projectFonts = signal<readonly ProjectFont[] | null>(null);
   private readonly fonts = inject(ProjectFontsService);
-  /** What lies behind texts, for their contrast checks (R12): the canvas colour, and whether media covers it. */
+  /** What lies behind the canvas, for contrast checks (R12): its colour, and whether media covers it. */
   protected readonly backdrop = computed<TextBackdrop>(() => ({
     canvasColor: this.doc()?.canvas.background.color ?? '#000000',
     overMedia: !!this.tale()?.media || this.doc()?.canvas.background.type === 'media',
   }));
+  /** What lies behind the selected text: the canvas, or a shape or media below it (R6, R12). */
+  protected readonly selectedBackdrop = computed<TextBackdrop>(() => this.backdropOf(this.selectedId() ?? ''));
   // Each text's canvas look, kept per props object, so unchanged texts keep their view.
   private readonly views = new WeakMap<object, { themeFont: string | null; view: TextView }>();
+  // Each shape's canvas look, kept per props object.
+  private readonly shapes = new WeakMap<object, ShapeView>();
   /** The one selected layer's id, or null when none or several are selected. */
   protected readonly selectedId = computed(() => (this.selection().length === 1 ? this.selection()[0] : null));
   protected readonly selected = computed(() => this.doc()?.elements.find((e) => e.id === this.selectedId()) ?? null);
@@ -1213,13 +1423,15 @@ export class TaleStudioPage implements OnChanges {
   /** The layers list: top of the z-order first, each with its name and whether it reaches outside the safe area. */
   protected readonly layerRows = computed(() =>
     (this.doc()?.elements ?? [])
-      .map((el) => ({
+      .map((el, i, elements) => ({
         el,
         name: layerName(el, this.doc()?.elements ?? [el]),
         outside: isOutsideSafeArea(el.box),
-        lowContrast: el.type === 'text' && textContrast(resolveTextStyle(el.props), this.backdrop()).kind === 'low',
-        // An image or video without alt text or the decorative mark keeps the tale from being published (R12).
-        missingAlt: el.type !== 'text' && !el.hidden && !hasAltText(el),
+        lowContrast:
+          el.type === 'text' &&
+          textContrast(resolveTextStyle(el.props), textBackdropAt(elements, i, this.backdrop())).kind === 'low',
+        // An image, video or sticker without alt text or the decorative mark keeps the tale from being published (R12).
+        missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
         // A video over 15 s plays only its first 15 s (R5).
         longVideo: el.type === 'video' && (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
@@ -1344,13 +1556,14 @@ export class TaleStudioPage implements OnChanges {
       this.say(LOCKED);
       return;
     }
-    const before = textContrast(resolveTextStyle(element.props), this.backdrop()).kind;
+    const backdrop = this.backdropOf(id);
+    const before = textContrast(resolveTextStyle(element.props), backdrop).kind;
     const recorded = this.change(change.label, (elements) =>
       elements.map((e) => (e.id === id && e.type === 'text' ? { ...e, props: { ...e.props, ...change.patch } } : e)),
     );
     // Only a recorded step is announced; the contrast line is not live, so a change of its warning is said here.
     if (!recorded) return;
-    const after = textContrast(resolveTextStyle({ ...element.props, ...change.patch }), this.backdrop()).kind;
+    const after = textContrast(resolveTextStyle({ ...element.props, ...change.patch }), backdrop).kind;
     const contrast =
       before === after
         ? ''
@@ -1723,6 +1936,29 @@ export class TaleStudioPage implements OnChanges {
 
   protected kind(element: { type: TaleElement['type'] }): string {
     return kindName(element);
+  }
+
+  /** What lies behind the text with this id: the canvas, or a shape or media below it (R6, R12). */
+  protected backdropOf(id: string): TextBackdrop {
+    const elements = this.doc()?.elements ?? [];
+    return textBackdropAt(
+      elements,
+      elements.findIndex((e) => e.id === id),
+      this.backdrop(),
+    );
+  }
+
+  /** How the canvas draws a shape, kept per props object. */
+  protected shape(element: ShapeElement): ShapeView {
+    const kept = this.shapes.get(element.props);
+    if (kept) return kept;
+    const view = shapeView(element.props);
+    this.shapes.set(element.props, view);
+    return view;
+  }
+
+  protected emojiSize(box: TaleElementBox): string {
+    return emojiFontSize(box);
   }
 
   /** Where the canvas loads a file of the project's media, with the session. */
@@ -2374,7 +2610,12 @@ export class TaleStudioPage implements OnChanges {
    * Opens the media picker (R5): to add an image or a video, to replace the selected one's media,
    * or to choose the background image. A tale holds one video, so a second is refused here.
    */
-  protected openPicker(purpose: OpenPicker['purpose'], kind: MediaKind, elementId: string | null = null): void {
+  protected openPicker(
+    purpose: OpenPicker['purpose'],
+    kind: MediaKind,
+    elementId: string | null = null,
+    sticker = false,
+  ): void {
     if (this.isHeld()) return;
     if (purpose === 'add' && kind === 'video' && this.hasVideo()) {
       this.say('A tale holds one video. Delete it to add another.');
@@ -2392,17 +2633,21 @@ export class TaleStudioPage implements OnChanges {
         ? background?.type === 'media'
           ? background.mediaKey
           : null
-        : element && element.type !== 'text'
+        : element && isMediaElement(element)
           ? element.props.mediaKey
           : null;
     const heading =
       purpose === 'background'
         ? 'Choose a background image'
-        : purpose === 'replace'
-          ? `Choose another ${kind}`
-          : `Add ${kind === 'image' ? 'an image' : 'a video'}`;
+        : sticker
+          ? purpose === 'replace'
+            ? 'Choose another sticker image'
+            : 'Add an image sticker'
+          : purpose === 'replace'
+            ? `Choose another ${kind}`
+            : `Add ${kind === 'image' ? 'an image' : 'a video'}`;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    this.picker.set({ purpose, kind, heading, elementId, currentKey, returnFocus });
+    this.picker.set({ purpose, kind, sticker, heading, elementId, currentKey, returnFocus });
   }
 
   /** A canvas video read its length: one over 15 s is flagged, as only its first 15 s will play. */
@@ -2439,23 +2684,27 @@ export class TaleStudioPage implements OnChanges {
     if (open.purpose === 'replace' && open.elementId !== null) {
       const id = open.elementId;
       const element = this.element(id);
-      if (!element || element.type !== media.kind) return;
+      const fits =
+        element?.type === 'sticker'
+          ? media.kind === 'image' && STICKER_CONTENT_TYPES.includes(media.contentType)
+          : element?.type === media.kind;
+      if (!element || !fits) return;
       const kind = kindName(element);
       this.change(`${kind} replaced`, (elements) =>
         elements.map((e) =>
-          e.id === id && e.type !== 'text' ? { ...e, props: { ...e.props, mediaKey: media.key } } : e,
+          e.id === id && isMediaElement(e) ? ({ ...e, props: { ...e.props, mediaKey: media.key } } as TaleElement) : e,
         ),
       );
       this.say(`${kind} replaced`);
       this.focusSoon(`studio-el-${id}`);
       return;
     }
-    this.addMedia(media);
+    this.addMedia(media, open.sticker);
   }
 
-  // Adds an image or video of the project's media over the other layers, with no alt text yet: the
-  // layers list and the inspector say it needs some before publishing (R12).
-  private addMedia(media: ProjectMedia): void {
+  // Adds an image, video or image sticker of the project's media over the other layers, with no alt
+  // text yet: the layers list and the inspector say it needs some before publishing (R12).
+  private addMedia(media: ProjectMedia, sticker = false): void {
     const doc = this.doc();
     if (!doc) return;
     if (doc.elements.length >= MAX_TALE_ELEMENTS) {
@@ -2474,7 +2723,11 @@ export class TaleStudioPage implements OnChanges {
       a11y: {},
       props: { mediaKey: media.key, fit: 'cover' as const },
     };
-    const element: MediaElement = media.kind === 'video' ? { ...base, type: 'video' } : { ...base, type: 'image' };
+    let element: MediaElement;
+    if (sticker) {
+      if (media.kind !== 'image' || !STICKER_CONTENT_TYPES.includes(media.contentType)) return;
+      element = { ...base, type: 'sticker', box: { ...NEW_STICKER_BOX }, props: { mediaKey: media.key } };
+    } else element = media.kind === 'video' ? { ...base, type: 'video' } : { ...base, type: 'image' };
     const kind = kindName(element);
     this.change(`${kind} added`, (elements) => [...elements, element]);
     this.selectOnly(element.id);
@@ -2482,8 +2735,11 @@ export class TaleStudioPage implements OnChanges {
     this.focusSoon(`media-alt-${element.id}`);
   }
 
-  /** Applies a change from the media inspector as one step in the history, and says what changed. */
-  protected restyleMedia(id: string, change: MediaChange): void {
+  /**
+   * Applies a change from the media, shape or emoji inspector as one step in the history, and says
+   * what changed. A prop the change sets to `undefined` is removed.
+   */
+  protected restyleElement(id: string, change: ElementChange): void {
     if (this.isHeld()) return;
     const element = this.element(id);
     if (!element || element.type === 'text') return;
@@ -2494,17 +2750,98 @@ export class TaleStudioPage implements OnChanges {
     const recorded = this.change(change.label, (elements) =>
       elements.map((e) => {
         if (e.id !== id || e.type === 'text') return e;
-        return {
-          ...e,
-          a11y: change.a11y ?? e.a11y,
-          props: change.props ? { ...e.props, ...change.props } : e.props,
-        };
+        let props = e.props as Record<string, unknown>;
+        if (change.props) {
+          props = { ...props, ...change.props };
+          for (const [key, value] of Object.entries(change.props)) if (value === undefined) delete props[key];
+        }
+        return { ...e, a11y: change.a11y ?? e.a11y, props } as TaleElement;
       }),
     );
     if (recorded) {
       if (this.invalidId() === id) this.invalidId.set(null);
       this.say(change.said);
     }
+  }
+
+  /** Adds a shape (R6) over the other layers: white, and decorative until it is named. */
+  protected addShape(shape: ShapeKind): void {
+    if (this.isHeld()) return;
+    if ((this.doc()?.elements.length ?? 0) >= MAX_TALE_ELEMENTS) {
+      this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
+      return;
+    }
+    const element: TaleElement = {
+      id: crypto.randomUUID(),
+      type: 'shape',
+      box: { ...(shape === 'line' ? NEW_LINE_BOX : NEW_SHAPE_BOX) },
+      hidden: false,
+      locked: false,
+      a11y: { decorative: true },
+      props: newShapeProps(shape),
+    };
+    const name = SHAPE_NAMES[shape];
+    this.change(`${name} added`, (elements) => [...elements, element]);
+    this.selectOnly(element.id);
+    this.say(`${name} added. It is decorative: screen readers skip it.`);
+    this.focusSoon(`studio-el-${element.id}`);
+  }
+
+  /** Opens the emoji picker (R6): to add an emoji, or to choose another for the one `elementId` names. */
+  protected openEmojiPicker(elementId: string | null = null): void {
+    if (this.isHeld()) return;
+    const element = elementId === null ? undefined : this.element(elementId);
+    if (element?.locked) {
+      this.say(LOCKED);
+      return;
+    }
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.emojiPicker.set({
+      elementId,
+      current: element?.type === 'emoji' ? element.props.emoji : null,
+      heading: element ? 'Choose another emoji' : 'Add an emoji',
+      returnFocus,
+    });
+  }
+
+  /**
+   * The emoji picker's choice: a new emoji named by its Unicode name, which the content manager can
+   * edit (R6), or another emoji for the selected one, which then takes the new emoji's name.
+   */
+  protected pickedEmoji(choice: EmojiChoice): void {
+    const open = this.emojiPicker();
+    this.emojiPicker.set(null);
+    if (!open || this.isHeld()) return;
+    if (open.elementId !== null) {
+      const id = open.elementId;
+      const recorded = this.change('Emoji replaced', (elements) =>
+        elements.map((e) =>
+          e.id === id && e.type === 'emoji'
+            ? { ...e, a11y: { ...e.a11y, label: choice.name }, props: { ...e.props, emoji: choice.emoji } }
+            : e,
+        ),
+      );
+      if (recorded) this.say(`Emoji replaced by ${choice.name}`);
+      this.focusSoon(`studio-el-${id}`);
+      return;
+    }
+    if ((this.doc()?.elements.length ?? 0) >= MAX_TALE_ELEMENTS) {
+      this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
+      return;
+    }
+    const element: TaleElement = {
+      id: crypto.randomUUID(),
+      type: 'emoji',
+      box: { ...NEW_EMOJI_BOX },
+      hidden: false,
+      locked: false,
+      a11y: { label: choice.name },
+      props: { emoji: choice.emoji },
+    };
+    this.change('Emoji added', (elements) => [...elements, element]);
+    this.selectOnly(element.id);
+    this.say(`Emoji added: ${choice.name}. Screen readers announce it by this name, which you can edit.`);
+    this.focusSoon(`studio-el-${element.id}`);
   }
 
   /** Applies a width or height field (a percentage of the canvas), keeping the box on the canvas. */
