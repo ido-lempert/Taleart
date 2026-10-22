@@ -3836,6 +3836,13 @@ components:
           type: integer
           minimum: 0
           description: How many more differences were found than the report stores.
+        unreadableLayers:
+          type: integer
+          minimum: 0
+          description: >-
+            How many imported tales may hold text, stickers and components the source's API does not expose, so
+            they were not imported (Tale Studio R17): each imported tale, listed once per report as a count, not
+            as differences. Absent when no tale was imported.
         notImportedByDesign:
           type: array
           description: What the import never brings across, listed once, such as conversion records and stats.
@@ -3893,7 +3900,7 @@ components:
       description: What the source record becomes in TaleArt (the app is the project; a label is a tag).
     ImportDifferenceKind:
       type: string
-      enum: [missing, renamed, unexpected, wrongType, notHeld, invalidRecord, mediaNotImported, tagNotImported, keptLocalEdit, removedAtSource, movedAtSource, linkNotImported, notReadable]
+      enum: [missing, renamed, unexpected, wrongType, notHeld, invalidRecord, mediaNotImported, tagNotImported, keptLocalEdit, removedAtSource, movedAtSource, linkNotImported]
       description: >-
         missing: a field the import needs is absent; renamed: an expected field came under another name;
         unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong
@@ -3905,9 +3912,7 @@ components:
         longer lists it, so it stays in TaleArt unchanged (listed again on every run while it is there);
         movedAtSource: the source lists the record under another parent than the one the import put it in;
         an import moves nothing, so it stays where it is; linkNotImported: a story's link (outlink or deep_link)
-        is not a web address a tale's button may open, so it was not imported (see reason); notReadable: the
-        source's API does not expose the story's text, stickers and components, so a tale has only its media
-        and its call to action (listed once per imported tale, with field null).
+        is not a web address a tale's button may open, so it was not imported (see reason).
     ImportLinkFailure:
       type: string
       enum: [scheme, tooLong, characters, invalid, credentials]

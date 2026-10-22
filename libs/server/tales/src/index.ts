@@ -88,10 +88,15 @@ export { setTaleMediaIfNone, replaceTaleMediaIf } from './lib/tales';
 export {
   findImportedButton,
   importedButtonElement,
+  isTaleMediaOnlyDocument,
   setImportedButtonWhen,
+  taleDocumentFingerprints,
   withImportedButton,
+  type DocumentFingerprints,
   type ImportedButton,
+  type ImportedButtonOptions,
   type ImportedButtonResult,
+  type ImportedButtonSkip,
   type ImportedButtonWrite,
 } from './lib/imported-button';
 
