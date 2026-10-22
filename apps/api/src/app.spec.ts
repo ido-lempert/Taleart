@@ -42,6 +42,7 @@ import {
   continueTaleMediaMigration,
   copyZonePlacements,
   migrateTaleMediaDocuments,
+  setImportedButtonWhen,
   setTestElementTypesEnabled,
   sweepUnusedProjectMediaFiles,
 } from '@taleart/server-tales';
@@ -9365,6 +9366,7 @@ describe('Management API v1: projects and zones', () => {
         { id: '1003', name: 'Clean shop' },
         { id: '1004', name: 'Media shop' },
         { id: '1005', name: 'Label shop' },
+        { id: '1006', name: 'Link shop' },
       ]);
       expect((await pool.query('SELECT 1 FROM import_jobs')).rowCount).toBe(0);
     });
@@ -9756,19 +9758,10 @@ describe('Management API v1: projects and zones', () => {
             'Zone "Checkout": frame type unknown',
             'Tags: whether labels combine with AND or OR is not imported',
           ],
-          // Each instance's per-platform token and each story group's cover are not held in TaleArt.
-          // In reading order: the instance list, then each instance's story groups as read.
-          differences: [
-            notHeld('zone', '2001', 'Home page', null, 1, 'token'),
-            notHeld('zone', '2002', 'Product page', null, 2, 'token'),
-            notHeld('zone', '2003', 'Checkout', null, 3, 'token'),
-            notHeld('taleGroup', '3001', 'Summer sale', ['Home page', '2001'], 1, 'media'),
-            notHeld('taleGroup', '3002', 'New arrivals', ['Home page', '2001'], 2, 'media'),
-            notHeld('taleGroup', '3003', 'Gift ideas', ['Home page', '2001'], 3, 'media'),
-            notHeld('taleGroup', '3004', 'How to wear it', ['Product page', '2002'], 1, 'media'),
-            notHeld('taleGroup', '3005', 'Reviews', ['Product page', '2002'], 2, 'media'),
-            notHeld('taleGroup', '3006', 'Free shipping', ['Checkout', '2003'], 1, 'media'),
-          ],
+          // Each imported tale: its text, stickers and components cannot be read (Tale Studio R17).
+          unreadableLayers: 15,
+          // Checked below.
+          differences: expect.any(Array),
           notImportedByDesign: ['Conversion records', 'Stats'],
           changes: {
             zones: created(3),
@@ -9787,6 +9780,21 @@ describe('Management API v1: projects and zones', () => {
         startedAt: expect.any(String),
         finishedAt: expect.any(String),
       });
+      expect((job['report'] as { differences: unknown[] }).differences).toEqual(
+          // Each instance's per-platform token and each story group's cover are not held in TaleArt.
+          // In reading order: the instance list, then each instance's story groups as read.
+          [
+            notHeld('zone', '2001', 'Home page', null, 1, 'token'),
+            notHeld('zone', '2002', 'Product page', null, 2, 'token'),
+            notHeld('zone', '2003', 'Checkout', null, 3, 'token'),
+            notHeld('taleGroup', '3001', 'Summer sale', ['Home page', '2001'], 1, 'media'),
+            notHeld('taleGroup', '3002', 'New arrivals', ['Home page', '2001'], 2, 'media'),
+            notHeld('taleGroup', '3003', 'Gift ideas', ['Home page', '2001'], 3, 'media'),
+            notHeld('taleGroup', '3004', 'How to wear it', ['Product page', '2002'], 1, 'media'),
+            notHeld('taleGroup', '3005', 'Reviews', ['Product page', '2002'], 2, 'media'),
+            notHeld('taleGroup', '3006', 'Free shipping', ['Checkout', '2003'], 1, 'media'),
+          ],
+      );
       const zones = await projectZones(project.id);
       expect(zones.map((z) => z.name)).toEqual(['Home page', 'Product page', 'Checkout']);
       // A Storyly zone imports as one TaleArt zone without a display (epic UX rework, importer touch point).
@@ -9919,8 +9927,7 @@ describe('Management API v1: projects and zones', () => {
         'taleGroup 3102 in Odd home (2101) wrongType title',
         'taleGroup 3102 in Odd home (2101) wrongType sort_order',
         'taleGroup 3102 in Odd home (2101) missing status',
-        'tale 4101 in Odd group (3101) notHeld deep_link',
-        'tale 4101 in Odd group (3101) notHeld button_text',
+        // 4101's https deep link and its label are its button (Tale Studio R17), so they are not listed.
         'tale 4102 in Odd group (3101) renamed sort_order <- sortOrder',
         'tale 4102 in Odd group (3101) notHeld name',
         'tale 4102 in Odd group (3101) unexpected cta_macro',
@@ -9959,6 +9966,7 @@ describe('Management API v1: projects and zones', () => {
         tags: { source: 0, imported: 0, skipped: 0 },
         notes: ['Zone "Clean home": frame type unknown'],
         differences: [],
+        unreadableLayers: 2,
         notImportedByDesign: ['Conversion records', 'Stats'],
         changes: { zones: created(1), taleGroups: created(1), tales: created(2), media: created(2) },
       });
@@ -11849,6 +11857,481 @@ describe('Management API v1: projects and zones', () => {
       const res = await send('GET', `/projects/${randomUUID()}/imports`);
       expect(res.status).toBe(404);
       expect((await res.json()).error.code).toBe('project_not_found');
+    });
+
+    describe('calls to action (Tale Studio R17)', () => {
+      type Element = { id: string; type: string; box: Record<string, number>; props: Record<string, unknown> };
+      type Doc = { elements: Element[] } | null;
+      type Report = {
+        differences: { kind: string; reason?: string; field: string | null; record: { sourceId: string } }[];
+        notes: string[];
+        unreadableLayers?: number;
+        changes: { tales: Record<string, number> };
+      };
+      const SALE = 4501;
+      const stories = () => fake.control.data.stories['3501'] as { data: Record<string, unknown>[] };
+      const taleRow = async (projectId: string, title: string) =>
+        (
+          await pool.query(
+            `SELECT id, status, draft_document AS draft, document, draft_revision AS revision,
+               document_revision AS "publishedRevision", tale_group_id AS "groupId"
+             FROM tales WHERE project_id = $1 AND title = $2`,
+            [projectId, title],
+          )
+        ).rows[0] as {
+          id: string;
+          status: string;
+          draft: Doc;
+          document: Doc;
+          revision: number;
+          publishedRevision: number;
+          groupId: string;
+        };
+      const buttons = (doc: Doc) => (doc?.elements ?? []).filter((e) => e.type === 'button');
+      const save = (taleId: string, document: unknown, revision: number) =>
+        fetch(`${base}/tales/${taleId}/document`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document, revision }),
+        });
+      const publishDraft = async (taleId: string) => {
+        const row = (await pool.query('SELECT draft_revision AS r, document_revision AS p FROM tales WHERE id = $1', [taleId]))
+          .rows[0];
+        const res = await fetch(`${base}/tales/${taleId}/document/publish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revision: row.r, publishedRevision: row.p }),
+        });
+        expect(res.status).toBe(200);
+      };
+      const linkLines = (report: unknown) =>
+        differenceLines(report).filter((line) => line.startsWith('tale ') && / (deep_link|outlink|button_text|button)$/.test(line));
+      const reportOfJob = (job: Record<string, unknown>) => job['report'] as Report;
+      const deliveredTales = async (projectId: string) => {
+        const zoneId = (await projectZones(projectId))[0].id;
+        const groups = (await fetch(`${base}/zones/${zoneId}/tale-groups`).then((r) => r.json())) as { id: string }[];
+        await publish('tale-groups', groups[0].id);
+        clearDeliveryCache();
+        const body = (await (await deliverZone(await installZone(zoneId))).json()) as {
+          taleGroups: { tales: { title: string; document: Doc }[] }[];
+        };
+        return body.taleGroups.flatMap((g) => g.tales);
+      };
+
+      it('carries a label with an http(s) link as a button, published with its media, and lists the rest', async () => {
+        const project = await createProject();
+        startWorker();
+        const job = await importApp(project.id, '1006');
+        expect(job['status']).toBe('done');
+        const report = reportOfJob(job);
+        // https outlink: the draft holds the button, and the media step published it with the media (Shown).
+        const sale = await taleRow(project.id, 'Shop the sale');
+        expect(sale.status).toBe('live');
+        for (const doc of [sale.draft, sale.document]) {
+          expect(doc?.elements.map((e) => e.type)).toEqual(['image', 'button']);
+          expect(buttons(doc)[0]).toMatchObject({
+            box: { x: 0.2, y: 0.77, w: 0.6, h: 0.07, rotation: 0 },
+            props: { label: 'Shop now', href: 'https://shop.example/sale', variant: 'filled' },
+          });
+        }
+        expect(sale.document).toEqual(sale.draft);
+        // http deep link, label made one clean line.
+        expect(buttons((await taleRow(project.id, 'New in')).document)[0].props).toMatchObject({
+          label: "See what's new",
+          href: 'http://shop.example/new',
+        });
+        // The outlink carries the button; the app link beside it is listed.
+        expect(buttons((await taleRow(project.id, 'Both links')).document)[0].props['href']).toBe(
+          'https://shop.example/visit',
+        );
+        // Not imported: an app link, a script link, an address past 2,048 characters.
+        for (const title of ['App only', 'Script link', 'Long link']) {
+          const row = await taleRow(project.id, title);
+          expect(buttons(row.draft)).toEqual([]);
+          expect(buttons(row.document)).toEqual([]);
+        }
+        // A Hidden tale gets its button in its draft only: going live publishes it.
+        const hidden = await taleRow(project.id, 'Hidden offer');
+        expect(hidden.status).toBe('paused');
+        expect(buttons(hidden.draft)).toHaveLength(1);
+        expect(hidden.document).toBeNull();
+        expect(linkLines(report)).toEqual([
+          'tale 4503 in Calls to action (3501) notHeld button_text',
+          'tale 4503 in Calls to action (3501) linkNotImported deep_link',
+          'tale 4504 in Calls to action (3501) notHeld button_text',
+          'tale 4504 in Calls to action (3501) linkNotImported outlink',
+          'tale 4505 in Calls to action (3501) notHeld button_text',
+          'tale 4505 in Calls to action (3501) linkNotImported outlink',
+          'tale 4506 in Calls to action (3501) linkNotImported deep_link',
+        ]);
+        expect(report.differences.filter((d) => d.kind === 'linkNotImported').map((d) => d.reason)).toEqual([
+          'scheme',
+          'scheme',
+          'tooLong',
+          'scheme',
+        ]);
+        // Once per report: how many imported tales may hold text, stickers and components it cannot read.
+        expect(report.unreadableLayers).toBe(7);
+        const text = JSON.stringify(report);
+        expect(text).not.toContain('myapp://');
+        expect(text).not.toContain('shop.example');
+
+        // Delivered: the zone shows the button with its destination.
+        const sold = (await deliveredTales(project.id)).find((t) => t.title === 'Shop the sale');
+        expect(buttons(sold?.document ?? null)[0].props).toMatchObject({
+          label: 'Shop now',
+          href: 'https://shop.example/sale',
+        });
+      });
+
+      it('never delivers a live tale as a button alone: media failing or not picked publishes nothing', async () => {
+        // The media fails to download.
+        const project = await createProject();
+        startWorker();
+        fixture(stories(), SALE)['media'] = 'https://media.example/fake/missing.jpg';
+        await importApp(project.id, '1006');
+        const failed = await taleRow(project.id, 'Shop the sale');
+        expect(failed.status).toBe('live');
+        expect(buttons(failed.draft)).toHaveLength(1);
+        expect(failed.document).toBeNull();
+        expect((await deliveredTales(project.id)).map((t) => t.title)).not.toContain('Shop the sale');
+        // The source fixes the media: the next run publishes media and button together.
+        fake.control.reset();
+        await importApp(project.id, '1006');
+        const fixed = await taleRow(project.id, 'Shop the sale');
+        expect(fixed.document?.elements.map((e) => e.type)).toEqual(['image', 'button']);
+
+        // Media not picked.
+        const other = await createProject('Other');
+        const key = (
+          await (
+            await send('POST', `/projects/${other.id}/imports/storyly/preview`, { token: FAKE_STORYLY_TOKEN, appId: '1006' })
+          ).json()
+        ).selectionKey as string;
+        const started = await send('POST', `/projects/${other.id}/imports`, {
+          token: FAKE_STORYLY_TOKEN,
+          appId: '1006',
+          selection: { selectionKey: key, zones: ['2501'], taleGroups: true, media: false, tags: false },
+        });
+        expect(started.status).toBe(202);
+        expect((await waitForEnd(other.id, ((await started.json()) as { id: string }).id))['status']).toBe('done');
+        const noMedia = await taleRow(other.id, 'Shop the sale');
+        expect(buttons(noMedia.draft)).toHaveLength(1);
+        expect(noMedia.document).toBeNull();
+        expect(await deliveredTales(other.id)).toEqual([]);
+      });
+
+      it('re-imports: follows the source into the published document only while it is the import’s', async () => {
+        const project = await createProject();
+        startWorker();
+        await importApp(project.id, '1006');
+        const before = await taleRow(project.id, 'Shop the sale');
+        const quiet = await importApp(project.id, '1006');
+        // Nothing changed: nothing written, every tale unchanged.
+        expect(reportOfJob(quiet).changes.tales).toMatchObject({ created: 0, updated: 0, unchanged: 7, keptLocalEdit: 0 });
+        const same = await taleRow(project.id, 'Shop the sale');
+        expect([same.revision, same.publishedRevision]).toEqual([before.revision, before.publishedRevision]);
+        expect(
+          (await pool.query("SELECT fields->'button' AS button FROM import_records WHERE target_id = $1", [same.id]))
+            .rows[0].button,
+        ).toEqual({ id: buttons(same.draft)[0].id, label: 'Shop now', href: 'https://shop.example/sale' });
+
+        // The source changes the label: untouched, the draft and the published document follow, and visitors see it.
+        fixture(stories(), SALE)['button_text'] = 'Shop the sale now';
+        const relabelled = await importApp(project.id, '1006');
+        expect(reportOfJob(relabelled).changes.tales).toMatchObject({ updated: 1 });
+        const after = await taleRow(project.id, 'Shop the sale');
+        expect(buttons(after.draft)[0].props['label']).toBe('Shop the sale now');
+        expect(buttons(after.document)[0].props['label']).toBe('Shop the sale now');
+        const seen = (await deliveredTales(project.id)).find((t) => t.title === 'Shop the sale');
+        expect(buttons(seen?.document ?? null)[0].props['label']).toBe('Shop the sale now');
+
+        // The source switches from its outlink to a deep link: the untouched destination follows.
+        fixture(stories(), SALE)['outlink'] = null;
+        fixture(stories(), SALE)['deep_link'] = 'https://shop.example/deep';
+        await importApp(project.id, '1006');
+        expect(buttons((await taleRow(project.id, 'Shop the sale')).document)[0].props['href']).toBe(
+          'https://shop.example/deep',
+        );
+
+        // A person changes the label and colour and updates the tale; the source changes label and link:
+        // the person's label stays; the link follows in the draft only, waiting for the person to update.
+        const mine = await taleRow(project.id, 'Shop the sale');
+        const edited = {
+          ...mine.draft,
+          elements: (mine.draft?.elements ?? []).map((e) =>
+            e.type === 'button' ? { ...e, props: { ...e.props, label: 'Mine', fill: '#FF0000' } } : e,
+          ),
+        };
+        expect((await save(mine.id, edited, mine.revision)).status).toBe(200);
+        await publishDraft(mine.id);
+        fixture(stories(), SALE)['button_text'] = 'Source label';
+        fixture(stories(), SALE)['deep_link'] = 'https://shop.example/sale-2';
+        const kept = await importApp(project.id, '1006');
+        const draftOnly = await taleRow(project.id, 'Shop the sale');
+        expect(buttons(draftOnly.draft)[0].props).toMatchObject({
+          label: 'Mine',
+          fill: '#FF0000',
+          href: 'https://shop.example/sale-2',
+        });
+        expect(buttons(draftOnly.document)[0].props).toMatchObject({ label: 'Mine', href: 'https://shop.example/deep' });
+        expect(linkLines(kept['report'])).toContain('tale 4501 in Calls to action (3501) keptLocalEdit button_text');
+        // Updating the tale publishes the import's change with the person's.
+        await publishDraft(mine.id);
+        expect(buttons((await taleRow(project.id, 'Shop the sale')).document)[0].props['href']).toBe(
+          'https://shop.example/sale-2',
+        );
+      });
+
+      it("lists a deleted button once per change, keeps a link that turned invalid, and lists a dropped one", async () => {
+        const project = await createProject();
+        startWorker();
+        await importApp(project.id, '1006');
+        // A person deletes the button of a tale: a re-import never adds it back.
+        const newIn = await taleRow(project.id, 'New in');
+        const withoutButton = { ...newIn.draft, elements: (newIn.draft?.elements ?? []).filter((e) => e.type !== 'button') };
+        expect((await save(newIn.id, withoutButton, newIn.revision)).status).toBe(200);
+        fixture(stories(), 4502)['button_text'] = 'Changed';
+        const deleted = await importApp(project.id, '1006');
+        expect(buttons((await taleRow(project.id, 'New in')).draft)).toEqual([]);
+        expect(linkLines(deleted['report']).filter((l) => l.includes('4502'))).toEqual([
+          'tale 4502 in Calls to action (3501) keptLocalEdit button',
+        ]);
+        expect(reportOfJob(deleted).changes.tales).toMatchObject({ keptLocalEdit: 1 });
+        // Listed once: the next run with the same source lists nothing.
+        const again = await importApp(project.id, '1006');
+        expect(linkLines(again['report'])).not.toContain('tale 4502 in Calls to action (3501) keptLocalEdit button');
+        expect(reportOfJob(again).changes.tales).toMatchObject({ keptLocalEdit: 0 });
+
+        // A valid link turns into an app link: the button keeps its earlier link, with a note; not removed.
+        fixture(stories(), SALE)['outlink'] = 'myapp://sale';
+        const invalid = reportOfJob(await importApp(project.id, '1006'));
+        expect(buttons((await taleRow(project.id, 'Shop the sale')).document)[0].props['href']).toBe(
+          'https://shop.example/sale',
+        );
+        expect(linkLines(invalid)).toContain('tale 4501 in Calls to action (3501) linkNotImported outlink');
+        expect(linkLines(invalid)).not.toContain('tale 4501 in Calls to action (3501) removedAtSource button_text');
+        expect(invalid.notes).toContain(
+          `Tale "Shop the sale" in "Calls to action": its button keeps its earlier link, since the source's link is not one a button may open`,
+        );
+
+        // The source drops a call to action: the button stays and is listed.
+        fixture(stories(), 4506)['button_text'] = null;
+        const dropped = await importApp(project.id, '1006');
+        expect(buttons((await taleRow(project.id, 'Both links')).document)).toHaveLength(1);
+        expect(linkLines(dropped['report'])).toContain('tale 4506 in Calls to action (3501) removedAtSource button_text');
+
+        // The source fixes an app link: the next run adds the button.
+        fixture(stories(), 4503)['deep_link'] = 'https://shop.example/app';
+        await importApp(project.id, '1006');
+        expect(buttons((await taleRow(project.id, 'App only')).document)[0].props).toMatchObject({
+          label: 'Open the app',
+          href: 'https://shop.example/app',
+        });
+      });
+
+      it('gives a tale imported before buttons its button once; never a second one to the same address', async () => {
+        const project = await createProject();
+        startWorker();
+        const original = String(fixture(stories(), SALE)['button_text']);
+        fixture(stories(), SALE)['button_text'] = null;
+        fixture(stories(), 4502)['button_text'] = null;
+        await importApp(project.id, '1006');
+        expect(buttons((await taleRow(project.id, 'Shop the sale')).document)).toEqual([]);
+        // A person gives one of them a button of their own to the source's address, and updates the tale.
+        const own = await taleRow(project.id, 'New in');
+        const ownButton = {
+          id: '00000000-0000-4000-8000-0000000000c1',
+          type: 'button',
+          box: { x: 0.1, y: 0.5, w: 0.5, h: 0.07, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { label: 'My own', href: 'http://shop.example/new', variant: 'outline', color: '#FFFFFF', fill: '#FFFFFF' },
+        };
+        expect((await save(own.id, { ...own.draft, elements: [...(own.draft?.elements ?? []), ownButton] }, own.revision)).status).toBe(200);
+        await publishDraft(own.id);
+        fixture(stories(), SALE)['button_text'] = original;
+        fixture(stories(), 4502)['button_text'] = 'See new';
+        // Two workers re-import at once: each tale is written once.
+        await Promise.all(workers.map((w) => w.stop()));
+        workers = [];
+        const queue = async () => {
+          const res = await send('POST', `/projects/${project.id}/imports`, { token: FAKE_STORYLY_TOKEN, appId: '1006' });
+          expect(res.status).toBe(202);
+          return ((await res.json()) as { id: string }).id;
+        };
+        const ids = [await queue(), await queue()];
+        startWorker('worker-a');
+        startWorker('worker-b');
+        const jobs = [];
+        for (const id of ids) jobs.push(await waitForEnd(project.id, id));
+        expect(jobs.map((j) => j['status'])).toEqual(['done', 'done']);
+        // The tale of only its media (the import's) takes the button in both documents.
+        const row = await taleRow(project.id, 'Shop the sale');
+        expect(buttons(row.draft)).toHaveLength(1);
+        expect(buttons(row.document)).toHaveLength(1);
+        // The person's button to the same address is the tale's button: no second one, and a note says so.
+        const ownAfter = await taleRow(project.id, 'New in');
+        expect(buttons(ownAfter.draft).map((b) => b.props['label'])).toEqual(['My own']);
+        expect(jobs.flatMap((j) => reportOfJob(j).notes)).toContain(
+          'Tale "New in" in "Calls to action": it already has a button to this address, so no second one was added',
+        );
+      });
+
+      it('makes an editor based on an older draft reload (409) when a re-import changed the button', async () => {
+        const project = await createProject();
+        startWorker();
+        await importApp(project.id, '1006');
+        const open = await taleRow(project.id, 'Shop the sale');
+        fixture(stories(), SALE)['button_text'] = 'Changed at the source';
+        await importApp(project.id, '1006');
+        // The editor's autosave, based on the revision it loaded: refused, the import's change is kept.
+        const res = await save(open.id, open.draft, open.revision);
+        expect(res.status).toBe(409);
+        expect(buttons((await taleRow(project.id, 'Shop the sale')).draft)[0].props['label']).toBe('Changed at the source');
+      });
+
+      describe('setImportedButtonWhen (tales module)', () => {
+        const SALE_BUTTON = { label: 'Shop now', href: 'https://shop.example/sale' };
+        const ID = '00000000-0000-4000-8000-0000000000b1';
+        const media = (key: string) => ({
+          id: '00000000-0000-4000-8000-0000000000a1',
+          type: 'image',
+          box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: { decorative: true },
+          props: { mediaKey: key, fit: 'contain', taleMedia: true },
+        });
+        const doc = (elements: unknown[]) => ({
+          version: 1,
+          canvas: { background: { type: 'color', color: '#000000' } },
+          durationMs: 5000,
+          elements,
+        });
+        async function newTale(status: 'live' | 'paused', draft: unknown, published: unknown) {
+          const project = await createProject();
+          const zone = (await (await post('/zones', { name: 'Z', projectId: project.id })).json()) as { id: string };
+          const group = (await (await post(`/zones/${zone.id}/tale-groups`, { name: 'G' })).json()) as { id: string };
+          const tale = (await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json()) as { id: string };
+          await pool.query('UPDATE tales SET status = $2, draft_document = $3, document = $4 WHERE id = $1', [
+            tale.id,
+            status,
+            draft === null ? null : JSON.stringify(draft),
+            published === null ? null : JSON.stringify(published),
+          ]);
+          return { taleId: tale.id, projectId: project.id };
+        }
+        const run = (taleId: string, write: Record<string, string> | null, publishedIsImports = true) =>
+          withClient((tx) =>
+            setImportedButtonWhen(tx, taleId, ID, () => write, { publishedIsImports: () => publishedIsImports }),
+          );
+        async function withClient<T>(work: (tx: PoolClient) => Promise<T>): Promise<T> {
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            const out = await work(client);
+            await client.query('COMMIT');
+            return out;
+          } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+          } finally {
+            client.release();
+          }
+        }
+        const stored = async (taleId: string) =>
+          (
+            await pool.query(
+              'SELECT draft_document AS draft, document AS published, draft_revision AS r, document_revision AS p FROM tales WHERE id = $1',
+              [taleId],
+            )
+          ).rows[0];
+
+        it('gives a live tale without documents a draft only', async () => {
+          const { taleId } = await newTale('live', null, null);
+          expect(await run(taleId, SALE_BUTTON)).toMatchObject({ outcome: 'added', draftWritten: true, publishedWritten: false });
+          const row = await stored(taleId);
+          expect(row.draft.elements.map((e: Element) => e.type)).toEqual(['button']);
+          expect(row.published).toBeNull();
+          expect(row.r).toBe(1);
+        });
+
+        it("writes only the published document of a published-only tale that is the import's, else makes a draft", async () => {
+          const key = `tales/${randomUUID()}.png`;
+          const { taleId } = await newTale('live', null, doc([media(key)]));
+          expect(await run(taleId, SALE_BUTTON)).toMatchObject({ draftWritten: false, publishedWritten: true });
+          expect((await stored(taleId)).draft).toBeNull();
+          const other = await newTale('live', null, doc([media(key)]));
+          expect(await run(other.taleId, SALE_BUTTON, false)).toMatchObject({ draftWritten: true, publishedWritten: false });
+          const row = await stored(other.taleId);
+          expect(row.published.elements).toHaveLength(1);
+          expect(row.draft.elements.map((e: Element) => e.type)).toEqual(['image', 'button']);
+          // The draft's media is recorded for it.
+          const recorded = await pool.query("SELECT storage_key FROM tale_media WHERE tale_id = $1 AND document = 'draft'", [
+            other.taleId,
+          ]);
+          expect(recorded.rows.map((r) => r.storage_key)).toEqual([key]);
+        });
+
+        it('records the fonts of a document it writes', async () => {
+          const { taleId, projectId } = await newTale('paused', null, null);
+          const font = (
+            await pool.query(
+              `INSERT INTO project_fonts (project_id, family, weight, style, fallback, storage_key, size_bytes, uploaded_by_name)
+               VALUES ($1, 'Brand', 400, 'normal', 'sans', $2, 10, 'x') RETURNING id`,
+              [projectId, `fonts/${randomUUID()}.woff2`],
+            )
+          ).rows[0].id as string;
+          const text = {
+            id: '00000000-0000-4000-8000-0000000000d1',
+            type: 'text',
+            box: { x: 0.1, y: 0.1, w: 0.8, h: 0.1, rotation: 0 },
+            hidden: false,
+            locked: false,
+            a11y: {},
+            props: { text: 'Hi', font: { source: 'project', fontId: font } },
+          };
+          await pool.query('UPDATE tales SET draft_document = $2 WHERE id = $1', [taleId, JSON.stringify(doc([text]))]);
+          await run(taleId, SALE_BUTTON);
+          const fonts = await pool.query("SELECT font_id FROM tale_fonts WHERE tale_id = $1 AND document = 'draft'", [taleId]);
+          expect(fonts.rows.map((r) => r.font_id)).toEqual([font]);
+        });
+
+        it('skips a write past the element limit, a malformed document, an invalid label or link, and a same-address button', async () => {
+          const filler = (n: number) => ({
+            id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+            type: 'shape',
+            box: { x: 0.1, y: 0.1, w: 0.1, h: 0.1, rotation: 0 },
+            hidden: false,
+            locked: false,
+            a11y: {},
+            props: { shape: 'rectangle', fill: '#FFFFFF' },
+          });
+          const full = await newTale('paused', doc(Array.from({ length: 60 }, (_, i) => filler(i + 1))), null);
+          expect(await run(full.taleId, SALE_BUTTON)).toMatchObject({ outcome: 'skipped', reason: 'limits' });
+          const odd = await newTale('paused', { version: 1, elements: 'no' }, null);
+          expect(await run(odd.taleId, SALE_BUTTON)).toMatchObject({ outcome: 'skipped', reason: 'malformed' });
+          const empty = await newTale('paused', null, null);
+          for (const write of [
+            { label: 'Go', href: ['java', 'script:alert(1)'].join('') },
+            { label: 'Go', href: `https://shop.example/${'a'.repeat(2040)}` },
+            { label: 'Two\nlines', href: 'https://shop.example/' },
+            { label: 'x'.repeat(81), href: 'https://shop.example/' },
+            { label: '   ', href: 'https://shop.example/' },
+          ]) {
+            expect(await run(empty.taleId, write)).toMatchObject({ outcome: 'skipped', reason: 'invalid' });
+          }
+          expect((await stored(empty.taleId)).draft).toBeNull();
+          await run(empty.taleId, SALE_BUTTON);
+          const second = await withClient((tx) =>
+            setImportedButtonWhen(tx, empty.taleId, randomUUID(), () => SALE_BUTTON),
+          );
+          expect(second).toMatchObject({ outcome: 'skipped', reason: 'exists' });
+          expect(await run(randomUUID(), SALE_BUTTON)).toBeNull();
+        });
+      });
     });
 
     describe('throughput: retries, concurrency and restarts (story 10)', () => {

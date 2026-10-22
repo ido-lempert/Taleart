@@ -1,7 +1,7 @@
 import type { ImportDifference, ImportDifferenceEntity } from '@taleart/contract';
 import { StorylyTokenInvalidError, StorylyUnavailableError } from './errors';
 import { labelText, MAX_LABEL_LIST_ENTRIES } from './labels';
-import { checkRecord, storedText, type DifferenceBudget } from './record-shape';
+import { checkRecord, storedText, type DifferenceBudget, type SourceCallToAction } from './record-shape';
 import { isRetryableStatus, retryAfterMs, retryDelayMs, retryPolicy, sleep, type RetryPolicy } from './retry';
 
 // A read already under way, given up as unreachable once `signal` aborts.
@@ -94,6 +94,10 @@ export interface SourceStory extends SourceOrderedRecord {
   mimeType?: unknown;
   /** Storyly's status code, unchecked: ACTIVE is 1 (research 11.3). */
   status?: unknown;
+  /** Its call to action, when it has one a tale's button can carry (epic Tale Studio R17). */
+  callToAction?: SourceCallToAction | null;
+  /** True when its outlink or deep_link has a value no button may open. */
+  linkRefused?: boolean;
 }
 
 /**

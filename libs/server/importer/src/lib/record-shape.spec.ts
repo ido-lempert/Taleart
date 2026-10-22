@@ -1,5 +1,12 @@
 import type { ImportDifference } from '@taleart/contract';
-import { checkRecord, MAX_DIFFERENCES_PER_RECORD, REPORT_TEXT_LIMIT, storedText } from './record-shape';
+import {
+  buttonLabel,
+  checkRecord,
+  linkFailure,
+  MAX_DIFFERENCES_PER_RECORD,
+  REPORT_TEXT_LIMIT,
+  storedText,
+} from './record-shape';
 
 // A clean story as the import expects it: every required field, no value in a field TaleArt does not hold.
 const cleanStory = () => ({
@@ -106,9 +113,10 @@ describe('checkRecord', () => {
       thumbnail: false,
       cta_macro: 'x',
     };
-    expect(brief(checkRecord('tale', story, 1).differences)).toEqual([
+    // A label with a web address is carried as a button (epic Tale Studio R17): neither is listed as not held.
+    expect(brief(checkRecord('tale', story, 1).differences)).toEqual(['notHeld settings', 'unexpected cta_macro']);
+    expect(brief(checkRecord('tale', { ...story, button_text: null }, 1).differences)).toEqual([
       'notHeld deep_link',
-      'notHeld button_text',
       'notHeld settings',
       'unexpected cta_macro',
     ]);
@@ -178,7 +186,7 @@ describe('checkRecord', () => {
       expect((d.record.name ?? '').length).toBeLessThanOrEqual(REPORT_TEXT_LIMIT);
       expect((d.field ?? '').length).toBeLessThanOrEqual(REPORT_TEXT_LIMIT);
     }
-    expect(brief(differences).map((b) => b.slice(0, 16))).toEqual(['notHeld deep_lin', 'unexpected xxxxx']);
+    expect(brief(differences).map((b) => b.slice(0, 16))).toEqual(['linkNotImported ', 'unexpected xxxxx']);
   });
 
   it('removes the token from the whole text before cutting it, so no part of it is left', () => {
@@ -205,10 +213,11 @@ describe('checkRecord', () => {
 
   it('builds no difference once the budget is spent, and only counts them', () => {
     const budget = { remaining: 2 };
-    const story = { ...cleanStory(), deep_link: 'x', button_text: 'y', outlink: 'z' };
+    const story = { ...cleanStory(), deep_link: 'x', button_text: 'y', outlink: 'z', settings: { a: 1 } };
     const first = checkRecord('tale', story, 1, { budget });
-    expect(first.differences.map((d) => d.field)).toEqual(['deep_link', 'outlink']);
-    expect(first.omitted).toBe(1);
+    expect(first.differences.map((d) => d.field)).toEqual(['button_text', 'settings']);
+    // The two refused links (not web addresses) are only counted.
+    expect(first.omitted).toBe(2);
     expect(budget.remaining).toBe(0);
     const second = checkRecord('tale', 'oops', 2, { budget });
     expect(second).toEqual({ record: null, differences: [], omitted: 1 });
@@ -225,5 +234,88 @@ describe('checkRecord', () => {
     expect(checked.differences).toHaveLength(MAX_DIFFERENCES_PER_RECORD);
     expect(checked.differences[0]).toMatchObject({ kind: 'renamed', field: 'sort_order', sourceField: 'SORT-ORDER' });
     expect(checked.differences.length + checked.omitted).toBe(1 + 100_000);
+  });
+});
+
+describe("a story's call to action (epic Tale Studio R17)", () => {
+  const check = (cta: Record<string, unknown>) => checkRecord('tale', { ...cleanStory(), ...cta }, 1);
+  const rows = (cta: Record<string, unknown>) =>
+    check(cta).differences.map((d) => `${d.kind} ${d.field}${d.reason ? ` ${d.reason}` : ''}`);
+  const SCRIPT = ['java', 'script:alert(1)'].join('');
+
+  it('carries a label with an https outlink, or an http deep link, without listing them', () => {
+    expect(check({ button_text: 'Shop now', outlink: 'https://shop.example/sale' }).record?.callToAction).toEqual({
+      label: 'Shop now',
+      href: 'https://shop.example/sale',
+      hrefField: 'outlink',
+      shortened: false,
+    });
+    expect(rows({ button_text: 'Shop now', outlink: 'https://shop.example/sale' })).toEqual([]);
+    expect(check({ button_text: 'New', deep_link: ' http://shop.example/new ' }).record?.callToAction).toMatchObject({
+      href: 'http://shop.example/new',
+      hrefField: 'deep_link',
+    });
+    expect(rows({ button_text: 'New', deep_link: 'http://shop.example/new' })).toEqual([]);
+  });
+
+  it('prefers the outlink, and lists a valid deep link it does not use as not held', () => {
+    const both = { button_text: 'Go', outlink: 'https://a.example/', deep_link: 'https://b.example/' };
+    expect(check(both).record?.callToAction).toMatchObject({ href: 'https://a.example/', hrefField: 'outlink' });
+    expect(rows(both)).toEqual(['notHeld deep_link']);
+  });
+
+  it('lists an app link, a script link, a long or odd address as not imported, and carries no button for it', () => {
+    expect(rows({ button_text: 'Open', deep_link: 'myapp://home' })).toEqual([
+      'notHeld button_text',
+      'linkNotImported deep_link scheme',
+    ]);
+    expect(check({ button_text: 'Open', deep_link: 'myapp://home' }).record?.callToAction).toBeUndefined();
+    // Marked, so a button carried before keeps its earlier link.
+    expect(check({ button_text: 'Open', deep_link: 'myapp://home' }).record?.linkRefused).toBe(true);
+    expect(check({ button_text: 'Open', deep_link: 'https://a.example/' }).record?.linkRefused).toBeUndefined();
+    expect(rows({ button_text: 'Click', outlink: SCRIPT })).toEqual([
+      'notHeld button_text',
+      'linkNotImported outlink scheme',
+    ]);
+    expect(rows({ button_text: 'Read', outlink: `https://shop.example/${'a'.repeat(2040)}` })).toEqual([
+      'notHeld button_text',
+      'linkNotImported outlink tooLong',
+    ]);
+    expect(rows({ outlink: 'https://u:p@shop.example/' })).toEqual(['linkNotImported outlink credentials']);
+    expect(rows({ outlink: 'https://shop.example/a b' })).toEqual(['linkNotImported outlink characters']);
+    expect(rows({ outlink: 42 })).toEqual(['linkNotImported outlink invalid']);
+    // The app link is listed; the outlink carries the button.
+    expect(rows({ button_text: 'Visit', outlink: 'https://shop.example/', deep_link: 'myapp://visit' })).toEqual([
+      'linkNotImported deep_link scheme',
+    ]);
+    // Never the link's value.
+    expect(JSON.stringify(check({ deep_link: 'myapp://secret-place' }).differences)).not.toContain('secret');
+  });
+
+  it('carries no button without a label, and lists the link as not held', () => {
+    expect(check({ outlink: 'https://shop.example/' }).record?.callToAction).toBeUndefined();
+    expect(rows({ outlink: 'https://shop.example/', button_text: ' \n\u0007 ' })).toEqual([
+      'notHeld outlink',
+      'notHeld button_text',
+    ]);
+  });
+
+  it('makes the label one clean line of at most 80 characters, in NFC', () => {
+    expect(buttonLabel("  See\nwhat's \t new ")).toEqual({ label: "See what's new", shortened: false });
+    expect(buttonLabel('Café‮!')).toEqual({ label: 'Café!', shortened: false });
+    expect(buttonLabel('x'.repeat(100))).toEqual({ label: `${'x'.repeat(79)}…`, shortened: true });
+    expect([...(buttonLabel('😀'.repeat(81))?.label ?? '')]).toHaveLength(80);
+    expect(buttonLabel('\u0000\u0001')).toBeNull();
+    expect(buttonLabel(5)).toBeNull();
+  });
+
+  it('refuses links by the one URL rule of tale links', () => {
+    expect(linkFailure('https://shop.example/')).toBeNull();
+    expect(linkFailure('HTTP://shop.example/')).toBeNull();
+    expect(linkFailure('java\tscript:alert(1)')).toBe('characters');
+    expect(linkFailure('//shop.example/')).toBe('scheme');
+    expect(linkFailure('ftp://shop.example/')).toBe('scheme');
+    expect(linkFailure(`https://shop.example/${'a'.repeat(2027)}`)).toBeNull();
+    expect(linkFailure(`https://shop.example/${'a'.repeat(2028)}`)).toBe('tooLong');
   });
 });

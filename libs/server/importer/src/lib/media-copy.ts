@@ -16,6 +16,7 @@ import {
   clearPublicMediaCache,
   replaceTaleMediaIf,
   setTaleMediaIfNone,
+  taleDocumentFingerprints,
   TaleNotFoundError,
 } from '@taleart/server-tales';
 import {
@@ -27,6 +28,7 @@ import {
   type MediaFetchPolicy,
 } from './media-fetch';
 import { isRetryableStatus, retryDelayMs, retryPolicy, sleep } from './retry';
+import { lockRecord, saveRecord } from './reimport';
 import { CommitUncertainError, inTransaction } from './transaction';
 
 /** A source media file stored through the storage port. */
@@ -650,11 +652,29 @@ async function importTaleMediaWith(
         // A run that lost its job writes nothing; the guard holds the job row until this commits.
         await media.beforeWrite?.(tx);
         await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('import_media:' || $1, 0))", [taleId]);
+        // The documents as the import left them (Tale Studio R17), under the tale's baseline lock: a tale
+        // whose draft (its button) is still the import's is published with its media, and the media
+        // write keeps recording the documents that stay the import's.
+        const recorded = (await lockRecord(tx, 'tale', taleId))?.documents;
+        const previous = recorded ? await taleDocumentFingerprints(tx, taleId) : null;
+        const keepRecorded = async () => {
+          if (!recorded || !previous) return;
+          const now = await taleDocumentFingerprints(tx, taleId);
+          if (!now) return;
+          await saveRecord(tx, 'tale', taleId, projectId, {
+            documents: {
+              draft: recorded.draft === previous.draft ? now.draft : recorded.draft,
+              published: recorded.published === previous.published ? now.published : recorded.published,
+            },
+          });
+        };
         const stored = { key: copied.key, contentType: copied.contentType };
         if (earlier === null) {
           // Only a tale that still holds no media takes the copy: a person's upload meanwhile wins.
-          if (await setTaleMediaIfNone(tx, taleId, stored)) {
+          const publishDraft = !!recorded && !!previous && previous.draft !== null && recorded.draft === previous.draft;
+          if (await setTaleMediaIfNone(tx, taleId, stored, { publishDraft })) {
             await saveImportedMedia(tx, projectId, taleId, copied, digest);
+            await keepRecorded();
             return { outcome: { kind: 'imported', change: 'created' } as const, used: true };
           }
         } else if (earlier.sha256 === copied.sha256) {
@@ -670,6 +690,7 @@ async function importTaleMediaWith(
         } else if (await replaceTaleMediaIf(tx, taleId, earlier.key, stored)) {
           // Replaced only while the tale still holds the import's earlier copy: a person's media meanwhile wins.
           await saveImportedMedia(tx, projectId, taleId, copied, digest);
+          await keepRecorded();
           return { outcome: { kind: 'imported', change: 'updated' } as const, used: true };
         }
         const now = await currentOutcome(tx, taleId, digest);

@@ -25,6 +25,17 @@ export interface RecordFields {
   removedTags?: string[];
   /** The tale group (TaleArt id) a tale is in, as the import last saw it: tells a source move from a person's. */
   group?: string;
+  /**
+   * The button the import carried into a tale (epic Tale Studio R17): its element id in the tale's
+   * documents, and the label and destination last written there (TaleArt values, as written).
+   */
+  button?: { id: string; label: string; href: string };
+  /**
+   * Fingerprints of a tale's draft and published documents as the import last left them (MD5 of
+   * their stored text; '' once a person changed one): a document still matching is the import's, so
+   * a re-import may write it; the published one only then (Tale Studio R17).
+   */
+  documents?: { draft: string | null; published: string | null };
 }
 
 /** What a merge decided for one field. */
