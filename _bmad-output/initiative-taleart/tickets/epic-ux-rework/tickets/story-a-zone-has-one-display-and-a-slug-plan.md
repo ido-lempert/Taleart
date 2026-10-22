@@ -118,6 +118,13 @@ deferred: []
 - Importer: its code is unchanged. A another tool instance imports as one zone without a display, with a slug made from its name (asserted in the API importer test). `api:import-scale` passes.
 - The sample page and its scripts (`a11y-scan.mjs`, `a11y-review.mjs`) use the new shape after the review fixes below.
 
+## Follow-up review fixes (2026-10-22)
+
+- Zones made from extra frames take the original zone's own unique slug as their base: `<slug>-<type>-<n>` (for example `top-bar-bar-2`). That base is cut so the type and the number always fit in 64 characters.
+- Stage keys: every free key is kept first, then keys another zone took get a suffix, oldest zone first. The fold report and its log list each of these as `renamedStageKeys` (`zoneId`, `key`, `slug`), since a page that named the stage needs the new slug.
+- The New zone drawer's slug preview is made unique against the picked project's zones, as the API does.
+- Each fold test clears only its own projects' slugs.
+
 ## Release note (deploy)
 
 **This release needs a stop-the-world deploy.** Stop every API instance of the release before, then start this one. Its start-up migration (`foldStagesIntoZones`) drops `stages` and makes `zones.slug` NOT NULL. Once it has run, an instance of the release before fails:

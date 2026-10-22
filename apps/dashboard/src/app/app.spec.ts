@@ -62,7 +62,7 @@ const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', setting
 
 interface Data {
   projects?: { id: string }[];
-  zones?: { id: string }[];
+  zones?: ({ id: string } & Record<string, unknown>)[];
   /** Each zone's display (its one frame, AD-17), keyed by zone id; none when missing. */
   displays?: Record<string, unknown>;
   groups?: Record<string, unknown[]>;
@@ -335,7 +335,13 @@ describe('App', () => {
     });
 
     it('previews the slug made from the name, and requires one when a Hebrew name gives none', async () => {
-      const { fixture } = await open('/zones', { projects: [acme] });
+      const { fixture } = await open('/zones', {
+        projects: [acme, globex],
+        zones: [
+          { ...zone, slug: 'home-page' },
+          { ...otherZone, slug: 'home-page-2' },
+        ],
+      });
       buttonNamed(fixture.nativeElement, 'New zone').click();
       await settle(fixture);
       const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
@@ -344,7 +350,8 @@ describe('App', () => {
 
       type(name, 'Home page!');
       await settle(fixture);
-      expect(hint()).toContain('Left empty, it is home-page.');
+      // Made unique against the picked project's zones only, as the API does.
+      expect(hint()).toContain('Left empty, it is home-page-2.');
 
       type(name, 'דף הבית');
       await settle(fixture);
