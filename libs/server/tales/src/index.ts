@@ -151,6 +151,8 @@ export {
   deliverableTaleDocument,
   DELIVERY_CACHE_SIZE,
   pointerSegment,
+  setTestElementTypesEnabled,
+  testElementTypesEnabled,
   getTaleDocument,
   saveTaleDocument,
   publishTaleDocument,

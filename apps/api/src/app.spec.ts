@@ -42,6 +42,7 @@ import {
   continueTaleMediaMigration,
   copyZonePlacements,
   migrateTaleMediaDocuments,
+  setTestElementTypesEnabled,
   sweepUnusedProjectMediaFiles,
 } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
@@ -6799,6 +6800,68 @@ describe('Management API v1: projects and zones', () => {
           newTab: true,
         });
         expect(JSON.stringify(document)).not.toContain('mediaKey');
+      });
+    });
+
+    describe('an element type registered by configuration (epic Tale Studio R8, story 7.8)', () => {
+      const badge = (props: Record<string, unknown> = {}) => ({
+        id: '00000000-0000-4000-8000-0000000000b1',
+        type: 'test-badge',
+        box: { x: 0.1, y: 0.2, w: 0.4, h: 0.08, rotation: 0 },
+        hidden: false,
+        locked: false,
+        a11y: { label: 'New in' },
+        props: { label: 'New', color: '#ff0055', tone: 'solid', count: 3, ...props },
+      });
+      const words = (n: number) => ({
+        id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+        type: 'text',
+        box: { x: 0.1, y: 0.5, w: 0.8, h: 0.1, rotation: 0 },
+        hidden: false,
+        locked: false,
+        a11y: {},
+        props: { text: 'Still here' },
+      });
+      afterEach(() => setTestElementTypesEnabled(false));
+
+      it('refuses the test-only type unless the server is configured to take it', async () => {
+        const { tale } = await setup();
+        const res = await save(tale.id, doc([badge()]), 0);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toMatchObject({ code: 'invalid_tale_document', pointer: '/elements/0/type' });
+      });
+
+      it('saves, validates and delivers it once configured, with no document version change', async () => {
+        setTestElementTypesEnabled(true);
+        const { zone, group, tale } = await setup();
+        await installZone(zone.id);
+        const refused = async (props: Record<string, unknown>, pointer: string) => {
+          const res = await save(tale.id, doc([badge(props)]), 0);
+          expect(res.status).toBe(400);
+          expect((await res.json()).error).toMatchObject({ code: 'invalid_tale_document', pointer });
+        };
+        await refused({ label: 'a'.repeat(41) }, '/elements/0/props/label');
+        await refused({ color: 'red' }, '/elements/0/props/color');
+        await refused({ tone: 'glow' }, '/elements/0/props/tone');
+        await refused({ count: 100 }, '/elements/0/props/count');
+        await refused({ html: '<b>x</b>' }, '/elements/0/props/html');
+        expect((await state(tale.id)).revision).toBe(0);
+
+        const value = doc([words(1), badge()]);
+        const saved = await save(tale.id, value, 0);
+        expect(saved.status).toBe(200);
+        expect((await saved.json()).document).toEqual(value);
+        expect((await publishDraft(tale.id)).status).toBe(200);
+        await publish('tale-groups', group.id);
+        await publish('tales', tale.id);
+        const [deliveredGroup] = await delivered(zone.id);
+        const document = deliveredGroup.tales[0].document as {
+          version: number;
+          elements: { type: string; props: unknown }[];
+        };
+        expect(document.version).toBe(1);
+        expect(document.elements.map((e) => e.type)).toEqual(['text', 'test-badge']);
+        expect(document.elements[1].props).toEqual({ label: 'New', color: '#ff0055', tone: 'solid', count: 3 });
       });
     });
   });
