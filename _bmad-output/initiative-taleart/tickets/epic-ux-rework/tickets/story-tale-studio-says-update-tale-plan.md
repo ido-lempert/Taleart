@@ -42,7 +42,7 @@ deferred: []
 - Update tale refreshes the store and announces "Tale updated. Visitors now see this version.", or "Tale updated. <line>." when not visible. Focus or a return to the tab reads the published document and the store again.
 - No "Publish" in the studio: labels, ids, `aria-*`, tooltips, error and confirm texts, announcements and the inspector's alt-text and contrast hints. The contract's alt-text refusal says "before the tale can be updated"; the zone page's warning after showing a tale whose draft fails says "Open Tale Studio to fix it, then press Update tale."
 
-**Never:** a new endpoint or stored field; changing what update and discard do on the server; renaming the `/document/publish` route or the service's method names (code, not words).
+**Never:** a stored field (review: one read endpoint, `GET /tales/{taleId}`, was added); changing what update and discard do on the server; renaming the `/document/publish` route or the service's method names (code, not words).
 
 ## I/O & Edge-Case Matrix
 
@@ -91,3 +91,13 @@ deferred: []
 
 **Manual checks:**
 - Playwright on a fresh database (`shots-8.4/`): a visible tale edited (line not updated yet, Delivery unchanged), Update tale (Delivery shows the edit, line up to date), group Off ("Not visible: group is off").
+
+## Review fixes (2026-10-22)
+
+- **The line follows the server.** An API test confirms the reviewer's case: a tale whose media is out of step and that has nothing published is on the site. Its first studio save takes it off, and it says "not updated yet". A tale made from media is unaffected, because its media document is published when it is created. The new `GET /tales/{taleId}` (contract, tales module `getTale`, tales router) returns the tale with its visibility in any zone. A group in no zone reads "group is not in any zone". The studio reads it on opening, after any save while nothing is published, after Update tale, and when the page comes back into view. Before that answer, it reads the store's zone lists. If any zone shows the tale it is visible; otherwise every zone's reasons are merged in `VISIBILITY_REASON_ORDER`. The read never shows the API-down banner.
+- **Update tale.** `draftAction` returns whether it worked. The `updating` flag is cleared and autosave resumes before the tale is read again. The announcement follows the read: "Tale updated. Visitors now see this version.", "Tale updated. <line>.", or "Tale updated." when it cannot be read. The full store refresh runs in the background.
+- **Store refresh is single-flight.** A superseded refresh now resolves only after the newest one finishes (`dashboard.store.spec.ts`).
+- **Coming back to the page.** Focus and the tab becoming visible again trigger one read, at most every 15 s, and none while the tale is being updated or held. It does no full refresh.
+- **Wording.** "Not visible: not updated yet · 3 changes" does not repeat "not updated yet".
+- **`changeCount`.** The published document is indexed once (`siteVersion`, a computed). Each layer's canonical form is cached per object, and the extra `sameDocument` check is gone. New tests cover a null draft, a removal on its own, a layer moved and edited, and an empty draft against nothing published.
+- **Sweep.** The remaining "publish" wording in studio comments and JSDoc is gone. The server message now reads "This tale has no draft to update."

@@ -1965,6 +1965,33 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tales/{taleId}:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getTale
+      summary: Read one tale.
+      description: >-
+        The tale with its status as read and its visibility in any zone its
+        group is placed in (epic UX rework R7), as Tale Studio's status line
+        shows it. Unknown tale: 404 `tale_not_found`.
+      responses:
+        '200':
+          description: The tale.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tales/{taleId}/status:
     parameters:
       - name: taleId

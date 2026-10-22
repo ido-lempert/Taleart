@@ -10,7 +10,7 @@ import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { appRoutes } from '../app.routes';
 import { AUTOSAVE_TIMING } from './tale-autosave';
-import { TaleStudioPage } from './tale-studio';
+import { BACK_TO_PAGE_INTERVAL_MS, TaleStudioPage } from './tale-studio';
 import { ratioText } from './tale-text-style';
 
 // The documents here hold text only, typed so, which keeps a text's props a text's.
@@ -149,6 +149,10 @@ describe('TaleStudioPage', () => {
   });
 
   afterEach(() => {
+    // The studio reads the tale's visibility for its status line (story 8.4); not what these test.
+    for (const read of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+$/.test(r.url))) {
+      read.flush({ visibility: { visible: true, reasons: [] } });
+    }
     http.verify();
     document.body.replaceChildren();
     vi.restoreAllMocks();
@@ -1223,6 +1227,17 @@ describe('TaleStudioPage', () => {
         TestBed.inject(DashboardStore).taleGroups.set({
           z1: [{ ...group, tales: [{ ...tale, visibility, ...changes }] } as unknown as ZoneTaleGroup],
         });
+      const taleRead = `${API_BASE}/tales/t1`;
+      // Answers the studio's read of the tale (`GET /tales/{id}`, in any zone) with `visibility`;
+      // `all` answers every read waiting, such as the one on opening and the one after an update.
+      async function answerRead(visibility: unknown, all = false): Promise<void> {
+        const reads = all ? http.match(taleRead) : [http.expectOne(taleRead)];
+        expect(reads.length).toBeGreaterThan(0);
+        for (const read of reads) read.flush({ ...tale, visibility });
+        // Twice: what it says is announced on the next turn.
+        await settle(fixture);
+        await settle(fixture);
+      }
       let refresh: ReturnType<typeof vi.fn>;
 
       beforeEach(() => {
@@ -1251,7 +1266,8 @@ describe('TaleStudioPage', () => {
       it('says "Not visible: not updated yet" with the changes for a tale with nothing on the site', async () => {
         seeTale(NOT_UPDATED);
         await open({ document: three, revision: 1, published: { document: null, revision: 0 } });
-        expect(publishState()).toBe('Not visible: not updated yet · 3 changes not updated yet');
+        // "Not updated yet" is said once: the changes are only counted.
+        expect(publishState()).toBe('Not visible: not updated yet · 3 changes');
         expect(root.querySelector('.studio-update__dot:not(.is-visible)')).not.toBeNull();
         expect(publishButton().hasAttribute('aria-disabled')).toBe(false);
         expect(discardButton().getAttribute('aria-disabled')).toBe('true');
@@ -1281,7 +1297,8 @@ describe('TaleStudioPage', () => {
           .expectOne(`${url}/publish`)
           .flush({ document: draft, revision: 4, published: { document: draft, revision: 3 } });
         await settle(fixture);
-        await settle(fixture);
+        // Read on opening, then after the update.
+        await answerRead(GROUP_OFF, true);
         expect(refresh).toHaveBeenCalled();
         expect(publishState()).toBe('Not visible: group is off');
         expect(live()).toBe('Tale updated. Not visible: group is off.');
@@ -1328,7 +1345,9 @@ describe('TaleStudioPage', () => {
         expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(draft));
         publish.flush({ document: draft, revision: 4, published: { document: reordered, revision: 3 } });
         await settle(fixture);
-        await settle(fixture);
+        // Nothing is said until the tale is read again: the opening read, then the one after.
+        expect(live()).not.toContain('Tale updated');
+        await answerRead(VISIBLE, true);
         expect(refresh).toHaveBeenCalledTimes(1);
         expect(publishState()).toBe('Visible on site · up to date');
         expect(live()).toBe('Tale updated. Visitors now see this version.');
@@ -1338,15 +1357,16 @@ describe('TaleStudioPage', () => {
       it('drops "not updated yet" once the tale is updated, and says what the indicator reads after', async () => {
         seeTale(NOT_UPDATED);
         await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
-        // The store, read again, says the group is off (it was turned off meanwhile).
-        refresh.mockImplementation(async () => seeTale({ visible: false, reasons: [...GROUP_OFF.reasons] }));
+        await answerRead(NOT_UPDATED);
+        expect(publishState()).toBe('Not visible: not updated yet · 3 changes');
         publishButton().click();
         await settle(fixture);
         http
           .expectOne(`${url}/publish`)
           .flush({ document: three, revision: 3, published: { document: three, revision: 1 } });
         await settle(fixture);
-        await settle(fixture);
+        // Read again, the tale says its group is off (it was turned off meanwhile).
+        await answerRead(GROUP_OFF);
         expect(publishState()).toBe('Not visible: group is off');
         expect(live()).toBe('Tale updated. Not visible: group is off.');
       });
@@ -1418,6 +1438,134 @@ describe('TaleStudioPage', () => {
         expect(found).toEqual([]);
       });
 
+      it('reads the tale itself when the store has not listed it yet, as on opening its URL directly', async () => {
+        const store = TestBed.inject(DashboardStore);
+        store.taleGroups.set({});
+        store.loaded.set(false);
+        fixture = TestBed.createComponent(TaleStudioPage);
+        fixture.componentRef.setInput('taleId', 't1');
+        fixture.detectChanges();
+        http.expectOne(url).flush(draftRead({ document: three, revision: 3 }));
+        await settle(fixture);
+        root = fixture.nativeElement as HTMLElement;
+        document.body.appendChild(root);
+        // Nothing known yet: the line says only where the draft stands, with no dot.
+        expect(publishState()).toBe('Up to date');
+        expect(root.querySelector('.studio-update__dot')).toBeNull();
+        await answerRead({ visible: false, reasons: [{ code: 'not-in-any-zone', subject: 'group' }] });
+        expect(publishState()).toBe('Not visible: group is not in any zone');
+      });
+
+      it('keeps the line as it was when the tale cannot be read, and then says only "Tale updated."', async () => {
+        const store = TestBed.inject(DashboardStore);
+        store.taleGroups.set({});
+        fixture = TestBed.createComponent(TaleStudioPage);
+        fixture.componentRef.setInput('taleId', 't1');
+        fixture.detectChanges();
+        http.expectOne(url).flush(draftRead({ document: three, revision: 3, published: { document: null, revision: 0 } }));
+        await settle(fixture);
+        root = fixture.nativeElement as HTMLElement;
+        document.body.appendChild(root);
+        http.expectOne(taleRead).flush(null, { status: 500, statusText: 'Down' });
+        await settle(fixture);
+        expect(publishState()).toBe('Changes not updated yet');
+        expect(store.apiDown()).toBe(false);
+        publishButton().click();
+        await settle(fixture);
+        http
+          .expectOne(`${url}/publish`)
+          .flush({ document: three, revision: 3, published: { document: three, revision: 1 } });
+        await settle(fixture);
+        http.expectOne(taleRead).flush(null, { status: 500, statusText: 'Down' });
+        await settle(fixture);
+        await settle(fixture);
+        expect(live()).toBe('Tale updated.');
+        expect(publishState()).toBe('Up to date');
+        expect(store.apiDown()).toBe(false);
+      });
+
+      it('reads the tale again after a save while nothing is on the site: a first draft can take it off', async () => {
+        // A tale whose media is out of step, composed by the Delivery API: on the site until its
+        // first draft is saved (story 8.4 review).
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        await answerRead(VISIBLE);
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(publishState()).toBe('Visible on site · changes not updated yet');
+        await saveNow(4);
+        await answerRead(NOT_UPDATED);
+        expect(publishState()).toBe('Not visible: not updated yet · 3 changes');
+      });
+
+      it('does not read the tale again after a save once something is on the site', async () => {
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        await answerRead(VISIBLE);
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        await saveNow(4);
+        http.expectNone(taleRead);
+      });
+
+      it('in several zones, is visible when one shows it, else gives the first reason in their order', async () => {
+        const listed = (visibility: unknown) =>
+          ({ ...group, tales: [{ ...tale, visibility }] }) as unknown as ZoneTaleGroup;
+        const store = TestBed.inject(DashboardStore);
+        store.taleGroups.set({
+          z1: [listed({ visible: false, reasons: [{ code: 'zone-not-installed', subject: 'zone' }] })],
+          z2: [listed({ visible: false, reasons: [{ code: 'zone-no-display', subject: 'zone' }] })],
+        });
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        expect(publishState()).toBe('Not visible: zone has no display');
+        store.taleGroups.update((lists) => ({ ...lists, z3: [listed(VISIBLE)] }));
+        fixture.detectChanges();
+        expect(publishState()).toBe('Visible on site · up to date');
+      });
+
+      it('reads again on coming back to the page, once for focus and the tab shown, and at most every 15 s', async () => {
+        let now = 1_000_000;
+        vi.spyOn(Date, 'now').mockImplementation(() => now);
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        await answerRead(VISIBLE);
+        window.dispatchEvent(new Event('focus'));
+        document.dispatchEvent(new Event('visibilitychange'));
+        http
+          .expectOne(url)
+          .flush(draftRead({ document: three, revision: 3, published: { document: three, revision: 1 } }));
+        await answerRead(GROUP_OFF);
+        expect(publishState()).toBe('Not visible: group is off');
+        // No full refresh, so a failure there cannot show the API-down banner.
+        expect(refresh).not.toHaveBeenCalled();
+        now += BACK_TO_PAGE_INTERVAL_MS - 1;
+        window.dispatchEvent(new Event('focus'));
+        http.expectNone(url);
+        http.expectNone(taleRead);
+        now += 1;
+        window.dispatchEvent(new Event('focus'));
+        http
+          .expectOne(url)
+          .flush(draftRead({ document: three, revision: 3, published: { document: three, revision: 1 } }));
+        await answerRead(VISIBLE);
+        expect(publishState()).toBe('Visible on site · up to date');
+      });
+
+      it('does not read again on coming back to the page while the tale is being updated', async () => {
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        await answerRead(VISIBLE);
+        publishButton().click();
+        await settle(fixture);
+        const update = http.expectOne(`${url}/publish`);
+        window.dispatchEvent(new Event('focus'));
+        http.expectNone(url);
+        http.expectNone(taleRead);
+        update.flush({ document: three, revision: 3, published: { document: three, revision: 1 } });
+        await settle(fixture);
+        // Editing is free again before the tale is read and the update said.
+        expect(root.querySelector('#studio-update')?.getAttribute('aria-disabled')).toBe('true');
+        expect(status()).toBe('All changes saved');
+        await answerRead(VISIBLE);
+        expect(live()).toBe('Tale updated. Visitors now see this version.');
+      });
+
       const stale = { error: { code: 'stale_revision', message: 'stale' } };
       const conflict = { status: 409, statusText: 'Conflict' };
 
@@ -1478,23 +1626,6 @@ describe('TaleStudioPage', () => {
         expect(publishState()).toBe('Visible on site · changes not updated yet');
         const after = await saveNow(4);
         expect(after.revision).toBe(3);
-      });
-
-      it('reads the site version and the indicator again when the page comes back into view', async () => {
-        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
-        window.dispatchEvent(new Event('focus'));
-        http
-          .expectOne(url)
-          .flush(draftRead({ document: three, revision: 3, published: { document: three, revision: 1 } }));
-        await settle(fixture);
-        expect(publishState()).toBe('Visible on site · up to date');
-        // The indicator is read again too, such as after the tale was shown or hidden elsewhere.
-        expect(refresh).toHaveBeenCalledTimes(1);
-        document.dispatchEvent(new Event('visibilitychange'));
-        http
-          .expectOne(url)
-          .flush(draftRead({ document: three, revision: 3, published: { document: three, revision: 1 } }));
-        await settle(fixture);
       });
 
       it('discards the changes after asking, back to the version on the site, and undo brings them back', async () => {

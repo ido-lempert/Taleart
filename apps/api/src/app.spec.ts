@@ -7797,6 +7797,58 @@ describe('Management API v1: projects and zones', () => {
       await expectAgreement(f);
     });
 
+    // Story 8.4 review: which tales does a first studio save take off the site? A tale from media
+    // has its media document published at creation, so saving its draft changes nothing; a tale
+    // whose media is out of step with nothing published (composed by the Delivery API) is taken off
+    // the site by its first draft, until Update tale.
+    it('keeps a tale from media on the site through a first draft, but not an out-of-step one', async () => {
+      const f = await fixture();
+      const outOfStep = (await (await post(`/tale-groups/${f.groupId}/tales`, { title: 'Out of step' })).json()).id;
+      await upload(outOfStep);
+      await pool.query(
+        `UPDATE tales SET document = NULL, document_revision = 0, document_media_key = NULL,
+           draft_document = NULL, draft_revision = 0 WHERE id = $1`,
+        [outOfStep],
+      );
+      expect((await taleIn(f, outOfStep))?.visibility).toEqual(VISIBLE);
+      expect((await delivered(f.key)).tales).toContain(outOfStep);
+      const saveFirstDraft = async (taleId: string, sawTaleMedia: boolean) => {
+        const read = await (await send('GET', `/tales/${taleId}/document`)).json();
+        const res = await send('PUT', `/tales/${taleId}/document`, {
+          document: read.document,
+          revision: read.revision,
+          sawTaleMedia,
+        });
+        expect(res.status).toBe(200);
+      };
+      await saveFirstDraft(f.taleId, true);
+      expect((await taleIn(f, f.taleId))?.visibility).toEqual(VISIBLE);
+      await saveFirstDraft(outOfStep, true);
+      expect((await taleIn(f, outOfStep))?.visibility).toEqual(notVisible(why('not-updated-yet', 'tale')));
+      const site = await delivered(f.key);
+      expect(site.tales).toContain(f.taleId);
+      expect(site.tales).not.toContain(outOfStep);
+      await expectAgreement(f);
+      // Tale Studio reads it again with GET /tales/{id}: in any zone.
+      const read = async (taleId: string): Promise<ListedTale> => (await send('GET', `/tales/${taleId}`)).json();
+      expect((await read(f.taleId)).visibility).toEqual(VISIBLE);
+      expect((await read(outOfStep)).visibility).toEqual(notVisible(why('not-updated-yet', 'tale')));
+    });
+
+    it('reads one tale with GET, in any zone: in a group in no zone, or Off, it says so', async () => {
+      const f = await fixture();
+      const read = async (taleId: string): Promise<ListedTale & { taleGroupId: string; title: string }> =>
+        (await send('GET', `/tales/${taleId}`)).json();
+      expect(await read(f.taleId)).toMatchObject({ id: f.taleId, taleGroupId: f.groupId, title: 'Target' });
+      expect((await setStatus('tale-groups', f.groupId, 'paused')).status).toBe(200);
+      expect((await read(f.taleId)).visibility).toEqual(notVisible(why('group-off', 'group')));
+      expect((await setStatus('tale-groups', f.groupId, 'live')).status).toBe(200);
+      expect((await send('DELETE', `/zones/${f.zoneId}/tale-groups/${f.groupId}`)).status).toBe(204);
+      expect((await read(f.taleId)).visibility).toEqual(notVisible(why('not-in-any-zone', 'group')));
+      expect((await send('GET', '/tales/00000000-0000-4000-8000-000000000000')).status).toBe(404);
+      expect((await send('GET', '/tales/not-a-uuid')).status).toBe(404);
+    });
+
     it('serves a cover and tale media publicly only while the group is placed in a set-up zone', async () => {
       const f = await fixture();
       const cover = await fetch(`${base}/tale-groups/${f.groupId}/cover`, {

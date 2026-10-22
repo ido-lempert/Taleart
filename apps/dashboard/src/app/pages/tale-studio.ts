@@ -84,7 +84,7 @@ import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.
 import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
-import { changeCount, sameDocument, TaleHistory } from './tale-history';
+import { changeCount, sameDocument, siteVersion, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
 import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } from './tale-media';
 import {
@@ -126,6 +126,9 @@ export const MOVE_STEP = 0.01;
 
 /** How long leaving the studio waits for unsaved changes to save before it asks (ms). */
 export const LEAVE_WAIT_MS = 5000;
+
+/** How often, at most, coming back to the page reads the tale again (ms). */
+export const BACK_TO_PAGE_INTERVAL_MS = 15_000;
 
 /** Where a layer command came from: focus returns there, to the canvas element or to the layer row. */
 type Origin = 'canvas' | 'list';
@@ -1343,6 +1346,8 @@ export class TaleStudioPage implements OnChanges {
   protected readonly published = signal<PublishedTaleDocument>({ document: null, revision: 0 });
   /** True while the tale is being updated or its changes discarded. */
   protected readonly updating = signal(false);
+  /** When coming back to the page last read the tale again (ms since the epoch). */
+  private backToPageAt = 0;
   private readonly autosave = new TaleAutosaver(
     emptyTaleDocument(),
     0,
@@ -1476,7 +1481,7 @@ export class TaleStudioPage implements OnChanges {
         lowContrast:
           el.type === 'text' &&
           textContrast(resolveTextStyle(el.props), textBackdropAt(elements, i, this.backdrop())).kind === 'low',
-        // An image, video or sticker without alt text or the decorative mark keeps the tale from being published (R12).
+        // An image, video or sticker without alt text or the decorative mark keeps the tale from being updated (R12).
         missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
         // A video over 15 s plays only its first 15 s (R5); the tale's own media video plays in full (R16).
         longVideo:
@@ -1510,33 +1515,51 @@ export class TaleStudioPage implements OnChanges {
         return 'Not saved';
     }
   });
-  /** True when the draft on screen differs from the published document, or nothing is published yet. */
+  /** True when the draft on screen differs from the version on the site, or nothing is on the site yet. */
   protected readonly unpublished = computed(() => !sameDocument(this.doc(), this.published().document));
-  /** Where the draft stands against what visitors see. */
   /**
-   * The tale's visibility on the site (epic UX rework R7), as the Management API last read it:
-   * visible when it is visible in any zone it is listed in, else as the first zone lists it; null
-   * until read. "Not updated yet" is left out once something is on the site, before the store is
-   * read again.
+   * The tale's visibility as the Management API read it for this studio (`GET /tales/{id}`, in any
+   * zone, epic UX rework R7): on opening, after a save while nothing is on the site, after Update
+   * tale, and back on the page. Null until read.
    */
-  protected readonly siteVisibility = computed<Visibility | null>(() => {
+  private readonly readVisibility = signal<{ taleId: string; visibility: Visibility } | null>(null);
+  /**
+   * Until the studio's own read answers, the tale's visibility as the store's zone lists give it:
+   * visible when any zone shows it, else every zone's reasons in their order; null when no zone
+   * lists it.
+   */
+  private readonly listedVisibility = computed<Visibility | null>(() => {
     const id = this.taleId();
-    const read = Object.values(this.store.taleGroups())
+    const listed = Object.values(this.store.taleGroups())
       .flat()
       .flatMap((g) => g.tales)
       .filter((t) => t.id === id && t.visibility)
       .map((t) => t.visibility);
-    if (read.length === 0) return null;
-    const visibility = read.find((v) => v.visible) ?? read[0];
-    if (this.published().document === null) return visibility;
+    if (listed.length === 0) return null;
+    return listed.find((v) => v.visible) ?? visibilityOf(listed.flatMap((v) => v.reasons));
+  });
+  /**
+   * The tale's visibility on the site (epic UX rework R7), as the Management API last read it;
+   * null until read. "Not updated yet" is left out once something is on the site, before it is
+   * read again.
+   */
+  protected readonly siteVisibility = computed<Visibility | null>(() => {
+    const read = this.readVisibility();
+    const visibility = read?.taleId === this.taleId() ? read.visibility : this.listedVisibility();
+    if (!visibility || visibility.visible || this.published().document === null) return visibility;
     return visibilityOf(visibility.reasons.filter((reason) => reason.code !== 'not-updated-yet'));
   });
+  /** The version on the site, ready to count the draft's changes against. */
+  private readonly onSite = computed(() => siteVersion(this.published().document));
   /** How many changes the draft holds against the version on the site. */
-  protected readonly pendingChanges = computed(() => changeCount(this.doc(), this.published().document));
+  protected readonly pendingChanges = computed(() =>
+    this.unpublished() ? changeCount(this.doc(), this.onSite()) : 0,
+  );
   /**
    * The status line, in the indicator's words (epic UX rework R15): "Visible on site · up to
-   * date", "Visible on site · changes not updated yet", "Not visible: group is off", or "Not
-   * visible: group is off · 2 changes not updated yet".
+   * date", "Visible on site · changes not updated yet", "Not visible: group is off", "Not
+   * visible: group is off · 2 changes not updated yet", or, when nothing is on the site yet,
+   * "Not visible: not updated yet · 3 changes".
    */
   protected readonly statusLine = computed(() => {
     const pending = this.unpublished();
@@ -1546,7 +1569,11 @@ export class TaleStudioPage implements OnChanges {
     if (visibility.visible) return `${line} · ${pending ? 'changes not updated yet' : 'up to date'}`;
     if (!pending) return line;
     const n = this.pendingChanges();
-    return `${line} · ${n} ${n === 1 ? 'change' : 'changes'} not updated yet`;
+    const changes = `${n} ${n === 1 ? 'change' : 'changes'}`;
+    // "Not updated yet" is already said: the count is not said twice.
+    return visibility.reasons[0]?.code === 'not-updated-yet'
+      ? `${line} · ${changes}`
+      : `${line} · ${changes} not updated yet`;
   });
   /** True when there is something to update: a draft that differs from the version on the site. */
   protected readonly canUpdate = computed(
@@ -1683,6 +1710,19 @@ export class TaleStudioPage implements OnChanges {
     this.autosave.reset(doc, result.value.revision);
     this.saveError.set('');
     this.error.set('');
+    void this.readTaleVisibility();
+  }
+
+  /**
+   * Reads the tale's visibility from the Management API (`GET /tales/{id}`, in any zone), for the
+   * status line. True when it was read; a failure keeps what the line showed.
+   */
+  private async readTaleVisibility(): Promise<boolean> {
+    const taleId = this.taleId();
+    const tale = await this.store.readTale(taleId);
+    if (tale === null || taleId !== this.taleId()) return false;
+    this.readVisibility.set({ taleId, visibility: tale.visibility });
+    return true;
   }
 
   /**
@@ -1709,18 +1749,26 @@ export class TaleStudioPage implements OnChanges {
     event.returnValue = '';
   }
 
-  /** Back to the page (focus, or the tab shown again): what is published may have changed meanwhile. */
+  /**
+   * Back to the page (focus, or the tab shown again): the version on the site and the tale's
+   * visibility may have changed meanwhile, such as after the tale or its group was shown or
+   * hidden elsewhere. Focus and the tab shown again come together, so they read once, and at most
+   * every {@link BACK_TO_PAGE_INTERVAL_MS}; not while the tale is being updated or held.
+   */
   @HostListener('window:focus')
   @HostListener('document:visibilitychange')
   protected backToPage(): void {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (!this.doc() || this.updating() || this.held()) return;
+    const now = Date.now();
+    if (now - this.backToPageAt < BACK_TO_PAGE_INTERVAL_MS) return;
+    this.backToPageAt = now;
     void this.refreshPublished();
-    // The status line's visibility, such as after the tale or its group was shown or hidden elsewhere.
-    void this.store.refresh();
+    void this.readTaleVisibility();
   }
 
-  // Reads what is published now, such as after the tale was published from the zone page. The draft
-  // on screen is not touched; its revision is returned for a publish to compare.
+  // Reads the version on the site now, such as after the tale was shown from the zone page. The
+  // draft on screen is not touched; its revision is returned for an update to compare.
   private async refreshPublished(): Promise<number | null> {
     const taleId = this.taleId();
     if (!this.doc() || this.updating() || this.held()) return null;
@@ -1737,28 +1785,46 @@ export class TaleStudioPage implements OnChanges {
     this.autosave.online();
   }
 
-  // Autosave's save of the draft; its answer also tells what is published now.
+  // Autosave's save of the draft; its answer also tells what is on the site now.
   private async saveDraft(document: TaleDocument, revision: number) {
     const taleId = this.taleId();
     const result = await this.documents.save(taleId, document, revision);
     if (result.value !== null && taleId === this.taleId()) {
       if (result.value.published) this.published.set(result.value.published);
       this.draftStored.set(true);
+      // With nothing on the site, a saved draft can take the tale off it (media out of step, story
+      // 8.4 review): the line reads the server's answer again.
+      if (this.published().document === null) void this.readTaleVisibility();
     }
     return result;
   }
 
   /**
-   * Publishes the draft (compare-and-set on both revisions), once what is unsaved has saved, so
-   * visitors see what the studio shows. Another change first leads to the stale choice.
+   * Updates the tale: copies the draft to the version on the site (AD-15, compare-and-set on both
+   * revisions), once what is unsaved has saved, so visitors see what the studio shows. Another
+   * change first leads to the stale choice. Then, with editing free again, reads the tale's
+   * visibility and says it with the update.
    */
   protected async updateTale(): Promise<void> {
     if (this.updating() || this.held() || !this.canUpdate()) return;
-    await this.draftAction('publish');
+    const taleId = this.taleId();
+    if (!(await this.draftAction('publish'))) return;
+    // The other pages' lists follow in the background.
+    void this.store.refresh();
+    const read = await this.readTaleVisibility();
+    if (taleId !== this.taleId()) return;
+    const visibility = read ? this.siteVisibility() : null;
+    this.say(
+      visibility === null
+        ? 'Tale updated.'
+        : visibility.visible
+          ? 'Tale updated. Visitors now see this version.'
+          : `Tale updated. ${this.statusLine()}.`,
+    );
   }
 
   /**
-   * Discards the draft back to the published document, after asking. It is a step in the history:
+   * Discards the draft back to the version on the site, after asking. It is a step in the history:
    * undo brings the draft back (and autosaves it) until the studio closes.
    */
   protected async discardChanges(): Promise<void> {
@@ -1774,14 +1840,15 @@ export class TaleStudioPage implements OnChanges {
   }
 
   /**
-   * Publishes or discards the draft, compare-and-set on both revisions. Unsaved changes save first;
-   * then autosave pauses, so no save of the draft is on its way while the server compares its
-   * revision. Changes made while publishing are kept and saved after it; while discarding, editing
-   * is held. A 409 reads what is published now: when only the published revision moved (the tale
-   * was published elsewhere, such as from the zone page) it tries once more with it; otherwise the
-   * stale choice opens.
+   * Updates the tale (copies the draft to the site, `publish` in the API) or discards the draft,
+   * compare-and-set on both revisions. Unsaved changes save first; then autosave pauses, so no save
+   * of the draft is on its way while the server compares its revision. Changes made while updating
+   * are kept and saved after it; while discarding, editing is held. A 409 reads the version on the
+   * site now: when only its revision moved (the tale was shown from the zone page, which put its
+   * draft on the site) it tries once more with it; otherwise the stale choice opens. True once the
+   * tale is updated or the changes discarded.
    */
-  private async draftAction(action: 'publish' | 'discard'): Promise<void> {
+  private async draftAction(action: 'publish' | 'discard'): Promise<boolean> {
     const taleId = this.taleId();
     const what = action === 'publish' ? 'the tale was not updated' : 'the changes were not discarded';
     this.updating.set(true);
@@ -1794,7 +1861,7 @@ export class TaleStudioPage implements OnChanges {
             `Your latest changes are not saved yet, so ${what}. Try again once they are saved.`,
           );
         }
-        return;
+        return false;
       }
       this.autosave.pause();
       const revision = this.autosave.savedRevision;
@@ -1806,14 +1873,14 @@ export class TaleStudioPage implements OnChanges {
           ? this.documents.publish(taleId, revision, publishedRevision)
           : this.documents.discard(taleId, revision, publishedRevision);
       let result = await send(this.published().revision);
-      if (taleId !== this.taleId()) return;
+      if (taleId !== this.taleId()) return false;
       if (result.value === null && result.stale) {
         const fresh = await this.documents.load(taleId);
-        if (taleId !== this.taleId()) return;
+        if (taleId !== this.taleId()) return false;
         if (fresh.value !== null) this.published.set(fresh.value.published);
         if (fresh.value !== null && fresh.value.revision === revision) {
           result = await send(fresh.value.published.revision);
-          if (taleId !== this.taleId()) return;
+          if (taleId !== this.taleId()) return false;
         }
       }
       if (result.value === null) {
@@ -1835,20 +1902,11 @@ export class TaleStudioPage implements OnChanges {
         } else if (result.code === ErrorCodes.nothingToPublish) {
           this.error.set('There is nothing to update yet: change the tale first.');
         } else this.error.set(`${what[0].toUpperCase()}${what.slice(1)}. ${result.message}`);
-        return;
+        return false;
       }
       this.published.set(result.value.published);
-      if (action === 'publish') {
-        // What the site shows now: the indicator is read again, and said with the update.
-        await this.store.refresh();
-        if (taleId !== this.taleId()) return;
-        this.say(
-          this.siteVisibility()?.visible === false
-            ? `Tale updated. ${this.statusLine()}.`
-            : 'Tale updated. Visitors now see this version.',
-        );
-        return;
-      }
+      // Said by updateTale once editing is free again, with the tale's visibility.
+      if (action === 'publish') return true;
       const before = this.doc();
       const after = result.value.document ?? emptyTaleDocument();
       this.editingId.set(null);
@@ -1863,6 +1921,7 @@ export class TaleStudioPage implements OnChanges {
       this.syncHistory();
       this.autosave.reset(after, result.value.revision);
       this.say(`Changes discarded: the version on the site is back. Press ${this.undoKey} to undo.`);
+      return true;
     } finally {
       this.updating.set(false);
       if (action === 'discard') this.held.set('');
@@ -2835,7 +2894,7 @@ export class TaleStudioPage implements OnChanges {
   }
 
   // Adds an image, video or image sticker of the project's media over the other layers, with no alt
-  // text yet: the layers list and the inspector say it needs some before publishing (R12).
+  // text yet: the layers list and the inspector say it needs some before the tale is updated (R12).
   private addMedia(media: ProjectMedia, sticker = false): void {
     const doc = this.doc();
     if (!doc) return;

@@ -1034,6 +1034,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tales/{taleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one tale.
+         * @description The tale with its status as read and its visibility in any zone its group is placed in (epic UX rework R7), as Tale Studio's status line shows it. Unknown tale: 404 `tale_not_found`.
+         */
+        get: operations["getTale"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tales/{taleId}/status": {
         parameters: {
             query?: never;
@@ -4092,6 +4114,31 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getTale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tale. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];

@@ -61,7 +61,7 @@ export class TaleAutosaver {
   private refused: TaleDocument | null = null;
   // Why it was refused, shown again when the content comes back to it.
   private refusedFailure: TaleDocumentFailure | null = null;
-  // Paused (while the draft is published or discarded): changes are kept and nothing is sent.
+  // Paused (while the tale is updated or the draft discarded): changes are kept and nothing is sent.
   private paused = false;
   private inFlight: Promise<void> | null = null;
   // A save was due while another was on its way.
@@ -99,17 +99,17 @@ export class TaleAutosaver {
     return this.current !== this.saved;
   }
 
-  /** The document last saved: the draft a publish or discard acts on. */
+  /** The document last saved: the draft Update tale or a discard acts on. */
   get savedDocument(): TaleDocument {
     return this.saved;
   }
 
-  /** The revision of the document last saved, which publishing and discarding are based on. */
+  /** The revision of the document last saved, which updating and discarding are based on. */
   get savedRevision(): number {
     return this.revision;
   }
 
-  /** Another change came first (a 409 elsewhere, such as on publishing): autosave stops, as after a stale save. */
+  /** Another change came first (a 409 elsewhere, such as on updating): autosave stops, as after a stale save. */
   conflict(failure: TaleDocumentFailure): void {
     this.clearTimers();
     this.failure = { kind: 'conflict', failure };
@@ -118,7 +118,7 @@ export class TaleAutosaver {
 
   /**
    * Stops sending: changes are kept, and no save starts until {@link resume}. Used while the
-   * draft is published or discarded, so no save of the draft is on its way meanwhile.
+   * tale is updated or the draft discarded, so no save of the draft is on its way meanwhile.
    */
   pause(): void {
     this.paused = true;
