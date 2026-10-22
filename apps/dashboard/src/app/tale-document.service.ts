@@ -51,11 +51,18 @@ function documentUrl(taleId: string): string {
 @Injectable({ providedIn: 'root' })
 export class TaleDocumentService {
   private readonly http = inject(HttpClient);
+  /** Per tale, whether the document this editor last loaded held the tale's own media (R16). */
+  private readonly sawTaleMedia = new Map<string, boolean>();
 
   /** The tale's document and revision; `document` is null for a tale that shows its media only. */
   async load(taleId: string): Promise<TaleDocumentResult> {
     try {
       const value = await firstValueFrom(this.http.get<TaleDocumentRevision>(documentUrl(taleId)));
+      // Whether this editor saw the tale's own media as an element (R16), which its saves then say.
+      this.sawTaleMedia.set(
+        taleId,
+        !!value.document?.elements.some((e) => (e.props as { taleMedia?: unknown }).taleMedia === true),
+      );
       return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
     } catch (err) {
       return failure(err, 'Could not read the tale. Reload the page to try again.');
@@ -65,7 +72,11 @@ export class TaleDocumentService {
   /** Saves the document over `revision`, the one it was based on; a newer save elsewhere makes it `stale`. */
   async save(taleId: string, document: TaleDocument, revision: number): Promise<TaleDocumentResult> {
     try {
-      const body: SaveTaleDocumentRequest = { document, revision };
+      const body: SaveTaleDocumentRequest = {
+        document,
+        revision,
+        sawTaleMedia: this.sawTaleMedia.get(taleId) ?? false,
+      };
       const value = await firstValueFrom(this.http.put<TaleDocumentRevision>(documentUrl(taleId), body));
       return { value, message: '', stale: false, code: '', pointer: '', status: 200 };
     } catch (err) {
@@ -107,7 +118,7 @@ export class TaleDocumentService {
   /** Keeps `document` as a new draft tale in the tale's group, for a save refused as stale (epic Tale Studio R9). */
   async keepAsNewTale(taleId: string, document: TaleDocument): Promise<TaleCopyResult> {
     try {
-      const body: CopyTaleDocumentRequest = { document };
+      const body: CopyTaleDocumentRequest = { document, sawTaleMedia: this.sawTaleMedia.get(taleId) ?? false };
       const value = await firstValueFrom(this.http.post<Tale>(`${documentUrl(taleId)}/copy`, body));
       return { value, message: '', code: '', status: 201 };
     } catch (err) {

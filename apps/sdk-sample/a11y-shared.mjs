@@ -63,3 +63,21 @@ export async function axeViolations(page, label, axe) {
   console.log(`[${label}] ${result.violations.length} violations, ${result.passes.length} rules passed`);
   return result.violations;
 }
+
+/**
+ * A tale as the Delivery API sends it since Tale Studio R16: its media (`{ kind, url, … }`) is the
+ * `taleMedia` element at the bottom of its document (full canvas, contained, decorative; 5 s unless
+ * the document sets a duration), `document` being a studio document over it, if any. `media` stays
+ * for SDKs from before documents.
+ */
+export function mediaTale(id, title, media, document = null) {
+  const own = {
+    id: `00000000-0000-4000-8000-${Buffer.from(String(id)).toString('hex').padStart(12, '0').slice(-12)}`,
+    type: media.kind,
+    box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+    a11y: { decorative: true },
+    props: { url: media.url, fit: 'contain', taleMedia: true },
+  };
+  const base = document ?? { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] };
+  return { id, title, media, document: { durationMs: 5000, ...base, elements: [own, ...base.elements] } };
+}

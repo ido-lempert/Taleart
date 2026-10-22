@@ -121,8 +121,9 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
               contentType: tale.media.contentType,
               url: publicMediaUrl(options.publicApiUrl, tale.media.key),
             },
-            // Without hidden elements and editor-only fields (AD-15); null shows the media only. Its
-            // media keys become public URLs; a key the public route would not serve is left out (AD-11).
+            // Without hidden elements and editor-only fields (AD-15); every tale has one, its media
+            // composed in while it is out of step (R16). Its media keys become public URLs; a key the
+            // public route would not serve is left out (AD-11). `media` above stays for older SDKs.
             document:
               tale.document &&
               (resolveDocumentMedia(tale.document, (key) =>

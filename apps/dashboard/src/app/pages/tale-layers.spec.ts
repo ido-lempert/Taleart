@@ -98,6 +98,14 @@ describe('layer helpers', () => {
     expect(edge.box).toEqual({ x: 0.48, y: 0.88, w: 0.5, h: 0.1, rotation: 10 });
     const full = duplicateElement(text('a', 'x', { box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 } }), 'b');
     expect(full.box).toEqual({ x: 0, y: 0, w: 1, h: 1, rotation: 0 });
+    // A copy of the tale's own media (R16) is an ordinary image: a tale has one media.
+    const own = {
+      ...text('a', 'x'),
+      type: 'image',
+      props: { mediaKey: 'tales/0a.png', fit: 'contain', taleMedia: true },
+    } as unknown as Parameters<typeof duplicateElement>[0];
+    expect(duplicateElement(own, 'b').props).toEqual({ mediaKey: 'tales/0a.png', fit: 'contain' });
+    expect(own.props).toHaveProperty('taleMedia', true);
   });
 
   it('keeps a moving group on the canvas as a whole', () => {

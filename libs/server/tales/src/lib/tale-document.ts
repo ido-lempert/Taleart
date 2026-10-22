@@ -5,7 +5,10 @@ import {
   hasDisallowedCharacter,
   isEmojiGlyph,
   isFontFamily,
+  isMediaContentType,
   isMediaElement,
+  isTaleMediaElement,
+  mediaKind,
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
@@ -28,6 +31,13 @@ import type { Db } from '@taleart/server-access';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020';
 import { clearPublicMediaCache, lockMediaKeys, projectMediaKeys, recordTaleMedia, usesMedia } from './document-media';
 import { clearPublicFontCache, knownProjectFontIds, recordTaleFonts } from './project-fonts';
+import {
+  documentTaleMedia,
+  markTaleMediaSeen,
+  taleMediaDocumentsEnabled,
+  withOutOfStepMedia,
+  withoutStaleTaleMedia,
+} from './tale-media-document';
 import { inTransaction, TaleNotFoundError, type TransactionalDb } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -192,6 +202,7 @@ export function checkTaleDocument(value: unknown): TaleDocument {
   const doc = value as TaleDocument;
   const ids = new Set<string>();
   let videos = 0;
+  let taleMedia = 0;
   const elements = doc.elements.map((original, i) => {
     const at = `/elements/${i}`;
     const element = normalized(original);
@@ -216,12 +227,53 @@ export function checkTaleDocument(value: unknown): TaleDocument {
     const id = element.id.toLowerCase();
     if (ids.has(id)) throw new InvalidTaleDocumentError(`${at}/id`, 'is the id of another element');
     ids.add(id);
-    if (element.type === 'video' && ++videos > MAX_VIDEO_ELEMENTS) {
+    // The tale's own media (R16) is exempt from the video limit, as tale media always was; there is one at most.
+    if (isTaleMediaElement(element) && ++taleMedia > 1) {
+      throw new InvalidTaleDocumentError(`${at}/props/taleMedia`, 'is set on another element: a tale has one media');
+    }
+    if (element.type === 'video' && !isTaleMediaElement(element) && ++videos > MAX_VIDEO_ELEMENTS) {
       throw new InvalidTaleDocumentError(`${at}/type`, `is a video: a tale holds at most ${MAX_VIDEO_ELEMENTS}`);
     }
     return element;
   });
   return { ...doc, elements };
+}
+
+/**
+ * Refuses `taleMedia` (R16) on an element that is not the tale's own media: its key must be the
+ * tale's media key and its type the kind of the tale's media. The server marks the element; a
+ * client keeps the mark only on it. Throws {@link InvalidTaleDocumentError}.
+ */
+export function checkTaleMediaFlag(doc: TaleDocument, media: { key: string | null; contentType: string | null }): void {
+  doc.elements.forEach((element, i) => {
+    if (!isTaleMediaElement(element)) return;
+    const own =
+      media.key !== null &&
+      (element.props as { mediaKey?: unknown }).mediaKey === media.key &&
+      isMediaContentType(media.contentType) &&
+      mediaKind(media.contentType) === element.type;
+    if (!own) {
+      throw new InvalidTaleDocumentError(
+        `/elements/${i}/props/taleMedia`,
+        "is set on media that is not the tale's own",
+      );
+    }
+  });
+}
+
+/**
+ * The document with `taleMedia` (R16) only on the tale's own media: while the tale's media is written
+ * into documents, a mark on other media is refused ({@link checkTaleMediaFlag}); while
+ * TALE_MEDIA_MIGRATION is off, when a mark may be stale (an older instance changed the media), it is
+ * taken off instead, and the element kept as an ordinary image or video.
+ */
+export function ownTaleMediaOnly(
+  doc: TaleDocument,
+  media: { key: string | null; contentType: string | null },
+): TaleDocument {
+  if (!taleMediaDocumentsEnabled()) return withoutStaleTaleMedia(doc, media);
+  checkTaleMediaFlag(doc, media);
+  return doc;
 }
 
 /**
@@ -431,9 +483,26 @@ function toState(row: StateRow): TaleDocumentRevision {
  */
 export async function getTaleDocument(db: Db, taleId: string): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const { rows } = await db.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
+  const { rows } = await db.query<StateRow & { key: string | null; contentType: string | null; inStep: string | null }>(
+    `SELECT ${STATE_COLUMNS}, media_key AS key, media_content_type AS "contentType", document_media_key AS "inStep"
+     FROM tales WHERE id = $1`,
+    [taleId],
+  );
   if (rows.length === 0) throw new TaleNotFoundError(taleId);
-  return toState(rows[0]);
+  const { key, contentType, inStep, ...row } = rows[0];
+  // A tale out of step shows its media as visitors see it (R16), so the studio's canvas, preview and
+  // contrast checks match; saving it writes it. Not while the documents are not to hold it.
+  const media = taleMediaDocumentsEnabled() ? documentTaleMedia(key ?? null, contentType ?? null) : null;
+  if (media === null || inStep === key) return toState(row);
+  return toState({
+    ...row,
+    document: withOutOfStepMedia(taleId, row.document, media, inStep ?? null) as TaleDocument | null,
+    // Nothing published stays nothing published: going live publishes the draft (7.3).
+    publishedDocument:
+      row.publishedDocument === null
+        ? null
+        : (withOutOfStepMedia(taleId, row.publishedDocument, media, inStep ?? null) as TaleDocument),
+  });
 }
 
 // Refuses a request based on revisions that are no longer current, or answers 404.
@@ -460,15 +529,23 @@ export async function saveTaleDocument(
   taleId: string,
   value: unknown,
   basedOn: number,
+  options: { sawTaleMedia?: boolean } = {},
 ): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const document = checkTaleDocument(value);
+  let document = checkTaleDocument(value);
   const usesFonts = projectFontIds(document).length > 0;
   const hasMedia = usesMedia(document);
   return inTransaction(db, async (tx) => {
     const projectId = usesFonts || hasMedia ? await projectOfTale(tx, taleId, true) : null;
     if (usesFonts && projectId) await checkDocumentFonts(tx, projectId, document, true);
     if (hasMedia && projectId) await checkDocumentMedia(tx, projectId, document);
+    if (document.elements.some(isTaleMediaElement)) {
+      const own = await tx.query<{ key: string | null; contentType: string | null }>(
+        'SELECT media_key AS key, media_content_type AS "contentType" FROM tales WHERE id = $1',
+        [taleId],
+      );
+      if (own.rows.length > 0) document = ownTaleMediaOnly(document, own.rows[0]);
+    }
     const { rows } = await tx.query<StateRow>(
       `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
        WHERE id = $1 AND draft_revision = $3
@@ -478,6 +555,11 @@ export async function saveTaleDocument(
     if (rows.length === 0) return refuseStale(tx, taleId);
     await recordTaleFonts(tx, taleId, 'draft', document, false);
     await recordTaleMedia(tx, taleId, 'draft', document, false);
+    // An editor that loaded the tale's media: what it saved is the person's choice (R16).
+    if (options.sawTaleMedia && (await markTaleMediaSeen(tx, taleId))) {
+      const now = await tx.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
+      return { ...toState(now.rows[0]), document };
+    }
     return { ...toState(rows[0]), document };
   });
 }
