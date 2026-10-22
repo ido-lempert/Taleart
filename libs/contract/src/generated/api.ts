@@ -1213,6 +1213,8 @@ export interface components {
             name: string;
         };
         Zone: {
+            /** @description Whether the zone shows anything on the site now (epic UX rework R7): it has a display, it is installed, and a tale group placed in it is delivered. Computed by the rule the Delivery API uses. */
+            visibility: components["schemas"]["Visibility"];
             /** Format: uuid */
             id: string;
             name: string;
@@ -1303,6 +1305,8 @@ export interface components {
         };
         /** @description A tale group belongs to its project (AD-14). Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
         TaleGroup: {
+            /** @description Whether the group is visible on the site now (epic UX rework R7). As a zone lists it (`ZoneTaleGroup`), in that zone: the visibility of this placement. Elsewhere, in any zone it is placed in. */
+            visibility: components["schemas"]["Visibility"];
             /** @description The group's cover, still or animated, or null when it has none; then the bar shows its first published tale's media. */
             cover: components["schemas"]["TaleGroupCover"] | null;
             /** Format: uuid */
@@ -1338,6 +1342,8 @@ export interface components {
         };
         /** @description A tale group as the project's list shows it. */
         ProjectTaleGroup: {
+            /** @description Whether the group is visible on the site now, in any zone it is placed in (epic UX rework R7). */
+            visibility: components["schemas"]["Visibility"];
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -1394,6 +1400,8 @@ export interface components {
             zoneId: string;
         };
         Tale: {
+            /** @description Whether the tale is visible on the site now (epic UX rework R7). Inside a zone's list of tale groups, in that zone; elsewhere, in any zone its group is placed in. */
+            visibility: components["schemas"]["Visibility"];
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -1434,6 +1442,30 @@ export interface components {
             /** @description Where the Management API serves the file, such as `/api/v1/tale-groups/{taleGroupId}/cover`. */
             url: string;
         };
+        /** @description Whether content is visible on the site now, and why not (epic UX rework R7). Computed from the same rule the Delivery API filters by, so the two cannot disagree: `visible` is true exactly when `reasons` is empty. */
+        Visibility: {
+            visible: boolean;
+            /** @description Every reason the content is not visible, most useful first (`VISIBILITY_REASON_ORDER` in `libs/contract`); empty when it is visible. */
+            reasons: components["schemas"]["VisibilityReason"][];
+        };
+        VisibilityReason: {
+            code: components["schemas"]["VisibilityReasonCode"];
+            /**
+             * @description What the reason is about, such as the tale's group for `group-off` on a tale.
+             * @enum {string}
+             */
+            subject: "zone" | "group" | "tale";
+            /**
+             * Format: date-time
+             * @description For `starts-at` and `ended-at`, the start or end of the window, ISO 8601 UTC.
+             */
+            at?: string;
+        };
+        /**
+         * @description Why content is not visible (epic UX rework R7). `group-off`: the group is stored `draft` or `paused`. `tale-hidden`: the tale is. `group-blocked`: a process set the group's key (`processing`, `invalid-media`, `quota-reached`). `archived`. `no-shown-tales`: a group has no delivered tale, or a zone no delivered group. `not-in-any-zone`. `starts-at` and `ended-at`: outside the window. `zone-no-display`: the zone has no frame. `zone-not-installed`: the zone has no active key. `media-processing`: the tale is stored `processing`. `media-problem`: the tale is stored `invalid-media` or `quota-reached`. `not-updated-yet`: nothing published to deliver.
+         * @enum {string}
+         */
+        VisibilityReasonCode: "group-off" | "tale-hidden" | "group-blocked" | "archived" | "no-shown-tales" | "not-in-any-zone" | "starts-at" | "ended-at" | "zone-no-display" | "zone-not-installed" | "media-processing" | "media-problem" | "not-updated-yet";
         /**
          * @description A status key of the AD-6 scheme. Each key has one HTTP code, defined in `libs/contract` (`CONTENT_STATUS_HTTP_CODES`): draft 204, live 200, scheduled 202, processing 102, invalid-media 422, paused 403, blocked-by-group 423, expired 410, quota-reached 429, archived 404. `scheduled`, `expired` and `blocked-by-group` are computed when content is read and never stored.
          * @enum {string}
@@ -4357,6 +4389,8 @@ export const pathsProjectsProjectIdFontsPostParametersQueryWeightValues: Readonl
 export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["style"]> = ["normal", "italic"];
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
+export const visibilityReasonSubjectValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReason"]["subject"]> = ["zone", "group", "tale"];
+export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet"];
 export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ContentStatus"]> = ["draft", "live", "scheduled", "processing", "invalid-media", "paused", "blocked-by-group", "expired", "quota-reached", "archived"];
 export const setStatusRequestStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SetStatusRequest"]["status"]> = ["live", "paused", "archived"];
 export const mediaKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["MediaKind"]> = ["image", "video"];

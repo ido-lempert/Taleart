@@ -3,14 +3,16 @@ import { RouterLink } from '@angular/router';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
+import { VisibilityIndicator } from '../visibility';
 
 /** The selected project's zones as cards. */
 @Component({
   selector: 'app-zones-page',
-  imports: [RouterLink, Icon],
+  imports: [RouterLink, Icon, VisibilityIndicator],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .zone-card {
+      position: relative;
       display: flex;
       flex-direction: column;
       gap: var(--space-3);
@@ -29,6 +31,25 @@ import { Icon } from '../icon';
     .zone-card__name {
       font-size: var(--text-lg);
       font-weight: 600;
+      color: inherit;
+      text-decoration: none;
+    }
+    /* The name's link covers the card, so the card opens the zone; the indicator sits above it. */
+    .zone-card__name::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+    }
+    .zone-card__name:focus-visible {
+      outline: none;
+    }
+    .zone-card:has(.zone-card__name:focus-visible) {
+      outline: 3px solid var(--focus);
+      outline-offset: 2px;
+    }
+    .zone-card app-visibility {
+      z-index: 1;
     }
     .zone-card__meta {
       display: flex;
@@ -91,8 +112,9 @@ import { Icon } from '../icon';
           <ul class="card-grid" aria-label="Zones">
             @for (zone of store.projectZones(); track zone.id) {
               <li>
-                <a class="card zone-card" [routerLink]="['/zones', zone.id]">
-                  <span class="zone-card__name">{{ zone.name }}</span>
+                <div class="card zone-card">
+                  <a class="zone-card__name" [routerLink]="['/zones', zone.id]">{{ zone.name }}</a>
+                  <app-visibility [visibility]="zone.visibility" viewing="zone" />
                   @if (store.framesOf(zone.id).length > 0) {
                     <ul class="pill-list" aria-label="Frame types">
                       @for (frame of store.framesOf(zone.id); track frame.id) {
@@ -108,7 +130,7 @@ import { Icon } from '../icon';
                     <app-icon name="tales" />
                     {{ groupCountLabel(zone.id) }}
                   </span>
-                </a>
+                </div>
               </li>
             }
           </ul>
