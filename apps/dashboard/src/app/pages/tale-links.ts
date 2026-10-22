@@ -309,7 +309,7 @@ export class TaleLinkStyle {
   /** The label's contrast warning (R12): a warning only, never a block. */
   protected readonly warning = computed(() => {
     const style = linkLabelStyle(this.element());
-    return style ? contrastWarning(textContrast(style, this.backdrop())) : null;
+    return style ? contrastWarning(textContrast(style, this.backdrop()), this.backdrop()) : null;
   });
 
   private value(field: ColorField): string {
