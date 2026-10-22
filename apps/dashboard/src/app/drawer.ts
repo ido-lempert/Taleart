@@ -12,7 +12,13 @@ import { Icon } from './icon';
 
 let nextId = 0;
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Matches FOCUSABLE and is not under a `hidden` attribute (such as a file input opened by its button). */
+function reachable(el: HTMLElement): boolean {
+  return !el.closest('[hidden]');
+}
 
 /**
  * The drawers open now, oldest first. A drawer opened from another one (the tale drawer over the
@@ -98,7 +104,8 @@ export class Drawer implements OnDestroy {
           : initial
             ? panel.querySelector<HTMLElement>(initial)
             : null;
-      const first = panel.querySelector('.drawer__body')?.querySelector<HTMLElement>(FOCUSABLE);
+      const body = panel.querySelector('.drawer__body');
+      const first = body ? [...body.querySelectorAll<HTMLElement>(FOCUSABLE)].find(reachable) : undefined;
       (chosen ?? first ?? this.focusables()[0])?.focus();
     });
   }
@@ -146,6 +153,6 @@ export class Drawer implements OnDestroy {
   }
 
   private focusables(): HTMLElement[] {
-    return [...this.panel().nativeElement.querySelectorAll<HTMLElement>(FOCUSABLE)];
+    return [...this.panel().nativeElement.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(reachable);
   }
 }
