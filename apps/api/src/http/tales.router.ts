@@ -10,6 +10,7 @@ import type { MediaStorage } from '@taleart/server-storage';
 import {
   copyTaleWithDocument,
   discardTaleDraft,
+  getTale,
   getTaleDocument,
   getTaleMedia,
   publishTaleDocument,
@@ -63,6 +64,15 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
   // per-kind limit is checked after. Too large a body answers 413 media_too_large.
   const rawBody = express.raw({ type: () => true, limit: MAX_VIDEO_BYTES });
   const taleAccess = authorizeParam(pool, 'tale', 'taleId');
+
+  // One tale with its visibility in any zone (R7), as Tale Studio's status line reads it (story 8.4).
+  router.get('/:taleId', taleAccess, async (req, res, next) => {
+    try {
+      res.json(await getTale(pool, req.params.taleId));
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.put(
     '/:taleId/media',

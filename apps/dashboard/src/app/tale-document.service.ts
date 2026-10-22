@@ -92,7 +92,7 @@ export class TaleDocumentService {
     return this.act(taleId, 'publish', revision, publishedRevision, 'The tale was not updated. Try again.');
   }
 
-  /** Discards the draft back to the published document, compare-and-set as {@link publish}. */
+  /** Discards the draft back to the version on the site, compare-and-set as {@link publish}. */
   discard(taleId: string, revision: number, publishedRevision: number): Promise<TaleDocumentResult> {
     return this.act(taleId, 'discard', revision, publishedRevision, 'The changes were not discarded. Try again.');
   }

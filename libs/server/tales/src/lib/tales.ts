@@ -1143,6 +1143,18 @@ export async function taleTitle(db: Db, taleId: string): Promise<string | null> 
   return rows[0]?.title ?? null;
 }
 
+/**
+ * One tale with its status as read and its visibility in any zone its group is placed in (R7), as
+ * Tale Studio's status line shows it (story 8.4). Throws {@link TaleNotFoundError}.
+ */
+export async function getTale(db: Db, taleId: string): Promise<Tale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+  const { rows } = await db.query<TaleRow>(`SELECT ${TALE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
+  if (rows.length === 0) throw new TaleNotFoundError(taleId);
+  const [tale] = await visibleTales(db, [toTale(rows[0])]);
+  return tale;
+}
+
 /** True when a tale with this id exists. Ids that are not UUIDs never match. */
 export async function taleExists(db: Db, taleId: string): Promise<boolean> {
   if (!UUID.test(taleId)) return false;
