@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { SITE_KEY_PREFIX, siteKeyPrefix, type IssuedSiteKey, type SiteKeyInfo } from '@taleart/contract';
 import { inTransaction, type Db, type TransactionalDb } from './db';
-import { SiteKeyNotFoundError } from './errors';
+import { SiteKeyExistsError, SiteKeyNotFoundError } from './errors';
 import { hashToken } from './tokens';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -74,12 +74,20 @@ async function lockProject(tx: Db, projectId: string): Promise<void> {
  */
 export async function issueSiteKey(
   db: TransactionalDb,
-  input: { projectId: string; createdBy: string },
+  input: { projectId: string; createdBy: string; ifNone?: boolean },
 ): Promise<IssuedSiteKey> {
   const key = newSiteKey();
   const prefix = siteKeyPrefix(key);
   return inTransaction(db, async (tx) => {
     await lockProject(tx, input.projectId);
+    // A conditional issue never rotates: checked under the project's lock, so two issues at once
+    // give one key and one refusal.
+    if (input.ifNone) {
+      const { rowCount } = await tx.query('SELECT 1 FROM site_keys WHERE project_id = $1 AND revoked_at IS NULL', [
+        input.projectId,
+      ]);
+      if (rowCount) throw new SiteKeyExistsError();
+    }
     await tx.query('UPDATE site_keys SET revoked_at = now() WHERE project_id = $1 AND revoked_at IS NULL', [
       input.projectId,
     ]);

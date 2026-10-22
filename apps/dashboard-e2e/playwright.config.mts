@@ -7,7 +7,8 @@ import { workspaceRoot } from '@nx/devkit';
  *
  * They start their own servers, never the development ones:
  * - the built API on E2E_API_PORT (default 3413), on a fresh database named by E2E_DATABASE_URL,
- *   which must end in `_test` (scripts/start-api.mjs drops and creates it);
+ *   which must end in `_e2e_test` and differ from TEST_DATABASE_URL and DATABASE_URL
+ *   (scripts/start-api.mjs drops and creates it; scripts/e2e-database.mjs guards it);
  * - the dashboard on E2E_DASHBOARD_PORT (default 4313), its /api proxied to that API.
  *
  * E2E_SCREENSHOTS, when set, is a folder the tests save screenshots in.

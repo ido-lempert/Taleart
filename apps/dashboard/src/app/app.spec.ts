@@ -1131,8 +1131,15 @@ describe('App', () => {
         const put = http.expectOne(`${API_BASE}/tales/${id}/media`);
         expect(put.request.method).toBe('PUT');
         expect(put.request.body).toBe(file);
+        // The checked type, from the extension when the file has none.
+        expect(put.request.headers.get('Content-Type')).toBe(file.type || 'image/webp');
         if (refused) {
           put.flush({ error: { code: 'media_too_large', message: 'The file is over 10 MB' } }, { status: 413, statusText: 'Too Large' });
+          await settle(fixture);
+          // A tale without its media is hidden, never shown empty.
+          const hide = http.expectOne(`${API_BASE}/tales/${id}/status`);
+          expect(hide.request.body).toEqual({ status: 'paused' });
+          hide.flush({ ...taleA, id, title, status: 'paused', storedStatus: 'paused' });
         } else {
           put.flush({ ...taleA, id, title, media: pngMedia });
         }
@@ -1156,8 +1163,8 @@ describe('App', () => {
         await flushRefresh(fixture, withTales);
         await settle(fixture);
         const alert = drawer()?.querySelector('[role=alert]')?.textContent ?? '';
-        expect(alert).toContain('The tale group was created, but not all of its tales.');
-        expect(alert).toContain('The tale "beach day" was added without its media. The file is over 10 MB');
+        expect(alert).toContain('The tale group was created with 0 of 2 tales.');
+        expect(alert).toContain('The tale "beach day" was added hidden, without its media. The file is over 10 MB');
         const buttons = [...(drawer()?.querySelectorAll('.drawer__footer button') ?? [])].map((b) => b.textContent?.trim());
         expect(buttons).toEqual(['Done']);
         // No second group, and no tale for the second file.
@@ -1165,6 +1172,59 @@ describe('App', () => {
         await settle(fixture);
         http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
         http.expectNone(`${API_BASE}/tale-groups/g1/tales`);
+      });
+
+      it('checks every file before creating anything: type (by extension when missing) and size', async () => {
+        const { fixture, root } = await open('/zones/z1', oneZone);
+        buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
+        await settle(fixture);
+        type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
+        const input = drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null;
+        const menu = new File(['%PDF'], 'menu.pdf', { type: 'application/pdf' });
+        pickAll(input, [beach, menu]);
+        buttonNamed(drawer() as HTMLElement, 'Create').click();
+        await settle(fixture);
+        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('"menu.pdf": Upload a JPEG, PNG, WebP or GIF image');
+        const huge = new File([new Uint8Array(1)], 'huge.png', { type: 'image/png' });
+        Object.defineProperty(huge, 'size', { value: 11 * 1024 * 1024 });
+        pickAll(input, [huge]);
+        buttonNamed(drawer() as HTMLElement, 'Create').click();
+        await settle(fixture);
+        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('"huge.png": The file is larger than 10 MB');
+      });
+
+      it('sends a file without a type with the type of its extension', async () => {
+        const untyped = new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], 'Pool.webp');
+        const { fixture } = await createSummer([untyped]);
+        await answerTale(fixture, 'Pool', 't1', untyped);
+        await flushRefresh(fixture, withTales);
+        await settle(fixture);
+        expect(drawer()).toBeNull();
+      });
+
+      it('shows its progress and stops after the file being added', async () => {
+        const { fixture } = await createSummer([beach, pool]);
+        const status = () => drawer()?.querySelector('.group-files-progress [role=status]')?.textContent?.trim();
+        expect(status()).toBe('Adding tale 1 of 2…');
+        const post = http.expectOne(`${API_BASE}/tale-groups/g1/tales`);
+        post.flush({ ...taleA, id: 't1', title: 'beach day' });
+        await settle(fixture);
+        const put = http.expectOne(`${API_BASE}/tales/t1/media`);
+        drawer()?.querySelector<HTMLButtonElement>('#create-group-stop')?.click();
+        await settle(fixture);
+        expect(put.cancelled).toBe(true);
+        const hide = http.expectOne(`${API_BASE}/tales/t1/status`);
+        expect(hide.request.body).toEqual({ status: 'paused' });
+        hide.flush({ ...taleA, status: 'paused', storedStatus: 'paused' });
+        await settle(fixture);
+        await flushRefresh(fixture, withTales);
+        await settle(fixture);
+        http.expectNone(`${API_BASE}/tale-groups/g1/tales`);
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(
+          'created with 0 of 2 tales. Stopped. The tale "beach day" was added hidden, without its media.',
+        );
       });
 
       it('refuses more files than a group holds, before creating anything', async () => {
@@ -5284,6 +5344,36 @@ describe('App', () => {
       expect(live(root)).toBe('Loose ends created. Showing all tale groups.');
     });
 
+    it('creates a tale group in no zone with its tales from files (story 8.13)', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+      buttonNamed(root, 'New tale group').click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Loose ends');
+      const shot = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', { type: 'image/png' });
+      const input = drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null;
+      if (!input) throw new Error('No files input');
+      Object.defineProperty(input, 'files', { value: [shot], configurable: true });
+      input.dispatchEvent(new Event('change'));
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      const created = projectGroup({ id: 'g8', name: 'Loose ends', visibility: why('not-in-any-zone') });
+      await answerCreate(fixture, `${API_BASE}/projects/p1/tale-groups`, { name: 'Loose ends' }, created, {
+        ...data,
+        projectGroups: { p1: [...states, created] },
+      });
+      const post = http.expectOne(`${API_BASE}/tale-groups/g8/tales`);
+      expect(post.request.body).toEqual({ title: 'shot' });
+      post.flush({ ...taleA, id: 't9', taleGroupId: 'g8', title: 'shot' });
+      await settle(fixture);
+      const put = http.expectOne(`${API_BASE}/tales/t9/media`);
+      expect(put.request.headers.get('Content-Type')).toBe('image/png');
+      put.flush({ ...taleA, id: 't9', media: pngMedia });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, projectGroups: { p1: [...states, created] } });
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+    });
+
     it('creates a tale group in the zone picked in the drawer', async () => {
       const { fixture, root } = await open('/tale-groups', data);
       buttonNamed(root, 'New tale group').click();
@@ -5655,10 +5745,28 @@ describe('App', () => {
       const created = http.expectOne((r) => r.method === 'POST' && r.url === `${API_BASE}/projects`);
       // A blank name falls back to "My project".
       expect(created.request.body).toEqual({ name: 'My project' });
-      created.flush({ error: { code: 'forbidden', message: 'No' } }, { status: 403, statusText: 'Forbidden' });
+      created.flush({ error: { code: 'validation_failed', message: 'name is too long' } }, { status: 400, statusText: 'Bad Request' });
       await signedInTick(fixture);
-      await flushRefresh(fixture, oneZone);
+      await flushRefresh(fixture, { projects: [] });
+      await settle(fixture);
       expect(TestBed.inject(Router).url).toBe('/zones');
+      // The API's reason reaches the zones page.
+      expect(root.querySelector('[aria-labelledby=empty-projects] [role=alert]')?.textContent).toContain(
+        'Your first project was not created: name is too long',
+      );
+    });
+
+    it('limits the first project name to 100 characters', async () => {
+      const { fixture, root } = await visit('/setup', setupState);
+      const field = root.querySelector<HTMLInputElement>('#setup-project');
+      expect(field?.getAttribute('maxlength')).toBe('100');
+      type(root.querySelector<HTMLInputElement>('#setup-name'), 'Ada Admin');
+      type(root.querySelector<HTMLInputElement>('#setup-email'), 'ada@example.com');
+      type(field, 'x'.repeat(101));
+      buttonNamed(root, 'Create passkey').click();
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/auth/setup/options`);
+      expect(root.querySelector('.form-error')?.textContent).toContain('longer than 100 characters');
     });
 
     it("shows the API's message in the setup card", async () => {

@@ -1,14 +1,18 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { AuthStore, PasskeyClient, safeReturnUrl } from '../auth';
-import { API_BASE } from '../dashboard.store';
+import { isErrorBody } from '@taleart/contract/core';
+import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Mark } from '../icon';
 
 /** The first project's name until the admin types another (epic UX rework: first run in 15 actions). */
 export const FIRST_PROJECT_NAME = 'My project';
+
+/** The most characters setup takes for the first project's name. */
+export const MAX_FIRST_PROJECT_NAME = 100;
 
 /**
  * Shown on an empty install: registers the first admin's passkey, then creates their first project
@@ -63,10 +67,13 @@ export const FIRST_PROJECT_NAME = 'My project';
                 class="input"
                 name="project"
                 autocomplete="off"
+                [attr.maxlength]="maxProject"
                 aria-describedby="setup-project-hint"
                 [(ngModel)]="project"
               />
-              <p class="field__hint" id="setup-project-hint">A project holds your zones, tale groups and tales.</p>
+              <p class="field__hint" id="setup-project-hint">
+                A project holds your zones, tale groups and tales. Up to {{ maxProject }} characters.
+              </p>
             </div>
             @if (error()) {
               <p class="form-error" id="setup-error" role="alert">{{ error() }}</p>
@@ -92,6 +99,8 @@ export class SetupPage {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly http = inject(HttpClient);
+  private readonly store = inject(DashboardStore);
+  protected readonly maxProject = MAX_FIRST_PROJECT_NAME;
 
   protected readonly supported = inject(PasskeyClient).supported();
   protected readonly error = signal('');
@@ -110,6 +119,11 @@ export class SetupPage {
       this.error.set('Enter your name and email.');
       return;
     }
+    const project = [...(this.project.trim() || FIRST_PROJECT_NAME)];
+    if (project.length > MAX_FIRST_PROJECT_NAME) {
+      this.error.set(`The project name is longer than ${MAX_FIRST_PROJECT_NAME} characters. Shorten it.`);
+      return;
+    }
     this.busy.set(true);
     this.error.set('');
     const message = await this.auth.setUp(name, email);
@@ -121,9 +135,12 @@ export class SetupPage {
     }
     // The admin is signed in. A refused project leaves the zones page's "Create your first project".
     try {
-      await firstValueFrom(this.http.post(`${API_BASE}/projects`, { name: this.project.trim() || FIRST_PROJECT_NAME }));
-    } catch {
-      // Nothing to undo: the passkey and the account are made.
+      await firstValueFrom(this.http.post(`${API_BASE}/projects`, { name: project.join('') }));
+    } catch (err) {
+      // Nothing to undo: the passkey and the account are made. The zones page says why.
+      this.store.firstProjectRefusal.set(
+        err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : 'Try again with New project.',
+      );
     }
     this.busy.set(false);
     await this.router.navigateByUrl(safeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl')));

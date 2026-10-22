@@ -64,6 +64,7 @@ export type PasskeyResponse = Schemas['PasskeyResponse'];
 /** A project's active site key as the dashboard shows it (AD-9 amended): prefix and date, never the key. */
 export type SiteKeyInfo = Schemas['SiteKeyInfo'];
 export type InstallInfo = Schemas['InstallInfo'];
+export type IssueSiteKeyRequest = Schemas['IssueSiteKeyRequest'];
 /** A newly issued site key, the only time the key itself is shown. */
 export type IssuedSiteKey = Schemas['IssuedSiteKey'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
@@ -583,6 +584,7 @@ export const ErrorCodes = {
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',
   siteKeyNotFound: 'site_key_not_found',
+  siteKeyExists: 'site_key_exists',
   invalidSiteKey: 'invalid_site_key',
   rateLimited: 'rate_limited',
   storylyTokenInvalid: 'storyly_token_invalid',

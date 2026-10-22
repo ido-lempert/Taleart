@@ -25,6 +25,7 @@ export {
   PasskeyFailedError,
   InvitationInvalidError,
   EmailTakenError,
+  SiteKeyExistsError,
   SiteKeyNotFoundError,
 } from './lib/errors';
 export { issueSiteKey, revokeSiteKey, siteKeyInfo, projectForSiteKey, zoneInstalledSql } from './lib/siteKeys';

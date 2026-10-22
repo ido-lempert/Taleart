@@ -151,6 +151,8 @@ export class DashboardStore {
   private readonly readingProjectGroups = new Set<string>();
   /** The id of the tale group created last, by either create (epic UX rework R14); null before one. */
   readonly createdTaleGroupId = signal<string | null>(null);
+  /** '' or why setup's first project was not created, shown once on the zones page's "Create your first project". */
+  readonly firstProjectRefusal = signal('');
   /** Each project's tags by name, keyed by project id. */
   readonly tags = signal<Record<string, Tag[]>>({});
   /** True once the first refresh finished, successfully or not. */
@@ -446,6 +448,7 @@ export class DashboardStore {
     try {
       const project = await firstValueFrom(this.http.post<Project>(`${API_BASE}/projects`, { name }));
       this.selectProject(project.id);
+      this.firstProjectRefusal.set('');
     } catch (err) {
       return apiErrorMessage(err, 'Project was not saved.');
     }
@@ -947,14 +950,24 @@ export class DashboardStore {
 
   /**
    * Adds one tale per file to a tale group, in the files' order, each titled after its file name and
-   * with the file as its media (epic UX rework R13: a new group gets its tales in the same step). New
-   * tales start Shown (R6). Stops at the first refusal and returns the API's message, naming the tale
-   * when it was added without its media; '' when every tale was added. Reads the lists again once.
-   * `progress` is told the 1-based number of the file being added.
+   * with the file as its media, sent with its checked `type` (epic UX rework R13: a new group gets
+   * its tales in the same step). New tales start Shown (R6). Stops at the first refusal, or when
+   * `signal` aborts; a tale whose media was not saved is hidden, so it never shows empty. Reads the
+   * lists again once. `progress` is told the 1-based number of the file being added.
    */
-  async addTalesFromFiles(taleGroupId: string, files: readonly File[], progress?: (n: number) => void): Promise<string> {
+  async addTalesFromFiles(
+    taleGroupId: string,
+    files: readonly { file: File; type: string }[],
+    options: { progress?: (n: number) => void; signal?: AbortSignal } = {},
+  ): Promise<{ added: number; message: string }> {
+    const { progress, signal } = options;
+    let added = 0;
     let message = '';
-    for (const [i, file] of files.entries()) {
+    for (const [i, { file, type }] of files.entries()) {
+      if (signal?.aborted) {
+        message = 'Stopped.';
+        break;
+      }
       progress?.(i + 1);
       const title = taleTitleFromFile(file.name);
       let tale: Tale;
@@ -964,14 +977,24 @@ export class DashboardStore {
         message = apiErrorMessage(err, `The tale "${title}" was not saved.`);
         break;
       }
-      const refused = await this.putMedia(tale.id, file);
-      if (refused) {
-        message = `The tale "${title}" was added without its media. ${refused}`;
+      const refused = await this.putMedia(tale.id, file, { type, signal });
+      if (refused !== '') {
+        // Hidden, so a tale without its media never shows; removing it is left to the user.
+        try {
+          await firstValueFrom(this.http.put<Tale>(`${API_BASE}/tales/${tale.id}/status`, { status: 'paused' }));
+        } catch {
+          // A tale without media is not delivered anyway (AD-15).
+        }
+        message =
+          refused === null
+            ? `Stopped. The tale "${title}" was added hidden, without its media.`
+            : `The tale "${title}" was added hidden, without its media. ${refused}`;
         break;
       }
+      added++;
     }
     await this.refresh();
-    return message;
+    return { added, message };
   }
 
   /**

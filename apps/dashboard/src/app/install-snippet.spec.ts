@@ -3,6 +3,8 @@ import { installSnippet, SITE_KEY_PLACEHOLDER, testPageLink } from './install-sn
 const info = {
   apiUrl: 'https://api.example.com',
   sdkUrl: 'https://api.example.com/sdk/v1/taleart.js',
+  sdkPinnedUrl: null,
+  sdkIntegrity: null,
   testPageUrl: 'https://api.example.com/sdk/v1/test-page',
 };
 
@@ -20,7 +22,7 @@ describe('install snippet and test page link (epic UX rework R13)', () => {
   });
 
   it('escapes every value for a double-quoted attribute', () => {
-    const odd = { apiUrl: 'https://a.example/"><script>x</script>&', sdkUrl: 'https://a.example/s.js?a=1&b="2"', testPageUrl: '' };
+    const odd = { apiUrl: 'https://a.example/"><script>x</script>&', sdkUrl: 'https://a.example/s.js?a=1&b="2"', sdkPinnedUrl: null, sdkIntegrity: null, testPageUrl: '' };
     const html = installSnippet(odd, 'z"<>&', 'k"<>&');
     expect(html).toBe(
       '<script type="module" src="https://a.example/s.js?a=1&amp;b=&quot;2&quot;"></script>\n' +

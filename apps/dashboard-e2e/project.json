@@ -7,7 +7,7 @@
     "dashboard",
     "api"
   ],
-  "// targets": "e2e starts its own API (built) and dashboard; set E2E_DATABASE_URL to a _test database. See playwright.config.mts.",
+  "// targets": "e2e starts its own API (built) and dashboard; set E2E_DATABASE_URL to a database ending in _e2e_test (dropped and created again). See playwright.config.mts.",
   "targets": {
     "e2e": {
       "cache": false,
@@ -22,6 +22,12 @@
       "options": {
         "cwd": "apps/dashboard-e2e",
         "command": "playwright test"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node --test apps/dashboard-e2e/scripts/e2e-database.test.mjs"
       }
     }
   }

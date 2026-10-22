@@ -40,6 +40,16 @@ export class EmailTakenError extends Error {
   }
 }
 
+/** Thrown when a conditional issue finds the project's site key already active: nothing is rotated. */
+export class SiteKeyExistsError extends Error {
+  readonly code = ErrorCodes.siteKeyExists;
+
+  constructor() {
+    super('This project already has a site key. Rotate it to replace it; rotating affects every zone of the project.');
+    this.name = 'SiteKeyExistsError';
+  }
+}
+
 /** Thrown when a project has no active site key to revoke. */
 export class SiteKeyNotFoundError extends Error {
   readonly code = ErrorCodes.siteKeyNotFound;

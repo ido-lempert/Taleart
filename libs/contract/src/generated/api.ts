@@ -273,7 +273,7 @@ export interface paths {
         put?: never;
         /**
          * Issue the project's site key, or rotate it (admins only).
-         * @description A project has at most one active site key (AD-9 amended, epic UX rework R3), which places every zone of the project on a page with the zone's slug. When the project already has an active site key, that key is revoked in the same transaction (rotation), which affects every zone of the project. `key` appears only in this response; only its SHA-256 hash is stored, and the response is sent with `Cache-Control: no-store`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`.
+         * @description A project has at most one active site key (AD-9 amended, epic UX rework R3), which places every zone of the project on a page with the zone's slug. When the project already has an active site key, that key is revoked in the same transaction (rotation), which affects every zone of the project. `key` appears only in this response; only its SHA-256 hash is stored, and the response is sent with `Cache-Control: no-store`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`. With `ifNone: true` (the dashboard's "Issue site key") nothing is rotated: when the project already has an active site key the answer is 409 `site_key_exists` and that key keeps working. Without it (or `false`) the request rotates (the dashboard's "Rotate").
          */
         post: operations["issueSiteKey"];
         /**
@@ -1493,8 +1493,12 @@ export interface components {
         InstallInfo: {
             /** @description The API's public origin, the value of `api-url` on a host page. */
             apiUrl: string;
-            /** @description The Web SDK bundle (an ES module) for a host page's script tag. */
+            /** @description The Web SDK bundle (an ES module) for a host page's script tag, at a stable URL: a deploy replaces it there (cached five minutes). */
             sdkUrl: string;
+            /** @description The same bundle at a URL pinned to its content (`<apiUrl>/sdk/v1/taleart.<hash>.js`, cached a year, immutable), for a page that also pins it with `integrity`; it is gone with the next build. Null when the API has no bundle. */
+            sdkPinnedUrl: string | null;
+            /** @description The bundle's Subresource Integrity value (`sha384-…`); null when the API has no bundle. */
+            sdkIntegrity: string | null;
             /** @description The test page. It takes the zone's slug as `?zone=<slug>` and a site key in the URL fragment, `#siteKey=<key>`, or pasted on the page. */
             testPageUrl: string;
         };
@@ -1503,6 +1507,10 @@ export interface components {
             prefix: string;
             /** Format: date-time */
             createdAt: string;
+        };
+        IssueSiteKeyRequest: {
+            /** @description Issue only when the project has no active site key; otherwise 409 `site_key_exists` and nothing changes. Leave it out (or false) to rotate. */
+            ifNone?: boolean;
         };
         IssuedSiteKey: {
             /** @description The secret site key, `tas_` and 32 random bytes in base64url. Shown only once. */
@@ -2103,7 +2111,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "invalid_site_key" | "rate_limited" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "rate_limited" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2763,7 +2771,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["IssueSiteKeyRequest"];
+            };
+        };
         responses: {
             /** @description The new site key, shown only once. */
             201: {
@@ -2776,6 +2788,7 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -4443,7 +4456,7 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "invalid_site_key", "rate_limited", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "rate_limited", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];

@@ -1,6 +1,12 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
-import { isErrorBody, type InstallInfo, type IssuedSiteKey, type SiteKeyInfo } from '@taleart/contract/core';
+import {
+  isErrorBody,
+  type InstallInfo,
+  type IssuedSiteKey,
+  type IssueSiteKeyRequest,
+  type SiteKeyInfo,
+} from '@taleart/contract/core';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
@@ -81,7 +87,7 @@ function refusal(err: unknown, fallback: string): string {
     <section class="card section zone-section" aria-labelledby="site-key-title">
       <div class="section__header">
         <h3 class="section__title" id="site-key-title" tabindex="-1">Site key</h3>
-        @if (admin() && loaded()) {
+        @if (admin() && loaded() && !readFailed()) {
           <div class="key-actions">
             @if (info()) {
               <button type="button" class="btn btn--secondary btn--sm" id="site-key-rotate" (click)="open('rotate', $event)">
@@ -110,6 +116,12 @@ function refusal(err: unknown, fallback: string): string {
             <dd class="muted">Issued {{ issuedDate(key.createdAt) }}</dd>
           </div>
         </dl>
+      } @else if (readFailed()) {
+        <!-- Never Issue on a failed read: a key may be active, and issuing would replace it. -->
+        <div class="key-actions" role="alert">
+          <p class="form-error">The site key could not be read.</p>
+          <button type="button" class="btn btn--secondary btn--sm" id="site-key-retry" (click)="retry()">Retry</button>
+        </div>
       } @else if (loaded()) {
         <p class="muted">
           @if (admin()) {
@@ -212,6 +224,9 @@ function refusal(err: unknown, fallback: string): string {
             } @else {
               @switch (current) {
                 @case ('rotate') {
+                  @if (foundActive()) {
+                    <p id="site-key-found">This project already has a site key, issued meanwhile. Rotate it?</p>
+                  }
                   <p>
                     A new site key replaces <code class="key-prefix">{{ info()?.prefix }}…</code>.
                     <strong>This affects every zone of this project:</strong> the current key stops working at once on
@@ -274,6 +289,10 @@ export class SiteKeyCard {
   protected readonly placeholder = SITE_KEY_PLACEHOLDER;
   protected readonly info = signal<SiteKeyInfo | null>(null);
   protected readonly loaded = signal(false);
+  /** True when the site key could not be read: the tab offers Retry, never Issue. */
+  protected readonly readFailed = signal(false);
+  /** True when Issue found a key issued meanwhile and turned into the rotate confirmation. */
+  protected readonly foundActive = signal(false);
   /** Where the SDK and the test page are (`GET /install`); null until read. */
   protected readonly install = signal<InstallInfo | null>(null);
   protected readonly installFailed = signal(false);
@@ -316,9 +335,14 @@ export class SiteKeyCard {
     this.installFailed.set(true);
   }
 
+  protected retry(): void {
+    void this.read(this.projectId());
+  }
+
   private async read(projectId: string): Promise<void> {
     const run = ++this.reads;
     this.loaded.set(false);
+    this.readFailed.set(false);
     try {
       const info = await firstValueFrom(
         this.http.get<SiteKeyInfo | null>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/site-key`),
@@ -328,6 +352,7 @@ export class SiteKeyCard {
     } catch {
       if (run !== this.reads) return;
       this.info.set(null);
+      this.readFailed.set(true);
     }
     this.loaded.set(true);
   }
@@ -350,6 +375,7 @@ export class SiteKeyCard {
     this.issued.set(null);
     this.error.set('');
     this.copyStatus.set('');
+    this.foundActive.set(false);
     this.action.set(action);
     if (action === 'issue') void this.submit();
   }
@@ -406,8 +432,10 @@ export class SiteKeyCard {
         this.announcement.set('Site key revoked.');
         this.close();
       } else {
-        // Issue and rotate are one call: issuing while a key is active rotates it.
-        const key = await firstValueFrom(this.http.post<IssuedSiteKey>(url, {}));
+        // Issue never rotates: it asks for a key only if none is active (409 otherwise). Rotate
+        // replaces the active key, after its confirmation.
+        const body: IssueSiteKeyRequest = action === 'issue' ? { ifNone: true } : {};
+        const key = await firstValueFrom(this.http.post<IssuedSiteKey>(url, body));
         this.info.set({ prefix: key.prefix, createdAt: key.createdAt });
         this.issued.set(key);
         this.saving.set(false);
@@ -415,6 +443,13 @@ export class SiteKeyCard {
       }
     } catch (err) {
       this.saving.set(false);
+      // Someone issued a key meanwhile: show it, and offer to rotate it with the usual warning.
+      if (action === 'issue' && err instanceof HttpErrorResponse && err.status === 409) {
+        void this.read(this.projectId());
+        this.foundActive.set(true);
+        this.action.set('rotate');
+        return;
+      }
       const fallback = action === 'revoke' ? 'The site key was not revoked. Try again.' : 'The site key was not issued. Try again.';
       this.error.set(refusal(err, fallback));
       return;

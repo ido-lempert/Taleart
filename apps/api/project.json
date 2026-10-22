@@ -38,6 +38,14 @@
         "command": "node apps/api/scripts/tale-media-rollback.mjs"
       }
     },
+    "check-sdk-assets": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["build"],
+      "options": {
+        "command": "node apps/api/scripts/check-sdk-assets.mjs"
+      }
+    },
     "import-scale": {
       "executor": "nx:run-commands",
       "cache": false,

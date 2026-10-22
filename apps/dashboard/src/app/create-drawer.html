@@ -223,7 +223,14 @@
               up to 100 MB.
             </p>
           </div>
-          <p class="visually-hidden" role="status">{{ progress() }}</p>
+          <div class="group-files-progress">
+            <p class="muted" role="status">{{ progress() }}</p>
+            @if (progress()) {
+              <button type="button" class="btn btn--secondary btn--sm" id="create-group-stop" (click)="stopAdding()">
+                Stop adding tales
+              </button>
+            }
+          </div>
           @if (groupZonePicker()) {
             <div class="field">
               <label class="field__label" for="create-group-zone">Zone</label>

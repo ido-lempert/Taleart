@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { get, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -9,7 +10,7 @@ import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../app';
-import { installInfo, testPageCsp } from './sdk.router';
+import { installInfo, servedFile, testPageCsp, webSdkFileFromEnv } from './sdk.router';
 
 // These routes touch neither the database nor storage: the app gets stand-ins that fail if used.
 const unused = new Proxy({}, { get: () => () => Promise.reject(new Error('not used')) });
@@ -129,8 +130,48 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
     }
   });
 
+  it('answers HEAD with the headers and no body', async () => {
+    for (const path of ['taleart.js', 'test-page']) {
+      const res = await fetch(`${origin}/sdk/v1/${path}`, { method: 'HEAD' });
+      expect(res.status, path).toBe(200);
+      expect(await res.text()).toBe('');
+    }
+    const page = await fetch(`${origin}/sdk/v1/test-page`, { method: 'HEAD' });
+    expect(page.headers.get('content-security-policy')).toContain("default-src 'none'");
+  });
+
+  it('sends /sdk/v1/test-page/ to the page without the slash, keeping the query', async () => {
+    const res = await fetch(`${origin}/sdk/v1/test-page/?zone=home-top`, { redirect: 'manual' });
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('../test-page?zone=home-top');
+    expect(new URL(res.headers.get('location') ?? '', `${origin}/sdk/v1/test-page/`).pathname).toBe('/sdk/v1/test-page');
+    expect((await fetch(`${origin}/sdk/v1/nope/`, { redirect: 'manual' })).status).toBe(404);
+    expect((await fetch(`${origin}/sdk/v1/taleart.js/`, { redirect: 'manual' })).status).toBe(404);
+  });
+
+  it('serves the bundle pinned to its content for a year, and only the current one', async () => {
+    const info = installInfo('http://x', await servedFile(bundleFile)());
+    const pinned = new URL(info.sdkPinnedUrl ?? '').pathname;
+    expect(pinned).toMatch(/^\/sdk\/v1\/taleart\.[\w-]{16}\.js$/);
+    const res = await fetch(`${origin}${pinned}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    const body = Buffer.from(await res.arrayBuffer());
+    expect(info.sdkIntegrity).toBe(`sha384-${createHash('sha384').update(body).digest('base64')}`);
+    expect((await fetch(`${origin}/sdk/v1/taleart.AAAAAAAAAAAAAAAA.js`)).status).toBe(404);
+  });
+
+  it('serves a rebuilt bundle at once (size or modification time changed), without a restart', async () => {
+    const before = await (await fetch(`${origin}/sdk/v1/taleart.js`)).text();
+    writeFileSync(bundleFile, 'export const sdk = "rebuilt, longer";\n');
+    const after = await (await fetch(`${origin}/sdk/v1/taleart.js`)).text();
+    expect(after).not.toBe(before);
+    expect(after).toBe('export const sdk = "rebuilt, longer";\n');
+    writeFileSync(bundleFile, before);
+  });
+
   it('serves nothing else under /sdk/v1', async () => {
-    for (const path of ['test-page.html', '..%2Fapp.ts', 'index.js', 'constructor', '__proto__', 'hasOwnProperty']) {
+    for (const path of ['test-page.html', '..%2Fapp.ts', 'index.js', 'constructor', '__proto__', 'hasOwnProperty', 'test-page.d.ts']) {
       const res = await fetch(`${origin}/sdk/v1/${path}`);
       expect(res.status, path).toBe(404);
     }
@@ -139,11 +180,26 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
 
 describe('the install URLs and the test page CSP', () => {
   it('builds the URLs from the public API URL, without its trailing slash', () => {
-    expect(installInfo('https://api.example.com/')).toEqual({
+    expect(installInfo('https://api.example.com/', null)).toEqual({
       apiUrl: 'https://api.example.com',
       sdkUrl: 'https://api.example.com/sdk/v1/taleart.js',
+      sdkPinnedUrl: null,
+      sdkIntegrity: null,
       testPageUrl: 'https://api.example.com/sdk/v1/test-page',
     });
+    const bundle = { body: Buffer.from(''), etag: '"x"', hash: 'abcdefghijklmnop', integrity: 'sha384-x' };
+    expect(installInfo('https://api.example.com', bundle)).toMatchObject({
+      sdkPinnedUrl: 'https://api.example.com/sdk/v1/taleart.abcdefghijklmnop.js',
+      sdkIntegrity: 'sha384-x',
+    });
+  });
+
+  it('refuses a WEB_SDK_FILE that is not a .js file, and resolves one that is', () => {
+    expect(webSdkFileFromEnv(undefined, (p) => p)).toBeUndefined();
+    expect(webSdkFileFromEnv('', (p) => p)).toBeUndefined();
+    expect(webSdkFileFromEnv('dist/libs/web-sdk/index.js', (p) => `/repo/${p}`)).toBe('/repo/dist/libs/web-sdk/index.js');
+    expect(() => webSdkFileFromEnv('/etc/passwd', (p) => p)).toThrow('WEB_SDK_FILE must name a .js file');
+    expect(() => webSdkFileFromEnv('index.js.map', (p) => p)).toThrow('WEB_SDK_FILE must name a .js file');
   });
 
   it("adds only an http(s) public API origin to the CSP's media sources", () => {
