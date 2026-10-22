@@ -107,9 +107,6 @@
     font-size: 16px;
   }
 }
-.group-body[hidden] {
-  display: none;
-}
 .group-body {
   display: flex;
   flex-direction: column;
@@ -128,6 +125,28 @@
   margin: 0;
   font-size: var(--text-sm);
   overflow-wrap: break-word;
+}
+.group-row__max {
+  color: var(--text-muted);
+}
+.group-row__tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+}
+/* Neutral: archiving is not an error. */
+.undo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
 }
 .groups-actions {
   display: flex;

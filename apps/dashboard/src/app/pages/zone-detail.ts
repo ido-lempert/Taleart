@@ -17,6 +17,7 @@ import {
   findTemplate,
   groupShownStatus,
   isSwitchable,
+  MAX_TALES_PER_GROUP,
   SHOWN_STATUS_LABELS,
   switchStatus,
   taleShownStatus,
@@ -474,15 +475,31 @@ export class ZoneDetailPage {
       // A content manager has no key action: the card's heading, which says to ask an admin.
       this.selectTab(step.tab, (root) => first(root, '#site-key-issue', '#site-key-rotate', '#site-key-title'));
     } else {
-      // An Off group's switch; with every group On, the first group's name, whose row says why it
-      // is not visible; with no group, "New tale group".
+      // An Off group's switch; with every group On, a group whose tales are all Hidden, opened at
+      // its first Hidden tale's switch; else the first group's name, whose row says why it is not
+      // visible; with no group, "New tale group".
+      const offSwitch = '#zone-panel-groups .group-row [role=switch][aria-checked=false]';
+      const allHidden = this.groups().find(
+        (group) =>
+          isSwitchable(group.storedStatus) &&
+          group.storedStatus === 'live' &&
+          group.tales.length > 0 &&
+          group.tales.every((tale) => taleShownStatus(tale.storedStatus) !== 'shown'),
+      );
+      if (allHidden && !this.host.nativeElement.querySelector(offSwitch)) {
+        this.openGroups.update((ids) => new Set(ids).add(allHidden.id));
+        this.selectTab(step.tab);
+        afterNextRender(
+          () =>
+            this.host.nativeElement
+              .querySelector<HTMLElement>(`#group-body-${allHidden.id} [role=switch][aria-checked=false]`)
+              ?.focus(),
+          { injector: this.injector },
+        );
+        return;
+      }
       this.selectTab(step.tab, (root) =>
-        first(
-          root,
-          '#zone-panel-groups .group [role=switch][aria-checked=false]',
-          '#zone-panel-groups .group-row__open',
-          '#zone-panel-groups .empty .btn--primary',
-        ),
+        first(root, offSwitch, '#zone-panel-groups .group-row__open', '#new-tale-group'),
       );
     }
   }
@@ -539,8 +556,14 @@ export class ZoneDetailPage {
    */
   protected readonly groupMenus = computed(() => {
     const menus = new Map<string, readonly MenuItem[]>();
+    const saving = this.statusSaving();
     for (const group of this.groups()) {
       const status = statusActions(group.storedStatus)[0];
+      const statusItem: MenuItem | null = status
+        ? saving.has(group.id)
+          ? { id: `status:${status.status}`, label: status.label, disabledReason: 'Saving…' }
+          : { id: `status:${status.status}`, label: status.label }
+        : null;
       menus.set(group.id, [
         { id: 'rename', label: 'Rename' },
         { id: 'cover', label: 'Cover' },
@@ -551,7 +574,7 @@ export class ZoneDetailPage {
           : { id: 'place', label: 'Show in another zone', disabledReason: 'Already in every zone' },
         { id: 'copy', label: 'Copy to zone' },
         { id: 'remove', label: 'Remove from this zone' },
-        ...(status ? [{ id: `status:${status.status}`, label: status.label }] : []),
+        ...(statusItem ? [statusItem] : []),
       ]);
     }
     return menus;
@@ -583,10 +606,13 @@ export class ZoneDetailPage {
       default: {
         // Archive or Restore: the status it sets, as the menu offered it.
         const action = statusActions(group.storedStatus).find((a) => `status:${a.status}` === pick.id);
-        if (action) void this.changeStatus(group, action.status);
+        if (action?.status === 'archived') void this.archive(group);
+        else if (action) void this.changeStatus(group, action.status);
       }
     }
   }
+
+  protected readonly maxTales = MAX_TALES_PER_GROUP;
 
   /** The groups whose row is open, showing their tale strip until story 8.11's group view. */
   private readonly openGroups = signal<ReadonlySet<string>>(new Set());
@@ -611,7 +637,14 @@ export class ZoneDetailPage {
    */
   protected rowClick(group: TaleGroup, event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
-    if (!target || target.closest('button, a, input, select, label, [role=menu], .menu-button, .drag-handle')) return;
+    if (
+      !target ||
+      target.closest(
+        'button, a, input, select, label, [role=menu], .menu-button, .group-row__reorder, .status-badge, app-visibility',
+      )
+    ) {
+      return;
+    }
     if ((globalThis.getSelection?.()?.toString() ?? '') !== '') return;
     this.toggleGroup(group);
   }
@@ -627,6 +660,64 @@ export class ZoneDetailPage {
   protected readonly addableGroups = computed(() => addableGroups(this.store, this.zoneId()));
   /** The open "Add existing group" drawer, with the button that opened it. */
   protected readonly addingExisting = signal<{ zoneId: string; opener: HTMLElement | null } | null>(null);
+
+  /** Why "Add existing group" cannot apply: every other group is archived, or there is none. */
+  protected readonly addExistingReason = computed(() => {
+    const zone = this.zone();
+    const archivedElsewhere =
+      !!zone &&
+      this.store
+        .projectTaleGroupsOf(zone.projectId)
+        .some((group) => !group.zoneIds.includes(zone.id) && group.storedStatus === 'archived');
+    return archivedElsewhere
+      ? 'The other tale groups of this project are archived. Restore one to add it.'
+      : 'No other tale group of this project to add';
+  });
+
+  /** The group archived last from its ⋯ menu, with its status before, for Undo; cleared when the zone changes. */
+  protected readonly undo = linkedSignal<string, { id: string; name: string; before: ContentStatus } | null>({
+    source: this.zoneId,
+    computation: () => null,
+  });
+  protected readonly undoing = signal(false);
+
+  /** Archives a group from its ⋯ menu and offers Undo, which restores its status before. */
+  private async archive(group: TaleGroup): Promise<void> {
+    const before = group.storedStatus;
+    const message = await this.saving(group.id, group.id, () => this.store.setTaleGroupStatus(group.id, 'archived'));
+    if (message) return;
+    this.undo.set({ id: group.id, name: group.name, before });
+    this.announce(`${group.name} archived. Undo is above the list.`);
+  }
+
+  /** Restores the group archived last: back to Off, then On again when it was On. */
+  protected async undoArchive(): Promise<void> {
+    const last = this.undo();
+    if (!last || this.undoing()) return;
+    this.undoing.set(true);
+    let message = await this.saving(last.id, last.id, () => this.store.setTaleGroupStatus(last.id, 'paused'));
+    if (!message && last.before === 'live') {
+      message = await this.saving(last.id, last.id, () => this.store.setTaleGroupStatus(last.id, 'live'));
+    }
+    this.undoing.set(false);
+    if (message) return;
+    this.undo.set(null);
+    const saved = this.groups().find((g) => g.id === last.id);
+    this.announce(
+      `${last.name} restored, ${statusLabel(saved?.status ?? (last.before === 'live' ? 'live' : 'paused'), 'group').toLowerCase()}` +
+        (saved?.visibility ? `. ${visibilityLine(saved.visibility, 'group')}` : ''),
+    );
+    // The Undo button is gone: focus goes to the group's ⋯ button.
+    afterNextRender(
+      () =>
+        this.host.nativeElement
+          .querySelector<HTMLElement>(`#group-name-${last.id}`)
+          ?.closest('.group')
+          ?.querySelector<HTMLElement>('.menu-button__trigger')
+          ?.focus(),
+      { injector: this.injector },
+    );
+  }
 
   protected addExisting(event: Event): void {
     if (this.addableGroups().length === 0) return;

@@ -110,7 +110,7 @@ export class CreateDrawer implements OnInit {
   protected readonly selectedTagIds = signal<string[]>([]);
   /** The name typed in a tags drawer's "New tag" field. */
   protected newTag = '';
-  /** The zone picked in an "Add to zone…" drawer. */
+  /** The zone picked in a "Show in another zone" drawer. */
   protected readonly placeZoneId = signal('');
 
   /** The templates a new zone drawer offers (epic UX rework R5). */
@@ -124,7 +124,7 @@ export class CreateDrawer implements OnInit {
     return projects.length === 1 ? projects[0] : undefined;
   });
 
-  /** The tale group an "Add to zone…", "Copy to zone…", "Rename" or "Remove from this zone" drawer is for. */
+  /** The tale group a "Show in another zone", "Copy to zone…", "Rename" or "Remove from this zone" drawer is for. */
   protected readonly placementGroup = computed(() => {
     const request = this.request();
     if (
@@ -138,7 +138,7 @@ export class CreateDrawer implements OnInit {
     return this.store.projectTaleGroup(request.taleGroupId) ?? this.store.taleGroup(request.taleGroupId);
   });
 
-  /** The zones an "Add to zone…" drawer offers: the project's zones that do not hold the group yet. */
+  /** The zones a "Show in another zone" drawer offers: the project's zones that do not hold the group yet. */
   protected readonly placeZones = computed(() => {
     const request = this.request();
     return request.kind === 'placeTaleGroup' ? this.store.zonesToPlace(request.taleGroupId) : [];
