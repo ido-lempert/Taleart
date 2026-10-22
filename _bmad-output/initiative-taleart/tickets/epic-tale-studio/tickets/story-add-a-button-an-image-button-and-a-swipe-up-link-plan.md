@@ -98,6 +98,22 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-22 — Coordinator security review
+- **Verdict:** no XSS, scheme or validation bypass found. 11 findings, all patched (no item 11 was raised); `autopilot/foundation` merged first (with 8.6, 8.15, 8.9).
+- **Findings:**
+  1. `[patch]` The viewer waits while a link of the tale has keyboard focus (`focusin`/`focusout`), and when a tale whose layer held the focused element goes, focus moves to the dialog. Tests in `viewer-links.spec.ts`.
+  2. `[patch]` The swipe up is a flick: released within `SWIPE_UP_MAX_MS` (500 ms), upward travel at least max(50 px, 8% of the stage height) and more than sideways. A hold that drifts up and a slow drag do not open it. Documented in the SDK README. Tests.
+  3. `[patch]` The press tracks its `pointerId`; a second pointer joins it as a pinch (no tap, hold or swipe), and releases and cancels of other pointers are ignored. Test.
+  4. `[verified]` In Playwright's WebKit 27.2 (`webkit.mjs` in the scratchpad `e2e77/`): `CSS.supports('touch-action', 'pinch-zoom')` is true and the viewer's dialog computes `pinch-zoom`, so one-finger drags are not pans and their pointer events reach the viewer; a mouse flick and a touch-pointer flick open the new-tab swipe-up link in one new tab with `window.opener === null`; a tap on a new-tab button likewise; a hold that drifts up opens nothing (7 of 7). Playwright cannot drive a real touch drag in WebKit (taps only), so a true finger swipe on iOS is still unverified; `touch-action` was left at `pinch-zoom` since WebKit supports it.
+  5. `[patch]` The web address field has no `maxlength`, so a 2,049-character paste shows "A web address holds at most 2,048 characters." Test.
+  6. `[patch]` The studio trims the address both as it checks and as it applies. Test.
+  7. `[patch]` The URL rule also refuses U+00A0, U+00AD, U+061C, U+1680, U+2000–U+200F, U+202F, U+205F, U+3000 and U+FEFF, and empty credentials (`https://:@host`, `https://@host`: any `@` in the authority as typed). `https://example.com\@evil.example/` is accepted: browsers read the backslash as a slash, so it opens example.com (the host shown first) with the path `/@evil.example`; `https:\\example.com` is refused (no `//`). Tests.
+  8. `[patch]` Tale Studio warns (inspector and layer row, "Small target") when a button or image button is under 24 px on either side on the reference canvas (540 px high, `isSmallTarget`); saving is allowed. Tests.
+  9. `[patch]` A link that opens a new tab says " (opens in a new tab)" in its accessible name (a visually hidden note, or in an image button's `aria-label`). Tests; a11y-review 14b updated.
+  10. `[patch]` The suppression of a link click after a swipe up ends at the next press (a capture-phase `pointerdown`), not after a timer, and applies only to pointer clicks (keyboard activations, `detail` 0, always pass). Test.
+  12. `[verified]` Build stats: initial total 497.72 KB (`main` 472.56 KB, `styles` 25.16 KB). The URL messages, link names and "Small target" are only in lazy chunks (the studio chunk and the shared contract chunk); `main` holds only the three icon cases, about 0.5 KB.
+- Verification after the fixes (`--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 333, server-tales 266, web-sdk 377, dashboard 513, api 556 tests); `web-sdk:size` 23.50 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` 213 of 216 (the 3 known failures); `sdk-sample:perf` cold p75 1,271 ms, first tale frame p75 66 ms; the Playwright walk 25 of 25 again.
+
 ## Design Notes
 
 Assumptions (none blocks; each recorded for review):

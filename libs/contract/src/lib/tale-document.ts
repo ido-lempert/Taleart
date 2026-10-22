@@ -791,14 +791,18 @@ export const MAX_SWIPE_UP_ELEMENTS = 1;
  * - `scheme`: not an absolute `http://` or `https://` URL (`javascript:`, `data:`, `ftp:`, a
  *   relative or protocol-relative URL);
  * - `invalid`: not a URL a browser parses, or one without a host;
- * - `credentials`: a user name or password in the URL, as the importer's URL policy refuses them.
+ * - `credentials`: a user name or password in the URL, even empty (`https://:@host`), as the
+ *   importer's URL policy refuses them.
  */
 export type LinkUrlProblem = 'empty' | 'tooLong' | 'characters' | 'scheme' | 'invalid' | 'credentials';
 
-// Any character at or below the space, DEL, C1 controls, the line and paragraph separators, and
-// the bidi embeddings, overrides and isolates: none belongs in a link a person can read.
+// Any character at or below the space, DEL, C1 controls, the no-break and other Unicode spaces
+// (U+00A0, U+1680, U+2000-U+200A, U+202F, U+205F, U+3000), invisible and format characters (soft
+// hyphen, zero-width space and joiners, U+FEFF), the line and paragraph separators, and the bidi
+// marks, embeddings, overrides and isolates (U+061C, U+200E/F, U+202A-U+202E, U+2066-U+2069):
+// none belongs in a link a person reads, and each can make one address look like another.
 // eslint-disable-next-line no-control-regex
-const LINK_URL_BAD_CHARACTER = /[\u0000-\u0020\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+const LINK_URL_BAD_CHARACTER = /[\u0000-\u0020\u007f-\u00a0\u00ad\u061c\u1680\u2000-\u200f\u2028-\u202f\u205f\u2066-\u2069\u3000\ufeff]/;
 const LINK_URL_SCHEME = /^https?:\/\//i;
 
 /**
@@ -820,7 +824,11 @@ export function linkUrlProblem(value: unknown): LinkUrlProblem | null {
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'scheme';
   if (url.hostname === '') return 'invalid';
-  if (url.username !== '' || url.password !== '') return 'credentials';
+  // Credentials, even empty ones (`https://:@host`): any `@` in the authority as typed. A backslash
+  // ends the authority as a slash does, as browsers parse it: `https://example.com\@evil.example`
+  // is accepted and opens example.com, the host it shows first.
+  const authority = value.slice(value.indexOf('//') + 2).split(/[/?#\\]/)[0];
+  if (url.username !== '' || url.password !== '' || authority.includes('@')) return 'credentials';
   return null;
 }
 

@@ -13,14 +13,19 @@ import {
   MAX_LABEL_LENGTH,
   MAX_LINK_LABEL_LENGTH,
   MAX_LINK_RADIUS,
-  MAX_LINK_URL_LENGTH,
   resolveButtonStyle,
   resolveSwipeUpStyle,
   type ButtonVariant,
   type LinkElement,
   type TaleElementA11y,
 } from '@taleart/contract/tale-document';
-import { linkLabelStyle, textContrast, type TextBackdrop } from '@taleart/contract/text-style';
+import {
+  isSmallTarget,
+  linkLabelStyle,
+  MIN_TARGET_PX,
+  textContrast,
+  type TextBackdrop,
+} from '@taleart/contract/text-style';
 import type { ElementChange } from './tale-shapes';
 import { contrastWarning, parseHexColor } from './tale-text-style';
 
@@ -85,7 +90,6 @@ type ColorField = 'color' | 'fill' | 'background';
         "
         [attr.aria-invalid]="hrefError() || missingHref() ? 'true' : null"
         [readOnly]="locked()"
-        [maxLength]="maxUrl"
         [value]="href()"
         (input)="checkHref($any($event.target))"
         (change)="setHref($any($event.target))"
@@ -233,6 +237,13 @@ type ColorField = 'color' | 'fill' | 'background';
         pressing Enter on it.
       </p>
     }
+    @if (smallTarget()) {
+      <!-- A warning only, as for contrast: saving and updating the tale stay allowed. -->
+      <p class="text-style__contrast is-warning" [id]="'link-target-' + id">
+        Small target: under {{ minTarget }} px on the smallest phone, which is hard to tap. Make it larger. You can
+        still save and update the tale.
+      </p>
+    }
     @if (el.type !== 'image-button') {
       <!-- Not a live region: the studio says when a change turns the warning on or off. -->
       <p class="text-style__contrast" [id]="'link-contrast-' + id" [class.is-warning]="warning() !== null">
@@ -252,9 +263,13 @@ export class TaleLinkStyle {
   /** The image button asks for another image. */
   readonly replace = output<void>();
 
-  protected readonly maxUrl = MAX_LINK_URL_LENGTH;
   protected readonly maxLabel = MAX_LINK_LABEL_LENGTH;
   protected readonly maxAlt = MAX_LABEL_LENGTH;
+  protected readonly minTarget = MIN_TARGET_PX;
+  /** The button or image button is smaller than a 24 px target on the smallest phone (WCAG 2.5.8): a warning. */
+  protected readonly smallTarget = computed(
+    () => this.element().type !== 'swipe-up' && isSmallTarget(this.element().box),
+  );
   protected readonly maxRadius = percent(MAX_LINK_RADIUS);
   protected readonly variants = BUTTON_VARIANTS;
   protected readonly variantNames = VARIANT_NAMES;
@@ -307,7 +322,8 @@ export class TaleLinkStyle {
 
   /** Checks the address as it is typed: an error shows only once the value is not empty. */
   protected checkHref(field: HTMLInputElement): void {
-    this.hrefError.set(field.value === '' ? '' : (hrefMessage(field.value) ?? ''));
+    const value = field.value.trim();
+    this.hrefError.set(value === '' ? '' : (hrefMessage(value) ?? ''));
   }
 
   /** Applies the address when it passes the rule the server applies; otherwise it stays in the field, explained. */

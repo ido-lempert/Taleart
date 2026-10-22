@@ -296,6 +296,41 @@ describe('Tale Studio links (epic Tale Studio R7)', () => {
     });
   });
 
+  it('shows the length limit on a pasted 2,049-character address, and trims spaces as it checks and applies', async () => {
+    await open();
+    await click('#studio-add-button');
+    const id = doc().elements[0].id;
+    const field = q<HTMLInputElement>(`#link-href-${id}`);
+    // No maxlength: a longer paste is not cut silently, it is explained.
+    expect(field.hasAttribute('maxlength')).toBe(false);
+    const long = `https://example.com/${'a'.repeat(2049 - 20)}`;
+    expect(long).toHaveLength(2049);
+    await type(`#link-href-${id}`, long);
+    const error = () => root.querySelector(`#link-href-error-${id}`)?.textContent?.trim();
+    expect(error()).toBe('A web address holds at most 2,048 characters.');
+    await set(`#link-href-${id}`, long);
+    expect(doc().elements[0].props).not.toHaveProperty('href');
+    await type(`#link-href-${id}`, '  https://example.com/shop  ');
+    expect(error()).toBeUndefined();
+    await set(`#link-href-${id}`, '  https://example.com/shop  ');
+    expect(doc().elements[0].props).toMatchObject({ href: 'https://example.com/shop' });
+    expect(q<HTMLInputElement>(`#link-href-${id}`).value).toBe('https://example.com/shop');
+    await saveNow(1);
+  });
+
+  it('warns about a button smaller than a 24 px target on the smallest phone, without blocking', async () => {
+    await open();
+    await click('#studio-add-button');
+    const id = doc().elements[0].id;
+    expect(root.querySelector(`#link-target-${id}`)).toBeNull();
+    await set('#studio-h', '3');
+    expect(q<HTMLElement>(`#link-target-${id}`).textContent).toContain('Small target');
+    expect(root.querySelector('.layer__state')?.textContent).toContain('Small target');
+    await set('#studio-h', '7');
+    expect(root.querySelector(`#link-target-${id}`)).toBeNull();
+    await saveNow(1);
+  });
+
   it('opens a document with a locked button read-only', async () => {
     const locked: TaleElement = {
       id: '00000000-0000-4000-8000-000000000001',

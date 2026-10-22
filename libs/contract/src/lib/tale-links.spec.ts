@@ -32,6 +32,7 @@ import {
   SWIPE_UP_BOX,
   TALE_ELEMENT_TYPE_REGISTRY,
   TALE_SAFE_AREA,
+  isSmallTarget,
   textContrast,
   type TextStyle,
 } from '../index';
@@ -102,6 +103,27 @@ describe('linkUrlProblem: the destination rule (R7, R14)', () => {
   ])('refuses %s', (_name, value, problem) => {
     expect(linkUrlProblem(value)).toBe(problem);
     expect(isLinkUrl(value)).toBe(false);
+  });
+
+  it.each([
+    0xa0, 0xad, 0x61c, 0x1680, 0x2000, 0x2005, 0x200a, 0x200b, 0x200d, 0x200e, 0x200f, 0x202f, 0x205f, 0x3000, 0xfeff,
+  ])('refuses U+%s, a space, invisible or bidi character, anywhere', (code) => {
+    expect(linkUrlProblem(`https://example.com/a${ch(code)}b`)).toBe('characters');
+    expect(linkUrlProblem(`https://exa${ch(code)}mple.com/`)).toBe('characters');
+  });
+
+  it('refuses empty credentials', () => {
+    expect(linkUrlProblem('https://:@example.com')).toBe('credentials');
+    expect(linkUrlProblem('https://@example.com')).toBe('credentials');
+  });
+
+  it('reads a backslash in the authority as browsers do: it ends the host', () => {
+    // Accepted: the host is example.com, the host shown first; `@evil.example` is part of the path.
+    const url = 'https://example.com\\@evil.example/';
+    expect(linkUrlProblem(url)).toBeNull();
+    expect(new URL(url).hostname).toBe('example.com');
+    // A backslash in place of the slashes after the scheme is no absolute URL here.
+    expect(linkUrlProblem('https:\\\\example.com')).toBe('scheme');
   });
 
   it('says each problem in words', () => {
@@ -277,5 +299,12 @@ describe('link helpers', () => {
     const swipe = linkLabelStyle(element('swipe-up', newSwipeUpProps(), { box: { ...SWIPE_UP_BOX } })) as TextStyle;
     expect(textContrast(swipe, { canvasColor: '#000000', overMedia: false }).kind).toBe('ok');
     expect(linkLabelStyle(element('image-button', { mediaKey: IMAGE }))).toBeNull();
+  });
+
+  it('tells a target smaller than 24 px on the smallest phone (540 px high)', () => {
+    expect(isSmallTarget(NEW_BUTTON_BOX)).toBe(false);
+    expect(isSmallTarget({ w: 0.6, h: 0.04 })).toBe(true);
+    expect(isSmallTarget({ w: 0.07, h: 0.2 })).toBe(true);
+    expect(isSmallTarget({ w: 24 / 303.75, h: 24 / 540 })).toBe(false);
   });
 });

@@ -96,6 +96,17 @@ export const DOCUMENT_STYLES = `
 }
 .ta-cta:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; }
 .ta-button { padding: 0 0.8em; text-overflow: ellipsis; }
+.ta-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 .ta-fill { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ta-swipe { flex-direction: column; gap: 0.2em; overflow: visible; }
 .ta-swipe-arrow {

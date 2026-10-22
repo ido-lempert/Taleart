@@ -40,6 +40,18 @@ function anchor(element: DeliveryTaleElement, className: string): HTMLAnchorElem
   return a;
 }
 
+/** What a link that opens a new tab adds to its accessible name (WCAG 3.2.5 advisory, G201). */
+export const NEW_TAB_NOTE = ' (opens in a new tab)';
+
+// The note, visually hidden, at the end of a link that opens a new tab, so screen readers say so.
+function newTabNote(a: HTMLAnchorElement): void {
+  if (a.target !== '_blank') return;
+  const note = document.createElement('span');
+  note.className = 'ta-sr';
+  note.textContent = NEW_TAB_NOTE;
+  a.appendChild(note);
+}
+
 /**
  * A button (epic Tale Studio R7): a link holding its label as a text node, filled with its colour
  * or outlined in it, with its corner radius, through CSSOM only (AD-16). Its label is its
@@ -50,6 +62,7 @@ export function renderButton(element: DeliveryTaleElement): HTMLElement | null {
   const a = label ? anchor(element, 'ta-button') : null;
   if (!a) return null;
   a.textContent = label;
+  newTabNote(a);
   const look = resolveButtonStyle(element.props);
   const style = a.style;
   style.color = look.color;
@@ -83,7 +96,7 @@ export function renderImageButton(element: DeliveryTaleElement, context: RenderC
   image.setAttribute('aria-hidden', 'true');
   const label = element.a11y?.label;
   const name = linkLabel(label) || new URL(a.href).hostname;
-  a.setAttribute('aria-label', name);
+  a.setAttribute('aria-label', a.target === '_blank' ? `${name}${NEW_TAB_NOTE}` : name);
   a.appendChild(image);
   return a;
 }
@@ -106,6 +119,7 @@ export function renderSwipeUp(element: DeliveryTaleElement): HTMLElement | null 
   pill.textContent = label;
   pill.style.backgroundColor = look.background;
   a.append(arrow, pill);
+  newTabNote(a);
   a.style.color = look.color;
   a.style.fontSize = `${SWIPE_UP_FONT_SIZE * 100}cqh`;
   return a;
