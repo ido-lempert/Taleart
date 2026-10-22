@@ -29,8 +29,8 @@
               name="text"
               autocomplete="off"
               [(ngModel)]="text"
-              [attr.aria-invalid]="error() && !slugError() ? 'true' : null"
-              [attr.aria-describedby]="error() && !slugError() ? 'create-zone-hint create-error' : 'create-zone-hint'"
+              [attr.aria-invalid]="nameError() ? 'true' : null"
+              [attr.aria-describedby]="nameError() ? 'create-zone-hint create-error' : 'create-zone-hint'"
             />
             <p class="field__hint" id="create-zone-hint">One spot in your app or site, with one display (a bar or a banner).</p>
           </div>
@@ -45,8 +45,8 @@
               autocapitalize="off"
               [maxlength]="maxSlug"
               [(ngModel)]="slug"
-              [attr.aria-invalid]="error() && slugError() ? 'true' : null"
-              [attr.aria-describedby]="error() && slugError() ? 'create-slug-hint create-error' : 'create-slug-hint'"
+              [attr.aria-invalid]="fieldError('slug') ? 'true' : null"
+              [attr.aria-describedby]="fieldError('slug') ? 'create-slug-hint create-error' : 'create-slug-hint'"
             />
             <p class="field__hint" id="create-slug-hint">
               Lowercase letters, digits and hyphens, unique in the project; a page names the zone with it.
@@ -61,7 +61,10 @@
               }
             </p>
           </div>
-          <fieldset class="template-options" aria-describedby="template-hint">
+          <fieldset
+            class="template-options"
+            [attr.aria-describedby]="fieldError('template') ? 'template-hint create-error' : 'template-hint'"
+          >
             <legend class="field__label">Template</legend>
             @for (template of templates; track template.key) {
               <div class="template-option">
@@ -95,7 +98,14 @@
           @if (!onlyProject()) {
             <div class="field">
               <label class="field__label" for="create-project">Project</label>
-              <select id="create-project" class="select" name="projectId" [(ngModel)]="projectId">
+              <select
+                id="create-project"
+                class="select"
+                name="projectId"
+                [(ngModel)]="projectId"
+                [attr.aria-invalid]="fieldError('project') ? 'true' : null"
+                [attr.aria-describedby]="fieldError('project') ? 'create-error' : null"
+              >
                 <option value="">Choose a project</option>
                 @for (project of store.projects(); track project.id) {
                   <option [value]="project.id">{{ project.name }}</option>
@@ -114,8 +124,8 @@
                 name="text"
                 autocomplete="off"
                 [(ngModel)]="text"
-                [attr.aria-invalid]="error() && !slugError() ? 'true' : null"
-                [attr.aria-describedby]="error() && !slugError() ? 'create-error' : null"
+                [attr.aria-invalid]="nameError() ? 'true' : null"
+                [attr.aria-describedby]="nameError() ? 'create-error' : null"
               />
             </div>
             <div class="field">
@@ -129,8 +139,8 @@
                 autocapitalize="off"
                 [maxlength]="maxSlug"
                 [(ngModel)]="slug"
-                [attr.aria-invalid]="error() && slugError() ? 'true' : null"
-                [attr.aria-describedby]="error() && slugError() ? 'edit-slug-hint create-error' : 'edit-slug-hint'"
+                [attr.aria-invalid]="fieldError('slug') ? 'true' : null"
+                [attr.aria-describedby]="fieldError('slug') ? 'edit-slug-hint create-error' : 'edit-slug-hint'"
               />
               <p class="field__hint" id="edit-slug-hint">
                 Lowercase letters, digits and hyphens, unique in the project. A page names the zone with it, so a page

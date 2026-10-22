@@ -51,7 +51,7 @@ export const ZONE_TEMPLATES: readonly ZoneTemplate[] = [
   },
 ];
 
-/** The template with this exact key, or undefined. */
-export function findTemplate(key: unknown): ZoneTemplate | undefined {
-  return typeof key === 'string' ? ZONE_TEMPLATES.find((t) => t.key === key) : undefined;
+/** The template with this exact key in `templates` (the shipped registry by default), or undefined. */
+export function findTemplate(key: unknown, templates: readonly ZoneTemplate[] = ZONE_TEMPLATES): ZoneTemplate | undefined {
+  return typeof key === 'string' ? templates.find((t) => t.key === key) : undefined;
 }

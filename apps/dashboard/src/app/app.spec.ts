@@ -931,6 +931,75 @@ describe('App', () => {
       expect(drawer()?.textContent).not.toContain('In project');
     });
 
+    it('reads the project when Create is pressed: projects that load or change after the drawer opens', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture } = await open('/zones', { projects: [acme, globex] });
+      store.projects.set([]);
+      store.openDrawer({ kind: 'zone' });
+      await settle(fixture);
+      // The only project arrives after the drawer opened: the picker hides and that project is used.
+      store.projects.set([globex]);
+      await settle(fixture);
+      expect(drawer()?.querySelector('#create-project')).toBeNull();
+      expect(drawer()?.textContent).toContain('In project Globex');
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Shop');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      expect(http.expectOne(`${API_BASE}/zones`).request.body).toEqual({ name: 'Shop', projectId: 'p2', template: 'stories-bar' });
+    });
+
+    it('hides the picker and uses the remaining project when two projects become one', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones', { projects: [acme, globex] });
+      await openNewZone(fixture, root);
+      expect(drawer()?.querySelector('#create-project')).not.toBeNull();
+      store.projects.set([globex]);
+      await settle(fixture);
+      expect(drawer()?.querySelector('#create-project')).toBeNull();
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Shop');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      expect(http.expectOne(`${API_BASE}/zones`).request.body.projectId).toBe('p2');
+    });
+
+    it('marks the template group, not the name, when the API refuses the template', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Home');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await refuse(fixture, `${API_BASE}/zones`, 'unknown_template', 'template must be one of: stories-bar, promo-banner, blank');
+      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe('template-hint create-error');
+      expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBeNull();
+      expect(drawer()?.querySelector('#create-slug')?.getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it('marks the project picker, not the name, when the API refuses the project', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme, globex] });
+      await openNewZone(fixture, root);
+      const picker = drawer()?.querySelector<HTMLSelectElement>('#create-project') ?? null;
+      expect(picker?.getAttribute('aria-describedby')).toBeNull();
+      choose(picker, '');
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Home');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await refuse(fixture, `${API_BASE}/zones`, 'validation_failed', 'projectId is required');
+      expect(picker?.getAttribute('aria-invalid')).toBe('true');
+      expect(picker?.getAttribute('aria-describedby')).toBe('create-error');
+      expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBeNull();
+      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe('template-hint');
+    });
+
+    it('does not ask to choose a project when there is only one', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/zones`).flush('down', { status: 502, statusText: 'Bad Gateway' });
+      await settle(fixture);
+      const alert = drawer()?.querySelector('[role=alert]')?.textContent ?? '';
+      expect(alert).toContain('Zone was not saved. Enter a name.');
+      expect(alert).not.toContain('Choose a project');
+    });
+
     it('has no Playbook card or Apply playbook action on the zone page', async () => {
       const { root } = await open('/zones/z1', oneZone);
       const titles = [...root.querySelectorAll('.section__title')].map((h) => h.textContent?.trim());

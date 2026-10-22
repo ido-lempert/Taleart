@@ -2,6 +2,7 @@
 // `users`, `passkeys`, `sessions`, `auth_challenges`, `project_members`,
 // `invitations` and `zone_keys` tables; other modules reach them only through these exports.
 export type { Db, DbConnection, TransactionalDb } from './lib/db';
+export { inTransaction } from './lib/db';
 export { migrateAccess } from './lib/migration';
 export { listProjects, createProject, projectExists } from './lib/projects';
 export {
