@@ -4506,6 +4506,8 @@ describe('Management API v1: projects and zones', () => {
               expect(res.headers.get('retry-after')).toBe('2');
               expect(res.headers.get('cache-control')).toBe('no-store');
               expect(res.headers.get('access-control-allow-origin')).toBe('*');
+              // A page's script may read it across origins.
+              expect(res.headers.get('access-control-expose-headers')).toBe('Retry-After');
               expect((await res.json()).error.code).toBe('rate_limited');
             }
           } finally {

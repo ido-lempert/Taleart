@@ -14,7 +14,7 @@ import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
-import { deliveryRateLimitFromEnv } from './http/rate-limit';
+import { deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
 function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void {
@@ -28,6 +28,13 @@ function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void
 async function start(): Promise<void> {
   // Emoji elements are checked with the RegExp v flag (Node.js 22 or later); without it the API does not start.
   assertEmojiCheckSupported();
+  // Read before anything starts, so a bad value stops the API with a clear error.
+  // The Delivery API's limit per client and per process: DELIVERY_RATE_LIMIT_BURST (a whole number;
+  // 0 turns it off) and DELIVERY_RATE_LIMIT_PER_SECOND.
+  const rateLimit = deliveryRateLimitFromEnv(process.env);
+  // Behind reverse proxies, TRUST_PROXY makes the limit count the visitor's address rather than the
+  // proxy's. Set exactly the proxies in front of the API: their number, or their addresses and ranges.
+  const trustProxy = trustProxyFromEnv(process.env['TRUST_PROXY']);
   const pool = createPool();
   await migrate(pool);
   // The build copies libs/contract/frame-types next to main.js. Read at every
@@ -105,8 +112,6 @@ async function start(): Promise<void> {
     },
   };
   log('info', `Project media at most ${media.limits.maxFiles} files and ${media.limits.maxBytes} bytes each`);
-  // The Delivery API's per-address limit: DELIVERY_RATE_LIMIT_BURST and DELIVERY_RATE_LIMIT_PER_SECOND (0 turns it off).
-  const rateLimit = deliveryRateLimitFromEnv(process.env);
   log(
     'info',
     rateLimit ?
@@ -114,10 +119,10 @@ async function start(): Promise<void> {
     : 'Delivery API rate limit off',
   );
   const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit });
-  // Behind a reverse proxy, TRUST_PROXY (Express's `trust proxy`, such as 1 or loopback) makes the
-  // limit count the visitor's address rather than the proxy's.
-  const trustProxy = process.env['TRUST_PROXY'];
-  if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  if (trustProxy !== undefined) {
+    app.set('trust proxy', trustProxy);
+    log('info', `Trusting X-Forwarded-For from ${JSON.stringify(trustProxy)}`);
+  }
   const server = app.listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
     log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
