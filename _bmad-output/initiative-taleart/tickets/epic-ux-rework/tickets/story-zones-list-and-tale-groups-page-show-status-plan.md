@@ -105,4 +105,4 @@ deferred: []
 - `node_modules/.bin/nx run web-sdk:size`, `web-sdk:types-check` -- pass.
 
 **Manual checks:**
-- Playwright (`shots-8.14/`, ports 3398/4298/4398, own `_test` DBs): 64 checks passed, including each filter's exact list, URL and announcement, arrow keys, reload, the adapted menu and its disabled reason, New tale group in no zone and in a zone, the switch, zone cards before and after a site key, the zone page's rows (regression of the extraction), 390 px with no horizontal scroll, and axe (WCAG 2.2 AA tags) on every view.
+- Playwright (`shots-8.14/`, ports 3398/4298/4398, own `_test` DBs): 63 checks passed (also after merging autopilot/foundation 8906799), including each filter's exact list, URL and announcement, arrow keys, reload, the adapted menu and its disabled reason, New tale group in no zone and in a zone, the switch, zone cards before and after a site key, the zone page's rows (regression of the extraction), 390 px with no horizontal scroll, and axe (WCAG 2.2 AA tags) on every view.
