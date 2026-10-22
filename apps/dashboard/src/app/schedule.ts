@@ -80,3 +80,34 @@ export function localTimeZone(): string {
     return 'your time zone';
   }
 }
+
+/**
+ * A time in a few characters, in the browser's locale and time zone, for a schedule chip: the day
+ * and month ("1 Dec"), the year only when it is not this year, and the time only when it is not
+ * midnight ("1 Dec 09:00").
+ */
+export function formatShort(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+  if (date.getFullYear() !== now.getFullYear()) options.year = 'numeric';
+  if (date.getHours() !== 0 || date.getMinutes() !== 0) {
+    options.hour = '2-digit';
+    options.minute = '2-digit';
+  }
+  return date.toLocaleString(undefined, options);
+}
+
+/**
+ * A window on a schedule chip, such as "Starts 1 Dec 09:00", "Ends 3 Nov" or
+ * "1 Dec 09:00 – 3 Nov"; '' for no window, which shows no chip (epic UX rework R8).
+ */
+export function windowChip(
+  window: { startsAt: string | null; endsAt: string | null },
+  now: Date = new Date(),
+): string {
+  const { startsAt, endsAt } = window;
+  if (startsAt && endsAt) return `${formatShort(startsAt, now)} – ${formatShort(endsAt, now)}`;
+  if (startsAt) return `Starts ${formatShort(startsAt, now)}`;
+  if (endsAt) return `Ends ${formatShort(endsAt, now)}`;
+  return '';
+}

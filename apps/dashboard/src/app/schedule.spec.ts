@@ -1,4 +1,50 @@
-import { describeWindow, fromLocalInput, parseLocalInput, toLocalInput } from './schedule';
+import { describeWindow, formatShort, fromLocalInput, parseLocalInput, toLocalInput, windowChip } from './schedule';
+
+describe('schedule chips (epic UX rework R8)', () => {
+  const now = new Date(2026, 9, 22, 12, 0);
+  const local = (...parts: [number, number, number, number, number]) => new Date(...parts).toISOString();
+  const short = (iso: string, options: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString(undefined, options);
+  const dayTime: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+  const day: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+
+  it('says when a window starts, with the time unless it is midnight', () => {
+    const start = local(2026, 11, 1, 9, 0);
+    expect(windowChip({ startsAt: start, endsAt: null }, now)).toBe(`Starts ${short(start, dayTime)}`);
+    expect(formatShort(start, now)).toBe(short(start, dayTime));
+    const midnight = local(2026, 11, 1, 0, 0);
+    expect(formatShort(midnight, now)).toBe(short(midnight, day));
+  });
+
+  it('says when a window ends, and both ends of a window with a dash', () => {
+    const start = local(2026, 11, 1, 9, 0);
+    const end = local(2026, 10, 3, 0, 0);
+    expect(windowChip({ startsAt: null, endsAt: end }, now)).toBe(`Ends ${short(end, day)}`);
+    expect(windowChip({ startsAt: start, endsAt: end }, now)).toBe(`${short(start, dayTime)} – ${short(end, day)}`);
+  });
+
+  it('names the year only when it is not this year, and says nothing without a window', () => {
+    const next = local(2027, 0, 5, 0, 0);
+    expect(formatShort(next, now)).toBe(short(next, { ...day, year: 'numeric' }));
+    expect(formatShort(next, now)).toContain('2027');
+    expect(windowChip({ startsAt: null, endsAt: null }, now)).toBe('');
+  });
+
+  it('reads like "Starts 1 Dec 09:00" and "Ends 3 Nov" in British English', () => {
+    const start = local(2026, 11, 1, 9, 0);
+    const toLocale = Date.prototype.toLocaleString;
+    const spy = vi
+      .spyOn(Date.prototype, 'toLocaleString')
+      .mockImplementation(function (this: Date, _locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
+        return toLocale.call(this, 'en-GB', options);
+      });
+    try {
+      expect(windowChip({ startsAt: start, endsAt: null }, now)).toBe('Starts 1 Dec, 09:00');
+      expect(windowChip({ startsAt: null, endsAt: local(2026, 10, 3, 0, 0) }, now)).toBe('Ends 3 Nov');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
 
 describe('schedule times', () => {
   it('round-trips a local field value through UTC', () => {

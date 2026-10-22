@@ -30,7 +30,8 @@ import {
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
-import { describeWindow } from '../schedule';
+import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
+import { describeWindow, windowChip } from '../schedule';
 import { describeSettings, type Settings } from '../settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
@@ -60,6 +61,7 @@ type Direction = 'earlier' | 'later';
     StatusBadge,
     ShowSwitch,
     VisibilityIndicator,
+    MenuButton,
     CdkDropList,
     CdkDrag,
     CdkDragHandle,
@@ -199,34 +201,13 @@ type Direction = 'earlier' | 'later';
       flex-wrap: wrap;
       gap: var(--space-2);
     }
-    /* In the card's top row, left of the drag handle, above the card's open button, on a dark
-       plate (story 8.11 moves it into a menu). */
-    .tale-card__duplicate {
-      position: absolute;
-      z-index: 1;
-      top: var(--space-2);
-      right: calc(var(--space-2) + 26px);
-      display: grid;
-      place-items: center;
-      width: 24px;
-      height: 24px;
-      padding: 0;
-      border: 1px solid transparent;
-      border-radius: var(--radius-pill);
+    /* A tale's schedule chip on its card: above the title, on a dark plate so it reads over any media. */
+    .window-chip--card {
+      margin: 0 0 var(--space-1);
+      border-color: transparent;
       background: rgb(0 0 0 / 62%);
       color: #fff;
-      cursor: pointer;
-    }
-    .tale-card__duplicate svg {
-      width: 14px;
-      height: 14px;
-    }
-    .tale-card__duplicate:hover {
-      border-color: #fff;
-    }
-    .tale-card__duplicate:focus-visible {
-      outline: 3px solid var(--focus);
-      outline-offset: 1px;
+      font-size: 11px;
     }
   `,
 })
@@ -313,6 +294,28 @@ export class ZoneDetailPage {
   protected readonly needsBadge = needsBadge;
   protected readonly isSwitchable = isSwitchable;
   protected readonly describeWindow = describeWindow;
+  protected readonly windowChip = windowChip;
+
+  /** The ⋯ menu of a group row; story 10 moves the row's other actions into it (epic UX rework R8, R10). */
+  protected readonly groupMenu: readonly MenuItem[] = [{ id: 'schedule', label: 'Schedule' }];
+  /** The ⋯ menu of a tale card (epic UX rework R8, R11). */
+  protected readonly taleMenu: readonly MenuItem[] = [
+    { id: 'schedule', label: 'Schedule' },
+    { id: 'duplicate', label: 'Duplicate' },
+  ];
+
+  /** Does what a group's ⋯ menu item says; a drawer it opens returns focus to the menu's button. */
+  protected groupPicked(group: TaleGroup, pick: MenuPick): void {
+    if (pick.id === 'schedule') {
+      this.store.openDrawer({ kind: 'schedule', target: 'taleGroup', id: group.id }, pick.opener);
+    }
+  }
+
+  /** Does what a tale's ⋯ menu item says; a drawer it opens returns focus to the menu's button. */
+  protected talePicked(tale: Tale, pick: MenuPick): void {
+    if (pick.id === 'schedule') this.store.openDrawer({ kind: 'schedule', target: 'tale', id: tale.id }, pick.opener);
+    if (pick.id === 'duplicate') this.duplicating.set({ tale, opener: pick.opener });
+  }
 
   /** "On" or "Off" for a group, "Shown" or "Hidden" for a tale, from its stored key (AD-6 amended). */
   protected shownLabel(stored: ContentStatus, kind: StatusKind): string {
@@ -464,12 +467,6 @@ export class ZoneDetailPage {
 
   /** The tale whose Duplicate drawer is open, with the button that opened it. */
   protected readonly duplicating = signal<{ tale: Tale; opener: HTMLElement | null } | null>(null);
-
-  /** Opens the Duplicate drawer for a tale (epic Tale Studio R11). */
-  protected openDuplicate(tale: Tale, event: Event): void {
-    const opener = event.currentTarget;
-    this.duplicating.set({ tale, opener: opener instanceof HTMLElement ? opener : null });
-  }
 
   /** Closes the drawer and says where the copy went; the new card shows Hidden. */
   protected duplicated(result: DuplicatedTale): void {

@@ -11,6 +11,7 @@ import { CoverCapture } from './cover-capture';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
 import { IMPORT_POLL_INTERVAL_MS } from './import.service';
 import { importDurationText } from './pages/import-shared';
+import { formatShort } from './schedule';
 
 // The shape of the shipped bar schema (libs/contract/frame-types/bar.schema.json) as GET /frame-types sends it.
 const barSchema = {
@@ -88,6 +89,17 @@ function buttonNamed(root: ParentNode, name: string): HTMLButtonElement {
   const button = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === name);
   if (!button) throw new Error(`No ${name} button`);
   return button;
+}
+
+// Opens the ⋯ menu named `menu` and chooses its item `item`.
+function pickMenuItem(root: ParentNode, menu: string, item: string): void {
+  const trigger = root.querySelector<HTMLButtonElement>(`button[aria-label="${menu}"]`);
+  if (!trigger) throw new Error(`No ${menu} menu`);
+  trigger.click();
+  const items = [...document.querySelectorAll<HTMLElement>(`#${trigger.getAttribute('aria-controls')} [role=menuitem]`)];
+  const found = items.find((i) => i.firstElementChild?.textContent?.trim() === item);
+  if (!found) throw new Error(`No ${item} in ${menu}`);
+  found.click();
 }
 
 function type(input: HTMLInputElement | null, value: string): void {
@@ -1722,9 +1734,8 @@ describe('App', () => {
     it('duplicates a tale from its card into another group, announces it, and the new card shows Hidden', async () => {
       const { fixture, root } = await open('/zones/z1', data);
 
-      const button = root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]');
-      expect(button?.getAttribute('aria-label')).toBe('Duplicate A');
-      button?.click();
+      // Duplicate is in the tale card's ⋯ menu (epic UX rework R8, R11).
+      pickMenuItem(root, 'More for A', 'Duplicate');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Duplicate tale');
       expect(drawer()?.textContent).toContain('A copy of A with its content and media. The copy is hidden until you show it.');
@@ -1761,14 +1772,14 @@ describe('App', () => {
       http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush([{ ...group, tales: [taleA, taleB] }, { ...autumn, tales: [copy] }]);
       await settle(fixture);
 
-      const card = root.querySelector('[data-duplicate="t9"]')?.closest('.tale-card');
+      const card = root.querySelector('[aria-label="More for A (copy)"]')?.closest('.tale-card');
       expect(card?.querySelector('.show-switch__state')?.textContent?.trim()).toBe('Hidden');
       expect(card?.querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('false');
     });
 
     it("keeps the drawer open with the API's message when the group is full, and refuses a full group at once", async () => {
       const { fixture, root } = await open('/zones/z1', data);
-      root.querySelector<HTMLButtonElement>('[data-duplicate="t2"]')?.click();
+      pickMenuItem(root, 'More for B', 'Duplicate');
       await settle(fixture);
       const select = drawer()?.querySelector<HTMLSelectElement>('select[name=taleGroupId]') ?? null;
       choose(select, 'g5');
@@ -1816,7 +1827,7 @@ describe('App', () => {
       buttonNamed(drawer() as HTMLElement, 'Cancel').click();
       await settle(fixture);
       expect(drawer()).toBeNull();
-      expect(document.activeElement?.getAttribute('data-duplicate')).toBe('t2');
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for B');
     });
 
     it('chooses the first group with room, and says so when no group has room', async () => {
@@ -1826,7 +1837,7 @@ describe('App', () => {
         groups: { z1: [fullSummer, autumn] },
         projectGroups: { p1: [{ ...projectGroups.p1[1], taleCount: 100 }, projectGroups.p1[0], projectGroups.p1[2]] },
       });
-      root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]')?.click();
+      pickMenuItem(root, 'More for A', 'Duplicate');
       await settle(fixture);
       expect(options().map((o) => [o.label, o.selected])).toEqual([
         ['Summer (this group): 100 / 100, full', false],
@@ -1840,7 +1851,7 @@ describe('App', () => {
       const store = TestBed.inject(DashboardStore);
       store.projectTaleGroups.set({ p1: [{ ...projectGroups.p1[1], taleCount: 100 }] } as never);
       await settle(fixture);
-      root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]')?.click();
+      pickMenuItem(root, 'More for A', 'Duplicate');
       await settle(fixture);
       expect(drawer()?.querySelector('#duplicate-hint')?.textContent).toContain(
         'Every tale group of this project already holds 100 tales',
@@ -1850,7 +1861,7 @@ describe('App', () => {
 
     it("offers the tale's own group when the project's groups have not been read", async () => {
       const { fixture, root } = await open('/zones/z1', { ...data, projectGroups: {} });
-      root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]')?.click();
+      pickMenuItem(root, 'More for A', 'Duplicate');
       await settle(fixture);
       expect(options()).toEqual([{ label: 'Summer (this group): 2 / 100', disabled: false, selected: true }]);
       expect(drawer()?.querySelector('#duplicate-hint')?.textContent).toBe('The copy goes right after the original.');
@@ -2210,17 +2221,24 @@ describe('App', () => {
       const row = groupRow(root, 'Summer');
 
       expect(badge(row)).toBe('Status: Scheduled');
-      expect(row.querySelector('.group__schedule')?.textContent).toContain(
+      // A chip shows the window, with the whole of it on hover.
+      const chip = row.querySelector('.window-chip');
+      expect(chip?.textContent?.trim()).toBe(`Schedule: Starts ${formatShort(utc(localStart))}`);
+      expect(chip?.getAttribute('title')).toBe(
         `From ${new Date(utc(localStart)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
       );
       expect(row.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe('true');
-      expect(buttonNamed(row, 'Schedule').getAttribute('aria-describedby')).toBe('group-name-g1');
+      // Schedule is only in the ⋯ menu.
+      expect(() => buttonNamed(row, 'Schedule')).toThrow();
+      const more = row.querySelector('button[aria-label="More for Summer"]');
+      expect(more?.getAttribute('aria-haspopup')).toBe('menu');
+      expect(more?.getAttribute('aria-expanded')).toBe('false');
     });
 
     it("sets a group's window in local time and sends it in UTC", async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Schedule');
       expect(field('schedule-start').type).toBe('datetime-local');
@@ -2238,13 +2256,15 @@ describe('App', () => {
       await settle(fixture);
 
       expect(drawer()).toBeNull();
-      expect(groupRow(root, 'Summer').querySelector('.group__schedule')?.textContent).toContain('until');
+      expect(groupRow(root, 'Summer').querySelector('.window-chip')?.textContent?.trim()).toBe(
+        `Schedule: ${formatShort(utc(localStart))} – ${formatShort(utc(localEnd))}`,
+      );
     });
 
     it('refuses an end before the start in the form, without a request', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
       await settle(fixture);
       type(field('schedule-end'), '2029-12-31T09:00');
       buttonNamed(drawer() as HTMLElement, 'Save').click();
@@ -2258,7 +2278,7 @@ describe('App', () => {
     it("shows the API's refusal in the drawer", async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
       await settle(fixture);
       buttonNamed(drawer() as HTMLElement, 'Save').click();
       await settle(fixture);
@@ -2282,8 +2302,10 @@ describe('App', () => {
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
       await settle(fixture);
       expect(badge(drawer() as HTMLElement)).toBe('Status: Expired');
-      expect(drawer()?.querySelector('.schedule-summary')?.textContent).toContain('Until');
-      buttonNamed(drawer() as HTMLElement, 'Schedule…').click();
+      expect(drawer()?.querySelector('.schedule-summary .window-chip')?.textContent?.trim()).toBe(
+        `Schedule: Ends ${formatShort(utc(localStart))}`,
+      );
+      buttonNamed(drawer() as HTMLElement, 'Edit schedule…').click();
       await settle(fixture);
       expect(drawer()?.textContent).toContain('Tale A');
       expect(field('schedule-end').value).toBe(localStart);
@@ -2298,22 +2320,84 @@ describe('App', () => {
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } });
       await settle(fixture);
       expect(drawer()).toBeNull();
-      expect(groupRow(root, 'Summer').querySelector('.group__schedule')?.textContent).toContain('No schedule');
+      expect(groupRow(root, 'Summer').querySelector('.window-chip')).toBeNull();
     });
 
-    it('says "No schedule" for a group and a tale without a window', async () => {
+    it('shows no schedule text or button for a group and a tale without a window (epic UX rework R8)', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } });
 
-      expect(groupRow(root, 'Summer').querySelector('.group__schedule')?.textContent?.trim()).toBe('Schedule: No schedule');
+      const row = groupRow(root, 'Summer');
+      expect(root.textContent).not.toMatch(/schedule/i);
+      expect(row.querySelector('.window-chip')).toBeNull();
+      expect([...row.querySelectorAll('button')].some((b) => /schedule/i.test(b.textContent ?? ''))).toBe(false);
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
       await settle(fixture);
-      expect(drawer()?.querySelector('.schedule-summary')?.textContent).toContain('No schedule');
+      expect(drawer()?.textContent).not.toMatch(/schedule/i);
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+
+      // The tale's ⋯ menu schedules it; with no window there is nothing to remove.
+      pickMenuItem(row, 'More for A', 'Schedule');
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Schedule');
+      expect(field('schedule-start').value).toBe('');
+      expect(() => buttonNamed(drawer() as HTMLElement, 'Remove schedule')).toThrow();
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+      // Focus is back on the menu's button.
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for A');
+    });
+
+    it('shows a tale card its window chip', async () => {
+      const startsTale = { ...taleA, status: 'scheduled', startsAt: utc(localStart) };
+      const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [startsTale, taleB] }] } });
+
+      const cards = [...groupRow(root, 'Summer').querySelectorAll('.tale-card')];
+      expect(cards[0].querySelector('.window-chip')?.textContent?.trim()).toBe(`Schedule: Starts ${formatShort(utc(localStart))}`);
+      expect(cards[1].querySelector('.window-chip')).toBeNull();
+    });
+
+    it('updates the indicator right after a start is set and after it is removed', async () => {
+      const VISIBLE = { visible: true, reasons: [] };
+      const later = { visible: false, reasons: [{ code: 'starts-at', subject: 'group', at: utc(localStart) }] };
+      const plain = { ...group, visibility: VISIBLE, tales: [taleA] };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [plain] } });
+      const line = () => groupRow(root, 'Summer').querySelector('.visibility__text')?.textContent?.trim();
+      expect(line()).toBe('Visible on site');
+
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
+      await settle(fixture);
+      type(field('schedule-start'), localStart);
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      const withStart = { ...plain, status: 'scheduled', startsAt: utc(localStart), visibility: later };
+      http.expectOne(`${API_BASE}/tale-groups/g1/schedule`).flush(withStart);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [withStart] } });
+      await settle(fixture);
+      expect(line()).toBe(
+        `Not visible: starts ${new Date(utc(localStart)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
+      );
+      expect(groupRow(root, 'Summer').querySelector('.window-chip')?.textContent).toContain('Starts');
+
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Remove schedule').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/schedule`);
+      expect(req.request.body).toEqual({ startsAt: null, endsAt: null });
+      req.flush(plain);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, groups: { z1: [plain] } });
+      await settle(fixture);
+      expect(line()).toBe('Visible on site');
+      expect(groupRow(root, 'Summer').querySelector('.window-chip')).toBeNull();
     });
 
     it('refuses a half-typed date and time instead of clearing the bound', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [scheduled] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
       await settle(fixture);
       // A partly filled datetime-local field reports '' as its value and badInput in its validity.
       const end = field('schedule-end');
@@ -2334,7 +2418,7 @@ describe('App', () => {
       const tight = { ...scheduled, startsAt, endsAt };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [tight] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
       await settle(fixture);
       // Both fields show the same minute; unchanged, they still send the stored times.
       expect(field('schedule-start').value).toBe(field('schedule-end').value);
@@ -2353,7 +2437,7 @@ describe('App', () => {
       const tight = { ...scheduled, startsAt, endsAt: null };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [tight] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Schedule').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Schedule');
       await settle(fixture);
       type(field('schedule-end'), localEnd);
       buttonNamed(drawer() as HTMLElement, 'Save').click();
