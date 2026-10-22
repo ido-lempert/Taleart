@@ -13,7 +13,6 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
 import { axeViolations, freePort, loadAxe, mediaTale, startSample } from './a11y-shared.mjs';
-import { buildLegacySdk } from './legacy-sdk.mjs';
 
 const { values: args } = parseArgs({ options: { shots: { type: 'string' }, json: { type: 'string' } } });
 const shotsDir = args.shots ? resolve(args.shots) : null;
@@ -86,7 +85,7 @@ const groups = (names = ['Summer sale', 'New arrivals', 'Stories']) => [
   },
 ];
 // The page under review. A zone has one display (AD-17), so `frames` here lists the displays the
-// page shows: one zone per entry, each with its own key and its own <taleart-view>, in this order,
+// page shows: one zone per entry, each with its own slug and its own <taleart-view>, in this order,
 // all showing the same tale groups (see `zonesOf`).
 const zone = (overrides = {}) => ({
   id: 'z1',
@@ -101,32 +100,36 @@ const zone = (overrides = {}) => ({
   ...overrides,
 });
 
-// The zones a page fixture stands for, keyed by their zone keys: one zone per display, as the
-// Delivery API sends it (`frame`). `legacy` keeps the pre-rework `frames` list too, for the SDK
-// build from before the rework that the R16 comparison loads.
-function zonesOf(page, { legacy = false } = {}) {
+// The project's site key the review's pages place their zones with (epic UX rework R3).
+const SITE_KEY = 'tas_review';
+
+// The zones a page fixture stands for, keyed by their slugs: one zone per display, as the Delivery
+// API sends it (`frame`).
+function zonesOf(page) {
   const { frames = [], ...rest } = page;
   return Object.fromEntries(
-    frames.map((frame, i) => [
-      i === 0 ? 'tak_review' : `tak_review_${i + 1}`,
-      {
-        ...rest,
-        id: i === 0 ? rest.id : `${rest.id}-${i + 1}`,
-        slug: i === 0 ? rest.slug : `${rest.slug}-${i + 1}`,
-        frame,
-        ...(legacy && { frames: [frame], stages: [] }),
-      },
-    ]),
+    frames.map((frame, i) => {
+      const slug = i === 0 ? rest.slug : `${rest.slug}-${i + 1}`;
+      return [slug, { ...rest, id: i === 0 ? rest.id : `${rest.id}-${i + 1}`, slug, frame }];
+    }),
   );
 }
 
-// Answers the Delivery API by the request's key, as the API does.
+// True for a Delivery API zone request, whatever its query.
+const deliveryZoneUrl = (url) => url.href.startsWith(`${API}/delivery/v1/zone?`);
+
+// Answers the Delivery API by the site key and the `zone` slug, as the API does.
 function deliverZones(zones) {
   return (route) => {
+    const slug = new URL(route.request().url()).searchParams.get('zone') ?? '';
     const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
-    return zones[key]
-      ? route.fulfill({ json: zones[key], headers: CORS })
-      : route.fulfill({ status: 401, json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } }, headers: CORS });
+    return key === SITE_KEY && Object.hasOwn(zones, slug)
+      ? route.fulfill({ json: zones[slug], headers: CORS })
+      : route.fulfill({
+          status: 401,
+          json: { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } },
+          headers: CORS,
+        });
   };
 }
 
@@ -223,7 +226,7 @@ async function openSample(
   page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
   page.on('pageerror', (err) => errors.push(String(err)));
   const zones = zonesOf(z);
-  await page.route(`${API}/delivery/v1/zone`, deliverZones(zones));
+  await page.route(deliveryZoneUrl, deliverZones(zones));
   await page.route(`${API}/media/**`, (route) =>
     route.request().url().endsWith('.webm')
       ? route.fulfill({ body: videoBytes, contentType: 'video/webm', headers: { 'Access-Control-Allow-Origin': '*' } })
@@ -241,7 +244,9 @@ async function openSample(
       { dir, lang, host },
     );
   }
-  await page.goto(`http://localhost:${port}/?keys=${Object.keys(zones).join(',')}&api=${encodeURIComponent(API)}${query}`);
+  await page.goto(
+    `http://localhost:${port}/?zones=${Object.keys(zones).join(',')}&api=${encodeURIComponent(API)}${query}#siteKey=${SITE_KEY}`,
+  );
   await page.locator('taleart-view button.item, taleart-view section.banner').first().waitFor();
   page.errors = errors;
   return page;
@@ -1259,7 +1264,7 @@ try {
     check('4.1.2', named.every((n) => n !== ''), 'two zones: every control of both displays has a name');
     check(
       '1.3.1',
-      (await page.locator('#views h2').allTextContents()).join() === 'Zone 1,Zone 2',
+      (await page.locator('#views h2').allTextContents()).join() === 'Zone home,Zone home-2',
       'two zones: each display sits under its own heading',
     );
     await axe(page, 'two zones: a bar zone and a banner zone');
@@ -2006,18 +2011,19 @@ try {
   }
 
   // 15. Existing tales become documents (Tale Studio 7.11, epic R16): every tale from before
-  //     documents looks exactly as it did. "Before" is the release before 7.11 (the Web SDK built
-  //     from 489b892 by legacy-sdk.mjs) on what that release's server sent: the tale's media, and its
-  //     stored document if any. "After" is this SDK on the documents the real migration wrote, as the
-  //     Delivery API serves them (fixtures/r16-migration.json, which api's tests check against the
-  //     server). Both are screenshotted with the viewer's controls hidden and compared pixel by pixel:
-  //     an image (phone and desktop), a video's first frame, a GIF, a studio text over the media, and
-  //     a tale with no media (the placeholder).
+  //     documents looks exactly as it did. "Before" is a committed baseline PNG per case
+  //     (fixtures/r16-baseline; the SDK build from before the rework could only be placed with a zone
+  //     key, removed in UX rework story 8.7). "After" is this SDK on the documents the real migration
+  //     wrote, as the Delivery API serves them (fixtures/r16-migration.json, which api's tests check
+  //     against the server), screenshotted with the viewer's controls hidden and compared pixel by
+  //     pixel: an image (phone and desktop), a video's first frame, a GIF, a studio text over the
+  //     media, a tale with no media (the placeholder) and media backgrounds.
   {
-    const legacyBundle = buildLegacySdk('489b892');
-    if (!legacyBundle) {
-      console.log('SKIPPED - [R16] the release before 7.11 (489b892) is not in this checkout; no pixel comparison');
-    }
+    // The baselines (fixtures/r16-baseline): each case as the release before 7.11 (489b892) drew it,
+    // except image at 1280x800, drawn by this SDK since the wide-screen viewer (f752d74, a requested
+    // change). They were captured at 4768734, with the Chromium baseline.json names.
+    const baselineDir = resolve(import.meta.dirname, 'fixtures/r16-baseline');
+    const baseline = JSON.parse(readFileSync(resolve(baselineDir, 'baseline.json'), 'utf8'));
     const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, 'fixtures/r16-migration.json'), 'utf8'));
     const withApi = (value) => JSON.parse(JSON.stringify(value).replaceAll('{API}', API));
     // A picture with edges, so a shift or a scale shows; a one-frame GIF; the review's WebM.
@@ -2061,8 +2067,8 @@ try {
         },
         [a.toString('base64'), b.toString('base64')],
       );
-    // The viewer on one tale, with the SDK given (`legacy` serves the release before), its controls hidden.
-    async function viewerShot(name, viewport, tale, legacy) {
+    // The viewer on one tale, drawn by this SDK, its controls hidden.
+    async function viewerShot(name, viewport, tale) {
       const z = zone({
         frames: [{ id: 'f1', type: 'bar', settings: {} }],
         taleGroups: [{ id: 'gl', name: 'Legacy', cover: null, tales: [{ id: `t-${name}`, title: 'Legacy', ...tale }] }],
@@ -2074,13 +2080,7 @@ try {
       const page = await context.newPage();
       const errors = [];
       page.on('pageerror', (err) => errors.push(String(err)));
-      if (legacy) {
-        await page.route('**/sdk/index.js', (route) =>
-          route.fulfill({ body: legacyBundle, contentType: 'text/javascript; charset=utf-8' }),
-        );
-      }
-      // The SDK build from before the rework reads `frames`; the current one reads `frame` (AD-17).
-      await page.route(`${API}/delivery/v1/zone`, deliverZones(zonesOf(z, { legacy })));
+      await page.route(deliveryZoneUrl, deliverZones(zonesOf(z)));
       await page.route(`${API}/media/**`, (route) => {
         const url = route.request().url();
         const headers = { 'Access-Control-Allow-Origin': '*' };
@@ -2090,7 +2090,7 @@ try {
         if (url.includes('-bg.')) return route.fulfill({ body: backdrop, contentType: 'image/svg+xml', headers });
         return route.fulfill({ body: picture, contentType: 'image/svg+xml', headers });
       });
-      await page.goto(`http://localhost:${port}/?key=tak_review&api=${encodeURIComponent(API)}`);
+      await page.goto(`http://localhost:${port}/?zones=${z.slug}&api=${encodeURIComponent(API)}#siteKey=${SITE_KEY}`);
       await page.locator('taleart-view button.item').first().click();
       await page.locator('taleart-view dialog.viewer').waitFor();
       await page.evaluate(() => {
@@ -2107,35 +2107,28 @@ try {
       await context.close();
       return { png, errors, canvas };
     }
-    for (const [name, viewport] of legacyBundle ? cases : []) {
+    // Pinned to the Chromium the baselines were drawn with: another build antialiases differently.
+    const pinned = baseline.chromium === browser.version();
+    check(
+      'R16',
+      pinned,
+      `the R16 baselines are pinned to Chromium ${baseline.chromium} (this run: ${browser.version()}; on a mismatch, recapture them)`,
+    );
+    for (const [name, viewport] of pinned ? cases : []) {
       const entry = fixture.tales.find((t) => t.name === name);
-      const before = await viewerShot(name, viewport, withApi(entry.before), true);
-      const after = await viewerShot(
-        name,
-        viewport,
-        { media: withApi(entry.before).media, document: withApi(entry.after) },
-        false,
-      );
+      const file = `${name}-${viewport.width}.png`;
+      const before = readFileSync(resolve(baselineDir, file));
+      const after = await viewerShot(name, viewport, { media: withApi(entry.before).media, document: withApi(entry.after) });
       const scratch = await browser.newPage();
-      const diff = await differing(scratch, before.png, after.png);
+      const diff = await differing(scratch, before, after.png);
       await scratch.close();
       const where = `${name}, ${viewport.width}x${viewport.height}`;
-      check(
-        'R16',
-        diff === 0,
-        `a tale from before documents looks the same after the migration (${where}; ${diff} pixels differ)`,
-      );
-      check('4.1.2', before.errors.length + after.errors.length === 0, `no page errors before or after (${where})`);
-      check(
-        'R16',
-        after.canvas && (!!entry.before.document || !before.canvas),
-        `"before" is drawn by the release before, "after" by this SDK from the migrated document (${where})`,
-      );
-      if (shotsDir) {
-        writeFileSync(resolve(shotsDir, `r16-before-${name}-${viewport.width}.png`), before.png);
-        writeFileSync(resolve(shotsDir, `r16-after-${name}-${viewport.width}.png`), after.png);
-      }
+      check('R16', diff === 0, `a tale from before documents looks as its baseline (${where}; ${diff} pixels differ)`);
+      check('4.1.2', after.errors.length === 0, `no page errors (${where})`);
+      check('R16', after.canvas, `this SDK draws it from the migrated document (${where})`);
+      if (shotsDir) writeFileSync(resolve(shotsDir, `r16-after-${file}`), after.png);
     }
+
     // The accessible name moved (R16): the release before named an image tale by its image's alt text
     // (the title); now the tale's media is decorative and the canvas, a group, carries the title.
     {

@@ -545,57 +545,6 @@
         <app-site-key-card [projectId]="zone.projectId" [zoneSlug]="zone.slug" [admin]="auth.isAdmin()" />
       </div>
 
-      <!-- The legacy zone key, outside the tabs; story 8.7 removes it. -->
-      <section class="card section zone-section" aria-labelledby="key-title">
-        <div class="section__header">
-          <h3 class="section__title" id="key-title">Zone key</h3>
-          @if (auth.isAdmin()) {
-            <div class="key-actions">
-              @if (zoneKey()) {
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  (click)="store.openDrawer({ kind: 'zoneKey', zoneId: zone.id, action: 'rotate' }, $event)"
-                >
-                  Rotate
-                </button>
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  (click)="store.openDrawer({ kind: 'zoneKey', zoneId: zone.id, action: 'revoke' }, $event)"
-                >
-                  Revoke
-                </button>
-              } @else {
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  (click)="store.openDrawer({ kind: 'zoneKey', zoneId: zone.id, action: 'issue' }, $event)"
-                >
-                  <app-icon name="plus" /> Issue key
-                </button>
-              }
-            </div>
-          }
-        </div>
-        @if (zoneKey(); as key) {
-          <dl class="key-info">
-            <div>
-              <dt class="visually-hidden">Key</dt>
-              <dd><code class="key-prefix">{{ key.prefix }}…</code></dd>
-            </div>
-            <div>
-              <dt class="visually-hidden">Issued</dt>
-              <dd class="muted">Issued {{ issuedDate(key.createdAt) }}</dd>
-            </div>
-          </dl>
-        } @else if (auth.isAdmin()) {
-          <p class="muted">No key yet. Issue one so SDKs on your pages can read this zone.</p>
-        } @else {
-          <p class="muted">No key yet. Ask an admin to issue one so SDKs on your pages can read this zone.</p>
-        }
-      </section>
-
     } @else if (!store.apiDown()) {
       <section class="card empty" aria-labelledby="zone-missing">
         <span class="empty__icon"><app-icon name="alert" /></span>
