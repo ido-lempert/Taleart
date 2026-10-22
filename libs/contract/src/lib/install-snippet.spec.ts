@@ -1,4 +1,4 @@
-import { installSnippet, SITE_KEY_PLACEHOLDER, testPageLink } from './install-snippet';
+import { installSnippet, SITE_KEY_PLACEHOLDER, testPageLink } from './core';
 
 const info = {
   apiUrl: 'https://api.example.com',

@@ -1,7 +1,10 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
 import {
+  installSnippet,
   isErrorBody,
+  SITE_KEY_PLACEHOLDER,
+  testPageLink,
   type InstallInfo,
   type IssuedSiteKey,
   type IssueSiteKeyRequest,
@@ -10,7 +13,6 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
-import { installSnippet, SITE_KEY_PLACEHOLDER, testPageLink } from '../install-snippet';
 
 /** What the drawer is about to do. */
 export type SiteKeyAction = 'issue' | 'rotate' | 'revoke';

@@ -38,6 +38,11 @@ export default [
               onlyDependOnLibsWithTags: ['type:contract', 'type:sdk'],
             },
             {
+              // The docs app shows the contract's install snippet (epic UX rework R17).
+              sourceTag: 'scope:docs',
+              onlyDependOnLibsWithTags: ['type:contract'],
+            },
+            {
               sourceTag: 'type:sdk',
               onlyDependOnLibsWithTags: ['type:contract'],
             },
