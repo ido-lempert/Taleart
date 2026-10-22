@@ -18,6 +18,7 @@ import {
   TALE_DOCUMENT_V1_SCHEMA,
   TALE_DOCUMENT_VERSION,
   TALE_ELEMENT_TYPE_REGISTRY,
+  TALE_TEST_ELEMENT_TYPES,
   TALE_SAFE_AREA,
   type TaleElementType,
 } from '../index';
@@ -29,11 +30,15 @@ describe('tale document schemas', () => {
   it('match the JSON Schema files they are generated from', () => {
     expect(TALE_DOCUMENT_V1_SCHEMA).toEqual(readJson('v1.schema.json'));
     const registry = readJson('element-types/registry.json') as {
-      types: { key: string; label: string; schema: string }[];
+      types: { key: string; label: string; schema: string; testOnly?: boolean }[];
     };
-    expect(TALE_ELEMENT_TYPE_REGISTRY).toEqual(
-      registry.types.map(({ key, label, schema }) => ({ key, label, schema: readJson(join('element-types', schema)) })),
-    );
+    const entry = ({ key, label, schema }: { key: string; label: string; schema: string }) => ({
+      key,
+      label,
+      schema: readJson(join('element-types', schema)),
+    });
+    expect(TALE_ELEMENT_TYPE_REGISTRY).toEqual(registry.types.filter((t) => !t.testOnly).map(entry));
+    expect(TALE_TEST_ELEMENT_TYPES).toEqual(registry.types.filter((t) => t.testOnly).map(entry));
   });
 
   it('register exactly the element types the TypeScript union holds', () => {
