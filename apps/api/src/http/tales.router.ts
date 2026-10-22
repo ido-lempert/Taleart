@@ -47,6 +47,15 @@ function isRevision(value: unknown): value is number {
 }
 
 /** A tale's media and status: mounted at `/tales`. */
+// Whether the editor loaded the tale's own media as an element (R16): a boolean, or absent (false).
+function sawTaleMedia(body: Record<string, unknown>): boolean {
+  const value = body['sawTaleMedia'];
+  if (value !== undefined && typeof value !== 'boolean') {
+    throw new HttpError(400, ErrorCodes.validationFailed, 'sawTaleMedia must be true or false');
+  }
+  return value === true;
+}
+
 export function talesRouter(pool: Pool, storage: MediaStorage): Router {
   const router = Router();
 
@@ -169,7 +178,7 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
       if (typeof body !== 'object' || body === null || !('document' in body)) {
         throw new HttpError(400, ErrorCodes.validationFailed, 'document is required');
       }
-      res.json(await saveTaleDocument(pool, taleId, body['document'], revision));
+      res.json(await saveTaleDocument(pool, taleId, body['document'], revision, { sawTaleMedia: sawTaleMedia(body) }));
     } catch (err) {
       next(err);
     }
@@ -212,7 +221,9 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
       if (typeof body !== 'object' || body === null || !('document' in body)) {
         throw new HttpError(400, ErrorCodes.validationFailed, 'document is required');
       }
-      res.status(201).json(await copyTaleWithDocument(pool, taleId, body['document']));
+      res
+        .status(201)
+        .json(await copyTaleWithDocument(pool, taleId, body['document'], { sawTaleMedia: sawTaleMedia(body) }));
     } catch (err) {
       next(err);
     }

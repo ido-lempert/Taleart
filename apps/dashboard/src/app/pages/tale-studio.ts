@@ -27,6 +27,10 @@ import {
   hasVideoElement,
   isMediaElement,
   isOutsideSafeArea,
+  isTaleMediaElement,
+  stageTaleMedia,
+  limitedVideoCount,
+  MAX_VIDEO_ELEMENTS,
   MAX_TALE_DURATION_MS,
   MAX_TALE_VIDEO_MS,
   MAX_TALE_ELEMENTS,
@@ -258,6 +262,14 @@ export function textView(props: unknown, themeFont: string | null): TextView {
 export function newTextProps(text: string): TextElementProps {
   const { font, ...style } = DEFAULT_TEXT_STYLE;
   return { text, font: { ...font }, ...style };
+}
+
+// The props of a media element given other media: other media is not the tale's own (R16), so the
+// mark goes, and the server keeps the tale's media apart from it.
+function replacedMedia<P extends object>(props: P, mediaKey: string): P {
+  const next: Record<string, unknown> = { ...props, mediaKey };
+  delete next['taleMedia'];
+  return next as P;
 }
 
 /**
@@ -564,27 +576,16 @@ export function newTextProps(text: string): TextElementProps {
               aria-describedby="studio-keys"
               [style.background-color]="d.canvas.background.color"
             >
-              @if (tale(); as t) {
-                @if (t.media?.kind === 'video') {
-                  <video
-                    class="canvas__media"
-                    [src]="store.mediaSrc(t)"
-                    muted
-                    playsinline
-                    preload="metadata"
-                    aria-hidden="true"
-                  ></video>
-                } @else if (t.media) {
-                  <img class="canvas__media" [src]="store.mediaSrc(t)" alt="" />
-                }
-              }
               @if (d.canvas.background.type === 'media') {
-                <!-- The background image (R2), over its band colour, as the Web SDK paints it. -->
+                <!-- The background image (R2), over its band colour, as the Web SDK paints it. Over the tale's
+                     own media drawn full-bleed (R16) it lies above that media, bands included, as before. -->
                 <img
                   class="canvas__media"
                   [src]="mediaSrc(d.canvas.background.mediaKey)"
                   alt=""
                   [style.object-fit]="d.canvas.background.fit"
+                  [style.z-index]="stageMedia() ? 2 : null"
+                  [style.background-color]="stageMedia() ? d.canvas.background.color : null"
                 />
               }
               @for (el of d.elements; track el.id; let i = $index) {
@@ -800,8 +801,8 @@ export function newTextProps(text: string): TextElementProps {
                   class="btn btn--secondary"
                   id="studio-add-video"
                   [disabled]="d.elements.length >= maxElements || !projectId()"
-                  [attr.aria-disabled]="hasVideo() ? 'true' : null"
-                  [attr.aria-describedby]="hasVideo() ? 'studio-video-hint' : null"
+                  [attr.aria-disabled]="videoLimitReached() ? 'true' : null"
+                  [attr.aria-describedby]="videoLimitReached() ? 'studio-video-hint' : null"
                   (click)="openPicker('add', 'video')"
                 >
                   <app-icon name="video" /> Add video
@@ -838,7 +839,7 @@ export function newTextProps(text: string): TextElementProps {
                   <app-icon name="sticker" /> Add sticker
                 </button>
               </div>
-              @if (hasVideo()) {
+              @if (videoLimitReached()) {
                 <p class="field__hint" id="studio-video-hint">
                   A tale holds one video, and plays for its length. Delete it to add another.
                 </p>
@@ -1086,7 +1087,11 @@ export function newTextProps(text: string): TextElementProps {
                   } @else if (el.type !== 'text') {
                     <app-tale-media-style
                       [element]="el"
-                      [videoSeconds]="el.type === 'video' ? (videoSeconds().get(el.props.mediaKey) ?? null) : null"
+                      [videoSeconds]="
+                        el.type === 'video' && el !== stageMedia()
+                          ? (videoSeconds().get(el.props.mediaKey) ?? null)
+                          : null
+                      "
                       [locked]="el.locked"
                       [lockedHint]="lockedHint"
                       (changed)="restyleElement(el.id, $event)"
@@ -1095,6 +1100,20 @@ export function newTextProps(text: string): TextElementProps {
                         openPicker('replace', el.type === 'video' ? 'video' : 'image', el.id, el.type === 'sticker')
                       "
                     />
+                    @if (isTaleMedia(el)) {
+                      <p class="field__hint" id="studio-tale-media-hint">
+                        @if (el === stageMedia()) {
+                          This is the tale's media: it fills the stage and plays as before{{
+                            el.type === 'video' ? ', with sound and for its whole length' : ''
+                          }}. Moving, resizing, rotating, rounding or fading it makes it a layer like any other{{
+                            el.type === 'video' ? ' (muted, at most 15 seconds)' : ''
+                          }}.
+                        } @else {
+                          This is the tale's media, now a layer like any other. At the bottom, filling the canvas, it
+                          plays as the tale's media again.
+                        }
+                      </p>
+                    }
                   } @else {
                     <app-tale-text-style
                       [elementId]="el.id"
@@ -1349,6 +1368,9 @@ export class TaleStudioPage implements OnChanges {
   private keyToggled = false;
 
   protected readonly maxElements = MAX_TALE_ELEMENTS;
+  /** The tale's own media while it is drawn full-bleed, with its legacy playback rules (R16), or null. */
+  protected readonly stageMedia = computed(() => stageTaleMedia(this.doc()));
+  protected readonly isTaleMedia = isTaleMediaElement;
   protected readonly maxText = MAX_TEXT_LENGTH;
   protected readonly safeArea = TALE_SAFE_AREA;
   private readonly apple = isApple();
@@ -1391,6 +1413,8 @@ export class TaleStudioPage implements OnChanges {
   protected readonly emojiFont = EMOJI_FONT_STACK;
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
   protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
+  /** True when the tale holds its one video; the tale's own media video (R16) does not count, as before documents. */
+  protected readonly videoLimitReached = computed(() => limitedVideoCount(this.doc()) >= MAX_VIDEO_ELEMENTS);
   /** The tale's duration in seconds, as the duration field shows it: 7 when the document sets none. */
   protected readonly durationSeconds = computed(() => (this.doc()?.durationMs ?? DEFAULT_TALE_DURATION_MS) / 1000);
 
@@ -1409,7 +1433,8 @@ export class TaleStudioPage implements OnChanges {
   /** What lies behind the canvas, for contrast checks (R12): its colour, and whether media covers it. */
   protected readonly backdrop = computed<TextBackdrop>(() => ({
     canvasColor: this.doc()?.canvas.background.color ?? '#000000',
-    overMedia: !!this.tale()?.media || this.doc()?.canvas.background.type === 'media',
+    // The tale's own media (R16) is an element, which `textBackdropAt` meets on its way down, once.
+    overMedia: this.doc()?.canvas.background.type === 'media',
   }));
   /** What lies behind the selected text: the canvas, or a shape or media below it (R6, R12). */
   protected readonly selectedBackdrop = computed<TextBackdrop>(() => this.backdropOf(this.selectedId() ?? ''));
@@ -1431,14 +1456,18 @@ export class TaleStudioPage implements OnChanges {
       .map((el, i, elements) => ({
         el,
         name: layerName(el, this.doc()?.elements ?? [el]),
-        outside: isOutsideSafeArea(el.box),
+        // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design.
+        outside: el !== this.stageMedia() && isOutsideSafeArea(el.box),
         lowContrast:
           el.type === 'text' &&
           textContrast(resolveTextStyle(el.props), textBackdropAt(elements, i, this.backdrop())).kind === 'low',
         // An image, video or sticker without alt text or the decorative mark keeps the tale from being published (R12).
         missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
-        // A video over 15 s plays only its first 15 s (R5).
-        longVideo: el.type === 'video' && (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
+        // A video over 15 s plays only its first 15 s (R5); the tale's own media video plays in full (R16).
+        longVideo:
+          el.type === 'video' &&
+          el !== this.stageMedia() &&
+          (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
       .reverse(),
   );
@@ -1996,7 +2025,8 @@ export class TaleStudioPage implements OnChanges {
   private lowContrastIds(doc: TaleDocument): Set<string> {
     const base: TextBackdrop = {
       canvasColor: doc.canvas.background.color,
-      overMedia: !!this.tale()?.media || doc.canvas.background.type === 'media',
+      // The tale's own media (R16) is an element, which `textBackdropAt` meets on its way down.
+      overMedia: doc.canvas.background.type === 'media',
     };
     const low = new Set<string>();
     doc.elements.forEach((e, i) => {
@@ -2019,6 +2049,20 @@ export class TaleStudioPage implements OnChanges {
       notes.push(now.has(e.id) ? `"${name}" now has low contrast.` : `"${name}" has enough contrast now.`);
     });
     return notes.join(' ');
+  }
+
+  // When the tale's own media (R16) stops or starts being drawn full-bleed, what that does to how it
+  // plays, said with the change (the choice in the plan: restyling keeps nothing implicit).
+  private stageMediaChange(before: TaleDocument, next: TaleDocument): string {
+    const was = stageTaleMedia(before);
+    const now = stageTaleMedia(next);
+    if (was && !now && next.elements.some((e) => e.id === was.id)) {
+      return was.type === 'video'
+        ? "The tale's video is now a layer like any other: muted, and at most 15 seconds."
+        : "The tale's media is now a layer like any other.";
+    }
+    if (!was && now) return "The tale's media fills the stage again, as tale media plays.";
+    return '';
   }
 
   private element(id: string): TaleElement | undefined {
@@ -2050,7 +2094,9 @@ export class TaleStudioPage implements OnChanges {
       return false;
     }
     this.history.record(label, before, next, mergeKey);
-    this.contrastNote = this.contrastChange(before, next);
+    this.contrastNote = [this.contrastChange(before, next), this.stageMediaChange(before, next)]
+      .filter(Boolean)
+      .join(' ');
     // Said with the change's own announcement; alone when the change says nothing.
     if (this.contrastNote) setTimeout(() => this.contrastNote && this.say(''), 0);
     this.doc.set(next);
@@ -2660,7 +2706,7 @@ export class TaleStudioPage implements OnChanges {
     sticker = false,
   ): void {
     if (this.isHeld()) return;
-    if (purpose === 'add' && kind === 'video' && this.hasVideo()) {
+    if (purpose === 'add' && kind === 'video' && this.videoLimitReached()) {
       this.say('A tale holds one video. Delete it to add another.');
       return;
     }
@@ -2735,7 +2781,7 @@ export class TaleStudioPage implements OnChanges {
       const kind = kindName(element);
       this.change(`${kind} replaced`, (elements) =>
         elements.map((e) =>
-          e.id === id && isMediaElement(e) ? ({ ...e, props: { ...e.props, mediaKey: media.key } } as TaleElement) : e,
+          e.id === id && isMediaElement(e) ? ({ ...e, props: replacedMedia(e.props, media.key) } as TaleElement) : e,
         ),
       );
       this.say(`${kind} replaced`);

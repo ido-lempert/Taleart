@@ -291,6 +291,82 @@ export const MAX_MEDIA_RADIUS = 0.5;
 export const NEW_MEDIA_BOX: TaleElementBox = { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 };
 
 /**
+ * How long a tale's own media image showed before documents, and so how long a document made for
+ * it plays (epic Tale Studio R16): 5 s, where a new document tale plays {@link DEFAULT_TALE_DURATION_MS}.
+ */
+export const LEGACY_TALE_DURATION_MS = 5000;
+
+/**
+ * The colour a tale with neither media nor a document showed before documents, and so the canvas
+ * colour of the empty document such a tale is delivered with (R16).
+ */
+export const LEGACY_PLACEHOLDER_COLOR = '#1f2937';
+
+/** The box of a tale's own media element: the whole canvas, unrotated (R16). */
+export const TALE_MEDIA_BOX: TaleElementBox = { x: 0, y: 0, w: 1, h: 1, rotation: 0 };
+
+/**
+ * True for the tale's own media (R16): an image or video element marked `taleMedia`, which the
+ * server keeps in step with the tale's media. It does not count toward {@link MAX_VIDEO_ELEMENTS}.
+ */
+export function isTaleMediaElement(element: unknown): boolean {
+  const e = element as { type?: unknown; props?: { taleMedia?: unknown } } | null;
+  return (e?.type === 'image' || e?.type === 'video') && e.props?.taleMedia === true;
+}
+
+/**
+ * True when the element is drawn full-bleed behind the canvas, as tale media always was (R16): the
+ * tale's own media, at the bottom of the z-order (`index` 0), with the full-canvas box, unrotated,
+ * unrounded and opaque. Viewers keep its legacy rules: a video runs the tale for its whole length,
+ * with sound where the browser allows it.
+ */
+export function isStageTaleMedia(element: unknown, index: number): boolean {
+  if (index !== 0 || !isTaleMediaElement(element)) return false;
+  const { box, props } = element as { box?: Partial<TaleElementBox>; props: { radius?: unknown; opacity?: unknown } };
+  return (
+    box?.x === 0 &&
+    box.y === 0 &&
+    box.w === 1 &&
+    box.h === 1 &&
+    !box.rotation &&
+    (props.radius === undefined || props.radius === 0) &&
+    (props.opacity === undefined || props.opacity === 1)
+  );
+}
+
+/**
+ * The document's element drawn full-bleed behind the canvas, as tale media always was (R16), or
+ * null: its bottom element when {@link isStageTaleMedia}, on any background. With it, the canvas
+ * paints no colour of its own (the stage takes it, behind the media), and a media background is
+ * drawn on the canvas over it, with its band colour, exactly as before documents held the media.
+ */
+export function stageTaleMedia<E>(doc: { elements?: readonly E[] } | null | undefined): E | null {
+  const first = Array.isArray(doc?.elements) ? doc.elements[0] : undefined;
+  return first !== undefined && isStageTaleMedia(first, 0) ? first : null;
+}
+
+/** The video elements that count toward {@link MAX_VIDEO_ELEMENTS}: every video but the tale's own media. */
+export function limitedVideoCount(doc: { elements: readonly { type: string }[] } | null | undefined): number {
+  return doc?.elements.filter((e) => e.type === 'video' && !isTaleMediaElement(e)).length ?? 0;
+}
+
+/**
+ * The tale's own media as a document element (R16): full canvas, `contain` (the fit tale media
+ * always had), decorative until someone adds alt text, under the id given.
+ */
+export function taleMediaElement(id: string, key: string, kind: 'image' | 'video'): MediaElement {
+  return {
+    id,
+    type: kind,
+    box: { ...TALE_MEDIA_BOX },
+    hidden: false,
+    locked: false,
+    a11y: { decorative: true },
+    props: { mediaKey: key, fit: 'contain', taleMedia: true },
+  } as MediaElement;
+}
+
+/**
  * A document's media key: a storage key the server made for media (`tales/…` or `media/…`, with
  * the extension of its checked type), as the element schemas state it.
  */

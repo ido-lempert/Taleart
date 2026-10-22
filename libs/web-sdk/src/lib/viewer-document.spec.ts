@@ -25,12 +25,27 @@ function doc(text: string, extra: Partial<DeliveryTaleDocument> = {}): DeliveryT
   };
 }
 
+// A tale as the Delivery API sends it since R16: with media, its document holds that media as the
+// bottom `taleMedia` element (5 s unless the document set a duration); without a document, only it.
 function tale(id: string, document: DeliveryTaleDocument | null, media = true): DeliveryTale {
+  const url = `${API}/media/tales/${id}.png`;
+  const own = {
+    id: '00000000-0000-4000-8000-0000000000ff',
+    type: 'image',
+    box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+    a11y: { decorative: true },
+    props: { url, fit: 'contain', taleMedia: true } as never,
+  };
+  const base = document ?? {
+    version: 1,
+    canvas: { background: { type: 'color' as const, color: '#000000' } },
+    elements: [],
+  };
   return {
     id,
     title: `Tale ${id}`,
-    media: media ? { kind: 'image', contentType: 'image/png', url: `${API}/media/tales/${id}.png` } : null,
-    document,
+    media: media ? { kind: 'image', contentType: 'image/png', url } : null,
+    document: media ? { durationMs: 5000, ...base, elements: [own, ...base.elements] } : document,
   };
 }
 
@@ -78,11 +93,13 @@ describe('TaleViewer with tale documents (AD-16)', () => {
     // The media stays full-bleed in the stage, exactly where a tale without a document has it.
     const media = dialog().querySelector('.stage > img.media') as HTMLImageElement;
     expect(media.getAttribute('src')).toBe(`${API}/media/tales/t1.png`);
-    expect(media.alt).toBe('Tale t1');
-    expect(canvas.querySelector('.media')).toBeNull();
-    // With media, the canvas paints no colour over it and the image names the tale.
+    // The tale's own media is decorative (R16): the canvas names the tale, as the media's alt text did.
+    expect(media.alt).toBe('');
+    expect(media.getAttribute('aria-hidden')).toBe('true');
+    expect(canvas.querySelector('.media, img')).toBeNull();
+    // With media, the canvas paints no colour over it.
     expect(canvas.style.backgroundColor).toBe('');
-    expect(canvas.hasAttribute('aria-label')).toBe(false);
+    expect(canvas.getAttribute('aria-label')).toBe('Tale t1');
     // The canvas sits between the stage (tap zones) and the top bar (progress, controls).
     expect(area.previousElementSibling?.classList.contains('stage')).toBe(true);
     expect(area.nextElementSibling?.classList.contains('top')).toBe(true);
@@ -150,18 +167,23 @@ describe('TaleViewer with tale documents (AD-16)', () => {
     expect(stage().style.backgroundColor).toBe('rgb(17, 34, 51)');
     // Behind the media, which stays on top of it.
     expect(stage().querySelector('img.media')).not.toBeNull();
+    // A tale of only its media has the black canvas, as the viewer always was behind it.
     colored.next();
-    expect(stage().style.backgroundColor).toBe('');
+    expect(stage().style.backgroundColor).toBe('rgb(0, 0, 0)');
     colored.next();
     expect(stage().style.backgroundColor).toBe('');
     colored.close();
   });
 
-  it('renders a tale without a document exactly as before, and removes the canvas when it moves on', () => {
+  it('renders a tale of only its media exactly as before: full-bleed in the stage, over an empty canvas', () => {
     viewer.open('g');
     viewer.next();
-    expect(dialog().querySelector('.ta-area')).toBeNull();
-    expect(dialog().querySelector('.stage img.media')?.getAttribute('src')).toBe(`${API}/media/tales/t2.png`);
+    expect(dialog().querySelectorAll('.ta-area')).toHaveLength(1);
+    expect(dialog().querySelector('.ta-canvas')?.children).toHaveLength(0);
+    const media = dialog().querySelector('.stage img.media') as HTMLImageElement;
+    expect(media.getAttribute('src')).toBe(`${API}/media/tales/t2.png`);
+    expect(media.style.objectFit).toBe('contain');
+    expect(dialog().querySelectorAll('img')).toHaveLength(1);
   });
 
   it("uses the document's duration, and shows text on its background, named by the tale's title", () => {

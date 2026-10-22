@@ -1,6 +1,7 @@
 import type { Db } from '@taleart/server-access';
 import { recordTaleFonts } from './project-fonts';
 import { checkTaleDocument } from './tale-document';
+import { migrateTaleMediaDocuments } from './tale-media-document';
 
 /** The status keys that are stored (AD-6); the others are computed when content is read. */
 const STORED_STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'] as const;
@@ -252,6 +253,32 @@ export async function migrateTales(db: Db): Promise<void> {
   `);
   await db.query('CREATE INDEX IF NOT EXISTS tale_media_storage_key_idx ON tale_media (storage_key, document)');
   await db.query('CREATE INDEX IF NOT EXISTS tale_media_project_id_idx ON tale_media (project_id, storage_key)');
+
+  // Every tale's media becomes an element of its documents (epic Tale Studio R16, AD-15 Migration).
+  // `document_media_key` is the media key the documents were last brought in step with; the partial
+  // index finds the tales still out of step, and is empty once they are all in step. The column
+  // stays null for older tales, which the run below brings in step for up to 10 s; the API finishes
+  // the rest in the background (continueTaleMediaMigration), and the Delivery API composes the media
+  // of any tale still out of step meanwhile. The legacy media columns stay (rollback). The API turns
+  // it off with TALE_MEDIA_MIGRATION=off (setTaleMediaDocumentsEnabled) while instances of the
+  // previous release still run.
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_key text');
+  // A tale left out of step for a reason (`key`, `limits` or `malformed`), recorded with the media key
+  // it was skipped for, so the background run does not take it up again until that key changes; each
+  // start tries it once more.
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_key text');
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_reason text');
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_at timestamptz');
+  // True once the migration (or a media write) made a document of only the tale's media where there
+  // was none, so a rollback (api:tale-media-rollback) sets exactly those back to null.
+  await db.query(
+    'ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_created_by_migration boolean NOT NULL DEFAULT false',
+  );
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS tales_media_out_of_step_idx ON tales (id)
+     WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key`,
+  );
+  await migrateTaleMediaDocuments(db);
 }
 
 // True when a stored document passes the document check, as the Delivery API requires.

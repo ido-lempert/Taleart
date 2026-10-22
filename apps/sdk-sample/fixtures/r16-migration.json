@@ -1,0 +1,341 @@
+{
+  "tales": [
+    {
+      "name": "image",
+      "before": {
+        "media": {
+          "kind": "image",
+          "contentType": "image/png",
+          "url": "{API}/media/tales/r16-image.png"
+        },
+        "document": null
+      },
+      "after": {
+        "canvas": {
+          "background": {
+            "type": "color",
+            "color": "#000000"
+          }
+        },
+        "version": 1,
+        "durationMs": 5000,
+        "elements": [
+          {
+            "id": "00000000-0000-4000-8000-0000000000ee",
+            "box": {
+              "h": 1,
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "rotation": 0
+            },
+            "a11y": {
+              "decorative": true
+            },
+            "type": "image",
+            "props": {
+              "fit": "contain",
+              "taleMedia": true,
+              "url": "{API}/media/tales/r16-image.png"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "video",
+      "before": {
+        "media": {
+          "kind": "video",
+          "contentType": "video/mp4",
+          "url": "{API}/media/tales/r16-video.mp4"
+        },
+        "document": null
+      },
+      "after": {
+        "canvas": {
+          "background": {
+            "type": "color",
+            "color": "#000000"
+          }
+        },
+        "version": 1,
+        "durationMs": 5000,
+        "elements": [
+          {
+            "id": "00000000-0000-4000-8000-0000000000ee",
+            "box": {
+              "h": 1,
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "rotation": 0
+            },
+            "a11y": {
+              "decorative": true
+            },
+            "type": "video",
+            "props": {
+              "fit": "contain",
+              "taleMedia": true,
+              "url": "{API}/media/tales/r16-video.mp4"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "gif",
+      "before": {
+        "media": {
+          "kind": "image",
+          "contentType": "image/png",
+          "url": "{API}/media/tales/r16-gif.gif"
+        },
+        "document": null
+      },
+      "after": {
+        "canvas": {
+          "background": {
+            "type": "color",
+            "color": "#000000"
+          }
+        },
+        "version": 1,
+        "durationMs": 5000,
+        "elements": [
+          {
+            "id": "00000000-0000-4000-8000-0000000000ee",
+            "box": {
+              "h": 1,
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "rotation": 0
+            },
+            "a11y": {
+              "decorative": true
+            },
+            "type": "image",
+            "props": {
+              "fit": "contain",
+              "taleMedia": true,
+              "url": "{API}/media/tales/r16-gif.gif"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "overlay",
+      "before": {
+        "media": {
+          "kind": "image",
+          "contentType": "image/png",
+          "url": "{API}/media/tales/r16-overlay.png"
+        },
+        "document": {
+          "canvas": {
+            "background": {
+              "type": "color",
+              "color": "#112233"
+            }
+          },
+          "version": 1,
+          "elements": [
+            {
+              "id": "00000000-0000-4000-8000-0000000000ee",
+              "box": {
+                "h": 0.12,
+                "w": 0.8,
+                "x": 0.1,
+                "y": 0.3,
+                "rotation": 0
+              },
+              "a11y": {},
+              "type": "text",
+              "props": {
+                "text": "Summer sale"
+              }
+            }
+          ]
+        }
+      },
+      "after": {
+        "canvas": {
+          "background": {
+            "type": "color",
+            "color": "#112233"
+          }
+        },
+        "version": 1,
+        "durationMs": 5000,
+        "elements": [
+          {
+            "id": "00000000-0000-4000-8000-0000000000ee",
+            "box": {
+              "h": 1,
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "rotation": 0
+            },
+            "a11y": {
+              "decorative": true
+            },
+            "type": "image",
+            "props": {
+              "fit": "contain",
+              "taleMedia": true,
+              "url": "{API}/media/tales/r16-overlay.png"
+            }
+          },
+          {
+            "id": "00000000-0000-4000-8000-0000000000ee",
+            "box": {
+              "h": 0.12,
+              "w": 0.8,
+              "x": 0.1,
+              "y": 0.3,
+              "rotation": 0
+            },
+            "a11y": {},
+            "type": "text",
+            "props": {
+              "text": "Summer sale"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "background-image",
+      "before": {
+        "media": {
+          "kind": "image",
+          "contentType": "image/png",
+          "url": "{API}/media/tales/r16-bg-image.png"
+        },
+        "document": {
+          "canvas": {
+            "background": {
+              "fit": "contain",
+              "type": "media",
+              "color": "#334455",
+              "url": "{API}/media/tales/r16-bg.png"
+            }
+          },
+          "version": 1,
+          "elements": []
+        }
+      },
+      "after": {
+        "canvas": {
+          "background": {
+            "fit": "contain",
+            "type": "media",
+            "color": "#334455",
+            "url": "{API}/media/tales/r16-bg.png"
+          }
+        },
+        "version": 1,
+        "durationMs": 5000,
+        "elements": [
+          {
+            "id": "00000000-0000-4000-8000-0000000000ee",
+            "box": {
+              "h": 1,
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "rotation": 0
+            },
+            "a11y": {
+              "decorative": true
+            },
+            "type": "image",
+            "props": {
+              "fit": "contain",
+              "taleMedia": true,
+              "url": "{API}/media/tales/r16-bg-image.png"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "background-video",
+      "before": {
+        "media": {
+          "kind": "video",
+          "contentType": "video/mp4",
+          "url": "{API}/media/tales/r16-bg-video.mp4"
+        },
+        "document": {
+          "canvas": {
+            "background": {
+              "fit": "contain",
+              "type": "media",
+              "color": "#334455",
+              "url": "{API}/media/tales/r16-bg.png"
+            }
+          },
+          "version": 1,
+          "elements": []
+        }
+      },
+      "after": {
+        "canvas": {
+          "background": {
+            "fit": "contain",
+            "type": "media",
+            "color": "#334455",
+            "url": "{API}/media/tales/r16-bg.png"
+          }
+        },
+        "version": 1,
+        "durationMs": 5000,
+        "elements": [
+          {
+            "id": "00000000-0000-4000-8000-0000000000ee",
+            "box": {
+              "h": 1,
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "rotation": 0
+            },
+            "a11y": {
+              "decorative": true
+            },
+            "type": "video",
+            "props": {
+              "fit": "contain",
+              "taleMedia": true,
+              "url": "{API}/media/tales/r16-bg-video.mp4"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty",
+      "before": {
+        "media": null,
+        "document": null
+      },
+      "after": {
+        "version": 1,
+        "canvas": {
+          "background": {
+            "type": "color",
+            "color": "#1f2937"
+          }
+        },
+        "durationMs": 5000,
+        "placeholder": true,
+        "elements": []
+      }
+    }
+  ]
+}

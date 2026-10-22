@@ -5,6 +5,10 @@ import {
   hasAltText,
   hasVideoElement,
   isMediaKey,
+  isStageTaleMedia,
+  isTaleMediaElement,
+  LEGACY_TALE_DURATION_MS,
+  limitedVideoCount,
   MAX_MEDIA_RADIUS,
   MAX_TALE_DURATION_MS,
   MEDIA_FITS,
@@ -18,6 +22,7 @@ import {
   isOutsideSafeArea,
   projectMediaFileUrl,
   resolveDocumentMedia,
+  taleMediaElement,
   TALE_DOCUMENT_V1_SCHEMA,
   TALE_ELEMENT_TYPE_REGISTRY,
   type TaleDocument,
@@ -174,5 +179,42 @@ describe('tale media helpers', () => {
     expect(projectMediaFileUrl('p 1', IMAGE)).toBe(
       '/api/v1/projects/p%201/media/file?key=media%2F0b7c9d4e-1111-4222-8333-944455556666.png',
     );
+  });
+});
+
+describe("the tale's own media (epic Tale Studio R16)", () => {
+  const own = taleMediaElement('00000000-0000-4000-8000-0000000000ff', 'tales/0a.mp4', 'video');
+
+  it('is a full-canvas, contained, decorative element marked taleMedia', () => {
+    expect(own).toEqual({
+      id: '00000000-0000-4000-8000-0000000000ff',
+      type: 'video',
+      box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: { decorative: true },
+      props: { mediaKey: 'tales/0a.mp4', fit: 'contain', taleMedia: true },
+    });
+    expect(isTaleMediaElement(own)).toBe(true);
+    expect(isTaleMediaElement({ ...own, type: 'text' })).toBe(false);
+    expect(isTaleMediaElement({ ...own, props: { mediaKey: 'tales/0a.mp4', fit: 'contain' } })).toBe(false);
+    expect(LEGACY_TALE_DURATION_MS).toBe(5000);
+  });
+
+  it('is drawn full-bleed only while it is the bottom element and fills the canvas, unrotated, unrounded, opaque', () => {
+    expect(isStageTaleMedia(own, 0)).toBe(true);
+    expect(isStageTaleMedia(own, 1)).toBe(false);
+    expect(isStageTaleMedia({ ...own, box: { ...own.box, w: 0.9 } }, 0)).toBe(false);
+    expect(isStageTaleMedia({ ...own, box: { ...own.box, rotation: 5 } }, 0)).toBe(false);
+    expect(isStageTaleMedia({ ...own, props: { ...own.props, radius: 0.1 } }, 0)).toBe(false);
+    expect(isStageTaleMedia({ ...own, props: { ...own.props, opacity: 0.5 } }, 0)).toBe(false);
+    expect(isStageTaleMedia({ ...own, props: { ...own.props, radius: 0, opacity: 1 } }, 0)).toBe(true);
+  });
+
+  it('does not count toward the one-video limit', () => {
+    const video = { ...own, props: { mediaKey: 'media/0b.mp4', fit: 'cover' } };
+    expect(limitedVideoCount({ elements: [own] })).toBe(0);
+    expect(limitedVideoCount({ elements: [own, video] })).toBe(1);
+    expect(limitedVideoCount(null)).toBe(0);
   });
 });

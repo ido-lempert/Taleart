@@ -1,4 +1,6 @@
 import type { BarSettings, DeliveryTaleGroup } from '@taleart/contract';
+import { mediaUrl } from './document/media';
+import { canvasColor } from './document/renderer';
 import { replaceCover, setCanvasSource, setSource } from './first-content';
 
 /** The frame type this renderer draws (AD-5). */
@@ -213,29 +215,62 @@ function coverElement(kind: 'image' | 'video', url: string, animated: boolean, r
   return el;
 }
 
-// The group's cover (R12) when it has one; else the first tale with media: its image, or that
-// video's first frame; a neutral placeholder with no media.
-function cover(group: DeliveryTaleGroup, reduced: boolean): HTMLElement {
-  if (group.cover) return coverElement(group.cover.kind, group.cover.url, group.cover.animated === true, reduced);
-  const media = group.tales.find((tale) => tale.media)?.media;
-  if (media) return coverElement(media.kind, media.url, false, reduced);
-  const el = document.createElement('span');
-  el.setAttribute('data-placeholder', '');
-  el.className = 'cover';
-  return el;
+// A tale's lowest media element (Tale Studio R16): its document's media background, else its first
+// image, video or image sticker; a tale sent without a document (servers before R16) has its media.
+function lowestMedia(tale: DeliveryTaleGroup['tales'][number]): { kind: 'image' | 'video'; url: string } | null {
+  const doc = tale.document;
+  if (!doc) {
+    const url = tale.media ? mediaUrl(tale.media.url) : null;
+    return tale.media && url ? { kind: tale.media.kind, url } : null;
+  }
+  const background = doc.canvas?.background as { type?: unknown; url?: unknown } | undefined;
+  const backgroundUrl = background?.type === 'media' ? mediaUrl(background.url) : null;
+  if (backgroundUrl) return { kind: 'image', url: backgroundUrl };
+  for (const element of Array.isArray(doc.elements) ? doc.elements : []) {
+    if (element.type !== 'image' && element.type !== 'video' && element.type !== 'sticker') continue;
+    const url = mediaUrl(element.props?.['url']);
+    if (url) return { kind: element.type === 'video' ? 'video' : 'image', url };
+  }
+  return null;
 }
 
 /**
- * A banner slide's picture (R3): the group's first tale with media, its image
- * or that video's first frame (never played); a neutral placeholder with none.
+ * A group's default cover (web zones R12, Tale Studio R16): the lowest media element of its first
+ * tale that has media, as before documents the first tale with media gave its picture; when no tale
+ * has media, the first tale's canvas colour (null when there is none to show).
  */
-export function coverMedia(group: DeliveryTaleGroup): HTMLElement {
-  const media = group.tales.find((tale) => tale.media)?.media;
-  if (media) return coverElement(media.kind, media.url, false, true);
+export function defaultCover(
+  group: DeliveryTaleGroup,
+): { kind: 'image' | 'video'; url: string } | { color: string | null } {
+  for (const tale of group.tales) {
+    const found = lowestMedia(tale);
+    if (found) return found;
+  }
+  const doc = group.tales[0]?.document;
+  return { color: doc ? canvasColor(doc) : null };
+}
+
+// The default cover as an element: the media's image, or that video's first frame (never played);
+// a tale without media shows its canvas colour, else a neutral placeholder.
+function defaultCoverElement(group: DeliveryTaleGroup, reduced: boolean): HTMLElement {
+  const found = defaultCover(group);
+  if ('url' in found) return coverElement(found.kind, found.url, false, reduced);
   const el = document.createElement('span');
   el.setAttribute('data-placeholder', '');
   el.className = 'cover';
+  if (found.color) el.style.backgroundColor = found.color;
   return el;
+}
+
+// The group's cover (R12) when it has one; else its default cover.
+function cover(group: DeliveryTaleGroup, reduced: boolean): HTMLElement {
+  if (group.cover) return coverElement(group.cover.kind, group.cover.url, group.cover.animated === true, reduced);
+  return defaultCoverElement(group, reduced);
+}
+
+/** A banner slide's picture (R3): the group's default cover, still ({@link defaultCover}). */
+export function coverMedia(group: DeliveryTaleGroup): HTMLElement {
+  return defaultCoverElement(group, true);
 }
 
 /**
