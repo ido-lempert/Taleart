@@ -260,3 +260,18 @@ User decision (2026-10-21): add a **Tale Studio** epic to the MVP, so tales are 
 - **Importer 2.10, 1,000 tales within 30 minutes** (merge `e4094c8`): retries with backoff and `Retry-After`, a shared 429 hold, bounded concurrency (8 media, 6 per host, 4 lists read ahead), report determinism, resume after a restart, `elapsedSeconds`, and the `api:import-scale` target. One review (12 findings) and one follow-up review (5 findings), all patched: stop on a lost claim, an ordered byte budget, per-hop host slots, the deadline starting only when a transfer starts, a DB pool of 20 with a cap on DB phases, and a backfill. Measured at factor 0.1: 25 s with injected failures (upper bound 4.2 min at real latency), 15 s without; re-runs about 5 s; about 200 MB peak.
 
 Verification on the merged tree (`e4094c8`): `nx run-many -t lint test build` passed for 12 projects (api 382, importer 276, web-sdk 264 tests).
+
+## Ninth batch (2026-10-22/23): Tale Studio core, web zones closed out
+
+Merged into `autopilot/foundation`. Every story got an agent review (risky ones also a follow-up review), and all findings were patched.
+- Foundation 1.10, refactor sweep (`fe8c9b6`): routes lazy-loaded, initial bundle 638 → 492 KB, deprecations cleared. Staging 1.9 is skipped for now (user decision).
+- Web zones 3.12, accessibility review (`00894d4`): signed off by the user after the automated pass (123 checks, 8 fixes, RTL support). The manual screen-reader checklist is still open. Animated covers stop after 5 s. Captions and tale language are post-MVP.
+- Web zones 3.13, refactor sweep (`17a4c82`): self-contained SDK types, `web-sdk:types-check`, a public-types drift test.
+- Tale Studio 7.3, undo/redo/autosave plus draft and "Publish changes" (`901ba7e`, user decision). 7.4, text style with direction (`16e905c`). Contract entry points (`8bea2cb`, dashboard initial 490 KB). 7.17, project fonts (`ad7d3a0`: WOFF2 structure checks, `tale_fonts`, per-project caps). 7.5, images and video (`489b892`: `tale_media`, deletion guard, streaming uploads, 15 s cap). 7.6, shapes, stickers and emoji (`d2bba46`). 7.11, existing tales become documents (`e90bc09`): batched idempotent migration, `TALE_MEDIA_MIGRATION` flag, the `api:tale-media-rollback` script; the pixel comparison against the 489b892 SDK found 0 differences in 8 cases.
+- Verification on `e90bc09`: `nx run-many -t lint test build` passed for 12 projects (api 487 tests). The latest screenshots show a migrated tale with a rectangle, Hebrew/English text and an emoji in the studio, published and shown on a phone.
+- Incident: one agent run truncated tables in `taleart_test` (a `_test` database, allowed by the rules) by running the root vitest suite with the default `TEST_DATABASE_URL`.
+
+### Next steps (handoff)
+- Ready now: Tale Studio 7.7 (button, image button, swipe-up link). After it: 7.8 (element-type registry), then 7.9 (preview with the SDK renderer, including AD-16's deferred "studio mounts the SDK renderer" and pixel parity), 7.10, 7.12, 7.13, 7.14, 7.15 (accessibility review, including the web-zones dashboard scan), 7.16.
+- Waiting for the user: the web-zones review ("web zones done" unblocks importer 2.11); the open questions in memory `user-review-gates`.
+- How to continue: follow memory `autopilot-workflow` (worktree agents, review, merge, screenshots via SendUserFile).
