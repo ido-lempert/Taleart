@@ -619,6 +619,8 @@ describe('App', () => {
       // A name refusal marks the name, not the slug.
       expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBe('true');
       expect(drawer()?.querySelector('#create-slug')?.getAttribute('aria-invalid')).toBeNull();
+      // Focus goes to the refused field, so the error is read with it (story 8.17).
+      expect(document.activeElement?.id).toBe('create-text');
     });
 
     it('previews the slug made from the name, and requires one when a Hebrew name gives none', async () => {
@@ -753,6 +755,7 @@ describe('App', () => {
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('slug must be lowercase');
       expect(slug?.getAttribute('aria-invalid')).toBe('true');
       expect(name?.getAttribute('aria-invalid')).toBeNull();
+      expect(document.activeElement).toBe(slug);
 
       type(slug, 'home-top');
       buttonNamed(drawer() as HTMLElement, 'Save').click();
