@@ -120,6 +120,8 @@ export interface CheckedRecord {
   label?: unknown;
   /** A story's call to action as a tale's button can carry it, or null when it has none it can carry; stories only. */
   callToAction?: SourceCallToAction | null;
+  /** True when a story's link (outlink or deep_link) has a value no button may open; stories only. */
+  linkRefused?: boolean;
 }
 
 /** The source fields a story's link may come in, in the order the import prefers them. */
@@ -369,6 +371,7 @@ export function checkRecord(
     record.mimeType = values.get('mime_type');
     record.status = values.get('status');
     if (cta?.carried) record.callToAction = cta.carried;
+    if (cta && cta.refused.size > 0) record.linkRefused = true;
   }
   if (entity === 'taleGroup') record.segments = values.get('segments');
   if (entity === 'tag') record.label = values.get('name');

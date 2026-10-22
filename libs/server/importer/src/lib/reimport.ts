@@ -30,6 +30,12 @@ export interface RecordFields {
    * documents, and the label and destination last written there (TaleArt values, as written).
    */
   button?: { id: string; label: string; href: string };
+  /**
+   * Fingerprints of a tale's draft and published documents as the import last left them (MD5 of
+   * their stored text; '' once a person changed one): a document still matching is the import's, so
+   * a re-import may write it; the published one only then (Tale Studio R17).
+   */
+  documents?: { draft: string | null; published: string | null };
 }
 
 /** What a merge decided for one field. */

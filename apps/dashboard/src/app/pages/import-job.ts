@@ -30,6 +30,7 @@ import {
   importStatusClass,
   importStatusLabel,
   importTimeText,
+  importUnreadableText,
 } from './import-shared';
 
 /**
@@ -288,6 +289,9 @@ import {
                   }
                 </section>
               }
+              @if (unreadableText(report.unreadableLayers); as unreadable) {
+                <p class="muted import-unreadable">{{ unreadable }}</p>
+              }
               @if (report.notImportedByDesign; as byDesign) {
                 @if (byDesign.length > 0) {
                   <p class="muted import-by-design">Not imported by design: {{ byDesign.join(', ') }}.</p>
@@ -385,6 +389,7 @@ export class ImportJobPage implements OnInit {
   protected readonly durationText = importDurationText;
   protected readonly notSelectedText = importNotSelectedText;
   protected readonly progressText = importProgressText;
+  protected readonly unreadableText = importUnreadableText;
   protected readonly time = importTimeText;
 
   private timer: ReturnType<typeof setTimeout> | undefined;

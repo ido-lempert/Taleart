@@ -96,6 +96,8 @@ export interface SourceStory extends SourceOrderedRecord {
   status?: unknown;
   /** Its call to action, when it has one a tale's button can carry (epic Tale Studio R17). */
   callToAction?: SourceCallToAction | null;
+  /** True when its outlink or deep_link has a value no button may open. */
+  linkRefused?: boolean;
 }
 
 /**

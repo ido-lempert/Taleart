@@ -175,6 +175,8 @@ export function importDifferenceText(difference: ImportDifference): string {
       return `${field}: label not imported${label ? ` (${label})` : ''}`;
     }
     case 'keptLocalEdit':
+      // A tale's button a person removed (Tale Studio R17): listed once per change at the source.
+      if (field === 'button') return "You removed the button; the source's change was not added";
       return `${field}: changed at the source, kept as changed in TaleArt`;
     case 'removedAtSource':
       if (difference.entity === 'tag') return `${field}: label no longer at the source; the tag stays`;
@@ -187,8 +189,6 @@ export function importDifferenceText(difference: ImportDifference): string {
       const label = difference.reason && LINK_FAILURE_LABELS[difference.reason as ImportLinkFailure];
       return `${field}: link not imported${label ? ` (${label})` : ''}`;
     }
-    case 'notReadable':
-      return 'text, stickers and components: not readable through the API, so not imported';
   }
 }
 
@@ -251,3 +251,10 @@ export const IMPORT_PILL_STYLES = `
     color: var(--ember-strong-hover);
   }
 `;
+
+/** The report's line about what no tale could take from the source (Tale Studio R17); empty for none. */
+export function importUnreadableText(tales: number | undefined): string {
+  if (!tales) return '';
+  const which = tales === 1 ? '1 tale' : `${tales} tales`;
+  return `Text, stickers and components of ${which}: not readable through the API, so not imported.`;
+}

@@ -1,5 +1,5 @@
 import { IMPORTED_BUTTON_BOX, TALE_SAFE_AREA, type TaleDocument } from '@taleart/contract';
-import { findImportedButton, importedButtonElement, withImportedButton } from './imported-button';
+import { findImportedButton, importedButtonElement, isTaleMediaOnlyDocument, withImportedButton } from './imported-button';
 import { checkPublishableDocument } from './tale-document';
 
 const ID = '00000000-0000-4000-8000-0000000000b1';
@@ -52,6 +52,18 @@ describe('the button an import carries (epic Tale Studio R17)', () => {
     // The same value: the same object.
     expect(withImportedButton(doc, ID, SALE, SALE)).toBe(doc);
     expect(withImportedButton(null, ID, SALE, SALE)).toBeNull();
+  });
+
+  it("tells a document of only the tale's media from one a person changed", () => {
+    expect(isTaleMediaOnlyDocument(withMedia())).toBe(true);
+    expect(isTaleMediaOnlyDocument({ ...withMedia(), durationMs: 5000 })).toBe(true);
+    expect(isTaleMediaOnlyDocument({ ...withMedia(), durationMs: 9000 })).toBe(false);
+    expect(isTaleMediaOnlyDocument(withImportedButton(withMedia(), ID, null, SALE))).toBe(false);
+    expect(isTaleMediaOnlyDocument({ ...withMedia(), elements: [{ ...media, box: { ...media.box, w: 0.5 } }] })).toBe(false);
+    expect(isTaleMediaOnlyDocument({ ...withMedia(), canvas: { background: { type: 'color', color: '#FFFFFF' } } })).toBe(
+      false,
+    );
+    expect(isTaleMediaOnlyDocument(null)).toBe(false);
   });
 
   it('finds only a button with that id', () => {

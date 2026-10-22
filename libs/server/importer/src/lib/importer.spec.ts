@@ -1056,8 +1056,6 @@ describe('importContent: differences', () => {
       ['taleGroup', 'notHeld', 'pinned', 'Home page', '2001'],
       ['tale', 'notHeld', 'deep_link', 'Summer', 'g1'],
       ['tale', 'invalidRecord', null, 'Summer', 'g1'],
-      // Once per imported tale: what the source's API does not show (epic Tale Studio R17).
-      ['tale', 'notReadable', null, 'Summer', 'g1'],
     ]);
     expect(report.notImportedByDesign).toEqual(['Conversion records', 'Stats']);
     expect(report.differencesOmitted).toBeUndefined();
@@ -1759,7 +1757,7 @@ describe('importContent: re-import updates (AD-7)', () => {
     const report = await run(fake, groups, moved);
     expect(fake.zoneContent('Home page')[0].tales).toEqual(['A', 'B', 'C']);
     expect(fake.tales.size).toBe(4);
-    expect((report.differences ?? []).filter((d) => d.kind !== 'notHeld' && d.kind !== 'notReadable')).toEqual([
+    expect((report.differences ?? []).filter((d) => d.kind !== 'notHeld')).toEqual([
       {
         entity: 'tale',
         record: { sourceId: 's3', name: 'C', within: 'New', withinSourceId: 'g2', position: 2 },
@@ -1779,7 +1777,7 @@ describe('importContent: re-import updates (AD-7)', () => {
     expect(quiet.notes).toContain(
       'Tale "C" in "Summer": a person moved it to another tale group in TaleArt, so it stays there',
     );
-    expect((quiet.differences ?? []).filter((d) => d.kind !== 'notReadable')).toEqual([]);
+    expect(quiet.differences ?? []).toEqual([]);
     // The source then moves it to New too: nothing is left to report.
     const moved = { g1: stories['g1'].filter((s) => s.id !== 's3'), g2: [...stories['g2'], stories['g1'][2]] };
     const report = await run(fake, groups, moved);
@@ -2261,7 +2259,7 @@ describe('importContent: the byte budget in reading order (story 10 review)', ()
     expect(one.media).toEqual({ source: 8, imported: 5, skipped: 3 });
     expect(many.media).toEqual(one.media);
     expect(many.differences).toEqual(one.differences);
-    expect((one.differences ?? []).filter((d) => d.kind !== 'notReadable').map((d) => d.record.sourceId)).toEqual(['s5', 's6', 's7']);
+    expect((one.differences ?? []).map((d) => d.record.sourceId)).toEqual(['s5', 's6', 's7']);
   });
 });
 

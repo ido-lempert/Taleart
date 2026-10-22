@@ -270,6 +270,9 @@ describe("a story's call to action (epic Tale Studio R17)", () => {
       'linkNotImported deep_link scheme',
     ]);
     expect(check({ button_text: 'Open', deep_link: 'myapp://home' }).record?.callToAction).toBeUndefined();
+    // Marked, so a button carried before keeps its earlier link.
+    expect(check({ button_text: 'Open', deep_link: 'myapp://home' }).record?.linkRefused).toBe(true);
+    expect(check({ button_text: 'Open', deep_link: 'https://a.example/' }).record?.linkRefused).toBeUndefined();
     expect(rows({ button_text: 'Click', outlink: SCRIPT })).toEqual([
       'notHeld button_text',
       'linkNotImported outlink scheme',
