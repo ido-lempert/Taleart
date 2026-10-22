@@ -4,7 +4,8 @@ import { By } from '@angular/platform-browser';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
-import { App, API_BASE, API_ORIGIN, API_RETRY, apiRetryDelay } from './app';
+import { App, API_BASE, API_ORIGIN } from './app';
+import { API_RETRY_TIMING, type ApiRetryTiming } from './api-reconnect';
 import { appRoutes } from './app.routes';
 import { PasskeyClient, unauthorizedInterceptor } from './auth';
 import { CoverCapture } from './cover-capture';
@@ -142,17 +143,19 @@ const passkeys = {
 
 describe('App', () => {
   let http: HttpTestingController;
+  let retryTiming: ApiRetryTiming;
 
   beforeEach(async () => {
     localStorage.clear();
     passkeys.supported.mockReturnValue(true);
-    // The banner's retries wait for the test to ask; tests of them shorten the wait.
-    API_RETRY.delaysMs = [3_600_000];
+    // The banner's retries wait for the test to ask; tests of them retry at once.
+    retryTiming = { delaysMs: [3_600_000], tryTimeoutMs: 3_600_000, announceMs: 3_600_000 };
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
         provideHttpClient(withInterceptors([unauthorizedInterceptor])),
         provideHttpClientTesting(),
+        { provide: API_RETRY_TIMING, useFactory: () => retryTiming },
         { provide: PasskeyClient, useValue: passkeys },
         { provide: CoverCapture, useValue: capture },
         provideRouter(appRoutes, withComponentInputBinding()),
@@ -270,15 +273,16 @@ describe('App', () => {
       expect(root.querySelector('nav[aria-label=Main]')).not.toBeNull();
     });
 
-    it('waits 2, 4, 8 and 16 s between retries, then 30 s', () => {
-      const delays = [2_000, 4_000, 8_000, 16_000, 30_000];
-      expect([0, 1, 2, 3, 4, 5, 9].map((n) => apiRetryDelay(n, delays))).toEqual([
-        2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000,
-      ]);
-    });
+    // The retry timing itself is covered in api-reconnect.spec.ts; here each retry runs at once.
+    // Runs the reconnect's effect and its 0 ms timer, without whenStable() (which would wait for requests).
+    async function retryTick(): Promise<void> {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve));
+      await new Promise((resolve) => setTimeout(resolve));
+    }
 
     it('says the API is unreachable politely, retries, and clears the banner when the API answers', async () => {
-      API_RETRY.delaysMs = [20];
+      retryTiming.delaysMs = [0];
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       await navigate(fixture, '/zones');
@@ -294,21 +298,20 @@ describe('App', () => {
       expect(root.textContent).not.toContain('3333');
       expect(document.activeElement).toBe(focused);
 
-      // The first retry fails too: the banner stays and another retry follows.
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      // The retry fails too: the banner stays and another retry follows, one at a time.
+      await retryTick();
       http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
       await settle(fixture);
       expect(root.querySelector('.banner')).not.toBeNull();
 
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await retryTick();
       await flushRefresh(fixture, oneZone);
       await settle(fixture);
       expect(root.querySelector('.banner')).toBeNull();
       expect(root.querySelector('.api-status')?.textContent?.trim()).toBe('Connected to TaleArt again.');
       expect(root.textContent).toContain('Home bar');
-
       // No retry runs once the API answers.
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      await settle(fixture);
       http.expectNone(`${API_BASE}/projects`);
     });
 
@@ -324,42 +327,82 @@ describe('App', () => {
       expect((fixture.nativeElement as HTMLElement).querySelector('.banner')).toBeNull();
     });
 
-    it('reads the auth state again when the API was down from the start', async () => {
-      API_RETRY.delaysMs = [20];
+    it('reads the auth state again when the API was down from the start, and loads the data once', async () => {
+      retryTiming.delaysMs = [0];
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       const navigation = TestBed.inject(Router).navigateByUrl('/zones');
       await new Promise((resolve) => setTimeout(resolve));
       http.expectOne(`${API_BASE}/auth/state`).error(new ProgressEvent('error'));
       await navigation;
-      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve));
       const root = fixture.nativeElement as HTMLElement;
+      fixture.detectChanges();
       expect(root.querySelector('.banner')).not.toBeNull();
 
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await retryTick();
       http.expectOne(`${API_BASE}/auth/state`).flush(signedIn);
       await settle(fixture);
+      // flushRefresh expects exactly one request per step: the sign-in effect and the retry share one load.
       await flushRefresh(fixture, oneZone);
       expect(root.querySelector('.banner')).toBeNull();
       expect(root.textContent).toContain('Home bar');
     });
 
     it('opens sign-in when the API comes back and nobody is signed in', async () => {
-      API_RETRY.delaysMs = [20];
+      retryTiming.delaysMs = [0];
       const fixture = TestBed.createComponent(App);
       fixture.detectChanges();
       const navigation = TestBed.inject(Router).navigateByUrl('/zones');
       await new Promise((resolve) => setTimeout(resolve));
       http.expectOne(`${API_BASE}/auth/state`).error(new ProgressEvent('error'));
       await navigation;
-      await settle(fixture);
-
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await retryTick();
       http.expectOne(`${API_BASE}/auth/state`).flush({ setupRequired: false, user: null });
       await settle(fixture);
       await settle(fixture);
       expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fzones');
       expect((fixture.nativeElement as HTMLElement).querySelector('.banner')).toBeNull();
+    });
+
+    it('goes to sign-in, with no banner and no announcement, when a retry is answered 401', async () => {
+      retryTiming.delaysMs = [0];
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones');
+      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      await settle(fixture);
+
+      await retryTick();
+      http
+        .expectOne(`${API_BASE}/projects`)
+        .flush({ error: { code: 'unauthenticated', message: 'Sign in to continue' } }, { status: 401, statusText: 'Unauthorized' });
+      await settle(fixture);
+      await settle(fixture);
+
+      const root = fixture.nativeElement as HTMLElement;
+      expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fzones');
+      expect(root.querySelector('.banner')).toBeNull();
+      expect(root.textContent).not.toContain('Connected to TaleArt again.');
+      http.expectNone(`${API_BASE}/projects`);
+    });
+
+    it('announces nothing when the user signs out while the API is down', async () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones');
+      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      await settle(fixture);
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('.banner')).not.toBeNull();
+
+      buttonNamed(root, 'Sign out').click();
+      await new Promise((resolve) => setTimeout(resolve));
+      http.expectOne(`${API_BASE}/auth/sign-out`).flush(null);
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/sign-in');
+      expect(root.querySelector('.banner')).toBeNull();
+      expect(root.textContent).not.toContain('Connected to TaleArt again.');
     });
 
     // Report §6 #15: frames were named "Frame 1 · Bar"; a zone now has one display (story 8.5).
@@ -1525,10 +1568,13 @@ describe('App', () => {
       // Summer is in every zone of its project: "Add to zone…" stays, disabled, with its reason (report §6 #13).
       const full = buttonNamed(groupRow(root, 'Summer'), 'Add to zone…');
       expect(full.getAttribute('aria-disabled')).toBe('true');
-      expect(full.title).toBe('Already in every zone');
       const reasonIds = full.getAttribute('aria-describedby')?.split(' ') ?? [];
       expect(reasonIds[0]).toBe('group-name-g1');
-      expect(root.querySelector(`#${reasonIds[1]}`)?.textContent).toBe('Already in every zone');
+      // The reason is its description, and shows under it on hover and focus (not a title only).
+      const reason = root.querySelector(`#${reasonIds[1]}`);
+      expect(reason?.textContent).toBe('Already in every zone');
+      expect(reason?.className).toBe('disabled-reason__tip');
+      expect(reason?.parentElement?.contains(full)).toBe(true);
       full.click();
       await settle(fixture);
       expect(drawer()).toBeNull();
@@ -1696,8 +1742,12 @@ describe('App', () => {
       expect(rows[0].textContent).toContain('Not in any zone');
       expect(rows[1].querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar, Product page');
       expect([...rows[1].querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/zones/z1', '/zones/z3']);
-      expect(buttonNamed(rows[1], 'Add to zone…').getAttribute('aria-disabled')).toBe('true');
-      expect(buttonNamed(rows[1], 'Add to zone…').title).toBe('Already in every zone');
+      const full = buttonNamed(rows[1], 'Add to zone…');
+      expect(full.getAttribute('aria-disabled')).toBe('true');
+      const [nameId, reasonId] = full.getAttribute('aria-describedby')?.split(' ') ?? [];
+      expect(root.querySelector(`#${nameId}`)?.textContent).toContain('Summer');
+      expect(root.querySelector(`#${reasonId}`)?.textContent).toBe('Already in every zone');
+      expect(root.querySelector(`#${reasonId}`)?.className).toBe('disabled-reason__tip');
       expect(root.textContent).not.toContain('Elsewhere');
 
       buttonNamed(rows[0], 'Add to zone…').click();
@@ -2834,10 +2884,11 @@ describe('App', () => {
       await settle(fixture);
       const links = [...(drawer()?.querySelectorAll('a') ?? [])];
       const link = links.find((a) => a.textContent?.trim() === 'Edit in Tale Studio');
-      expect(link?.getAttribute('href')).toBe('/tales/t1/studio');
+      // It carries the zone page it was opened on, where the studio's back link returns.
+      expect(link?.getAttribute('href')).toBe('/tales/t1/studio?zone=z1');
       link?.click();
       await settle(fixture);
-      expect(TestBed.inject(Router).url).toBe('/tales/t1/studio');
+      expect(TestBed.inject(Router).url).toBe('/tales/t1/studio?zone=z1');
       expect(drawer()).toBeNull();
       http
         .expectOne(`${API_BASE}/tales/t1/document`)

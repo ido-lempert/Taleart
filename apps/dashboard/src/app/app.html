@@ -62,7 +62,7 @@
             <app-icon name="alert" />
             <span>We can't reach TaleArt. Retrying…</span>
           </div>
-        } @else if (reconnected()) {
+        } @else if (reconnect.reconnected()) {
           <span class="visually-hidden">Connected to TaleArt again.</span>
         }
       </div>

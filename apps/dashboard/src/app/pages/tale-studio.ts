@@ -10,6 +10,7 @@ import {
   input,
   linkedSignal,
   OnChanges,
+  type SimpleChanges,
   signal,
   untracked,
   viewChild,
@@ -545,7 +546,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
             >
               <app-icon name="redo" /> Redo
             </button>
-            <div class="studio-help">
+            <div class="studio-help" (focusout)="helpFocusOut($event)">
               <button
                 #helpButton
                 type="button"
@@ -621,7 +622,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
           @if (duplicateResult(); as dup) {
             <p class="studio-notice" id="studio-duplicated">
               {{ dup.message }}
-              <a [routerLink]="['/tales', dup.id, 'studio']">Open the copy</a>
+              <a [routerLink]="['/tales', dup.id, 'studio']" [queryParams]="{ zone: zone() }">Open the copy</a>
             </p>
           }
           @if (duplicating() && tale(); as t) {
@@ -1404,6 +1405,8 @@ export class TaleStudioPage implements OnChanges {
   private readonly router = inject(Router);
   /** The tale being edited, bound from the route's `:taleId`. */
   readonly taleId = input.required<string>();
+  /** The zone page the studio was opened from (`?zone=`), where its back link returns. */
+  readonly zone = input<string | undefined>(undefined);
 
   /** The document being edited; null until read. */
   protected readonly doc = signal<TaleDocument | null>(null);
@@ -1587,13 +1590,17 @@ export class TaleStudioPage implements OnChanges {
       .reverse(),
   );
   /**
-   * Back to the zone page that lists the tale, named by its group ("Back to Summer sale"); "Back"
-   * to the zones list while the group is not known.
+   * Back to the zone page the studio was opened from (`?zone=`) when it lists the tale, else the
+   * first zone that does, named by the tale's group ("Back to Summer sale"); "Back" to the zones
+   * list while the group is not known.
    */
   protected readonly backLink = computed(() => {
     const id = this.taleId();
-    for (const [zoneId, groups] of Object.entries(this.store.taleGroups())) {
-      const group = groups.find((g) => g.tales.some((t) => t.id === id));
+    const lists = this.store.taleGroups();
+    const from = this.zone();
+    const zones = from && lists[from] ? [from, ...Object.keys(lists).filter((z) => z !== from)] : Object.keys(lists);
+    for (const zoneId of zones) {
+      const group = lists[zoneId].find((g) => g.tales.some((t) => t.id === id));
       if (group) return { link: ['/zones', zoneId], text: `Back to ${group.name}` };
     }
     return { link: ['/zones'], text: 'Back' };
@@ -1614,6 +1621,13 @@ export class TaleStudioPage implements OnChanges {
     event.stopPropagation();
     this.helpOpen.set(false);
     this.helpButton()?.nativeElement.focus();
+  }
+
+  /** Focus moving out of the "?" button and its popover closes it, leaving focus where it went. */
+  protected helpFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (next instanceof Node && (event.currentTarget as HTMLElement).contains(next)) return;
+    this.helpOpen.set(false);
   }
 
   /** A press outside the "?" button and its popover closes it, leaving focus where the press put it. */
@@ -1801,8 +1815,10 @@ export class TaleStudioPage implements OnChanges {
   }
 
   // The route's tale changed (on opening, or after keeping a version as a new tale, where the
-  // page stays and its tale changes): start over with that tale's document.
-  ngOnChanges(): void {
+  // page stays and its tale changes): start over with that tale's document. Only the zone the
+  // studio came from changing (`?zone=`) keeps the tale as it is.
+  ngOnChanges(changes: SimpleChanges): void {
+    if (!changes['taleId']) return;
     this.held.set('');
     this.leavingForCopy = false;
     this.draftStored.set(false);
@@ -2178,7 +2194,9 @@ export class TaleStudioPage implements OnChanges {
     await this.store.refresh();
     // Saved as the new tale: leaving for it does not ask, and nothing more is saved here.
     this.leavingForCopy = true;
-    const opened = await this.router.navigate(['/tales', tale.id, 'studio']).catch(() => false);
+    const opened = await this.router
+      .navigate(['/tales', tale.id, 'studio'], { queryParams: { zone: this.zone() } })
+      .catch(() => false);
     if (!opened || this.taleId() === taleId) {
       // Still on the original: it stays in the stale choice, with the version on screen.
       this.leavingForCopy = false;
@@ -2884,6 +2902,8 @@ export class TaleStudioPage implements OnChanges {
 
   private openMenu(x: number, y: number, origin: Origin, returnId: string): void {
     this.stopEditing();
+    // One popup at a time: the layer menu closes the keyboard shortcuts popover.
+    this.helpOpen.set(false);
     this.menu.set({ x, y, items: this.menuItems(), origin, returnId });
   }
 

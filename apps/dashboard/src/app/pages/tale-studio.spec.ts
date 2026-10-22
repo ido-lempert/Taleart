@@ -240,6 +240,53 @@ describe('TaleStudioPage', () => {
       expect(again.defaultPrevented).toBe(false);
     });
 
+    it('goes back to the zone it was opened from, when that zone lists the tale', async () => {
+      const store = TestBed.inject(DashboardStore);
+      store.taleGroups.set({ z1: [group], z2: [group] });
+      fixture = TestBed.createComponent(TaleStudioPage);
+      fixture.componentRef.setInput('taleId', 't1');
+      fixture.componentRef.setInput('zone', 'z2');
+      fixture.detectChanges();
+      http.expectOne(url).flush(draftRead({ document: null, revision: 0 }));
+      http.expectOne(`${API_BASE}/projects/p1/theme`).flush({ projectId: 'p1', theme: {}, resolved: DEFAULT_THEME });
+      http.expectOne(`${API_BASE}/projects/p1/fonts`).flush([]);
+      await settle(fixture);
+      root = fixture.nativeElement as HTMLElement;
+      const back = () => root.querySelector('a.back-link');
+      expect(back()?.textContent?.trim()).toBe('Back to Summer');
+      expect(back()?.getAttribute('href')).toBe('/zones/z2');
+
+      // A zone that does not list the tale falls back to the first one that does.
+      fixture.componentRef.setInput('zone', 'z9');
+      fixture.detectChanges();
+      expect(back()?.getAttribute('href')).toBe('/zones/z1');
+    });
+
+    it('closes when focus leaves it, and stays open while focus moves inside it', async () => {
+      await open({ document: null, revision: 0 });
+      helpButton().focus();
+      helpButton().click();
+      fixture.detectChanges();
+      helpPanel().focus();
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(false);
+      root.querySelector<HTMLButtonElement>('#studio-undo')?.focus();
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(true);
+      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('closes when a layer menu opens', async () => {
+      await open({ document: existing, revision: 1 });
+      helpButton().click();
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(false);
+      root.querySelector<HTMLButtonElement>(`#layer-more-${existing.elements[0].id}`)?.click();
+      await settle(fixture);
+      expect(root.querySelector('[role=menu]')).not.toBeNull();
+      expect(helpPanel().hidden).toBe(true);
+    });
+
     it('closes when a press lands outside it', async () => {
       await open({ document: null, revision: 0 });
       helpButton().click();
@@ -1209,7 +1256,7 @@ describe('TaleStudioPage', () => {
       keep.flush({ ...tale, id: 't2', title: 'Beach (copy)', position: 1, status: 'draft', storedStatus: 'draft' });
       await settle(fixture);
       expect(refresh).toHaveBeenCalled();
-      expect(navigate).toHaveBeenCalledWith(['/tales', 't2', 'studio']);
+      expect(navigate).toHaveBeenCalledWith(['/tales', 't2', 'studio'], { queryParams: { zone: undefined } });
       // The route's tale is the copy now: the studio opens it, and no save ever went to the original.
       http
         .expectOne(`${API_BASE}/tales/t2/document`)

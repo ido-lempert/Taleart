@@ -92,17 +92,18 @@ import { VisibilityIndicator } from '../visibility';
                         Add to zone…
                       </button>
                     } @else {
-                      <!-- Kept in place, disabled with its reason, so the row's actions do not move (report §6 #13). -->
-                      <button
-                        type="button"
-                        class="btn btn--secondary btn--sm"
-                        aria-disabled="true"
-                        title="Already in every zone"
-                        [attr.aria-describedby]="'project-group-' + group.id + ' every-zone-' + group.id"
-                      >
-                        Add to zone…
-                      </button>
-                      <span class="visually-hidden" [id]="'every-zone-' + group.id">Already in every zone</span>
+                      <!-- Kept in place, disabled, with its reason shown on hover and focus (report §6 #13). -->
+                      <span class="disabled-reason">
+                        <button
+                          type="button"
+                          class="btn btn--secondary btn--sm"
+                          aria-disabled="true"
+                          [attr.aria-describedby]="'project-group-' + group.id + ' every-zone-' + group.id"
+                        >
+                          Add to zone…
+                        </button>
+                        <span class="disabled-reason__tip" [id]="'every-zone-' + group.id">Already in every zone</span>
+                      </span>
                     }
                     <button
                       type="button"
