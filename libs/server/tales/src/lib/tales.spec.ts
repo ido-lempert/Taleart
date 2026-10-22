@@ -38,6 +38,7 @@ import {
   taleGroupProjectId,
   taleProjectId,
   TaleGroupFullError,
+  TaleGroupArchivedError,
   TaleGroupNotFoundError,
   TaleGroupNotInProjectError,
   TaleNotFoundError,
@@ -146,6 +147,7 @@ describe('placements', () => {
       { rows: [{ project_id: projectId }] },
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
+      { rows: [] },
       { rows: [], rowCount: 1 },
       { rows: [placedRow] },
       { rows: [] },
@@ -169,10 +171,25 @@ describe('placements', () => {
       { rows: [{ project_id: projectId }] },
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
+      { rows: [] },
       { rows: [], rowCount: 0 },
       { rows: [placedRow] },
     ]);
     expect((await placeTaleGroup(db, zoneId, groupId)).placed).toBe(false);
+  });
+
+  it('refuses an archived group not placed in the zone yet, without placing (epic UX rework R10)', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ '?column?': 1 }] },
+    ]);
+    await expect(placeTaleGroup(db, zoneId, groupId)).rejects.toBeInstanceOf(TaleGroupArchivedError);
+    const check = query.mock.calls.find((c) => /status = 'archived'/.test(c[0] as string));
+    expect(check?.[1]).toEqual([zoneId, groupId]);
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+    expect(statements()).toContain('ROLLBACK');
   });
 
   it('refuses an unknown zone, and a group of another project or none, without placing', async () => {

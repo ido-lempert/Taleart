@@ -115,6 +115,7 @@ export function tipPosition(
       border-radius: var(--radius-control);
     }
     .visibility__text {
+      min-width: 0;
       overflow-wrap: break-word;
     }
     .visibility__dot {

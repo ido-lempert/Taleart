@@ -93,8 +93,15 @@ export class AddExistingGroup {
   protected readonly saving = signal(false);
   protected readonly error = signal('');
   protected readonly groups = computed(() => addableGroups(this.store, this.zoneId()));
-  /** The group picked: the first one until another is chosen. */
-  protected readonly picked = linkedSignal(() => this.groups()[0]?.id ?? '');
+  /**
+   * The group picked: the first one until another is chosen. The pick is kept when the list is
+   * read again (another person's change, a refresh) while that group is still offered.
+   */
+  protected readonly picked = linkedSignal<ProjectTaleGroup[], string>({
+    source: this.groups,
+    computation: (groups, previous) =>
+      previous && groups.some((group) => group.id === previous.value) ? previous.value : (groups[0]?.id ?? ''),
+  });
 
   /** "3 tales · Not in a zone" or "1 tale · In Checkout, Home". */
   protected about(group: ProjectTaleGroup): string {

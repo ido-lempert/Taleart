@@ -24,6 +24,7 @@ import {
   FontNotFoundError,
   InvalidScheduleError,
   InvalidStatusTransitionError,
+  TaleGroupArchivedError,
   InvalidTaleDocumentError,
   StaleRevisionError,
   NothingToPublishError,
@@ -112,6 +113,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof DisplayConcurrentChangeError ||
     err instanceof SlugTakenError ||
     err instanceof InvalidStatusTransitionError ||
+    err instanceof TaleGroupArchivedError ||
     err instanceof StaleRevisionError ||
     err instanceof NothingToPublishError ||
     err instanceof FontExistsError ||

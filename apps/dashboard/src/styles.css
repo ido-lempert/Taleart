@@ -939,8 +939,8 @@ select {
   cursor: default;
 }
 
-/* Move buttons show on hover and focus; always on touch screens, which cannot hover. */
-@media (hover: hover) {
+/* Move buttons show on hover and focus; always where any pointer is coarse (touch), which cannot hover. */
+@media (hover: hover) and (not (any-pointer: coarse)) {
   .group-row .move-controls,
   .tale-card__moves,
   .tale-card__handle {

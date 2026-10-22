@@ -101,3 +101,21 @@ deferred: []
 
 **Manual checks:**
 - Playwright (`shots-8.10/`): three groups with counts and indicators; switching On updates the indicator and the sample page; every ⋯ item; disabled reason; 390x844 screenshot.
+
+## Review fixes (2026-10-22)
+
+Merged `autopilot/foundation` (8c5c105: 8.7 removed the Zone key block; 7.7) first.
+
+- **Setup step for groups.** Focuses an Off group's switch (`.group-row [role=switch]`, no longer a tale's); else, when a group is On but every tale is Hidden, opens that group and focuses its first Hidden tale switch; else the first group's name; else the page's own `#new-tale-group`.
+- **Archived groups are not placed.** `PUT /zones/{id}/tale-groups/{gid}` answers 409 `tale_group_archived` for an archived group not in the zone yet (contract, `TaleGroupArchivedError`, server and API tests); placing it again where it is stays 200.
+- **Add existing group** keeps the person's pick when the list is read again while that group is still offered; its empty reason says when the other groups are archived ("… are archived. Restore one to add it.").
+- **Open body** renders only while open (`@if`), so a closed group loads no media; `aria-controls` stays on the name; no `role=region`.
+- **Archive with Undo.** Archive from ⋯ shows a neutral bar above the list, "<name> archived. Undo", and announces "<name> archived. Undo is above the list."; Undo restores it (paused, then live when it was On), announces it and puts focus on the group's ⋯. While a status saves, the Archive/Restore item is disabled with "Saving…".
+- **One name:** "Show in another zone" on the Tale groups page button and in comments.
+- **Closed row** shows the tag pills and "n of m shown · max 100".
+- **Row click** ignores the reorder cell, the badge and the indicator.
+- **Move buttons** stay visible where any pointer is coarse: `@media (hover: hover) and (not (any-pointer: coarse))` hides them until hover or focus.
+- **Indicator text** has `min-width: 0`. 390 px checked on the zone page (rows, open tale strip), the zones list and the Tale groups page: no horizontal scroll.
+- **Tests.** Dashboard 522 (zone-page tests now open the groups through the name, as a person does, via `expandGroups`; the R10 tests check closed rows): the setup-step cases, tags on the closed row, no opening from reorder cell, badge or indicator, keyboard reorder of an open group, each ⋯ item's drawer request for the right group with focus back on ⋯, Undo after Archive and the disabled item while saving, the kept pick. Enter and Space on the name are checked in the browser run. API: archived placement 409. server-tales: archived refusal without insert.
+- **Browser run** (`shots-8.10/`): 53 checks passed, axe clean.
+- Known: the Tale groups page (8.14) still offers "Show in another zone" on an archived group; the drawer then shows the API's refusal.

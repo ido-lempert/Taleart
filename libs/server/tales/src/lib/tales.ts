@@ -213,6 +213,16 @@ export class TaleGroupFullError extends Error {
   }
 }
 
+/** Thrown when an archived tale group would be placed in a zone; restore it first (epic UX rework R10). */
+export class TaleGroupArchivedError extends Error {
+  readonly code = ErrorCodes.taleGroupArchived;
+
+  constructor(readonly taleGroupId: string) {
+    super('An archived tale group cannot be added to a zone. Restore it first.');
+    this.name = 'TaleGroupArchivedError';
+  }
+}
+
 /**
  * Thrown when a status change is not one of publish, pause, archive or
  * restore from the stored status (AD-6). The API answers 409.
@@ -497,6 +507,15 @@ export async function placeTaleGroup(
 
   return inTransaction(db, async (tx) => {
     await lockZone(tx, zoneId);
+    // An archived group is not placed anywhere new; placing it again where it is changes nothing.
+    const archived = await tx.query(
+      `SELECT 1 FROM tale_groups g
+       WHERE g.id = $2 AND g.status = 'archived'
+         AND NOT EXISTS (SELECT 1 FROM zone_tale_groups p WHERE p.zone_id = $1 AND p.tale_group_id = g.id)
+       FOR SHARE OF g`,
+      [zoneId, taleGroupId],
+    );
+    if (archived.rows.length > 0) throw new TaleGroupArchivedError(taleGroupId);
     // The composite keys refuse a group of another project at the database too (AD-4).
     const inserted = await tx.query(
       `INSERT INTO zone_tale_groups (zone_id, tale_group_id, project_id, position)
