@@ -119,6 +119,7 @@ import {
   type StudioElementType,
 } from './tale-element-types';
 import { TaleFieldsInspector } from './tale-fields-inspector';
+import { TalePreviewPane } from './tale-preview';
 import {
   SHAPE_NAMES,
   TaleEmojiPicker,
@@ -372,6 +373,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     TaleEmojiStyle,
     TaleLinkStyle,
     TaleFieldsInspector,
+    TalePreviewPane,
     DuplicateTale,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -682,6 +684,16 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                 </p>
               </div>
             </div>
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm"
+              id="studio-preview"
+              [attr.aria-controls]="previewOpen() ? 'studio-preview-pane' : null"
+              [attr.aria-expanded]="previewOpen()"
+              (click)="previewOpen.set(!previewOpen())"
+            >
+              <app-icon name="eye" /> Preview
+            </button>
             <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()">{{ saveText() }}</p>
           </div>
           <div class="studio-update" [class.is-pending]="unpublished()">
@@ -1480,6 +1492,19 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                 </label>
               </fieldset>
             </div>
+            @if (previewOpen()) {
+              <!-- The Web SDK's own viewer on the unsaved document (R10, AD-16). -->
+              <app-tale-preview
+                id="studio-preview-pane"
+                [document]="d"
+                [taleId]="taleId()"
+                [projectId]="projectId()"
+                [title]="tale()?.title ?? ''"
+                [groupName]="groupName()"
+                [theme]="projectTheme()"
+                [fonts]="projectFonts()"
+              />
+            }
           </div>
           <p class="visually-hidden" aria-live="polite">{{ announcement() }}</p>
           @if (picker(); as p) {
@@ -1686,6 +1711,17 @@ export class TaleStudioPage implements OnChanges {
    * the theme sets none; undefined until read, or when it cannot be read (the fallback shows).
    */
   protected readonly themeFont = signal<string | null | undefined>(undefined);
+  /** The project's complete theme, for the preview, as the Delivery API sends it; null until read. */
+  protected readonly projectTheme = signal<unknown>(null);
+  /** Whether the preview (R10) shows. */
+  protected readonly previewOpen = signal(false);
+  /** The name of the tale's group, which the viewer shows in its top bar. */
+  protected readonly groupName = computed(
+    () =>
+      Object.values(this.store.taleGroups())
+        .flat()
+        .find((group) => group.tales.some((t) => t.id === this.taleId()))?.name ?? '',
+  );
   private readonly themes = inject(ThemeService);
   /** The project's fonts (R18), which the inspector offers; null until read, or when they cannot be read. */
   protected readonly projectFonts = signal<readonly ProjectFont[] | null>(null);
@@ -1921,6 +1957,7 @@ export class TaleStudioPage implements OnChanges {
     const result = await this.themes.load(projectId);
     if (this.tale()?.projectId !== projectId) return;
     this.themeFont.set(result.value === null ? undefined : result.value.resolved.fontFamily);
+    this.projectTheme.set(result.value?.resolved ?? null);
   }
 
   /** How the canvas draws a text: as the Web SDK renders it, with the theme font read here. */

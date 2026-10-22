@@ -211,6 +211,30 @@ project font with a second zone, its bar display, group and tale. The media file
 to a temporary folder that is removed with them. A run killed outright (SIGKILL) leaves those rows, whose media keys
 then name files that no longer exist.
 
+## Tale Studio preview (workspace only)
+
+`@taleart/web-sdk/preview` (`src/preview.ts`) is the entry point the dashboard's Tale Studio imports to preview a tale
+exactly as visitors see it (AD-16, epic Tale Studio R10). It is not part of the published bundle: `index.js` does not
+include it, so the host page's bundle and its public types are unchanged. It exports:
+
+- `TalePreview`: the SDK's own `TaleViewer` and document renderer embedded in a host element's Shadow DOM: shown in
+  place as a region described as a preview (not a modal dialog, never taking focus, Close labelled "Stop preview"),
+  always laid out as on a phone (no wide-screen deck), letting the page scroll, with the viewer's chrome, playing the
+  tale for its duration. It starts muted; `setSound(true)` gives the tale's own video sound, as visitors have it.
+  `show(tale)` takes a changed tale 150 ms after the last change and redraws it in place (on the timer, or around the
+  tale's own running video), or plays it from its start 500 ms after the last change when its duration or a video
+  changed; an unchanged tale changes nothing, and another tale starts over. Also `replay()`, `togglePause()`,
+  `setTheme(theme)`, `setSafeArea(on)` and `destroy()`.
+- `previewDocument(draft, mediaUrl)`: the studio's draft as the Delivery API would deliver it (hidden layers and
+  editor fields left out, media keys as URLs). The server additionally validates a document when it is updated to the
+  site and delivers none that fails; the preview draws the draft as it stands, with the SDK's own checks.
+- `PREVIEW_SIZES`: 375 × 667, 390 × 844 (default) and 430 × 932.
+
+Links in the preview render with the visitor's look and stay focusable (`role="link"`, `tabindex="0"`, so the tale
+waits while one has focus), but without `href` or target, and clicks on them are cancelled: a draft's destination
+never becomes a live link in the dashboard. `nx run sdk-sample:preview-parity` compares the preview with the sample
+page's viewer pixel by pixel at 390 × 844, in a phone-sized window and inside a 1440 × 1000 window.
+
 ## Building
 
 Run `nx build web-sdk` to build the library, and `nx run web-sdk:size` to check the 50 KB gzip budget.
