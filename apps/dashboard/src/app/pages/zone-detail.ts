@@ -11,13 +11,13 @@ import {
   input,
   linkedSignal,
   signal,
+  untracked,
 } from '@angular/core';
 import { Location } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   findTemplate,
   isSwitchable,
-  MAX_TALES_PER_GROUP,
   switchStatus,
   taleShownStatus,
   type ContentStatus,
@@ -29,10 +29,10 @@ import {
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
-import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
-import { describeWindow, windowChip } from '../schedule';
+import { GroupRow } from '../group-row';
+import type { MenuItem, MenuPick } from '../menu-button';
 import { describeSettings, type Settings } from '../settings-form';
-import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from '../status';
+import { statusActions, statusLabel } from '../status';
 import { visibilityLine, visibilityReasons, VisibilityIndicator } from '../visibility';
 import {
   showsSetup,
@@ -45,7 +45,7 @@ import {
   type ZoneTab,
 } from '../zone-setup';
 import { AddExistingGroup, addableGroups } from './add-existing-group';
-import { GroupView, shownCount, shownLabel } from './group-view';
+import { GroupView, shownLabel } from './group-view';
 import { SiteKeyCard } from './site-key-card';
 
 /** The query parameter naming the group whose view is open (epic UX rework R11). */
@@ -82,10 +82,8 @@ type Direction = 'earlier' | 'later';
   imports: [
     RouterLink,
     Icon,
-    StatusBadge,
-    ShowSwitch,
     VisibilityIndicator,
-    MenuButton,
+    GroupRow,
     CdkDropList,
     CdkDrag,
     CdkDragHandle,
@@ -338,6 +336,11 @@ export class ZoneDetailPage {
   });
 
   constructor() {
+    // "Add existing group" lists the zone's project's groups: read that list (epic UX rework R14).
+    effect(() => {
+      const projectId = this.zone()?.projectId;
+      if (projectId) untracked(() => this.store.ensureProjectTaleGroups(projectId));
+    });
     // A `?tab=` that names the default or no tab is dropped from the URL, without a history entry.
     effect(() => {
       const tab = this.tab();
@@ -547,10 +550,7 @@ export class ZoneDetailPage {
   });
   /** The ids of the groups and tales whose status change is being saved, so their controls wait for it. */
   protected readonly statusSaving = signal<ReadonlySet<string>>(new Set());
-  protected readonly needsBadge = needsBadge;
   protected readonly isSwitchable = isSwitchable;
-  protected readonly describeWindow = describeWindow;
-  protected readonly windowChip = windowChip;
 
   /**
    * Each group row's ⋯ menu, by group id (epic UX rework R8, R10). "Show in another zone" stays,
@@ -610,7 +610,6 @@ export class ZoneDetailPage {
     }
   }
 
-  protected readonly maxTales = MAX_TALES_PER_GROUP;
 
   /**
    * The group whose view is open: follows the URL (`?group=`, reload, back and forward), and
@@ -718,7 +717,6 @@ export class ZoneDetailPage {
   }
 
   /** "3 of 4 shown": the group's tales that are Shown, of all its tales. */
-  protected readonly shownCount = shownCount;
 
   /** The project's groups that "Add existing group" can place here. */
   protected readonly addableGroups = computed(() => addableGroups(this.store, this.zoneId()));

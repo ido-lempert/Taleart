@@ -63,6 +63,32 @@ const admin = { id: 'u1', name: 'Ada Admin', email: 'ada@example.com', role: 'ad
 const signedIn = { setupRequired: false, user: admin };
 const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', settings: {} };
 
+/**
+ * A tale group as the project's list sends it (epic UX rework R14): its own fields and its tale
+ * counts, not its tales; `tales` Shown tales (or the counts of `fields.tales`), Off (`draft`) in no
+ * zone and not visible by default.
+ */
+function projectGroup(fields: Record<string, unknown> & { id: string; name: string }, tales = 0): Record<string, unknown> {
+  const stored = (fields['storedStatus'] as string | undefined) ?? (fields['status'] as string | undefined) ?? 'draft';
+  const { tales: given, ...own } = fields as { tales?: { storedStatus: string }[] };
+  const total = given ? given.length : tales;
+  const shown = given ? given.filter((t) => t.storedStatus === 'live').length : tales;
+  return {
+    projectId: 'p1',
+    status: stored,
+    storedStatus: stored,
+    startsAt: null,
+    endsAt: null,
+    cover: null,
+    tags: [],
+    zoneIds: [],
+    visibility: { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] },
+    ...own,
+    taleCount: total,
+    shownTaleCount: shown,
+  };
+}
+
 interface Data {
   projects?: { id: string }[];
   zones?: ({ id: string } & Record<string, unknown>)[];
@@ -203,14 +229,28 @@ describe('App', () => {
     for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/site-key'))) req.flush(null);
   }
 
+  // A project's tale group list is read only where a page needs it (epic UX rework R14), by the
+  // refresh or on its own: answers every such read waiting now.
+  // The data the last refresh answered with: a page opened later reads its project's list from it.
+  let lastData: Data = {};
+  function flushProjectGroups(data: Data = lastData): void {
+    for (const req of http.match((r) => r.method === 'GET' && /\/projects\/[^/]+\/tale-groups$/.test(r.url))) {
+      const projectId = req.request.url.split('/').at(-2) ?? '';
+      req.flush(data.projectGroups?.[projectId] ?? []);
+    }
+  }
+
   afterEach(() => {
     flushSiteKeys();
+    flushProjectGroups({});
+    lastData = {};
     http.verify();
   });
 
   // Answers one full refresh: projects, zones (each with its slug and display), frame types, each zone's tale
   // groups, each project's tags and tale groups, then the site key card's own request.
   async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data): Promise<void> {
+    lastData = data;
     const zones = data.zones ?? [];
     http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
     await settle(fixture);
@@ -230,11 +270,10 @@ describe('App', () => {
     await settle(fixture);
     for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
     await settle(fixture);
-    for (const p of data.projects ?? []) {
-      http.expectOne(`${API_BASE}/projects/${p.id}/tale-groups`).flush(data.projectGroups?.[p.id] ?? []);
-    }
+    flushProjectGroups(data);
     await settle(fixture);
     flushSiteKeys();
+    flushProjectGroups(data);
     await settle(fixture);
   }
 
@@ -245,6 +284,8 @@ describe('App', () => {
     await new Promise((resolve) => setTimeout(resolve));
     for (const req of http.match(`${API_BASE}/auth/state`)) req.flush(state);
     await navigation;
+    await settle(fixture);
+    flushProjectGroups();
     await settle(fixture);
   }
 
@@ -465,7 +506,7 @@ describe('App', () => {
           zones: [zone, second],
           displays: { z1: frameBar, z3: { ...frameBar, id: 'f3', zoneId: 'z3', type: 'banner' } },
           groups: { z1: [{ ...group, tales: [taleA, taleB] }] },
-          projectGroups: { p1: [{ ...group, zoneIds: ['z1'], taleCount: 2 }] },
+          projectGroups: { p1: [projectGroup({ ...group, zoneIds: ['z1'], tales: [taleA, taleB] })] },
         });
         const labels = [...root.querySelectorAll('*')].flatMap((el) =>
           ['title', 'aria-label', 'placeholder'].map((name) => el.getAttribute(name) ?? ''),
@@ -2038,10 +2079,10 @@ describe('App', () => {
         ...twoZones,
         projectGroups: {
           p1: [
-            { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: [] },
-            { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 0, zoneIds: ['z1', 'z3'] },
+            projectGroup({ id: 'g9', name: 'Autumn', zoneIds: [] }, 3),
+            projectGroup({ id: 'g1', name: 'Summer', zoneIds: ['z1', 'z3'] }),
           ],
-          p2: [{ id: 'g8', projectId: 'p2', name: 'Elsewhere', taleCount: 0, zoneIds: ['z2'] }],
+          p2: [projectGroup({ id: 'g8', projectId: 'p2', name: 'Elsewhere', zoneIds: ['z2'] })],
         },
       });
 
@@ -2051,21 +2092,20 @@ describe('App', () => {
       expect(root.querySelector('.topbar__title')?.textContent).toBe('Tale groups');
       expect(link?.getAttribute('aria-current')).toBe('page');
 
-      const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] li')];
+      const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] > li')];
       expect(rows.map((r) => r.querySelector('h3')?.textContent?.trim())).toEqual(['Autumn', 'Summer']);
-      expect(rows[0].textContent).toContain('3 / 100');
-      expect(rows[0].textContent).toContain('Not in any zone');
+      expect(rows[0].textContent).toContain('3 of 3 shown · max 100');
+      expect(rows[0].querySelector('.group-row__zones')?.textContent?.trim()).toBe('Not in a zone');
       expect(rows[1].querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar, Product page');
-      expect([...rows[1].querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/zones/z1', '/zones/z3']);
-      const full = buttonNamed(rows[1], 'Show in another zone');
-      expect(full.getAttribute('aria-disabled')).toBe('true');
-      const [nameId, reasonId] = full.getAttribute('aria-describedby')?.split(' ') ?? [];
-      expect(root.querySelector(`#${nameId}`)?.textContent).toContain('Summer');
-      expect(root.querySelector(`#${reasonId}`)?.textContent).toBe('Already in every zone');
-      expect(root.querySelector(`#${reasonId}`)?.className).toBe('disabled-reason__tip');
+      expect([...rows[1].querySelectorAll('.group-row__zones a')].map((a) => a.getAttribute('href'))).toEqual(['/zones/z1', '/zones/z3']);
+      expect(menuItems(rows[1], 'More for Summer').find((i) => i.label === 'Show in another zone')).toEqual({
+        label: 'Show in another zone',
+        reason: 'Already in every zone',
+        disabled: true,
+      });
       expect(root.textContent).not.toContain('Elsewhere');
 
-      buttonNamed(rows[0], 'Show in another zone').click();
+      pickMenuItem(rows[0], 'More for Autumn', 'Show in another zone');
       await settle(fixture);
       const options = [...(drawer()?.querySelectorAll<HTMLInputElement>('input[type=radio]') ?? [])];
       expect(options.map((o) => o.closest('label')?.textContent?.trim())).toEqual(['Home bar', 'Product page']);
@@ -2080,8 +2120,8 @@ describe('App', () => {
         ...twoZones,
         projectGroups: {
           p1: [
-            { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: ['z3'] },
-            { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 0, zoneIds: ['z1', 'z3'] },
+            projectGroup({ id: 'g9', name: 'Autumn', zoneIds: ['z3'] }, 3),
+            projectGroup({ id: 'g1', name: 'Summer', zoneIds: ['z1', 'z3'] }),
           ],
         },
       });
@@ -2161,16 +2201,14 @@ describe('App', () => {
       expect(buttonNamed(drawer() as HTMLElement, 'Copy')).toBeTruthy();
     });
 
-    it('offers "Copy to zone…" on the Tale groups page, also for a group in no zone', async () => {
+    it('offers "Copy to zone" on the Tale groups page, also for a group in no zone', async () => {
       const { fixture, root } = await open('/tale-groups', {
         ...twoZones,
-        projectGroups: { p1: [{ id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: [] }] },
+        projectGroups: { p1: [projectGroup({ id: 'g9', name: 'Autumn' }, 3)] },
       });
 
-      const row = root.querySelector<HTMLElement>('[aria-label="Tale groups in Acme"] li') as HTMLElement;
-      const copyButton = buttonNamed(row, 'Copy to zone…');
-      expect(copyButton.getAttribute('aria-describedby')).toBe('project-group-g9');
-      copyButton.click();
+      const row = root.querySelector<HTMLElement>('[aria-label="Tale groups in Acme"] > li') as HTMLElement;
+      pickMenuItem(row, 'More for Autumn', 'Copy to zone');
       await settle(fixture);
       expect(drawer()?.textContent).toContain('Tale group Autumn');
       choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z1');
@@ -3507,16 +3545,23 @@ describe('App', () => {
         ...oneZone,
         projectGroups: {
           p1: [
-            { id: 'g9', projectId: 'p1', name: 'Autumn', status: 'draft', taleCount: 0, zoneIds: [] },
-            { id: 'g8', projectId: 'p1', name: 'Winter', status: 'paused', taleCount: 0, zoneIds: [] },
-            { id: 'g1', projectId: 'p1', name: 'Summer', status: 'live', taleCount: 2, zoneIds: ['z1'] },
+            projectGroup({ id: 'g9', name: 'Autumn', status: 'draft' }),
+            projectGroup({ id: 'g8', name: 'Winter', status: 'paused' }),
+            projectGroup({ id: 'g1', name: 'Summer', status: 'live', zoneIds: ['z1'] }, 2),
           ],
         },
       });
       await navigate(fixture, '/tale-groups');
 
-      const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] li')];
-      expect(rows.map((r) => badge(r))).toEqual(['Status: Off', 'Status: Off', 'Status: On']);
+      // The zone page's row (R10): the switch says On or Off; no badge for a status the switch says.
+      const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] > li')];
+      expect(rows.map((r) => r.querySelector('[role=switch]')?.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+      expect(rows.map((r) => r.querySelector('[role=switch]')?.getAttribute('aria-label'))).toEqual([
+        'Autumn on site',
+        'Winter on site',
+        'Summer on site',
+      ]);
+      expect(rows.map((r) => badge(r))).toEqual(['', '', '']);
     });
   });
 
@@ -4697,8 +4742,8 @@ describe('App', () => {
         ...data,
         projectGroups: {
           p1: [
-            { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 0, zoneIds: [], visibility: notInZone },
-            { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 2, zoneIds: ['z1'], visibility: VISIBLE },
+            projectGroup({ id: 'g9', name: 'Autumn', visibility: notInZone }),
+            projectGroup({ id: 'g1', name: 'Summer', status: 'live', zoneIds: ['z1'], visibility: VISIBLE }, 2),
           ],
         },
       });
@@ -4708,6 +4753,287 @@ describe('App', () => {
         'Not visible: not in any zone',
         'Visible on site in at least one zone',
       ]);
+    });
+  });
+
+  describe('Tale groups page and zones list show status (epic UX rework R14)', () => {
+    const VISIBLE = { visible: true, reasons: [] };
+    const why = (code: string, subject = 'group') => ({ visible: false, reasons: [{ code, subject }] });
+    const future = '2031-01-01T09:00:00.000Z';
+    // One group in every state the filters tell apart; names in the API's order (by name).
+    const states = [
+      projectGroup({ id: 'g1', name: 'Archived one', status: 'archived', zoneIds: ['z1'], startsAt: future, visibility: why('archived') }, 1),
+      projectGroup({ id: 'g2', name: 'Draft loose', status: 'draft', visibility: why('not-in-any-zone') }),
+      projectGroup({ id: 'g3', name: 'Ends later', status: 'live', zoneIds: ['z1'], endsAt: future, visibility: VISIBLE }, 2),
+      projectGroup({ id: 'g4', name: 'On, nothing shown', status: 'live', zoneIds: ['z1'], visibility: why('no-shown-tales') }),
+      projectGroup({ id: 'g5', name: 'Paused here', status: 'paused', zoneIds: ['z1'], visibility: why('group-off') }, 1),
+      projectGroup(
+        { id: 'g6', name: 'Starts later', status: 'scheduled', storedStatus: 'live', zoneIds: ['z1'], startsAt: future, visibility: why('starts-at') },
+        1,
+      ),
+      projectGroup({ id: 'g7', name: 'Visible now', status: 'live', zoneIds: ['z1'], visibility: VISIBLE }, 3),
+    ];
+    const data: Data = { projects: [acme], zones: [zone, { id: 'z3', name: 'Product page', projectId: 'p1' }], projectGroups: { p1: states } };
+    const expected: Record<string, string[]> = {
+      all: ['Draft loose', 'Ends later', 'On, nothing shown', 'Paused here', 'Starts later', 'Visible now'],
+      visible: ['Ends later', 'Visible now'],
+      off: ['Draft loose', 'Paused here'],
+      scheduled: ['Ends later', 'Starts later'],
+      unplaced: ['Draft loose'],
+      archived: ['Archived one'],
+    };
+
+    // A group as the status route answers it: the whole group, read in any zone.
+    const saved = (listed: Record<string, unknown>, status: string, visibility: unknown) => ({
+      ...listed,
+      status,
+      storedStatus: status,
+      visibility,
+      tales: Array.from({ length: listed['taleCount'] as number }, (_, i) => ({ ...taleA, id: `${listed['id']}-t${i}` })),
+    });
+    // The data with one group's status and visibility changed, as the refresh after a change reads it.
+    const changed = (index: number, status: string, visibility: unknown): Data => ({
+      ...data,
+      projectGroups: { p1: states.map((g, i) => (i === index ? { ...g, status, storedStatus: status, visibility } : g)) },
+    });
+    const names = (root: HTMLElement) =>
+      [...root.querySelectorAll<HTMLElement>('.group-items > li h3')].map((h) => h.textContent?.trim());
+    const radio = (root: HTMLElement, id: string) =>
+      root.querySelector<HTMLInputElement>(`[data-filter="${id}"] input[type=radio]`) as HTMLInputElement;
+    const live = (root: HTMLElement) => root.querySelector('.page > [aria-live=polite]')?.textContent;
+    const url = () => TestBed.inject(Router).url;
+    const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    it('lists exactly the matching groups under each filter, with a count per filter, and keeps it in the URL', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+
+      const fieldset = root.querySelector('fieldset.group-filter');
+      expect(fieldset?.querySelector('legend')?.textContent?.trim()).toBe('Show');
+      const labels = [...(fieldset?.querySelectorAll('label') ?? [])].map((l) => l.textContent?.replace(/\s+/g, ' ').trim());
+      expect(labels).toEqual(['All , 6', 'Visible , 2', 'Off , 2', 'Scheduled , 2', 'Not in a zone , 1', 'Archived , 1']);
+      expect(radio(root, 'all').checked).toBe(true);
+      expect(names(root)).toEqual(expected['all']);
+
+      for (const id of ['visible', 'off', 'scheduled', 'unplaced', 'archived', 'all']) {
+        radio(root, id).click();
+        await settle(fixture);
+        expect(radio(root, id).checked).toBe(true);
+        expect(names(root)).toEqual(expected[id]);
+        expect(url()).toBe(id === 'all' ? '/tale-groups' : `/tale-groups?filter=${id}`);
+        // The radio reads its own count: nothing is announced on a change of filter.
+        expect(live(root)).toBe('');
+      }
+      // The list is named by its filter.
+      radio(root, 'off').click();
+      await settle(fixture);
+      expect(root.querySelector('.group-items')?.getAttribute('aria-label')).toBe('Tale groups in Acme: Off');
+    });
+
+    it('opens on the filter the URL names, and on All for an unknown one, dropping it from the URL', async () => {
+      const { root } = await open('/tale-groups?filter=scheduled', data);
+      expect(radio(root, 'scheduled').checked).toBe(true);
+      expect(names(root)).toEqual(expected['scheduled']);
+
+      const other = await open('/tale-groups?filter=nope', data);
+      expect(radio(other.root, 'all').checked).toBe(true);
+      expect(names(other.root)).toEqual(expected['all']);
+      await settle(other.fixture);
+      expect(url()).toBe('/tale-groups');
+    });
+
+    it('says when no group matches, with a way back to all of them', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=visible', {
+        ...data,
+        projectGroups: { p1: [states[1], states[4]] },
+      });
+      expect(names(root)).toEqual([]);
+      expect(root.querySelector('.empty__title')?.textContent).toContain('No tale groups match this filter');
+      buttonNamed(root, 'Show all tale groups').click();
+      await settle(fixture);
+      expect(names(root)).toEqual(['Draft loose', 'Paused here']);
+      expect(url()).toBe('/tale-groups');
+      expect(document.activeElement).toBe(radio(root, 'all'));
+    });
+
+    it("shows the zone page's row with the zones each group is in, and a menu without Remove from this zone", async () => {
+      const { root } = await open('/tale-groups', data);
+      const row = (name: string) =>
+        [...root.querySelectorAll<HTMLElement>('.group-items > li')].find((li) => li.querySelector('h3')?.textContent?.trim() === name) as HTMLElement;
+
+      const visible = row('Visible now');
+      expect(visible.querySelector('app-group-row')).not.toBeNull();
+      expect(visible.querySelector('.group-row__count')?.textContent?.trim()).toBe('3 of 3 shown · max 100');
+      expect(visible.querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar');
+      expect(visible.querySelector('[role=switch]')?.getAttribute('aria-label')).toBe('Visible now on site');
+      expect(text(visible.querySelector('app-visibility .visibility__line'))).toBe('Visible on site in at least one zone');
+      expect(visible.querySelector('.group-row__reorder')).toBeNull();
+      expect(menuItems(visible, 'More for Visible now')).toEqual([
+        { label: 'Rename', reason: '', disabled: false },
+        { label: 'Cover', reason: '', disabled: false },
+        { label: 'Tags', reason: '', disabled: false },
+        { label: 'Schedule', reason: '', disabled: false },
+        { label: 'Show in another zone', reason: '', disabled: false },
+        { label: 'Copy to zone', reason: '', disabled: false },
+        { label: 'Archive', reason: '', disabled: false },
+      ]);
+      expect(row('Ends later').querySelector('.window-chip')?.textContent).toContain('Ends');
+      expect(row('Draft loose').querySelector('.group-row__count')?.textContent).toContain('No tales yet');
+      // The name opens the group view in the first zone the group is in (R11); a group in no zone has none.
+      expect(visible.querySelector('h3 a')?.getAttribute('href')).toBe('/zones/z1?group=g7');
+      expect(row('Draft loose').querySelector('h3 a')).toBeNull();
+    });
+
+    it('keeps "Show in another zone" for an archived group, disabled with its reason, and offers Restore', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=archived', data);
+      const row = root.querySelector<HTMLElement>('.group-items > li') as HTMLElement;
+      expect(row.querySelector('[role=switch]')).toBeNull();
+      expect(row.querySelector('.status-badge')?.textContent).toContain('Archived');
+      const items = menuItems(row, 'More for Archived one');
+      expect(items.find((i) => i.label === 'Show in another zone')).toEqual({
+        label: 'Show in another zone',
+        reason: 'Archived. Restore it to show it in a zone',
+        disabled: true,
+      });
+      expect(items.map((i) => i.label)).toContain('Restore');
+      expect(items.map((i) => i.label)).not.toContain('Remove from this zone');
+
+      // Restore: the group leaves Archived. The page says, from the API's answer, which filter lists it
+      // now; no row is left, so focus goes to the list's heading, not to a radio that is not checked.
+      pickMenuItem(row, 'More for Archived one', 'Restore');
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/status`);
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush(saved(states[0], 'paused', why('group-off')));
+      await settle(fixture);
+      await flushRefresh(fixture, changed(0, 'paused', why('group-off')));
+      await settle(fixture);
+      expect(live(root)).toBe('Archived one is now off. Not visible: group is off. It is listed under Off.');
+      expect(document.activeElement).toBe(root.querySelector('#tale-groups-title'));
+      expect(radio(root, 'archived').checked).toBe(true);
+    });
+
+    it('turns a Visible group Off: says it is listed under Off and focuses the next row', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=visible', data);
+      expect(names(root)).toEqual(['Ends later', 'Visible now']);
+      const first = root.querySelector<HTMLElement>('.group-items > li') as HTMLElement;
+      (first.querySelector('[role=switch]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g3/status`);
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush(saved(states[2], 'paused', why('group-off')));
+      await settle(fixture);
+      // Patched from the answer before the refresh answers: the row has left Visible.
+      expect(names(root)).toEqual(['Visible now']);
+      await flushRefresh(fixture, changed(2, 'paused', why('group-off')));
+      await settle(fixture);
+      expect(live(root)).toBe('Ends later is now off. Not visible: group is off. It is listed under Off.');
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Visible now on site');
+    });
+
+    it('turns a group On from its switch and announces what the indicator says', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=off', data);
+      const row = [...root.querySelectorAll<HTMLElement>('.group-items > li')][1];
+      (row.querySelector('[role=switch]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g5/status`);
+      expect(req.request.body).toEqual({ status: 'live' });
+      req.flush(saved(states[4], 'live', VISIBLE));
+      await settle(fixture);
+      await flushRefresh(fixture, changed(4, 'live', VISIBLE));
+      await settle(fixture);
+      expect(live(root)).toBe('Paused here is now on. Visible on site. It is listed under Visible.');
+      // It was the last row: focus goes to the row before it.
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Draft loose on site');
+      expect(names(root)).toEqual(['Draft loose']);
+    });
+
+    it('creates a tale group in no zone from "New tale group", and shows it when the filter hid it', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=visible', data);
+      const button = buttonNamed(root, 'New tale group');
+      button.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('New tale group');
+      expect(drawer()?.textContent).toContain('In project Acme');
+      const select = drawer()?.querySelector<HTMLSelectElement>('#create-group-zone') as HTMLSelectElement;
+      expect(drawer()?.querySelector('label[for=create-group-zone]')?.textContent?.trim()).toBe('Zone');
+      expect([...select.options].map((o) => [o.value, o.textContent?.trim()])).toEqual([
+        ['', 'Not in a zone'],
+        ['z1', 'Home bar'],
+        ['z3', 'Product page'],
+      ]);
+      expect(select.value).toBe('');
+      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Loose ends');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      const created = projectGroup({ id: 'g8', name: 'Loose ends', visibility: why('not-in-any-zone') });
+      await answerCreate(fixture, `${API_BASE}/projects/p1/tale-groups`, { name: 'Loose ends' }, created, {
+        ...data,
+        projectGroups: { p1: [...states, created] },
+      });
+      expect(drawer()).toBeNull();
+      expect(radio(root, 'all').checked).toBe(true);
+      expect(url()).toBe('/tale-groups');
+      expect(names(root)).toContain('Loose ends');
+      expect(live(root)).toBe('Loose ends created. Showing all tale groups.');
+    });
+
+    it('creates a tale group in the zone picked in the drawer', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+      buttonNamed(root, 'New tale group').click();
+      await settle(fixture);
+      choose(drawer()?.querySelector<HTMLSelectElement>('#create-group-zone') ?? null, 'z3');
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('In zone Product page');
+      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Placed');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      const created = projectGroup({ id: 'g8', name: 'Placed', zoneIds: ['z3'] });
+      await answerCreate(fixture, `${API_BASE}/zones/z3/tale-groups`, { name: 'Placed' }, { ...created, position: 0 }, {
+        ...data,
+        groups: { z3: [{ ...created, position: 0 }] },
+        projectGroups: { p1: [...states, created] },
+      });
+      expect(names(root)).toContain('Placed');
+      expect(live(root)).toBe('Placed created');
+    });
+
+    it('shows a group in no zone in the Tags and Cover drawers from its menu', async () => {
+      const tagged = projectGroup({ id: 'g2', name: 'Draft loose', tags: [{ id: 'tag1', name: 'Promo' }] });
+      const { fixture, root } = await open('/tale-groups', {
+        ...data,
+        tags: { p1: [{ id: 'tag1', projectId: 'p1', name: 'Promo' }] },
+        projectGroups: { p1: [tagged] },
+      });
+      const row = root.querySelector<HTMLElement>('.group-items > li') as HTMLElement;
+      expect(row.querySelector('.group-row__tags')?.textContent).toContain('Promo');
+      pickMenuItem(row, 'More for Draft loose', 'Tags');
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('For tale group Draft loose');
+      const checked = drawer()?.querySelector<HTMLInputElement>('input[type=checkbox]');
+      expect(checked?.checked).toBe(true);
+    });
+
+    it('shows each zone card with its indicator, display type, tale group count and install state', async () => {
+      const notInstalled = { visible: false, reasons: [{ code: 'zone-not-installed', subject: 'zone' }, { code: 'no-tale-groups', subject: 'zone' }] };
+      const { root } = await open('/zones', {
+        projects: [acme],
+        zones: [
+          { ...zone, visibility: VISIBLE },
+          { id: 'z3', name: 'Product page', projectId: 'p1', visibility: notInstalled },
+          { id: 'z4', name: 'Unknown yet', projectId: 'p1' },
+        ],
+        displays: { z1: frameBar, z3: { ...frameBar, id: 'f3', zoneId: 'z3', type: 'banner' } },
+        groups: { z1: [{ ...group, tales: [taleA] }, { ...group, id: 'g2', name: 'Two', tales: [] }] },
+      });
+      const cards = [...root.querySelectorAll<HTMLElement>('.zone-card')];
+      const summary = (card: HTMLElement) =>
+        [...card.querySelectorAll('.zone-card__summary li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+      expect(summary(cards[0])).toEqual(['Display: Bar', '2 tale groups', 'Install: Installed']);
+      expect(summary(cards[1])).toEqual(['Display: Banner', '0 tale groups', 'Install: Not installed']);
+      expect(summary(cards[2])).toEqual(['Display: No display yet', '0 tale groups']);
+      expect(cards[0].querySelector('.zone-card__summary')?.getAttribute('aria-label')).toBe('Summary of Home bar');
+      expect(text(cards[0].querySelector('app-visibility .visibility__line'))).toBe('Visible on site');
+      expect(text(cards[1].querySelector('app-visibility .visibility__line'))).toBe('Not visible: zone not installed');
     });
   });
 

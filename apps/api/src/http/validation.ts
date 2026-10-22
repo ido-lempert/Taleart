@@ -18,6 +18,15 @@ export function requiredString(body: unknown, field: string): string {
   return text;
 }
 
+/** Reads a required, non-blank string field of at most `max` characters (code points) from a JSON body. */
+export function requiredName(body: unknown, field: string, max: number): string {
+  const text = requiredString(body, field);
+  if ([...text].length > max) {
+    throw new HttpError(400, ErrorCodes.validationFailed, `${field} must be at most ${max} characters`);
+  }
+  return text;
+}
+
 /** Reads the `status` of a status change: `live`, `paused` or `archived` (AD-6). */
 export function requiredSettableStatus(body: unknown): SettableStatus {
   const value = (body as Record<string, unknown> | undefined)?.['status'];
