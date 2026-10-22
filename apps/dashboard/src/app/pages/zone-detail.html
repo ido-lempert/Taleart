@@ -1,5 +1,6 @@
 <div class="page">
-  <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</p>
+  <!-- While the group view is open, its own live region says it: one outside a modal dialog may go unread. -->
+  <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ openedGroup() ? '' : announcement() }}</p>
   @if (addingExisting(); as adding) {
     <app-add-existing-group
       [zoneId]="adding.zoneId"
@@ -8,12 +9,22 @@
       (closed)="addingExisting.set(null)"
     />
   }
-  @if (duplicating(); as d) {
-    <app-duplicate-tale
-      [tale]="d.tale"
-      [returnFocus]="d.opener"
-      (duplicated)="duplicated($event)"
-      (closed)="duplicating.set(null)"
+  @if (openedGroup(); as open) {
+    <app-group-view
+      [group]="open"
+      [zoneId]="zoneId()"
+      [panelId]="'group-view-' + open.id"
+      [otherZones]="openOtherZones()"
+      [menuItems]="groupMenus().get(open.id) ?? []"
+      [groupSaving]="statusSaving().has(open.id)"
+      [groupError]="statusErrors()[open.id] ?? ''"
+      [announcement]="announcement()"
+      [initialFocus]="groupViewFocus()"
+      [returnFocus]="groupViewReturn()"
+      (switched)="switchGroup(open, $event)"
+      (menuPicked)="groupPicked(open, $event)"
+      (announce)="announce($event)"
+      (closed)="closeGroup()"
     />
   }
   @if (store.loaded()) {
@@ -107,7 +118,7 @@
       >
         <section class="card section zone-section" aria-labelledby="groups-title">
           <div class="section__header">
-            <h3 class="section__title" id="groups-title">Tale groups</h3>
+            <h3 class="section__title" id="groups-title" tabindex="-1">Tale groups</h3>
           </div>
           @if (orderError()) {
             <div class="banner banner--inline" role="alert">
@@ -158,7 +169,7 @@
               (cdkDropListDropped)="dropGroup($event)"
             >
               @for (group of visibleGroups(); track group.id; let gi = $index, gFirst = $first, gLast = $last) {
-                <li class="group" [class.group--open]="isOpen(group.id)" cdkDrag cdkDragPreviewContainer="parent">
+                <li class="group" cdkDrag cdkDragPreviewContainer="parent">
                   <!--
                     A click on the row outside its controls opens the group, as its name does (R10). It
                     is a pointer shortcut only: the name's button is the keyboard and screen reader way.
@@ -211,9 +222,10 @@
                           type="button"
                           class="group-row__open"
                           [id]="'group-name-' + group.id"
+                          aria-haspopup="dialog"
                           [attr.aria-expanded]="isOpen(group.id)"
-                          [attr.aria-controls]="'group-body-' + group.id"
-                          (click)="toggleGroup(group)"
+                          [attr.aria-controls]="isOpen(group.id) ? 'group-view-' + group.id : null"
+                          (click)="openGroup(group)"
                         >
                           {{ group.name }}
                         </button>
@@ -256,137 +268,11 @@
                       (picked)="groupPicked(group, $event)"
                     />
                   </div>
-                  @if (statusErrors()[group.id]; as statusError) {
+                  <!-- While its view is open, the view shows the message. -->
+                  @if (isOpen(group.id) ? '' : statusErrors()[group.id]; as statusError) {
                     <div class="banner banner--inline" role="alert">
                       <app-icon name="alert" />
                       <span>{{ statusError }}</span>
-                    </div>
-                  }
-                  <!--
-                    What opening a group shows until story 8.11 builds the group view: the other zones
-                    it is in and its tale strip. Rendered only while open, so a closed group loads no media.
-                  -->
-                  @if (isOpen(group.id)) {
-                    <div class="group-body" [id]="'group-body-' + group.id">
-                      @if (otherZones(group); as others) {
-                        @if (others.length > 0) {
-                          <p class="group__zones muted">
-                            Also in:
-                            @for (other of others; track other.id; let last = $last) {
-                              <a [routerLink]="['/zones', other.id]">{{ other.name }}</a>@if (!last) {<span>, </span>}
-                            }
-                          </p>
-                        }
-                      }
-                      <div class="tale-scroller">
-                        <ol
-                          class="tale-list"
-                          [attr.aria-label]="'Tales in ' + group.name"
-                          cdkDropList
-                          cdkDropListOrientation="horizontal"
-                          cdkDropListLockAxis="x"
-                          (cdkDropListDropped)="dropTale(group, $event)"
-                        >
-                          @for (tale of group.tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
-                            <li class="tale-card" [attr.data-tone]="tone(tale.id)" cdkDrag cdkDragPreviewContainer="parent">
-                              @if (tale.media; as media) {
-                                @if (media.kind === 'video') {
-                                  <video
-                                    class="tale-card__media"
-                                    [src]="store.mediaSrc(tale)"
-                                    [muted]="true"
-                                    autoplay
-                                    loop
-                                    playsinline
-                                    aria-hidden="true"
-                                  ></video>
-                                } @else {
-                                  <img class="tale-card__media" [src]="store.mediaSrc(tale)" alt="" />
-                                }
-                              }
-                              <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
-                              <app-visibility
-                                class="tale-card__visibility"
-                                [visibility]="tale.visibility"
-                                viewing="tale"
-                                [compact]="true"
-                              />
-                              @if (isSwitchable(tale.storedStatus)) {
-                                <app-show-switch
-                                  class="tale-card__switch"
-                                  [on]="tale.storedStatus === 'live'"
-                                  [label]="'Show ' + tale.title"
-                                  [stateText]="shownLabel(tale.storedStatus, 'tale')"
-                                  [disabled]="statusSaving().has(tale.id)"
-                                  (toggled)="switchTale(group, tale, $event)"
-                                />
-                              }
-                              @if (needsBadge(tale.status)) {
-                                <app-status-badge class="tale-card__status" [status]="tale.status" kind="tale" />
-                              }
-                              <span class="tale-card__title">
-                                @if (cardChip(tale); as chip) {
-                                  <span class="window-chip window-chip--card">
-                                    <span class="visually-hidden">Schedule: </span>{{ chip }}
-                                  </span>
-                                }
-                                <span class="tale-card__name">{{ tale.title }}</span>
-                              </span>
-                              <button
-                                type="button"
-                                class="tale-card__open"
-                                [attr.aria-label]="'Open tale ' + tale.title"
-                                (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
-                              ></button>
-                              <app-menu-button
-                                class="tale-card__menu"
-                                [label]="'More for ' + tale.title"
-                                [items]="taleMenu"
-                                (picked)="talePicked(tale, $event)"
-                              />
-                              <span
-                                class="drag-handle tale-card__handle"
-                                cdkDragHandle
-                                title="Drag to reorder"
-                                aria-hidden="true"
-                              >
-                                <app-icon name="grip" />
-                              </span>
-                              <div class="move-controls tale-card__moves">
-                                <button
-                                  type="button"
-                                  class="move-btn"
-                                  [attr.data-move]="'tale:' + tale.id + ':earlier'"
-                                  [attr.aria-label]="'Move ' + tale.title + ' earlier'"
-                                  [disabled]="tFirst"
-                                  (click)="stepTale(group, ti, 'earlier')"
-                                >
-                                  <app-icon name="left" />
-                                </button>
-                                <button
-                                  type="button"
-                                  class="move-btn"
-                                  [attr.data-move]="'tale:' + tale.id + ':later'"
-                                  [attr.aria-label]="'Move ' + tale.title + ' later'"
-                                  [disabled]="tLast"
-                                  (click)="stepTale(group, ti, 'later')"
-                                >
-                                  <app-icon name="right" />
-                                </button>
-                              </div>
-                            </li>
-                          }
-                        </ol>
-                        <button
-                          type="button"
-                          class="tale-add"
-                          [attr.aria-label]="'Add tale to ' + group.name"
-                          (click)="store.openDrawer({ kind: 'tale', taleGroupId: group.id }, $event)"
-                        >
-                          <app-icon name="plus" />
-                          Add tale
-                        </button>
-                      </div>
                     </div>
                   }
                 </li>

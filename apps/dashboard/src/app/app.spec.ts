@@ -3,6 +3,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Location } from '@angular/common';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
 import { App, API_BASE, API_ORIGIN } from './app';
 import { API_RETRY_TIMING, type ApiRetryTiming } from './api-reconnect';
@@ -84,6 +85,16 @@ async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   fixture.detectChanges();
 }
 
+/**
+ * What the zone page's live region says: the group view's own region while it is open (epic UX
+ * rework R11), else the page's.
+ */
+function announced(root: ParentNode): string | undefined {
+  const region =
+    root.querySelector('app-group-view [aria-live=polite]') ?? root.querySelector('[aria-live=polite]');
+  return region?.textContent ?? undefined;
+}
+
 function buttonNamed(root: ParentNode, name: string): HTMLButtonElement {
   const button = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === name);
   if (!button) throw new Error(`No ${name} button`);
@@ -139,8 +150,14 @@ function pick(input: HTMLInputElement | null, file: File): void {
   input.dispatchEvent(new Event('change'));
 }
 
+// The open drawer on top, leaving out the group view (epic UX rework R11) under it.
 function drawer(): HTMLElement | null {
-  return document.querySelector('[role=dialog]');
+  return [...document.querySelectorAll<HTMLElement>('[role=dialog]')].filter((d) => !d.classList.contains('drawer--wide')).at(-1) ?? null;
+}
+
+// The open group view (epic UX rework R11), or null.
+function groupView(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[role=dialog].drawer--wide');
 }
 
 // Stands in for drawing and recording video in the browser, which jsdom cannot do.
@@ -240,6 +257,8 @@ describe('App', () => {
   ): Promise<{ fixture: ComponentFixture<App>; root: HTMLElement }> {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
+    // As the app's first navigation does: Back and Forward (popstate) navigate.
+    TestBed.inject(Router).setUpLocationChangeListener();
     await navigate(fixture, url);
     await flushRefresh(fixture, data);
     await settle(fixture);
@@ -248,9 +267,12 @@ describe('App', () => {
     return { fixture, root };
   }
 
-  // Opens every closed group of the zone page, showing its tale strip.
-  async function expandGroups(fixture: ComponentFixture<unknown>, root: HTMLElement): Promise<void> {
-    root.querySelectorAll<HTMLButtonElement>('.group-row__open[aria-expanded=false]').forEach((b) => b.click());
+  // Opens the zone page's first group in its group view (epic UX rework R11), showing its tales;
+  // `name` opens that group instead.
+  async function expandGroups(fixture: ComponentFixture<unknown>, root: HTMLElement, name?: string): Promise<void> {
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('.group-row__open')];
+    const button = name === undefined ? buttons[0] : buttons.find((b) => b.textContent?.trim() === name);
+    button?.click();
     await settle(fixture);
   }
 
@@ -630,7 +652,7 @@ describe('App', () => {
       expect(row?.textContent).toContain('2 of 2 shown');
       const cards = [...root.querySelectorAll('[aria-label="Tales in Summer"] .tale-card__title')];
       expect(cards.map((c) => c.textContent?.trim())).toEqual(['A', 'B']);
-      expect(row?.querySelector('.tale-add')?.textContent).toContain('Add tale');
+      expect(root.querySelector('#group-view-add-tale')?.textContent).toContain('Add tale');
     });
 
     it('shows "Zone not found" with a link back for an unknown zone', async () => {
@@ -779,7 +801,7 @@ describe('App', () => {
           expect(store.displayOf('z1')).toEqual({ ...frameBar, type, settings });
           expect(typeSelect(root)?.value).toBe(type);
           expect(buttonNamed(root, 'Change type').disabled).toBe(true);
-          expect(root.querySelector('[aria-live=polite]')?.textContent).toContain(
+          expect(announced(root)).toContain(
             `The display is now a ${label.toLowerCase()}, with its default settings.`,
           );
         }
@@ -1007,7 +1029,7 @@ describe('App', () => {
         ['A', [taleA]],
         ['B', [taleA, taleB]],
       ] as const) {
-        (root.querySelector('.tale-add') as HTMLButtonElement).click();
+        (root.querySelector('#group-view-add-tale') as HTMLButtonElement).click();
         await settle(fixture);
         type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, title);
         buttonNamed(drawer() as HTMLElement, 'Add').click();
@@ -1037,7 +1059,7 @@ describe('App', () => {
     it('shows the API message in the tale drawer when a tale is refused', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }] } });
 
-      (root.querySelector('.tale-add') as HTMLButtonElement).click();
+      (root.querySelector('#group-view-add-tale') as HTMLButtonElement).click();
       await settle(fixture);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'C');
       buttonNamed(drawer() as HTMLElement, 'Add').click();
@@ -1349,14 +1371,28 @@ describe('App', () => {
         },
         false,
       );
-      expect(root.querySelector('#group-body-g1')).toBeNull();
+      expect(groupView()).toBeNull();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
       stepLink(root, 'Turn a tale group On with a shown tale').click();
       await settle(fixture);
+      // One navigation sets the tab and the group together.
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(TestBed.inject(Router).url).toBe('/zones/z1?group=g1');
+      navigate.mockRestore();
       expect(selected(root)).toEqual(['Tale groups']);
-      expect(root.querySelector('[aria-controls=group-body-g1]')?.getAttribute('aria-expanded')).toBe('true');
+      // Its group view opens (epic UX rework R11), at the first Hidden tale's switch.
+      expect(root.querySelector('#group-name-g1')?.getAttribute('aria-expanded')).toBe('true');
+      expect(groupView()?.querySelector('h2')?.textContent?.trim()).toBe('Summer');
       expect(document.activeElement?.getAttribute('role')).toBe('switch');
       expect(document.activeElement?.getAttribute('aria-label')).toBe('Show A');
-      expect(root.querySelector('#group-body-g2')).toBeNull();
+      expect(root.querySelector('#group-name-g2')?.getAttribute('aria-expanded')).toBe('false');
+      // Opened again by hand, it focuses its heading: the step's focus is not kept.
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      for (let i = 0; i < 20 && TestBed.inject(Router).url !== '/zones/z1'; i++) await settle(fixture);
+      (root.querySelector('#group-name-g1') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(document.activeElement?.classList).toContain('drawer__title');
     });
 
     it('ticks each step as the zone is set up', async () => {
@@ -1633,7 +1669,7 @@ describe('App', () => {
     }
 
     function liveRegion(root: HTMLElement): string | undefined {
-      return root.querySelector('[aria-live=polite]')?.textContent?.trim();
+      return announced(root)?.trim();
     }
 
     function moveButton(root: HTMLElement, label: string): HTMLButtonElement {
@@ -1837,7 +1873,8 @@ describe('App', () => {
       const winter = { id: 'g2', zoneIds: ['z1'], projectId: 'p1', name: 'Winter', position: 1, tags: [], tales: [] };
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared, winter], z3: [{ ...shared, position: 0 }] } });
 
-      const alsoIn = groupRow(root, 'Summer').querySelector('.group__zones');
+      // "Also in" is in the group's view (epic UX rework R11), which `open` opened for Summer.
+      const alsoIn = groupView()?.querySelector('.group__zones');
       expect(alsoIn?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Also in: Product page');
       expect(alsoIn?.querySelector('a')?.getAttribute('href')).toBe('/zones/z3');
       expect(groupRow(root, 'Winter').querySelector('.group__zones')).toBeNull();
@@ -1894,7 +1931,7 @@ describe('App', () => {
       await settle(fixture);
 
       expect(drawer()).toBeNull();
-      expect(groupRow(root, 'Summer').querySelector('.group__zones')?.textContent).toContain('Product page');
+      expect(groupView()?.querySelector('.group__zones')?.textContent).toContain('Product page');
     });
 
     it("shows the API's message in the Show in another zone drawer", async () => {
@@ -2235,31 +2272,38 @@ describe('App', () => {
 
     it('opens a group from its name or a click on the row, but not from its switch, ⋯ or move buttons', async () => {
       const { fixture, root } = await open('/zones/z1', three, false);
-      const body = () => row(root, 'Summer').querySelector<HTMLElement>('.group-body');
       const name = opener(root, 'Summer');
+      const close = async () => {
+        (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+        await settle(fixture);
+      };
 
-      // Collapsed by default; the tale strip is in the group's body.
+      // Closed by default; the name is the group view's trigger (epic UX rework R11).
+      expect(name.getAttribute('aria-haspopup')).toBe('dialog');
       expect(name.getAttribute('aria-expanded')).toBe('false');
-      expect(name.getAttribute('aria-controls')).toBe('group-body-g1');
-      // A closed group renders no body, so it loads no media.
-      expect(body()).toBeNull();
+      expect(name.getAttribute('aria-controls')).toBeNull();
+      expect(groupView()).toBeNull();
 
       name.click();
       await settle(fixture);
       expect(name.getAttribute('aria-expanded')).toBe('true');
-      expect(body()?.id).toBe('group-body-g1');
-      expect(body()?.querySelector('[aria-label="Tales in Summer"]')).not.toBeNull();
-      name.click();
-      await settle(fixture);
-      expect(body()).toBeNull();
+      expect(name.getAttribute('aria-controls')).toBe('group-view-g1');
+      expect(groupView()?.id).toBe('group-view-g1');
+      expect(groupView()?.querySelector('[aria-label="Tales in Summer"]')).not.toBeNull();
+      // No tale strip under the row any more.
+      expect(row(root, 'Summer').querySelector('.tale-card')).toBeNull();
+      await close();
+      expect(groupView()).toBeNull();
 
       // The cover and the row's blank space open it.
       (row(root, 'Summer').querySelector('.group-row__cover') as HTMLElement).click();
       await settle(fixture);
-      expect(body()).not.toBeNull();
+      expect(groupView()).not.toBeNull();
+      await close();
       (row(root, 'Summer').querySelector('.group-row') as HTMLElement).click();
       await settle(fixture);
-      expect(body()).toBeNull();
+      expect(groupView()).not.toBeNull();
+      await close();
 
       // Its own controls do their own thing and leave it closed.
       menuItems(row(root, 'Summer'), 'More for Summer');
@@ -2279,7 +2323,7 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, three);
       await settle(fixture);
-      expect(body()).toBeNull();
+      expect(groupView()).toBeNull();
       expect(opener(root, 'Summer').getAttribute('aria-expanded')).toBe('false');
     });
 
@@ -2300,7 +2344,7 @@ describe('App', () => {
       expect(row(root, 'Summer').querySelector('.group-row [role=switch]')).toBeNull();
       expect(text(row(root, 'Summer').querySelector('.group-row .status-badge'))).toBe('Status: Archived');
       expect(menuItems(row(root, 'Summer'), 'More for Summer').map((item) => item.label).at(-1)).toBe('Restore');
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Summer archived. Undo is above the list.');
+      expect(announced(root)).toBe('Summer archived. Undo is above the list.');
     });
 
     it('adds an existing group of the project from "Add existing group", leaving out archived ones', async () => {
@@ -2335,7 +2379,7 @@ describe('App', () => {
 
       expect(drawer()).toBeNull();
       expect(row(root, 'Autumn')).toBeTruthy();
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Autumn added to Home bar');
+      expect(announced(root)).toBe('Autumn added to Home bar');
       // Nothing left to add: the button stays, disabled, with its reason.
       const after = root.querySelector<HTMLButtonElement>('#add-existing-group') as HTMLButtonElement;
       expect(after.getAttribute('aria-disabled')).toBe('true');
@@ -2391,18 +2435,14 @@ describe('App', () => {
       expect(isOpen('Summer')).toBe(false);
     });
 
-    it('moves an open group by keyboard: it stays open, focus stays on the move button, and the move is announced', async () => {
+    it('moves a group by keyboard: focus stays on the move button, and the move is announced', async () => {
       const { fixture, root } = await open('/zones/z1', three, false);
-      opener(root, 'Summer').click();
-      await settle(fixture);
       const later = row(root, 'Summer').querySelector<HTMLButtonElement>('[aria-label="Move Summer later"]') as HTMLButtonElement;
       later.focus();
       later.click();
       await settle(fixture);
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Summer moved to position 2 of 3');
+      expect(announced(root)).toBe('Summer moved to position 2 of 3');
       expect(document.activeElement?.getAttribute('aria-label')).toBe('Move Summer later');
-      expect(opener(root, 'Summer').getAttribute('aria-expanded')).toBe('true');
-      expect(row(root, 'Summer').querySelector('[aria-label="Tales in Summer"]')).not.toBeNull();
       http
         .expectOne(`${API_BASE}/zones/z1/tale-groups/order`)
         .flush([
@@ -2416,7 +2456,6 @@ describe('App', () => {
         'Summer',
         'Spring',
       ]);
-      expect(opener(root, 'Summer').getAttribute('aria-expanded')).toBe('true');
     });
 
     it('opens the drawer of each ⋯ item for that group, and focus returns to its ⋯', async () => {
@@ -2477,7 +2516,7 @@ describe('App', () => {
 
       expect(root.querySelector('.undo-bar')).toBeNull();
       expect(row(root, 'Summer').querySelector('.group-row [role=switch]')?.getAttribute('aria-checked')).toBe('true');
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Summer restored, on. Visible on site');
+      expect(announced(root)).toBe('Summer restored, on. Visible on site');
       expect(document.activeElement?.getAttribute('aria-label')).toBe('More for Summer');
     });
 
@@ -2518,6 +2557,457 @@ describe('App', () => {
       expect(css).toMatch(/container:\s*group-list\s*\/\s*inline-size/);
       expect(css).toMatch(/\.group-row__name[^{]*\{[^}]*overflow-wrap:\s*break-word/);
       expect(css).toMatch(/\.visibility__text[^{]*\{[^}]*overflow-wrap:\s*break-word/);
+    });
+  });
+
+  describe('group view (epic UX rework R11)', () => {
+    const VISIBLE = { visible: true, reasons: [] };
+    const HIDDEN = { visible: false, reasons: [{ code: 'tale-hidden', subject: 'tale' }] };
+    const four = ['A', 'B', 'C', 'D'].map((title, i) => ({
+      ...taleA,
+      id: `t${i + 1}`,
+      title,
+      position: i,
+      visibility: VISIBLE,
+    }));
+    const summer = { ...group, visibility: VISIBLE, tales: four };
+    const winter = { ...group, id: 'g2', name: 'Winter', position: 1, visibility: VISIBLE, tales: [] };
+    const data: Data = { ...oneZone, displays: { z1: frameBar }, groups: { z1: [summer, winter] } };
+    const url = () => TestBed.inject(Router).url;
+
+    function nameButton(root: HTMLElement, name: string): HTMLButtonElement {
+      const found = [...root.querySelectorAll<HTMLButtonElement>('.group-row__open')].find((b) => b.textContent?.trim() === name);
+      if (!found) throw new Error(`No ${name} name`);
+      return found;
+    }
+
+    function cardOf(title: string): HTMLElement {
+      const card = groupView()?.querySelector(`[aria-label="More for ${title}"]`)?.closest<HTMLElement>('.tale-card');
+      if (!card) throw new Error(`No ${title} card`);
+      return card;
+    }
+
+    it('opens from the name as a modal dialog named by the group, in the URL, and closes back to the name', async () => {
+      const { fixture, root } = await open('/zones/z1', data, false);
+      const name = nameButton(root, 'Summer');
+      name.focus();
+      name.click();
+      await settle(fixture);
+
+      const view = groupView() as HTMLElement;
+      expect(view.getAttribute('aria-modal')).toBe('true');
+      expect(view.getAttribute('role')).toBe('dialog');
+      const title = view.querySelector(`#${view.getAttribute('aria-labelledby')}`);
+      expect(title?.textContent?.trim()).toBe('Summer');
+      // Focus moves to its heading; the URL names the group.
+      expect(document.activeElement).toBe(title);
+      expect(url()).toBe('/zones/z1?group=g1');
+      expect(name.getAttribute('aria-expanded')).toBe('true');
+      expect(name.getAttribute('aria-controls')).toBe(view.id);
+
+      // The head: switch, indicator, the group's ⋯ menu with the row's items, and the count.
+      expect(view.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe('true');
+      expect(view.querySelector('.group-view__head app-visibility')?.textContent?.trim()).toBe('Visible on site');
+      expect(menuItems(view, 'More for Summer').map((item) => item.label)).toEqual(GROUP_MENU);
+      expect(view.querySelector('.group-view__count')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('4 of 4 shown · max 100');
+
+      // Escape closes it; focus is back on the name; the URL drops the group.
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(document.activeElement).toBe(nameButton(root, 'Summer'));
+      for (let i = 0; i < 20 && url() !== '/zones/z1'; i++) await settle(fixture);
+      expect(url()).toBe('/zones/z1');
+      expect(name.getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('keeps Tab inside the view', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const view = groupView() as HTMLElement;
+      const focusables = [...view.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      const last = focusables.at(-1) as HTMLElement;
+      last.focus();
+      last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      await settle(fixture);
+      expect(document.activeElement).toBe(focusables[0]);
+      expect(focusables[0].getAttribute('aria-label')).toBe('Close');
+    });
+
+    it('wraps Shift+Tab from the heading it opens on to the last control', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const view = groupView() as HTMLElement;
+      const heading = view.querySelector<HTMLElement>('.drawer__title') as HTMLElement;
+      expect(document.activeElement).toBe(heading);
+      const focusables = [...view.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+      heading.dispatchEvent(event);
+      await settle(fixture);
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusables.at(-1));
+    });
+
+    it('makes the page behind it inert and stops it scrolling, and keeps drawers opened from it usable', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const shell = document.querySelector('.shell') as HTMLElement;
+      expect(shell.hasAttribute('inert')).toBe(true);
+      expect(document.querySelector('.skip-link')?.hasAttribute('inert')).toBe(true);
+      expect(document.documentElement.style.overflow).toBe('hidden');
+      // The view itself is out of the inert shell, beside it.
+      expect(shell.contains(groupView())).toBe(false);
+      expect(groupView()?.closest('[inert]')).toBeNull();
+      pickMenuItem(groupView() as HTMLElement, 'More for A', 'Schedule');
+      await settle(fixture);
+      expect(drawer()?.closest('[inert]')).toBeNull();
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(shell.hasAttribute('inert')).toBe(false);
+      expect(document.documentElement.style.overflow).toBe('');
+    });
+
+    it('leaves nothing behind when the page is left with the view open', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      expect(groupView()).not.toBeNull();
+      await TestBed.inject(Router).navigateByUrl('/zones');
+      await settle(fixture);
+      expect(document.querySelector('app-group-view')).toBeNull();
+      expect(document.querySelector('.shell')?.hasAttribute('inert')).toBe(false);
+      expect(document.documentElement.style.overflow).toBe('');
+    });
+
+    it('goes back in history when it closes after opening from the page, so Back does not reopen it', async () => {
+      const { fixture, root } = await open('/zones/z1', data, false);
+      const loc = TestBed.inject(Location);
+      const back = vi.spyOn(loc, 'back');
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+      nameButton(root, 'Summer').click();
+      await settle(fixture);
+      expect(url()).toBe('/zones/z1?group=g1');
+      // The entry is marked as the page's own.
+      expect((loc.getState() as Record<string, unknown>)['taleartGroupView']).toBe('g1');
+
+      navigate.mockClear();
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      // Location.back(): the popstate brings the router back to the entry before, with no
+      // navigation of its own (which would leave that entry behind).
+      expect(back).toHaveBeenCalledTimes(1);
+      expect(navigate).not.toHaveBeenCalled();
+      for (let i = 0; i < 20 && url() !== '/zones/z1'; i++) await settle(fixture);
+      expect(url()).toBe('/zones/z1');
+      expect(groupView()).toBeNull();
+      expect(document.activeElement).toBe(nameButton(root, 'Summer'));
+
+      // A deep link has no entry of ours to go back to: it closes in place.
+      await TestBed.inject(Router).navigateByUrl('/zones/z1?group=g2');
+      await settle(fixture);
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(back).toHaveBeenCalledTimes(1);
+      expect(url()).toBe('/zones/z1');
+      back.mockRestore();
+      navigate.mockRestore();
+    });
+
+    it('opens from a deep link, and closing it focuses the group name it belongs to', async () => {
+      const { fixture, root } = await open('/zones/z1?group=g2', data, false);
+      expect(groupView()?.querySelector('h2')?.textContent?.trim()).toBe('Winter');
+      expect(groupView()?.textContent).toContain('No tales yet.');
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(document.activeElement).toBe(nameButton(root, 'Winter'));
+      expect(url()).toBe('/zones/z1');
+    });
+
+    it('drops a ?group= that names no group of the zone', async () => {
+      await open('/zones/z1?group=nope', data, false);
+      expect(groupView()).toBeNull();
+      expect(url()).toBe('/zones/z1');
+    });
+
+    it('drops ?group= on a zone that does not exist', async () => {
+      const { root } = await open('/zones/nope?group=g1', data, false);
+      expect(root.textContent).toContain('Zone not found');
+      expect(url()).toBe('/zones/nope');
+    });
+
+    it('closes with the browser Back, as a page does', async () => {
+      const { fixture, root } = await open('/zones/z1', data, false);
+      nameButton(root, 'Summer').click();
+      await settle(fixture);
+      expect(groupView()).not.toBeNull();
+      await TestBed.inject(Router).navigateByUrl('/zones/z1');
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+    });
+
+    it('hides a tale from its card in one action, saved at once, then shows it again; every card has a dot', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      expect([...(groupView()?.querySelectorAll('.tale-card') ?? [])].map((card) => card.querySelector('app-visibility button')?.getAttribute('aria-label'))).toEqual(
+        ['Visible on site', 'Visible on site', 'Visible on site', 'Visible on site'],
+      );
+
+      // One press: the request goes at once, with no save button.
+      const toggle = () => cardOf('B').querySelector<HTMLButtonElement>('[role=switch]') as HTMLButtonElement;
+      expect(toggle().getAttribute('aria-label')).toBe('Show B');
+      toggle().click();
+      await settle(fixture);
+      expect(toggle().getAttribute('aria-disabled')).toBe('true');
+      const req = http.expectOne(`${API_BASE}/tales/t2/status`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush({ ...four[1], status: 'paused', storedStatus: 'paused' });
+      await settle(fixture);
+      const hidden = { ...four[1], status: 'paused', storedStatus: 'paused', visibility: HIDDEN };
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [four[0], hidden, four[2], four[3]] }, winter] } });
+      await settle(fixture);
+
+      expect(toggle().getAttribute('aria-checked')).toBe('false');
+      expect(cardOf('B').querySelector('.show-switch__state')?.textContent?.trim()).toBe('Hidden');
+      expect(cardOf('B').querySelector('app-visibility button')?.getAttribute('aria-label')).toBe('Not visible: tale is hidden');
+      expect(groupView()?.querySelector('.group-view__count')?.textContent).toContain('3 of 4 shown');
+      // Said in the view's own live region, inside the dialog; the page's region stays quiet.
+      expect(announced(root)).toBe('B is now hidden. Not visible: tale is hidden');
+      expect(root.querySelector('app-zone-detail-page > .page > [aria-live=polite]')?.textContent).toBe('');
+
+      toggle().click();
+      await settle(fixture);
+      const back = http.expectOne(`${API_BASE}/tales/t2/status`);
+      expect(back.request.body).toEqual({ status: 'live' });
+      back.flush({ ...four[1] });
+      await settle(fixture);
+      await flushRefresh(fixture, data);
+      await settle(fixture);
+      expect(toggle().getAttribute('aria-checked')).toBe('true');
+      expect(groupView()?.querySelector('.group-view__count')?.textContent).toContain('4 of 4 shown');
+      expect(announced(root)).toBe('B is now shown. Visible on site');
+    });
+
+    it("shows the API's refusal in the view and keeps the tale's state", async () => {
+      const { fixture } = await open('/zones/z1', data);
+      cardOf('A').querySelector<HTMLButtonElement>('[role=switch]')?.click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t1/status`)
+        .flush({ error: { code: 'invalid_status_transition', message: 'A cannot be hidden' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      // Named by its tale, as the view shows many.
+      expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('A: A cannot be hidden');
+      expect(cardOf('A').querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('true');
+    });
+
+    it("offers every tale ⋯ item: Edit in Tale Studio, Replace media, Schedule, Duplicate, Archive", async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const view = () => groupView() as HTMLElement;
+      expect(menuItems(view(), 'More for A').map((item) => item.label)).toEqual([
+        'Edit in Tale Studio',
+        'Replace media',
+        'Schedule',
+        'Duplicate',
+        'Archive',
+      ]);
+
+      // Edit in Tale Studio: the studio, which links back to this zone.
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      pickMenuItem(view(), 'More for A', 'Edit in Tale Studio');
+      expect(navigate).toHaveBeenCalledWith(['/tales', 't1', 'studio'], { queryParams: { zone: 'z1' } });
+      navigate.mockRestore();
+      await settle(fixture);
+
+      // Replace media: the tale drawer, at its media field; it opens over the view.
+      pickMenuItem(view(), 'More for A', 'Replace media');
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale');
+      expect(document.activeElement?.id).toBe('create-file');
+      // Escape closes only the drawer on top; focus goes back to the card's ⋯.
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(groupView()).not.toBeNull();
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for A');
+
+      // Schedule.
+      pickMenuItem(view(), 'More for A', 'Schedule');
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Schedule');
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+      expect(groupView()).not.toBeNull();
+
+      // Duplicate.
+      pickMenuItem(view(), 'More for A', 'Duplicate');
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Duplicate tale');
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for A');
+
+      // Archive: at once, announced; the card then offers Restore and has no switch.
+      pickMenuItem(view(), 'More for A', 'Archive');
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tales/t1/status`);
+      expect(req.request.body).toEqual({ status: 'archived' });
+      const archived = { ...four[0], status: 'archived', storedStatus: 'archived' };
+      req.flush(archived);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [archived, ...four.slice(1)] }, winter] } });
+      await settle(fixture);
+      expect(cardOf('A').querySelector('[role=switch]')).toBeNull();
+      expect(cardOf('A').querySelector('.status-badge')?.textContent).toContain('Archived');
+      expect(menuItems(view(), 'More for A').at(-1)?.label).toBe('Restore');
+      expect(announced(groupView() as HTMLElement)).toContain('A is now archived');
+    });
+
+    it('moves a tale by keyboard inside the view, keeping focus and announcing it', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      const later = cardOf('A').querySelector<HTMLButtonElement>('[aria-label="Move A later"]') as HTMLButtonElement;
+      later.focus();
+      later.click();
+      await settle(fixture);
+      expect(announced(root)).toBe('A moved to position 2 of 4');
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Move A later');
+      expect(groupView()?.contains(document.activeElement)).toBe(true);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
+      expect(req.request.body).toEqual({ taleIds: ['t2', 't1', 't3', 't4'] });
+      req.flush([four[1], four[0], four[2], four[3]].map((tale, position) => ({ ...tale, position })));
+      await settle(fixture);
+    });
+
+    it('adds a tale from the view, into the open group', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const add = groupView()?.querySelector<HTMLButtonElement>('#group-view-add-tale') as HTMLButtonElement;
+      expect(add.getAttribute('aria-label')).toBe('Add tale to Summer');
+      add.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('tale');
+      expect(drawer()?.textContent).toContain('Summer');
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+      expect(document.activeElement).toBe(add);
+    });
+
+    it('turns the group Off from its head and closes when the group leaves the zone', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      groupView()?.querySelector<HTMLButtonElement>('[role=switch][aria-label="Summer on site"]')?.click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/status`);
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush({ ...summer, status: 'paused', storedStatus: 'paused' });
+      await settle(fixture);
+      const off = { ...summer, status: 'paused', storedStatus: 'paused', visibility: { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] } };
+      await flushRefresh(fixture, { ...data, groups: { z1: [off, winter] } });
+      await settle(fixture);
+      expect(groupView()?.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe('false');
+      expect(announced(root)).toBe('Summer is now off. Not visible: group is off');
+
+      // Removed from this zone elsewhere: the view closes and the URL drops it; focus goes to the
+      // row now in its place.
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, { ...data, groups: { z1: [winter] } });
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(url()).toBe('/zones/z1');
+      expect(document.activeElement).toBe(nameButton(root, 'Winter'));
+    });
+
+    it('archives the group from its view: the view closes and focus goes to Undo', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(groupView() as HTMLElement, 'More for Summer', 'Archive');
+      await settle(fixture);
+      const archived = { ...summer, status: 'archived', storedStatus: 'archived' };
+      http.expectOne(`${API_BASE}/tale-groups/g1/status`).flush(archived);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [archived, winter] } });
+      await settle(fixture);
+      for (let i = 0; i < 20 && url() !== '/zones/z1'; i++) await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(document.activeElement?.id).toBe('undo-archive');
+      expect(announced(root)).toBe('Summer archived. Undo is above the list.');
+    });
+
+    it('closes Duplicate on Escape and leaves the view open; a second Escape closes the view', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(groupView() as HTMLElement, 'More for A', 'Duplicate');
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Duplicate tale');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(groupView()).not.toBeNull();
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for A');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(document.activeElement).toBe(nameButton(root, 'Summer'));
+    });
+
+    it("closes an open indicator tip on Escape without closing the view", async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const dot = cardOf('A').querySelector<HTMLButtonElement>('app-visibility button') as HTMLButtonElement;
+      const tipOpen = () => !!dot.closest('app-visibility')?.classList.contains('visibility--open');
+      dot.click();
+      await settle(fixture);
+      expect(tipOpen()).toBe(true);
+      dot.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await settle(fixture);
+      expect(tipOpen()).toBe(false);
+      expect(groupView()).not.toBeNull();
+      // With no tip open, Escape closes the view.
+      dot.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+    });
+
+    it('rolls back a refused tale reorder in the view and says why', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const names = () => [...(groupView()?.querySelectorAll('.tale-card__name') ?? [])].map((n) => n.textContent);
+      (cardOf('A').querySelector('[aria-label="Move A later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(names()).toEqual(['B', 'A', 'C', 'D']);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1/tales/order`)
+        .flush({ error: { code: 'order_mismatch', message: 'The order changed elsewhere' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      expect(names()).toEqual(['A', 'B', 'C', 'D']);
+      expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('The order changed elsewhere');
+    });
+
+    it('keeps a pending tale order through a refresh, then reads the zone again once it is saved', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const names = () => [...(groupView()?.querySelectorAll('.tale-card__name') ?? [])].map((n) => n.textContent);
+      (cardOf('A').querySelector('[aria-label="Move A later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const order = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
+      // A refresh that read the old order while the write was pending does not undo the move.
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, data);
+      await settle(fixture);
+      expect(names()).toEqual(['B', 'A', 'C', 'D']);
+      const moved = [four[1], four[0], four[2], four[3]].map((tale, position) => ({ ...tale, position }));
+      order.flush(moved);
+      await settle(fixture);
+      // The zone is read again now that its order is settled.
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: moved }, winter] } });
+      await settle(fixture);
+      expect(names()).toEqual(['B', 'A', 'C', 'D']);
+    });
+
+    it("is a wide drawer on desktop and the whole page on phones (below 640 px, the dashboard's phone breakpoint)", async () => {
+      // jsdom does no layout: this checks the rules the view applies, which the browser run
+      // screenshots at 390x844.
+      await open('/zones/z1', data);
+      expect(groupView()?.classList).toContain('drawer--wide');
+      const css = [...document.querySelectorAll('style')].map((style) => style.textContent ?? '').join('\n');
+      expect(css).toMatch(/app-group-view \.drawer--wide\s*\{[^}]*width:\s*min\(960px,\s*100%\)/);
+      const phone = css.slice(css.indexOf('@media (max-width: 639.98px)', css.indexOf('app-group-view .drawer--wide')));
+      expect(phone).toMatch(/app-group-view \.drawer--wide\s*\{[^}]*inset:\s*0;[^}]*width:\s*100%/);
+      expect(phone).toMatch(/app-group-view \.drawer-host--wide > \.drawer-backdrop\s*\{[^}]*display:\s*none/);
+      // Under the drawers opened from it.
+      expect(css).toMatch(/app-group-view \.drawer--wide\s*\{[^}]*z-index:\s*39/);
     });
   });
 
@@ -2569,7 +3059,7 @@ describe('App', () => {
       await settle(fixture);
       // Closed and said at once, before the groups are read again.
       expect(drawer()).toBeNull();
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(
+      expect(announced(root)).toBe(
         'Duplicated as A (copy) in Autumn. The copy is hidden until you show it.',
       );
       // Only the project's groups are read again, not everything.
@@ -2581,6 +3071,8 @@ describe('App', () => {
       http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush([{ ...group, tales: [taleA, taleB] }, { ...autumn, tales: [copy] }]);
       await settle(fixture);
 
+      // The copy is in Autumn: its group view shows it.
+      await expandGroups(fixture, root, 'Autumn');
       const card = root.querySelector('[aria-label="More for A (copy)"]')?.closest('.tale-card');
       expect(card?.querySelector('.show-switch__state')?.textContent?.trim()).toBe('Hidden');
       expect(card?.querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('false');
@@ -2730,7 +3222,7 @@ describe('App', () => {
       }
       expect(statusButtons(root, 'Archived one')).toEqual(['Restore']);
 
-      const summer = groupRow(root, 'Summer');
+      const summer = groupView() as HTMLElement;
       expect(switchState(summer, 'Show A')).toEqual(['Shown', 'true']);
       expect(switchState(summer, 'Show B')).toEqual(['Hidden', 'false']);
       expect(summer.querySelector('.tale-card .status-badge')).toBeNull();
@@ -2738,9 +3230,9 @@ describe('App', () => {
 
     it('shows the tales of a group that is off as blocked by group, keeping their own switch', async () => {
       const blocked = { ...live, status: 'paused', storedStatus: 'paused', tales: [{ ...taleA, status: 'blocked-by-group' }, hiddenTale] };
-      const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
+      await open('/zones/z1', { ...oneZone, groups: { z1: [blocked] } });
 
-      const cards = [...groupRow(root, 'Summer').querySelectorAll('.tale-card')];
+      const cards = [...(groupView() as HTMLElement).querySelectorAll('.tale-card')];
       expect(cards.map((c) => badge(c))).toEqual(['Status: Blocked by group', '']);
       expect(switchState(cards[0], 'Show A')).toEqual(['Shown', 'true']);
     });
@@ -2760,7 +3252,7 @@ describe('App', () => {
       await settle(fixture);
 
       expect(switchState(groupRow(root, 'Draft one'), 'Draft one on site')).toEqual(['On', 'true']);
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Draft one is now on');
+      expect(announced(root)).toBe('Draft one is now on');
     });
 
     it('turns a group off by storing paused', async () => {
@@ -2776,7 +3268,7 @@ describe('App', () => {
       await settle(fixture);
 
       expect(switchState(groupRow(root, 'Summer'), 'Summer on site')).toEqual(['Off', 'false']);
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Summer is now off');
+      expect(announced(root)).toBe('Summer is now off');
     });
 
     it('restores an archived group as off', async () => {
@@ -2814,15 +3306,15 @@ describe('App', () => {
     });
 
     it('shows the newer of two quick toggles: a refresh started before it never brings back the old state', async () => {
-      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live] } });
+      const { fixture } = await open('/zones/z1', { ...oneZone, groups: { z1: [live] } });
       const hiddenA = { ...taleA, status: 'paused', storedStatus: 'paused' };
 
-      switchNamed(groupRow(root, 'Summer'), 'Show A').click();
+      switchNamed(groupView() as HTMLElement, 'Show A').click();
       await settle(fixture);
       http.expectOne(`${API_BASE}/tales/t1/status`).flush(hiddenA);
       await settle(fixture);
       // The PUT's answer shows at once.
-      expect(switchState(groupRow(root, 'Summer'), 'Show A')).toEqual(['Hidden', 'false']);
+      expect(switchState(groupView() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
       // The refresh after it gets as far as the tale groups.
       http.expectOne(`${API_BASE}/projects`).flush([acme]);
       await settle(fixture);
@@ -2832,29 +3324,29 @@ describe('App', () => {
       await settle(fixture);
       const olderGroups = http.expectOne(`${API_BASE}/zones/z1/tale-groups`);
 
-      switchNamed(groupRow(root, 'Summer'), 'Show B').click();
+      switchNamed(groupView() as HTMLElement, 'Show B').click();
       await settle(fixture);
       http.expectOne(`${API_BASE}/tales/t2/status`).flush(taleB);
       await settle(fixture);
-      expect(switchState(groupRow(root, 'Summer'), 'Show B')).toEqual(['Shown', 'true']);
+      expect(switchState(groupView() as HTMLElement, 'Show B')).toEqual(['Shown', 'true']);
       // The older refresh read the groups before B was shown: its answer is dropped.
       olderGroups.flush([{ ...live, tales: [hiddenA, hiddenTale] }]);
       await settle(fixture);
-      expect(switchState(groupRow(root, 'Summer'), 'Show B')).toEqual(['Shown', 'true']);
+      expect(switchState(groupView() as HTMLElement, 'Show B')).toEqual(['Shown', 'true']);
 
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...live, tales: [hiddenA, taleB] }] } });
       await settle(fixture);
-      expect(switchState(groupRow(root, 'Summer'), 'Show A')).toEqual(['Hidden', 'false']);
-      expect(switchState(groupRow(root, 'Summer'), 'Show B')).toEqual(['Shown', 'true']);
+      expect(switchState(groupView() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
+      expect(switchState(groupView() as HTMLElement, 'Show B')).toEqual(['Shown', 'true']);
     });
 
     it('hides and shows a tale from its card', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live] } });
       const hiddenA = { ...taleA, status: 'paused', storedStatus: 'paused' };
 
-      switchNamed(groupRow(root, 'Summer'), 'Show A').click();
+      switchNamed(groupView() as HTMLElement, 'Show A').click();
       await settle(fixture);
-      expect(switchNamed(groupRow(root, 'Summer'), 'Show A').getAttribute('aria-disabled')).toBe('true');
+      expect(switchNamed(groupView() as HTMLElement, 'Show A').getAttribute('aria-disabled')).toBe('true');
       const hide = http.expectOne(`${API_BASE}/tales/t1/status`);
       expect(hide.request.method).toBe('PUT');
       expect(hide.request.body).toEqual({ status: 'paused' });
@@ -2862,10 +3354,10 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...live, tales: [hiddenA, hiddenTale] }] } });
       await settle(fixture);
-      expect(switchState(groupRow(root, 'Summer'), 'Show A')).toEqual(['Hidden', 'false']);
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('A is now hidden');
+      expect(switchState(groupView() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
+      expect(announced(root)).toBe('A is now hidden');
 
-      switchNamed(groupRow(root, 'Summer'), 'Show B').click();
+      switchNamed(groupView() as HTMLElement, 'Show B').click();
       await settle(fixture);
       const show = http.expectOne(`${API_BASE}/tales/t2/status`);
       expect(show.request.body).toEqual({ status: 'live' });
@@ -2873,8 +3365,8 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...live, tales: [hiddenA, taleB] }] } });
       await settle(fixture);
-      expect(switchState(groupRow(root, 'Summer'), 'Show B')).toEqual(['Shown', 'true']);
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('B is now shown');
+      expect(switchState(groupView() as HTMLElement, 'Show B')).toEqual(['Shown', 'true']);
+      expect(announced(root)).toBe('B is now shown');
     });
 
     it('hides a tale from its drawer, which stays open and shows the new state', async () => {
@@ -2898,7 +3390,7 @@ describe('App', () => {
       expect(drawer()).not.toBeNull();
       expect(switchState(drawer() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
       expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Status: Hidden');
-      expect(switchState(groupRow(root, 'Summer'), 'Show A')).toEqual(['Hidden', 'false']);
+      expect(switchState(groupView() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
     });
 
     it('says in the drawer when showing a tale could not publish its studio draft', async () => {
@@ -2938,7 +3430,7 @@ describe('App', () => {
     });
 
     it('keeps overlapping switches on two groups apart: each waits for its own answer and shows its own message', async () => {
-      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live, draft] } });
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live, draft] } }, false);
 
       switchNamed(groupRow(root, 'Summer'), 'Summer on site').click();
       switchNamed(groupRow(root, 'Draft one'), 'Draft one on site').click();
@@ -3109,7 +3601,7 @@ describe('App', () => {
       const withExpired = { ...group, tales: [expiredTale, taleB] };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [withExpired] } });
 
-      expect(badge(groupRow(root, 'Summer').querySelector('.tale-card') as HTMLElement)).toBe('Status: Expired');
+      expect(badge((groupView() as HTMLElement).querySelector('.tale-card') as HTMLElement)).toBe('Status: Expired');
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
       await settle(fixture);
       expect(badge(drawer() as HTMLElement)).toBe('Status: Expired');
@@ -3149,7 +3641,7 @@ describe('App', () => {
       await settle(fixture);
 
       // The tale's ⋯ menu schedules it; with no window there is nothing to remove.
-      pickMenuItem(row, 'More for A', 'Schedule');
+      pickMenuItem(groupView() as HTMLElement, 'More for A', 'Schedule');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Schedule');
       expect(field('schedule-start').value).toBe('');
@@ -3164,7 +3656,7 @@ describe('App', () => {
       const startsTale = { ...taleA, status: 'scheduled', startsAt: utc(localStart), endsAt: utc(localEnd) };
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [startsTale, taleB] }] } });
 
-      const cards = [...groupRow(root, 'Summer').querySelectorAll('.tale-card')];
+      const cards = [...(groupView() as HTMLElement).querySelectorAll('.tale-card')];
       const chip = cards[0].querySelector('.window-chip');
       expect(chip?.textContent?.trim()).toBe(`Schedule: Starts ${formatShort(utc(localStart))}`);
       // Nothing only on hover.
@@ -3293,7 +3785,7 @@ describe('App', () => {
         ...oneZone,
         groups: { z1: [{ ...group, tales: [], tags: [ref(beach), ref(summer)] }, { ...winter, tales: [] }] },
         tags: { p1: [beach, summer] },
-      });
+      }, false);
 
       const chips = [...root.querySelectorAll('[aria-label="Tags of Summer"] li')].map((li) => li.textContent?.trim());
       expect(chips).toEqual(['Beach', 'summer']);
@@ -3400,7 +3892,7 @@ describe('App', () => {
       expect(groupNames(root)).toEqual(['Summer', 'Spring']);
       expect(chip(root, 'summer').getAttribute('aria-pressed')).toBe('true');
       expect(root.querySelector('[data-move^="group:"]')).toBeNull();
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toContain('Showing 2 of 3 tale groups, tagged summer');
+      expect(announced(root)).toContain('Showing 2 of 3 tale groups, tagged summer');
 
       chip(root, 'All').click();
       await settle(fixture);
@@ -3609,7 +4101,7 @@ describe('App', () => {
     it('uploads the optional file after adding a tale', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }] } });
 
-      (root.querySelector('.tale-add') as HTMLButtonElement).click();
+      (root.querySelector('#group-view-add-tale') as HTMLButtonElement).click();
       await settle(fixture);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'A');
       pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, png);
@@ -3635,7 +4127,7 @@ describe('App', () => {
     it('switches to the new tale with the message when its file is refused', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [] }] } });
 
-      (root.querySelector('.tale-add') as HTMLButtonElement).click();
+      (root.querySelector('#group-view-add-tale') as HTMLButtonElement).click();
       await settle(fixture);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'A');
       pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, pdf);
@@ -4077,7 +4569,7 @@ describe('App', () => {
     }
 
     it('says on the zone page whether the zone, each group and every tale card is visible, and why not', async () => {
-      const { root } = await open('/zones/z1', data);
+      const { fixture, root } = await open('/zones/z1', data);
       expect(text(root.querySelector('.page-header app-visibility'))).toBe('Visible on site');
 
       const summer = row(root, 'Summer');
@@ -4087,10 +4579,13 @@ describe('App', () => {
       expect(text(line)).toBe('Not visible: group is off');
       expect(text(root.querySelector(`#${line?.getAttribute('aria-describedby')}`))).toContain('group is off');
 
-      // Every tale card has a dot, shown tales included, named by its line.
-      const dots = [...summer.querySelectorAll('.tale-card app-visibility button')].map((b) => b.getAttribute('aria-label'));
+      // Every tale card has a dot, shown tales included, named by its line (in the group view, R11).
+      const dots = [...(groupView()?.querySelectorAll('.tale-card app-visibility button') ?? [])].map((b) =>
+        b.getAttribute('aria-label'),
+      );
       expect(dots).toEqual(['Visible on site', 'Not visible: tale is hidden']);
-      expect(winter.querySelector('.tale-card app-visibility button')?.getAttribute('aria-label')).toBe(
+      await expandGroups(fixture, root, 'Winter');
+      expect(groupView()?.querySelector('.tale-card app-visibility button')?.getAttribute('aria-label')).toBe(
         'Not visible: group is off',
       );
     });
@@ -4119,7 +4614,7 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, { ...data, groups: { z1: [onGroup, on] } });
       await settle(fixture);
-      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(
+      expect(announced(root)).toBe(
         'Winter is now on. Not visible: zone has no display',
       );
       expect(text(row(root, 'Winter').querySelector('.group-row__status app-visibility button'))).toBe(
