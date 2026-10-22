@@ -3,6 +3,7 @@ import {
   ErrorCodes,
   maxMediaBytes,
   MAX_VIDEO_BYTES,
+  type DuplicateTaleRequest,
   type SetScheduleRequest,
   type SetStatusRequest,
 } from '@taleart/contract';
@@ -10,6 +11,7 @@ import type { MediaStorage } from '@taleart/server-storage';
 import {
   copyTaleWithDocument,
   discardTaleDraft,
+  duplicateTale,
   getTale,
   getTaleDocument,
   getTaleMedia,
@@ -234,6 +236,26 @@ export function talesRouter(pool: Pool, storage: MediaStorage): Router {
       res
         .status(201)
         .json(await copyTaleWithDocument(pool, taleId, body['document'], { sawTaleMedia: sawTaleMedia(body) }));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Duplicates the tale with its documents into a group of its project, Hidden (epic Tale Studio
+  // R11). The target group must be of the tale's project, which the caller was authorized for.
+  router.post('/:taleId/duplicate', taleAccess, async (req, res, next) => {
+    try {
+      // Tale first (404), then the body (400), then the group (400) and its room (409).
+      const { taleId } = req.params;
+      if (!(await taleExists(pool, taleId))) throw new TaleNotFoundError(taleId);
+      const body = req.body as Record<string, unknown> | undefined;
+      const taleGroupId: unknown = body?.['taleGroupId'];
+      let input: DuplicateTaleRequest = {};
+      if (typeof taleGroupId === 'string') input = { taleGroupId };
+      else if (taleGroupId !== undefined) {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'taleGroupId must be a tale group id');
+      }
+      res.status(201).json(await duplicateTale(pool, taleId, input));
     } catch (err) {
       next(err);
     }

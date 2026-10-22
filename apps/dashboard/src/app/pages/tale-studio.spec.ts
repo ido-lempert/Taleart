@@ -2176,4 +2176,60 @@ describe('TaleStudioPage', () => {
       expect((root.querySelector('fieldset.text-style') as HTMLFieldSetElement).disabled).toBe(true);
     });
   });
+
+  describe('Duplicate (epic Tale Studio R11)', () => {
+    it('saves the latest changes first, duplicates into the chosen group, announces it and links to the copy', async () => {
+      const store = TestBed.inject(DashboardStore);
+      store.projectTaleGroups.set({
+        p1: [{ id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 1, zoneIds: ['z1'] }],
+      } as unknown as ReturnType<typeof store.projectTaleGroups>);
+      const refresh = vi.spyOn(store, 'refresh').mockResolvedValue();
+      await open({ document: existing, revision: 1 });
+      buttonNamed(root, 'Add text').click();
+      await settle(fixture);
+
+      buttonNamed(root, 'Duplicate').click();
+      await settle(fixture);
+      // The copy is made from what is saved: the unsaved change goes first, then the drawer opens.
+      expect(document.querySelector('[role=dialog]')).toBeNull();
+      const save = http.expectOne(url);
+      expect(save.request.method).toBe('PUT');
+      save.flush({ document: save.request.body.document, revision: 2 });
+      await settle(fixture);
+      const dialog = document.querySelector('[role=dialog]') as HTMLElement;
+      expect(dialog.querySelector('h2')?.textContent).toContain('Duplicate tale');
+      expect(dialog.querySelector('select')?.value).toBe('g1');
+
+      buttonNamed(dialog, 'Duplicate').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tales/t1/duplicate`);
+      expect(req.request.body).toEqual({ taleGroupId: 'g1' });
+      req.flush({ ...tale, id: 't9', title: 'Beach (copy)', position: 1, status: 'paused', storedStatus: 'paused' });
+      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+
+      expect(refresh).toHaveBeenCalled();
+      expect(document.querySelector('[role=dialog]')).toBeNull();
+      const said = 'Duplicated as Beach (copy) in Summer. The copy is hidden until you show it.';
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(said);
+      const notice = root.querySelector('#studio-duplicated');
+      expect(notice?.textContent).toContain(said);
+      expect(notice?.querySelector('a')?.getAttribute('href')).toBe('/tales/t9/studio');
+      expect(root.textContent).not.toContain('Publish');
+    });
+
+    it('does not open while the latest changes cannot be saved', async () => {
+      await open({ document: existing, revision: 1 });
+      buttonNamed(root, 'Add text').click();
+      await settle(fixture);
+      buttonNamed(root, 'Duplicate').click();
+      await settle(fixture);
+      http.expectOne(url).flush({ error: { code: 'internal', message: 'down' } }, { status: 500, statusText: 'Error' });
+      await settle(fixture);
+      expect(document.querySelector('[role=dialog]')).toBeNull();
+      expect(root.textContent).toContain('so the tale was not duplicated');
+      http.expectNone(`${API_BASE}/tales/t1/duplicate`);
+    });
+  });
 });
