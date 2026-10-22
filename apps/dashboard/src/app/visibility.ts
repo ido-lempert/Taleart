@@ -115,7 +115,8 @@ export function tipPosition(
       border-radius: var(--radius-control);
     }
     .visibility__text {
-      overflow-wrap: anywhere;
+      min-width: 0;
+      overflow-wrap: break-word;
     }
     .visibility__dot {
       flex: none;
