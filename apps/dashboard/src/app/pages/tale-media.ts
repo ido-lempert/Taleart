@@ -283,7 +283,7 @@ const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
       ></textarea>
       <span class="field__hint" [id]="'media-alt-hint-' + element().id">
         @if (needsAlt()) {
-          Needs alt text, or mark it decorative, before the tale is published.
+          Needs alt text, or mark it decorative, before the tale can be updated.
         } @else {
           What the {{ kindName() }} shows, for people who cannot see it. Up to {{ maxLabel }} characters.
         }
@@ -403,7 +403,7 @@ export class TaleMediaStyle {
     this.changed.emit({
       label: 'Alt text changed',
       a11y,
-      said: label.trim() ? 'Alt text set' : `Alt text removed; the ${this.kindName()} needs it before publishing`,
+      said: label.trim() ? 'Alt text set' : `Alt text removed; the ${this.kindName()} needs it before the tale can be updated`,
     });
   }
 

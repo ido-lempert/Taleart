@@ -21,6 +21,7 @@ export {
   copyTaleWithDocument,
   taleGroupExists,
   taleExists,
+  getTale,
   taleGroupName,
   taleTitle,
   taleGroupProjectId,

@@ -211,6 +211,10 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
   });
 
   afterEach(() => {
+    // The studio reads the tale's visibility for its status line (story 8.4); not what these test.
+    for (const read of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+$/.test(r.url))) {
+      read.flush({ visibility: { visible: true, reasons: [] } });
+    }
     http.verify();
     globalThis.document.body.replaceChildren();
     vi.restoreAllMocks();

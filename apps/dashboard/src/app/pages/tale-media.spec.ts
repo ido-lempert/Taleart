@@ -114,6 +114,10 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
   });
 
   afterEach(() => {
+    // The studio reads the tale's visibility for its status line (story 8.4); not what these test.
+    for (const read of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+$/.test(r.url))) {
+      read.flush({ visibility: { visible: true, reasons: [] } });
+    }
     http.verify();
     globalThis.document.body.replaceChildren();
     vi.restoreAllMocks();
@@ -261,7 +265,7 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
       props: { mediaKey: IMAGE, fit: 'cover' as const },
     });
     await open({ ...empty, elements: [image(1, {}), image(2, { label: 'Cat' })] }, 1);
-    q<HTMLButtonElement>('#studio-publish').click();
+    q<HTMLButtonElement>('#studio-update').click();
     await settle(fixture);
     const publish = http.expectOne(`${url}/publish`);
     // While the publish is on its way, the first image is sent to the front.
@@ -409,7 +413,7 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     await saveNow(2);
   });
 
-  it('shows a publish refused for missing alt text, naming the image, and selects it', async () => {
+  it('shows an update refused for missing alt text, naming the image, and selects it', async () => {
     const element = {
       id: '00000000-0000-4000-8000-000000000001',
       type: 'image' as const,
@@ -420,9 +424,9 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
       props: { mediaKey: IMAGE, fit: 'cover' as const },
     };
     await open({ ...empty, elements: [element] }, 1);
-    q<HTMLButtonElement>('#studio-publish').click();
+    q<HTMLButtonElement>('#studio-update').click();
     await settle(fixture);
-    const message = '"Image 1" needs alt text, or must be marked decorative, before the tale is published.';
+    const message = '"Image 1" needs alt text, or must be marked decorative, before the tale can be updated.';
     http
       .expectOne(`${url}/publish`)
       .flush(

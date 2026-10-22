@@ -92,7 +92,7 @@ export class NothingToPublishError extends Error {
   readonly code = ErrorCodes.nothingToPublish;
 
   constructor() {
-    super('This tale has no draft to publish.');
+    super('This tale has no draft to update.');
     this.name = 'NothingToPublishError';
   }
 }

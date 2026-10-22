@@ -129,3 +129,55 @@ export function sameDocument(a: TaleDocument | null, b: TaleDocument | null): bo
   if (a === null || b === null) return false;
   return canonical(a) === canonical(b);
 }
+
+// Each layer's canonical form, kept per layer object: documents are immutable values, so a layer
+// that did not change keeps its object, and is not written out again on each count.
+const layerForms = new WeakMap<object, string>();
+function layerForm(layer: object): string {
+  let form = layerForms.get(layer);
+  if (form === undefined) {
+    form = canonical(layer);
+    layerForms.set(layer, form);
+  }
+  return form;
+}
+
+/** The version on the site, ready to count changes against (see {@link changeCount}). */
+export interface SiteVersion {
+  /** Each layer's canonical form, by id, in the site's order. */
+  readonly layers: ReadonlyMap<string, string>;
+  /** The tale itself, without its layers: its canvas, duration and version. */
+  readonly rest: string;
+}
+
+/** The version on the site, ready to count changes against; null when nothing is on the site. */
+export function siteVersion(site: TaleDocument | null): SiteVersion | null {
+  if (site === null) return null;
+  return {
+    layers: new Map(site.elements.map((element) => [element.id, layerForm(element)])),
+    rest: canonical({ ...site, elements: [] }),
+  };
+}
+
+/**
+ * How many changes the draft holds against the version on the site (epic UX rework R15): each
+ * layer added, removed or changed is one, a new layer order is one, and a change to the tale
+ * itself (its canvas or duration) is one. Against nothing on the site, each of the draft's layers
+ * is one, and a draft with none is one change. 0 when the two are the same.
+ */
+export function changeCount(draft: TaleDocument | null, site: SiteVersion | null): number {
+  if (draft === null) return site === null ? 0 : Math.max(site.layers.size, 1);
+  if (site === null) return Math.max(draft.elements.length, 1);
+  let count = 0;
+  const draftIds = new Set<string>();
+  for (const element of draft.elements) {
+    draftIds.add(element.id);
+    if (site.layers.get(element.id) !== layerForm(element)) count++;
+  }
+  for (const id of site.layers.keys()) if (!draftIds.has(id)) count++;
+  const draftOrder = draft.elements.filter((element) => site.layers.has(element.id)).map((element) => element.id);
+  const siteOrder = [...site.layers.keys()].filter((id) => draftIds.has(id));
+  if (draftOrder.join(',') !== siteOrder.join(',')) count++;
+  if (canonical({ ...draft, elements: [] }) !== site.rest) count++;
+  return count;
+}

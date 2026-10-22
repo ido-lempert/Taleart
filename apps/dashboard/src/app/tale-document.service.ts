@@ -89,12 +89,12 @@ export class TaleDocumentService {
    * both; a newer change elsewhere makes it `stale`). Visitors then see it once the tale is live.
    */
   publish(taleId: string, revision: number, publishedRevision: number): Promise<TaleDocumentResult> {
-    return this.act(taleId, 'publish', revision, publishedRevision, 'The changes were not published. Try again.');
+    return this.act(taleId, 'publish', revision, publishedRevision, 'The tale was not updated. Try again.');
   }
 
-  /** Discards the draft back to the published document, compare-and-set as {@link publish}. */
+  /** Discards the draft back to the version on the site, compare-and-set as {@link publish}. */
   discard(taleId: string, revision: number, publishedRevision: number): Promise<TaleDocumentResult> {
-    return this.act(taleId, 'discard', revision, publishedRevision, 'The draft was not discarded. Try again.');
+    return this.act(taleId, 'discard', revision, publishedRevision, 'The changes were not discarded. Try again.');
   }
 
   private async act(

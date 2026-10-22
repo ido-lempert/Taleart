@@ -101,7 +101,7 @@ export function contrastWarning(check: TextContrast): string | null {
   if (check.kind === 'ok') return null;
   return (
     `Low contrast: ${ratioText(check.ratio)}:1 against ${AGAINST[check.against]}, below the ` +
-    `${check.minimum}:1 that WCAG 2.2 AA asks for text this size. You can still save and publish.`
+    `${check.minimum}:1 that WCAG 2.2 AA asks for text this size. You can still save and update the tale.`
   );
 }
 
