@@ -1,10 +1,13 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   DOCUMENT,
   ElementRef,
   inject,
+  Injector,
   input,
   linkedSignal,
   OnInit,
@@ -18,7 +21,9 @@ import {
   MAX_ZONE_SLUG_LENGTH,
   MEDIA_CONTENT_TYPES,
   ZONE_TEMPLATES,
+  isMediaContentType,
   isSwitchable,
+  maxMediaBytes,
   SHOWN_STATUS_LABELS,
   switchStatus,
   taleShownStatus,
@@ -37,6 +42,17 @@ import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { initialSettings, SettingsForm, type Settings } from './settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from './status';
+
+/** A media type by file extension, for a file the browser gave no type. */
+const MEDIA_EXTENSIONS: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+};
 
 /**
  * The form for whatever the store's drawer request asks for: a create form, a
@@ -274,6 +290,7 @@ export class CreateDrawer implements OnInit {
    * open, so focus still returns to what opened the tale drawer.
    */
   protected openTaleSchedule(tale: Tale): void {
+    if (this.saving() || this.upload()) return;
     this.store.drawer.set({ kind: 'schedule', target: 'tale', id: tale.id });
     this.error.set('');
     // The request input updates only after this handler, so the fields are filled from the tale itself.
@@ -359,11 +376,6 @@ export class CreateDrawer implements OnInit {
     return request.kind === 'taleMedia' ? this.store.tale(request.taleId) : undefined;
   });
 
-  protected readonly fileLabel = computed(() => {
-    if (this.request().kind === 'tale') return 'Image or video (optional)';
-    return this.tale()?.media ? 'Replace image or video' : 'Image or video';
-  });
-
   protected readonly submitLabel = computed(() => {
     switch (this.request().kind) {
       case 'display':
@@ -371,7 +383,7 @@ export class CreateDrawer implements OnInit {
       case 'tale':
         return 'Add';
       case 'taleMedia':
-        return 'Upload';
+        return 'Done';
       case 'cover':
         return 'Save cover';
       case 'invite':
@@ -574,6 +586,93 @@ export class CreateDrawer implements OnInit {
     // The saved tale's status as read, from the API's answer, not the list that may still be loading.
     // The warning is announced once, by its alert.
     if (tale) this.statusAnnouncement.set(`Status: ${statusLabel(tale.status, 'tale')}`);
+    // Archive and Restore replace each other: focus goes to the tale's first status control.
+    this.refocus('.tale-drawer__status button', true);
+  }
+
+  /**
+   * The media replacement in flight: the share sent, 0 to 100, or null when the browser does not
+   * know the total; null when none is in flight.
+   */
+  protected readonly upload = signal<{ percent: number | null } | null>(null);
+  private uploadAbort: AbortController | null = null;
+  private readonly mediaInput = viewChild<ElementRef<HTMLInputElement>>('mediaInput');
+  private readonly injector = inject(Injector);
+  // Closing the drawer (Done, ×, Escape, Edit in Tale Studio) during an upload cancels it.
+  private destroyed = false;
+  private readonly cancelsOnClose = inject(DestroyRef).onDestroy(() => {
+    this.destroyed = true;
+    this.uploadAbort?.abort();
+  });
+
+  /** Replace media (or Add media) opens the file picker; the picked file uploads at once. */
+  protected chooseMedia(): void {
+    if (this.upload()) return;
+    this.mediaInput()?.nativeElement.click();
+  }
+
+  /** Stops the upload in flight; the tale keeps its media. */
+  protected cancelUpload(): void {
+    this.uploadAbort?.abort();
+  }
+
+  /** Checks the picked file and uploads it as the drawer's tale's media at once (epic UX rework R12). */
+  protected async replaceMedia(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // The same file picked again (after a refusal, say) must fire `change` again.
+    input.value = '';
+    const tale = this.tale();
+    if (!file || !tale) return;
+    if (this.saving() || this.upload()) {
+      this.error.set('Wait until the change is saved, then pick the file again.');
+      return;
+    }
+    this.error.set('');
+    this.statusWarning.set('');
+    // Some systems give a file no type; its extension names it then, and the API checks the bytes.
+    const type = file.type || MEDIA_EXTENSIONS[file.name.split('.').pop()?.toLowerCase() ?? ''] || '';
+    const problem = !isMediaContentType(type)
+      ? 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video.'
+      : file.size > maxMediaBytes(type)
+        ? `The file is larger than ${maxMediaBytes(type) / (1024 * 1024)} MB. Pick a smaller one.`
+        : '';
+    if (problem) {
+      this.statusAnnouncement.set('');
+      this.error.set(problem);
+      return;
+    }
+    const abort = (this.uploadAbort = new AbortController());
+    this.upload.set({ percent: 0 });
+    this.statusAnnouncement.set('Uploading…');
+    const message = await this.store.uploadTaleMedia(tale.id, file, {
+      type,
+      signal: abort.signal,
+      progress: (sent) => this.upload.set({ percent: sent === null ? null : Math.round(sent * 100) }),
+    });
+    if (this.uploadAbort === abort) this.uploadAbort = null;
+    this.upload.set(null);
+    this.error.set(message ?? '');
+    this.statusAnnouncement.set(message === null ? 'Upload cancelled.' : message ? '' : 'Media replaced.');
+    // The Cancel upload button goes with the upload: focus moves to Replace media, not the page.
+    this.refocus('#tale-replace-media', true);
+  }
+
+  /**
+   * Focuses the first match of `selector` once rendered; with `ifLost`, only when focus went with
+   * a control that left the page (Cancel upload, Archive turning into Restore).
+   */
+  private refocus(selector: string, ifLost: boolean): void {
+    // A save that ends after the drawer closed has nothing to focus.
+    if (this.destroyed) return;
+    afterNextRender(
+      () => {
+        const active = this.document.activeElement;
+        if (ifLost && active && active !== this.document.body && active.isConnected) return;
+        this.document.querySelector<HTMLElement>(selector)?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   protected pickFile(event: Event): void {
@@ -677,7 +776,11 @@ export class CreateDrawer implements OnInit {
         message = await this.store.createTale(request.taleGroupId, this.text, this.file);
         // The tale was saved but its media was not: the drawer now shows that
         // tale with an empty file input, so forget the refused file.
-        if (message && this.store.drawer()?.kind === 'taleMedia') this.file = null;
+        if (message && this.store.drawer()?.kind === 'taleMedia') {
+          this.file = null;
+          // The form it was in is gone; retrying starts at Replace media.
+          this.refocus('#tale-replace-media', false);
+        }
         break;
       case 'invite': {
         const created = await this.store.createInvitation(request.projectId);
@@ -740,9 +843,8 @@ export class CreateDrawer implements OnInit {
         return;
       }
       case 'taleMedia':
-        message = this.file
-          ? await this.store.uploadTaleMedia(request.taleId, this.file)
-          : 'Choose an image or video to upload.';
+        // Everything in the tale drawer saves as it changes; Done (or Enter) only closes it.
+        message = '';
         break;
       case 'cover':
         // A repeated refusal must show again, so the old message goes first.

@@ -73,8 +73,11 @@
     </div>
   </div>
 
-  @if (store.drawer(); as request) {
-    <app-create-drawer [request]="request" />
+  <!-- The drawers load with the first one opened (or when the browser is idle), off the initial bundle. -->
+  @defer (when store.drawer(); prefetch on idle) {
+    @if (store.drawer(); as request) {
+      <app-create-drawer [request]="request" />
+    }
   }
 } @else {
   <router-outlet />
