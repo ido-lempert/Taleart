@@ -205,6 +205,14 @@ describe('Management API v1: projects and zones', () => {
     for (const id of ids) expect((await setStatus(kind, id, 'live')).status).toBe(200);
   }
 
+  // Makes tales with neither media nor a document tales from before the UX rework, which keep the
+  // legacy placeholder on the site (hasPublishedDocument); a tale created since is delivered only
+  // once it has a published document (AD-6 amended, AD-15). For tests about something else that
+  // deliver tales without media.
+  async function asLegacy(...taleIds: string[]): Promise<void> {
+    await pool.query(`UPDATE tales SET created_at = '2020-01-01T00:00:00Z' WHERE id = ANY($1::uuid[])`, [taleIds]);
+  }
+
   async function createProject(name = 'Acme'): Promise<{ id: string; name: string }> {
     return (await post('/projects', { name })).json();
   }
@@ -1118,8 +1126,9 @@ describe('Management API v1: projects and zones', () => {
         projectId: zone.projectId,
         title: 'Beach day',
         position: 0,
-        status: 'draft',
-        storedStatus: 'draft',
+        // Stored live (Shown, AD-6 amended); its group is Off (draft), so it reads blocked by group.
+        status: 'blocked-by-group',
+        storedStatus: 'live',
         startsAt: null,
         endsAt: null,
         media: null,
@@ -1669,6 +1678,7 @@ describe('Management API v1: projects and zones', () => {
       }
       await publish('tale-groups', a.id, c.id);
       await publish('tales', tale.id);
+      await asLegacy(tale.id);
       const { key } = await (await post(`/zones/${z2.id}/key`, {})).json();
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       // C has no live tale, so only A is delivered.
@@ -1686,7 +1696,9 @@ describe('Management API v1: projects and zones', () => {
       const { z, z2, a, c } = await setup();
       await publish('tale-groups', a.id, c.id);
       for (const group of [a, c]) {
-        await publish('tales', (await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json()).id);
+        const tale = (await (await post(`/tale-groups/${group.id}/tales`, { title: 'T' })).json()).id;
+        await publish('tales', tale);
+        await asLegacy(tale);
       }
       await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`);
       const res = await send('PATCH', `/tale-groups/${a.id}`, { name: '  Summer sale  ' });
@@ -1901,7 +1913,7 @@ describe('Management API v1: projects and zones', () => {
       ]);
     });
 
-    it('makes groups and tales made before statuses live, new ones draft, once (AD-6)', async () => {
+    it('makes groups and tales made before statuses live, new groups draft and new tales live, once (AD-6)', async () => {
       // Builds the tables as they were before statuses, with a group and a tale in them.
       const { z, a } = await setup();
       const tale = await (await post(`/tale-groups/${a.id}/tales`, { title: 'Beach' })).json();
@@ -1928,7 +1940,7 @@ describe('Management API v1: projects and zones', () => {
       expect(await statuses()).toEqual(migrated);
       expect((await listed(z.id))[0]).toMatchObject({ id: a.id, status: 'live', tales: [{ id: tale.id, status: 'live', storedStatus: 'live' }] });
 
-      // New rows start draft; a second run changes nothing.
+      // New groups start draft (Off), new tales live (Shown, AD-6 amended); a second run changes nothing.
       const d = await createGroup(z.id, 'D');
       await post(`/tale-groups/${d.id}/tales`, { title: 'Dune' });
       await restart();
@@ -1936,7 +1948,7 @@ describe('Management API v1: projects and zones', () => {
         ...migrated.slice(0, 3),
         { kind: 'group', name: 'D', status: 'draft' },
         { kind: 'tale', name: 'Beach', status: 'live' },
-        { kind: 'tale', name: 'Dune', status: 'draft' },
+        { kind: 'tale', name: 'Dune', status: 'live' },
       ]);
       await expect(pool.query("UPDATE tales SET status = 'expired'")).rejects.toThrow(/tales_status_check/);
       await expect(pool.query("UPDATE tale_groups SET status = 'blocked-by-group'")).rejects.toThrow(/tale_groups_status_check/);
@@ -2531,7 +2543,10 @@ describe('Management API v1: projects and zones', () => {
 
       it('publishes the draft when a tale with nothing published goes live, and not on a later resume', async () => {
         const tale = await createTale();
+        // New tales are stored live with nothing published (AD-6 amended): saving keeps it that way.
         await save(tale.id, { document: doc([text(1, 'First')]), revision: 0 });
+        expect((await state(tale.id)).published).toEqual({ document: null, revision: 0 });
+        expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
         await publish('tales', tale.id);
         expect((await state(tale.id)).published).toEqual({ document: doc([text(1, 'First')]), revision: 1 });
 
@@ -2559,6 +2574,7 @@ describe('Management API v1: projects and zones', () => {
           `UPDATE tales SET draft_document = '{"version": 1}'::jsonb, draft_revision = 1 WHERE id = $1`,
           [tale.id],
         );
+        expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
         const res = await setStatus('tales', tale.id, 'live');
         expect(res.status).toBe(200);
         expect(await res.json()).toMatchObject({ storedStatus: 'live', draftNotPublished: true });
@@ -3046,6 +3062,7 @@ describe('Management API v1: projects and zones', () => {
       const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
       await publish('tale-groups', group.id);
       await publish('tales', tale.id);
+      await asLegacy(tale.id);
       const { key } = await (await post(`/zones/${group.zoneId}/key`, {})).json();
       return { id: group.id, zoneId: group.zoneId, taleId: tale.id, key };
     }
@@ -3589,7 +3606,7 @@ describe('Management API v1: projects and zones', () => {
         ['GET', `/projects/${b.project.id}/tale-groups`],
         ['PATCH', `/tale-groups/${b.group.id}`, { name: 'Mine' }],
         ['PUT', `/tale-groups/${b.group.id}/status`, { status: 'live' }],
-        ['PUT', `/tales/${b.tale.id}/status`, { status: 'live' }],
+        ['PUT', `/tales/${b.tale.id}/status`, { status: 'paused' }],
         ['GET', `/projects/${b.project.id}/tags`],
         ['POST', `/projects/${b.project.id}/tags`, { name: 'Mine' }],
         ['GET', `/tales/${b.tale.id}/media`],
@@ -3609,7 +3626,8 @@ describe('Management API v1: projects and zones', () => {
       expect((await pool.query('SELECT 1 FROM tags')).rowCount).toBe(0);
       expect((await pool.query('SELECT 1 FROM zone_tale_groups')).rowCount).toBe(2);
       expect((await pool.query("SELECT 1 FROM tale_groups WHERE status <> 'draft'")).rowCount).toBe(0);
-      expect((await pool.query("SELECT 1 FROM tales WHERE status <> 'draft'")).rowCount).toBe(0);
+      // New tales are stored live (AD-6 amended); hiding theirs was refused.
+      expect((await pool.query("SELECT 1 FROM tales WHERE status <> 'live'")).rowCount).toBe(0);
       // A zone of their own project cannot place a group of a project they cannot see.
       const across = await send('PUT', `/zones/${a.zone.id}/tale-groups/${b.group.id}`);
       expect(across.status).toBe(400);
@@ -4075,6 +4093,9 @@ describe('Management API v1: projects and zones', () => {
             body: media[1],
           });
           expect(res.status).toBe(200);
+        } else {
+          // Without media it has nothing published: delivered as a tale from before the UX rework.
+          await asLegacy(tale.id);
         }
         return tale;
       }
@@ -4410,20 +4431,105 @@ describe('Management API v1: projects and zones', () => {
           return { zone, group, l1, l2, key, urls };
         }
 
-        it('starts new groups and tales as draft, delivers neither, and delivers them once published', async () => {
+        it('starts new groups Off (draft) and new tales Shown (live): turning the group On delivers its tales', async () => {
           const zone = await createZone();
           const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'New' })).json();
-          expect(group.status).toBe('draft');
-          const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'T1' })).json();
-          expect(tale).toMatchObject({ status: 'draft', storedStatus: 'draft' });
+          expect([group.status, group.storedStatus]).toEqual(['draft', 'draft']);
+          const t1 = await addTale(group.id, 'T1', ['image/png', png]);
+          const t2 = await addTale(group.id, 'T2', ['image/gif', gif]);
+          // Stored live, so Shown; the group is Off (draft), so each reads blocked by group (AD-6 amended).
+          expect((await zoneGroups(zone.id))[0].tales.map((t) => [t.title, t.storedStatus, t.status])).toEqual([
+            ['T1', 'live', 'blocked-by-group'],
+            ['T2', 'live', 'blocked-by-group'],
+          ]);
           const { key } = await issue(zone.id);
           expect(await delivered(key)).toEqual([]);
 
-          expect(await expectStatus('tale-groups', group.id, 'live', 200)).toMatchObject({ id: group.id, status: 'live', tags: [] });
-          // A live group with no live tale has nothing to play and is left out.
+          const on: Group = await expectStatus('tale-groups', group.id, 'live', 200);
+          expect(on.tales.map((t) => [t.id, t.status])).toEqual([
+            [t1.id, 'live'],
+            [t2.id, 'live'],
+          ]);
+          // No tale was published by hand: uploading its media published its document.
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['T1', 'T2']);
+        });
+
+        it('hides a tale and turns a group Off by storing paused; showing and turning On store live', async () => {
+          const { zone, group, l1, l2, key } = await liveZone();
+          const hidden = await expectStatus('tales', l1.id, 'paused', 200);
+          expect([hidden.storedStatus, hidden.status]).toEqual(['paused', 'paused']);
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L2']);
+
+          const off: Group = await expectStatus('tale-groups', group.id, 'paused', 200);
+          // The hidden tale stays Hidden; the shown one reads blocked by group.
+          expect(off.tales.map((t) => [t.title, t.storedStatus, t.status])).toEqual([
+            ['L1', 'paused', 'paused'],
+            ['L2', 'live', 'blocked-by-group'],
+          ]);
           expect(await delivered(key)).toEqual([]);
-          expect(await expectStatus('tales', tale.id, 'live', 200)).toMatchObject({ id: tale.id, status: 'live', storedStatus: 'live' });
-          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['T1']);
+
+          await expectStatus('tale-groups', group.id, 'live', 200);
+          await expectStatus('tales', l1.id, 'live', 200);
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L1', 'L2']);
+          expect((await zoneGroups(zone.id))[0].tales.map((t) => [t.id, t.storedStatus, t.status])).toEqual([
+            [l1.id, 'live', 'live'],
+            [l2.id, 'live', 'live'],
+          ]);
+        });
+
+        it('reads the live tales of a draft group and of a paused group as blocked by group', async () => {
+          const zone = await createZone();
+          const draft = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Draft' })).json();
+          const paused = await addGroup(zone.id, 'Paused');
+          const a = await addTale(draft.id, 'A', ['image/png', png]);
+          const b = await addTale(paused.id, 'B', ['image/png', png]);
+          await expectStatus('tale-groups', paused.id, 'paused', 200);
+          const groups = await zoneGroups(zone.id);
+          expect(groups.map((g) => [g.status, g.tales.map((t) => [t.id, t.status])])).toEqual([
+            ['draft', [[a.id, 'blocked-by-group']]],
+            ['paused', [[b.id, 'blocked-by-group']]],
+          ]);
+        });
+
+        it('does not deliver a Shown tale with nothing published (AD-15) until its document is updated', async () => {
+          const { group, key } = await liveZone();
+          const studio = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Studio' })).json();
+          expect(studio.storedStatus).toBe('live');
+          const document = {
+            version: 1,
+            canvas: { background: { type: 'color', color: '#112233' } },
+            elements: [
+              {
+                id: '00000000-0000-4000-8000-0000000000a1',
+                type: 'text',
+                box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+                hidden: false,
+                locked: false,
+                a11y: {},
+                props: { text: 'Hello' },
+              },
+            ],
+          };
+          const put = (path: string, method: string, body: unknown) =>
+            fetch(`${base}/tales/${studio.id}/document${path}`, {
+              method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+          expect((await put('', 'PUT', { document, revision: 0 })).status).toBe(200);
+          // Live and in a live group, but only a draft: not delivered, and neither is a title-only tale.
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L1', 'L2']);
+
+          expect((await put('/publish', 'POST', { revision: 1, publishedRevision: 0 })).status).toBe(200);
+          expect((await delivered(key))[0].tales.map((t) => t.title)).toEqual(['L1', 'L2', 'Studio']);
+        });
+
+        it('leaves out a group whose only Shown tale has nothing published', async () => {
+          const zone = await createZone();
+          const group = await addGroup(zone.id, 'Empty');
+          await post(`/tale-groups/${group.id}/tales`, { title: 'Nothing yet' });
+          const { key } = await issue(zone.id);
+          expect(await delivered(key)).toEqual([]);
         });
 
         it('pauses a group: it leaves the Delivery API, its live tales read blocked-by-group; publishing brings it back', async () => {
@@ -4474,14 +4580,17 @@ describe('Management API v1: projects and zones', () => {
           await signInAsContentManager(mine.id);
           await expectStatus('tale-groups', group.id, 'live', 403, 'forbidden');
           await expectStatus('tales', tale.id, 'live', 403, 'forbidden');
+          await expectStatus('tales', tale.id, 'paused', 403, 'forbidden');
           const { rows } = await pool.query('SELECT status FROM tale_groups UNION ALL SELECT status FROM tales');
-          expect(rows).toEqual([{ status: 'draft' }, { status: 'draft' }]);
+          expect(rows).toEqual([{ status: 'draft' }, { status: 'live' }]);
         });
 
         it('refuses a change the transitions do not allow with 409, changing nothing', async () => {
           const zone = await createZone();
           const draft = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Draft' })).json();
           const tale = await (await post(`/tale-groups/${draft.id}/tales`, { title: 'T' })).json();
+          // A draft tale, as from before the UX rework or a kept copy: already Hidden, so it cannot be paused.
+          await pool.query("UPDATE tales SET status = 'draft' WHERE id = $1", [tale.id]);
           await expectStatus('tale-groups', draft.id, 'paused', 409, 'invalid_status_transition');
           await expectStatus('tales', tale.id, 'paused', 409, 'invalid_status_transition');
           await expectStatus('tale-groups', draft.id, 'archived', 200);
@@ -4514,6 +4623,8 @@ describe('Management API v1: projects and zones', () => {
         it('keeps media of unpublished content off the public URL: draft, paused and archived tales, and non-live groups', async () => {
           const { group, l1, urls } = await liveZone();
           const draftTale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'D' })).json();
+          // Hidden before its media is uploaded, so it never shows.
+          await expectStatus('tales', draftTale.id, 'paused', 200);
           const uploaded = await fetch(`${base}/tales/${draftTale.id}/media`, {
             method: 'PUT',
             headers: { 'Content-Type': 'video/mp4' },
@@ -4566,7 +4677,7 @@ describe('Management API v1: projects and zones', () => {
           const copy: Group = await res.json();
           expect(copy.status).toBe('draft');
           expect(copy.tales.map((t) => [t.title, t.storedStatus, t.status])).toEqual([
-            ['L1', 'live', 'live'],
+            ['L1', 'live', 'blocked-by-group'],
             ['L2', 'paused', 'paused'],
           ]);
 
@@ -4712,6 +4823,8 @@ describe('Management API v1: projects and zones', () => {
           expect([paused.status, paused.tales[0].status]).toEqual(['paused', 'blocked-by-group']);
 
           const draft = await (await post(`/tale-groups/${group.id}/tales`, { title: 'D' })).json();
+          // A draft tale (from before the UX rework, or a kept copy) reads draft whatever its window.
+          await pool.query("UPDATE tales SET status = 'draft' WHERE id = $1", [draft.id]);
           expect((await schedule('tales', draft.id, null, at(-minute))).status).toBe('draft');
         });
 
@@ -5038,6 +5151,8 @@ describe('Management API v1: projects and zones', () => {
       const font = await uploaded(zone.projectId);
       const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
       const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      // Hidden, so showing it later publishes its draft, as going live does (AD-15).
+      expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
       expect((await save(tale.id, doc(elements(font.id)), 0)).status).toBe(200);
       const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
       return { zone, font, group, tale, key: key as string };
@@ -5357,6 +5472,20 @@ describe('Management API v1: projects and zones', () => {
       expect((await getPublic(url)).status).toBe(404);
     });
 
+    it('keeps a font private while the only shown tale using it has nothing published (AD-6 amended)', async () => {
+      const { group, tale } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      // Shown without going live, so nothing is published: "not updated yet".
+      await pool.query("UPDATE tales SET status = 'live' WHERE id = $1", [tale.id]);
+      await publish('tale-groups', group.id);
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts')).rows[0].storage_key as string;
+      clearPublicFontCache();
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(404);
+
+      await publishDraft(tale.id);
+      clearPublicFontCache();
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(200);
+    });
+
     it('keeps a font private when only a hidden element or an unplaced group uses it', async () => {
       const hidden = await liveTale((id) => [text(1, { source: 'project', fontId: id }, { hidden: true })]);
       await publish('tale-groups', hidden.group.id);
@@ -5458,6 +5587,8 @@ describe('Management API v1: projects and zones', () => {
       const zone = await createZone();
       const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
       const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      // Hidden, so showing it later publishes its draft, as going live does (AD-15).
+      expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
       return { zone, group, tale };
     }
 
@@ -5636,6 +5767,33 @@ describe('Management API v1: projects and zones', () => {
       const fixed = doc([element(1, 'image', image), element(2, 'image', image, { a11y: { decorative: true } })]);
       expect((await save(tale.id, fixed, 1)).status).toBe(200);
       expect((await publishDraft(tale.id)).status).toBe(200);
+    });
+
+    it('keeps document media and the cover private while the only shown tale has nothing published (AD-6 amended)', async () => {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      // Shown from the start, with only a studio draft: "not updated yet".
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      const image = await uploaded(zone.projectId);
+      expect((await save(tale.id, doc([element(1, 'image', image)]), 0)).status).toBe(200);
+      const cover = await fetch(`${base}/tale-groups/${group.id}/cover`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+        body: png,
+      });
+      expect(cover.status).toBe(200);
+      const coverKey = (await pool.query('SELECT cover_key FROM tale_groups WHERE id = $1', [group.id])).rows[0]
+        .cover_key as string;
+      await publish('tale-groups', group.id);
+
+      expect(await delivered(zone.id)).toEqual([]);
+      expect((await getPublic(image)).status).toBe(404);
+      expect((await getPublic(coverKey)).status).toBe(404);
+
+      expect((await publishDraft(tale.id)).status).toBe(200);
+      expect((await delivered(zone.id)).length).toBe(1);
+      expect((await getPublic(image)).status).toBe(200);
+      expect((await getPublic(coverKey)).status).toBe(200);
     });
 
     it("delivers public URLs for a published tale's media and serves them only while it is delivered", async () => {
@@ -6514,6 +6672,7 @@ describe('Management API v1: projects and zones', () => {
       for (const { name, options } of seeds) ids[(await legacyTale(group.id, name, options)).id] = name;
       const empty = await (await post(`/tale-groups/${group.id}/tales`, { title: 'empty' })).json();
       await publish('tales', empty.id);
+      await asLegacy(empty.id);
       ids[empty.id] = 'empty';
       // What the release before served: each tale's media, and its stored document as delivered, which is
       // the migrated one without the tale's media element and without the duration the migration added.
@@ -6715,7 +6874,7 @@ describe('Management API v1: projects and zones', () => {
       });
     });
 
-    it('gives an uploaded tale a draft document, publishes it on going live, and keeps it in step on replace', async () => {
+    it('gives a new tale from uploaded media a draft and a published document of it at once, and keeps it in step on replace', async () => {
       const { zone, group } = await zoneWithGroup();
       const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'New' })).json();
       const put = (contentType: string, body: Buffer) =>
@@ -6723,12 +6882,14 @@ describe('Management API v1: projects and zones', () => {
       expect((await put('image/png', png)).status).toBe(200);
       const first = await row(tale.id);
       expect(first.draft?.elements).toEqual([ownElement('image', first.key as string)]);
-      expect(first.document).toBeNull();
-      expect(first.inStep).toBe(first.key);
-      // A person adds text over it, then the tale goes live: the draft is published (7.3).
+      // New tales are stored live (AD-6 amended), so the media document is published at creation.
+      expect(first.document).toEqual(first.draft);
+      expect([first.revision, first.inStep]).toEqual([1, first.key]);
+      expect((await delivered(zone.id))[0].tales.map((t) => t.id)).toEqual([tale.id]);
+      // A person adds text over it and updates the tale (7.3).
       const withText = { ...first.draft, elements: [...(first.draft?.elements ?? []), text('Hello')] };
       expect((await save(tale.id, withText, 1)).status).toBe(200);
-      await publish('tales', tale.id);
+      expect((await post(`/tales/${tale.id}/document/publish`, { revision: 2, publishedRevision: 1 })).status).toBe(200);
       const [g] = await delivered(zone.id);
       expect(g.tales[0].document.elements.map((e) => (e as { type?: string }).type)).toEqual(['image', 'text']);
       // Replacing the media changes the media element of both documents, keeping the text.
@@ -6737,6 +6898,365 @@ describe('Management API v1: projects and zones', () => {
       expect(replaced.document?.elements[0]).toMatchObject({ type: 'video', props: { mediaKey: replaced.key } });
       expect(replaced.draft?.elements.map((e) => e['type'])).toEqual(['video', 'text']);
       expect(existsSync(join(mediaDir, first.key as string))).toBe(false);
+    });
+  });
+
+  describe('On/Off and Shown/Hidden: the shown-status migration (epic UX rework R6, story 8.1)', () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const textDocument = (value: string) => ({
+      version: 1,
+      canvas: { background: { type: 'color', color: '#112233' } },
+      elements: [
+        {
+          id: '00000000-0000-4000-8000-0000000000f1',
+          type: 'text',
+          box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { text: value },
+        },
+      ],
+    });
+
+    // A tale as the release before the UX rework stored it: `status` as given, from media, a studio
+    // draft, or neither. Media uploaded to a tale that was not live gave it a draft document only (7.11).
+    async function tale(groupId: string, title: string, status: string, from: 'media' | 'studio' | 'none') {
+      const created = await (await post(`/tale-groups/${groupId}/tales`, { title })).json();
+      if (status !== 'live') await pool.query("UPDATE tales SET status = 'draft' WHERE id = $1", [created.id]);
+      if (from === 'media') {
+        const res = await fetch(`${base}/tales/${created.id}/media`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/png' },
+          body: png,
+        });
+        expect(res.status).toBe(200);
+      }
+      if (from === 'studio') {
+        const res = await fetch(`${base}/tales/${created.id}/document`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document: textDocument(title), revision: 0 }),
+        });
+        expect(res.status).toBe(200);
+      }
+      await pool.query('UPDATE tales SET status = $2 WHERE id = $1', [created.id, status]);
+      return created.id as string;
+    }
+
+    async function group(zoneId: string, name: string, status: string): Promise<string> {
+      const created = await (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+      await pool.query('UPDATE tale_groups SET status = $2 WHERE id = $1', [created.id, status]);
+      return created.id;
+    }
+
+    // Every zone's Delivery answer, as the bytes a visitor's SDK receives.
+    async function deliveries(keys: string[]): Promise<string[]> {
+      clearDeliveryCache();
+      const bodies: string[] = [];
+      for (const key of keys) {
+        const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+        expect(res.status).toBe(200);
+        bodies.push(await res.text());
+      }
+      return bodies;
+    }
+
+    interface Snapshot {
+      title: string;
+      status: string;
+      document: unknown;
+      revision: number;
+      draft: unknown;
+    }
+    async function snapshot(): Promise<Snapshot[]> {
+      return (
+        await pool.query(
+          `SELECT t.title, t.status, t.document, t.document_revision AS revision, t.draft_document AS draft,
+             t.draft_revision AS "draftRevision", t.media_key AS key, g.status AS "groupStatus"
+           FROM tales t JOIN tale_groups g ON g.id = t.tale_group_id ORDER BY t.title`,
+        )
+      ).rows;
+    }
+
+    // A database as the release before left it: (a) a group never live with draft tales, (b) a live
+    // group with draft tales, (c) a paused group, placed in two zones with keys.
+    async function preRework() {
+      const zone = await createZone();
+      const second = await (await post('/zones', { name: 'Checkout', projectId: zone.projectId })).json();
+      const never = await group(zone.id, 'Never live', 'draft');
+      const live = await group(zone.id, 'Live', 'live');
+      const paused = await group(zone.id, 'Paused', 'paused');
+      for (const id of [live, paused]) {
+        expect((await fetch(`${base}/zones/${second.id}/tale-groups/${id}`, { method: 'PUT' })).status).toBe(201);
+      }
+      const ids = {
+        a1: await tale(never, 'a1 media', 'draft', 'media'),
+        a2: await tale(never, 'a2 studio', 'draft', 'studio'),
+        a3: await tale(never, 'a3 paused', 'paused', 'media'),
+        a4: await tale(never, 'a4 empty', 'draft', 'none'),
+        b1: await tale(live, 'b1 live', 'live', 'media'),
+        b2: await tale(live, 'b2 draft', 'draft', 'media'),
+        b3: await tale(live, 'b3 placeholder', 'live', 'none'),
+        b4: await tale(live, 'b4 studio draft', 'draft', 'studio'),
+        b5: await tale(live, 'b5 seen', 'live', 'media'),
+        c1: await tale(paused, 'c1 draft', 'draft', 'media'),
+        c2: await tale(paused, 'c2 live', 'live', 'media'),
+      };
+      // (b5) A live tale whose media a studio save marked in step (markTaleMediaSeen) with nothing
+      // published, as a tale made while TALE_MEDIA_MIGRATION was off and then edited: the Delivery
+      // API composes its media.
+      await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [ids.b5]);
+      await pool.query("DELETE FROM tale_media WHERE tale_id = $1 AND document = 'published'", [ids.b5]);
+      const keys: string[] = [];
+      for (const z of [zone, second]) keys.push((await (await post(`/zones/${z.id}/key`, {})).json()).key);
+      // As before the step: it has not run.
+      await pool.query('DELETE FROM tales_migrations');
+      return { never, ids, keys };
+    }
+
+    const shape = (body: string) =>
+      (JSON.parse(body).taleGroups as { name: string; tales: { title: string }[] }[]).map((g) => [
+        g.name,
+        g.tales.map((t) => t.title),
+      ]);
+
+    it('makes the draft tales of never-live groups live, keeps the others, and changes no Delivery answer', async () => {
+      const { never, keys } = await preRework();
+      const before = await deliveries(keys);
+      const liveGroup = ['Live', ['b1 live', 'b3 placeholder', 'b5 seen']];
+      expect(before.map(shape)).toEqual([[liveGroup], [liveGroup]]);
+      const rowsBefore = await snapshot();
+
+      await migrate(pool);
+
+      expect(await deliveries(keys)).toEqual(before);
+      const after = await snapshot();
+      expect(after.map((r) => [r.title, r.status])).toEqual([
+        ['a1 media', 'live'],
+        ['a2 studio', 'live'],
+        ['a3 paused', 'paused'],
+        ['a4 empty', 'live'],
+        ['b1 live', 'live'],
+        ['b2 draft', 'draft'],
+        ['b3 placeholder', 'live'],
+        ['b4 studio draft', 'draft'],
+        ['b5 seen', 'live'],
+        ['c1 draft', 'draft'],
+        ['c2 live', 'live'],
+      ]);
+      // Made live, their drafts are published, as going live always did (AD-15); a tale with neither
+      // stays without one. Nothing else changed.
+      const byTitle = (rows: Snapshot[], title: string) => rows.find((r) => r.title === title);
+      for (const title of ['a1 media', 'a2 studio']) {
+        expect(byTitle(after, title)?.document).toEqual(byTitle(rowsBefore, title)?.draft);
+        expect(byTitle(after, title)?.revision).toBe(1);
+      }
+      expect(byTitle(after, 'a4 empty')?.document).toBeNull();
+      const changed = ['a1 media', 'a2 studio', 'a4 empty'];
+      const untouched = (rows: Snapshot[]) => rows.filter((r) => !changed.includes(r.title));
+      expect(untouched(after)).toEqual(untouched(rowsBefore));
+
+      // Turning the never-live group On shows its tales, except the one hidden before. The empty one,
+      // created before the step, keeps the placeholder it would always have shown.
+      await publish('tale-groups', never);
+      const [on] = await deliveries([keys[0]]);
+      expect(shape(on)).toEqual([
+        ['Never live', ['a1 media', 'a2 studio', 'a4 empty']],
+        liveGroup,
+      ]);
+    });
+
+    it('runs once: a second start changes nothing, not even a draft tale stored since', async () => {
+      const { ids, keys } = await preRework();
+      await migrate(pool);
+      const once = await snapshot();
+      const delivered = await deliveries(keys);
+      // A kept copy is stored draft (Hidden), in a group that was never live.
+      const copy = await post(`/tales/${ids.a2}/document/copy`, { document: textDocument('Kept') });
+      expect(copy.status).toBe(201);
+      const copyId = (await copy.json()).id;
+      const steps = (await pool.query('SELECT step, applied_at FROM tales_migrations')).rows;
+      expect(steps.map((s) => s.step)).toEqual(['shown-status']);
+
+      await migrate(pool);
+      await restart();
+
+      expect((await snapshot()).filter((r) => r.title !== 'a2 studio (copy)')).toEqual(once);
+      expect((await pool.query('SELECT status FROM tales WHERE id = $1', [copyId])).rows[0].status).toBe('draft');
+      expect((await pool.query('SELECT step, applied_at FROM tales_migrations')).rows).toEqual(steps);
+      expect(await deliveries(keys)).toEqual(delivered);
+    });
+
+    it('runs once when two starts migrate at the same time', async () => {
+      const { keys } = await preRework();
+      const before = await deliveries(keys);
+
+      await Promise.all([migrate(pool), migrate(pool)]);
+
+      expect((await pool.query('SELECT step FROM tales_migrations')).rows).toEqual([{ step: 'shown-status' }]);
+      const after = await snapshot();
+      expect(after.filter((r) => r.status === 'live').map((r) => r.title)).toEqual([
+        'a1 media',
+        'a2 studio',
+        'a4 empty',
+        'b1 live',
+        'b3 placeholder',
+        'b5 seen',
+        'c2 live',
+      ]);
+      // Each made-live draft is published once.
+      expect(after.find((r) => r.title === 'a2 studio')?.revision).toBe(1);
+      expect(await deliveries(keys)).toEqual(before);
+    });
+
+    it("keeps a tale's status change when publishing its draft fails, and logs it", async () => {
+      const { ids } = await preRework();
+      // Publishing a2's draft fails as an unexpected database error would.
+      await pool.query(`
+        CREATE FUNCTION fail_a2_publish() RETURNS trigger LANGUAGE plpgsql AS $fn$
+        BEGIN
+          IF NEW.title = 'a2 studio' AND NEW.document IS NOT NULL THEN RAISE EXCEPTION 'disk full'; END IF;
+          RETURN NEW;
+        END $fn$;
+        CREATE TRIGGER fail_a2_publish BEFORE UPDATE ON tales FOR EACH ROW EXECUTE FUNCTION fail_a2_publish();
+      `);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      let logged = '';
+      try {
+        await migrate(pool);
+        logged = warn.mock.calls.flat().join('\n');
+      } finally {
+        warn.mockRestore();
+        await pool.query('DROP TRIGGER fail_a2_publish ON tales; DROP FUNCTION fail_a2_publish();');
+      }
+      const after = await snapshot();
+      const a2 = after.find((r) => r.title === 'a2 studio');
+      expect([a2?.status, a2?.document]).toEqual(['live', null]);
+      // The others went on: a1's draft is published.
+      expect(after.find((r) => r.title === 'a1 media')?.revision).toBe(1);
+      expect(logged).toContain(`Tale ${ids.a2}: made live, but its draft could not be published`);
+    });
+
+    it('runs the step while TALE_MEDIA_MIGRATION is off, with no Delivery answer changed', async () => {
+      const { keys } = await preRework();
+      const before = await deliveries(keys);
+      const previous = process.env['TALE_MEDIA_MIGRATION'];
+      process.env['TALE_MEDIA_MIGRATION'] = 'off';
+      try {
+        await migrate(pool);
+        const after = await snapshot();
+        expect(after.filter((r) => r.status === 'live').map((r) => r.title)).toContain('a1 media');
+        expect(after.find((r) => r.title === 'a2 studio')?.revision).toBe(1);
+        expect(await deliveries(keys)).toEqual(before);
+      } finally {
+        if (previous === undefined) delete process.env['TALE_MEDIA_MIGRATION'];
+        else process.env['TALE_MEDIA_MIGRATION'] = previous;
+      }
+      await migrate(pool);
+      expect(await deliveries(keys)).toEqual(before);
+    });
+
+    it('does not deliver a title-only tale created after the step', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
+      await publish('tale-groups', g.id);
+      await post(`/tale-groups/${g.id}/tales`, { title: 'Title only' });
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      expect((await deliveries([key])).map(shape)).toEqual([[]]);
+    });
+
+    it('publishes nothing when media is uploaded to a shown tale with only a studio draft; a tale from media alone is published', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
+      await publish('tale-groups', g.id);
+      const drafted = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Drafted' })).json();
+      const saved = await fetch(`${base}/tales/${drafted.id}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document: textDocument('Drafted'), revision: 0 }),
+      });
+      expect(saved.status).toBe(200);
+      const fromMedia = await (await post(`/tale-groups/${g.id}/tales`, { title: 'From media' })).json();
+      for (const id of [drafted.id, fromMedia.id]) {
+        const res = await fetch(`${base}/tales/${id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+        expect(res.status).toBe(200);
+      }
+      const state = async (id: string) => (await (await fetch(`${base}/tales/${id}/document`)).json()).published.document;
+      // Not updated yet: the draft (now with the media) waits for the person to publish it.
+      expect(await state(drafted.id)).toBeNull();
+      expect(await state(fromMedia.id)).not.toBeNull();
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['From media']]]]);
+    });
+
+    it('does not show the media alone of a shown tale with only a studio draft while its media is out of step', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
+      await publish('tale-groups', g.id);
+      const drafted = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Drafted' })).json();
+      const saved = await fetch(`${base}/tales/${drafted.id}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document: textDocument('Drafted'), revision: 0 }),
+      });
+      expect(saved.status).toBe(200);
+      const fromMedia = await (await post(`/tale-groups/${g.id}/tales`, { title: 'From media' })).json();
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const previous = process.env['TALE_MEDIA_MIGRATION'];
+      process.env['TALE_MEDIA_MIGRATION'] = 'off';
+      try {
+        await migrate(pool);
+        // Media written while the media documents are off: both tales are out of step.
+        for (const id of [drafted.id, fromMedia.id]) {
+          const res = await fetch(`${base}/tales/${id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+          expect(res.status).toBe(200);
+        }
+        // The drafted tale waits for its draft to be published; the tale of media alone shows it.
+        expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['From media']]]]);
+
+        // A tale from before the step, in the same state, shows its media composed in, as it did.
+        await asLegacy(drafted.id);
+        expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['Drafted', 'From media']]]]);
+      } finally {
+        if (previous === undefined) delete process.env['TALE_MEDIA_MIGRATION'];
+        else process.env['TALE_MEDIA_MIGRATION'] = previous;
+        await migrate(pool);
+      }
+    });
+
+    it('still delivers a tale from before the step with its media in step and only a studio draft', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Old' })).json();
+      await publish('tale-groups', g.id);
+      const t = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Seen' })).json();
+      const res = await fetch(`${base}/tales/${t.id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+      expect(res.status).toBe(200);
+      // As markTaleMediaSeen leaves it: in step, a draft, nothing published.
+      await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [t.id]);
+      await asLegacy(t.id);
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const [body] = await deliveries([key]);
+      const tales = JSON.parse(body).taleGroups[0].tales as { title: string; document: { elements: { props: { taleMedia?: boolean } }[] } }[];
+      expect(tales.map((tale) => tale.title)).toEqual(['Seen']);
+      expect(tales[0].document.elements[0].props.taleMedia).toBe(true);
+    });
+
+    it('delivers a copy of a group from before the step as the source: its title-only tales keep the placeholder', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Old' })).json();
+      await publish('tale-groups', g.id);
+      const t = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Title only' })).json();
+      await asLegacy(t.id);
+      const copy = await post(`/tale-groups/${g.id}/copy`, { zoneId: zone.id });
+      expect(copy.status).toBe(201);
+      const copied = await copy.json();
+      await publish('tale-groups', copied.id);
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const [body] = await deliveries([key]);
+      const groups = JSON.parse(body).taleGroups as { id: string; tales: { title: string; document: unknown }[] }[];
+      expect(groups.map((group) => group.tales.map((tale) => tale.title))).toEqual([['Title only'], ['Title only']]);
+      expect(groups[1].tales[0].document).toEqual(groups[0].tales[0].document);
     });
   });
 
@@ -7583,6 +8103,50 @@ describe('Management API v1: projects and zones', () => {
       if (!record) throw new Error(`No fixture ${id}`);
       return record;
     }
+
+    it('imports an active story Shown and any other Hidden, also a new one re-imported into a group that is On', async () => {
+      const project = await createProject();
+      const stories = fake.control.data.stories['3001'] as { data: Record<string, unknown>[] };
+      fixture(stories, 4002)['status'] = 2; // PASSIVE at the source
+      startWorker();
+      expect((await importOnce(project.id))['status']).toBe('done');
+      const statusOf = async (title: string) =>
+        (await pool.query('SELECT status FROM tales WHERE project_id = $1 AND title = $2', [project.id, title])).rows[0]
+          ?.status;
+      const first = fixture(stories, 4001);
+      expect(await statusOf(first['title'] as string)).toBe('live');
+      expect(await statusOf(fixture(stories, 4002)['title'] as string)).toBe('paused');
+
+      // The group is turned On; the source then adds a passive and an active story to it.
+      const groupId = (
+        await pool.query('SELECT tale_group_id AS id FROM tales WHERE project_id = $1 AND title = $2', [
+          project.id,
+          first['title'],
+        ])
+      ).rows[0].id as string;
+      await publish('tale-groups', groupId);
+      stories.data.push(
+        { ...first, id: 4901, title: 'New passive', name: 'New passive', status: 2, sort_order: 8 },
+        { ...first, id: 4902, title: 'New active', name: 'New active', status: 1, sort_order: 9 },
+      );
+      expect((await importOnce(project.id))['status']).toBe('done');
+      expect(await statusOf('New passive')).toBe('paused');
+      expect(await statusOf('New active')).toBe('live');
+
+      const zoneId = (await pool.query('SELECT zone_id FROM zone_tale_groups WHERE tale_group_id = $1', [groupId])).rows[0]
+        .zone_id as string;
+      const { key } = await (await post(`/zones/${zoneId}/key`, {})).json();
+      clearDeliveryCache();
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const delivered = ((await res.json()).taleGroups as { id: string; tales: { title: string }[] }[]).find(
+        (g) => g.id === groupId,
+      );
+      const titles = delivered?.tales.map((t) => t.title) ?? [];
+      expect(titles).toContain('New active');
+      expect(titles).toContain(first['title']);
+      expect(titles).not.toContain('New passive');
+      expect(titles).not.toContain(fixture(stories, 4002)['title']);
+    });
 
     // The media files stored so far in the test MEDIA_DIR.
     function storedMediaFiles(): string[] {
@@ -8630,7 +9194,8 @@ describe('Management API v1: projects and zones', () => {
             document: unknown;
             revision: number;
           };
-        // Every imported tale has a draft document of its media, in step; imported tales are drafts.
+        // Every imported tale has a draft document of its media, in step; imported tales are stored
+        // live (Shown, AD-6 amended), so it is published too, in a group that is Off (draft).
         for (const tale of tales) {
           const stored = await read(tale.id);
           expect(stored.inStep).toBe(stored.key);
@@ -8640,7 +9205,7 @@ describe('Management API v1: projects and zones', () => {
               props: { mediaKey: stored.key, fit: 'contain', taleMedia: true },
             }),
           ]);
-          expect(stored.document).toBeNull();
+          expect(stored.document).toEqual(stored.draft);
         }
 
         const [untouched, removed, picked] = titles.map((t) => byTitle(t).id);

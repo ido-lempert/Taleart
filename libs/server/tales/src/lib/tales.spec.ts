@@ -43,7 +43,8 @@ import {
   TaleNotFoundError,
   type TransactionalDb,
 } from './tales';
-import { migrateTales } from './migration';
+import type { DbConnection } from '@taleart/server-access';
+import { migrateShownStatus, migrateTales } from './migration';
 import { InvalidTaleDocumentError } from './tale-document';
 import { ZoneNotFoundError } from '@taleart/server-zones';
 
@@ -252,10 +253,49 @@ describe('rename', () => {
   });
 });
 
+describe('migrateShownStatus: a failing publish', () => {
+  const taleId = '00000000-0000-4000-8000-0000000000a1';
+  const draft = { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] };
+  // A connection on which the step runs and publishing the one made-live tale's draft throws `publishError`.
+  function connection(publishError: Error, rollbackError?: Error) {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('INSERT INTO tales_migrations')) return { rows: [{ step: 'shown-status' }] };
+      if (sql.includes('FROM tale_groups WHERE status')) return { rows: [{ id: groupId }] };
+      if (sql.includes("UPDATE tales SET status = 'live'")) return { rows: [{ id: taleId, draft, unpublished: true }] };
+      if (sql.includes('SET document = draft_document')) throw publishError;
+      if (sql === 'ROLLBACK' && rollbackError) throw rollbackError;
+      return { rows: [] };
+    });
+    return { query, db: { query, release: vi.fn() } as unknown as DbConnection };
+  }
+  const statements = (query: ReturnType<typeof vi.fn>) => query.mock.calls.map((c) => String(c[0]).trim());
+
+  it("keeps the tale's status change and logs a database error on that tale", async () => {
+    const { query, db } = connection(Object.assign(new Error('check violated'), { code: '23514' }));
+    const log = vi.fn();
+    expect(await migrateShownStatus(db, { log })).toEqual({ applied: true, madeLive: 1, published: 0 });
+    expect(statements(query)).toContain('ROLLBACK TO SAVEPOINT shown_status_publish');
+    expect(statements(query)).toContain('COMMIT');
+    expect(log).toHaveBeenCalledWith('warn', expect.stringContaining(`Tale ${taleId}: made live`));
+  });
+
+  it('fails the step on any other error, such as a lost connection, reporting it even when the rollback fails', async () => {
+    const lost = new Error('Connection terminated unexpectedly');
+    const { query, db } = connection(lost, new Error('Client was closed'));
+    await expect(migrateShownStatus(db, { log: vi.fn() })).rejects.toBe(lost);
+    expect(statements(query)).not.toContain('ROLLBACK TO SAVEPOINT shown_status_publish');
+    expect(statements(query)).not.toContain('COMMIT');
+    expect(statements(query)).toContain('ROLLBACK');
+
+    const shutdown = connection(Object.assign(new Error('terminating connection'), { code: '57P01' }));
+    await expect(migrateShownStatus(shutdown.db, { log: vi.fn() })).rejects.toThrow('terminating connection');
+  });
+});
+
 describe('migration', () => {
   it('creates placements keyed to the zone and group projects, and moves old zone columns into them', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    await migrateTales({ query } as unknown as TransactionalDb);
+    await migrateTales({ query } as unknown as DbConnection);
     const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS zone_tale_groups/);
     expect(sql).toMatch(/PRIMARY KEY \(zone_id, tale_group_id\)/);
@@ -337,7 +377,8 @@ describe('tales', () => {
     ]);
     const tale = await createTale(db, { taleGroupId: groupId, title: 'T' });
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
-    expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2]);
+    // New tales are stored live (Shown, AD-6 amended).
+    expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2, 'live']);
     expect(tale).toEqual({ id: 't1', ...NO_WINDOW, media: null });
   });
 
@@ -845,7 +886,7 @@ describe('copy to zone', () => {
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
     // ...and each tale's document (AD-15).
     expect(insertTales?.[0]).toMatch(
-      /media_key, media_content_type, status, starts_at, ends_at, document,\s+draft_document, document_media_key FROM tales/,
+      /media_key, media_content_type, status, starts_at, ends_at, document,\s+draft_document, document_media_key, created_at FROM tales/,
     );
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
     expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);
@@ -1170,7 +1211,7 @@ describe('schedule', () => {
 
   it('adds nullable window columns with a CHECK, once', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    await migrateTales({ query } as unknown as TransactionalDb);
+    await migrateTales({ query } as unknown as DbConnection);
     const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
     for (const table of ['tale_groups', 'tales']) {
       expect(sql).toContain(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS starts_at timestamptz`);
@@ -1337,7 +1378,7 @@ describe('covers', () => {
 
   it('adds the nullable cover columns and their index, once', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    await migrateTales({ query } as unknown as TransactionalDb);
+    await migrateTales({ query } as unknown as DbConnection);
     const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
     expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_key text');
     expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_content_type text');

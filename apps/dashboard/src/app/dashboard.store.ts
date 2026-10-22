@@ -283,9 +283,13 @@ export class DashboardStore {
     this.drawer.set(null);
   }
 
+  /** Bumped by each refresh, so an older one still loading writes nothing over a newer one's answers. */
+  private refreshes = 0;
+
   async refresh(): Promise<void> {
     const generation = this.generation;
-    const current = () => generation === this.generation;
+    const run = ++this.refreshes;
+    const current = () => generation === this.generation && run === this.refreshes;
     try {
       const projects = await firstValueFrom(this.http.get<Project[]>(`${API_BASE}/projects`));
       if (!current()) return;
@@ -570,14 +574,54 @@ export class DashboardStore {
    */
   async setTaleGroupStatus(taleGroupId: string, status: SettableStatus): Promise<string> {
     try {
-      await firstValueFrom(
+      const group = await firstValueFrom(
         this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/status`, { status }),
       );
+      this.applyGroupStatus(group);
     } catch (err) {
       return apiErrorMessage(err, 'The status was not changed. Try again.');
     }
     await this.refresh();
     return '';
+  }
+
+  // Shows a saved group status at once, from the API's answer, in every zone and project list and
+  // in the confirmed order of a zone with a reorder pending, so the order settling (saved or
+  // refused) does not bring the old status back. The refresh that follows confirms it; an older
+  // refresh still loading writes nothing once that one starts (see `refreshes`).
+  private applyGroupStatus(group: TaleGroup): void {
+    this.patchZoneGroups(group.id, (g) => ({
+      ...g,
+      status: group.status,
+      storedStatus: group.storedStatus,
+      tales: group.tales,
+    }));
+    this.projectTaleGroups.update((lists) =>
+      Object.fromEntries(
+        Object.entries(lists).map(([id, list]) => [
+          id,
+          list.map((g) => (g.id === group.id ? { ...g, status: group.status, storedStatus: group.storedStatus } : g)),
+        ]),
+      ),
+    );
+  }
+
+  // Shows a saved tale status at once, from the API's answer, wherever its group is listed, as
+  // applyGroupStatus does.
+  private applyTaleStatus(tale: Tale): void {
+    this.patchZoneGroups(tale.taleGroupId, (g) => ({
+      ...g,
+      tales: g.tales.map((t) => (t.id === tale.id ? { ...t, status: tale.status, storedStatus: tale.storedStatus } : t)),
+    }));
+  }
+
+  // Patches one group in every zone's list and in every confirmed order kept for a pending reorder.
+  private patchZoneGroups(taleGroupId: string, patch: (g: ZoneTaleGroup) => ZoneTaleGroup): void {
+    const patched = (list: ZoneTaleGroup[]) => list.map((g) => (g.id === taleGroupId ? patch(g) : g));
+    this.taleGroups.update((lists) =>
+      Object.fromEntries(Object.entries(lists).map(([id, list]) => [id, patched(list)])),
+    );
+    for (const [zoneId, confirmed] of this.confirmedGroups) this.confirmedGroups.set(zoneId, patched(confirmed));
   }
 
   /** Publishes, pauses, archives or restores a tale (AD-6). Returns the saved tale, or the message to show. */
@@ -590,13 +634,14 @@ export class DashboardStore {
       tale = await firstValueFrom(
         this.http.put<TaleStatusResult>(`${API_BASE}/tales/${encodeURIComponent(taleId)}/status`, { status }),
       );
+      this.applyTaleStatus(tale);
     } catch (err) {
       return { tale: null, message: apiErrorMessage(err, 'The status was not changed. Try again.'), warning: '' };
     }
     await this.refresh();
     // Going live publishes the tale's studio draft when nothing is published yet, unless it no longer passes (AD-15).
     const warning = tale.draftNotPublished
-      ? "Tale is live; its studio draft has problems and wasn't published. " +
+      ? "Tale is shown; its studio draft has problems and wasn't published. " +
         (tale.draftNotPublishedReason ? `${tale.draftNotPublishedReason} ` : '') +
         'Open Tale Studio to fix and publish it.'
       : '';

@@ -49,7 +49,7 @@ const brief = (differences: ImportDifference[]) =>
   differences.map((d) => [d.kind, d.field, d.sourceField].filter((part) => part !== null).join(' '));
 
 describe('checkRecord', () => {
-  it("finds no difference in a clean record and maps id, title and sort_order, and a story's media and mime_type", () => {
+  it("finds no difference in a clean record and maps id, title and sort_order, and a story's media, mime_type and status", () => {
     expect(checkRecord('tale', cleanStory(), 1)).toEqual({
       record: {
         id: '4001',
@@ -57,6 +57,7 @@ describe('checkRecord', () => {
         sortOrder: 0,
         media: 'https://media.example/a.jpg',
         mimeType: 'image/jpeg',
+        status: 1,
       },
       differences: [],
       omitted: 0,

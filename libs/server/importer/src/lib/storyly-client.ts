@@ -92,6 +92,8 @@ export const MAX_STORYLY_RESPONSE_BYTES = 20 * 1024 * 1024;
 export interface SourceStory extends SourceOrderedRecord {
   media?: unknown;
   mimeType?: unknown;
+  /** Storyly's status code, unchecked: ACTIVE is 1 (research 11.3). */
+  status?: unknown;
 }
 
 /**

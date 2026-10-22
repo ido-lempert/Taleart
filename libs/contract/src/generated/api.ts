@@ -906,7 +906,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale group.
-         * @description Sets the group's stored status key (AD-6). Allowed: `live` from `draft` or `paused` (publish); `paused` from `live` (pause) or from `archived` (restore); `archived` from `draft`, `live` or `paused` (archive). Setting the current status again changes nothing. Any other change: 409 `invalid_status_transition`. A status other than `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`. Only `live` groups reach the Delivery API; the `live` tales of a `paused` group read `blocked-by-group`.
+         * @description Sets the group's stored status key (AD-6). Allowed: `live` from `draft` or `paused` (publish); `paused` from `live` (pause) or from `archived` (restore); `archived` from `draft`, `live` or `paused` (archive). Setting the current status again changes nothing. Any other change: 409 `invalid_status_transition`. A status other than `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`. Only `live` groups reach the Delivery API; the `live` tales of a `draft` or `paused` group read `blocked-by-group`. The dashboard shows `live` as On and `draft` or `paused` as Off (`groupShownStatus`); its switch sets `live` (On) or `paused` (Off).
          */
         put: operations["setTaleGroupStatus"];
         post?: never;
@@ -981,7 +981,7 @@ export interface paths {
         put?: never;
         /**
          * Add a tale to a tale group, after its existing tales.
-         * @description The tale takes its project from the tale group. A tale group holds at most 100 tales; adding to a full group answers 409 `tale_group_full`.
+         * @description The tale takes its project from the tale group. A new tale is stored `live` (Shown): it shows once its group is On and it has a published document, which uploading its media creates (AD-6, AD-15). A tale group holds at most 100 tales; adding to a full group answers 409 `tale_group_full`.
          */
         post: operations["createTale"];
         delete?: never;
@@ -1403,9 +1403,9 @@ export interface components {
             title: string;
             /** @description Order within the tale group; lists are sorted by it. */
             position: number;
-            /** @description The tale's status as read (AD-6): `storedStatus` unless it is `live`; then `blocked-by-group` when its group is `paused`, else `scheduled` before `startsAt`, `expired` at or after `endsAt`, else `live`. The group's window does not change the tale's status, but the Delivery API needs both windows to contain the current time. */
+            /** @description The tale's status as read (AD-6): `storedStatus` unless it is `live`; then `blocked-by-group` when its group is `draft` or `paused`, else `scheduled` before `startsAt`, `expired` at or after `endsAt`, else `live`. The group's window does not change the tale's status, but the Delivery API needs both windows to contain the current time. */
             status: components["schemas"]["ContentStatus"];
-            /** @description The status key a person set: `draft` for a new tale, then `live`, `paused` or `archived`. */
+            /** @description The status key a person set: `live` for a new tale (Shown, so a group turned On shows it), then `paused` (Hidden), `live` (Shown) or `archived`. `draft` (Hidden) remains on tales from before the UX rework and on kept copies. The dashboard shows `live` as Shown and `draft` or `paused` as Hidden (`taleShownStatus`). A tale is delivered only when it also has a published document (AD-15). */
             storedStatus: components["schemas"]["ContentStatus"];
             /**
              * Format: date-time
