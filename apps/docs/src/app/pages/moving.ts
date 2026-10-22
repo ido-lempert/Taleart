@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { DOCS_SNIPPET } from '../docs-content';
+import { DOCS_SNIPPET, FOLD_EXAMPLES } from '../docs-content';
 
 // docs-check:removed (the markup of builds before the zone rework, shown only as what to replace)
 const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="tak_…" stage="top"></taleart-view>';
@@ -11,9 +11,9 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h1>Stages and zone keys</h1>
+    <h1 tabindex="-1">Stages and zone keys</h1>
     <p class="lede">
-      Earlier builds placed content with stages, frames, playbooks and one key per zone. The zone rework replaced them.
+      Earlier builds placed content with stages, frames, presets and one key per zone. The zone rework replaced them.
       This page says what the upgrade did to your content and how to move a page that still uses the old markup.
     </p>
 
@@ -37,19 +37,25 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
       </li>
       <li>
         A frame that no stage showed, and every frame after the first of a zone without stages, became a new zone
-        named "&lt;zone name&gt; – &lt;type&gt; &lt;n&gt;", such as "Home – Bar 2", with that frame as its display.
+        named "&lt;zone name&gt; – &lt;Type&gt; &lt;n&gt;", such as "Home – Bar 2", with that frame as its display.
+        <code>n</code> counts the original zone's frames of that type, oldest first, including the frames its stages
+        showed.
+      </li>
+      <li>
+        Such a zone's slug is the original zone's new slug, then <code>-&lt;type&gt;-&lt;n&gt;</code>: when "Home"
+        became "Top" (<code>top</code>), its second bar became <code>top-bar-2</code>.
       </li>
       <li>Every new zone got a copy of the original zone's tale groups, in the same order.</li>
       <li>A zone that had no frame stayed one zone, with no display.</li>
       <li>
-        Slugs came from the stage key, or from the zone's name when there was none, and were made unique in the
-        project with <code>-2</code>, <code>-3</code> and so on. A stage key that another zone already used got such a
-        suffix: check the slug on the zone page.
+        Other slugs came from the stage key, or from the zone's name when there was none. A slug another zone of the
+        project already had got <code>-2</code>, <code>-3</code> and so on, oldest zone first, so a stage key can have
+        changed: check the slug on the zone page.
       </li>
     </ul>
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="fold-caption">
       <table>
-        <caption class="muted">Example</caption>
+        <caption id="fold-caption">Examples of the upgrade</caption>
         <thead>
           <tr>
             <th scope="col">Before</th>
@@ -57,41 +63,44 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>
-              "Home" with stages Top (a bar) and Promo (a banner), a bar no stage showed, and groups G1 and G2
-            </td>
-            <td>
-              "Top" (<code>top</code>, the original zone), "Promo" (<code>promo</code>) and "Home – Bar 2"
-              (<code>home-bar-2</code>), each showing G1 and G2
-            </td>
-          </tr>
-          <tr>
-            <td>"Shop" with a bar and a banner, no stages</td>
-            <td>"Shop" (<code>shop</code>, the bar) and "Shop – Banner 1" (<code>shop-banner-1</code>)</td>
-          </tr>
+          @for (example of examples; track example.before) {
+            <tr>
+              <td>{{ example.before }}</td>
+              <td>
+                <ul class="plain">
+                  @for (zone of example.after; track zone.slug) {
+                    <li>
+                      "{{ zone.name }}" (<code>{{ zone.slug }}</code>), {{ zone.note }}
+                    </li>
+                  }
+                </ul>
+              </td>
+            </tr>
+          }
         </tbody>
       </table>
     </div>
+    <p>Each zone made from "Home" shows Home's tale groups, in Home's order; the same for "Shop".</p>
 
-    <h2 id="playbooks">Frames and playbooks</h2>
+    <h2 id="templates">Frames and presets</h2>
     <p>
-      A frame is now called the zone's <strong>display</strong>, and there is one per zone. Playbooks are gone: the
-      presets became <strong>templates</strong> you pick when creating a zone. A zone made from a playbook keeps only a
-      "created from template" note.
+      A frame is now called the zone's <strong>display</strong>, and there is one per zone. The presets that set up
+      several frames at once (playbooks) are gone: they became <strong>templates</strong> you pick when creating a
+      zone. A zone made from one keeps only a "created from template" note.
     </p>
 
     <h2 id="zone-keys">Zone keys and the stage attribute were removed</h2>
     <p>
-      Zone keys (<code>tak_…</code>), the <code>zone-key</code> attribute, the <code>zoneKey</code> property, the
-      <code>stage</code> attribute and <code>configureZone</code> with a zone key were removed. They no longer work:
-      an element with only a zone key renders nothing and logs one console warning.
+      Zone keys (<code>tak_…</code>) were removed in the zone rework (owner decision, 2026-10-22), with the
+      <code>zone-key</code> attribute, the <code>zoneKey</code> property, the <code>stage</code> attribute and
+      <code>configureZone</code> with a zone key. An element placed that way renders nothing. The
+      <code>zone-key</code> attribute logs one console warning per element; the others are ignored without a word.
     </p>
     <p>Replace markup like this:</p>
-    <pre><code>{{ oldMarkup }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Old markup"><code>{{ oldMarkup }}</code></pre>
     <!-- /docs-check:removed -->
     <p>with the snippet from the zone's Install tab:</p>
-    <pre><code>{{ snippet }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
     <ol class="steps">
       <li>Open the zone that came from the stage (or zone) the page used, and note its slug.</li>
       <li>On its Install tab, issue the project's site key if the project has none, and copy the snippet.</li>
@@ -103,4 +112,5 @@ const OLD_MARKUP = '<taleart-view api-url="https://api.example.com" zone-key="ta
 export class MovingPage {
   protected readonly oldMarkup = OLD_MARKUP;
   protected readonly snippet = DOCS_SNIPPET;
+  protected readonly examples = FOLD_EXAMPLES;
 }

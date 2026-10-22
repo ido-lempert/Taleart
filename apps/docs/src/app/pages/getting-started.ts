@@ -7,7 +7,7 @@ import { DOCS_SNIPPET } from '../docs-content';
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h1>Getting started</h1>
+    <h1 tabindex="-1">Getting started</h1>
     <p class="lede">
       TaleArt shows tales (full-screen pages of images, video and text) in spots on your site called zones. This page
       takes you from a new project to a tale on a test page.
@@ -33,7 +33,7 @@ import { DOCS_SNIPPET } from '../docs-content';
     </ol>
 
     <p>The snippet looks like this, with your API URL and your zone's slug filled in:</p>
-    <pre><code>{{ snippet }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
     <p>
       Put it in any page of your site, with your site key in place of <code>YOUR_SITE_KEY</code>.
       <a routerLink="/install">Install a zone</a> explains each part.
@@ -43,7 +43,7 @@ import { DOCS_SNIPPET } from '../docs-content';
     <p>
       Every zone, tale group and tale in the dashboard says <em>Visible on site</em> or <em>Not visible:</em> and the
       first reason, such as "group is off", "zone has no display" or "zone not installed" (the project has no site
-      key). The dashboard and the Delivery API use the same rule, so they never disagree.
+      key). The dashboard and the Delivery API decide visibility with the same rule.
     </p>
 
     <p>Next: <a routerLink="/concepts">Concepts</a> explains zones, displays, templates and the rest.</p>

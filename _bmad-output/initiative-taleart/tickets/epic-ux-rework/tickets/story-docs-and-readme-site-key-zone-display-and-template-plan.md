@@ -83,6 +83,18 @@ deferred: []
 - **Dashboard help.** The New tale group name hint now defines a tale group with the glossary sentence. Other help text already used the glossary (zone, display, template hints; theme page); no stage, playbook or zone key text remains in dashboard templates.
 - **Terminology map.** Zone, Instance/Stage, Widget/Frame, Flow/Playbook and Placement token/Zone key rows updated (display, template, site key plus slug; stage and zone key retired with dates and stories); the core entities list follows.
 
+## Review fixes (2026-10-23)
+
+- **Migration example.** The Stages and zone keys page now says a zone made from a frame takes the original zone's new slug plus `-<type>-<n>`, `n` counting that zone's frames of the type oldest first, stage frames included. The examples (`FOLD_EXAMPLES` in `docs-content.ts`) are the API fold tests' expectations: "Home" with stages Top (`top`) and Hero (`hero`) and a second bar → `top`, `hero`, `top-bar-2` ("Home – Bar 2"); "Shop" → `shop`, `shop-banner-1`. The docs check reads `apps/api/src/app.spec.ts` and fails if those expectations change.
+- **configureZone.** Docs and README say to import it from exactly the script tag's URL (the pinned one when pinned); the docs' theme example carries the script tag and a check asserts the import URL equals its `src`.
+- **What still warns.** Only the `zone-key` attribute warns (once per element); `zoneKey`, `stage` and `configureZone` with a zone key are ignored.
+- **Docs check.** Scans the dashboard's non-spec `*.ts` too (and its target inputs list them and the API spec). Removed-section markers are allowed only in `moving.ts` and the README; a marker anywhere else fails. Patterns widened (`\bplaybooks?\b`, `\bstage\s*=`), and markup between words is dropped before matching. The glossary's "was playbook" and the Concepts sentence naming the old terms are reworded.
+- **Install page.** Slugs are guessable and not access control; the key never goes in a query string; the Delivery rate limit (bursts of 600, then 20 a second, per address) and that a 429 renders nothing with one console error. "Never disagree" → "decide visibility with the same rule". Pinning: open `<api>/api/v1/install` while signed in.
+- **Docs app.** `outputMode: 'static'` with `main.server.ts`, `app.config.server.ts`, `app.routes.server.ts`: the four pages and `/not-found` are prerendered; any other path renders the not-found page in the browser (a host serves `not-found/index.html` with 404). Hydration on. After an in-app navigation the new page's `h1` (tabindex -1) gets focus. Code blocks and table wrappers are focusable labelled regions; the attribute and example tables have captions.
+- **Specs.** `libs/web-sdk/src/lib/readme.spec.ts`: the README attribute table equals `observedAttributes`, each property exists. `SDK_CACHE_SECONDS` (300) and `SDK_PINNED_CACHE_SECONDS` (a year) in the contract, used by `sdk.router.ts`, checked in the contract spec and against the docs and README text. `sdkScriptTag` and `zoneElement` split out of `installSnippet`; `DOCS_TWO_ZONES_SNIPPET` is built from them.
+- **Epic.** R17 (and the ticket's description in `tickets.toml`) say zone keys and `stage` were removed in 8.7, not supported.
+- **Results.** Full run: only the known clock test fails (api 590 of 591); docs 27, contract 373, web-sdk 413, dashboard 617; `web-sdk:types-check` passes; docs prerenders 5 routes. Playwright: prerendered `/moving-from-stages` holds `top-bar-2` without JavaScript; an unknown path answers 404 with "Page not found"; after clicking "Install a zone" the focus is on its `h1`; the docs snippet on a blank page, the sample page and the test page render `home-top` (no console error).
+
 ## Plan Change Log
 
 ## Review Triage Log

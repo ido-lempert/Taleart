@@ -3,8 +3,9 @@ import { ConceptsPage } from './pages/concepts';
 import { GettingStartedPage } from './pages/getting-started';
 import { InstallPage } from './pages/install';
 import { MovingPage } from './pages/moving';
+import { NotFoundPage } from './pages/not-found';
 
-/** The docs pages, in navigation order. */
+/** The docs pages, in navigation order. Each is prerendered (`app.routes.server.ts`). */
 export const DOCS_PAGES = [
   { path: '', label: 'Getting started', title: 'Getting started', component: GettingStartedPage },
   { path: 'concepts', label: 'Concepts', title: 'Concepts', component: ConceptsPage },
@@ -12,7 +13,11 @@ export const DOCS_PAGES = [
   { path: 'moving-from-stages', label: 'Stages and zone keys', title: 'Stages and zone keys', component: MovingPage },
 ] as const;
 
+/** The prerendered "not found" page, which a static host serves for any other path. */
+export const NOT_FOUND_PATH = 'not-found';
+
 export const appRoutes: Route[] = [
   ...DOCS_PAGES.map(({ path, title, component }) => ({ path, title: `${title} · TaleArt docs`, component })),
-  { path: '**', redirectTo: '' },
+  { path: NOT_FOUND_PATH, title: 'Page not found · TaleArt docs', component: NotFoundPage },
+  { path: '**', title: 'Page not found · TaleArt docs', component: NotFoundPage },
 ];

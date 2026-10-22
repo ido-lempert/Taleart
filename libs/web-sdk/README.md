@@ -50,8 +50,9 @@ The Install tab also has a Copy button and an "Open test page" link (below).
   URL; it is cached for five minutes, and a running API serves a rebuilt file at once. A site may also host the file
   itself, or install the npm package.
 - **Pinning it.** The same build is also served at a URL pinned to its content, `<api-url>/sdk/v1/taleart.<hash>.js`,
-  cached for a year. `GET /api/v1/install` gives it (`sdkPinnedUrl`) with its Subresource Integrity value
-  (`sdkIntegrity`), for a page that wants the browser to refuse any other file:
+  cached for a year. Open `<api-url>/api/v1/install` in a browser where you are signed in to the dashboard: it gives
+  that URL (`sdkPinnedUrl`) with its Subresource Integrity value (`sdkIntegrity`), for a page that wants the browser
+  to refuse any other file:
   `<script type="module" src="…/taleart.<hash>.js" integrity="sha384-…" crossorigin="anonymous">`. A pinned URL is gone
   with the next build, so a page that pins it updates it on each release.
 - **The test page.** `<api-url>/sdk/v1/test-page?zone=<slug>` renders one zone with this SDK. It reads the site key
@@ -60,16 +61,23 @@ The Install tab also has a Copy button and an "Open test page" link (below).
   Delivery API. It is served with a strict Content Security Policy (scripts from the API only), `noindex` and no
   referrer.
 
-An element renders only with both a site key and a slug.
+An element renders only with both a site key and a slug. Put the key only in `site-key` (or `siteKey`), never in a
+query string: the SDK sends it only in the `Authorization` header. Slugs are not access control (they are often easy
+to guess), so treat what a visible zone shows as public. The Delivery API limits how often one address may ask (by
+default bursts of 600, then 20 a second); over the limit it answers 429, and the element renders nothing and logs one
+console error.
 
 <!-- docs-check:removed -->
 ### Removed: zone keys and the `stage` attribute
 
 Builds before the zone rework placed a zone with its own zone key (`tak_…`, the `zone-key` attribute or `zoneKey`
-property) and picked one of its stages with `stage="…"`. They were removed (owner decision 2026-10-22): such an element
-renders nothing and logs one warning. The upgrade turned every stage, and every frame beyond a zone's first, into a
-zone of its own with one display and a copy of the zone's tale groups; a stage's key became its zone's slug (with a
-`-2`, `-3` suffix where another zone already had it). To move a page, issue the project's site key and replace the
+property) and picked one of its stages with `stage="…"`. They were removed in the zone rework (story 8.7, owner
+decision 2026-10-22): such an element renders nothing. The `zone-key` attribute logs one console warning per element;
+the `zoneKey` property, the `stage` attribute and `configureZone` with a zone key are ignored without a word. The
+upgrade (story 8.5) turned every stage, and every frame beyond a zone's first, into a zone of its own with one display
+and a copy of the zone's tale groups. A stage's key became its zone's slug (with a `-2`, `-3` suffix where another zone
+already had it); a zone made from a frame took the original zone's new slug plus `-<type>-<n>`, counting that zone's
+frames of the type oldest first (`top-bar-2` for the second bar of a zone that became `top`). To move a page, issue the project's site key and replace the
 element with the Install tab's snippet for the zone that came from the stage. The docs app's "Stages and zone keys"
 page has the details.
 <!-- /docs-check:removed -->
@@ -93,6 +101,9 @@ for a zone, or for one element. There is no theme per display. Each field resolv
 2. the zone's `configureZone(zone, { theme })` option, where `zone` is the zone's slug,
 3. the project's theme,
 4. TaleArt's default.
+
+Import `configureZone` from exactly the URL of the page's script tag (the pinned one, if the page pins it): another
+URL loads a second copy of the SDK, whose settings the elements never read.
 
 ```js
 import { configureZone } from 'https://api.example.com/sdk/v1/taleart.js';
