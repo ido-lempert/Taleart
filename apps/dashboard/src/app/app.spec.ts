@@ -4809,6 +4809,9 @@ describe('App', () => {
       ]);
       expect(row('Ends later').querySelector('.window-chip')?.textContent).toContain('Ends');
       expect(row('Draft loose').querySelector('.group-row__count')?.textContent).toContain('No tales yet');
+      // The name opens the group view in the first zone the group is in (R11); a group in no zone has none.
+      expect(visible.querySelector('h3 a')?.getAttribute('href')).toBe('/zones/z1?group=g7');
+      expect(row('Draft loose').querySelector('h3 a')).toBeNull();
     });
 
     it('keeps "Show in another zone" for an archived group, disabled with its reason, and offers Restore', async () => {

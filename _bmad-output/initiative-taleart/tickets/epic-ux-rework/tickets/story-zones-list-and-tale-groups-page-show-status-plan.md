@@ -122,6 +122,12 @@ deferred: []
 - **Names** of tale groups: at most 100 characters (`MAX_TALE_GROUP_NAME_LENGTH`, code points, after trimming) on both creates and rename (`maxLength` in the contract, 400 `validation_failed`).
 - **Cross-project 403** matrix includes `POST /projects/{other}/tale-groups`; nothing is created.
 
+- **Merged with 8.11** (group view): the zone page's row is the shared `GroupRow`; the name button (`openGroup`, `?group=`) is projected into `[groupRowName]` and the row click stays on `app-group-row`. `group-row.ts` keeps its own `shownCount` (it also takes the project list's counts); `group-view.ts` keeps its own for the view.
+- **Tale groups page name** links to the group view in the first zone the group is in (`/zones/<zone>?group=<id>`); a group in no zone shows its name as text.
+- **Payload**, 20 groups × 100 tales (browser run, `/api/v1`): whole groups with their tales (what the project list sent before) 904,711 bytes; the project list now 9,381 bytes.
+- **Bundle:** initial total 497.93 kB after merging 8.11.
+- **Verification:** `run-many -t lint test build --parallel=2` passes except `api:test` "auth > creates the admin, signs them in and stores only the token hash": `expected 605649 to be 604800`. The local Postgres clock runs 14 minutes behind the host (`now()` 19:59:40 vs host 20:13:49 UTC), so `expires_at` (from the host) minus `created_at` (from the database) is off by that much. Unrelated to this story. Browser run: 68 checks passed.
+
 ### Follow-ups
 - **A per-project cap on tale groups** (none today); the create in no zone makes unbounded growth easier.
-- **Groups in no zone cannot get tales yet**: there is no tale strip on the Tale groups page. Story 8.11's group view should open from this page's row name (`[groupRowName]` slot) so such a group can be filled.
+- **Groups in no zone cannot get tales yet.** The group view (8.11) needs a zone: it orders tales through a zone's queue, and the tale drawer reads tales from the zone lists. Opening it for a group in no zone needs the store to hold that group's tales (`GET /tale-groups/{id}`) and an order queue that is not per zone.
