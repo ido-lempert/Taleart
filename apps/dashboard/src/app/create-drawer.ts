@@ -211,6 +211,24 @@ export class CreateDrawer implements OnInit {
     if (this.invalidSetting() === key) this.invalidSetting.set('');
   }
 
+  /** Where a new tale group from the Tale groups page goes: one of its project's zones, or '' for none (R14). */
+  protected readonly groupZoneId = linkedSignal(() => {
+    const request = this.request();
+    return request.kind === 'taleGroup' ? request.zoneId : '';
+  });
+  /** True when a new tale group's drawer offers a zone picker: opened from the Tale groups page. */
+  protected readonly groupZonePicker = computed(() => {
+    const request = this.request();
+    return request.kind === 'taleGroup' && !!request.projectId;
+  });
+  /** The zones a new tale group from the Tale groups page can go in: its project's. */
+  protected readonly groupZones = computed(() => {
+    const request = this.request();
+    return request.kind === 'taleGroup' && request.projectId
+      ? this.store.zones().filter((z) => z.projectId === request.projectId)
+      : [];
+  });
+
   /** The tale group a tags drawer is for. */
   protected readonly tagGroup = computed(() => {
     const request = this.request();
@@ -420,10 +438,13 @@ export class CreateDrawer implements OnInit {
     if (
       request.kind === 'display' ||
       request.kind === 'displaySettings' ||
-      request.kind === 'taleGroup'
+      (request.kind === 'taleGroup' && !request.projectId)
     ) {
       const zone = this.store.zone(request.zoneId);
       return zone ? `In zone ${zone.name}` : '';
+    }
+    if (request.kind === 'taleGroup') {
+      return `In project ${this.store.projectName(request.projectId ?? '')}`;
     }
     if (request.kind === 'tale') {
       const group = this.store.taleGroup(request.taleGroupId);
@@ -637,9 +658,14 @@ export class CreateDrawer implements OnInit {
           ? await this.store.updateDisplay(request.zoneId, { settings: this.settings() })
           : 'This zone has no display.';
         break;
-      case 'taleGroup':
-        message = await this.store.createTaleGroup(request.zoneId, this.text);
+      case 'taleGroup': {
+        const zoneId = request.projectId ? this.groupZoneId() : request.zoneId;
+        message =
+          request.projectId && !zoneId
+            ? await this.store.createProjectTaleGroup(request.projectId, this.text)
+            : await this.store.createTaleGroup(zoneId, this.text);
         break;
+      }
       case 'tale':
         message = await this.store.createTale(request.taleGroupId, this.text, this.file);
         // The tale was saved but its media was not: the drawer now shows that

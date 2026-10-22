@@ -17,7 +17,6 @@ import {
   findTemplate,
   groupShownStatus,
   isSwitchable,
-  MAX_TALES_PER_GROUP,
   SHOWN_STATUS_LABELS,
   switchStatus,
   taleShownStatus,
@@ -32,7 +31,8 @@ import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
-import { describeWindow, windowChip } from '../schedule';
+import { GroupRow } from '../group-row';
+import { windowChip } from '../schedule';
 import { describeSettings, type Settings } from '../settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, visibilityReasons, VisibilityIndicator } from '../visibility';
@@ -85,6 +85,7 @@ type Direction = 'earlier' | 'later';
     ShowSwitch,
     VisibilityIndicator,
     MenuButton,
+    GroupRow,
     CdkDropList,
     CdkDrag,
     CdkDragHandle,
@@ -542,8 +543,6 @@ export class ZoneDetailPage {
   protected readonly statusSaving = signal<ReadonlySet<string>>(new Set());
   protected readonly needsBadge = needsBadge;
   protected readonly isSwitchable = isSwitchable;
-  protected readonly describeWindow = describeWindow;
-  protected readonly windowChip = windowChip;
   /** A tale card's chip: one bound, short; the tale drawer shows the whole window. */
   protected cardChip(tale: Tale): string {
     return windowChip(tale, new Date(), 'short');
@@ -612,8 +611,6 @@ export class ZoneDetailPage {
     }
   }
 
-  protected readonly maxTales = MAX_TALES_PER_GROUP;
-
   /** The groups whose row is open, showing their tale strip until story 8.11's group view. */
   private readonly openGroups = signal<ReadonlySet<string>>(new Set());
 
@@ -647,13 +644,6 @@ export class ZoneDetailPage {
     }
     if ((globalThis.getSelection?.()?.toString() ?? '') !== '') return;
     this.toggleGroup(group);
-  }
-
-  /** "3 of 4 shown": the group's tales that are Shown, of all its tales. */
-  protected shownCount(group: TaleGroup): string {
-    if (group.tales.length === 0) return 'No tales yet';
-    const shown = group.tales.filter((tale) => taleShownStatus(tale.storedStatus) === 'shown').length;
-    return `${shown} of ${group.tales.length} shown`;
   }
 
   /** The project's groups that "Add existing group" can place here. */

@@ -39,7 +39,11 @@ export type DrawerRequest =
   | { kind: 'editZone'; zoneId: string }
   | { kind: 'display'; zoneId: string }
   | { kind: 'displaySettings'; zoneId: string }
-  | { kind: 'taleGroup'; zoneId: string }
+  /**
+   * A new tale group in the zone `zoneId`; with `projectId` (the Tale groups page, epic UX rework
+   * R14) the drawer offers the project's zones and "Not in a zone", starting at `zoneId` ('' for none).
+   */
+  | { kind: 'taleGroup'; zoneId: string; projectId?: string }
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
   | { kind: 'renameTaleGroup'; taleGroupId: string }
@@ -196,11 +200,16 @@ export class DashboardStore {
     return this.taleGroups()[zoneId] ?? [];
   }
 
-  /** A tale group as some zone lists it; its content is the same in every zone (AD-14). */
-  taleGroup(taleGroupId: string): ZoneTaleGroup | undefined {
-    return Object.values(this.taleGroups())
-      .flat()
-      .find((g) => g.id === taleGroupId);
+  /**
+   * A tale group as some zone lists it, else as its project's list does (a group in no zone, epic UX
+   * rework R14); its content is the same everywhere (AD-14).
+   */
+  taleGroup(taleGroupId: string): TaleGroup | undefined {
+    return (
+      Object.values(this.taleGroups())
+        .flat()
+        .find((g) => g.id === taleGroupId) ?? this.projectTaleGroup(taleGroupId)
+    );
   }
 
   /** The project's tale groups by name, including those placed in no zone. */
@@ -453,6 +462,19 @@ export class DashboardStore {
   async createTaleGroup(zoneId: string, name: string): Promise<string> {
     try {
       await firstValueFrom(this.http.post<ZoneTaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, { name }));
+    } catch (err) {
+      return apiErrorMessage(err, 'Tale group was not saved. Try again.');
+    }
+    await this.refresh();
+    return '';
+  }
+
+  /** Creates a tale group in the project, placed in no zone yet (epic UX rework R14). */
+  async createProjectTaleGroup(projectId: string, name: string): Promise<string> {
+    try {
+      await firstValueFrom(
+        this.http.post<ProjectTaleGroup>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tale-groups`, { name }),
+      );
     } catch (err) {
       return apiErrorMessage(err, 'Tale group was not saved. Try again.');
     }
