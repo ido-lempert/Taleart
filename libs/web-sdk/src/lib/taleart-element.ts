@@ -10,7 +10,7 @@ import {
   renderBar,
   setItemSeen,
 } from './bar';
-import { fetchZone } from './delivery-client';
+import { fetchZone, type ZoneRequest } from './delivery-client';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import type { Theme } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
@@ -21,6 +21,12 @@ export const TALEART_ELEMENT_TAG = 'taleart-view';
 
 const API_URL_ATTR = 'api-url';
 const ZONE_KEY_ATTR = 'zone-key';
+const SITE_KEY_ATTR = 'site-key';
+const ZONE_ATTR = 'zone';
+// Every legacy zone key starts with this; a zone slug never holds `_`, so the two never meet.
+const ZONE_KEY_PREFIX = 'tak_';
+// Keys a page may pass by mistake: a warning names them by their start only.
+const KEY_PREFIXES = [ZONE_KEY_PREFIX, 'tas_'];
 const THEME_ATTR = 'theme';
 
 /** The SDK configuration of a zone, passed to {@link configureZone}. */
@@ -29,28 +35,40 @@ export interface ZoneOptions {
   theme?: Partial<Theme> | null;
 }
 
-// The checked theme overrides set with configureZone, by zone key, and the connected elements they restyle.
+// The checked theme overrides set with configureZone, by zone slug or legacy zone key, and the connected
+// elements they restyle.
 const zoneThemes = new Map<string, Readonly<Partial<Theme>>>();
 const connected = new Set<TaleartElement>();
 
 /**
- * Configures a zone for every `<taleart-view>` with its zone key, now and
- * later (R9): `theme` holds theme fields that win over the project's theme
- * for that zone; an element's own `theme` wins over them. Calling again
- * replaces the zone's configuration; `configureZone(key)` or
- * `configureZone(key, {})` removes it. Rendered elements restyle at once,
- * without a new request. Invalid fields are ignored with one console warning
- * each, naming the zone by the start of its key only.
+ * Configures a zone for every `<taleart-view>` that shows it, now and later
+ * (R9). `zone` is the zone's slug, as in `zone="home-top"` (epic UX rework
+ * R3), or a legacy zone key (`tak_…`) for elements placed with `zone-key`.
+ * `theme` holds theme fields that win over the project's theme for that
+ * zone; an element's own `theme` wins over them. Calling again replaces the
+ * zone's configuration; `configureZone(zone)` or `configureZone(zone, {})`
+ * removes it. Rendered elements restyle at once, without a new request.
+ * Invalid fields are ignored with one console warning each, naming the zone by
+ * its slug, or by the start of a key (`tak_…` or `tas_…`) only.
  */
-export function configureZone(zoneKey: string, options?: ZoneOptions | null): void {
-  if (typeof zoneKey !== 'string' || !zoneKey) {
-    console.warn('TaleArt: configureZone needs a zone key; the configuration is ignored');
+export function configureZone(zone: string, options?: ZoneOptions | null): void {
+  if (typeof zone !== 'string' || !zone) {
+    console.warn('TaleArt: configureZone needs a zone slug or zone key; the configuration is ignored');
     return;
   }
-  const theme = readThemeOverride(options?.theme, `the theme of zone "${zoneKey.slice(0, 8)}…"`);
-  if (Object.keys(theme).length) zoneThemes.set(zoneKey, theme);
-  else zoneThemes.delete(zoneKey);
+  const name = KEY_PREFIXES.some((prefix) => zone.startsWith(prefix)) ? `${zone.slice(0, 8)}…` : zone;
+  const theme = readThemeOverride(options?.theme, `the theme of zone "${name}"`);
+  if (Object.keys(theme).length) zoneThemes.set(zone, theme);
+  else zoneThemes.delete(zone);
   for (const element of connected) element.retheme();
+}
+
+// What an element asks the Delivery API for, and the name its zone configuration is set under:
+// the site key and slug when `site-key` is set, else the legacy zone key; null while incomplete.
+function zoneRequest(element: TaleartElement): { request: ZoneRequest; configName: string } | null {
+  const { siteKey, zone, zoneKey } = element;
+  if (siteKey) return zone ? { request: { key: siteKey, zone }, configName: zone } : null;
+  return zoneKey ? { request: { key: zoneKey }, configName: zoneKey } : null;
 }
 
 interface FocusTarget {
@@ -67,11 +85,15 @@ interface FrameView {
 }
 
 /**
- * `<taleart-view api-url="…" zone-key="…">`: reads its zone from the
- * Delivery API with the zone key and renders the zone in its Shadow DOM: its
+ * `<taleart-view api-url="…" site-key="…" zone="home-top">`: reads the
+ * zone with that slug from the Delivery API with the project's site key
+ * (epic UX rework R3; several elements share one site key, and elements that
+ * ask for the same zone at once share one request), or, with
+ * `zone-key="…"` instead, the zone of a legacy zone key. It renders the
+ * zone in its Shadow DOM: its
  * display, a bar or a banner (AD-17); a zone without a display renders
- * nothing. Frame types it does not know are skipped (AD-5). A refused key or a network failure
- * renders nothing and logs one console error. Activating a bar item or a
+ * nothing. Frame types it does not know are skipped (AD-5). A refused key, an unknown slug or a
+ * network failure renders nothing and logs one console error. Activating a bar item or a
  * banner slide opens its tale group in the full-screen viewer; groups this
  * browser has viewed show the seen ring in the bar. The zone's project theme
  * (R9) styles the frames and the viewer through CSS custom properties on a
@@ -81,7 +103,7 @@ interface FrameView {
  */
 export class TaleartElement extends HTMLElement {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, ZONE_KEY_ATTR, THEME_ATTR];
+    return [API_URL_ATTR, SITE_KEY_ATTR, ZONE_ATTR, ZONE_KEY_ATTR, THEME_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -102,10 +124,10 @@ export class TaleartElement extends HTMLElement {
   };
   // Stops animated covers COVER_MOTION_MS after they start moving (WCAG 2.2.2).
   private coverTimer: ReturnType<typeof setTimeout> | undefined;
-  // This element's checked, frozen theme override, and the rendered wrapper with the zone key
-  // it was loaded with and the theme the Delivery API sent.
+  // This element's checked, frozen theme override, and the rendered wrapper with the name its
+  // zone configuration is set under (slug or zone key) and the theme the Delivery API sent.
   private themeOverride: Readonly<Partial<Theme>> = Object.freeze({});
-  private themed: { element: HTMLElement; zoneKey: string; theme: unknown } | null = null;
+  private themed: { element: HTMLElement; configName: string; theme: unknown } | null = null;
   // True while the `theme` attribute present at upgrade is to be skipped, because a script set the property first.
   private skipThemeAttribute = false;
   // True once this element has set its zone mark, and its first-content mark (for a render still on the page).
@@ -148,7 +170,7 @@ export class TaleartElement extends HTMLElement {
   /** Applies the theme again with the current SDK configuration, without a new request. */
   retheme(): void {
     const themed = this.themed;
-    if (themed) applyTheme(themed.element, themed.theme, zoneThemes.get(themed.zoneKey) ?? {}, this.themeOverride);
+    if (themed) applyTheme(themed.element, themed.theme, zoneThemes.get(themed.configName) ?? {}, this.themeOverride);
   }
 
   /** The TaleArt API origin, such as `https://api.example.com`. */
@@ -159,7 +181,23 @@ export class TaleartElement extends HTMLElement {
     this.setAttribute(API_URL_ATTR, value);
   }
 
-  /** The zone key (`tak_…`) issued in the dashboard. */
+  /** The project's site key (`tas_…`) issued in the dashboard; one for every zone of the project. */
+  get siteKey(): string {
+    return this.getAttribute(SITE_KEY_ATTR) ?? '';
+  }
+  set siteKey(value: string) {
+    this.setAttribute(SITE_KEY_ATTR, value);
+  }
+
+  /** The zone's slug, such as `home-top`, read with {@link siteKey}. */
+  get zone(): string {
+    return this.getAttribute(ZONE_ATTR) ?? '';
+  }
+  set zone(value: string) {
+    this.setAttribute(ZONE_ATTR, value);
+  }
+
+  /** A legacy zone key (`tak_…`), used when no {@link siteKey} is set. */
   get zoneKey(): string {
     return this.getAttribute(ZONE_KEY_ATTR) ?? '';
   }
@@ -255,7 +293,8 @@ export class TaleartElement extends HTMLElement {
 
   private async load(): Promise<void> {
     const id = ++this.loadId;
-    const { apiUrl, zoneKey } = this;
+    const { apiUrl } = this;
+    const named = zoneRequest(this);
     // A reload while the viewer is open puts focus back on the opening frame once it renders.
     const focusGroup = this.closeViewer() ?? this.pendingFocus;
     this.pendingFocus = focusGroup;
@@ -263,16 +302,16 @@ export class TaleartElement extends HTMLElement {
     this.destroyViews();
     this.root.replaceChildren();
     this.themed = null;
-    if (!apiUrl || !zoneKey || !this.isConnected) return;
+    if (!apiUrl || !named || !this.isConnected) return;
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
-      const zone = await fetchZone(apiUrl, zoneKey);
+      const zone = await fetchZone(apiUrl, named.request);
       if (id !== this.loadId) return;
       if (!this.zoneMarked) {
         this.zoneMarked = true;
         mark(ZONE_MARK);
       }
-      this.render(zone, focusGroup, zoneKey);
+      this.render(zone, focusGroup, named.configName);
     } catch (err) {
       if (id !== this.loadId) return;
       this.root.replaceChildren();
@@ -281,7 +320,7 @@ export class TaleartElement extends HTMLElement {
   }
 
   // Renders the zone's display (AD-17) when the SDK knows its type; unknown types are skipped (AD-5).
-  private render(zone: DeliveryZone, focusTarget: FocusTarget | null, zoneKey: string): void {
+  private render(zone: DeliveryZone, focusTarget: FocusTarget | null, configName: string): void {
     this.pendingFocus = null;
     // The response is untrusted: anything but an object reads as no display.
     const frames: DeliveryFrame[] = typeof zone.frame === 'object' && zone.frame !== null ? [zone.frame] : [];
@@ -291,7 +330,7 @@ export class TaleartElement extends HTMLElement {
     // Holds the frames and the viewer, so both inherit the theme's custom properties.
     const themed = document.createElement('div');
     themed.className = 'taleart';
-    this.themed = { element: themed, zoneKey, theme: zone.theme };
+    this.themed = { element: themed, configName, theme: zone.theme };
     this.retheme();
     const barItems: Map<string, HTMLButtonElement>[] = [];
     // The frame whose bar item or slide opened the viewer takes focus back when it closes.

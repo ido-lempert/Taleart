@@ -6,19 +6,29 @@ import {
   type DeliveryTaleDocument,
   type DeliveryZone,
 } from '@taleart/contract';
-import { zoneForKey, type KeyZone } from '@taleart/server-access';
+import { projectForSiteKey, zoneForKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { findZone, getProjectTheme, type FrameTypeRegistry } from '@taleart/server-zones';
-import { Router, type RequestHandler } from 'express';
+import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
+import { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
+import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, type RateLimitOptions } from './rate-limit';
 
-// One message for a missing, unknown or revoked key, so a caller cannot tell them apart.
+// One message for a missing, unknown or revoked zone key, so a caller cannot tell them apart.
 const INVALID_KEY_MESSAGE = 'A valid zone key is required';
+// One message for every refusal of a site key and slug (epic UX rework R3): a missing, unknown or
+// revoked site key and an unknown slug answer alike, so a caller cannot tell a slug from a key.
+const INVALID_SITE_KEY_MESSAGE = 'A valid site key and zone are required';
 
-/** The zone the request's key reads, set by the key middleware. */
-function keyZone(res: Parameters<RequestHandler>[1]): KeyZone {
-  return res.locals['keyZone'] as KeyZone;
+/** The zone the request reads, set by the key middleware. */
+interface RequestZone {
+  zoneId: string;
+  /** True when it was named by site key and slug; its refusals are then `invalid_site_key`. */
+  bySlug: boolean;
+}
+
+function requestZone(res: Response): RequestZone {
+  return res.locals['requestZone'] as RequestZone;
 }
 
 // The key from `Authorization: Bearer <key>`; undefined for any other header.
@@ -27,20 +37,55 @@ function bearerKey(header: string | undefined): string | undefined {
   return match?.[1];
 }
 
+// The `zone` query parameter: the slug, or undefined when absent. A repeated or non-text value is
+// not a slug, so it reads as the empty slug, which no zone has.
+function slugParam(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' ? value : '';
+}
+
+/** Answers the 401 of a refused request, by the way the request named its zone. */
+function refuse(res: Response, bySlug: boolean): void {
+  res.setHeader('WWW-Authenticate', 'Bearer');
+  // A refusal is never kept by a browser or a shared cache.
+  res.setHeader('Cache-Control', 'no-store');
+  res
+    .status(401)
+    .json(
+      bySlug ?
+        errorBody(ErrorCodes.invalidSiteKey, INVALID_SITE_KEY_MESSAGE)
+      : errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE),
+    );
+}
+
 /**
- * Accepts only a zone key, never a session cookie (AD-2). A missing, unknown
- * or revoked key answers 401 `invalid_zone_key`.
+ * Accepts only a delivery key, never a session cookie (AD-2):
+ * - with `?zone=<slug>`, the project's site key (epic UX rework R3). The key and the slug are looked
+ *   up every time, whichever fails, so a refusal costs the same two queries and answers the same
+ *   401 `invalid_site_key`: no slug can be told from a refused key.
+ * - without it, a legacy zone key. A missing, unknown or revoked key answers 401 `invalid_zone_key`.
  */
-function requireZoneKey(pool: Pool): RequestHandler {
+function requireDeliveryKey(pool: Pool): RequestHandler {
   return async (req, res, next) => {
     try {
-      const zone = await zoneForKey(pool, bearerKey(req.headers.authorization));
-      if (!zone) {
-        res.setHeader('WWW-Authenticate', 'Bearer');
-        res.status(401).json(errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE));
-        return;
+      const key = bearerKey(req.headers.authorization);
+      const slug = slugParam(req.query['zone']);
+      if (slug !== undefined) {
+        const projectId = await projectForSiteKey(pool, key);
+        const zoneId = await zoneIdBySlug(pool, projectId, slug);
+        if (projectId === null || zoneId === null) {
+          refuse(res, true);
+          return;
+        }
+        res.locals['requestZone'] = { zoneId, bySlug: true } satisfies RequestZone;
+      } else {
+        const zone = await zoneForKey(pool, key);
+        if (!zone) {
+          refuse(res, false);
+          return;
+        }
+        res.locals['requestZone'] = { zoneId: zone.zoneId, bySlug: false } satisfies RequestZone;
       }
-      res.locals['keyZone'] = zone;
       next();
     } catch (err) {
       next(err);
@@ -54,11 +99,17 @@ export interface DeliveryOptions {
   publicApiUrl: string;
   /** The frame types, whose schema defaults fill each frame's missing settings (AD-5). */
   frameTypes: FrameTypeRegistry;
+  /**
+   * The per-address limit shared by both key paths ({@link DEFAULT_DELIVERY_RATE_LIMIT} when left
+   * out); null turns it off.
+   */
+  rateLimit?: RateLimitOptions | null;
 }
 
 /**
  * The Delivery API (AD-2), mounted at `/delivery/v1`: serves SDKs on any
- * origin, without credentials, and reads only the zone of the caller's key.
+ * origin, without credentials, and reads only the zone the caller's key names: a zone of the site
+ * key's project by its slug, or the zone of a legacy zone key.
  */
 export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
   const router = Router();
@@ -67,6 +118,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    // A client script may read when to try again after a 429.
+    res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
     res.removeHeader('Access-Control-Allow-Credentials');
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);
@@ -74,15 +127,18 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
     }
     next();
   });
-  router.use(requireZoneKey(pool));
+  const limit = options.rateLimit === undefined ? DEFAULT_DELIVERY_RATE_LIMIT : options.rateLimit;
+  // Before the key lookups, so a flood of guesses costs no queries.
+  if (limit) router.use(rateLimit(limit));
+  router.use(requireDeliveryKey(pool));
 
   router.get('/zone', async (_req, res, next) => {
     try {
-      const { zoneId } = keyZone(res);
+      const { zoneId, bySlug } = requestZone(res);
       const zone = await findZone(pool, zoneId);
       if (!zone) {
         // A key always references an existing zone; treat a vanished one like a bad key.
-        res.status(401).json(errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE));
+        refuse(res, bySlug);
         return;
       }
       // A zone without a display delivers no tale group (epic UX rework R7): its setup is part of
@@ -143,7 +199,7 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
       };
       // Browsers keep the zone and revalidate it on every load (NFR-006): Express's ETag answers 304
       // while nothing changed, so a pause or unpublish still shows at once. `private` keeps keyed
-      // responses out of shared caches, and they vary by key.
+      // responses out of shared caches, and they vary by key (and by slug, which is in the URL).
       res.setHeader('Cache-Control', 'private, no-cache');
       res.setHeader('Vary', 'Authorization');
       res.json(body);

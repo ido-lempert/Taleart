@@ -40,6 +40,7 @@ import {
   PasskeyFailedError,
   SetupClosedError,
   ZoneKeyNotFoundError,
+  SiteKeyNotFoundError,
 } from '@taleart/server-access';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError } from '@taleart/server-targeting';
 import { another toolTokenInvalidError, another toolUnavailableError } from '@taleart/server-importer';
@@ -81,6 +82,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
     err instanceof ZoneKeyNotFoundError ||
+    err instanceof SiteKeyNotFoundError ||
     err instanceof FontNotFoundError
   ) {
     res.status(404).json(errorBody(err.code, err.message));
