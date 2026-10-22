@@ -156,8 +156,9 @@ export class DashboardStore {
     }
   }
 
-  openDrawer(request: DrawerRequest, event?: Event): void {
-    const target = event?.currentTarget;
+  /** Opens a drawer; focus returns, when it closes, to the control that opened it: the event's target, or `opener`. */
+  openDrawer(request: DrawerRequest, event?: Event | HTMLElement): void {
+    const target = event instanceof HTMLElement ? event : event?.currentTarget;
     this.drawerOpener = target instanceof HTMLElement ? target : null;
     this.drawer.set(request);
   }

@@ -270,6 +270,11 @@ export class CreateDrawer implements OnInit {
   protected endText = '';
   protected readonly timeZone = localTimeZone();
   protected readonly describeWindow = describeWindow;
+  /** True when the schedule drawer's item has a stored start or end, so there is a window to remove (epic UX rework R8). */
+  protected readonly hasWindow = computed(() => {
+    const item = this.scheduleItem();
+    return !!(item && (item.startsAt || item.endsAt));
+  });
 
   /**
    * Turns the tale drawer into the tale's schedule drawer. The drawer stays

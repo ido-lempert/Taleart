@@ -168,7 +168,7 @@ export function tipPosition(
       position: absolute;
       z-index: 2;
       top: var(--space-2);
-      left: calc(var(--space-2) + 30px);
+      left: calc(var(--space-2) + 28px);
     }
     .tale-card__visibility .visibility__line {
       justify-content: center;
