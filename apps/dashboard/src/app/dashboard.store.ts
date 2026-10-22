@@ -12,7 +12,6 @@ import {
   type ProjectTaleGroup,
   type SetScheduleRequest,
   type SettableStatus,
-  type Stage,
   type Tag,
   type Tale,
   type TaleGroup,
@@ -39,8 +38,8 @@ export type DrawerRequest =
   | { kind: 'project' }
   | { kind: 'invite'; projectId: string }
   | { kind: 'zone' }
-  | { kind: 'frame'; zoneId: string }
-  | { kind: 'frameSettings'; zoneId: string; frameId: string }
+  | { kind: 'display'; zoneId: string }
+  | { kind: 'displaySettings'; zoneId: string }
   | { kind: 'taleGroup'; zoneId: string }
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
@@ -52,9 +51,6 @@ export type DrawerRequest =
   | { kind: 'cover'; taleGroupId: string }
   | { kind: 'schedule'; target: ScheduleTarget; id: string }
   | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction }
-  | { kind: 'stage'; zoneId: string }
-  | { kind: 'renameStage'; zoneId: string; stageId: string }
-  | { kind: 'deleteStage'; zoneId: string; stageId: string }
   | { kind: 'applyPlaybook'; zoneId: string };
 
 /** What a schedule drawer sets the start and end time of (AD-6). */
@@ -91,8 +87,6 @@ export class DashboardStore {
   readonly projects = signal<Project[]>([]);
   readonly zones = signal<Zone[]>([]);
   readonly frameTypes = signal<FrameType[]>([]);
-  /** Each zone's frames, keyed by zone id. */
-  readonly frames = signal<Record<string, Frame[]>>({});
   /**
    * Each zone's tale groups, each with its tales and its position in that zone,
    * keyed by zone id. A group placed in several zones shows in each (AD-14).
@@ -104,8 +98,6 @@ export class DashboardStore {
   readonly tags = signal<Record<string, Tag[]>>({});
   /** Each zone's active key (prefix and date, never the key), or null; keyed by zone id. */
   readonly zoneKeys = signal<Record<string, ZoneKeyInfo | null>>({});
-  /** Each zone's stages, oldest first, keyed by zone id (epic web zones R7). */
-  readonly stages = signal<Record<string, Stage[]>>({});
   /** True once the first refresh finished, successfully or not. */
   readonly loaded = signal(false);
   readonly apiDown = signal(false);
@@ -172,8 +164,9 @@ export class DashboardStore {
     return this.zones().find((z) => z.id === zoneId);
   }
 
-  framesOf(zoneId: string): Frame[] {
-    return this.frames()[zoneId] ?? [];
+  /** The zone's display (its one frame, AD-17), or null when it has none. */
+  displayOf(zoneId: string): Frame | null {
+    return this.zone(zoneId)?.frame ?? null;
   }
 
   /** The registry entry of a frame type, with its settings schema, if the API listed it. */
@@ -217,22 +210,6 @@ export class DashboardStore {
     return this.zones().filter((z) => z.projectId === group.projectId && !group.zoneIds.includes(z.id));
   }
 
-  stagesOf(zoneId: string): Stage[] {
-    return this.stages()[zoneId] ?? [];
-  }
-
-  /** A stage of the zone, if it still exists. */
-  stage(zoneId: string, stageId: string): Stage | undefined {
-    return this.stagesOf(zoneId).find((s) => s.id === stageId);
-  }
-
-  /** How a stage form and the stage list name a frame of its zone: "Frame 2 · Banner". */
-  frameName(zoneId: string, frameId: string): string {
-    const frames = this.framesOf(zoneId);
-    const index = frames.findIndex((f) => f.id === frameId);
-    return index < 0 ? 'Unknown frame' : `Frame ${index + 1} · ${this.frameTypeLabel(frames[index].type)}`;
-  }
-
   /** The zone's active key info, or null when it has none. */
   zoneKey(zoneId: string): ZoneKeyInfo | null {
     return this.zoneKeys()[zoneId] ?? null;
@@ -272,12 +249,10 @@ export class DashboardStore {
     this.projects.set([]);
     this.zones.set([]);
     this.frameTypes.set([]);
-    this.frames.set({});
     this.taleGroups.set({});
     this.projectTaleGroups.set({});
     this.tags.set({});
     this.zoneKeys.set({});
-    this.stages.set({});
     this.loaded.set(false);
     this.apiDown.set(false);
     this.drawer.set(null);
@@ -329,9 +304,6 @@ export class DashboardStore {
       const frameTypes = await firstValueFrom(this.http.get<FrameType[]>(`${API_BASE}/frame-types`));
       if (!current()) return;
       this.frameTypes.set(frameTypes);
-      const frames = await this.loadEach<Frame[]>(zones, (id) => `/zones/${id}/frames`);
-      if (!current()) return;
-      this.frames.set(frames);
       const groups = await this.loadEach<ZoneTaleGroup[]>(zones, (id) => `/zones/${id}/tale-groups`);
       if (!current()) return;
       this.taleGroups.set(groups);
@@ -347,9 +319,6 @@ export class DashboardStore {
       const keys = await this.loadEach<ZoneKeyInfo | null>(zones, (id) => `/zones/${encodeURIComponent(id)}/key`);
       if (!current()) return;
       this.zoneKeys.set(Object.fromEntries(zones.map((zone) => [zone.id, keys[zone.id] ?? null])));
-      const stages = await this.loadEach<Stage[]>(zones, (id) => `/zones/${encodeURIComponent(id)}/stages`);
-      if (!current()) return;
-      this.stages.set(stages);
       this.apiDown.set(false);
     } catch (err) {
       // A 401 means the session ended; the auth interceptor sends the user to sign-in.
@@ -423,9 +392,10 @@ export class DashboardStore {
     return '';
   }
 
-  async createZone(name: string, projectId: string): Promise<string> {
+  /** Creates a zone; an empty slug lets the API make one from the name, unique in the project (epic UX rework R1). */
+  async createZone(name: string, projectId: string, slug = ''): Promise<string> {
     try {
-      await firstValueFrom(this.http.post<Zone>(`${API_BASE}/zones`, { name, projectId }));
+      await firstValueFrom(this.http.post<Zone>(`${API_BASE}/zones`, { name, projectId, ...(slug && { slug }) }));
     } catch (err) {
       return apiErrorMessage(err, 'Zone was not saved. Choose a project and enter a name.');
     }
@@ -433,40 +403,39 @@ export class DashboardStore {
     return '';
   }
 
-  async createFrame(zoneId: string, type: string): Promise<string> {
+  /** Gives a zone its display: a frame of the type, with the type's default settings (AD-17). */
+  async setDisplay(zoneId: string, type: string): Promise<string> {
     try {
-      await firstValueFrom(this.http.post<Frame>(`${API_BASE}/zones/${zoneId}/frames`, { type, settings: {} }));
+      await firstValueFrom(this.http.post<Frame>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/frame`, { type }));
     } catch (err) {
-      return apiErrorMessage(err, 'Frame was not saved. Choose a frame type.');
+      return apiErrorMessage(err, 'The display was not saved. Choose a display type.');
     }
+    // A display changes the zone's visibility and its groups' (epic UX rework R7).
     await this.refresh();
     return '';
   }
 
-  /** Replaces a frame's settings; the API validates them against the frame type's schema (AD-5). */
-  async updateFrameSettings(zoneId: string, frameId: string, settings: Record<string, unknown>): Promise<string> {
+  /**
+   * Changes a zone's display: a new type resets its settings to that type's defaults; settings are
+   * validated against the type's schema by the API (AD-5). The display keeps its id.
+   */
+  async updateDisplay(zoneId: string, change: { type?: string; settings?: Record<string, unknown> }): Promise<string> {
     let saved: Frame;
     try {
-      saved = await firstValueFrom(
-        this.http.patch<Frame>(
-          `${API_BASE}/zones/${encodeURIComponent(zoneId)}/frames/${encodeURIComponent(frameId)}`,
-          { settings },
-        ),
-      );
+      saved = await firstValueFrom(this.http.patch<Frame>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/frame`, change));
     } catch (err) {
-      return apiErrorMessage(err, 'Settings were not saved. Try again.');
+      return apiErrorMessage(
+        err,
+        change.type ? 'The display type was not changed. Try again.' : 'Settings were not saved. Try again.',
+      );
     }
-    this.frames.update((all) => ({
-      ...all,
-      [zoneId]: (all[zoneId] ?? []).map((frame) => (frame.id === saved.id ? saved : frame)),
-    }));
+    this.zones.update((zones) => zones.map((zone) => (zone.id === zoneId ? { ...zone, frame: saved } : zone)));
     return '';
   }
 
   /**
-   * Applies a playbook to a zone (R8): the API creates its frames and a stage
-   * for each in one transaction and records the key on the zone. Applying the
-   * zone's own playbook again creates nothing, so only what the API created is added here.
+   * Applies a playbook to a zone (R8): the API gives the zone the playbook's display in one
+   * transaction and records the key on the zone (AD-17).
    */
   async applyPlaybook(zoneId: string, key: string): Promise<string> {
     let result: AppliedPlaybook;
@@ -478,55 +447,8 @@ export class DashboardStore {
       return apiErrorMessage(err, 'The playbook was not applied. Try again.');
     }
     this.zones.update((zones) => zones.map((zone) => (zone.id === zoneId ? result.zone : zone)));
-    this.frames.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.frames] }));
-    this.stages.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.stages] }));
-    // Its frames give the zone a display (epic UX rework R7): its groups' and tales' indicators change.
+    // Its display changes the zone's visibility (epic UX rework R7): its groups' and tales' indicators change.
     void this.refresh();
-    return '';
-  }
-
-  /** Adds a stage that shows one of the zone's frames; a page names it by its key (R7). */
-  async createStage(zoneId: string, input: { name: string; key: string; frameId: string }): Promise<string> {
-    let saved: Stage;
-    try {
-      saved = await firstValueFrom(this.http.post<Stage>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/stages`, input));
-    } catch (err) {
-      return apiErrorMessage(err, 'The stage was not saved. Try again.');
-    }
-    this.stages.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), saved] }));
-    return '';
-  }
-
-  /** Renames a stage; its key stays, so pages that name it keep working. */
-  async renameStage(zoneId: string, stageId: string, name: string): Promise<string> {
-    let saved: Stage;
-    try {
-      saved = await firstValueFrom(
-        this.http.patch<Stage>(
-          `${API_BASE}/zones/${encodeURIComponent(zoneId)}/stages/${encodeURIComponent(stageId)}`,
-          { name },
-        ),
-      );
-    } catch (err) {
-      return apiErrorMessage(err, 'The stage was not renamed. Try again.');
-    }
-    this.stages.update((all) => ({
-      ...all,
-      [zoneId]: (all[zoneId] ?? []).map((stage) => (stage.id === saved.id ? saved : stage)),
-    }));
-    return '';
-  }
-
-  /** Deletes a stage; pages that name its key render nothing for it. */
-  async deleteStage(zoneId: string, stageId: string): Promise<string> {
-    try {
-      await firstValueFrom(
-        this.http.delete<void>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/stages/${encodeURIComponent(stageId)}`),
-      );
-    } catch (err) {
-      return apiErrorMessage(err, 'The stage was not deleted. Try again.');
-    }
-    this.stages.update((all) => ({ ...all, [zoneId]: (all[zoneId] ?? []).filter((stage) => stage.id !== stageId) }));
     return '';
   }
 

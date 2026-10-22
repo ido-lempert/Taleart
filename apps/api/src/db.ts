@@ -1,8 +1,8 @@
 import { migrateAccess, migrateZoneKeys } from '@taleart/server-access';
 import { migrateImporter } from '@taleart/server-importer';
-import { migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
+import { copyZonePlacements, migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
 import { migrateTargeting } from '@taleart/server-targeting';
-import { migrateZones } from '@taleart/server-zones';
+import { foldStagesIntoZones, migrateZones } from '@taleart/server-zones';
 import type { DbConnection } from '@taleart/server-access';
 import { Pool } from 'pg';
 
@@ -36,13 +36,22 @@ export function createPool(connectionString?: string, max = databasePoolMax()): 
 // access (projects) first, then zones, which references projects, then
 // tales, which references zones, then targeting, whose tag links reference
 // tale groups. The access module's zone keys reference zones, so their
-// migration is a separate step after zones. The importer runs last: its jobs
-// and links reference projects and the records it imports.
+// migration is a separate step after zones. The zones module's fold of stages
+// and extra frames into zones (AD-17) runs after tales, because each new zone
+// gets copies of its original zone's placements through the tales module
+// (AD-14). The importer runs last: its jobs and links reference projects and
+// the records it imports.
 const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Promise<void> }> = [
   { module: 'access', run: migrateAccess },
   { module: 'zones', run: migrateZones },
   { module: 'access (zone keys)', run: migrateZoneKeys },
   { module: 'tales', run: migrateTales },
+  {
+    module: 'zones (stages and frames into zones)',
+    run: async (db) => {
+      await foldStagesIntoZones(db, { copyPlacements: copyZonePlacements });
+    },
+  },
   { module: 'targeting', run: migrateTargeting },
   { module: 'importer', run: migrateImporter },
 ];

@@ -1,17 +1,17 @@
 import type { ErrorBody, ErrorCode } from '@taleart/contract';
 import { ErrorCodes, MAX_TALE_DOCUMENT_BYTES } from '@taleart/contract';
 import {
-  FrameNotFoundError,
+  DisplayExistsError,
+  DisplayNotFoundError,
+  EmptyDisplayChangeError,
   InvalidFrameSettingsError,
-  InvalidStageError,
   InvalidThemeError,
+  InvalidZoneError,
   PlaybookAlreadyAppliedError,
   PlaybookConcurrentChangeError,
   PlaybookKeyRequiredError,
   ProjectNotFoundError,
-  StageFrameNotFoundError,
-  StageKeyTakenError,
-  StageNotFoundError,
+  SlugTakenError,
   UnknownFrameTypeError,
   UnknownPlaybookError,
   ZoneNotFoundError,
@@ -79,8 +79,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
   }
   if (
     err instanceof ZoneNotFoundError ||
-    err instanceof FrameNotFoundError ||
-    err instanceof StageNotFoundError ||
+    err instanceof DisplayNotFoundError ||
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
     err instanceof ZoneKeyNotFoundError ||
@@ -111,7 +110,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof SetupClosedError ||
     err instanceof EmailTakenError ||
     err instanceof TagExistsError ||
-    err instanceof StageKeyTakenError ||
+    err instanceof DisplayExistsError ||
+    err instanceof SlugTakenError ||
     err instanceof PlaybookAlreadyAppliedError ||
     err instanceof PlaybookConcurrentChangeError ||
     err instanceof InvalidStatusTransitionError ||
@@ -131,8 +131,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof UnknownFrameTypeError ||
     err instanceof InvalidFrameSettingsError ||
     err instanceof InvalidThemeError ||
-    err instanceof InvalidStageError ||
-    err instanceof StageFrameNotFoundError ||
+    err instanceof InvalidZoneError ||
+    err instanceof EmptyDisplayChangeError ||
     err instanceof PlaybookKeyRequiredError ||
     err instanceof UnknownPlaybookError ||
     err instanceof InvalidTagNameError ||

@@ -21,7 +21,6 @@ export const TALEART_ELEMENT_TAG = 'taleart-view';
 
 const API_URL_ATTR = 'api-url';
 const ZONE_KEY_ATTR = 'zone-key';
-const STAGE_ATTR = 'stage';
 const THEME_ATTR = 'theme';
 
 /** The SDK configuration of a zone, passed to {@link configureZone}. */
@@ -68,11 +67,10 @@ interface FrameView {
 }
 
 /**
- * `<taleart-view api-url="…" zone-key="…" stage="…">`: reads its zone from the
+ * `<taleart-view api-url="…" zone-key="…">`: reads its zone from the
  * Delivery API with the zone key and renders the zone in its Shadow DOM: its
- * bar and banner frames, in the zone's frame order, or with `stage` only the
- * frame of that stage (R7); an unknown stage renders nothing and logs one
- * console warning. Frame types it does not know are skipped (AD-5). A refused key or a network failure
+ * display, a bar or a banner (AD-17); a zone without a display renders
+ * nothing. Frame types it does not know are skipped (AD-5). A refused key or a network failure
  * renders nothing and logs one console error. Activating a bar item or a
  * banner slide opens its tale group in the full-screen viewer; groups this
  * browser has viewed show the seen ring in the bar. The zone's project theme
@@ -83,7 +81,7 @@ interface FrameView {
  */
 export class TaleartElement extends HTMLElement {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, ZONE_KEY_ATTR, STAGE_ATTR, THEME_ATTR];
+    return [API_URL_ATTR, ZONE_KEY_ATTR, THEME_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -167,14 +165,6 @@ export class TaleartElement extends HTMLElement {
   }
   set zoneKey(value: string) {
     this.setAttribute(ZONE_KEY_ATTR, value);
-  }
-
-  /** The key of the zone's stage to render, such as `home-top`; empty renders every frame of the zone. */
-  get stage(): string {
-    return this.getAttribute(STAGE_ATTR) ?? '';
-  }
-  set stage(value: string) {
-    this.setAttribute(STAGE_ATTR, value);
   }
 
   connectedCallback(): void {
@@ -290,36 +280,11 @@ export class TaleartElement extends HTMLElement {
     }
   }
 
-  // The frames this element shows: the zone's, or only the named stage's (R7). Null, with one
-  // warning, when the zone has no such stage or the stage points to a frame the zone does not
-  // have. The response is untrusted: a `stages` that is not an array, and entries that are not
-  // objects with a matching string key, are ignored.
-  private framesToRender(zone: DeliveryZone): DeliveryFrame[] | null {
-    const stageKey = this.stage.trim();
-    if (!stageKey) return zone.frames;
-    const stages: unknown = (zone as Partial<DeliveryZone>).stages;
-    const stage: unknown = Array.isArray(stages)
-      ? stages.find((s: unknown) => typeof s === 'object' && s !== null && (s as { key?: unknown }).key === stageKey)
-      : undefined;
-    if (!stage) {
-      console.warn(`TaleArt: the zone has no stage "${stageKey}"; nothing is rendered for it`);
-      return null;
-    }
-    const frameId = (stage as { frameId?: unknown }).frameId;
-    const frame = typeof frameId === 'string' ? zone.frames.find((f) => f?.id === frameId) : undefined;
-    if (!frame) {
-      console.warn(`TaleArt: stage "${stageKey}" points to a frame the zone does not have; nothing is rendered for it`);
-      return null;
-    }
-    return [frame];
-  }
-
-  // Renders every frame type the SDK knows, in the zone's frame order, or the named stage's
-  // frame; unknown types are skipped (AD-5).
+  // Renders the zone's display (AD-17) when the SDK knows its type; unknown types are skipped (AD-5).
   private render(zone: DeliveryZone, focusTarget: FocusTarget | null, zoneKey: string): void {
     this.pendingFocus = null;
-    const frames = this.framesToRender(zone);
-    if (!frames) return;
+    // The response is untrusted: anything but an object reads as no display.
+    const frames: DeliveryFrame[] = typeof zone.frame === 'object' && zone.frame !== null ? [zone.frame] : [];
     const names = new Map(zone.taleGroups.map((group) => [group.id, group.name]));
     const seen = seenGroupIds();
     const views: FrameView[] = [];

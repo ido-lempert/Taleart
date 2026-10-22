@@ -1,14 +1,7 @@
-import {
-  ErrorCodes,
-  PLAYBOOKS,
-  type Frame,
-  type Playbook,
-  type Stage,
-} from '@taleart/contract';
+import { ErrorCodes, PLAYBOOKS, type Playbook } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
 import type { FrameTypeRegistry } from './frame-types';
-import { createFrame, ZoneNotFoundError, zoneProjectId } from './frames';
-import { createStage, StageKeyTakenError } from './stages';
+import { DisplayExistsError, setDisplay, ZoneNotFoundError, zoneProjectId } from './frames';
 import { ZONE_COLUMNS, type StoredAppliedPlaybook, type StoredZone } from './zones';
 
 /** Thrown when an apply request names no playbook key. */
@@ -76,15 +69,13 @@ async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T
 }
 
 /**
- * Applies a playbook from the registry to a zone (epic web zones R8): in one
- * transaction, with the zone row locked, creates each of its frames (validated
- * against the frame type's schema, AD-5) and the stage that shows it, then
- * records the playbook's key on the zone. The frames and stages are ordinary
- * rows and stay editable.
+ * Applies a playbook from the registry to a zone (epic web zones R8, AD-17): in one transaction,
+ * with the zone row locked, gives the zone the playbook's display (validated against the frame
+ * type's schema, AD-5), then records the playbook's key on the zone. The display stays editable.
  *
- * Applying the zone's own playbook again creates nothing (`applied: false`).
- * A zone that has another playbook is refused, and so is a playbook whose
- * stage key the zone already uses; nothing is written then.
+ * Applying the zone's own playbook again creates nothing (`applied: false`). A zone that has
+ * another playbook is refused, and so is a zone that already has a display (a zone has one);
+ * nothing is written then.
  */
 export async function applyPlaybook(
   db: TransactionalDb,
@@ -118,46 +109,21 @@ function applyOnce(
   const input = { zoneId };
   return inTransaction(db, async (tx) => {
     // Locks the zone, so two applies to one zone run one after the other. NO KEY UPDATE leaves
-    // the key-share locks of foreign key checks free, so a stage or frame created meanwhile does not wait on it.
+    // the key-share locks of foreign key checks free, so a frame created meanwhile does not wait on it.
     const locked = await tx.query<StoredZone>(`SELECT ${ZONE_COLUMNS} FROM zones WHERE id = $1 FOR NO KEY UPDATE`, [
       input.zoneId,
     ]);
     const zone = locked.rows[0];
     if (!zone) throw new ZoneNotFoundError(input.zoneId);
-    if (zone.playbookKey === playbook.key) return { applied: false, zone, frames: [], stages: [] };
+    if (zone.playbookKey === playbook.key) return { applied: false, zone };
     if (zone.playbookKey !== null) throw new PlaybookAlreadyAppliedError(zone.playbookKey);
+    if (zone.frame !== null) throw new DisplayExistsError(input.zoneId);
 
-    // Every stage key is checked before anything is created, so the refusal names the first one taken.
-    const stageKeys = playbook.frames.map((f) => f.stage.key);
-    const taken = await tx.query<{ key: string }>(
-      'SELECT key FROM stages WHERE zone_id = $1 AND key = ANY($2::text[])',
-      [input.zoneId, stageKeys],
-    );
-    const firstTaken = stageKeys.find((key) => taken.rows.some((row) => row.key === key));
-    if (firstTaken !== undefined) throw new StageKeyTakenError(firstTaken);
-
-    const frames: Frame[] = [];
-    const stages: Stage[] = [];
-    for (const preset of playbook.frames) {
-      const frame = await createFrame(tx, registry, {
-        zoneId: input.zoneId,
-        type: preset.type,
-        settings: preset.settings,
-      });
-      frames.push(frame);
-      stages.push(
-        await createStage(tx, {
-          zoneId: input.zoneId,
-          name: preset.stage.name,
-          key: preset.stage.key,
-          frameId: frame.id,
-        }),
-      );
-    }
+    await setDisplay(tx, registry, { zoneId: input.zoneId, type: playbook.frame.type, settings: playbook.frame.settings });
     const updated = await tx.query<StoredZone>(`UPDATE zones SET playbook_key = $2 WHERE id = $1 RETURNING ${ZONE_COLUMNS}`, [
       input.zoneId,
       playbook.key,
     ]);
-    return { applied: true, zone: updated.rows[0], frames, stages };
+    return { applied: true, zone: updated.rows[0] };
   });
 }
