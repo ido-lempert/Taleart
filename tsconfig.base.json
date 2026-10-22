@@ -16,6 +16,7 @@
     "strict": false,
     "paths": {
       "@taleart/web-sdk": ["./libs/web-sdk/src/index.ts"],
+      "@taleart/web-sdk/preview": ["./libs/web-sdk/src/preview.ts"],
       "@taleart/contract": ["./libs/contract/src/index.ts"],
       "@taleart/contract/core": ["./libs/contract/src/lib/core.ts"],
       "@taleart/contract/project-fonts": ["./libs/contract/src/lib/project-fonts.ts"],
