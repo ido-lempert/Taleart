@@ -29,10 +29,37 @@
               name="text"
               autocomplete="off"
               [(ngModel)]="text"
-              [attr.aria-invalid]="error() ? 'true' : null"
-              [attr.aria-describedby]="error() ? 'create-error' : null"
+              [attr.aria-invalid]="error() && !slugError() ? 'true' : null"
+              [attr.aria-describedby]="error() && !slugError() ? 'create-zone-hint create-error' : 'create-zone-hint'"
             />
-            <p class="field__hint">Where the frames and tale groups show in your app or site.</p>
+            <p class="field__hint" id="create-zone-hint">One spot in your app or site, with one display (a bar or a banner).</p>
+          </div>
+          <div class="field">
+            <label class="field__label" for="create-slug">Slug</label>
+            <input
+              id="create-slug"
+              class="input input--mono"
+              name="slug"
+              autocomplete="off"
+              spellcheck="false"
+              autocapitalize="off"
+              [maxlength]="maxSlug"
+              [(ngModel)]="slug"
+              [attr.aria-invalid]="error() && slugError() ? 'true' : null"
+              [attr.aria-describedby]="error() && slugError() ? 'create-slug-hint create-error' : 'create-slug-hint'"
+            />
+            <p class="field__hint" id="create-slug-hint">
+              Lowercase letters, digits and hyphens, unique in the project; a page names the zone with it.
+              @if (!slug.trim()) {
+                @if (generatedSlug(); as generated) {
+                  Left empty, it is <code>{{ generated }}</code>.
+                } @else if (text.trim()) {
+                  This name gives none: enter one.
+                } @else {
+                  Left empty, it is made from the name.
+                }
+              }
+            </p>
           </div>
           <div class="field">
             <label class="field__label" for="create-project">Project</label>
@@ -44,24 +71,64 @@
             </select>
           </div>
         }
-        @case ('frame') {
+        @case ('editZone') {
+          @if (editedZone()) {
+            <div class="field">
+              <label class="field__label" for="create-text">Zone name</label>
+              <input
+                id="create-text"
+                class="input"
+                name="text"
+                autocomplete="off"
+                [(ngModel)]="text"
+                [attr.aria-invalid]="error() && !slugError() ? 'true' : null"
+                [attr.aria-describedby]="error() && !slugError() ? 'create-error' : null"
+              />
+            </div>
+            <div class="field">
+              <label class="field__label" for="create-slug">Slug</label>
+              <input
+                id="create-slug"
+                class="input input--mono"
+                name="slug"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="off"
+                [maxlength]="maxSlug"
+                [(ngModel)]="slug"
+                [attr.aria-invalid]="error() && slugError() ? 'true' : null"
+                [attr.aria-describedby]="error() && slugError() ? 'edit-slug-hint create-error' : 'edit-slug-hint'"
+              />
+              <p class="field__hint" id="edit-slug-hint">
+                Lowercase letters, digits and hyphens, unique in the project. A page names the zone with it, so a page
+                that uses the old slug needs the new one.
+              </p>
+            </div>
+          } @else {
+            <p class="muted">This zone no longer exists.</p>
+          }
+        }
+        @case ('display') {
           <div class="field">
-            <label class="field__label" for="create-frame-type">Frame type</label>
+            <label class="field__label" for="create-frame-type">Display type</label>
             <select
               id="create-frame-type"
               class="select"
               name="frameType"
               [(ngModel)]="frameType"
-              [attr.aria-describedby]="error() ? 'create-error' : null"
+              [attr.aria-describedby]="error() ? 'create-frame-type-hint create-error' : 'create-frame-type-hint'"
             >
-              <option value="">Choose a frame type</option>
+              <option value="">Choose a display type</option>
               @for (type of store.frameTypes(); track type.key) {
                 <option [value]="type.key">{{ type.label }}</option>
               }
             </select>
+            <p class="field__hint" id="create-frame-type-hint">
+              How this zone shows its tale groups. A zone has one display; you can change its type later.
+            </p>
           </div>
         }
-        @case ('frameSettings') {
+        @case ('displaySettings') {
           @if (settingsFrame()) {
             <app-settings-form
               idPrefix="frame-settings"
@@ -72,7 +139,7 @@
               (changed)="settingChanged($event)"
             />
           } @else {
-            <p class="muted">This frame no longer exists.</p>
+            <p class="muted">This zone has no display.</p>
           }
         }
         @case ('taleGroup') {
@@ -259,84 +326,6 @@
             <p class="muted">This tale group no longer exists.</p>
           }
         }
-        @case ('stage') {
-          @if (stageFrames().length > 0) {
-            <div class="field">
-              <label class="field__label" for="create-text">Stage name</label>
-              <input
-                id="create-text"
-                class="input"
-                name="text"
-                autocomplete="off"
-                [(ngModel)]="text"
-                (ngModelChange)="stageNameChanged($event)"
-                [attr.aria-invalid]="error() ? 'true' : null"
-                [attr.aria-describedby]="error() ? 'create-error' : null"
-              />
-            </div>
-            <div class="field">
-              <label class="field__label" for="stage-key">Key</label>
-              <input
-                id="stage-key"
-                class="input input--mono"
-                name="stageKey"
-                autocomplete="off"
-                spellcheck="false"
-                autocapitalize="off"
-                [maxlength]="maxStageKey"
-                [(ngModel)]="stageKey"
-                (ngModelChange)="stageKeyChanged()"
-                [attr.aria-invalid]="error() ? 'true' : null"
-                [attr.aria-describedby]="error() ? 'stage-key-hint create-error' : 'stage-key-hint'"
-              />
-              <p class="field__hint" id="stage-key-hint">
-                Lowercase letters, digits and hyphens. A page shows this stage with
-                <code>&lt;taleart-view stage="{{ stageKey || 'key' }}"&gt;</code>. The key cannot change later.
-              </p>
-            </div>
-            <div class="field">
-              <label class="field__label" for="stage-frame">Frame</label>
-              <select id="stage-frame" class="select" name="stageFrame" [(ngModel)]="stageFrameId">
-                @for (frame of stageFrames(); track frame.id) {
-                  <option [value]="frame.id">{{ store.frameName(stageZoneId(), frame.id) }}</option>
-                }
-              </select>
-            </div>
-          } @else {
-            <p class="muted">This zone has no frames yet. Add a frame first, then a stage to show it.</p>
-          }
-        }
-        @case ('renameStage') {
-          @if (editedStage(); as stage) {
-            <div class="field">
-              <label class="field__label" for="create-text">Stage name</label>
-              <input
-                id="create-text"
-                class="input"
-                name="text"
-                autocomplete="off"
-                [(ngModel)]="text"
-                [attr.aria-invalid]="error() ? 'true' : null"
-                [attr.aria-describedby]="error() ? 'rename-stage-hint create-error' : 'rename-stage-hint'"
-              />
-              <p class="field__hint" id="rename-stage-hint">
-                The key <code>{{ stage.key }}</code> stays, so pages that show this stage keep working.
-              </p>
-            </div>
-          } @else {
-            <p class="muted">This stage no longer exists.</p>
-          }
-        }
-        @case ('deleteStage') {
-          @if (editedStage(); as stage) {
-            <p>
-              Delete {{ stage.name }}? Pages that show the stage <code>{{ stage.key }}</code> show nothing there
-              from then on. The frame stays in the zone.
-            </p>
-          } @else {
-            <p class="muted">This stage no longer exists.</p>
-          }
-        }
         @case ('applyPlaybook') {
           @if (playbookZone()) {
             <fieldset class="tag-options" [attr.aria-describedby]="playbookDescribedBy()">
@@ -358,12 +347,12 @@
             </fieldset>
             @if (pickedPlaybook(); as playbook) {
               <section class="playbook-preview" aria-labelledby="playbook-preview-title">
-                <h3 class="field__label" id="playbook-preview-title">{{ playbook.label }} adds</h3>
+                <h3 class="field__label" id="playbook-preview-title">{{ playbook.label }} sets</h3>
                 <ul class="playbook-preview__list">
                   @for (item of playbookPreview(); track $index) {
                     <li class="playbook-preview__item">
-                      <p class="playbook-preview__frame">{{ item.type }} frame</p>
-                      <dl class="playbook-preview__settings" [attr.aria-label]="item.type + ' frame settings'">
+                      <p class="playbook-preview__frame">{{ item.type }} display</p>
+                      <dl class="playbook-preview__settings" [attr.aria-label]="item.type + ' display settings'">
                         @for (setting of item.settings; track setting.label) {
                           <div>
                             <dt>{{ setting.label }}</dt>
@@ -371,16 +360,13 @@
                           </div>
                         }
                       </dl>
-                      <p>
-                        Stage {{ item.stage.name }}, key <code>{{ item.stage.key }}</code>, shows this frame.
-                      </p>
                     </li>
                   }
                 </ul>
               </section>
               <p class="field__hint">
-                Frames use the project's theme. The frames and stages stay editable after you apply it. A zone has one
-                playbook; applying it again adds nothing.
+                The display uses the project's theme and stays editable after you apply it. A zone has one playbook;
+                applying it again adds nothing.
               </p>
             }
             @if (playbookConflict() && !error()) {

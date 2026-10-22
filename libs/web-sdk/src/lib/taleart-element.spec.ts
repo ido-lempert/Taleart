@@ -9,10 +9,8 @@ const KEY = 'tak_testkey';
 const zone: DeliveryZone = {
   id: 'z1',
   name: 'Home',
-  frames: [
-    { id: 'f0', type: 'feed', settings: {} },
-    { id: 'f1', type: 'bar', settings: {} },
-  ],
+  slug: 'home',
+  frame: { id: 'f1', type: 'bar', settings: {} },
   taleGroups: [
     {
       id: 'ga',
@@ -104,7 +102,7 @@ describe('TaleartElement', () => {
   it("applies the bar frame's settings from the Delivery API", async () => {
     const settings = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
     fetchMock.mockImplementation(async () =>
-      respond(200, { ...zone, frames: [{ id: 'f1', type: 'bar', settings }] }),
+      respond(200, { ...zone, frame: { id: 'f1', type: 'bar', settings } }),
     );
     const el = await mount();
     const bar = el.shadowRoot?.querySelector<HTMLElement>('.bar');
@@ -117,17 +115,10 @@ describe('TaleartElement', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it("styles the frames and the viewer with the zone's project theme (R9)", async () => {
+  it("styles the display and the viewer with the zone's project theme (R9)", async () => {
     const theme = { ringStyle: 'solid', ringColors: ['#0055ff'], cornerRadius: 0, fontFamily: 'Georgia, serif' };
     fetchMock.mockImplementation(async () =>
-      respond(200, {
-        ...zone,
-        theme,
-        frames: [
-          { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } },
-          { id: 'f2', type: 'banner', settings: {} },
-        ],
-      }),
+      respond(200, { ...zone, theme, frame: { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } } }),
     );
     const el = await mount();
     const themed = el.shadowRoot?.querySelector<HTMLElement>('.taleart');
@@ -135,9 +126,8 @@ describe('TaleartElement', () => {
     expect(themed?.style.getPropertyValue('--ta-radius')).toBe('0px');
     expect(themed?.style.getPropertyValue('--ta-font')).toBe('"Georgia", serif');
     expect(themed?.style.getPropertyValue('--ta-seen')).toBe('#6b7280');
-    // Both frames and, once open, the viewer sit inside the themed wrapper, so they inherit it.
+    // The display and, once open, the viewer sit inside the themed wrapper, so they inherit it.
     expect(themed?.querySelector('.bar')).not.toBeNull();
-    expect(themed?.querySelector('.banner')).not.toBeNull();
     items(el)[0].click();
     expect(themed?.querySelector('dialog.viewer')).not.toBeNull();
     // The style text holds only the SDK's own rules, never a theme value.
@@ -172,14 +162,7 @@ describe('TaleartElement', () => {
 
     beforeEach(() =>
       fetchMock.mockImplementation(async () =>
-        respond(200, {
-          ...zone,
-          theme: projectTheme,
-          frames: [
-            { id: 'f1', type: 'bar', settings: {} },
-            { id: 'f2', type: 'banner', settings: { autoplay: false } },
-          ],
-        }),
+        respond(200, { ...zone, theme: projectTheme, frame: { id: 'f1', type: 'bar', settings: {} } }),
       ),
     );
     afterEach(() => {
@@ -193,17 +176,16 @@ describe('TaleartElement', () => {
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it("lets the zone's configured theme win for every element of that zone, bar and banner alike", async () => {
+    it("lets the zone's configured theme win for every element of that zone", async () => {
       configureZone(KEY, { theme: { ringColors: ['#0000ff'] } });
       const a = await mount();
-      const b = await mount({ 'api-url': API, 'zone-key': KEY, stage: '' });
+      const b = await mount();
       const other = await mount({ 'api-url': API, 'zone-key': 'tak_other' });
       for (const el of [a, b]) {
         expect(prop(el, '--ta-ring')).toBe('#0000ff');
-        // The bar and the banner sit in the one themed wrapper.
+        // The display sits in the one themed wrapper.
         const themed = el.shadowRoot?.querySelector('.taleart');
         expect(themed?.querySelector('.bar')).not.toBeNull();
-        expect(themed?.querySelector('.banner')).not.toBeNull();
       }
       expect(prop(other, '--ta-ring')).toBe('#ff0000');
       // Fields the override leaves out come from the project.
@@ -279,7 +261,6 @@ describe('TaleartElement', () => {
       expect(prop(el, '--ta-ring-width')).toBe('3px');
       expect(warnings()).toEqual([expect.stringContaining('"ringWidth"')]);
       // A reload does not warn again.
-      el.setAttribute('stage', '');
       el.zoneKey = KEY;
       await settle();
       expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -537,8 +518,8 @@ describe('TaleartElement', () => {
 
   it.each([
     ['an HTML page', () => new Response('<!doctype html><html></html>', { status: 200, headers: { 'Content-Type': 'text/html' } })],
-    ['a body without taleGroups', () => respond(200, { id: 'z1', name: 'Home', frames: [{ id: 'f1', type: 'bar', settings: {} }] })],
-    ['a body without frames', () => respond(200, { id: 'z1', name: 'Home', taleGroups: [] })],
+    ['a body without taleGroups', () => respond(200, { id: 'z1', name: 'Home', frame: { id: 'f1', type: 'bar', settings: {} } })],
+    ['a body without a frame', () => respond(200, { id: 'z1', name: 'Home', taleGroups: [] })],
   ])('treats %s on 200 as a failure: renders nothing, one error, no unhandled rejection', async (_label, body) => {
     const unhandled = vi.fn();
     process.on('unhandledRejection', unhandled);
@@ -652,11 +633,29 @@ describe('TaleartElement', () => {
     expect(String(errorSpy.mock.calls[0][0])).toContain('Failed to fetch');
   });
 
-  it('skips frame types it does not know: a zone with only a feed renders nothing, without an error', async () => {
-    fetchMock.mockImplementation(async () => respond(200, { ...zone, frames: [{ id: 'f0', type: 'feed', settings: {} }] }));
+  it('skips frame types it does not know: a zone whose display is a feed renders nothing, without an error', async () => {
+    fetchMock.mockImplementation(async () => respond(200, { ...zone, frame: { id: 'f0', type: 'feed', settings: {} } }));
     const el = await mount();
     expect(el.shadowRoot?.childNodes.length).toBe(0);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders nothing, without an error, for a zone without a display (AD-17)', async () => {
+    for (const frame of [null, 'bar', 7]) {
+      fetchMock.mockImplementation(async () => respond(200, { ...zone, frame }));
+      const el = await mount();
+      expect(el.shadowRoot?.querySelector('.bar')).toBeNull();
+      el.remove();
+    }
+    expect(errorSpy).toHaveBeenCalledTimes(2);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('ignores a stage attribute: stages are gone (AD-17)', async () => {
+    const el = await mount({ 'api-url': API, 'zone-key': KEY, stage: 'nope' });
+    expect(el.shadowRoot?.querySelector('.bar')).not.toBeNull();
+    expect('stage' in el).toBe(false);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('renders an empty bar for a zone without tale groups', async () => {
@@ -666,28 +665,24 @@ describe('TaleartElement', () => {
     expect(items(el)).toEqual([]);
   });
 
-  describe('with a banner frame', () => {
-    const withBanner = (frames: DeliveryZone['frames']) =>
-      fetchMock.mockImplementation(async () => respond(200, { ...zone, frames }));
+  describe('with a banner display', () => {
+    const withBanner = (frame: DeliveryZone['frame']) =>
+      fetchMock.mockImplementation(async () => respond(200, { ...zone, frame }));
     const slideButtons = (el: TaleartElement) => [
       ...(el.shadowRoot?.querySelectorAll<HTMLButtonElement>('.banner button.b-open') ?? []),
     ];
 
-    it("renders the bar and the banner in the zone's frame order, skipping unknown types", async () => {
-      withBanner([
-        { id: 'f2', type: 'banner', settings: { aspectRatio: '3:1', showDots: false } },
-        { id: 'f0', type: 'feed', settings: {} },
-        { id: 'f1', type: 'bar', settings: {} },
-      ]);
+    it('renders the banner with its settings', async () => {
+      withBanner({ id: 'f2', type: 'banner', settings: { aspectRatio: '3:1', showDots: false } });
       const el = await mount();
       const frames = [...(el.shadowRoot?.querySelector('.taleart')?.children ?? [])];
-      expect(frames.map((node) => node.className)).toEqual(['banner', 'bar']);
+      expect(frames.map((node) => node.className)).toEqual(['banner']);
       const banner = el.shadowRoot?.querySelector<HTMLElement>('.banner');
       expect(banner?.dataset['ratio']).toBe('3:1');
       expect(banner?.querySelector('.b-dots')).toBeNull();
       // The group without tales gets a bar item but no slide.
       expect(slideButtons(el).map((b) => b.getAttribute('aria-label'))).toEqual(['Summer', 'Winter']);
-      expect(items(el)).toHaveLength(3);
+      expect(items(el)).toHaveLength(0);
       expect(el.shadowRoot?.querySelector('style')?.textContent).toContain('.b-viewport');
       expect(errorSpy).not.toHaveBeenCalled();
       expect(warnSpy).not.toHaveBeenCalled();
@@ -695,17 +690,14 @@ describe('TaleartElement', () => {
 
     it('renders nothing for a zone whose only frame is a banner and no group has a tale', async () => {
       fetchMock.mockImplementation(async () =>
-        respond(200, { ...zone, frames: [{ id: 'f2', type: 'banner', settings: {} }], taleGroups: [zone.taleGroups[2]] }),
+        respond(200, { ...zone, frame: { id: 'f2', type: 'banner', settings: {} }, taleGroups: [zone.taleGroups[2]] }),
       );
       const el = await mount();
       expect(el.shadowRoot?.childNodes.length).toBe(0);
     });
 
     it('opens the viewer at the activated slide group and returns focus to that slide', async () => {
-      withBanner([
-        { id: 'f1', type: 'bar', settings: {} },
-        { id: 'f2', type: 'banner', settings: {} },
-      ]);
+      withBanner({ id: 'f2', type: 'banner', settings: {} });
       const el = await mount();
       slideButtons(el)[1].click();
       const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
@@ -714,12 +706,10 @@ describe('TaleartElement', () => {
       dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       expect(dialog.hasAttribute('open')).toBe(false);
       expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
-      // The viewed group shows the seen ring in the bar.
-      expect(items(el)[1].hasAttribute('data-seen')).toBe(true);
     });
 
     it('shows the slide of the group shown last when the viewer closes', async () => {
-      withBanner([{ id: 'f2', type: 'banner', settings: {} }]);
+      withBanner({ id: 'f2', type: 'banner', settings: {} });
       const el = await mount();
       slideButtons(el)[0].click();
       const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
@@ -730,30 +720,8 @@ describe('TaleartElement', () => {
       expect(slideButtons(el)[1].closest('.b-slide')?.hasAttribute('inert')).toBe(false);
     });
 
-    it('renders two bar frames of one zone, each opening the viewer and taking focus back', async () => {
-      withBanner([
-        { id: 'f1', type: 'bar', settings: {} },
-        { id: 'f3', type: 'bar', settings: { size: 'large' } },
-      ]);
-      const el = await mount();
-      const bars = [...(el.shadowRoot?.querySelectorAll<HTMLElement>('.bar') ?? [])];
-      expect(bars).toHaveLength(2);
-      expect(bars[1].style.getPropertyValue('--ta-size')).toBe('80px');
-      const second = bars[1].querySelectorAll<HTMLButtonElement>('button.item');
-      second[0].click();
-      const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
-      expect(dialog.getAttribute('aria-label')).toBe('Summer');
-      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      expect(el.shadowRoot?.activeElement).toBe(second[0]);
-      // Both bars show the seen ring.
-      expect(bars.map((bar) => bar.querySelector('button.item')?.hasAttribute('data-seen'))).toEqual([true, true]);
-    });
-
-    it('restores focus to the opener frame after a reload, not the first frame with the group', async () => {
-      withBanner([
-        { id: 'f2', type: 'banner', settings: {} },
-        { id: 'f1', type: 'bar', settings: {} },
-      ]);
+    it('restores focus to the opener bar item after a reload', async () => {
+      withBanner({ id: 'f1', type: 'bar', settings: {} });
       const el = await mount();
       items(el)[1].click();
       expect(el.shadowRoot?.querySelector('dialog')?.hasAttribute('open')).toBe(true);
@@ -765,10 +733,7 @@ describe('TaleartElement', () => {
 
     it('restores focus to the opener banner slide after a reload, without stopping its autoplay', async () => {
       vi.stubGlobal('matchMedia', () => ({ matches: false }));
-      withBanner([
-        { id: 'f1', type: 'bar', settings: {} },
-        { id: 'f2', type: 'banner', settings: {} },
-      ]);
+      withBanner({ id: 'f2', type: 'banner', settings: {} });
       const el = await mount();
       slideButtons(el)[1].click();
       el.zoneKey = 'tak_other';
@@ -780,7 +745,7 @@ describe('TaleartElement', () => {
 
     it("stops the banner's autoplay timer when the element is removed or reloads", async () => {
       vi.stubGlobal('matchMedia', () => ({ matches: false }));
-      withBanner([{ id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } }]);
+      withBanner({ id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } });
       const timeouts = vi.spyOn(globalThis, 'clearTimeout');
       const el = await mount();
       const track = () => el.shadowRoot?.querySelector<HTMLElement>('.b-track');
@@ -794,131 +759,6 @@ describe('TaleartElement', () => {
       timeouts.mockClear();
       el.remove();
       expect(timeouts).toHaveBeenCalled();
-    });
-  });
-
-  describe('with stages (R7)', () => {
-    // Two bar frames of one zone, circle and rounded-square, a banner, a feed, and a stage for each.
-    const staged: DeliveryZone = {
-      ...zone,
-      frames: [
-        { id: 'f1', type: 'bar', settings: { shape: 'circle' } },
-        { id: 'f2', type: 'bar', settings: { shape: 'rounded-square' } },
-        { id: 'f3', type: 'banner', settings: { autoplay: false } },
-        { id: 'f4', type: 'feed', settings: {} },
-      ],
-      stages: [
-        { key: 'round', frameId: 'f1' },
-        { key: 'square', frameId: 'f2' },
-        { key: 'hero', frameId: 'f3' },
-        { key: 'feed', frameId: 'f4' },
-        { key: 'gone', frameId: 'f9' },
-      ],
-    };
-    const bars = (el: TaleartElement) => [...(el.shadowRoot?.querySelectorAll<HTMLElement>('.bar') ?? [])];
-    const withStage = (stage: string) => mount({ 'api-url': API, 'zone-key': KEY, stage });
-
-    beforeEach(() => fetchMock.mockImplementation(async () => respond(200, staged)));
-
-    it("renders only the named stage's frame: two elements show their own bar shapes", async () => {
-      const round = await withStage('round');
-      const square = await withStage('square');
-      expect(bars(round).map((bar) => bar.dataset['shape'])).toEqual(['circle']);
-      expect(bars(square).map((bar) => bar.dataset['shape'])).toEqual(['rounded-square']);
-      expect(round.shadowRoot?.querySelector('section.banner')).toBeNull();
-      expect(items(round)).toHaveLength(3);
-      expect(warnSpy).not.toHaveBeenCalled();
-      expect(errorSpy).not.toHaveBeenCalled();
-    });
-
-    it('renders a banner stage alone', async () => {
-      const el = await withStage(' hero ');
-      expect(el.shadowRoot?.querySelector('section.banner')).not.toBeNull();
-      expect(bars(el)).toHaveLength(0);
-    });
-
-    it('renders every known frame in order when no stage, or an empty one, is named', async () => {
-      for (const el of [await mount(), await withStage(''), await withStage('  ')]) {
-        expect(bars(el).map((bar) => bar.dataset['shape'])).toEqual(['circle', 'rounded-square']);
-        expect(el.shadowRoot?.querySelector('section.banner')).not.toBeNull();
-      }
-      expect(warnSpy).not.toHaveBeenCalled();
-    });
-
-    it('renders nothing and warns once that the zone has no such stage for an unknown key', async () => {
-      for (const key of ['nope', 'ROUND']) {
-        warnSpy.mockClear();
-        const el = await withStage(key);
-        expect(el.shadowRoot?.childNodes).toHaveLength(0);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(String(warnSpy.mock.calls[0][0])).toBe(`TaleArt: the zone has no stage "${key}"; nothing is rendered for it`);
-      }
-      expect(errorSpy).not.toHaveBeenCalled();
-    });
-
-    it('renders nothing and warns once, distinctly, for a stage that points to a missing frame', async () => {
-      const broken = { ...staged, stages: [...(staged.stages ?? []), { key: 'odd', frameId: 7 }, { key: 'bare' }] };
-      fetchMock.mockImplementation(async () => respond(200, broken));
-      for (const key of ['gone', 'odd', 'bare']) {
-        warnSpy.mockClear();
-        const el = await withStage(key);
-        expect(el.shadowRoot?.childNodes).toHaveLength(0);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(String(warnSpy.mock.calls[0][0])).toBe(
-          `TaleArt: stage "${key}" points to a frame the zone does not have; nothing is rendered for it`,
-        );
-      }
-      expect(errorSpy).not.toHaveBeenCalled();
-    });
-
-    it('renders nothing, silently, for a stage of a frame type it does not know', async () => {
-      const el = await withStage('feed');
-      expect(el.shadowRoot?.childNodes).toHaveLength(0);
-      expect(warnSpy).not.toHaveBeenCalled();
-    });
-
-    it('treats a missing, malformed or junk stages list as no stages', async () => {
-      const junk: [unknown, string][] = [
-        [{ ...staged, stages: undefined }, 'has no stage'],
-        [{ ...staged, stages: 'round' }, 'has no stage'],
-        [{ ...staged, stages: [null, 7, 'round', { key: ['round'], frameId: 'f1' }] }, 'has no stage'],
-        [{ ...staged, stages: [{ key: 'round', frameId: 1 }, { key: 'round', frameId: 'f1' }] }, 'points to a frame'],
-      ];
-      for (const [body, message] of junk) {
-        fetchMock.mockImplementation(async () => respond(200, body));
-        warnSpy.mockClear();
-        const el = await withStage('round');
-        expect(el.shadowRoot?.childNodes).toHaveLength(0);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(String(warnSpy.mock.calls[0][0])).toContain(message);
-        // With no stage named, the same response renders every frame.
-        expect(bars(await mount())).toHaveLength(2);
-      }
-    });
-
-    it('reloads and renders the new stage when the stage attribute or property changes', async () => {
-      const el = await withStage('round');
-      el.setAttribute('stage', 'square');
-      await settle();
-      expect(bars(el).map((bar) => bar.dataset['shape'])).toEqual(['rounded-square']);
-      el.stage = 'nope';
-      await settle();
-      expect(el.shadowRoot?.childNodes).toHaveLength(0);
-      el.removeAttribute('stage');
-      await settle();
-      expect(bars(el)).toHaveLength(2);
-      expect(el.stage).toBe('');
-      expect(fetchMock).toHaveBeenCalledTimes(4);
-    });
-
-    it("opens the viewer from a staged bar and returns focus to that bar's item", async () => {
-      const el = await withStage('square');
-      items(el)[1].click();
-      const dialog = el.shadowRoot?.querySelector('dialog') as HTMLDialogElement;
-      expect(dialog.getAttribute('aria-label')).toBe('Winter');
-      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
-      expect(items(el)[1].hasAttribute('data-seen')).toBe(true);
     });
   });
 
@@ -1072,34 +912,31 @@ describe('TaleartElement', () => {
       expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([1, 1]);
     });
 
-    it('marks the zone once even when the render shows nothing (an unknown stage)', async () => {
-      const el = await mount({ 'api-url': API, 'zone-key': KEY, stage: 'nope' });
+    it('marks the zone once even when the render shows nothing (a zone without a display)', async () => {
+      fetchMock.mockImplementation(async () => respond(200, { ...zone, frame: null }));
+      const el = await mount();
       el.setAttribute('zone-key', 'tak_other');
       await paint();
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([1, 0]);
     });
 
-    describe('with covers in view and a picture that never loads', () => {
-      // Everything laid out in view; the bar's video cover (group Winter) never gets a frame.
-      beforeEach(() => {
-        vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
-          { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0 } as DOMRect,
-        );
-        fetchMock.mockImplementation(async () =>
-          respond(200, {
-            ...zone,
-            frames: [
-              { id: 'f1', type: 'bar', settings: {} },
-              { id: 'f2', type: 'banner', settings: { autoplay: false } },
-            ],
-          }),
-        );
+    // The bar's image cover (group Summer) is in view; its video cover (group Winter) is below the
+    // fold, so it is one of "the rest of this render's pictures", held until the first content is laid out.
+    function videoBelowTheFold(): void {
+      const inView = { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0 } as DOMRect;
+      const below = { left: 0, top: 5000, right: 100, bottom: 5100, width: 100, height: 100, x: 0, y: 5000 } as DOMRect;
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        return this.matches('video.cover') ? below : inView;
       });
+    }
+
+    describe('with a cover in view and a picture that never loads', () => {
+      beforeEach(() => videoBelowTheFold());
 
       afterEach(() => vi.useRealTimers());
 
-      const slideImage = (el: TaleartElement) => el.shadowRoot?.querySelector<HTMLImageElement>('.banner img');
+      const heldVideo = (el: TaleartElement) => el.shadowRoot?.querySelector<HTMLVideoElement>('.bar video.cover');
 
       it("keeps a new render's pictures held past the old render's 3 s; marks only the shown render", async () => {
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -1108,28 +945,27 @@ describe('TaleartElement', () => {
         el.setAttribute('zone-key', KEY);
         document.body.appendChild(el);
         await vi.advanceTimersByTimeAsync(1000);
-        const first = slideImage(el);
+        const first = heldVideo(el);
         expect(first?.getAttribute('src')).toBeNull();
 
         // A new key one second in: the first render is dropped before it showed its covers.
         el.setAttribute('zone-key', 'tak_other');
         await vi.advanceTimersByTimeAsync(10);
-        const second = slideImage(el) as HTMLImageElement;
+        const second = heldVideo(el) as HTMLVideoElement;
         expect(second).not.toBe(first);
         await vi.advanceTimersByTimeAsync(2500);
-        // Past the first render's 3 s: the new render's banner still waits for its own first content.
+        // Past the first render's 3 s: the new render's held picture still waits for its own first content.
         expect(second.getAttribute('src')).toBeNull();
         expect(first?.getAttribute('src')).toBeNull();
         expect(marks(FIRST_CONTENT_MARK)).toBe(0);
 
         const root = el.shadowRoot as ShadowRoot;
         root.querySelector('.bar img.cover')?.dispatchEvent(new Event('load'));
-        root.querySelector('.bar video.cover')?.dispatchEvent(new Event('loadeddata'));
         await vi.advanceTimersByTimeAsync(50);
         // The mark waits for the next animation frame (jsdom's own clock).
         await new Promise((done) => requestAnimationFrame(() => done(undefined)));
         await vi.advanceTimersByTimeAsync(0);
-        expect(second.getAttribute('src')).toBe(`${API}/media/tales/a.png`);
+        expect(second.getAttribute('src')).toBe(`${API}/media/tales/b.mp4#t=0.001`);
         expect(marks(FIRST_CONTENT_MARK)).toBe(1);
       });
 
@@ -1140,16 +976,13 @@ describe('TaleartElement', () => {
         el.setAttribute('zone-key', KEY);
         document.body.appendChild(el);
         await vi.advanceTimersByTimeAsync(10);
-        const slide = slideImage(el) as HTMLImageElement;
+        const held = heldVideo(el) as HTMLVideoElement;
         const root = el.shadowRoot as ShadowRoot;
-        const covers = [...root.querySelectorAll('.bar .cover')];
+        const cover = root.querySelector('.bar img.cover');
         el.remove();
-        for (const cover of covers) {
-          cover.dispatchEvent(new Event('load'));
-          cover.dispatchEvent(new Event('loadeddata'));
-        }
+        cover?.dispatchEvent(new Event('load'));
         await vi.advanceTimersByTimeAsync(5000);
-        expect(slide.getAttribute('src')).toBeNull();
+        expect(held.getAttribute('src')).toBeNull();
         expect(marks(FIRST_CONTENT_MARK)).toBe(0);
       });
     });
@@ -1161,39 +994,22 @@ describe('TaleartElement', () => {
       expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([0, 0]);
     });
 
-    it("loads the first frame's covers in view first, high priority, and the other pictures after them", async () => {
-      // Everything laid out in view: the bar is the first frame, the banner the second.
-      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
-        { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0 } as DOMRect,
-      );
-      fetchMock.mockImplementation(async () =>
-        respond(200, {
-          ...zone,
-          frames: [
-            { id: 'f1', type: 'bar', settings: {} },
-            { id: 'f2', type: 'banner', settings: { autoplay: false } },
-          ],
-        }),
-      );
+    it("loads the display's covers in view first, high priority, and the other pictures after them", async () => {
+      videoBelowTheFold();
       const el = await mount();
       const root = el.shadowRoot as ShadowRoot;
       const barImage = root.querySelector<HTMLImageElement>('.bar img.cover') as HTMLImageElement;
       const barVideo = root.querySelector<HTMLVideoElement>('.bar video.cover') as HTMLVideoElement;
-      const slideImage = root.querySelector<HTMLImageElement>('.banner img') as HTMLImageElement;
       expect(barImage.getAttribute('src')).toBe(`${API}/media/tales/a.png`);
       expect(barImage.getAttribute('fetchpriority')).toBe('high');
       expect(barImage.hasAttribute('loading')).toBe(false);
-      expect(barVideo.getAttribute('src')).toBe(`${API}/media/tales/b.mp4#t=0.001`);
-      // The banner waits until the bar's image has loaded and its video has its first frame.
+      // The cover below the fold waits until the cover in view has loaded.
+      expect(barVideo.getAttribute('src')).toBeNull();
+      expect(marks(FIRST_CONTENT_MARK)).toBe(0);
       barImage.dispatchEvent(new Event('load'));
       await paint();
-      expect(slideImage.getAttribute('src')).toBeNull();
-      expect(marks(FIRST_CONTENT_MARK)).toBe(0);
-
-      barVideo.dispatchEvent(new Event('loadeddata'));
-      await paint();
-      expect(slideImage.getAttribute('src')).toBe(`${API}/media/tales/a.png`);
-      expect(slideImage.hasAttribute('fetchpriority')).toBe(false);
+      expect(barVideo.getAttribute('src')).toBe(`${API}/media/tales/b.mp4#t=0.001`);
+      expect(barVideo.hasAttribute('fetchpriority')).toBe(false);
       expect(marks(FIRST_CONTENT_MARK)).toBe(1);
     });
   });

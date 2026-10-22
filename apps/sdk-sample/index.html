@@ -44,8 +44,8 @@
     <p>
       A host page for trying the SDK. Open it as
       <code>?key=&lt;zone key&gt;&amp;api=&lt;API URL&gt;</code>; the API URL defaults to
-      <code>http://localhost:3333</code>. Add <code>&amp;stages=&lt;key&gt;,&lt;key&gt;</code> to place one
-      <code>&lt;taleart-view stage="…"&gt;</code> per stage key instead of the whole zone.
+      <code>http://localhost:3333</code>. The element shows the zone's display, a bar or a banner. Use
+      <code>?keys=&lt;key&gt;,&lt;key&gt;</code> instead to place several zones, one element per key.
     </p>
     <p>
       Add <code>&amp;theme=&lt;JSON&gt;</code> to override the project's theme for the zone in the SDK configuration,
@@ -63,34 +63,33 @@
 
       const params = new URLSearchParams(location.search);
       const apiUrl = params.get('api') || 'http://localhost:3333';
-      const key = params.get('key');
-      // The zone's SDK theme override (R9), before the elements load so they render with it.
+      // `key` places one zone; `keys=a,b` places one element per zone key, each under its own heading.
+      const keys = (params.get('keys') || params.get('key') || '').split(',').map((k) => k.trim()).filter(Boolean);
+      // The zones' SDK theme override (R9), before the elements load so they render with it.
       const theme = params.get('theme');
-      if (key && theme) {
+      if (theme) {
         try {
-          configureZone(key, { theme: JSON.parse(theme) });
+          const parsed = JSON.parse(theme);
+          for (const key of keys) configureZone(key, { theme: parsed });
         } catch {
           console.warn('Sample page: the theme parameter is not valid JSON; it is ignored');
         }
       }
-      const stages = (params.get('stages') || '').split(',').map((s) => s.trim()).filter(Boolean);
-      // One element per named stage (R7), each under its own heading; else one element for the whole zone.
-      const views = stages.length
-        ? stages.map((stage) => {
-            const section = document.createElement('section');
-            const heading = document.createElement('h2');
-            heading.textContent = `Stage ${stage}`;
-            const view = document.createElement('taleart-view');
-            view.stage = stage;
-            section.append(heading, view);
-            return { section, view };
-          })
-        : [{ section: null, view: document.getElementById('zone') }];
-      if (stages.length) document.getElementById('views').replaceChildren(...views.map((v) => v.section));
-      for (const { view } of views) {
-        view.apiUrl = apiUrl;
-        if (key) view.zoneKey = key;
-      }
+      const views =
+        keys.length > 1
+          ? keys.map((key, i) => {
+              const section = document.createElement('section');
+              const heading = document.createElement('h2');
+              heading.textContent = `Zone ${i + 1}`;
+              const view = document.createElement('taleart-view');
+              view.zoneKey = key;
+              section.append(heading, view);
+              return { section, view };
+            })
+          : [{ section: null, view: document.getElementById('zone') }];
+      if (keys.length > 1) document.getElementById('views').replaceChildren(...views.map((v) => v.section));
+      else if (keys[0]) views[0].view.zoneKey = keys[0];
+      for (const { view } of views) view.apiUrl = apiUrl;
     </script>
   </body>
 </html>

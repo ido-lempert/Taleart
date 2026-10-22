@@ -977,8 +977,17 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createZone
-      summary: Create a zone in a project.
-      description: A project the caller cannot access answers 403 `forbidden`.
+      summary: Create a zone in a project, without a display.
+      description: >-
+        `slug` is optional: when missing, it is made from the name (lowercase
+        ASCII letters and digits joined by hyphens; `zone` when the name has
+        none, as a Hebrew name has none) and made unique in the project with
+        `-2`, `-3`. A given slug must be lowercase letters and digits, words
+        joined by single hyphens, at most 64 characters (400
+        `validation_failed`), and free in the project (409 `slug_taken`). A
+        blank name answers 400 `validation_failed`; a project that does not
+        exist 400 `project_not_found`; a project the caller cannot access 403
+        `forbidden`.
       requestBody:
         required: true
         content:
@@ -995,6 +1004,8 @@ paths:
         '400':
           $ref: '#/components/responses/Error'
         '403':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1013,151 +1024,35 @@ paths:
                   $ref: '#/components/schemas/FrameType'
         default:
           $ref: '#/components/responses/Error'
-  /zones/{zoneId}/frames:
+  /zones/{zoneId}:
     parameters:
       - name: zoneId
-        in: path
-        required: true
-        schema:
-          type: string
-    get:
-      operationId: listZoneFrames
-      summary: List a zone's frames, oldest first.
-      responses:
-        '200':
-          description: The zone's frames.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Frame'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-    post:
-      operationId: createZoneFrame
-      summary: Add a frame of a registered type to a zone.
-      description: >-
-        `settings` is validated against the JSON Schema of the frame type.
-        A missing `settings` is treated as `{}`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateFrameRequest'
-      responses:
-        '201':
-          description: The created frame.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Frame'
-        '400':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /zones/{zoneId}/frames/{frameId}:
-    parameters:
-      - name: zoneId
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: frameId
         in: path
         required: true
         schema:
           type: string
     patch:
-      operationId: updateZoneFrame
-      summary: Replace a frame's settings.
+      operationId: updateZone
+      summary: Rename a zone or change its slug.
       description: >-
-        `settings` replaces the frame's settings and is validated against the
-        JSON Schema of the frame's type (AD-5): an invalid value answers 400
-        `invalid_frame_settings` naming the field, and nothing is stored. A
-        missing `settings` answers 400 `validation_failed`. Unknown zone: 404
-        `zone_not_found`; a frame that is not in the zone: 404 `frame_not_found`.
+        `name` is trimmed and must not be blank. `slug` must be lowercase
+        letters and digits, words joined by single hyphens, at most 64
+        characters (400 `validation_failed`), and free in the zone's project
+        (409 `slug_taken`). A page names the zone by its slug, so changing it
+        changes what such a page must say. Unknown zone: 404 `zone_not_found`.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateFrameRequest'
+              $ref: '#/components/schemas/UpdateZoneRequest'
       responses:
         '200':
-          description: The frame with its new settings.
+          description: The zone as it is now.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Frame'
-        '400':
-          $ref: '#/components/responses/Error'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-  /zones/{zoneId}/stages:
-    parameters:
-      - name: zoneId
-        in: path
-        required: true
-        schema:
-          type: string
-    get:
-      operationId: listZoneStages
-      summary: List a zone's stages, oldest first.
-      description: >-
-        A stage is a named place on a host page that shows one of the zone's
-        frames (epic web zones R7). Unknown zone: 404 `zone_not_found`.
-      responses:
-        '200':
-          description: The zone's stages.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Stage'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-    post:
-      operationId: createZoneStage
-      summary: Add a stage that shows one of the zone's frames.
-      description: >-
-        The name is trimmed and must not be blank; the key must match
-        `^[a-z0-9]+(-[a-z0-9]+)*$` and be at most 64 characters (400
-        `validation_failed`). A frame that is not one of the zone's answers 400
-        `frame_not_found`; a key another stage of the zone has answers 409
-        `stage_key_taken`. Unknown zone: 404 `zone_not_found`. The stage takes
-        its project from the zone (AD-4).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateStageRequest'
-      responses:
-        '201':
-          description: The created stage.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Stage'
+                $ref: '#/components/schemas/Zone'
         '400':
           $ref: '#/components/responses/Error'
         '403':
@@ -1168,60 +1063,81 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-  /zones/{zoneId}/stages/{stageId}:
+  /zones/{zoneId}/frame:
     parameters:
       - name: zoneId
         in: path
         required: true
         schema:
           type: string
-      - name: stageId
-        in: path
-        required: true
-        schema:
-          type: string
-    patch:
-      operationId: renameZoneStage
-      summary: Rename a stage; its key and frame stay.
+    post:
+      operationId: setZoneFrame
+      summary: Give a zone its display, a frame of a registered type.
       description: >-
-        The name is trimmed and must not be blank (400 `validation_failed`).
-        Host pages name the stage by its key, which a rename never changes.
-        Unknown zone: 404 `zone_not_found`; a stage that is not in the zone:
-        404 `stage_not_found`.
+        A zone has at most one frame, its display (AD-5, AD-17). `settings` is
+        validated against the JSON Schema of the frame type (400
+        `invalid_frame_settings`); a missing `settings` is the type's defaults.
+        An unknown type answers 400 `unknown_frame_type`. A zone that already
+        has a display answers 409 `display_exists`; change it with PATCH.
+        Unknown zone: 404 `zone_not_found`.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RenameStageRequest'
+              $ref: '#/components/schemas/SetFrameRequest'
       responses:
-        '200':
-          description: The renamed stage.
+        '201':
+          description: The zone's display.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Stage'
+                $ref: '#/components/schemas/Frame'
         '400':
           $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-    delete:
-      operationId: deleteZoneStage
-      summary: Delete a stage.
+    patch:
+      operationId: updateZoneFrame
+      summary: Change the type or the settings of a zone's display.
       description: >-
-        A page that names its key renders nothing for it from then on. Unknown
-        zone: 404 `zone_not_found`; a stage that is not in the zone: 404
-        `stage_not_found`.
+        A new `type` changes the display's frame type and resets its settings
+        to that type's defaults, unless `settings` is given too. `settings`
+        replaces the settings and is validated against the JSON Schema of the
+        display's (new) type (AD-5): an invalid value answers 400
+        `invalid_frame_settings` naming the field, and nothing is stored. A
+        body with neither answers 400 `validation_failed`. The display keeps
+        its id, so events keep their `frame_id` (AD-10). Unknown zone: 404
+        `zone_not_found`; a zone without a display: 404 `display_not_found`.
+        When another change switches the display's type meanwhile, the change
+        is checked again against the new type once, then refused with 409
+        `concurrent_change`; nothing is stored and it can be tried again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFrameRequest'
       responses:
-        '204':
-          description: The stage is deleted.
+        '200':
+          description: The display as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Frame'
+        '400':
+          $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1234,17 +1150,17 @@ paths:
           type: string
     put:
       operationId: applyZonePlaybook
-      summary: Apply a playbook to a zone, creating its frames and a stage per frame.
+      summary: Apply a playbook to a zone, giving it the playbook's display.
       description: >-
-        A playbook is a preset set of frames with their settings and a stage
-        per frame (epic web zones R8), defined in the playbook registry in
-        `libs/contract`. In one transaction the zone gets the playbook's
-        frames and stages, which stay editable, and records its key. Applying
-        the zone's own playbook again creates nothing (`applied: false`). A
-        missing key answers 400 `validation_failed`; a key not in the registry
-        400 `unknown_playbook`; a zone that has another playbook 409
-        `playbook_already_applied`; a stage key of the playbook that the zone
-        already uses 409 `stage_key_taken`, and nothing is created. A
+        A playbook is a preset display with its settings (epic web zones R8,
+        AD-17), defined in the playbook registry in `libs/contract`. In one
+        transaction the zone gets the playbook's display, which stays
+        editable, and records its key. Applying the zone's own playbook again
+        creates nothing (`applied: false`). A missing key answers 400
+        `validation_failed`; a key not in the registry 400 `unknown_playbook`;
+        a zone that has another playbook 409 `playbook_already_applied`; a
+        zone that already has a display 409 `display_exists`, and nothing is
+        created. A
         concurrent change to the zone that fails the apply twice answers 409
         `concurrent_change`; nothing is created and it can be tried again.
         Unknown zone: 404 `zone_not_found`.
@@ -1341,7 +1257,7 @@ paths:
         description: Delivery API (AD-2), for SDKs. Accepts zone keys only.
     get:
       operationId: getDeliveryZone
-      summary: The zone of the zone key, with its frames, stages and tale groups (Delivery API).
+      summary: The zone of the zone key, with its display and tale groups (Delivery API).
       description: >-
         Served under `/delivery/v1`. Accepts only a zone key in
         `Authorization: Bearer <key>`, never a session. A missing, unknown or
@@ -1357,7 +1273,7 @@ paths:
         - zoneKey: []
       responses:
         '200':
-          description: The zone, its frames and stages oldest first, and its tale groups by position.
+          description: The zone, its display, and its tale groups by position.
           content:
             application/json:
               schema:
@@ -2423,7 +2339,7 @@ components:
           minLength: 1
     Zone:
       type: object
-      required: [id, name, projectId, playbookKey, visibility]
+      required: [id, name, slug, projectId, playbookKey, frame, visibility]
       properties:
         visibility:
           $ref: '#/components/schemas/Visibility'
@@ -2436,15 +2352,31 @@ components:
           format: uuid
         name:
           type: string
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 64
+          description: >-
+            Unique in the zone's project (epic UX rework R1): lowercase letters
+            and digits, words joined by single hyphens. The value a host page
+            names in `zone="…"`.
         projectId:
           type: string
           format: uuid
         playbookKey:
           type: [string, 'null']
           description: >-
-            The key of the playbook applied to the zone (epic web zones R8),
-            from the playbook registry in `libs/contract`; null when none was
-            applied. A zone records one playbook.
+            The key of the playbook the zone had applied (epic web zones R8),
+            from the playbook registry in `libs/contract`; null when none. Only
+            a "created from template" note (AD-17); a zone the migration made
+            from a stage keeps its original zone's key.
+        frame:
+          description: >-
+            The zone's display (AD-5, AD-17): at most one frame, or null when
+            the zone has none. A zone without a display delivers nothing.
+          oneOf:
+            - $ref: '#/components/schemas/Frame'
+            - type: 'null'
     CreateZoneRequest:
       type: object
       required: [name, projectId]
@@ -2455,6 +2387,25 @@ components:
         projectId:
           type: string
           format: uuid
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 64
+          description: >-
+            The zone's slug. When missing, it is made from the name and made
+            unique in the project with a numeric suffix (`home-2`). A slug
+            another zone of the project has answers 409 `slug_taken`.
+    UpdateZoneRequest:
+      type: object
+      description: At least one of `name` and `slug`.
+      properties:
+        name:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 64
     FrameType:
       type: object
       required: [key, label, schema]
@@ -2491,7 +2442,7 @@ components:
           type: object
           additionalProperties: true
           description: Settings valid against the frame type's JSON Schema.
-    CreateFrameRequest:
+    SetFrameRequest:
       type: object
       required: [type]
       properties:
@@ -2503,60 +2454,16 @@ components:
           additionalProperties: true
     UpdateFrameRequest:
       type: object
-      required: [settings]
+      description: At least one of `type` and `settings`.
       properties:
+        type:
+          type: string
+          minLength: 1
+          description: A new frame type; without `settings`, the settings reset to its defaults.
         settings:
           type: object
           additionalProperties: true
-          description: The frame's new settings, valid against its type's JSON Schema.
-    Stage:
-      type: object
-      description: >-
-        A named place on a host page that shows one of its zone's frames (epic
-        web zones R7). A page renders it with `<taleart-view stage="<key>">`.
-      required: [id, zoneId, projectId, frameId, name, key]
-      properties:
-        id:
-          type: string
-          format: uuid
-        zoneId:
-          type: string
-          format: uuid
-        projectId:
-          type: string
-          format: uuid
-        frameId:
-          type: string
-          format: uuid
-          description: The frame of the zone the stage shows.
-        name:
-          type: string
-        key:
-          type: string
-          description: Unique in the zone; set on create and never changed.
-          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
-          maxLength: 64
-    CreateStageRequest:
-      type: object
-      required: [name, key, frameId]
-      properties:
-        name:
-          type: string
-          minLength: 1
-        key:
-          type: string
-          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
-          maxLength: 64
-        frameId:
-          type: string
-          format: uuid
-    RenameStageRequest:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-          minLength: 1
+          description: The display's new settings, valid against its (new) type's JSON Schema.
     ApplyPlaybookRequest:
       type: object
       required: [key]
@@ -2568,26 +2475,16 @@ components:
     AppliedPlaybook:
       type: object
       description: >-
-        The outcome of applying a playbook to a zone (epic web zones R8):
-        the zone with its playbook key, and the frames and stages the call
-        created. Applying the zone's own playbook again creates nothing.
-      required: [applied, zone, frames, stages]
+        The outcome of applying a playbook to a zone (epic web zones R8,
+        AD-17): the zone with its playbook key and its display. Applying the
+        zone's own playbook again creates nothing.
+      required: [applied, zone]
       properties:
         applied:
           type: boolean
-          description: True when this call created the playbook's frames and stages; false when the zone already had it.
+          description: True when this call gave the zone the playbook's display; false when the zone already had it.
         zone:
           $ref: '#/components/schemas/Zone'
-        frames:
-          type: array
-          description: The frames this call created, in playbook order; empty when `applied` is false.
-          items:
-            $ref: '#/components/schemas/Frame'
-        stages:
-          type: array
-          description: The stages this call created, one per frame; empty when `applied` is false.
-          items:
-            $ref: '#/components/schemas/Stage'
     TaleGroup:
       type: object
       description: >-
@@ -3165,47 +3062,35 @@ components:
           description: >-
             The frame's settings, with every field the stored settings leave
             out filled with its default from the type's JSON Schema.
-    DeliveryStage:
-      type: object
-      required: [key, frameId]
-      properties:
-        key:
-          type: string
-          description: The key a host page names in `<taleart-view stage="<key>">`.
-        frameId:
-          type: string
-          format: uuid
-          description: The id of one of the zone's frames, in `frames`.
     DeliveryZone:
       type: object
-      required: [id, name, theme, frames, stages, taleGroups]
+      required: [id, name, slug, theme, frame, taleGroups]
       properties:
         id:
           type: string
           format: uuid
         name:
           type: string
+        slug:
+          type: string
+          description: The zone's slug (epic UX rework R1).
         theme:
           $ref: '#/components/schemas/Theme'
           description: >-
             The zone's project theme (R9), every field filled with TaleArt's
             default where the project sets none.
-        frames:
-          type: array
-          items:
-            $ref: '#/components/schemas/DeliveryFrame'
-        stages:
-          type: array
+        frame:
           description: >-
-            The zone's stages, oldest first (R7). A page that names a stage
-            renders only that stage's frame.
-          items:
-            $ref: '#/components/schemas/DeliveryStage'
+            The zone's display (AD-17), or null when it has none; a zone
+            without a display lists no tale group.
+          oneOf:
+            - $ref: '#/components/schemas/DeliveryFrame'
+            - type: 'null'
         taleGroups:
           type: array
           description: >-
             The published tale groups placed in the zone, in this zone's order
-            (AD-2, AD-14); every frame shows all of them.
+            (AD-2, AD-14); the display shows all of them.
           items:
             $ref: '#/components/schemas/DeliveryTaleGroup'
     DeliveryTaleGroup:
@@ -4124,7 +4009,9 @@ components:
         - unknown_frame_type
         - invalid_frame_settings
         - invalid_theme
-        - frame_not_found
+        - display_not_found
+        - display_exists
+        - slug_taken
         - tale_group_not_found
         - tale_group_full
         - tale_not_found
@@ -4148,8 +4035,6 @@ components:
         - import_selection_invalid
         - preview_busy
         - invalid_status_transition
-        - stage_not_found
-        - stage_key_taken
         - unknown_playbook
         - playbook_already_applied
         - concurrent_change

@@ -5,14 +5,23 @@
       <header class="page-header">
         <a class="back-link" routerLink="/zones"><app-icon name="back" /> Zones</a>
         <h2 class="page-header__title">{{ zone.name }}</h2>
-        <p class="page-header__meta">in {{ store.projectName(zone.projectId) }}</p>
+        <p class="page-header__meta">
+          in {{ store.projectName(zone.projectId) }} · <span class="zone-slug">Slug <code class="key-prefix">{{ zone.slug }}</code></span>
+        </p>
         <app-visibility class="zone-visibility" [visibility]="zone.visibility" viewing="zone" />
+        <button
+          type="button"
+          class="btn btn--secondary btn--sm zone-edit"
+          (click)="store.openDrawer({ kind: 'editZone', zoneId: zone.id }, $event)"
+        >
+          Edit name and slug
+        </button>
       </header>
 
       <section class="card section zone-section" aria-labelledby="playbook-title">
         <div class="section__header">
           <h3 class="section__title" id="playbook-title" tabindex="-1">Playbook</h3>
-          @if (!zone.playbookKey) {
+          @if (!zone.playbookKey && !zone.frame) {
             <button
               type="button"
               class="btn btn--secondary btn--sm"
@@ -24,106 +33,89 @@
         </div>
         @if (zone.playbookKey) {
           @if (appliedPlaybook(); as playbook) {
-            <p class="playbook-applied"><span class="stage-row__name">{{ playbook.label }}</span> {{ playbook.goal }}</p>
+            <p class="playbook-applied"><span class="playbook-applied__name">{{ playbook.label }}</span> {{ playbook.goal }}</p>
           } @else {
             <p class="playbook-applied"><code class="key-prefix">{{ zone.playbookKey }}</code></p>
           }
-          <p class="muted">Its frames and stages are below; edit or delete them like any other.</p>
+          <p class="muted">Its display is below; change it like any other.</p>
+        } @else if (zone.frame) {
+          <p class="muted">No playbook. A playbook sets a preset display for a zone that has none.</p>
         } @else {
-          <p class="muted">
-            No playbook yet. A playbook adds a preset set of frames, each with its settings and a stage, for a goal.
-          </p>
+          <p class="muted">No playbook yet. A playbook sets a preset display, with its settings, for a goal.</p>
         }
       </section>
 
-      <section class="card section zone-section" aria-labelledby="frames-title">
+      <section class="card section zone-section" aria-labelledby="display-title">
         <div class="section__header">
-          <h3 class="section__title" id="frames-title">Frames</h3>
-          <button
-            type="button"
-            class="btn btn--secondary btn--sm"
-            (click)="store.openDrawer({ kind: 'frame', zoneId: zone.id }, $event)"
-          >
-            <app-icon name="plus" /> Add frame
-          </button>
-        </div>
-        @if (frames().length > 0) {
-          <ul class="frame-list" [attr.aria-label]="'Frames in ' + zone.name">
-            @for (frame of frames(); track frame.id; let fi = $index) {
-              <li class="frame-row">
-                <span class="pill" [id]="'frame-name-' + frame.id">{{ store.frameTypeLabel(frame.type) }}</span>
-                @if (store.hasSettings(frame.type)) {
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    [attr.aria-label]="'Settings of frame ' + (fi + 1) + ', ' + store.frameTypeLabel(frame.type)"
-                    (click)="store.openDrawer({ kind: 'frameSettings', zoneId: zone.id, frameId: frame.id }, $event)"
-                  >
-                    <app-icon name="settings" /> <span class="btn__label">Settings</span>
-                  </button>
-                }
-              </li>
-            }
-          </ul>
-        } @else {
-          <p class="muted">No frames yet. Add a frame to choose how this zone shows its tale groups.</p>
-        }
-      </section>
-
-      <section class="card section zone-section" aria-labelledby="stages-title">
-        <div class="section__header">
-          <h3 class="section__title" id="stages-title">Stages</h3>
-          @if (frames().length > 0) {
+          <h3 class="section__title" id="display-title" tabindex="-1">Display</h3>
+          @if (!zone.frame) {
             <button
               type="button"
               class="btn btn--secondary btn--sm"
-              (click)="store.openDrawer({ kind: 'stage', zoneId: zone.id }, $event)"
+              (click)="store.openDrawer({ kind: 'display', zoneId: zone.id }, $event)"
             >
-              <app-icon name="plus" /> Add stage
+              <app-icon name="plus" /> Choose display
             </button>
           }
         </div>
-        @if (stages().length > 0) {
-          <ul class="stage-list" [attr.aria-label]="'Stages of ' + zone.name">
-            @for (stage of stages(); track stage.id) {
-              <li class="stage-row">
-                <div class="stage-row__info">
-                  <span class="stage-row__name" [id]="'stage-name-' + stage.id">{{ stage.name }}</span>
-                  <code class="key-prefix"><span class="visually-hidden">Key: </span>{{ stage.key }}</code>
-                  <span class="muted"><span class="visually-hidden">Shows </span>{{ store.frameName(zone.id, stage.frameId) }}</span>
-                </div>
-                <div class="key-actions">
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    [attr.aria-describedby]="'stage-name-' + stage.id"
-                    (click)="store.openDrawer({ kind: 'renameStage', zoneId: zone.id, stageId: stage.id }, $event)"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    [attr.aria-describedby]="'stage-name-' + stage.id"
-                    (click)="store.openDrawer({ kind: 'deleteStage', zoneId: zone.id, stageId: stage.id }, $event)"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
+        @if (zone.frame; as display) {
+          <div class="display-row">
+            <span class="pill" id="display-type">{{ store.frameTypeLabel(display.type) }}</span>
+            @if (store.hasSettings(display.type)) {
+              <button
+                type="button"
+                class="btn btn--secondary btn--sm"
+                aria-describedby="display-title display-type"
+                (click)="store.openDrawer({ kind: 'displaySettings', zoneId: zone.id }, $event)"
+              >
+                <app-icon name="settings" /> <span class="btn__label">Settings</span>
+              </button>
             }
-          </ul>
-          <p class="muted">
-            A page shows one stage with <code>&lt;taleart-view stage="key"&gt;</code>; without a stage it shows every
-            frame in order.
-          </p>
-        } @else if (frames().length > 0) {
-          <p class="muted">
-            No stages yet. Add a stage to place one of this zone's frames on a page; without a stage a page shows every
-            frame in order.
-          </p>
+          </div>
+          @if (displaySettings().length > 0) {
+            <div role="group" aria-label="Display settings">
+              <dl class="display-settings">
+                @for (setting of displaySettings(); track setting.label) {
+                  <div>
+                    <dt>{{ setting.label }}</dt>
+                    <dd>{{ setting.value }}</dd>
+                  </div>
+                }
+              </dl>
+            </div>
+          }
+          <form class="display-type" (submit)="changeDisplayType($event)">
+            <div class="field">
+              <label class="field__label" for="display-type-select">Display type</label>
+              <div class="display-type__controls">
+                <select
+                  id="display-type-select"
+                  class="select"
+                  name="displayType"
+                  [value]="pickedType()"
+                  (change)="pickType($event)"
+                  aria-describedby="display-type-hint"
+                >
+                  @for (type of store.frameTypes(); track type.key) {
+                    <option [value]="type.key" [selected]="type.key === pickedType()">{{ type.label }}</option>
+                  }
+                </select>
+                <button
+                  type="submit"
+                  class="btn btn--secondary btn--sm"
+                  [disabled]="pickedType() === display.type || changingType()"
+                >
+                  Change type
+                </button>
+              </div>
+              <p class="field__hint" id="display-type-hint">Changing the type resets the settings to that type's defaults.</p>
+              @if (displayError()) {
+                <p class="form-error" role="alert">{{ displayError() }}</p>
+              }
+            </div>
+          </form>
         } @else {
-          <p class="muted">Add a frame first, then a stage to place it on a page.</p>
+          <p class="muted">No display yet. Choose how this zone shows its tale groups: a bar or a banner.</p>
         }
       </section>
 
