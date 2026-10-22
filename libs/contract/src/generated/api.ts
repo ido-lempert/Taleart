@@ -1184,6 +1184,11 @@ export interface components {
             name: string;
         };
         Zone: {
+            /**
+             * Format: date-time
+             * @description When the zone was first read as visible on the site (epic UX rework R9), or null while it never was. Set once, by the API, the first time it returns the zone with `visibility.visible` true, and never cleared: the dashboard hides the zone's setup checklist from then on, for every user, even when the zone later stops being visible.
+             */
+            firstVisibleAt: string | null;
             /** @description Whether the zone shows anything on the site now (epic UX rework R7): it has a display, it is installed, and a tale group placed in it is delivered. Computed by the rule the Delivery API uses. */
             visibility: components["schemas"]["Visibility"];
             /** Format: uuid */
