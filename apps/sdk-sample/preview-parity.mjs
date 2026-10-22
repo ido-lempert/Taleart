@@ -9,7 +9,9 @@
 // can vary between two pages. Both progress bars are frozen at the same point, so the chrome is
 // compared too. The Delivery API and media are stubbed, as in a11y-review.mjs.
 //
-// Also checked: the preview's links have no destination, and a change shows in the preview at once.
+// The preview is also drawn inside a 1440 x 1000 window (a dashboard), where it must still be the
+// phone-sized viewer. Also checked: the preview's links have no destination, and a change shows in
+// the preview (after its 150 ms redraw debounce).
 // Run through `nx run sdk-sample:preview-parity`, which builds the SDK first. `--shots <dir>` saves
 // the screenshots.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -124,10 +126,11 @@ async function routeMedia(page) {
 const FREEZE = ([selector, at]) => {
   const host = document.querySelector(selector);
   const fill = host.shadowRoot.querySelector('dialog .fill');
-  for (const animation of fill.getAnimations()) {
-    animation.pause();
-    animation.currentTime = at;
-  }
+  // Drawn still at the same point in both pages: a paused animation is not always repainted at the
+  // time it is set to, so the fill is taken off its animation and given that point's scale.
+  const share = at / parseFloat(fill.style.getPropertyValue('--taleart-duration'));
+  fill.classList.remove('timed');
+  fill.style.transform = `scaleX(${share})`;
 };
 
 // Counts the pixels that differ (by more than 2 in any channel) between two PNG screenshots
@@ -179,65 +182,77 @@ try {
   const viewerPng = await sample.screenshot();
   check(sampleErrors.length === 0, `the sample page has no errors (${sampleErrors.join('; ') || 'none'})`);
 
-  // 2. The Tale Studio preview of the draft, mounted by the preview entry point on a page of its own.
-  const studio = await browser.newPage({ viewport: VIEWPORT });
-  const studioErrors = [];
-  studio.on('pageerror', (err) => studioErrors.push(String(err)));
-  await routeMedia(studio);
-  await studio.route(`${PREVIEW_PAGE}preview.js`, (route) =>
-    route.fulfill({ body: previewJs, contentType: 'text/javascript' }),
-  );
-  // A dashboard-like page: its own font and smoothing, which must not reach the preview.
-  await studio.route(PREVIEW_PAGE, (route) =>
-    route.fulfill({
-      contentType: 'text/html',
-      body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>
-        body { margin: 0; font: 15px/1.5 Georgia, serif; color: #333; letter-spacing: 0.05em; -webkit-font-smoothing: antialiased; }
-        #host { width: ${VIEWPORT.width}px; height: ${VIEWPORT.height}px; }
-      </style></head><body><div id="host"></div></body></html>`,
-    }),
-  );
-  await studio.goto(PREVIEW_PAGE);
-  await studio.evaluate(
-    async ({ draft, tale, group, theme, api }) => {
-      const { TalePreview, previewDocument } = await import('./preview.js');
-      window.__draft = draft;
-      window.__show = (doc) =>
-        window.__preview.show({
-          id: tale.id,
-          title: tale.title,
-          groupName: group.name,
-          document: previewDocument(doc, (key) => `${api}/media/${key}`),
-        });
-      window.__preview = new TalePreview(document.getElementById('host'));
-      window.__preview.setTheme(theme);
-      window.__show(draft);
-    },
-    { draft: draft('Summer sale'), tale: TALE, group: GROUP, theme: THEME, api: API },
-  );
-  await studio.locator('#host dialog.viewer[open] .ta-canvas img').waitFor();
-  await studio.evaluate(FREEZE, ['#host', FROZEN_AT_MS]);
-  await studio.evaluate(() => document.fonts.ready);
-  await studio.waitForTimeout(300);
-  const previewPng = await studio.locator('#host').screenshot();
-  check(studioErrors.length === 0, `the preview page has no errors (${studioErrors.join('; ') || 'none'})`);
+  // 2. The Tale Studio preview of the draft, mounted by the preview entry point on a page of its
+  // own: a phone-sized window, and a wide dashboard window with the preview placed in it.
+  async function previewPage(viewport, hostStyle) {
+    const page = await browser.newPage({ viewport });
+    const errors = [];
+    page.on('pageerror', (err) => errors.push(String(err)));
+    await routeMedia(page);
+    await page.route(`${PREVIEW_PAGE}preview.js`, (route) => route.fulfill({ body: previewJs, contentType: 'text/javascript' }));
+    // A dashboard-like page: its own font and smoothing, which must not reach the preview.
+    await page.route(PREVIEW_PAGE, (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>
+          body { margin: 0; font: 15px/1.5 Georgia, serif; color: #333; letter-spacing: 0.05em; -webkit-font-smoothing: antialiased; }
+          #host { width: ${VIEWPORT.width}px; height: ${VIEWPORT.height}px; ${hostStyle} }
+        </style></head><body><div id="host"></div></body></html>`,
+      }),
+    );
+    await page.goto(PREVIEW_PAGE);
+    await page.evaluate(
+      async ({ draft, tale, group, theme, api }) => {
+        const { TalePreview, previewDocument } = await import('./preview.js');
+        window.__draft = draft;
+        window.__show = (doc) =>
+          window.__preview.show({
+            id: tale.id,
+            title: tale.title,
+            groupName: group.name,
+            document: previewDocument(doc, (key) => `${api}/media/${key}`),
+          });
+        window.__preview = new TalePreview(document.getElementById('host'));
+        window.__preview.setTheme(theme);
+        window.__show(draft);
+      },
+      { draft: draft('Summer sale'), tale: TALE, group: GROUP, theme: THEME, api: API },
+    );
+    await page.locator('#host dialog.viewer[open] .ta-canvas img').waitFor();
+    await page.evaluate(FREEZE, ['#host', FROZEN_AT_MS]);
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForTimeout(300);
+    const png = await page.locator('#host').screenshot();
+    return { page, png, errors };
+  }
+  const phone = await previewPage(VIEWPORT, '');
+  const wide = await previewPage({ width: 1440, height: 1000 }, 'margin: 64px 0 0 520px;');
+  const studio = phone.page;
+  const previewPng = phone.png;
+  check(phone.errors.length + wide.errors.length === 0, `the preview pages have no errors (${[...phone.errors, ...wide.errors].join('; ') || 'none'})`);
 
   const scratch = await browser.newPage();
   const diff = await differing(scratch, viewerPng, previewPng);
+  const wideDiff = await differing(scratch, viewerPng, wide.png);
   await scratch.close();
   check(
     diff <= MAX_DIFFERING,
     `the preview matches the sample page's viewer at ${VIEWPORT.width}x${VIEWPORT.height}: ${diff} pixels differ (at most ${MAX_DIFFERING})`,
   );
+  check(
+    wideDiff <= MAX_DIFFERING,
+    `in a 1440x1000 dashboard window too (no wide-screen deck): ${wideDiff} pixels differ (at most ${MAX_DIFFERING})`,
+  );
+  await wide.page.close();
 
   const links = await studio.evaluate(() =>
     [...document.querySelector('#host').shadowRoot.querySelectorAll('a')].map((a) => ({
       href: a.getAttribute('href'),
-      disabled: a.getAttribute('aria-disabled'),
+      tabIndex: a.tabIndex,
     })),
   );
   check(
-    links.length === 1 && links.every((l) => l.href === null && l.disabled === 'true'),
+    links.length === 1 && links.every((l) => l.href === null && l.tabIndex === 0),
     `the preview's link has no destination (${JSON.stringify(links)})`,
   );
   const sampleLinks = await sample.evaluate(() =>
@@ -251,6 +266,7 @@ try {
 
   // 3. An unsaved change shows at once.
   await studio.evaluate(() => window.__show({ ...window.__draft, elements: window.__draft.elements.map((e) => (e.id === 'txt' ? { ...e, props: { ...e.props, text: 'Last day!' } } : e)) }));
+  await studio.waitForTimeout(250);
   const shown = await studio.evaluate(() =>
     [...document.querySelector('#host').shadowRoot.querySelectorAll('.ta-glyphs')].map((n) => n.textContent),
   );
@@ -259,6 +275,7 @@ try {
   if (shotsDir) {
     writeFileSync(resolve(shotsDir, 'parity-sample-viewer-390x844.png'), viewerPng);
     writeFileSync(resolve(shotsDir, 'parity-studio-preview-390x844.png'), previewPng);
+    writeFileSync(resolve(shotsDir, 'parity-studio-preview-in-1440x1000.png'), wide.png);
   }
 } catch (err) {
   console.error(err);

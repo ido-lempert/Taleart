@@ -341,7 +341,7 @@ export class TaleViewer {
   private entering = false; // the next show() is the one that opens the viewer
   protected group = 0;
   protected tale = 0;
-  private media: HTMLElement | null = null;
+  protected media: HTMLElement | null = null;
   protected layer: HTMLElement | null = null; // the current tale's document, over its media
   protected video: HTMLVideoElement | null = null;
   // The clock is a document's video (R5): the tale ends at 15 s at most, and when it stalls.
@@ -441,6 +441,17 @@ export class TaleViewer {
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
     dialog.focus();
+  }
+
+  /** True while the viewer keeps the page from scrolling under it (it covers the page). */
+  protected holdsScroll(): boolean {
+    return true;
+  }
+
+  /** Says which tale shows, in the live region: filled in a later task than any insertion, so it is announced. */
+  protected announce(text: string): void {
+    clearTimeout(this.statusTimer);
+    this.statusTimer = setTimeout(() => (this.parts.status.textContent = text), 0);
   }
 
   /** True on a wide screen, where the tale shows as a card with the deck beside it. */
@@ -579,11 +590,17 @@ export class TaleViewer {
       if (!inText(e)) e.preventDefault();
     });
     // The host page never scrolls under the open viewer; two-finger pinch-zoom still works.
-    dialog.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+    dialog.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.holdsScroll()) e.preventDefault();
+      },
+      { passive: false },
+    );
     dialog.addEventListener(
       'touchmove',
       (e) => {
-        if (e.touches.length < 2 && !inText(e)) e.preventDefault();
+        if (this.holdsScroll() && e.touches.length < 2 && !inText(e)) e.preventDefault();
       },
       { passive: false },
     );
@@ -730,7 +747,7 @@ export class TaleViewer {
     const [fromGroup, fromTale] = [this.group, this.tale];
     this.group = group;
     this.tale = tale;
-    const { segments, name, status } = this.parts;
+    const { segments, name } = this.parts;
     if (newGroup || segments.childElementCount !== g.tales.length) {
       this.dialog.setAttribute('aria-label', g.name);
       name.textContent = g.name;
@@ -747,10 +764,8 @@ export class TaleViewer {
       // A fresh fill restarts its animation.
       segment.replaceChildren(el('span', 'fill'));
     });
-    // Filled in a later task than any insertion, so screen readers announce it.
     const text = `${g.name}, tale ${tale + 1} of ${g.tales.length}`;
-    clearTimeout(this.statusTimer);
-    this.statusTimer = setTimeout(() => (status.textContent = text), 0);
+    this.announce(text);
 
     this.renderContent(g.tales[tale], tale);
     let motion: DeckMotion = 'none';
@@ -771,7 +786,8 @@ export class TaleViewer {
   }
 
   // Draws tale `current` (number `tale` of its group) in the stage: its media and its document.
-  protected renderContent(current: DeliveryTale, tale: number): void {
+  // With `keepMedia`, the stage media on screen stays (see `clearContent`) and only the document is drawn.
+  protected renderContent(current: DeliveryTale, tale: number, keepMedia = false): void {
     const { stage } = this.parts;
     // Every tale is a document (R16). The tale's own media, while it is the bottom element and
     // fills the canvas, is drawn full-bleed in the stage behind the canvas, as tale media always
@@ -789,8 +805,10 @@ export class TaleViewer {
       this.duration = doc.durationMs ?? DEFAULT_TALE_DURATION_MS;
       const elements = Array.isArray(doc.elements) ? doc.elements : [];
       const own = stageTaleMedia(doc);
-      this.media = own && this.renderStageMedia(own);
-      if (this.media) stage.prepend(this.media);
+      if (!keepMedia) {
+        this.media = own && this.renderStageMedia(own);
+        if (this.media) stage.prepend(this.media);
+      }
       // Behind the stage media, the canvas colour fills the stage, such as the bands a contained
       // image leaves (the canvas then paints none; a media background still draws over it, as it
       // always did); so does the placeholder of a tale with neither media nor a document, which
@@ -1085,7 +1103,7 @@ export class TaleViewer {
   }
 
   // Brings the timer, the fill animation and the video in line with paused/held.
-  private applyPause(): void {
+  protected applyPause(): void {
     const dialog = this.dialog;
     if (!dialog) return;
     const stopped = this.paused || this.held || this.linkFocused;
@@ -1119,7 +1137,7 @@ export class TaleViewer {
   }
 
   // Plays with sound where the browser allows it, else muted; media that cannot play runs on the timer.
-  private play(video: HTMLVideoElement): void {
+  protected play(video: HTMLVideoElement): void {
     const fail = (err: unknown): Promise<void> | void => {
       // A play() superseded by pause() or a new source rejects with AbortError: nothing failed.
       if (video !== this.video || this.paused || this.held || (err as Error | null)?.name === 'AbortError') return;
@@ -1151,9 +1169,14 @@ export class TaleViewer {
   }
 
   // Removes the current tale's media and document; focus on a link of it goes to the dialog.
-  protected clearContent(): void {
-    this.media?.remove();
-    this.media = null;
+  // With `keepMedia`, the stage media (and the video it runs the tale with) stays.
+  protected clearContent(keepMedia = false): void {
+    for (const video of this.alongside) video.pause();
+    this.alongside = [];
+    if (!keepMedia) {
+      this.media?.remove();
+      this.media = null;
+    }
     // Focus on a link of the removed tale goes to the dialog, not to the page behind it.
     const focused = (this.dialog?.getRootNode() as Document | ShadowRoot | undefined)?.activeElement;
     const hadFocus = !!this.layer && !!focused && this.layer.contains(focused);

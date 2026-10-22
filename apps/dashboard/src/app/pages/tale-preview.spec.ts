@@ -6,7 +6,9 @@ import type { ZoneTaleGroup } from '@taleart/contract/core';
 import type { TaleDocument } from '@taleart/contract/tale-document';
 import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
+import { PREVIEW_REDRAW_MS } from '@taleart/web-sdk/preview';
 import { AUTOSAVE_TIMING } from './tale-autosave';
+import { TalePreviewPane } from './tale-preview';
 import { TaleStudioPage } from './tale-studio';
 
 // Tale Studio story 7.9 (R10, AD-16): the preview mounts the Web SDK's viewer on the unsaved document.
@@ -115,9 +117,13 @@ describe('Tale Studio preview (epic Tale Studio R10)', () => {
     await open();
     const toggle = q<HTMLButtonElement>('#studio-preview');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // It controls the pane only while the pane exists.
+    expect(toggle.hasAttribute('aria-controls')).toBe(false);
     expect(q('#studio-preview-pane')).toBeNull();
     await openPreview();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-controls')).toBe('studio-preview-pane');
+    expect(q('#studio-preview-pane')).not.toBeNull();
     const dialog = inPreview<HTMLDialogElement>('dialog.viewer');
     expect(dialog?.hasAttribute('open')).toBe(true);
     expect(inPreview('.name')?.textContent).toBe('Summer');
@@ -146,6 +152,7 @@ describe('Tale Studio preview (epic Tale Studio R10)', () => {
     editor.dispatchEvent(new Event('input', { bubbles: true }));
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, PREVIEW_REDRAW_MS + 50));
     expect(previewTexts()).toEqual(['Hello, sailor']);
     // Nothing was saved for it.
     expect(http.match(url)).toHaveLength(0);
@@ -156,7 +163,7 @@ describe('Tale Studio preview (epic Tale Studio R10)', () => {
     await openPreview();
     const link = inPreview<HTMLAnchorElement>('a.ta-button') as HTMLAnchorElement;
     expect(link.hasAttribute('href')).toBe(false);
-    expect(link.getAttribute('aria-disabled')).toBe('true');
+    expect(link.tabIndex).toBe(0);
     expect(shadow().querySelector('a[href]')).toBeNull();
     const click = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true });
     link.dispatchEvent(click);
@@ -184,6 +191,17 @@ describe('Tale Studio preview (epic Tale Studio R10)', () => {
     expect([screen.style.width, screen.style.height]).toEqual(['375px', '667px']);
   });
 
+  it('starts muted, with a Sound switch', async () => {
+    await open();
+    await openPreview();
+    const sound = q<HTMLInputElement>('#preview-sound');
+    expect(sound.checked).toBe(false);
+    expect(q<HTMLLabelElement>('#preview-sound').closest('label')?.textContent?.trim()).toBe('Sound');
+    sound.click();
+    fixture.detectChanges();
+    expect(sound.checked).toBe(true);
+  });
+
   it('toggles the safe-area overlay', async () => {
     await open();
     await openPreview();
@@ -208,6 +226,7 @@ describe('Tale Studio preview (epic Tale Studio R10)', () => {
     again.click();
     await settle(fixture);
     expect(q('#preview-play-again')).toBeNull();
+    expect(globalThis.document.activeElement?.id).toBe('preview-replay');
     expect(inPreview('dialog')?.hasAttribute('open')).toBe(true);
     expect(previewTexts()).toEqual(['Hello']);
   });
@@ -220,5 +239,37 @@ describe('Tale Studio preview (epic Tale Studio R10)', () => {
     await settle(fixture);
     expect(q('#studio-preview-pane')).toBeNull();
     expect(host.shadowRoot?.childElementCount).toBe(0);
+  });
+});
+
+describe('the preview pane on its own', () => {
+  const doc = (text: string) =>
+    ({
+      version: 1,
+      canvas: { background: { type: 'color', color: '#000000' } },
+      elements: [{ ...base, id: 'x', type: 'text', box: box(0.2), props: { text } }],
+    }) as unknown as TaleDocument;
+
+  it('starts another tale from its start when the tale changes, even after the last one ended', async () => {
+    await TestBed.configureTestingModule({ imports: [TalePreviewPane] }).compileComponents();
+    const fixture = TestBed.createComponent(TalePreviewPane);
+    fixture.componentRef.setInput('document', doc('One'));
+    fixture.componentRef.setInput('taleId', 'a');
+    fixture.componentRef.setInput('projectId', 'p1');
+    globalThis.document.body.appendChild(fixture.nativeElement);
+    await settle(fixture);
+    const root = fixture.nativeElement as HTMLElement;
+    const shadow = () => (root.querySelector('#preview-host') as HTMLElement).shadowRoot as ShadowRoot;
+    (shadow().querySelector('.close') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(root.querySelector('#preview-play-again')).not.toBeNull();
+    fixture.componentRef.setInput('document', doc('Two'));
+    fixture.componentRef.setInput('taleId', 'b');
+    await settle(fixture);
+    expect(root.querySelector('#preview-play-again')).toBeNull();
+    expect(shadow().querySelector('dialog')?.hasAttribute('open')).toBe(true);
+    expect([...shadow().querySelectorAll('.ta-glyphs')].map((n) => n.textContent)).toEqual(['Two']);
+    fixture.destroy();
+    globalThis.document.body.replaceChildren();
   });
 });

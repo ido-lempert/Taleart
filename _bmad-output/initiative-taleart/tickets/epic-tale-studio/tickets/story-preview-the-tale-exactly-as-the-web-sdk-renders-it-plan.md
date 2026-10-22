@@ -8,10 +8,10 @@ baseline_revision: 'ddd48ee'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
+review: 'thorough'
+review_source: 'auto'
 lenses_ran: []
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-tale-studio/epic-tale-studio.md'
@@ -84,6 +84,17 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+- Pass 1 (coordinator review, 2026-10-23): no XSS or navigation hole; host-page SDK unchanged. Patched:
+  - MUST: preview starts muted with a "Sound" switch (`PreviewViewer.play` mutes unless sound is on, and only the tale's own video gets it); edits redraw only the document around the tale's running own video; other restarts wait 500 ms after the last edit; a restart does not re-announce "tale 1 of 1" (`announce` hook). Tests with own-video and document-video tales and repeated edits.
+  - SHOULD 2: `holdsScroll` hook, false when embedded (wheel/touchmove not prevented); test, and a test that the public viewer still prevents it.
+  - SHOULD 3: redraws debounced 150 ms; an unchanged tale (same JSON) changes nothing.
+  - SHOULD 4: another tale id starts over and resets "ended" (`onStarted`); SDK and pane tests.
+  - SHOULD 5: inert links focusable (`tabindex="0"`, no `aria-disabled`); the tale waits while one has focus (test); clicks stay cancelled.
+  - SHOULD 6: the embedded viewer is `role="region"` with `aria-roledescription="preview"`; Close is "Stop preview"; the toggle's `aria-controls` only while the pane exists. "Play again" moves focus to "Play from the start".
+  - SHOULD 7: measured: the contract modules the preview uses are already in the studio chunk (it imports every narrow entry); the growth is the SDK viewer and renderer themselves, so narrow imports change nothing.
+  - SHOULD 8: `previewDocument`'s limits against delivery documented (JSDoc, README).
+  - Also: removed preview videos are paused, `src` removed and `load()`ed; a test that the public viewer still uses `showModal` and focuses the dialog; `preview-parity` also draws the preview inside a 1440x1000 window.
 
 ## Verification
 
