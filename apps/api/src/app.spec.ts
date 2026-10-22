@@ -35,6 +35,7 @@ import {
   deliveredPlacement,
   deliveredTale,
   groupReasonsSql,
+  isMediaKeyInUse,
   taleReasonsSql,
   zoneDelivers,
   zoneReasonsSql,
@@ -8184,6 +8185,467 @@ describe('Management API v1: projects and zones', () => {
       const at = future();
       const res = await send('PUT', `/tales/${f.otherId}/schedule`, { startsAt: at, endsAt: null });
       expect((await res.json()).visibility).toEqual(notVisible(why('group-off', 'group'), why('starts-at', 'tale', at)));
+    });
+  });
+
+  describe('duplicate a tale with its document (epic Tale Studio R11, story 7.12)', () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const gif = Buffer.from('GIF89a-tiny-gif');
+    const ID_TEXT = '00000000-0000-4000-8000-0000000000a1';
+    const ID_IMAGE = '00000000-0000-4000-8000-0000000000a2';
+
+    // A styled document: the tale's own media element (`base`), a project image and a text over a colour.
+    function styled(text: string, mediaKey: string, base: { id: string; type: string; props: object }[] = []) {
+      return {
+        version: 1,
+        canvas: { background: { type: 'color', color: '#112233' } },
+        durationMs: 6000,
+        elements: [
+          ...base,
+          {
+            id: ID_IMAGE,
+            type: 'image',
+            box: { x: 0.1, y: 0.1, w: 0.5, h: 0.3, rotation: 0 },
+            hidden: false,
+            locked: false,
+            a11y: { label: 'Sunset' },
+            props: { mediaKey, fit: 'cover' },
+          },
+          {
+            id: ID_TEXT,
+            type: 'text',
+            box: { x: 0.1, y: 0.5, w: 0.8, h: 0.1, rotation: 0 },
+            hidden: false,
+            locked: false,
+            a11y: {},
+            props: { text, color: '#ffeeaa', align: 'center' },
+          },
+        ],
+      };
+    }
+
+    type Doc = ReturnType<typeof styled>;
+    interface DocState {
+      document: Doc | null;
+      revision: number;
+      published: { document: Doc | null; revision: number };
+    }
+
+    async function state(taleId: string): Promise<DocState> {
+      return (await fetch(`${base}/tales/${taleId}/document`)).json();
+    }
+
+    async function save(taleId: string, document: unknown): Promise<void> {
+      const { revision } = await state(taleId);
+      const res = await fetch(`${base}/tales/${taleId}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document, revision }),
+      });
+      expect(res.status).toBe(200);
+    }
+
+    async function update(taleId: string): Promise<void> {
+      const s = await state(taleId);
+      const res = await post(`/tales/${taleId}/document/publish`, {
+        revision: s.revision,
+        publishedRevision: s.published.revision,
+      });
+      expect(res.status).toBe(200);
+    }
+
+    function duplicate(taleId: string, body: unknown = {}): Promise<Response> {
+      return post(`/tales/${taleId}/duplicate`, body);
+    }
+
+    async function titles(groupId: string): Promise<string[]> {
+      const { rows } = await pool.query<{ title: string; position: number }>(
+        'SELECT title, position FROM tales WHERE tale_group_id = $1 ORDER BY position, id',
+        [groupId],
+      );
+      expect(rows.map((r) => r.position)).toEqual(rows.map((_, i) => i));
+      return rows.map((r) => r.title);
+    }
+
+    async function uploadMedia(projectId: string): Promise<string> {
+      const res = await fetch(`${base}/projects/${projectId}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: png,
+      });
+      expect(res.status).toBe(201);
+      return (await res.json()).key;
+    }
+
+    async function putTaleMedia(taleId: string, contentType: string, body: Uint8Array): Promise<void> {
+      const res = await fetch(`${base}/tales/${taleId}/media`, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body,
+      });
+      expect(res.status).toBe(200);
+    }
+
+    // A zone with two groups (On) and a Shown tale "Beach" in the first, with media, a published
+    // styled document and a pending draft change.
+    async function setup() {
+      const zone = await createZone();
+      const first = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const second = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Winter' })).json();
+      await publish('tale-groups', first.id, second.id);
+      const make = async (groupId: string, title: string) =>
+        (await (await post(`/tale-groups/${groupId}/tales`, { title })).json()) as { id: string };
+      const a = await make(first.id, 'Arrival');
+      const beach = await make(first.id, 'Beach');
+      const c = await make(first.id, 'Cliffs');
+      await putTaleMedia(beach.id, 'image/png', png);
+      const mediaKey = await uploadMedia(zone.projectId);
+      const own = (await state(beach.id)).document?.elements ?? [];
+      expect(own).toHaveLength(1);
+      await save(beach.id, styled('Hello', mediaKey, own));
+      await update(beach.id);
+      await save(beach.id, styled('Hello again', mediaKey, own));
+      const { rows } = await pool.query<{ key: string }>('SELECT media_key AS key FROM tales WHERE id = $1', [beach.id]);
+      return { zone, first, second, a, beach, c, mediaKey, taleMediaKey: rows[0].key };
+    }
+
+    beforeEach(() => rmSync(join(mediaDir, 'media'), { recursive: true, force: true }));
+
+    it('places a Hidden copy right after the original, with both documents under new element ids', async () => {
+      const { first, beach, mediaKey, taleMediaKey } = await setup();
+      const before = await state(beach.id);
+      const res = await duplicate(beach.id);
+      expect(res.status).toBe(201);
+      const copy = await res.json();
+      expect(copy).toMatchObject({
+        taleGroupId: first.id,
+        title: 'Beach (copy)',
+        position: 2,
+        storedStatus: 'paused',
+        media: { kind: 'image' },
+      });
+      expect(copy.visibility.visible).toBe(false);
+      expect(await titles(first.id)).toEqual(['Arrival', 'Beach', 'Beach (copy)', 'Cliffs']);
+
+      const copied = await state(copy.id);
+      expect([copied.revision, copied.published.revision]).toEqual([1, 1]);
+      const ids = (d: Doc | null) => d?.elements.map((e) => e.id) ?? [];
+      const strip = (d: Doc | null) => d && { ...d, elements: d.elements.map((e) => ({ ...e, id: 'x' })) };
+      // Published stays published and the pending change stays pending ("Update tale" carries over).
+      expect(strip(copied.published.document)).toEqual(strip(before.published.document));
+      expect(strip(copied.document)).toEqual(strip(before.document));
+      expect(copied.published.document?.elements.find((e) => e.type === 'text')?.props).toMatchObject({ text: 'Hello' });
+      expect(copied.document?.elements.find((e) => e.type === 'text')?.props).toMatchObject({ text: 'Hello again' });
+      // New ids, the same new id for an element in both documents.
+      const newIds = ids(copied.document);
+      expect(new Set(newIds).size).toBe(newIds.length);
+      for (const id of newIds) expect(ids(before.document)).not.toContain(id);
+      expect(ids(copied.published.document)).toEqual(newIds);
+      // The same storage keys, not copies of the files.
+      const keys = await pool.query<{ key: string; document: string }>(
+        'SELECT storage_key AS key, document FROM tale_media WHERE tale_id = $1 ORDER BY document, storage_key',
+        [copy.id],
+      );
+      expect(keys.rows.map((r) => r.key)).toContain(mediaKey);
+      expect(new Set(keys.rows.map((r) => r.document))).toEqual(new Set(['draft', 'published']));
+      const row = await pool.query('SELECT media_key FROM tales WHERE id = $1', [copy.id]);
+      expect(row.rows[0].media_key).toBe(taleMediaKey);
+      expect(readdirSync(join(mediaDir, 'media'))).toHaveLength(1);
+
+      // The copy is its own tale: editing it leaves the original as it was.
+      await save(copy.id, styled('Only the copy', mediaKey));
+      const original = await state(beach.id);
+      expect(original).toEqual(before);
+    });
+
+    it('puts the copy last in another group of the project, and leaves the source group alone', async () => {
+      const { first, second, beach } = await setup();
+      await post(`/tale-groups/${second.id}/tales`, { title: 'Snow' });
+      const res = await duplicate(beach.id, { taleGroupId: second.id.toUpperCase() });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({ taleGroupId: second.id, position: 1, storedStatus: 'paused' });
+      expect(await titles(second.id)).toEqual(['Snow', 'Beach (copy)']);
+      expect(await titles(first.id)).toEqual(['Arrival', 'Beach', 'Cliffs']);
+    });
+
+    it('refuses a group of another project, an unknown group or tale, a bad body and a caller without access', async () => {
+      const { zone, beach } = await setup();
+      const refuse = async (res: Response, status: number, code: string) => {
+        expect([res.status, (await res.json()).error.code]).toEqual([status, code]);
+      };
+      const other = await createZone();
+      const foreign = await (await post(`/zones/${other.id}/tale-groups`, { name: 'Elsewhere' })).json();
+      await refuse(await duplicate(beach.id, { taleGroupId: foreign.id }), 400, 'tale_group_not_found');
+      await refuse(await duplicate(beach.id, { taleGroupId: randomUUID() }), 400, 'tale_group_not_found');
+      await refuse(await duplicate(beach.id, { taleGroupId: 'nope' }), 400, 'tale_group_not_found');
+      await refuse(await duplicate(beach.id, { taleGroupId: 7 }), 400, 'validation_failed');
+      await refuse(await duplicate(randomUUID()), 404, 'tale_not_found');
+      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+      await addProjectMember(pool, other.projectId, user.id);
+      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+      await refuse(await duplicate(beach.id), 403, 'forbidden');
+      const { rows } = await pool.query('SELECT count(*)::int AS n FROM tales WHERE project_id = $1', [zone.projectId]);
+      expect(rows[0].n).toBe(3);
+      expect((await pool.query('SELECT 1 FROM tales WHERE tale_group_id = $1', [foreign.id])).rows).toHaveLength(0);
+    });
+
+    it('refuses a full target group with 409 tale_group_full, creating nothing', async () => {
+      const { zone, first, second, beach } = await setup();
+      await pool.query(
+        `INSERT INTO tales (tale_group_id, project_id, title, position)
+         SELECT $1, $2, 'Filler ' || n, n FROM generate_series(0, 99) AS n`,
+        [second.id, zone.projectId],
+      );
+      const res = await duplicate(beach.id, { taleGroupId: second.id });
+      expect([res.status, (await res.json()).error.code]).toEqual([409, 'tale_group_full']);
+      expect((await titles(second.id)).length).toBe(100);
+      // Its own group has room: 3 / 100.
+      expect((await duplicate(beach.id)).status).toBe(201);
+      expect((await titles(first.id)).length).toBe(4);
+    });
+
+    it("keeps the copy's media when the original's media is replaced or the original archived", async () => {
+      const { zone, first, beach, mediaKey, taleMediaKey } = await setup();
+      const copy = await (await duplicate(beach.id)).json();
+      // Shown and updated, both are delivered with their media.
+      await publish('tales', beach.id, copy.id);
+      await update(beach.id);
+      await update(copy.id);
+      const { key } = await (await postKey(zone.id)).json();
+      const deliver = async () => {
+        clearDeliveryCache();
+        const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        return body.taleGroups.find((g: { id: string }) => g.id === first.id).tales as {
+          id: string;
+          document: { elements: { type: string; props: { url?: string } }[] };
+        }[];
+      };
+      const urlsOf = (tale: { document: { elements: { props: { url?: string } }[] } }) =>
+        tale.document.elements.map((e) => e.props.url).filter((u): u is string => typeof u === 'string');
+      const served = async (url: string) => (await globalThis.fetch(`${origin}${new URL(url).pathname}`)).status;
+      let tales = await deliver();
+      expect(tales.map((t) => t.id)).toEqual(expect.arrayContaining([beach.id, copy.id]));
+      const copyUrls = urlsOf(tales.find((t) => t.id === copy.id) as (typeof tales)[number]);
+      expect(copyUrls.some((u) => u.includes(mediaKey))).toBe(true);
+      expect(copyUrls.some((u) => u.includes(taleMediaKey))).toBe(true);
+      for (const url of copyUrls) expect(await served(url)).toBe(200);
+
+      // Replacing the original's media keeps the file the copy still uses.
+      await putTaleMedia(beach.id, 'image/gif', gif);
+      expect(existsSync(join(mediaDir, taleMediaKey))).toBe(true);
+      // Archiving the original: the copy's media is still served.
+      expect((await setStatus('tales', beach.id, 'archived')).status).toBe(200);
+      tales = await deliver();
+      expect(tales.map((t) => t.id)).not.toContain(beach.id);
+      for (const url of urlsOf(tales.find((t) => t.id === copy.id) as (typeof tales)[number])) {
+        expect(await served(url)).toBe(200);
+      }
+      expect(existsSync(join(mediaDir, mediaKey))).toBe(true);
+      // There is no route that deletes a tale; were the row gone, the copy's references still hold
+      // the files (the deletion guard's check), and its media is still served.
+      await pool.query('DELETE FROM tales WHERE id = $1', [beach.id]);
+      expect(await isMediaKeyInUse(pool, taleMediaKey)).toBe(true);
+      expect(await isMediaKeyInUse(pool, mediaKey)).toBe(true);
+      for (const url of urlsOf((await deliver()).find((t) => t.id === copy.id) as (typeof tales)[number])) {
+        expect(await served(url)).toBe(200);
+      }
+    });
+
+    it('keeps one consistent order under concurrent duplicates', async () => {
+      const { first, a, beach } = await setup();
+      const results = await Promise.all([
+        duplicate(beach.id),
+        duplicate(a.id),
+        duplicate(beach.id),
+        duplicate(beach.id),
+        duplicate(a.id),
+      ]);
+      expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201, 201]);
+      const order = await titles(first.id);
+      expect(order).toHaveLength(8);
+      expect(order[0]).toBe('Arrival');
+      expect(order.slice(1, 3)).toEqual(['Arrival (copy)', 'Arrival (copy)']);
+      expect(order.slice(3)).toEqual(['Beach', 'Beach (copy)', 'Beach (copy)', 'Beach (copy)', 'Cliffs']);
+    });
+
+    it('keeps positions and the cap under duplicates racing reorders, adds, status changes and saves', async () => {
+      const { zone, first, second, a, beach, c, mediaKey } = await setup();
+      // The target group has room for two more.
+      await pool.query(
+        `INSERT INTO tales (tale_group_id, project_id, title, position)
+         SELECT $1, $2, 'Filler ' || n, n FROM generate_series(0, 97) AS n`,
+        [second.id, zone.projectId],
+      );
+      const { revision } = await state(beach.id);
+      const results = await Promise.all([
+        duplicate(beach.id),
+        duplicate(beach.id, { taleGroupId: second.id }),
+        fetch(`${base}/tale-groups/${first.id}/tales/order`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taleIds: [c.id, beach.id, a.id] }),
+        }),
+        duplicate(a.id, { taleGroupId: second.id }),
+        post(`/tale-groups/${second.id}/tales`, { title: 'Added' }),
+        setStatus('tales', beach.id, 'paused'),
+        fetch(`${base}/tales/${beach.id}/document`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document: styled('Racing', mediaKey), revision }),
+        }),
+        duplicate(beach.id),
+      ]);
+      const statuses = results.map((r) => r.status);
+      // Nothing fails for another reason: an order that lost the race to an add is refused (409),
+      // and the target group's two places go to two of the three adds.
+      expect(statuses.filter((s) => s >= 500)).toEqual([]);
+      expect([200, 409]).toContain(statuses[2]);
+      const intoSecond = [statuses[1], statuses[3], statuses[4]];
+      expect(intoSecond.filter((s) => s === 201)).toHaveLength(2);
+      expect(intoSecond.filter((s) => s === 409)).toHaveLength(1);
+      expect([statuses[0], statuses[5], statuses[6], statuses[7]]).toEqual([201, 200, 200, 201]);
+      expect(await titles(second.id)).toHaveLength(100);
+      const order = await titles(first.id);
+      expect(order).toHaveLength(5);
+      expect(order.filter((t) => t === 'Beach (copy)')).toHaveLength(2);
+      // Each copy sits right after its original whatever order the requests took.
+      expect(order[order.indexOf('Beach') + 1]).toBe('Beach (copy)');
+    });
+
+    it('carries the media state over: an out-of-step original gives a copy composed on delivery and merged later', async () => {
+      const { zone, first, beach, c, mediaKey } = await setup();
+      const { rows: before } = await pool.query(
+        'SELECT document_media_key, document_created_by_migration FROM tales WHERE id = $1',
+        [beach.id],
+      );
+      await pool.query('UPDATE tales SET document_created_by_migration = true WHERE id = $1', [beach.id]);
+      const kept = await (await duplicate(beach.id)).json();
+      const { rows: copied } = await pool.query(
+        'SELECT document_media_key, document_created_by_migration FROM tales WHERE id = $1',
+        [kept.id],
+      );
+      expect(copied[0]).toEqual({ ...before[0], document_created_by_migration: true });
+
+      // "Cliffs": a published text document, and media its documents are not in step with (R16).
+      await save(c.id, styled('Cliffs', mediaKey));
+      await update(c.id);
+      const { rows: media } = await pool.query<{ key: string }>('SELECT media_key AS key FROM tales WHERE id = $1', [beach.id]);
+      await pool.query(
+        "UPDATE tales SET media_key = $2, media_content_type = 'image/png', document_media_key = NULL WHERE id = $1",
+        [c.id, media[0].key],
+      );
+      const copy = await (await duplicate(c.id)).json();
+      const row = async (id: string) =>
+        (
+          await pool.query<{ key: string | null; inStep: string | null; document: Doc; draft: Doc }>(
+            'SELECT media_key AS key, document_media_key AS "inStep", document, draft_document AS draft FROM tales WHERE id = $1',
+            [id],
+          )
+        ).rows[0];
+      expect(await row(copy.id)).toMatchObject({ key: media[0].key, inStep: null });
+      await publish('tales', copy.id);
+      const { key } = await (await postKey(zone.id)).json();
+      clearDeliveryCache();
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const tales = (await res.json()).taleGroups.find((g: { id: string }) => g.id === first.id).tales as {
+        id: string;
+        document: { elements: { id: string; props: { taleMedia?: boolean; url?: string } }[] };
+      }[];
+      const delivered = tales.find((t) => t.id === copy.id);
+      // Composed under the copy's own id, with the shared file.
+      expect(delivered?.document.elements[0]).toMatchObject({ id: copy.id, props: { taleMedia: true } });
+      expect(delivered?.document.elements[0].props.url).toContain(media[0].key);
+
+      const client = await pool.connect();
+      try {
+        await migrateTaleMediaDocuments(client, { batchSize: 500, budgetMs: 0 });
+      } finally {
+        client.release();
+      }
+      const merged = await row(copy.id);
+      expect(merged.inStep).toBe(media[0].key);
+      expect(merged.document.elements[0].props).toMatchObject({ mediaKey: media[0].key, taleMedia: true });
+      expect(merged.draft.elements[0].props).toMatchObject({ mediaKey: media[0].key, taleMedia: true });
+    });
+
+    it('makes the copy a new tale: a pre-step original without a published document gives a copy "not updated yet"', async () => {
+      const { zone, first } = await setup();
+      await postKey(zone.id);
+      const make = async (title: string) =>
+        (await (await post(`/tale-groups/${first.id}/tales`, { title })).json()) as { id: string };
+      // From before the shown-status step: one with nothing published (shown as a placeholder), one
+      // with a published document.
+      const bare = await make('Bare');
+      const studio = await make('Studio');
+      await save(studio.id, styled('Old', await uploadMedia(zone.projectId)));
+      await update(studio.id);
+      await asLegacy(bare.id, studio.id);
+      const visibility = async (id: string) => (await (await fetch(`${base}/tales/${id}`)).json()).visibility;
+      expect((await visibility(bare.id)).visible).toBe(true);
+
+      const bareCopy = await (await duplicate(bare.id)).json();
+      const studioCopy = await (await duplicate(studio.id)).json();
+      const { rows } = await pool.query<{ fresh: boolean }>(
+        "SELECT created_at > now() - interval '1 minute' AS fresh FROM tales WHERE id = ANY($1::uuid[])",
+        [[bareCopy.id, studioCopy.id]],
+      );
+      expect(rows.map((r) => r.fresh)).toEqual([true, true]);
+      await publish('tales', bareCopy.id, studioCopy.id);
+      const bareSeen = await visibility(bareCopy.id);
+      expect(bareSeen.visible).toBe(false);
+      expect(bareSeen.reasons.map((r: { code: string }) => r.code)).toContain('not-updated-yet');
+      expect((await visibility(studioCopy.id)).visible).toBe(true);
+    });
+
+    it('gives a Hidden copy of an archived tale', async () => {
+      const { beach } = await setup();
+      expect((await setStatus('tales', beach.id, 'archived')).status).toBe(200);
+      const res = await duplicate(beach.id);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({ storedStatus: 'paused', status: 'paused' });
+    });
+
+    it("records the copy's project fonts, so a font only the copy still uses cannot be deleted", async () => {
+      const { zone, beach, mediaKey } = await setup();
+      const data = Buffer.alloc(2048, 7);
+      data.fill(0, 0, 50);
+      data.write('wOF2', 0, 'latin1');
+      data.writeUInt32BE(0x00010000, 4);
+      data.writeUInt32BE(2048, 8);
+      data.writeUInt16BE(1, 12);
+      data.writeUInt32BE(1024, 16);
+      data.writeUInt32BE(2048 - 50, 20);
+      data[49] = 0x10;
+      const query = new URLSearchParams({ family: 'Brand Sans', weight: '700', style: 'normal', fallback: 'serif', licence: 'confirmed' });
+      const uploadRes = await fetch(`${base}/projects/${zone.projectId}/fonts?${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'font/woff2' },
+        body: data,
+      });
+      expect(uploadRes.status).toBe(201);
+      const font = await uploadRes.json();
+      const withFont = (text: string) => {
+        const d = styled(text, mediaKey);
+        const t = d.elements.find((e) => e.type === 'text') as { props: Record<string, unknown> };
+        t.props = { ...t.props, font: { source: 'project', fontId: font.id }, fallback: 'serif' };
+        return d;
+      };
+      await save(beach.id, withFont('Brand'));
+      await update(beach.id);
+      const copy = await (await duplicate(beach.id)).json();
+      const { rows } = await pool.query<{ document: string }>(
+        'SELECT document FROM tale_fonts WHERE tale_id = $1 AND font_id = $2 ORDER BY document',
+        [copy.id, font.id],
+      );
+      expect(rows.map((r) => r.document)).toEqual(['draft', 'published']);
+      // The original stops using it; the copy still does.
+      await save(beach.id, styled('Plain', mediaKey));
+      await update(beach.id);
+      const removed = await fetch(`${base}/projects/${zone.projectId}/fonts/${font.id}`, { method: 'DELETE' });
+      expect(removed.status).toBe(409);
+      expect((await removed.json()).error.code).toBe('font_in_use');
     });
   });
 

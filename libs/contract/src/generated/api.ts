@@ -1167,6 +1167,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tales/{taleId}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a tale with its documents into a tale group of its project.
+         * @description Creates a new tale in `taleGroupId` (default: the tale's own group), which must be a group of the tale's project (AD-4): an unknown group or one of another project answers 400 `tale_group_not_found`, as placing a group does. The copy is stored `paused` (Hidden), so it does not show twice on the site until someone shows it. In the tale's own group it is placed right after the original (the later tales move one on); in another group, last. Its title is the original's with " (copy)"; it keeps the start and end time. It holds the original's published document as its published document and the original's draft as its draft (AD-15), each at revision 1 (0 when there is none), so a pending change is still pending on the copy; every element gets a new id. Media and project fonts are not copied: the copy shares the original's storage keys (AD-11, AD-14), and a file stays while any tale uses it, so changing or archiving the original never breaks the copy. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a `taleGroupId` that is not a string: 400 `validation_failed`.
+         */
+        post: operations["duplicateTale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1353,6 +1375,10 @@ export interface components {
         CopyTaleGroupRequest: {
             /** @description The zone to place the copy in; its project may differ from the source's. */
             zoneId: string;
+        };
+        DuplicateTaleRequest: {
+            /** @description The tale group of the tale's project to put the copy in; absent, the tale's own group. */
+            taleGroupId?: string;
         };
         Tale: {
             /** @description Whether the tale is visible on the site now (epic UX rework R7). Inside a zone's list of tale groups, in that zone; elsewhere, in any zone its group is placed in. */
@@ -4242,6 +4268,37 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             413: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    duplicateTale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DuplicateTaleRequest"];
+            };
+        };
+        responses: {
+            /** @description The copy, Hidden, as its group lists it. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tale"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

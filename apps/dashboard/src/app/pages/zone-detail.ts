@@ -34,6 +34,7 @@ import { describeWindow } from '../schedule';
 import { describeSettings, type Settings } from '../settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
+import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 
 const TONES = 6;
 
@@ -53,7 +54,17 @@ type Direction = 'earlier' | 'later';
  */
 @Component({
   selector: 'app-zone-detail-page',
-  imports: [RouterLink, Icon, StatusBadge, ShowSwitch, VisibilityIndicator, CdkDropList, CdkDrag, CdkDragHandle],
+  imports: [
+    RouterLink,
+    Icon,
+    StatusBadge,
+    ShowSwitch,
+    VisibilityIndicator,
+    CdkDropList,
+    CdkDrag,
+    CdkDragHandle,
+    DuplicateTale,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './zone-detail.html',
   styles: `
@@ -187,6 +198,35 @@ type Direction = 'earlier' | 'later';
       display: flex;
       flex-wrap: wrap;
       gap: var(--space-2);
+    }
+    /* In the card's top row, left of the drag handle, above the card's open button, on a dark
+       plate (story 8.11 moves it into a menu). */
+    .tale-card__duplicate {
+      position: absolute;
+      z-index: 1;
+      top: var(--space-2);
+      right: calc(var(--space-2) + 26px);
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: var(--radius-pill);
+      background: rgb(0 0 0 / 62%);
+      color: #fff;
+      cursor: pointer;
+    }
+    .tale-card__duplicate svg {
+      width: 14px;
+      height: 14px;
+    }
+    .tale-card__duplicate:hover {
+      border-color: #fff;
+    }
+    .tale-card__duplicate:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 1px;
     }
   `,
 })
@@ -420,6 +460,21 @@ export class ZoneDetailPage {
     this.orderError.set('');
     const message = await request;
     if (message) this.orderError.set(message);
+  }
+
+  /** The tale whose Duplicate drawer is open, with the button that opened it. */
+  protected readonly duplicating = signal<{ tale: Tale; opener: HTMLElement | null } | null>(null);
+
+  /** Opens the Duplicate drawer for a tale (epic Tale Studio R11). */
+  protected openDuplicate(tale: Tale, event: Event): void {
+    const opener = event.currentTarget;
+    this.duplicating.set({ tale, opener: opener instanceof HTMLElement ? opener : null });
+  }
+
+  /** Closes the drawer and says where the copy went; the new card shows Hidden. */
+  protected duplicated(result: DuplicatedTale): void {
+    this.duplicating.set(null);
+    this.announce(duplicatedMessage(result));
   }
 
   // A repeated message is changed by a trailing no-break space, so it is announced again.

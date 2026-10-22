@@ -2281,6 +2281,58 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /tales/{taleId}/duplicate:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: duplicateTale
+      summary: Duplicate a tale with its documents into a tale group of its project.
+      description: >-
+        Creates a new tale in `taleGroupId` (default: the tale's own group),
+        which must be a group of the tale's project (AD-4): an unknown group
+        or one of another project answers 400 `tale_group_not_found`, as
+        placing a group does. The copy is stored `paused` (Hidden), so it does
+        not show twice on the site until someone shows it. In the tale's own
+        group it is placed right after the original (the later tales move one
+        on); in another group, last. Its title is the original's with
+        " (copy)"; it keeps the start and end time. It holds the original's
+        published document as its published document and the original's
+        draft as its draft (AD-15), each at revision 1 (0 when there is
+        none), so a pending change is still pending on the copy; every element
+        gets a new id. Media and project fonts are not copied: the copy shares
+        the original's storage keys (AD-11, AD-14), and a file stays while any
+        tale uses it, so changing or archiving the original never breaks the
+        copy. A tale group holds at most 100 tales: 409 `tale_group_full`,
+        and nothing is created. The caller needs access to the tale's project
+        (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a `taleGroupId`
+        that is not a string: 400 `validation_failed`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DuplicateTaleRequest'
+      responses:
+        '201':
+          description: The copy, Hidden, as its group lists it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tale'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     session:
@@ -2674,6 +2726,12 @@ components:
         zoneId:
           type: string
           description: The zone to place the copy in; its project may differ from the source's.
+    DuplicateTaleRequest:
+      type: object
+      properties:
+        taleGroupId:
+          type: string
+          description: The tale group of the tale's project to put the copy in; absent, the tale's own group.
     Tale:
       type: object
       required: [id, taleGroupId, projectId, title, position, status, storedStatus, startsAt, endsAt, media, visibility]

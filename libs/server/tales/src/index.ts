@@ -19,6 +19,7 @@ export {
   renameTaleWhen,
   createTale,
   copyTaleWithDocument,
+  duplicateTale,
   taleGroupExists,
   taleExists,
   getTale,
