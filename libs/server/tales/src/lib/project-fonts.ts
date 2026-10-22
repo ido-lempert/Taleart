@@ -137,6 +137,8 @@ export const PUBLIC_FONT_CACHE_SIZE = 1000;
 
 // Public font answers by storage key, oldest first (a Map keeps insertion order).
 const publicFonts = new Map<string, { at: number; found: boolean }>();
+// Bumped by every clear: a lookup that started before a clear (a revoke racing a read) keeps nothing.
+let publicFontGeneration = 0;
 
 /**
  * Forgets every public font answer this process keeps. Called on every change that can make a
@@ -144,6 +146,7 @@ const publicFonts = new Map<string, { at: number; found: boolean }>();
  * another process sees the change within {@link PUBLIC_FONT_CACHE_TTL_MS}.
  */
 export function clearPublicFontCache(): void {
+  publicFontGeneration++;
   publicFonts.clear();
 }
 
@@ -344,6 +347,7 @@ export async function findPublishedFont(
   if (kept && now.getTime() - kept.at < PUBLIC_FONT_CACHE_TTL_MS && now.getTime() >= kept.at) {
     return answer(kept.found);
   }
+  const generation = publicFontGeneration;
   const { rows } = await db.query(
     `SELECT 1 FROM project_fonts f
      JOIN tale_fonts tf ON tf.font_id = f.id AND tf.document = 'published' AND tf.delivered
@@ -355,8 +359,11 @@ export async function findPublishedFont(
   );
   const found = rows.length > 0;
   publicFonts.delete(key);
-  publicFonts.set(key, { at: now.getTime(), found });
-  if (publicFonts.size > PUBLIC_FONT_CACHE_SIZE) publicFonts.delete(publicFonts.keys().next().value as string);
+  // An answer read across a clear may be stale: it is returned but not kept.
+  if (generation === publicFontGeneration) {
+    publicFonts.set(key, { at: now.getTime(), found });
+    if (publicFonts.size > PUBLIC_FONT_CACHE_SIZE) publicFonts.delete(publicFonts.keys().next().value as string);
+  }
   return answer(found);
 }
 

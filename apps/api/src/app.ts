@@ -20,6 +20,7 @@ import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import { zoneKeysRouter } from './http/zone-keys.router';
+import type { RateLimitOptions } from './http/rate-limit';
 import { siteKeyRouter } from './http/site-key.router';
 import { zonesRouter } from './http/zones.router';
 
@@ -37,6 +38,12 @@ export interface AppAuth {
   secureCookies?: boolean;
   /** The dashboard's origin (RP_ORIGIN), where invitation links point. Defaults to http://localhost:4200. */
   dashboardOrigin?: string;
+}
+
+/** How the Delivery API is limited. */
+export interface AppDelivery {
+  /** The per-address request limit of `/delivery/v1`; the default when left out, off when null. */
+  rateLimit?: RateLimitOptions | null;
 }
 
 /** Where the API is reached from outside. */
@@ -60,6 +67,7 @@ export function createApp(
   urls: AppUrls = {},
   importer: ImporterConfig = { tokenKey: null, another toolApiUrl: DEFAULT_another tool_API_URL },
   media: ProjectMediaOptions = {},
+  delivery: AppDelivery = {},
 ): express.Express {
   const app = express();
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
@@ -110,7 +118,11 @@ export function createApp(
 
   // The Delivery API serves SDKs with zone keys only (AD-2): its own open CORS
   // and key middleware, never the session middleware.
-  app.use(DELIVERY_API_BASE, deliveryRouter(pool, { publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333', frameTypes }));
+  app.use(DELIVERY_API_BASE, deliveryRouter(pool, {
+      publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333',
+      frameTypes,
+      rateLimit: delivery.rateLimit,
+    }));
 
   // Published media is public at unguessable URLs (AD-11): no session, no zone key.
   app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));

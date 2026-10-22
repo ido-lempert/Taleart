@@ -577,6 +577,7 @@ export const ErrorCodes = {
   invalidZoneKey: 'invalid_zone_key',
   siteKeyNotFound: 'site_key_not_found',
   invalidSiteKey: 'invalid_site_key',
+  rateLimited: 'rate_limited',
   another toolTokenInvalid: 'another tool_token_invalid',
   another toolUnavailable: 'another tool_unavailable',
   importerNotConfigured: 'importer_not_configured',

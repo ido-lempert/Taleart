@@ -395,6 +395,26 @@ describe('public media of documents', () => {
     expect(calls()).toHaveLength(2);
   });
 
+  it('keeps nothing read across a clear, so a lookup racing a revoke cannot fill the cache again', async () => {
+    const now = new Date('2026-10-22T10:00:00Z');
+    let calls = 0;
+    // The clear (a site key revoke) lands while the lookup waits for the database.
+    const db = {
+      query: async () => {
+        calls++;
+        if (calls === 1) clearPublicMediaCache();
+        return { rows: [{ contentType: 'image/png' }] };
+      },
+    } as never;
+    expect(await findPublishedDocumentMedia(db, IMAGE, now)).not.toBeNull();
+    // Not kept: the next request asks the database again.
+    await findPublishedDocumentMedia(db, IMAGE, now);
+    expect(calls).toBe(2);
+    // An answer read after the clear is kept as before.
+    await findPublishedDocumentMedia(db, IMAGE, now);
+    expect(calls).toBe(2);
+  });
+
   it('never keeps a no, keeps at most its size of yeses, and never asks about a key of another shape', async () => {
     const now = new Date();
     const none = fakeDb([]);

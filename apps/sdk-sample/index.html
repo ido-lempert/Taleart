@@ -43,11 +43,12 @@
     <h1>TaleArt Web SDK sample</h1>
     <p>
       A host page for trying the SDK. Open it as
-      <code>?siteKey=&lt;site key&gt;&amp;zones=&lt;slug&gt;,&lt;slug&gt;&amp;api=&lt;API URL&gt;</code> to place one
+      <code>?zones=&lt;slug&gt;,&lt;slug&gt;&amp;api=&lt;API URL&gt;#siteKey=&lt;site key&gt;</code> to place one
       element per zone slug with the project's site key, each under its own heading; the API URL defaults to
-      <code>http://localhost:3333</code>. Each element shows its zone's display, a bar or a banner. A legacy zone key
-      still works: <code>?key=&lt;zone key&gt;</code> places one zone, <code>?keys=&lt;key&gt;,&lt;key&gt;</code> one
-      element per key.
+      <code>http://localhost:3333</code>. Each element shows its zone's display, a bar or a banner. Keys go in the
+      fragment (after <code>#</code>), which the browser never sends to a server or in a Referer header; the query
+      still works. A legacy zone key still works: <code>#key=&lt;zone key&gt;</code> places one zone,
+      <code>#keys=&lt;key&gt;,&lt;key&gt;</code> one element per key.
     </p>
     <p>
       Add <code>&amp;theme=&lt;JSON&gt;</code> to override the project's theme in the SDK configuration, for example
@@ -65,14 +66,17 @@
       import { configureZone } from '/sdk/index.js';
 
       const params = new URLSearchParams(location.search);
+      // Keys are read from the fragment first (never sent to a server or in a Referer), then from the query.
+      const fragment = new URLSearchParams(location.hash.slice(1));
+      const secret = (name) => fragment.get(name) || params.get(name);
       const apiUrl = params.get('api') || 'http://localhost:3333';
       const list = (value) => (value || '').split(',').map((k) => k.trim()).filter(Boolean);
       // `siteKey` with `zones=a,b` places one element per slug (epic UX rework R3); otherwise `key` places one
       // zone and `keys=a,b` one element per legacy zone key.
-      const siteKey = params.get('siteKey') || '';
+      const siteKey = secret('siteKey') || '';
       const placements = siteKey
         ? list(params.get('zones') || params.get('zone')).map((zone) => ({ name: zone, set: (view) => { view.siteKey = siteKey; view.zone = zone; } }))
-        : list(params.get('keys') || params.get('key')).map((key) => ({ name: key, set: (view) => { view.zoneKey = key; } }));
+        : list(secret('keys') || secret('key')).map((key) => ({ name: key, set: (view) => { view.zoneKey = key; } }));
       // The zones' SDK theme override (R9), before the elements load so they render with it.
       const theme = params.get('theme');
       if (theme) {

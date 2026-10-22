@@ -315,6 +315,8 @@ export const PUBLIC_MEDIA_CACHE_SIZE = 1000;
 
 // Answers by storage key, oldest first (a Map keeps insertion order).
 const publicMedia = new Map<string, { at: number; contentType: MediaContentType }>();
+// Bumped by every clear: a lookup that started before a clear (a revoke racing a read) keeps nothing.
+let publicMediaGeneration = 0;
 
 /**
  * Forgets every public answer about documents' media this process keeps. Called on every change
@@ -322,6 +324,7 @@ const publicMedia = new Map<string, { at: number; contentType: MediaContentType 
  * a placement, a copy); another process sees the change within {@link PUBLIC_MEDIA_CACHE_TTL_MS}.
  */
 export function clearPublicMediaCache(): void {
+  publicMediaGeneration++;
   publicMedia.clear();
 }
 
@@ -347,6 +350,7 @@ export async function findPublishedDocumentMedia(
     publicMedia.set(key, kept);
     return answer(kept.contentType);
   }
+  const generation = publicMediaGeneration;
   const { rows } = await db.query<{ contentType: string }>(
     `SELECT tm.content_type AS "contentType" FROM tale_media tm
      JOIN tales t ON t.id = tm.tale_id
@@ -360,7 +364,8 @@ export async function findPublishedDocumentMedia(
   // Only a yes is kept: a no is asked again each time, so a key that becomes public shows at once
   // elsewhere too, and requests for random keys cannot push the kept answers out.
   publicMedia.delete(key);
-  if (contentType) {
+  // An answer read across a clear may be stale: it is returned but not kept.
+  if (contentType && generation === publicMediaGeneration) {
     publicMedia.set(key, { at: now.getTime(), contentType });
     if (publicMedia.size > PUBLIC_MEDIA_CACHE_SIZE) publicMedia.delete(publicMedia.keys().next().value as string);
   }

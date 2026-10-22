@@ -102,6 +102,20 @@ deferred: []
 - **Sample page.** `?siteKey=…&zones=a,b` places one element per slug under "Zone <slug>"; `&themeZone=<slug>` limits `&theme=` to that zone. `a11y-scan.mjs` has a site-key scenario (two zones, unknown slug with one error, theme for one slug, one request per zone, axe clean).
 - Playwright browsers were missing from `~/Library/Caches/ms-playwright` on this machine; `playwright install chromium` restored them.
 
+## Review fixes (2026-10-22)
+
+- **Issue drawer.** It says the key opens every zone of the project: it sits in page HTML, so anyone who sees it can read every zone that has a display and visible content, by its slug.
+- **Rate limit.** `/delivery/v1` has a per-address token bucket in this process (`apps/api/src/http/rate-limit.ts`), shared by both key paths and run before the key lookups, so refused guesses count too. Preflights are not counted.
+  - Default: 600 at once and 20 per second. Set with `DELIVERY_RATE_LIMIT_BURST` and `DELIVERY_RATE_LIMIT_PER_SECOND`; 0 turns it off. `TRUST_PROXY` sets Express's `trust proxy`, so the limit counts the visitor's address behind a proxy.
+  - Over the limit: 429 `rate_limited` (new error code) with `Retry-After` in whole seconds and `Cache-Control: no-store`.
+  - At most 10,000 buckets are kept; a new client beyond that drops the full (idle) ones. The API test app turns the limit off; one test turns it on.
+- **Public caches.** The public media and font caches each have a generation counter that every clear bumps. A lookup keeps its answer only when no clear happened while it read the database, so a lookup racing a revoke cannot fill the cache again.
+- **SDK.** `configureZone` warnings mask anything that starts with `tas_` or `tak_` (first 8 characters).
+- **Sample page.** `siteKey`, `key` and `keys` are read from the URL fragment first, then the query. The page's text and the a11y scan use `?zones=…#siteKey=…`.
+- **No caching of secrets or refusals.** Every Delivery 401 and both 201s that return a key (site key, zone key) send `Cache-Control: no-store`.
+- **Tests.** `?zone[x]=y` refused; a revoke racing a rotation (8 rounds) leaves either the rotated key active and working or nothing active; 401 and 201 cache headers; the rate limit (unit and API); the cache generation (media and fonts); two elements with different site keys and the same slug send two requests; the masked `tas_` warning. Public media answering 404 right after a site key revoke, for a zone installed only by it, was already asserted.
+- **Later option (not built).** A zone could opt out of the site key ("this zone requires its own key"), for a zone that must not be readable with the project's public key.
+
 ## Verification
 
 **Commands:**

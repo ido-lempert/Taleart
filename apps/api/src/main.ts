@@ -14,6 +14,7 @@ import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
+import { deliveryRateLimitFromEnv } from './http/rate-limit';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
 function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void {
@@ -104,7 +105,20 @@ async function start(): Promise<void> {
     },
   };
   log('info', `Project media at most ${media.limits.maxFiles} files and ${media.limits.maxBytes} bytes each`);
-  const server = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media).listen(port, () => {
+  // The Delivery API's per-address limit: DELIVERY_RATE_LIMIT_BURST and DELIVERY_RATE_LIMIT_PER_SECOND (0 turns it off).
+  const rateLimit = deliveryRateLimitFromEnv(process.env);
+  log(
+    'info',
+    rateLimit ?
+      `Delivery API limited to ${rateLimit.burst} requests at once and ${rateLimit.perSecond} per second per address`
+    : 'Delivery API rate limit off',
+  );
+  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit });
+  // Behind a reverse proxy, TRUST_PROXY (Express's `trust proxy`, such as 1 or loopback) makes the
+  // limit count the visitor's address rather than the proxy's.
+  const trustProxy = process.env['TRUST_PROXY'];
+  if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  const server = app.listen(port, () => {
     log('info', `Listening at http://localhost:${port}${MANAGEMENT_API_BASE}`);
     log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
   });

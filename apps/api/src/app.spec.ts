@@ -198,7 +198,17 @@ describe('Management API v1: projects and zones', () => {
   let base: string;
 
   async function listen(p: Pool, frameTypes: FrameTypeRegistry = loadFrameTypeRegistry(frameTypesDir)): Promise<Server> {
-    const s = createApp(p, frameTypes, new LocalDiskStorage(mediaDir), { verifier: fakeVerifier }, { publicApiUrl }).listen(0);
+    // The Delivery API's rate limit is off here; its own test turns it on.
+    const s = createApp(
+      p,
+      frameTypes,
+      new LocalDiskStorage(mediaDir),
+      { verifier: fakeVerifier },
+      { publicApiUrl },
+      undefined,
+      undefined,
+      { rateLimit: null },
+    ).listen(0);
     await new Promise<void>((resolve) => s.once('listening', () => resolve()));
     origin = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
     base = `${origin}/api/v1`;
@@ -4050,6 +4060,7 @@ describe('Management API v1: projects and zones', () => {
 
     async function expectInvalidKey(res: Response): Promise<string> {
       expect(res.status).toBe(401);
+      expect(res.headers.get('cache-control')).toBe('no-store');
       expect(res.headers.get('access-control-allow-origin')).toBe('*');
       const body = await res.json();
       expect(body.error.code).toBe('invalid_zone_key');
@@ -4317,6 +4328,10 @@ describe('Management API v1: projects and zones', () => {
           return res.json();
         }
 
+        function deliverQuery(key: string, query: string): Promise<Response> {
+          return globalThis.fetch(`${origin}/delivery/v1/zone?${query}`, { headers: { Authorization: `Bearer ${key}` } });
+        }
+
         function deliverSlug(key: string | undefined, slug: string | string[] | undefined): Promise<Response> {
           const headers: Record<string, string> = {};
           if (key !== undefined) headers['Authorization'] = `Bearer ${key}`;
@@ -4334,6 +4349,8 @@ describe('Management API v1: projects and zones', () => {
           expect(res.status).toBe(401);
           expect(res.headers.get('access-control-allow-origin')).toBe('*');
           expect(res.headers.get('www-authenticate')).toBe('Bearer');
+          // Never kept by a browser or a shared cache.
+          expect(res.headers.get('cache-control')).toBe('no-store');
           expect(await res.json()).toEqual(REFUSED);
         }
 
@@ -4365,7 +4382,11 @@ describe('Management API v1: projects and zones', () => {
           expect(none.status).toBe(200);
           expect(await none.json()).toBeNull();
 
-          const issued = await issueSite(project.id);
+          const res = await send('POST', siteKeyPath(project.id));
+          expect(res.status).toBe(201);
+          // The secret is in this response only: no cache keeps it.
+          expect(res.headers.get('cache-control')).toBe('no-store');
+          const issued: Issued = await res.json();
           expect(issued.key).toMatch(/^tas_[A-Za-z0-9_-]{43}$/);
           expect(issued.prefix).toBe(issued.key.slice(0, 10));
 
@@ -4422,6 +4443,74 @@ describe('Management API v1: projects and zones', () => {
           const again = await send('DELETE', siteKeyPath(project.id));
           expect(again.status).toBe(404);
           expect((await again.json()).error.code).toBe('site_key_not_found');
+        });
+
+        it('keeps one consistent key when a revoke races a rotation', async () => {
+          const project = await createProject();
+          const zone = await placedZone(project.id, 'Race');
+          for (let round = 0; round < 8; round++) {
+            const old = await issueSite(project.id);
+            const [rotated, revoked] = await Promise.all([
+              send('POST', siteKeyPath(project.id)),
+              send('DELETE', siteKeyPath(project.id)),
+            ]);
+            expect(rotated.status).toBe(201);
+            // The revoke takes the old key or the new one; there is always one to take.
+            expect(revoked.status).toBe(204);
+            const fresh: Issued = await rotated.json();
+            const { rows } = await pool.query('SELECT key_hash FROM site_keys WHERE project_id = $1 AND revoked_at IS NULL', [
+              project.id,
+            ]);
+            await expectRefused(await deliverSlug(old.key, zone.slug));
+            if (rows.length === 1) {
+              // The revoke ran first: the rotated key is the active one and works.
+              expect(rows[0].key_hash).toBe(createHash('sha256').update(fresh.key).digest('hex'));
+              expect((await deliverSlug(fresh.key, zone.slug)).status).toBe(200);
+              expect((await send('DELETE', siteKeyPath(project.id))).status).toBe(204);
+            } else {
+              // The rotation ran first, then the revoke took its key: nothing is active.
+              expect(rows).toHaveLength(0);
+              await expectRefused(await deliverSlug(fresh.key, zone.slug));
+            }
+          }
+        });
+
+        it('limits each address on both key paths with 429 and Retry-After, when the limit is on', async () => {
+          const project = await createProject();
+          const zone = await placedZone(project.id, 'Limited');
+          const { key } = await issueSite(project.id);
+          const zoneKey = (await (await send('POST', `/zones/${zone.id}/key`)).json()).key;
+          const limited = createApp(
+            pool,
+            loadFrameTypeRegistry(frameTypesDir),
+            new LocalDiskStorage(mediaDir),
+            { verifier: fakeVerifier },
+            { publicApiUrl },
+            undefined,
+            undefined,
+            { rateLimit: { burst: 3, perSecond: 0.5 } },
+          ).listen(0);
+          await new Promise<void>((resolve) => limited.once('listening', () => resolve()));
+          const at = `http://127.0.0.1:${(limited.address() as AddressInfo).port}/delivery/v1/zone`;
+          const get = (bearer: string, query = '') =>
+            globalThis.fetch(`${at}${query}`, { headers: { Authorization: `Bearer ${bearer}` } });
+          try {
+            // A preflight is not counted.
+            expect((await globalThis.fetch(at, { method: 'OPTIONS' })).status).toBe(204);
+            expect((await get(key, `?zone=${zone.slug}`)).status).toBe(200);
+            expect((await get(zoneKey)).status).toBe(200);
+            // A refusal counts too, so guessing keys or slugs is limited.
+            expect((await get(key, '?zone=nope')).status).toBe(401);
+            for (const res of [await get(key, `?zone=${zone.slug}`), await get(zoneKey)]) {
+              expect(res.status).toBe(429);
+              expect(res.headers.get('retry-after')).toBe('2');
+              expect(res.headers.get('cache-control')).toBe('no-store');
+              expect(res.headers.get('access-control-allow-origin')).toBe('*');
+              expect((await res.json()).error.code).toBe('rate_limited');
+            }
+          } finally {
+            await new Promise<void>((resolve) => limited.close(() => resolve()));
+          }
         });
 
         it('answers 404 project_not_found for an unknown project, and 403 to a content manager issuing or revoking', async () => {
@@ -4484,6 +4573,9 @@ describe('Management API v1: projects and zones', () => {
           await expectRefused(await deliverSlug(key, ''));
           await expectRefused(await deliverSlug(key, [zone.slug, zone.slug]));
           await expectRefused(await deliverSlug(key, 'Home Top'));
+          // A bracketed parameter reads as an object, which is no slug.
+          await expectRefused(await deliverQuery(key, `zone[${zone.slug}]=${zone.slug}`));
+          await expectRefused(await deliverQuery(key, `zone[x]=y`));
           await expectRefused(await deliverSlug(undefined, zone.slug));
           await expectRefused(await deliverSlug(`tas_${randomBytes(32).toString('base64url')}`, zone.slug));
           await expectRefused(await deliverSlug(key.toUpperCase(), zone.slug));

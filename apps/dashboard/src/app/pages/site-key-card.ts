@@ -144,8 +144,13 @@ function refusal(err: unknown, fallback: string): string {
                 }
                 @default {
                   <p>
-                    SDKs on your pages send this key, with a zone's slug, to read that zone's content. It works for
-                    every zone of this project and is shown once, when you issue it.
+                    SDKs on your pages send this key, with a zone's slug, to read that zone's content. It is shown
+                    once, when you issue it.
+                  </p>
+                  <p id="site-key-exposure">
+                    <strong>It opens every zone of this project.</strong> The key sits in your pages' HTML, so anyone
+                    who sees it can read every zone of this project that has a display and visible content, by its
+                    slug.
                   </p>
                 }
               }

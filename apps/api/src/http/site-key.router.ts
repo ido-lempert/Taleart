@@ -35,7 +35,10 @@ export function siteKeyRouter(pool: Pool): Router {
   router.post('/:projectId/site-key', projectAccess, requireAdmin, async (req, res, next) => {
     try {
       await existingProject(pool, req.params.projectId);
-      res.status(201).json(await issueSiteKey(pool, { projectId: req.params.projectId, createdBy: caller(res).id }));
+      const issued = await issueSiteKey(pool, { projectId: req.params.projectId, createdBy: caller(res).id });
+      // The secret is in this body only: no cache keeps it.
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(201).json(issued);
     } catch (err) {
       next(err);
     }

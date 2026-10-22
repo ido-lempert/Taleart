@@ -670,6 +670,21 @@ describe('TaleartElement', () => {
       expect(items(el)[0].getAttribute('aria-label')).toBe('Group of home-promo');
     });
 
+    it('sends one request per key when elements with different site keys name the same slug', async () => {
+      fetchMock.mockImplementation(answer(['home-top']));
+      for (const key of [SITE_KEY, 'tas_otherproject']) {
+        const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+        for (const [name, value] of Object.entries(site('home-top', { 'site-key': key }))) el.setAttribute(name, value);
+        document.body.appendChild(el);
+      }
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls.map(([, init]) => (init as RequestInit).headers)).toEqual([
+        { Authorization: `Bearer ${SITE_KEY}` },
+        { Authorization: 'Bearer tas_otherproject' },
+      ]);
+    });
+
     it('lets several elements share one site key, each showing its own zone, with one request per zone', async () => {
       fetchMock.mockImplementation(answer(['home-top', 'home-promo']));
       const els = ['home-top', 'home-promo', 'home-top'].map((slug) => {
@@ -755,10 +770,16 @@ describe('TaleartElement', () => {
       // A warning names the slug in full (it is no secret), and a zone key only by its start.
       configureZone('home-top', { theme: { ringWidth: 9 } as never });
       configureZone('tak_secretsecret', { theme: { ringWidth: 9 } as never });
+      // A site key passed by mistake is masked too.
+      configureZone('tas_secretsecret', { theme: { ringWidth: 9 } as never });
       expect(warnSpy.mock.calls.map((call: unknown[]) => String(call[0]))).toEqual([
         'TaleArt: the theme of zone "home-top" has an invalid or unknown field "ringWidth"; it is ignored',
         'TaleArt: the theme of zone "tak_secr…" has an invalid or unknown field "ringWidth"; it is ignored',
+        'TaleArt: the theme of zone "tas_secr…" has an invalid or unknown field "ringWidth"; it is ignored',
       ]);
+      expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('secretsecret');
+      configureZone('tak_secretsecret', {});
+      configureZone('tas_secretsecret', {});
     });
   });
 
