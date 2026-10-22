@@ -336,14 +336,13 @@ export function isStageTaleMedia(element: unknown, index: number): boolean {
 
 /**
  * The document's element drawn full-bleed behind the canvas, as tale media always was (R16), or
- * null: its bottom element when {@link isStageTaleMedia}, and only on a colour background. Over a
- * media background the tale's own media is drawn on the canvas above the background, as Tale
- * Studio draws it.
+ * null: its bottom element when {@link isStageTaleMedia}, on any background. With it, the canvas
+ * paints no colour of its own (the stage takes it, behind the media), and a media background is
+ * drawn on the canvas over it, with its band colour, exactly as before documents held the media.
  */
-export function stageTaleMedia<E>(doc: { canvas?: unknown; elements?: readonly E[] } | null | undefined): E | null {
-  const background = (doc?.canvas as { background?: { type?: unknown } } | undefined)?.background;
+export function stageTaleMedia<E>(doc: { elements?: readonly E[] } | null | undefined): E | null {
   const first = Array.isArray(doc?.elements) ? doc.elements[0] : undefined;
-  return background?.type !== 'media' && first !== undefined && isStageTaleMedia(first, 0) ? first : null;
+  return first !== undefined && isStageTaleMedia(first, 0) ? first : null;
 }
 
 /** The video elements that count toward {@link MAX_VIDEO_ELEMENTS}: every video but the tale's own media. */

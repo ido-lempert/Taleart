@@ -671,6 +671,7 @@ describe('delivery', () => {
               version: 1,
               canvas: { background: { type: 'color', color: '#1f2937' } },
               durationMs: 5000,
+              placeholder: true,
               elements: [],
             },
             fonts: [],

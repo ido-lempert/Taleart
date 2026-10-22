@@ -268,6 +268,12 @@ export async function migrateTales(db: Db): Promise<void> {
   // start tries it once more.
   await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_key text');
   await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_reason text');
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_at timestamptz');
+  // True once the migration (or a media write) made a document of only the tale's media where there
+  // was none, so a rollback (api:tale-media-rollback) sets exactly those back to null.
+  await db.query(
+    'ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_created_by_migration boolean NOT NULL DEFAULT false',
+  );
   await db.query(
     `CREATE INDEX IF NOT EXISTS tales_media_out_of_step_idx ON tales (id)
      WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key`,

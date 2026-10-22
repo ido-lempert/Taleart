@@ -1620,6 +1620,8 @@ export interface components {
             version: number;
             canvas: components["schemas"]["DeliveryCanvas"];
             durationMs?: number;
+            /** @description True only on the document the Delivery API makes for a tale with neither media nor a document (epic Tale Studio R16): viewers paint its colour across the whole stage, as such a tale always showed. */
+            placeholder?: boolean;
             /** @description The visible elements, first at the bottom of the z-order. */
             elements: components["schemas"]["DeliveryTaleElement"][];
         };
@@ -1750,9 +1752,13 @@ export interface components {
             document: components["schemas"]["v1.schema"];
             /** @description The revision this document was based on, as the last read or save returned it. */
             revision: number;
+            /** @description True when the document the editor loaded held the tale's own media (its `taleMedia` element, epic Tale Studio R16). The server then takes the saved document as the person's choice: when it lacks that element the person removed it, and it is not composed back. False or absent from an editor that never saw it (one opened before the media was put in the documents): the media stays composed in. */
+            sawTaleMedia?: boolean;
         };
         CopyTaleDocumentRequest: {
             document: components["schemas"]["v1.schema"];
+            /** @description True when the document the editor loaded held the tale's own media (its `taleMedia` element, epic Tale Studio R16). The server then takes the saved document as the person's choice: when it lacks that element the person removed it, and it is not composed back. False or absent from an editor that never saw it (one opened before the media was put in the documents): the media stays composed in. */
+            sawTaleMedia?: boolean;
         };
         DeliveryMedia: {
             kind: components["schemas"]["MediaKind"];

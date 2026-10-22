@@ -131,13 +131,24 @@ describe('TaleViewer', () => {
         version: 1,
         canvas: { background: { type: 'color', color: '#1f2937' } },
         durationMs: 5000,
+        placeholder: true,
         elements: [],
       },
     };
-    setup([{ id: 'p', name: 'P', tales: [placeholder] }]);
+    // A stored document with nothing in it is no placeholder: its canvas paints, the stage stays black.
+    const stored: DeliveryTale = {
+      id: 'p2',
+      title: 'Nothing yet',
+      media: null,
+      document: { version: 1, canvas: { background: { type: 'color', color: '#1f2937' } }, elements: [] },
+    };
+    setup([{ id: 'p', name: 'P', tales: [placeholder, stored] }]);
     viewer.open('p');
     expect(q<HTMLElement>('.stage').style.backgroundColor).toBe('rgb(31, 41, 55)');
     expect(q('.ta-canvas').getAttribute('aria-label')).toBe('Empty');
+    viewer.next();
+    expect(q<HTMLElement>('.stage').style.backgroundColor).toBe('');
+    expect(q<HTMLElement>('.ta-canvas').style.backgroundColor).toBe('rgb(31, 41, 55)');
   });
 
   it('opens a group as a named modal dialog at its first tale, one segment per tale, focus in the dialog', () => {

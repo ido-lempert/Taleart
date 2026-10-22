@@ -1,6 +1,6 @@
 import { type TaleDocument } from '@taleart/contract';
 import { checkPublishableDocument } from './tale-document';
-import { documentTaleMedia, mergeTaleMedia, taleMediaDocument } from './tale-media-document';
+import { classifyMigrationError, documentTaleMedia, mergeTaleMedia, taleMediaDocument } from './tale-media-document';
 
 const ID = '00000000-0000-4000-8000-0000000000ff';
 const IMAGE = { key: 'tales/0a.png', kind: 'image' as const };
@@ -105,5 +105,16 @@ describe('the tale media document (epic Tale Studio R16)', () => {
       elements: [...(both as TaleDocument).elements, { ...taleMediaDocument(IMAGE, text(8).id).elements[0] }],
     };
     expect(() => checkPublishableDocument(twice)).toThrow(/one media/);
+  });
+});
+
+describe('migration errors (R16)', () => {
+  it('retries passing database errors later, marks shape errors, and fails the batch on anything else', () => {
+    const pg = (code: string) => Object.assign(new Error(code), { code });
+    for (const code of ['40P01', '40001', '55P03', '57014']) expect(classifyMigrationError(pg(code))).toBe('later');
+    expect(classifyMigrationError(pg('22P02'))).toBe('malformed');
+    expect(classifyMigrationError(new TypeError('x.filter is not a function'))).toBe('malformed');
+    expect(classifyMigrationError(pg('23505'))).toBe('fatal');
+    expect(classifyMigrationError(new Error('connection lost'))).toBe('fatal');
   });
 });

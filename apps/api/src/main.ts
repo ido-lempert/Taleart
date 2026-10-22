@@ -116,7 +116,7 @@ async function start(): Promise<void> {
   const continuation = new AbortController();
   process.once('SIGTERM', () => continuation.abort());
   process.once('SIGINT', () => continuation.abort());
-  continueTaleMediaMigration(pool, { signal: continuation.signal, log }).catch((err) =>
+  continueTaleMediaMigration(pool, { signal: continuation.signal, log, poolMax: databasePoolMax() }).catch((err) =>
     log('error', 'tale media migration failed', err),
   );
 
