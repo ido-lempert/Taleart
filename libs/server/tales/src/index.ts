@@ -81,7 +81,11 @@ export { setTaleMediaIfNone, replaceTaleMediaIf } from './lib/tales';
 
 export {
   bringTaleMediaInStep,
+  classifyMigrationError,
   continueTaleMediaMigration,
+  markTaleMediaSeen,
+  MIN_POOL_FOR_CONTINUATION,
+  withoutStaleTaleMedia,
   mergeTaleMedia,
   migrateTaleMediaDocuments,
   setTaleMediaDocumentsEnabled,

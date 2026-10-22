@@ -577,12 +577,15 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
               [style.background-color]="d.canvas.background.color"
             >
               @if (d.canvas.background.type === 'media') {
-                <!-- The background image (R2), over its band colour, as the Web SDK paints it. -->
+                <!-- The background image (R2), over its band colour, as the Web SDK paints it. Over the tale's
+                     own media drawn full-bleed (R16) it lies above that media, bands included, as before. -->
                 <img
                   class="canvas__media"
                   [src]="mediaSrc(d.canvas.background.mediaKey)"
                   alt=""
                   [style.object-fit]="d.canvas.background.fit"
+                  [style.z-index]="stageMedia() ? 2 : null"
+                  [style.background-color]="stageMedia() ? d.canvas.background.color : null"
                 />
               }
               @for (el of d.elements; track el.id; let i = $index) {

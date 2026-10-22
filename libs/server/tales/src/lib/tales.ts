@@ -34,14 +34,14 @@ import {
   lockMediaKeyForDeletion,
 } from './document-media';
 import { deliveryProjectFonts, recordTaleFonts, withoutProjectFonts, type StoredFontFile } from './project-fonts';
-import { bringTaleMediaInStep, withOutOfStepMedia } from './tale-media-document';
+import { bringTaleMediaInStep, taleMediaDocumentsEnabled, withOutOfStepMedia } from './tale-media-document';
 import {
   checkDocumentFonts,
   checkDocumentMedia,
   checkPublishableDocument,
   checkTaleDocument,
-  checkTaleMediaFlag,
   draftProblem,
+  ownTaleMediaOnly,
   deliverableTaleDocument,
   InvalidTaleDocumentError,
   type KeyedDeliveryDocument,
@@ -1023,9 +1023,14 @@ export async function createTale(
  * revision 1, with nothing published yet: publishing the tale publishes it.
  * Throws {@link TaleNotFoundError}, {@link TaleGroupFullError} and the document's errors.
  */
-export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, value: unknown): Promise<Tale> {
+export async function copyTaleWithDocument(
+  db: TransactionalDb,
+  taleId: string,
+  value: unknown,
+  options: { sawTaleMedia?: boolean } = {},
+): Promise<Tale> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const document = checkTaleDocument(value);
+  let document = checkTaleDocument(value);
 
   return inTransaction(db, async (tx) => {
     const groupOf = await tx.query<{
@@ -1049,13 +1054,18 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
     await checkDocumentFonts(tx, groupOf.rows[0].projectId, document, true);
     await checkDocumentMedia(tx, groupOf.rows[0].projectId, document);
     // The copy shares the source's media (AD-14), so only that may be its own media (R16).
-    checkTaleMediaFlag(document, groupOf.rows[0]);
-    // In step only when the kept document holds that media as its own; else the copy is out of step,
-    // and its media is composed in on delivery and merged by the next migration run (R16).
+    document = ownTaleMediaOnly(document, groupOf.rows[0]);
+    // In step when the editor loaded the media as an element (what it keeps is the person's choice)
+    // or the kept document holds it as its own; else the copy is out of step, its media composed in
+    // on delivery and merged by the next migration run (R16).
     const sourceKey = groupOf.rows[0].key;
-    const inStep = document.elements.some(
-      (e) => isTaleMediaElement(e) && (e.props as { mediaKey?: unknown }).mediaKey === sourceKey,
-    );
+    const inStep =
+      sourceKey !== null &&
+      taleMediaDocumentsEnabled() &&
+      (options.sawTaleMedia === true ||
+        document.elements.some(
+          (e) => isTaleMediaElement(e) && (e.props as { mediaKey?: unknown }).mediaKey === sourceKey,
+        ));
 
     const stats = await tx.query<{ count: number; next: number }>(
       `SELECT count(*)::int AS count, COALESCE(MAX(position), -1) + 1 AS next
@@ -1299,6 +1309,8 @@ const EMPTY_DELIVERED_DOCUMENT: KeyedDeliveryDocument = {
   version: TALE_DOCUMENT_VERSION,
   canvas: { background: { type: 'color', color: LEGACY_PLACEHOLDER_COLOR } },
   durationMs: LEGACY_TALE_DURATION_MS,
+  // Marked, so viewers paint its colour across the whole stage, as such a tale always showed.
+  placeholder: true,
   elements: [],
 };
 

@@ -115,12 +115,14 @@ describe('TaleStudioPage', () => {
   const status = () => root.querySelector('#studio-save')?.textContent?.trim();
 
   // Saves what is unsaved now, as leaving the studio does, and answers the save with `revision`.
-  async function saveNow(revision: number): Promise<{ document: TaleDocument; revision: number }> {
+  async function saveNow(
+    revision: number,
+  ): Promise<{ document: TaleDocument; revision: number; sawTaleMedia?: boolean }> {
     const leaving = fixture.componentInstance.canLeave();
     await settle(fixture);
     const req = http.expectOne(url);
     expect(req.request.method).toBe('PUT');
-    const body = req.request.body as { document: TaleDocument; revision: number };
+    const body = req.request.body as { document: TaleDocument; revision: number; sawTaleMedia?: boolean };
     req.flush({ document: body.document, revision });
     expect(await leaving).toBe(true);
     await settle(fixture);
@@ -193,6 +195,24 @@ describe('TaleStudioPage', () => {
       "The tale's video is now a layer like any other: muted, and at most 15 seconds.",
     );
     expect(root.querySelector('#studio-tale-media-hint')?.textContent).toContain('now a layer like any other');
+  });
+
+  it("draws a media background over the tale's own media, as the Web SDK does, and says it saw the media", async () => {
+    const background = { type: 'media', mediaKey: 'media/0c.png', fit: 'contain', color: '#334455' };
+    const doc = { ...existing, canvas: { background }, elements: [OWN_MEDIA, existing.elements[0]] } as TaleDocument;
+    await open({ document: doc, revision: 1 });
+    const backdrop = root.querySelector('.canvas > img.canvas__media') as HTMLElement;
+    expect(backdrop.style.zIndex).toBe('2');
+    expect(backdrop.style.backgroundColor).toBe('rgb(51, 68, 85)');
+    expect((root.querySelector(`#studio-el-${OWN_MEDIA.id}`) as HTMLElement).style.zIndex).toBe('1');
+    // The person removes the media: the save says this editor saw it, so it stays removed (R16).
+    (root.querySelector(`#studio-el-${OWN_MEDIA.id}`) as HTMLElement).click();
+    await settle(fixture);
+    key(root.querySelector(`#studio-el-${OWN_MEDIA.id}`) as HTMLElement, 'Delete');
+    await settle(fixture);
+    const body = await saveNow(2);
+    expect(body.document.elements.map((e) => e.id)).toEqual([existing.elements[0].id]);
+    expect(body.sawTaleMedia).toBe(true);
   });
 
   it('shows saved text as literal text, placed from its box', async () => {

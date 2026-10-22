@@ -538,10 +538,11 @@ export class TaleViewer {
       this.media = own && this.renderStageMedia(own);
       if (this.media) stage.prepend(this.media);
       // Behind the stage media, the canvas colour fills the stage, such as the bands a contained
-      // image leaves; so does it for a document with nothing to show (a tale without media, which
-      // always showed its placeholder colour across the stage). Otherwise the canvas paints it.
-      const empty = elements.length === 0 && doc.canvas?.background?.type === 'color';
-      stage.style.backgroundColor = ((this.media || empty) && canvasColor(doc)) || '';
+      // image leaves (the canvas then paints none; a media background still draws over it, as it
+      // always did); so does the placeholder of a tale with neither media nor a document, which
+      // always showed its colour across the stage. Otherwise the canvas paints its own colour.
+      const placeholder = doc.placeholder === true;
+      stage.style.backgroundColor = ((this.media || placeholder) && canvasColor(doc)) || '';
       // Its project fonts load now that it opens (R18); its text shows the fallback stack until then.
       loadTaleFonts(current);
       // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.

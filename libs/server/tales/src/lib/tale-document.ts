@@ -31,7 +31,13 @@ import type { Db } from '@taleart/server-access';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020';
 import { clearPublicMediaCache, lockMediaKeys, projectMediaKeys, recordTaleMedia, usesMedia } from './document-media';
 import { clearPublicFontCache, knownProjectFontIds, recordTaleFonts } from './project-fonts';
-import { documentTaleMedia, taleMediaDocumentsEnabled, withOutOfStepMedia } from './tale-media-document';
+import {
+  documentTaleMedia,
+  markTaleMediaSeen,
+  taleMediaDocumentsEnabled,
+  withOutOfStepMedia,
+  withoutStaleTaleMedia,
+} from './tale-media-document';
 import { inTransaction, TaleNotFoundError, type TransactionalDb } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -253,6 +259,21 @@ export function checkTaleMediaFlag(doc: TaleDocument, media: { key: string | nul
       );
     }
   });
+}
+
+/**
+ * The document with `taleMedia` (R16) only on the tale's own media: while the tale's media is written
+ * into documents, a mark on other media is refused ({@link checkTaleMediaFlag}); while
+ * TALE_MEDIA_MIGRATION is off, when a mark may be stale (an older instance changed the media), it is
+ * taken off instead, and the element kept as an ordinary image or video.
+ */
+export function ownTaleMediaOnly(
+  doc: TaleDocument,
+  media: { key: string | null; contentType: string | null },
+): TaleDocument {
+  if (!taleMediaDocumentsEnabled()) return withoutStaleTaleMedia(doc, media);
+  checkTaleMediaFlag(doc, media);
+  return doc;
 }
 
 /**
@@ -508,9 +529,10 @@ export async function saveTaleDocument(
   taleId: string,
   value: unknown,
   basedOn: number,
+  options: { sawTaleMedia?: boolean } = {},
 ): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const document = checkTaleDocument(value);
+  let document = checkTaleDocument(value);
   const usesFonts = projectFontIds(document).length > 0;
   const hasMedia = usesMedia(document);
   return inTransaction(db, async (tx) => {
@@ -522,7 +544,7 @@ export async function saveTaleDocument(
         'SELECT media_key AS key, media_content_type AS "contentType" FROM tales WHERE id = $1',
         [taleId],
       );
-      if (own.rows.length > 0) checkTaleMediaFlag(document, own.rows[0]);
+      if (own.rows.length > 0) document = ownTaleMediaOnly(document, own.rows[0]);
     }
     const { rows } = await tx.query<StateRow>(
       `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
@@ -533,6 +555,11 @@ export async function saveTaleDocument(
     if (rows.length === 0) return refuseStale(tx, taleId);
     await recordTaleFonts(tx, taleId, 'draft', document, false);
     await recordTaleMedia(tx, taleId, 'draft', document, false);
+    // An editor that loaded the tale's media: what it saved is the person's choice (R16).
+    if (options.sawTaleMedia && (await markTaleMediaSeen(tx, taleId))) {
+      const now = await tx.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
+      return { ...toState(now.rows[0]), document };
+    }
     return { ...toState(rows[0]), document };
   });
 }

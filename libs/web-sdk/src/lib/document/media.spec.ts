@@ -349,13 +349,15 @@ describe('TaleViewer with a document video (epic Tale Studio R5)', () => {
     expect(position()).toBe('2');
   });
 
-  it("draws the tale's own media on the canvas, above a media background, as the studio does", () => {
-    const background = { type: 'media', url: IMG, fit: 'cover', color: '#000000' } as never;
+  it("draws the tale's own media full-bleed under a media background, which the canvas draws over it, as before", () => {
+    const background = { type: 'media', url: IMG, fit: 'contain', color: '#334455' } as never;
     open(false, [tale('t1', doc([own('image', `${API}/media/tales/t.png`)], { canvas: { background } }))]);
-    expect(dialog().querySelector('.stage > .media')).toBeNull();
+    expect(dialog().querySelector('.stage > img.media')?.getAttribute('src')).toBe(`${API}/media/tales/t.png`);
     const canvas = dialog().querySelector('.ta-canvas') as HTMLElement;
     expect(canvas.querySelector('.ta-bg')).not.toBeNull();
-    expect(canvas.querySelector('img.ta-media')?.getAttribute('src')).toBe(`${API}/media/tales/t.png`);
+    expect(canvas.querySelector('img.ta-media')).toBeNull();
+    // The background's band colour, as the renderer always painted it with a media background.
+    expect(canvas.style.backgroundColor).toBe('rgb(51, 68, 85)');
   });
 
   it("draws the tale's own GIF still under reduced motion (R12), its label from the element", () => {

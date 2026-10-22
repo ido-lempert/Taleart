@@ -1,36 +1,57 @@
 // Builds the Web SDK as it was at an earlier commit, for before/after comparisons in the sample-page
 // review (a11y-review.mjs): the SDK's and contract's sources at that commit are taken from git into a
-// temporary folder, which shares this checkout's node_modules, and bundled with Vite (ES module only,
-// no declarations). Plain Node and the repo's own tools; nothing is installed.
+// temporary folder made for this run, which shares this checkout's node_modules, bundled with Vite
+// (ES module only, no declarations), read, and the folder removed. Plain Node and the repo's own
+// tools; nothing is installed.
 //
-//   node apps/sdk-sample/legacy-sdk.mjs <commit>   prints the bundle's path
+// A checkout without that commit (such as a shallow clone) gets null, so the review skips the
+// comparison with a message; with TALEART_REQUIRE_LEGACY_SDK=1 (CI) that is an error instead.
+//
+//   node apps/sdk-sample/legacy-sdk.mjs <commit>   prints the bundle's size, or why there is none
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 
-/** The bundle of the Web SDK at `commit` (built once per commit into the OS temp folder), as a path. */
+/** True when git has `commit` in this checkout. */
+function hasCommit(commit) {
+  try {
+    execFileSync('git', ['cat-file', '-e', `${commit}^{commit}`], { cwd: ROOT, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The Web SDK bundle at `commit`, built afresh in a folder of this run's own, or null when the
+ * commit is not in this checkout (an error when TALEART_REQUIRE_LEGACY_SDK=1).
+ */
 export function buildLegacySdk(commit) {
   if (!/^[0-9a-f]{7,40}$/.test(commit)) throw new Error(`Not a commit id: ${commit}`);
-  const dir = join(tmpdir(), `taleart-legacy-sdk-${commit}`);
-  const bundle = join(dir, 'out', 'index.js');
-  if (existsSync(bundle)) return bundle;
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
-  const archive = execFileSync(
-    'git',
-    ['archive', commit, 'libs/web-sdk', 'libs/contract', 'tsconfig.base.json', 'package.json'],
-    { cwd: ROOT, maxBuffer: 256 * 1024 * 1024 },
-  );
-  execFileSync('tar', ['-x', '-C', dir], { input: archive });
-  symlinkSync(join(ROOT, 'node_modules'), join(dir, 'node_modules'));
-  writeFileSync(
-    join(dir, 'legacy.vite.config.mjs'),
-    `import { defineConfig } from 'vite';
+  if (!hasCommit(commit)) {
+    if (process.env.TALEART_REQUIRE_LEGACY_SDK === '1') {
+      throw new Error(`Commit ${commit} is not in this checkout, and TALEART_REQUIRE_LEGACY_SDK=1 requires it`);
+    }
+    return null;
+  }
+  const dir = mkdtempSync(join(tmpdir(), `taleart-legacy-sdk-${commit}-`));
+  try {
+    const archive = execFileSync(
+      'git',
+      ['archive', commit, 'libs/web-sdk', 'libs/contract', 'tsconfig.base.json', 'package.json'],
+      { cwd: ROOT, maxBuffer: 256 * 1024 * 1024 },
+    );
+    execFileSync('tar', ['-x', '-C', dir], { input: archive });
+    symlinkSync(join(ROOT, 'node_modules'), join(dir, 'node_modules'));
+    writeFileSync(
+      join(dir, 'legacy.vite.config.mjs'),
+      `import { defineConfig } from 'vite';
 export default defineConfig({
   root: ${JSON.stringify(join(dir, 'libs/web-sdk'))},
+  cacheDir: ${JSON.stringify(join(dir, '.vite'))},
   resolve: { tsconfigPaths: true },
   logLevel: 'warn',
   build: {
@@ -40,17 +61,19 @@ export default defineConfig({
   },
 });
 `,
-  );
-  execFileSync(
-    process.execPath,
-    [join(ROOT, 'node_modules/vite/bin/vite.js'), 'build', '--config', 'legacy.vite.config.mjs'],
-    {
-      cwd: dir,
-      stdio: ['ignore', 'ignore', 'inherit'],
-    },
-  );
-  if (!existsSync(bundle)) throw new Error(`The SDK at ${commit} did not build`);
-  return bundle;
+    );
+    execFileSync(
+      process.execPath,
+      [join(ROOT, 'node_modules/vite/bin/vite.js'), 'build', '--config', 'legacy.vite.config.mjs'],
+      { cwd: dir, stdio: ['ignore', 'ignore', 'inherit'] },
+    );
+    return readFileSync(join(dir, 'out', 'index.js'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
-if (process.argv[1] === import.meta.filename) console.log(buildLegacySdk(process.argv[2] ?? ''));
+if (process.argv[1] === import.meta.filename) {
+  const bundle = buildLegacySdk(process.argv[2] ?? '');
+  console.log(bundle ? `${bundle.length} bytes` : 'commit not in this checkout');
+}
