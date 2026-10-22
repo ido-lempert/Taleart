@@ -103,6 +103,7 @@ deferred: []
   6. `[patch]` Duplicating an archived tale gives a Hidden copy. Test.
   7. `[patch]` Duplicate while Update tale runs says "Wait until the tale is updated, then duplicate it." Test.
 - Added tests: the copy's `tale_fonts` rows for draft and published, and 409 `font_in_use` when only the copy uses a font; an out-of-step original gives an out-of-step copy delivered with the media composed under the copy's own id and merged by the media migration; `document_media_key`/`document_created_by_migration` carried; duplicates racing a reorder, an add, a status change and a save on the same groups (no 5xx, positions 0..n-1, the cap holds: two of three adds into a group with two places); studio POST failure, full group, focus return.
+- Verification after merging `autopilot/foundation` b3b99e5 (8.5) (2026-10-22, `--skip-nx-cache`, `taleart_w12_test`): `run-many -t lint test build` on the 12 projects passes (api 532, dashboard 412, web-sdk 327, server-importer 276, contract 267, server-tales 230, server-zones 61 tests); `web-sdk:size` 21.53 KB gzipped; `web-sdk:types-check` passes; dashboard initial bundle 493.07 kB. One earlier full run (before the merge) failed only in the existing autosave-timing test (40 ms debounce, under load), whose open request then failed the rest of that file; `dashboard` alone and the next two full runs passed.
 
 ## Design Notes
 
