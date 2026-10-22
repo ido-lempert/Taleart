@@ -16,7 +16,7 @@ app-group-row {
   min-width: 0;
 }
 /* A row with no lead cell (the Tale groups page) has no empty first column. */
-.group-row:not(:has(> .group-row__reorder)) {
+.group-row--plain {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   grid-template-areas: 'cover main status menu';
 }
@@ -102,7 +102,7 @@ app-group-row {
       'reorder cover main menu'
       'reorder cover status status';
   }
-  .group-row:not(:has(> .group-row__reorder)) {
+  .group-row--plain {
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
       'cover main menu'

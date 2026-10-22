@@ -13,11 +13,20 @@ import { describeWindow, windowChip } from './schedule';
 import { needsBadge, ShowSwitch, StatusBadge } from './status';
 import { VisibilityIndicator } from './visibility';
 
+/**
+ * A group as the row shows it: a zone's list carries its tales, the project's list its counts
+ * (epic UX rework R14).
+ */
+export type GroupRowData = Omit<TaleGroup, 'tales'> &
+  (Pick<TaleGroup, 'tales'> | { taleCount: number; shownTaleCount: number });
+
 /** "3 of 4 shown": the group's tales that are Shown, of all its tales; "No tales yet" when it has none. */
-export function shownCount(group: Pick<TaleGroup, 'tales'>): string {
-  if (group.tales.length === 0) return 'No tales yet';
-  const shown = group.tales.filter((tale) => taleShownStatus(tale.storedStatus) === 'shown').length;
-  return `${shown} of ${group.tales.length} shown`;
+export function shownCount(group: GroupRowData): string {
+  const [shown, total] =
+    'tales' in group
+      ? [group.tales.filter((tale) => taleShownStatus(tale.storedStatus) === 'shown').length, group.tales.length]
+      : [group.shownTaleCount, group.taleCount];
+  return total === 0 ? 'No tales yet' : `${shown} of ${total} shown`;
 }
 
 /**
@@ -40,7 +49,7 @@ export function shownCount(group: Pick<TaleGroup, 'tales'>): string {
   styleUrl: './group-row.css',
   template: `
     @let g = group();
-    <div class="group-row" [class.group-row--opens]="opens()">
+    <div class="group-row" [class.group-row--opens]="opens()" [class.group-row--plain]="plain()">
       <ng-content select="[groupRowLead]" />
       <span class="ring group-row__cover" [class.ring--cover]="!!g.cover" aria-hidden="true">
         @if (g.cover; as cover) {
@@ -95,13 +104,15 @@ export class GroupRow {
   protected readonly store = inject(DashboardStore);
   protected readonly maxTales = MAX_TALES_PER_GROUP;
 
-  readonly group = input.required<TaleGroup>();
+  readonly group = input.required<GroupRowData>();
   /** The ⋯ menu's items; an item that cannot apply carries its reason (story 8.3). */
   readonly items = input.required<readonly MenuItem[]>();
   /** True while the group's status change saves: the switch waits for it. */
   readonly saving = input(false);
   /** A click on the row opens the group (the zone page); only sets the pointer here, the page handles the click. */
   readonly opens = input(false);
+  /** The row has no lead cell (the Tale groups page), so no first column is kept for one. */
+  readonly plain = input(false);
   /** The indicator speaks of any zone the group is in (the Tale groups page), not of this zone. */
   readonly anyZone = input(false);
 

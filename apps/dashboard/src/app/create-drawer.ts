@@ -135,7 +135,7 @@ export class CreateDrawer implements OnInit {
     ) {
       return undefined;
     }
-    return this.store.projectTaleGroup(request.taleGroupId) ?? this.store.taleGroup(request.taleGroupId);
+    return this.store.groupSummary(request.taleGroupId);
   });
 
   /** The zones a "Show in another zone" drawer offers: the project's zones that do not hold the group yet. */
@@ -232,7 +232,7 @@ export class CreateDrawer implements OnInit {
   /** The tale group a tags drawer is for. */
   protected readonly tagGroup = computed(() => {
     const request = this.request();
-    return request.kind === 'tags' ? this.store.taleGroup(request.taleGroupId) : undefined;
+    return request.kind === 'tags' ? this.store.groupSummary(request.taleGroupId) : undefined;
   });
 
   /** The tags a tags drawer offers: every tag of the group's project. */
@@ -249,7 +249,7 @@ export class CreateDrawer implements OnInit {
       const tale = this.store.tale(request.id);
       return tale && { name: tale.title, kind: 'tale', startsAt: tale.startsAt, endsAt: tale.endsAt };
     }
-    const group = this.store.projectTaleGroup(request.id) ?? this.store.taleGroup(request.id);
+    const group = this.store.groupSummary(request.id);
     return group && { name: group.name, kind: 'tale group', startsAt: group.startsAt, endsAt: group.endsAt };
   });
 
@@ -444,7 +444,9 @@ export class CreateDrawer implements OnInit {
       return zone ? `In zone ${zone.name}` : '';
     }
     if (request.kind === 'taleGroup') {
-      return `In project ${this.store.projectName(request.projectId ?? '')}`;
+      // From the Tale groups page: the zone picked, else the project (R14).
+      const zone = this.store.zone(this.groupZoneId());
+      return zone ? `In zone ${zone.name}` : `In project ${this.store.projectName(request.projectId ?? '')}`;
     }
     if (request.kind === 'tale') {
       const group = this.store.taleGroup(request.taleGroupId);
@@ -476,7 +478,7 @@ export class CreateDrawer implements OnInit {
       return group ? `In tale group ${group.name}` : '';
     }
     if (request.kind === 'cover') {
-      const group = this.store.taleGroup(request.taleGroupId);
+      const group = this.store.groupSummary(request.taleGroupId);
       return group ? `Tale group ${group.name}` : '';
     }
     if (request.kind === 'schedule') {

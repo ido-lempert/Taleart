@@ -1,5 +1,6 @@
 import {
   ErrorCodes,
+  MAX_TALE_GROUP_NAME_LENGTH,
   type CopyTaleGroupRequest,
   type CreateTaleGroupRequest,
   type CreateTaleRequest,
@@ -39,7 +40,7 @@ import { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorize, authorizeParam } from './authorize';
 import { HttpError } from './errors';
-import { requiredSchedule, requiredSettableStatus, requiredString, requiredStringArray } from './validation';
+import { requiredName, requiredSchedule, requiredSettableStatus, requiredString, requiredStringArray } from './validation';
 
 /**
  * Tale groups with their tags. The tales module stores groups and the
@@ -67,7 +68,7 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
     try {
       // Zone first (404), then the body (400).
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
-      const input: CreateTaleGroupRequest = { name: requiredString(req.body, 'name') };
+      const input: CreateTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
       const group = await createTaleGroup(pool, { zoneId: req.params.zoneId, ...input });
       res.status(201).json({ ...group, tags: [] } satisfies ZoneTaleGroup);
     } catch (err) {
@@ -139,7 +140,7 @@ export function projectTaleGroupsRouter(pool: Pool): Router {
       if (!(await projectExists(pool, projectId))) {
         throw new HttpError(404, ErrorCodes.projectNotFound, 'No project has this id');
       }
-      const input: CreateTaleGroupRequest = { name: requiredString(req.body, 'name') };
+      const input: CreateTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
       const group = await createProjectTaleGroup(pool, { projectId, ...input });
       res.status(201).json({ ...group, tags: [] } satisfies ProjectTaleGroup);
     } catch (err) {
@@ -160,7 +161,7 @@ export function taleGroupsRouter(pool: Pool): Router {
       // Tale group first (404), then the body (400).
       const { taleGroupId } = req.params;
       if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
-      const input: RenameTaleGroupRequest = { name: requiredString(req.body, 'name') };
+      const input: RenameTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
       const [body] = await withTags(pool, [await renameTaleGroup(pool, taleGroupId, input.name)]);
       res.json(body satisfies TaleGroup);
     } catch (err) {

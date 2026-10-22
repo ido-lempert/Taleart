@@ -1299,9 +1299,38 @@ export interface components {
             /** @description Order within this zone; the zone's lists are sorted by it. */
             position: number;
         };
-        /** @description A tale group as the project's list shows it: the whole group, with its tales, cover, tags and visibility in any zone it is placed in, and its tale count (epic UX rework R14). */
-        ProjectTaleGroup: components["schemas"]["TaleGroup"] & {
+        /** @description A tale group as the project's list shows it (epic UX rework R14): the group's own fields, cover, tags and visibility in any zone it is placed in, with its tale counts instead of its tales, so the list stays small. */
+        ProjectTaleGroup: {
+            /** @description Whether the group is visible on the site now, in any zone it is placed in (epic UX rework R7). */
+            visibility: components["schemas"]["Visibility"];
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            name: string;
+            /** @description The group's status as read (AD-6), as on `TaleGroup`. */
+            status: components["schemas"]["ContentStatus"];
+            /** @description The status key a person set (AD-6). */
+            storedStatus: components["schemas"]["ContentStatus"];
+            /**
+             * Format: date-time
+             * @description Start of the window, ISO 8601 UTC, or null for no start (AD-6).
+             */
+            startsAt: string | null;
+            /**
+             * Format: date-time
+             * @description End of the window, ISO 8601 UTC, or null for no end (AD-6).
+             */
+            endsAt: string | null;
+            /** @description The group's cover, or null when it has none, as on `TaleGroup`. */
+            cover: components["schemas"]["TaleGroupCover"] | null;
+            /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
+            zoneIds: string[];
+            /** @description The group's tags, by name ignoring case. */
+            tags: components["schemas"]["TaleGroupTag"][];
             taleCount: number;
+            /** @description The group's tales that are Shown (stored `live`, AD-6 amended). */
+            shownTaleCount: number;
         };
         Tag: {
             /** Format: uuid */
@@ -1325,6 +1354,7 @@ export interface components {
             tagIds: string[];
         };
         CreateTaleGroupRequest: {
+            /** @description Trimmed before it is checked and stored; at most 100 characters. */
             name: string;
         };
         RenameTaleGroupRequest: {

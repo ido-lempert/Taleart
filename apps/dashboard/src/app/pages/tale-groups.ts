@@ -78,8 +78,12 @@ export function inTaleGroupFilter(
   }
 }
 
-function groupsWord(count: number): string {
-  return `${count} tale ${count === 1 ? 'group' : 'groups'}`;
+/**
+ * The one filter named when a group leaves the list: Archived, else Visible, else Off, else All
+ * (the first that lists it, most specific first).
+ */
+export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): TaleGroupFilter {
+  return (['archived', 'visible', 'off'] as const).find((filter) => inTaleGroupFilter(group, filter)) ?? 'all';
 }
 
 /**
@@ -164,7 +168,7 @@ function groupsWord(count: number): string {
         @if (store.selectedProject(); as project) {
           <section class="card section" aria-labelledby="tale-groups-title">
             <div class="section__header tale-groups__header">
-              <h2 class="section__title" id="tale-groups-title">Tale groups in {{ project.name }}</h2>
+              <h2 class="section__title" id="tale-groups-title" tabindex="-1">Tale groups in {{ project.name }}</h2>
               <button type="button" class="btn btn--primary btn--sm" id="new-project-tale-group" (click)="newGroup($event)">
                 <app-icon name="plus" /> New tale group
               </button>
@@ -195,6 +199,7 @@ function groupsWord(count: number): string {
                         [items]="menus().get(group.id) ?? []"
                         [saving]="saving().has(group.id)"
                         [anyZone]="true"
+                        [plain]="true"
                         (toggled)="switchGroup(group, $event)"
                         (picked)="picked(group, $event)"
                       >
@@ -257,7 +262,10 @@ export class TaleGroupsPage {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
-  /** `?filter=` (component input binding); the page's filter follows it on reload, back and forward. */
+  /**
+   * `?filter=` (component input binding): a reload or a shared link opens on that filter. Choosing a
+   * filter replaces the history entry, so back and forward do not step through filters.
+   */
   readonly filter = input<string | undefined>();
 
   protected readonly filters = TALE_GROUP_FILTERS;
@@ -311,7 +319,7 @@ export class TaleGroupsPage {
   protected readonly menus = computed(() => {
     const menus = new Map<string, readonly MenuItem[]>();
     const saving = this.saving();
-    const projectZones = this.store.projectZones().length;
+    const projectZoneIds = this.store.projectZones().map((zone) => zone.id);
     for (const group of this.allGroups()) {
       const status = statusActions(group.storedStatus)[0];
       const statusItem: MenuItem | null = status
@@ -322,9 +330,9 @@ export class TaleGroupsPage {
       const placeReason =
         group.storedStatus === 'archived'
           ? 'Archived. Restore it to show it in a zone'
-          : projectZones === 0
+          : projectZoneIds.length === 0
             ? 'This project has no zones yet'
-            : this.store.zonesToPlace(group.id).length === 0
+            : projectZoneIds.every((id) => group.zoneIds.includes(id))
               ? 'Already in every zone'
               : '';
       menus.set(group.id, [
@@ -342,10 +350,15 @@ export class TaleGroupsPage {
     return menus;
   });
 
-  /** The project's group ids when "New tale group" was pressed, to find the new group once its drawer closes. */
-  private idsBeforeCreate: ReadonlySet<string> | null = null;
+  /** True from "New tale group" until its drawer closes, to reveal the group it created. */
+  private creating = false;
 
   constructor() {
+    // This page lists the selected project's groups: read that list (only it, epic UX rework R14).
+    effect(() => {
+      const projectId = this.store.selectedProjectId();
+      untracked(() => this.store.ensureProjectTaleGroups(projectId));
+    });
     // A `?filter=` naming All or nothing known is dropped from the URL, in place.
     effect(() => {
       const raw = this.filter();
@@ -355,10 +368,10 @@ export class TaleGroupsPage {
     effect(() => {
       if (this.store.drawer() !== null) return;
       untracked(() => {
-        const before = this.idsBeforeCreate;
-        if (!before) return;
-        this.idsBeforeCreate = null;
-        const created = this.allGroups().find((group) => !before.has(group.id));
+        if (!this.creating) return;
+        this.creating = false;
+        const id = this.store.createdTaleGroupId();
+        const created = id ? this.allGroups().find((group) => group.id === id) : undefined;
         if (!created) return;
         if (!inTaleGroupFilter(created, this.selected())) {
           this.selected.set('all');
@@ -379,18 +392,20 @@ export class TaleGroupsPage {
     });
   }
 
-  /** Shows the groups under `filter`, keeps it in the URL (replacing the entry) and announces the count. */
+  /**
+   * Shows the groups under `filter` and keeps it in the URL, replacing the entry. Nothing is
+   * announced: the radio a person moved to reads its own count.
+   */
   protected choose(filter: TaleGroupFilter, focus = false): void {
     this.selected.set(filter);
     this.writeUrl(filter);
-    const label = TALE_GROUP_FILTERS.find((f) => f.id === filter)?.label ?? 'All';
-    this.announce(`${label}: ${groupsWord(this.groups().length)}`);
     if (focus) this.focusFilter(filter);
   }
 
   protected newGroup(event: Event): void {
     const projectId = this.store.selectedProjectId();
-    this.idsBeforeCreate = new Set(this.allGroups().map((group) => group.id));
+    this.creating = true;
+    this.store.createdTaleGroupId.set(null);
     this.store.openDrawer({ kind: 'taleGroup', zoneId: '', projectId }, event);
   }
 
@@ -424,41 +439,56 @@ export class TaleGroupsPage {
   }
 
   /**
-   * Sets a group's status and announces it with what the indicator now says. When the group leaves
-   * the list (archived, restored, or no longer under the filter), the announcement says where it is
-   * and focus goes to that filter.
+   * Sets a group's status and announces it from the API's answer, with what the indicator now says.
+   * When the group leaves the list (archived, restored, or no longer under the filter), the
+   * announcement says which filter lists it, and focus goes to the row that took its place (its
+   * switch, else its ⋯), else the row before it, else the list's heading.
    */
   private async changeStatus(group: ProjectTaleGroup, status: SettableStatus): Promise<void> {
     const id = group.id;
+    const index = this.groups().findIndex((g) => g.id === id);
     this.errors.update((errors) => {
       const next = { ...errors };
       delete next[id];
       return next;
     });
     this.saving.update((ids) => new Set(ids).add(id));
-    const message = await this.store.setTaleGroupStatus(id, status);
+    const { message, group: saved } = await this.store.changeTaleGroupStatus(id, status);
     this.saving.update((ids) => {
       const next = new Set(ids);
       next.delete(id);
       return next;
     });
-    if (message) {
+    if (message || !saved) {
       this.errors.update((errors) => ({ ...errors, [id]: message }));
       return;
     }
-    const saved = this.allGroups().find((g) => g.id === id);
-    const read: ContentStatus = saved?.status ?? status;
+    const read: ContentStatus = saved.status;
     let text =
-      `${group.name} is now ${statusLabel(read, 'group').toLowerCase()}` +
-      (saved?.visibility ? `. ${visibilityLine(saved.visibility, 'group')}` : '');
-    if (saved && !inTaleGroupFilter(saved, this.selected())) {
-      const home: TaleGroupFilter =
-        saved.storedStatus === 'archived' ? 'archived' : saved.visibility.visible ? 'visible' : 'all';
-      const label = TALE_GROUP_FILTERS.find((f) => f.id === home)?.label;
-      text += `. It is listed under ${label}.`;
-      this.focusFilter(home);
+      `${group.name} is now ${statusLabel(read, 'group').toLowerCase()}. ` + visibilityLine(saved.visibility, 'group');
+    const now = { ...group, status: saved.status, storedStatus: saved.storedStatus, visibility: saved.visibility };
+    if (!inTaleGroupFilter(now, this.selected())) {
+      text += `. It is listed under ${TALE_GROUP_FILTERS.find((f) => f.id === homeFilter(now))?.label}.`;
+      this.focusAfterLeaving(index);
     }
     this.announce(text);
+  }
+
+  // Focus for a row that left the list: the row now at its place, else the one before, else the heading.
+  private focusAfterLeaving(index: number): void {
+    afterNextRender(
+      () => {
+        const root = this.host.nativeElement;
+        const rows = [...root.querySelectorAll<HTMLElement>('.group-items > li')];
+        const row = rows[index] ?? rows[index - 1];
+        const target =
+          row?.querySelector<HTMLElement>('[role=switch]') ??
+          row?.querySelector<HTMLElement>('.menu-button__trigger') ??
+          root.querySelector<HTMLElement>('#tale-groups-title');
+        target?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   private focusFilter(filter: TaleGroupFilter): void {

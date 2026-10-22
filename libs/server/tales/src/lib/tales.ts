@@ -416,19 +416,41 @@ async function visibleTales<T extends { id: string }>(
 /** A tale group as the project's list shows it; tags are composed in by the API. */
 export type StoredProjectTaleGroup = Omit<ProjectTaleGroup, 'tags'>;
 
+// The tale counts of each group, as the project's list reads them: all tales, and those Shown (`live`).
+const COUNT_COLUMNS =
+  '(SELECT count(*) FROM tales WHERE tales.tale_group_id = tale_groups.id)::int AS "taleCount", ' +
+  `(SELECT count(*) FROM tales WHERE tales.tale_group_id = tale_groups.id AND tales.status = 'live')::int AS "shownTaleCount"`;
+
+type ProjectGroupRow = GroupRow & { taleCount: number; shownTaleCount: number };
+
+// Adds the zones each group is placed in and its visibility in any of them (R7), without its tales.
+async function asProjectGroups(db: Db, rows: ProjectGroupRow[]): Promise<StoredProjectTaleGroup[]> {
+  if (rows.length === 0) return [];
+  const ids = rows.map((g) => g.id);
+  const zoneIds = await zoneIdsOf(db, ids);
+  const visible = await groupVisibilities(db, ids, new Date());
+  return withVisibility(rows, visible).map(({ taleCount, shownTaleCount, visibility, ...row }) => ({
+    ...toGroup(row),
+    taleCount,
+    shownTaleCount,
+    zoneIds: zoneIds.get(row.id) ?? [],
+    visibility,
+  }));
+}
+
 /**
- * Every tale group of the project by name, ignoring case, with its tales, its tale count and the
- * zones it is placed in, and its visibility in any of them; a group placed in no zone is listed too
- * (AD-14, epic UX rework R14).
+ * Every tale group of the project by name, ignoring case, with its cover, its tale counts (all and
+ * Shown), the zones it is placed in and its visibility in any of them; a group placed in no zone is
+ * listed too (AD-14, epic UX rework R14). Its tales are not read: the zone lists carry them.
  */
 export async function listProjectTaleGroups(db: Db, projectId: string): Promise<StoredProjectTaleGroup[]> {
   if (!UUID.test(projectId)) return [];
-  const { rows } = await db.query<GroupRow>(
-    `SELECT ${GROUP_COLUMNS} FROM tale_groups WHERE project_id = $1
+  const { rows } = await db.query<ProjectGroupRow>(
+    `SELECT ${GROUP_COLUMNS}, ${COUNT_COLUMNS} FROM tale_groups WHERE project_id = $1
      ORDER BY lower(name), name, id`,
     [projectId],
   );
-  return (await withTales(db, rows)).map((group) => ({ ...group, taleCount: group.tales.length }));
+  return asProjectGroups(db, rows);
 }
 
 /**
@@ -443,8 +465,8 @@ export async function createProjectTaleGroup(
     `INSERT INTO tale_groups (project_id, name) VALUES ($1, $2) RETURNING ${GROUP_COLUMNS}`,
     [input.projectId, input.name],
   );
-  const [group] = await withTales(db, rows);
-  return { ...group, taleCount: 0 };
+  const [group] = await asProjectGroups(db, rows.map((row) => ({ ...row, taleCount: 0, shownTaleCount: 0 })));
+  return group;
 }
 
 /**
