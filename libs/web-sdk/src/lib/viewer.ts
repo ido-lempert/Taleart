@@ -7,7 +7,7 @@ import {
   type DeliveryTaleElement,
   type DeliveryTaleGroup,
 } from '@taleart/contract';
-import { prefersReducedMotion } from './bar';
+import { prefersReducedMotion, stillCover } from './bar';
 import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
@@ -21,6 +21,27 @@ export const VIDEO_STALL_MS = 5000;
 export const SWIPE_MIN_PX = 50;
 /** A press at least this long is a hold (pause), not a tap (step). */
 export const HOLD_MIN_MS = 250;
+
+/**
+ * A wide screen (a desktop window): the tale shows as a card in the middle, the group's other tales
+ * as smaller cards beside it, with arrows by the card and the neighbouring groups in the corners.
+ */
+export const WIDE_QUERY = '(min-width: 768px) and (min-aspect-ratio: 1/1)';
+/** How many of the group's other tales show on each side of the card. */
+export const DECK_SIDE = 3;
+/** The side cards' size against the card's. */
+export const DECK_SCALE = 0.6;
+// The gap between the card and the first side card, and between side cards, in px.
+const DECK_GAP = 56;
+const DECK_SIDE_GAP = 20;
+/** How long the deck moves when the tale or the group changes. */
+export const DECK_MS = 380;
+const DECK_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+const SIDE_FILTER = 'brightness(0.45)';
+
+function isWide(): boolean {
+  return typeof matchMedia === 'function' && matchMedia(WIDE_QUERY).matches;
+}
 
 /**
  * Full-screen viewer look, on black. The project's theme (R9) sets the font
@@ -141,13 +162,94 @@ span.media { background: #1f2937; }
   .segment { forced-color-adjust: none; background: GrayText; }
   .fill { forced-color-adjust: none; background: CanvasText; }
 }
+.side, .nav, .chip { display: none; }
+@media ${WIDE_QUERY} {
+  .viewer {
+    --card-w: min(calc(88vh * 9 / 16), 36vw);
+    --card-h: calc(var(--card-w) * 16 / 9);
+    background: #0b0d12;
+  }
+  .viewer::backdrop { background: #0b0d12; }
+  .frame, .side {
+    position: absolute;
+    top: calc(50% - var(--card-h) / 2);
+    left: calc(50% - var(--card-w) / 2);
+    width: var(--card-w);
+    max-width: none;
+    height: var(--card-h);
+    margin: 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .frame { z-index: 2; background: #000; }
+  .side { display: block; z-index: 1; background: #111827; cursor: pointer; filter: ${SIDE_FILTER}; }
+  .side:hover { filter: brightness(0.6); }
+  .nav { display: grid; position: absolute; top: calc(50% - 22px); z-index: 3; }
+  .nav.prev { inset-inline-start: calc(50% - var(--card-w) / 2 - 56px); }
+  .nav.next { inset-inline-start: calc(50% + var(--card-w) / 2 + 12px); }
+  .chip {
+    display: flex;
+    position: absolute;
+    bottom: 24px;
+    z-index: 3;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    max-width: 260px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #fff;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+  .chip[hidden] { display: none; }
+  .chip.prev { inset-inline-start: 24px; }
+  .chip.next { inset-inline-end: 24px; align-items: flex-end; }
+  .chip:focus-visible { outline: none; }
+  .chip:focus-visible .chip-body { outline: 2px solid #fff; outline-offset: 2px; }
+  .chip-label { font-size: 12px; font-weight: 600; opacity: 0.8; }
+  .chip-body {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .chip:hover .chip-body { background: rgba(255, 255, 255, 0.14); }
+  .chip-cover {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #1f2937;
+    box-shadow: 0 0 0 2px #fff;
+  }
+  .chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip svg, .nav svg { flex: none; width: 20px; height: 20px; fill: currentColor; }
+  .viewer[data-rtl] .chip svg, .viewer[data-rtl] .nav svg { transform: scaleX(-1); }
+}
 ${DOCUMENT_STYLES}`;
 
 const ICONS = {
   pause: 'M6 5h4v14H6zM14 5h4v14h-4z',
   play: 'M7 4.5v15L19.5 12z',
   close: 'M18.3 7.1 16.9 5.7 12 10.6 7.1 5.7 5.7 7.1l4.9 4.9-4.9 4.9 1.4 1.4 4.9-4.9 4.9 4.9 1.4-1.4-4.9-4.9z',
+  chevronBack: 'M15.4 7.4 14 6l-6 6 6 6 1.4-1.4-4.6-4.6z',
+  chevronForward: 'M8.6 16.6 10 18l6-6-6-6-1.4 1.4 4.6 4.6z',
+  arrowBack: 'M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z',
+  arrowForward: 'M4 11h12.2l-5.6-5.6L12 4l8 8-8 8-1.4-1.4 5.6-5.6H4z',
 };
+
+// How the deck moves into place: the viewer opens, the group changes, the tale steps, or no motion.
+type DeckMotion = 'open' | 'group' | 'step' | 'none';
+
+const CARD_KEYFRAME: Keyframe = { transform: 'translateX(0px) scale(1)', filter: 'none', opacity: 1 };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -174,7 +276,7 @@ function inText(e: Event): boolean {
   return !!(e.target as Element | null)?.closest?.('.ta-text');
 }
 
-export function setIcon(button: HTMLButtonElement, path: string): void {
+export function setIcon(button: HTMLElement, path: string): void {
   button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${path}"/></svg>`;
 }
 
@@ -204,13 +306,19 @@ export class TaleViewer {
   private readonly groups: readonly DeliveryTaleGroup[];
   private dialog: HTMLDialogElement | null = null;
   private parts!: {
+    frame: HTMLElement;
     segments: HTMLElement;
     name: HTMLElement;
     pause: HTMLButtonElement;
     stage: HTMLElement;
     top: HTMLElement;
     status: HTMLElement;
+    chipPrev: HTMLButtonElement;
+    chipNext: HTMLButtonElement;
   };
+  // On a wide screen, the group's other tales beside the card, by their index in the group.
+  private sides = new Map<number, HTMLElement>();
+  private entering = false; // the next show() is the one that opens the viewer
   private group = 0;
   private tale = 0;
   private media: HTMLElement | null = null;
@@ -235,6 +343,9 @@ export class TaleViewer {
   private rtl = false; // the host page lays out right to left: tap zones, arrows and swipes mirror
   private statusTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly onBlur = () => this.onPointerCancel();
+  private readonly onResize = () => {
+    if (this.opened) this.layoutDeck('none', this.group, this.tale);
+  };
 
   constructor(
     private readonly root: ShadowRoot | HTMLElement,
@@ -274,6 +385,8 @@ export class TaleViewer {
     dialog.toggleAttribute('data-rtl', this.rtl);
     dialog.focus();
     addEventListener('blur', this.onBlur);
+    addEventListener('resize', this.onResize);
+    this.entering = true;
     this.show(index, 0, true);
     return true;
   }
@@ -290,6 +403,8 @@ export class TaleViewer {
     clearTimeout(this.statusTimer);
     this.parts.status.textContent = '';
     removeEventListener('blur', this.onBlur);
+    removeEventListener('resize', this.onResize);
+    this.clearSides();
     if (typeof dialog.close === 'function' && dialog.open) dialog.close();
     else dialog.removeAttribute('open');
     this.options.onClose?.(groupId);
@@ -361,7 +476,24 @@ export class TaleViewer {
     const status = el('p', 'sr-only');
     status.setAttribute('aria-live', 'polite');
     frame.append(stage, top, status);
-    dialog.appendChild(frame);
+    // Wide screens only (CSS): arrows by the card, and the neighbouring groups in the corners.
+    const navPrev = el('button', 'control nav prev');
+    navPrev.type = 'button';
+    navPrev.setAttribute('aria-label', 'Previous tale');
+    setIcon(navPrev, ICONS.chevronBack);
+    const navNext = el('button', 'control nav next');
+    navNext.type = 'button';
+    navNext.setAttribute('aria-label', 'Next tale');
+    setIcon(navNext, ICONS.chevronForward);
+    const chipPrev = el('button', 'chip prev');
+    chipPrev.type = 'button';
+    const chipNext = el('button', 'chip next');
+    chipNext.type = 'button';
+    dialog.append(frame, navPrev, navNext, chipPrev, chipNext);
+    navPrev.addEventListener('click', () => this.previous());
+    navNext.addEventListener('click', () => this.next());
+    chipPrev.addEventListener('click', () => this.previousGroup());
+    chipNext.addEventListener('click', () => this.nextGroup());
 
     // One click handler for both zones: with pointer capture a tap's click may target the stage.
     stage.addEventListener('click', (e) => this.onStageClick(e));
@@ -404,7 +536,7 @@ export class TaleViewer {
 
     this.root.appendChild(dialog);
     this.dialog = dialog;
-    this.parts = { segments, name, pause, stage, top, status };
+    this.parts = { frame, segments, name, pause, stage, top, status, chipPrev, chipNext };
     return dialog;
   }
 
@@ -494,6 +626,7 @@ export class TaleViewer {
     if (!this.dialog || !this.opened) return;
     this.stop();
     const g = this.groups[group];
+    const [fromGroup, fromTale] = [this.group, this.tale];
     this.group = group;
     this.tale = tale;
     const { segments, name, stage, status } = this.parts;
@@ -561,6 +694,12 @@ export class TaleViewer {
         this.alongside.push(docVideo);
       }
     }
+    let motion: DeckMotion = 'none';
+    if (this.entering) motion = 'open';
+    else if (group !== fromGroup) motion = 'group';
+    else if (tale !== fromTale) motion = 'step';
+    this.entering = false;
+    this.layoutDeck(motion, fromGroup, fromTale);
     this.options.onGroupShown?.(g.id);
     if (this.reduced) {
       // Reduced motion: every tale starts paused; only a video can be played, from the button.
@@ -570,6 +709,143 @@ export class TaleViewer {
     }
     if (this.video) this.applyPause();
     else this.startTimed();
+  }
+
+  // On a wide screen, lays out the deck around the card: the group's other tales as side cards, in
+  // order (the next to the right, or to the left right to left). Stepping slides the deck like a
+  // carousel, the card growing out of its side card; a new group deals its cards like a shuffle.
+  // Narrow screens show the card alone. Under reduced motion nothing moves.
+  private layoutDeck(motion: DeckMotion, fromGroup: number, fromTale: number): void {
+    if (!this.dialog) return;
+    this.syncChips();
+    if (!isWide()) {
+      this.clearSides();
+      return;
+    }
+    const { frame } = this.parts;
+    const width = frame.offsetWidth;
+    const g = this.groups[this.group];
+    const animate = motion !== 'none' && !this.reduced && typeof frame.animate === 'function';
+    const timing = (delay = 0): KeyframeAnimationOptions => ({
+      duration: DECK_MS,
+      easing: DECK_EASING,
+      delay,
+      fill: 'backwards',
+    });
+    // Within the group the side cards move along; a new group deals a fresh deck.
+    const moving = motion === 'step' || motion === 'none';
+    const old = moving ? this.sides : new Map<number, HTMLElement>();
+    if (!moving) this.clearSides();
+    const sides = new Map<number, HTMLElement>();
+    const first = Math.max(0, this.tale - DECK_SIDE);
+    const last = Math.min(g.tales.length - 1, this.tale + DECK_SIDE);
+    for (let i = first; i <= last; i++) {
+      if (i === this.tale) continue;
+      const k = i - this.tale;
+      const to = this.slot(k, width);
+      let side = old.get(i);
+      let from: Keyframe;
+      if (side) {
+        old.delete(i);
+        from = this.slot(i - fromTale, width);
+      } else {
+        side = this.side(g.tales[i], i);
+        frame.before(side);
+        // The tale that was the card shrinks into its place; the others come in from the far end.
+        if (motion === 'step') from = i === fromTale ? CARD_KEYFRAME : { ...this.slot(k + Math.sign(k), width), opacity: 0 };
+        else from = { ...to, opacity: 0 };
+      }
+      side.style.transform = String(to['transform']);
+      if (animate) side.animate([from, to], timing(motion === 'step' ? 0 : 60 * Math.abs(k)));
+      sides.set(i, side);
+    }
+    // Side cards that left the deck: the one that became the card goes at once, the others slide out.
+    for (const [i, side] of old) {
+      if (!animate || i === this.tale) {
+        side.remove();
+        continue;
+      }
+      const k = i - this.tale;
+      const out = side.animate([this.slot(i - fromTale, width), { ...this.slot(k + Math.sign(k), width), opacity: 0 }], timing());
+      out.onfinish = () => side.remove();
+    }
+    this.sides = sides;
+    if (!animate) return;
+    if (motion === 'step') frame.animate([this.slot(this.tale - fromTale, width), CARD_KEYFRAME], timing());
+    else if (motion === 'group') {
+      const dir = (this.group > fromGroup ? 1 : -1) * (this.rtl ? -1 : 1);
+      frame.animate(
+        [{ transform: `translateX(${dir * width * 0.7}px) rotate(${dir * 6}deg) scale(0.85)`, opacity: 0 }, CARD_KEYFRAME],
+        timing(),
+      );
+    } else frame.animate([{ transform: 'translateX(0px) scale(0.92)', opacity: 0 }, CARD_KEYFRAME], timing());
+  }
+
+  // The place of the side card `k` tales from the card (0 is the card itself), for a card `width` px wide.
+  private slot(k: number, width: number): Keyframe {
+    if (k === 0) return CARD_KEYFRAME;
+    const dir = Math.sign(k) * (this.rtl ? -1 : 1);
+    const side = DECK_SCALE * width;
+    const x = dir * (width / 2 + DECK_GAP + side / 2 + (Math.abs(k) - 1) * (side + DECK_SIDE_GAP));
+    return { transform: `translateX(${x}px) scale(${DECK_SCALE})`, filter: SIDE_FILTER, opacity: 1 };
+  }
+
+  // A side card: the tale drawn still and silent, hidden from assistive technology (the arrows and
+  // keys reach it); a click shows it.
+  private side(tale: DeliveryTale, index: number): HTMLElement {
+    const side = el('div', 'side');
+    side.setAttribute('aria-hidden', 'true');
+    const doc = tale.document;
+    if (doc) {
+      loadTaleFonts(tale);
+      side.appendChild(renderTaleDocument(doc, { background: true, reducedMotion: true }));
+    } else {
+      const url = mediaUrl(tale.media?.url);
+      if (tale.media?.kind === 'image' && url) {
+        const img = el('img', 'media');
+        img.alt = '';
+        img.src = url;
+        img.draggable = false;
+        side.appendChild(img);
+      }
+    }
+    for (const video of side.querySelectorAll('video')) {
+      video.autoplay = false;
+      video.muted = true;
+      video.preload = 'metadata';
+    }
+    side.addEventListener('click', () => this.show(this.group, index));
+    return side;
+  }
+
+  private clearSides(): void {
+    this.dialog?.querySelectorAll('.side').forEach((side) => side.remove());
+    this.sides.clear();
+  }
+
+  // The neighbouring groups' chips in the corners (wide screens), hidden where there is none.
+  private syncChips(): void {
+    this.fillChip(this.parts.chipPrev, this.groups[this.group - 1], 'Previous', true);
+    this.fillChip(this.parts.chipNext, this.groups[this.group + 1], 'Next', false);
+  }
+
+  private fillChip(chip: HTMLButtonElement, group: DeliveryTaleGroup | undefined, label: string, back: boolean): void {
+    chip.hidden = !group;
+    if (!group || chip.dataset['group'] === group.id) return;
+    chip.dataset['group'] = group.id;
+    chip.setAttribute('aria-label', `${label} group: ${group.name}`);
+    const heading = el('span', 'chip-label');
+    heading.textContent = label;
+    const cover = stillCover(group);
+    cover.className = 'chip-cover';
+    const name = el('span', 'chip-name');
+    name.dir = 'auto';
+    name.textContent = group.name;
+    const arrow = el('span', 'chip-arrow');
+    setIcon(arrow, back ? ICONS.arrowBack : ICONS.arrowForward);
+    const body = el('span', 'chip-body');
+    body.append(...(back ? [arrow, cover, name] : [cover, name, arrow]));
+    chip.replaceChildren(heading, body);
   }
 
   // A tale's media sent outside a document (servers before R16), exactly as the viewer drew it: an
