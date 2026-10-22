@@ -2068,14 +2068,14 @@ describe('Management API v1: projects and zones', () => {
       expect(groups).toEqual([
         {
           id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [],
-          // The whole group (epic UX rework R14): tales, cover and tags, so the Tale groups page needs no zone list.
-          cover: null, tags: [], tales: [expect.objectContaining({ title: 'Beach', taleGroupId: a.id })],
+          // Cover, tags and counts (epic UX rework R14), but not the tales: the zone lists carry them.
+          cover: null, tags: [], shownTaleCount: 1,
           // In no zone (R7); its one tale has nothing published either.
           visibility: notVisible(why('group-off', 'group'), why('not-in-any-zone', 'group'), why('no-shown-tales', 'group')),
         },
-        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tales: [], visibility: SOME_VISIBILITY },
-        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], tales: [], visibility: SOME_VISIBILITY },
-        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tales: [], visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
@@ -2094,8 +2094,9 @@ describe('Management API v1: projects and zones', () => {
       const created = await res.json();
       expect(created).toMatchObject({
         projectId: project.id, name: 'Loose', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null,
-        cover: null, tags: [], tales: [], taleCount: 0, zoneIds: [],
+        cover: null, tags: [], taleCount: 0, shownTaleCount: 0, zoneIds: [],
       });
+      expect(created).not.toHaveProperty('tales');
       expect(created.visibility.visible).toBe(false);
       expect(created.visibility.reasons.map((r: { code: string }) => r.code)).toContain('not-in-any-zone');
 
@@ -2106,6 +2107,19 @@ describe('Management API v1: projects and zones', () => {
 
       const blank = await post(`/projects/${project.id}/tale-groups`, { name: '  ' });
       expect(blank.status).toBe(400);
+      // At most 100 characters (code points), after trimming; the zone's create and rename agree.
+      const long = 'é'.repeat(101);
+      for (const [method, path] of [
+        ['POST', `/projects/${project.id}/tale-groups`],
+        ['POST', `/zones/${(await zoneIn(project.id, 'Long names')).id}/tale-groups`],
+        ['PATCH', `/tale-groups/${created.id}`],
+      ]) {
+        const res = await send(method, path, { name: long });
+        expect({ path, status: res.status }).toEqual({ path, status: 400 });
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      expect((await post(`/projects/${project.id}/tale-groups`, { name: ` ${'é'.repeat(100)} ` })).status).toBe(201);
+      expect((await pool.query('SELECT 1 FROM tale_groups WHERE length(name) > 100')).rowCount).toBe(0);
       for (const id of [unknownId, 'nope']) {
         const missing = await post(`/projects/${id}/tale-groups`, { name: 'X' });
         expect(missing.status).toBe(404);
@@ -3901,6 +3915,7 @@ describe('Management API v1: projects and zones', () => {
         ['PUT', `/zones/${b.zone.id}/tale-groups/${a.group.id}`],
         ['DELETE', `/zones/${b.zone.id}/tale-groups/${b.group.id}`],
         ['GET', `/projects/${b.project.id}/tale-groups`],
+        ['POST', `/projects/${b.project.id}/tale-groups`, { name: 'Mine' }],
         ['PATCH', `/tale-groups/${b.group.id}`, { name: 'Mine' }],
         ['PUT', `/tale-groups/${b.group.id}/status`, { status: 'live' }],
         ['PUT', `/tales/${b.tale.id}/status`, { status: 'paused' }],
@@ -3920,6 +3935,8 @@ describe('Management API v1: projects and zones', () => {
       });
       expect(upload.status).toBe(403);
       expect((await pool.query('SELECT 1 FROM zones WHERE name = $1', ['Mine'])).rowCount).toBe(0);
+      // Neither the zone's create nor the project's (R14) made a group.
+      expect((await pool.query('SELECT 1 FROM tale_groups WHERE name = $1', ['Mine'])).rowCount).toBe(0);
       expect((await pool.query('SELECT 1 FROM tags')).rowCount).toBe(0);
       expect((await pool.query('SELECT 1 FROM zone_tale_groups')).rowCount).toBe(2);
       expect((await pool.query("SELECT 1 FROM tale_groups WHERE status <> 'draft'")).rowCount).toBe(0);

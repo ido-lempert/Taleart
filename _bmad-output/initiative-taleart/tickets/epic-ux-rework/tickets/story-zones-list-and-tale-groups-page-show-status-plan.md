@@ -40,10 +40,10 @@ deferred: []
   - **Not in a zone** (`unplaced`): `zoneIds` empty.
   - **Archived** (`archived`): stored `archived`.
   - Overlaps: Scheduled overlaps Visible, Off and Not in a zone; Not in a zone overlaps Off and Scheduled. Visible never overlaps Off or Not in a zone. A group that is On but not visible (no shown tales, zone not set up, window not open, process key) shows under All only, unless it is scheduled.
-- Filter control: native radios in a `fieldset` with legend, each label with its count; an unknown `?filter=` reads as All; changing the filter replaces the history entry and is announced ("Showing 2 of 7 tale groups: Visible").
+- Filter control: native radios in a `fieldset` with legend, each label with its count; an unknown `?filter=` reads as All; changing the filter replaces the history entry (back and forward do not step through filters) and is not announced, since the radio reads its own count.
 - Shared row: `GroupRow` takes the group, its count text, the ⋯ items and its saving state, emits the switch and menu picks; host-specific parts (reorder cell, name control, extra meta such as "In: zones") are projected. The zone page keeps its behaviour and markup classes; its change is limited to using the component.
 - Tale groups page ⋯ menu: Rename, Cover, Tags, Schedule, Show in another zone, Copy to zone, Archive/Restore; no "Remove from this zone". "Show in another zone" disabled with "Restore it to show it in a zone" for an archived group, "Already in every zone" when placed everywhere.
-- The project list `GET /projects/{id}/tale-groups` returns full groups (tales, cover, tags) plus `taleCount`, so the row and every ⋯ drawer work for a group in no zone.
+- The project list `GET /projects/{id}/tale-groups` returns each group's own fields, cover, tags and visibility with `taleCount` and `shownTaleCount`, not its tales, and is read only for the projects a page needs.
 - "New tale group" from the Tale groups page: the existing create drawer with a Zone select (the project's zones and "Not in a zone"); "Not in a zone" calls the new `POST /projects/{id}/tale-groups`.
 - WCAG 2.2 AA; 390 px no horizontal scroll; dashboard initial bundle under 500 kB (new code in lazy chunks).
 
@@ -106,3 +106,22 @@ deferred: []
 
 **Manual checks:**
 - Playwright (`shots-8.14/`, ports 3398/4298/4398, own `_test` DBs): 63 checks passed (also after merging autopilot/foundation 8906799), including each filter's exact list, URL and announcement, arrow keys, reload, the adapted menu and its disabled reason, New tale group in no zone and in a zone, the switch, zone cards before and after a site key, the zone page's rows (regression of the extraction), 390 px with no horizontal scroll, and axe (WCAG 2.2 AA tags) on every view.
+
+## Review fixes (2026-10-22)
+
+- **Lighter project list.** `ProjectTaleGroup` is the group without `tales`, with `cover`, `tags`, `visibility`, `taleCount` and a server-computed `shownTaleCount` (tales stored `live`). The row takes either shape (`GroupRowData`). Payload for a 20-group × 100-tale project: see Verification.
+- **Read only where needed.** `store.ensureProjectTaleGroups(projectId)` reads a project's list when a page asks (Tale groups page: the selected project; zone page: its zone's project, for "Add existing group"; Duplicate: the tale's project); each refresh then re-reads only those. A refresh started meanwhile wins over that read.
+- **One lookup for a group's own fields:** `store.groupSummary(id)` (project list first, else a zone list) in `zonesToPlace` and the rename, place, copy, tags, schedule and cover drawers. `store.taleGroup(id)` stays the zone lists' group with tales. `store.tale()` has no project-list fallback: the project list carries no tales.
+- **Patched from answers:** a group's status change patches `status`, `storedStatus`, `visibility`, `taleCount` and `shownTaleCount` in the project lists from the PUT's answer; a tale's status change patches the group's `shownTaleCount`. The Tale groups page announces from the PUT's answer (`changeTaleGroupStatus`).
+- **Where a group went:** the first of Archived, Visible, Off, All that lists it. Focus goes to the row now in its place (its switch, else its ⋯), else the row before, else the list heading (`tabindex=-1`); never to a radio that is not checked.
+- **No announcement on a filter change**; the radio reads its count.
+- **Create** records the new group's id (`store.createdTaleGroupId`), which the page uses to reveal it.
+- **Menus** compute "every zone" from the project's zone ids once per menu build.
+- **Drawer context** says "In zone <name>" when a zone is picked, else "In project <name>".
+- **No-lead row** is a modifier (`[plain]` → `group-row--plain`), not `:has`; the zone page's row, also while a tag filter is on, is as in 8.10.
+- **Names** of tale groups: at most 100 characters (`MAX_TALE_GROUP_NAME_LENGTH`, code points, after trimming) on both creates and rename (`maxLength` in the contract, 400 `validation_failed`).
+- **Cross-project 403** matrix includes `POST /projects/{other}/tale-groups`; nothing is created.
+
+### Follow-ups
+- **A per-project cap on tale groups** (none today); the create in no zone makes unbounded growth easier.
+- **Groups in no zone cannot get tales yet**: there is no tale strip on the Tale groups page. Story 8.11's group view should open from this page's row name (`[groupRowName]` slot) so such a group can be filled.

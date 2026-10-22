@@ -63,14 +63,15 @@ const signedIn = { setupRequired: false, user: admin };
 const frameBar = { id: 'f1', zoneId: 'z1', projectId: 'p1', type: 'bar', settings: {} };
 
 /**
- * A tale group as the project's list sends it (epic UX rework R14): the whole group with its tales,
- * plus `taleCount`; `tales` live tales unless given, Off (`draft`) in no zone and not visible by default.
+ * A tale group as the project's list sends it (epic UX rework R14): its own fields and its tale
+ * counts, not its tales; `tales` Shown tales (or the counts of `fields.tales`), Off (`draft`) in no
+ * zone and not visible by default.
  */
 function projectGroup(fields: Record<string, unknown> & { id: string; name: string }, tales = 0): Record<string, unknown> {
   const stored = (fields['storedStatus'] as string | undefined) ?? (fields['status'] as string | undefined) ?? 'draft';
-  const list =
-    (fields['tales'] as unknown[] | undefined) ??
-    Array.from({ length: tales }, (_, i) => ({ ...taleA, id: `${fields.id}-t${i}`, taleGroupId: fields.id, position: i }));
+  const { tales: given, ...own } = fields as { tales?: { storedStatus: string }[] };
+  const total = given ? given.length : tales;
+  const shown = given ? given.filter((t) => t.storedStatus === 'live').length : tales;
   return {
     projectId: 'p1',
     status: stored,
@@ -81,9 +82,9 @@ function projectGroup(fields: Record<string, unknown> & { id: string; name: stri
     tags: [],
     zoneIds: [],
     visibility: { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] },
-    ...fields,
-    tales: list,
-    taleCount: list.length,
+    ...own,
+    taleCount: total,
+    shownTaleCount: shown,
   };
 }
 
@@ -211,14 +212,28 @@ describe('App', () => {
     for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/site-key'))) req.flush(null);
   }
 
+  // A project's tale group list is read only where a page needs it (epic UX rework R14), by the
+  // refresh or on its own: answers every such read waiting now.
+  // The data the last refresh answered with: a page opened later reads its project's list from it.
+  let lastData: Data = {};
+  function flushProjectGroups(data: Data = lastData): void {
+    for (const req of http.match((r) => r.method === 'GET' && /\/projects\/[^/]+\/tale-groups$/.test(r.url))) {
+      const projectId = req.request.url.split('/').at(-2) ?? '';
+      req.flush(data.projectGroups?.[projectId] ?? []);
+    }
+  }
+
   afterEach(() => {
     flushSiteKeys();
+    flushProjectGroups({});
+    lastData = {};
     http.verify();
   });
 
   // Answers one full refresh: projects, zones (each with its slug and display), frame types, each zone's tale
   // groups, each project's tags and tale groups, then the site key card's own request.
   async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data): Promise<void> {
+    lastData = data;
     const zones = data.zones ?? [];
     http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
     await settle(fixture);
@@ -238,11 +253,10 @@ describe('App', () => {
     await settle(fixture);
     for (const p of data.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(data.tags?.[p.id] ?? []);
     await settle(fixture);
-    for (const p of data.projects ?? []) {
-      http.expectOne(`${API_BASE}/projects/${p.id}/tale-groups`).flush(data.projectGroups?.[p.id] ?? []);
-    }
+    flushProjectGroups(data);
     await settle(fixture);
     flushSiteKeys();
+    flushProjectGroups(data);
     await settle(fixture);
   }
 
@@ -253,6 +267,8 @@ describe('App', () => {
     await new Promise((resolve) => setTimeout(resolve));
     for (const req of http.match(`${API_BASE}/auth/state`)) req.flush(state);
     await navigation;
+    await settle(fixture);
+    flushProjectGroups();
     await settle(fixture);
   }
 
@@ -4203,6 +4219,19 @@ describe('App', () => {
       archived: ['Archived one'],
     };
 
+    // A group as the status route answers it: the whole group, read in any zone.
+    const saved = (listed: Record<string, unknown>, status: string, visibility: unknown) => ({
+      ...listed,
+      status,
+      storedStatus: status,
+      visibility,
+      tales: Array.from({ length: listed['taleCount'] as number }, (_, i) => ({ ...taleA, id: `${listed['id']}-t${i}` })),
+    });
+    // The data with one group's status and visibility changed, as the refresh after a change reads it.
+    const changed = (index: number, status: string, visibility: unknown): Data => ({
+      ...data,
+      projectGroups: { p1: states.map((g, i) => (i === index ? { ...g, status, storedStatus: status, visibility } : g)) },
+    });
     const names = (root: HTMLElement) =>
       [...root.querySelectorAll<HTMLElement>('.group-items > li h3')].map((h) => h.textContent?.trim());
     const radio = (root: HTMLElement, id: string) =>
@@ -4227,7 +4256,8 @@ describe('App', () => {
         expect(radio(root, id).checked).toBe(true);
         expect(names(root)).toEqual(expected[id]);
         expect(url()).toBe(id === 'all' ? '/tale-groups' : `/tale-groups?filter=${id}`);
-        expect(live(root)).toMatch(new RegExp(`: ${expected[id].length} tale group`));
+        // The radio reads its own count: nothing is announced on a change of filter.
+        expect(live(root)).toBe('');
       }
       // The list is named by its filter.
       radio(root, 'off').click();
@@ -4300,21 +4330,37 @@ describe('App', () => {
       expect(items.map((i) => i.label)).toContain('Restore');
       expect(items.map((i) => i.label)).not.toContain('Remove from this zone');
 
-      // Restore: the group leaves Archived; the page says where it went and focuses that filter.
+      // Restore: the group leaves Archived. The page says, from the API's answer, which filter lists it
+      // now; no row is left, so focus goes to the list's heading, not to a radio that is not checked.
       pickMenuItem(row, 'More for Archived one', 'Restore');
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tale-groups/g1/status`);
       expect(req.request.body).toEqual({ status: 'paused' });
-      req.flush({ ...states[0], status: 'paused', storedStatus: 'paused' });
+      req.flush(saved(states[0], 'paused', why('group-off')));
       await settle(fixture);
-      await flushRefresh(fixture, {
-        ...data,
-        projectGroups: { p1: [{ ...states[0], status: 'paused', storedStatus: 'paused', visibility: why('group-off') }, ...states.slice(1)] },
-      });
+      await flushRefresh(fixture, changed(0, 'paused', why('group-off')));
       await settle(fixture);
-      expect(names(root)).toEqual([]);
-      expect(live(root)).toBe('Archived one is now off. Not visible: group is off. It is listed under All.');
-      expect(document.activeElement).toBe(radio(root, 'all'));
+      expect(live(root)).toBe('Archived one is now off. Not visible: group is off. It is listed under Off.');
+      expect(document.activeElement).toBe(root.querySelector('#tale-groups-title'));
+      expect(radio(root, 'archived').checked).toBe(true);
+    });
+
+    it('turns a Visible group Off: says it is listed under Off and focuses the next row', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=visible', data);
+      expect(names(root)).toEqual(['Ends later', 'Visible now']);
+      const first = root.querySelector<HTMLElement>('.group-items > li') as HTMLElement;
+      (first.querySelector('[role=switch]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g3/status`);
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush(saved(states[2], 'paused', why('group-off')));
+      await settle(fixture);
+      // Patched from the answer before the refresh answers: the row has left Visible.
+      expect(names(root)).toEqual(['Visible now']);
+      await flushRefresh(fixture, changed(2, 'paused', why('group-off')));
+      await settle(fixture);
+      expect(live(root)).toBe('Ends later is now off. Not visible: group is off. It is listed under Off.');
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Visible now on site');
     });
 
     it('turns a group On from its switch and announces what the indicator says', async () => {
@@ -4324,13 +4370,13 @@ describe('App', () => {
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tale-groups/g5/status`);
       expect(req.request.body).toEqual({ status: 'live' });
-      req.flush({ ...states[4], status: 'live', storedStatus: 'live' });
+      req.flush(saved(states[4], 'live', VISIBLE));
       await settle(fixture);
-      const on = { ...states[4], status: 'live', storedStatus: 'live', visibility: VISIBLE };
-      await flushRefresh(fixture, { ...data, projectGroups: { p1: [...states.slice(0, 4), on, ...states.slice(5)] } });
+      await flushRefresh(fixture, changed(4, 'live', VISIBLE));
       await settle(fixture);
       expect(live(root)).toBe('Paused here is now on. Visible on site. It is listed under Visible.');
-      expect(document.activeElement).toBe(radio(root, 'visible'));
+      // It was the last row: focus goes to the row before it.
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Draft loose on site');
       expect(names(root)).toEqual(['Draft loose']);
     });
 
@@ -4370,6 +4416,7 @@ describe('App', () => {
       await settle(fixture);
       choose(drawer()?.querySelector<HTMLSelectElement>('#create-group-zone') ?? null, 'z3');
       await settle(fixture);
+      expect(drawer()?.textContent).toContain('In zone Product page');
       type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Placed');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);

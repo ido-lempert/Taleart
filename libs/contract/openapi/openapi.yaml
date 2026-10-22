@@ -2632,19 +2632,63 @@ components:
               minimum: 0
               description: Order within this zone; the zone's lists are sorted by it.
     ProjectTaleGroup:
+      type: object
       description: >-
-        A tale group as the project's list shows it: the whole group, with its
-        tales, cover, tags and visibility in any zone it is placed in, and its
-        tale count (epic UX rework R14).
-      allOf:
-        - $ref: '#/components/schemas/TaleGroup'
-        - type: object
-          required: [taleCount]
-          properties:
-            taleCount:
-              type: integer
-              minimum: 0
-              maximum: 100
+        A tale group as the project's list shows it (epic UX rework R14): the
+        group's own fields, cover, tags and visibility in any zone it is placed
+        in, with its tale counts instead of its tales, so the list stays small.
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tags, visibility, taleCount, shownTaleCount]
+      properties:
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+          description: Whether the group is visible on the site now, in any zone it is placed in (epic UX rework R7).
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/ContentStatus'
+          description: The group's status as read (AD-6), as on `TaleGroup`.
+        storedStatus:
+          $ref: '#/components/schemas/ContentStatus'
+          description: The status key a person set (AD-6).
+        startsAt:
+          type: [string, 'null']
+          format: date-time
+          description: Start of the window, ISO 8601 UTC, or null for no start (AD-6).
+        endsAt:
+          type: [string, 'null']
+          format: date-time
+          description: End of the window, ISO 8601 UTC, or null for no end (AD-6).
+        cover:
+          description: The group's cover, or null when it has none, as on `TaleGroup`.
+          oneOf:
+            - $ref: '#/components/schemas/TaleGroupCover'
+            - type: 'null'
+        zoneIds:
+          type: array
+          description: Every zone the group is placed in, in the order it was placed; empty when none.
+          items:
+            type: string
+            format: uuid
+        tags:
+          type: array
+          description: The group's tags, by name ignoring case.
+          items:
+            $ref: '#/components/schemas/TaleGroupTag'
+        taleCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        shownTaleCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: The group's tales that are Shown (stored `live`, AD-6 amended).
     Tag:
       type: object
       required: [id, projectId, name]
@@ -2694,6 +2738,8 @@ components:
         name:
           type: string
           minLength: 1
+          maxLength: 100
+          description: Trimmed before it is checked and stored; at most 100 characters.
     RenameTaleGroupRequest:
       type: object
       required: [name]
@@ -2701,6 +2747,7 @@ components:
         name:
           type: string
           minLength: 1
+          maxLength: 100
           description: Trimmed before it is checked and stored.
     CopyTaleGroupRequest:
       type: object

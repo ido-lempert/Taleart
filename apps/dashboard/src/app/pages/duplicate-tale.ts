@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, linkedSignal, output, signal, untracked } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   ErrorCodes,
@@ -132,6 +132,12 @@ export class DuplicateTale {
   private readonly http = inject(HttpClient);
   /** The tale to duplicate. */
   readonly tale = input.required<Tale>();
+
+  // The target groups come from the tale's project's list (epic UX rework R14): read it when it is not yet.
+  private readonly readsProjectGroups = effect(() => {
+    const projectId = this.tale().projectId;
+    untracked(() => this.store.ensureProjectTaleGroups(projectId));
+  });
   /** Where focus goes when the drawer closes. */
   readonly returnFocus = input<HTMLElement | null | (() => HTMLElement | null)>(null);
   /** Emitted once the copy exists; the project's groups are read again in the background. */

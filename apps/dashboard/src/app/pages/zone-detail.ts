@@ -11,6 +11,7 @@ import {
   input,
   linkedSignal,
   signal,
+  untracked,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
@@ -343,6 +344,11 @@ export class ZoneDetailPage {
   });
 
   constructor() {
+    // "Add existing group" lists the zone's project's groups: read that list (epic UX rework R14).
+    effect(() => {
+      const projectId = this.zone()?.projectId;
+      if (projectId) untracked(() => this.store.ensureProjectTaleGroups(projectId));
+    });
     // A `?tab=` that names the default or no tab is dropped from the URL, without a history entry.
     effect(() => {
       const tab = this.tab();
