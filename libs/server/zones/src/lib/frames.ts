@@ -67,6 +67,18 @@ export async function findZone(db: Db, zoneId: string): Promise<StoredZone | nul
   return rows[0] ?? null;
 }
 
+/**
+ * The id of the zone of `projectId` with this slug, or null (epic UX rework R3). One indexed query
+ * whatever the input, so a missing project or a slug that is not a slug costs what a miss does.
+ */
+export async function zoneIdBySlug(db: Db, projectId: string | null, slug: string): Promise<string | null> {
+  const { rows } = await db.query<{ id: string }>(
+    'SELECT id FROM zones WHERE project_id = $1::uuid AND slug = $2',
+    [projectId !== null && UUID.test(projectId) ? projectId : '00000000-0000-0000-0000-000000000000', slug],
+  );
+  return rows[0]?.id ?? null;
+}
+
 /** True when a zone with this id exists. Ids that are not UUIDs never match. */
 export async function zoneExists(db: Db, zoneId: string): Promise<boolean> {
   return (await zoneProjectId(db, zoneId)) !== null;
@@ -166,4 +178,12 @@ export async function updateDisplay(
  */
 export function zoneHasDisplaySql(zoneId: string): string {
   return `EXISTS (SELECT 1 FROM frames zf WHERE zf.zone_id = ${zoneId})`;
+}
+
+/**
+ * SQL for the project id of the zone whose id is the expression `zoneId`. The zones module owns the
+ * `zones` table; the visibility rule passes this to the access module's `zoneInstalledSql`.
+ */
+export function zoneProjectIdSql(zoneId: string): string {
+  return `(SELECT zpi.project_id FROM zones zpi WHERE zpi.id = ${zoneId})`;
 }
