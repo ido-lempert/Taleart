@@ -215,7 +215,7 @@ export class DashboardStore {
       .find((g) => g.id === taleGroupId);
   }
 
-  /** The zones of the group's project that do not hold the group yet: where "Add to zone…" can place it. */
+  /** The zones of the group's project that do not hold the group yet: where "Show in another zone" can place it. */
   zonesToPlace(taleGroupId: string): Zone[] {
     const group = this.projectTaleGroup(taleGroupId) ?? this.taleGroup(taleGroupId);
     if (!group) return [];

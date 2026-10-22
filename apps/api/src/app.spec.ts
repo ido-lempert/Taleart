@@ -1879,6 +1879,19 @@ describe('Management API v1: projects and zones', () => {
       expect(rows).toEqual([{ n: 2 }]);
     });
 
+    it('refuses to place an archived group in a new zone with 409 tale_group_archived; placed again where it is, 200', async () => {
+      const { z, z2, a } = await setup();
+      expect((await send('PUT', `/tale-groups/${a.id}/status`, { status: 'archived' })).status).toBe(200);
+      const res = await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`);
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('tale_group_archived');
+      expect(await order(z2.id)).toEqual([['C', 0]]);
+      expect((await send('PUT', `/zones/${z.id}/tale-groups/${a.id}`)).status).toBe(200);
+      // Restored, it can be placed.
+      expect((await send('PUT', `/tale-groups/${a.id}/status`, { status: 'paused' })).status).toBe(200);
+      expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
+    });
+
     it('refuses a group of another project or an unknown group with 400, and an unknown zone with 404', async () => {
       const { z2 } = await setup();
       const other = await createZone();

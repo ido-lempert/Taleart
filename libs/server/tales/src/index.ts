@@ -47,6 +47,7 @@ export {
   TaleGroupNotInProjectError,
   TaleNotFoundError,
   TaleGroupFullError,
+  TaleGroupArchivedError,
   type StoredTaleMedia,
   type StoredCover,
   type DeliveryStoredTale,
