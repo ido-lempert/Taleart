@@ -33,8 +33,9 @@ export default [
               onlyDependOnLibsWithTags: ['type:server-module', 'type:contract'],
             },
             {
+              // The Web SDK only for the Tale Studio preview, through its preview entry point (AD-16).
               sourceTag: 'scope:dashboard',
-              onlyDependOnLibsWithTags: ['type:contract'],
+              onlyDependOnLibsWithTags: ['type:contract', 'type:sdk'],
             },
             {
               sourceTag: 'type:sdk',
@@ -48,7 +49,8 @@ export default [
         },
       ],
       // AD-1: another lib is reached only through its index.ts, or an entry
-      // point its package.json `exports` declares (the contract's narrow ones).
+      // point its package.json `exports` declares (the contract's narrow ones), or the Web SDK's
+      // workspace-only preview entry point for the Tale Studio preview (AD-16; not published).
       // Relative paths into another project are caught above; this catches deep
       // paths under a workspace alias, such as @taleart/server-zones/src/lib/frames.
       'no-restricted-imports': [
@@ -63,6 +65,7 @@ export default [
                 '!@taleart/contract/tale-document',
                 '!@taleart/contract/text-style',
                 '!@taleart/contract/theme',
+                '!@taleart/web-sdk/preview',
               ],
               message: "Import another lib only through its public interface (its package name), never a file inside it.",
             },

@@ -4,6 +4,8 @@ import type { DeliveryTaleElement } from '@taleart/contract';
 export interface RenderContext {
   /** The visitor prefers reduced motion: nothing moves by itself (R12). */
   reducedMotion: boolean;
+  /** Links render without a destination (the Tale Studio preview of a draft): they look the same and go nowhere. */
+  inertLinks?: boolean;
 }
 
 // Images that may move: a GIF, an animated WebP or an APNG. Under reduced motion they are drawn once.
