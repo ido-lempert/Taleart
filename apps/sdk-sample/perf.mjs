@@ -234,7 +234,7 @@ async function signIn(databaseUrl, seeded) {
 const GROUPS = ['New in', 'Summer sale', 'Behind the scenes', 'Top picks', 'Outdoor', 'Kids', 'Beauty', 'Gifts'];
 
 // Deletes what the run added: the seeded project with its zones, displays, theme, groups,
-// tales, placements and key, then the admin with their session. Media files go with the temp dir.
+// tales, placements and site key, then the admin with their session. Media files go with the temp dir.
 async function removeSeeded(databaseUrl, { userId, projectId }) {
   if (!userId && !projectId) return;
   const client = new pg.Client({ connectionString: databaseUrl });
@@ -247,7 +247,7 @@ async function removeSeeded(databaseUrl, { userId, projectId }) {
         'project_fonts',
         'tale_media',
         'project_media',
-        'zone_keys',
+        'site_keys',
         'zone_tale_groups',
         'tale_group_tags',
         'tales',
@@ -300,7 +300,6 @@ async function seed(apiUrl, cookie, media, seeded) {
     else if (index !== 2) await call('PUT', `/tale-groups/${group.id}/cover`, media.covers[index], 'image/jpeg');
     await call('PUT', `/tale-groups/${group.id}/status`, { status: 'live' });
   }
-  const key = (await call('POST', `/zones/${zone.id}/key`)).key;
 
   // A second zone, with one group whose tale is 20 texts, every other one in the project font.
   const font = await call(
@@ -331,8 +330,9 @@ async function seed(apiUrl, cookie, media, seeded) {
   // A new tale is already shown (AD-6 amended), so the saved draft shows once it is published.
   await call('POST', `/tales/${tale.id}/document/publish`, { revision: saved.revision, publishedRevision: saved.published.revision });
   await call('PUT', `/tale-groups/${group.id}/status`, { status: 'live' });
-  const fontKey = (await call('POST', `/zones/${fontZone.id}/key`)).key;
-  return { key, fontKey };
+  // One site key for the project places both zones by their slugs (epic UX rework R3).
+  const siteKey = (await call('POST', `/projects/${project.id}/site-key`)).key;
+  return { siteKey, slug: zone.slug, fontSlug: fontZone.slug };
 }
 
 // One load of the sample page in a fresh, throttled context: a cold load, then a warm reload.
@@ -506,9 +506,11 @@ async function main() {
     console.log(
       `Seeded media: tale images ${media.tales.map(kb).join(', ')}; still covers ~${kb(media.covers[1])}; animated cover ${kb(media.animated)}`,
     );
-    const { key, fontKey } = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
-    const url = `http://127.0.0.1:${samplePort}/?key=${encodeURIComponent(key)}&api=${encodeURIComponent(apiUrl)}`;
-    const fontUrl = `http://127.0.0.1:${samplePort}/?key=${encodeURIComponent(fontKey)}&api=${encodeURIComponent(apiUrl)}`;
+    const { siteKey, slug, fontSlug } = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
+    const sample = (zone) =>
+      `http://127.0.0.1:${samplePort}/?zones=${encodeURIComponent(zone)}&api=${encodeURIComponent(apiUrl)}#siteKey=${encodeURIComponent(siteKey)}`;
+    const url = sample(slug);
+    const fontUrl = sample(fontSlug);
     console.log(
       `Profile: Fast 4G (${FAST_4G.latency} ms latency, 9 Mbps x 0.9 down), CPU ${CPU_SLOWDOWN}x slower, ${DEVICE.viewport.width} x ${DEVICE.viewport.height}`,
     );

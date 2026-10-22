@@ -19,7 +19,6 @@ import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from 
 import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
-import { zoneKeysRouter } from './http/zone-keys.router';
 import type { RateLimitOptions } from './http/rate-limit';
 import { siteKeyRouter } from './http/site-key.router';
 import { zonesRouter } from './http/zones.router';
@@ -110,13 +109,12 @@ export function createApp(
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));
-  v1.use('/zones', zoneKeysRouter(pool));
   v1.use('/tale-groups', taleGroupsRouter(pool));
   v1.use('/tale-groups', coversRouter(pool, storage));
   v1.use('/tales', talesRouter(pool, storage));
   app.use(MANAGEMENT_API_BASE, v1);
 
-  // The Delivery API serves SDKs with zone keys only (AD-2): its own open CORS
+  // The Delivery API serves SDKs with site keys only (AD-2): its own open CORS
   // and key middleware, never the session middleware.
   app.use(DELIVERY_API_BASE, deliveryRouter(pool, {
       publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333',
@@ -124,7 +122,7 @@ export function createApp(
       rateLimit: delivery.rateLimit,
     }));
 
-  // Published media is public at unguessable URLs (AD-11): no session, no zone key.
+  // Published media is public at unguessable URLs (AD-11): no session, no site key.
   app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));
 
   app.use(notFoundHandler);

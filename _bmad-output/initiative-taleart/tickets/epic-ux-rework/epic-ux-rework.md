@@ -20,7 +20,7 @@ The UX review of 2026-10-23 walked the built dashboard as a new user and found t
 This epic changes the concept model and the status model first, with their migrations and the Web SDK's backward compatibility, then the dashboard layout, then copy and polish. When it is done:
 
 - A **zone** is one spot in an app or site with one **display** (today's frame: bar or banner). Stages are gone: each one became its own zone. Playbooks are **templates** picked when a zone is created.
-- A host page loads the Web SDK with one **site key** per project and names the zone (`zone="home-top"`). Old zone keys, with or without the `stage` attribute, keep working.
+- A host page loads the Web SDK with one **site key** per project and names the zone (`zone="home-top"`). Old zone keys and the `stage` attribute are removed (R4 retired, owner decision 2026-10-22).
 - A tale group has one **On / Off** switch. When it is On, its tales show by default, and each tale can be hidden. Archive sits in the ⋯ menu. The stored status keys stay as they are (AD-6).
 - Every zone, tale group and tale says **"Visible on site"** or **"Not visible because…"**, computed by the same rule the Delivery API uses.
 - Tale Studio's "Publish changes" is **"Update tale"**; "Publish" and "On" only mean visibility.
@@ -50,7 +50,7 @@ R3 (parent R9; report §3 Impact; D6): **One site key per project, zones named o
    A project has at most one active **site key**: random, shown once, stored hashed, rotated and revoked like a zone key (AD-9). A host page places a zone with `<taleart-view site-key="…" zone="home-top">` (or the same as properties); several `<taleart-view>` elements on a page share one site key. The Delivery API answers a site key plus a zone slug with that zone's display and its tale groups, and refuses an unknown slug like a refused key: the element renders nothing and logs one console error. A theme override in the SDK configuration is set per zone slug.
    Verify: issue a site key, place two zones of the project on the sample page with it, see each zone's own display and groups; an unknown slug and a revoked site key render nothing and log one error each; a theme override for one slug changes only that zone.
 
-R4 (parent R9, R10; report §3 Impact; D6): **Old zone keys and the `stage` attribute keep working**
+R4 (parent R9, R10; report §3 Impact; D6): **Old zone keys and the `stage` attribute keep working** — RETIRED (owner decision 2026-10-22, see Notes): nobody used them; story 7 removed zone keys, the `stage` attribute and `configureZone(zoneKey)`. Kept below for the record only.
    - A zone key issued before the rework keeps working, with the current SDK and with an SDK build from before the rework.
    - A zone key with `stage="key"` shows the zone migrated from that stage.
    - A zone key with no `stage` shows what it showed before: every display migrated from that zone, in the old frame order, each with its own zone's tale groups.
@@ -72,7 +72,7 @@ R6 (parent R6; report §4; D2, D3): **On / Off and Shown / Hidden, with the stor
    Verify: on the sample page, create a group with three tales from media, turn the group On: all three show; hide one: it is gone, the others stay; turn the group Off: nothing shows and each tale reads blocked by group; a database snapshot taken before the migration and the Delivery responses for every zone are identical after it.
 
 R7 (parent R6, R9; report §1, §4; D2): **One "Visible on site / Not visible because…" indicator**
-   The Management API returns, for each zone, each placement of a group in a zone, and each tale, whether it is visible on the site now and the reasons it is not, from one function that the Delivery API also uses, so the indicator and the site cannot disagree. Reasons: group off, tale hidden, group blocked, archived, no shown tales, not in any zone, starts at (time), ended at (time), zone has no display, zone not installed (no active site key or zone key for it), media still processing, media problem, not updated yet. The dashboard shows a filled dot and "Visible on site", or a hollow dot and "Not visible:" with the first reason in plain words (all reasons on hover and focus). Every tale card shows a dot, Shown tales included.
+   The Management API returns, for each zone, each placement of a group in a zone, and each tale, whether it is visible on the site now and the reasons it is not, from one function that the Delivery API also uses, so the indicator and the site cannot disagree. Reasons: group off, tale hidden, group blocked, archived, no shown tales, not in any zone, starts at (time), ended at (time), zone has no display, zone not installed (its project has no active site key; zone keys removed 2026-10-22), media still processing, media problem, not updated yet. The dashboard shows a filled dot and "Visible on site", or a hollow dot and "Not visible:" with the first reason in plain words (all reasons on hover and focus). Every tale card shows a dot, Shown tales included.
    Verify: for each reason, a fixture puts content in that state and the indicator names it while the sample page shows nothing; once fixed, the indicator says "Visible on site" and the sample page shows it; a unit test runs the indicator and the Delivery filter on the same fixtures and they agree on every case.
 
 R8 (parent R6; report Note 1, §6 #7): **Schedules stay out of sight until used**
@@ -134,7 +134,7 @@ R18 (parent R9; architecture Quality Targets, NFR-007): **Accessible rework**
 
 - A new user signs up, creates a zone from a template, adds a group with two tales from media, turns it On, and sees the tales on the test page in at most 15 actions, with no tale published by hand.
 - Every zone, group and tale shows "Visible on site" or "Not visible: <reason>", and an automated check shows it agrees with the Delivery API on every reason.
-- A database from before the rework migrates with every zone, stage and frame accounted for, and the pre-rework SDK build and zone keys, with and without `stage`, render as before.
+- A database from before the rework migrates with every zone, stage and frame accounted for. (The pre-rework SDK build and zone keys are no longer supported: R4 retired, owner decision 2026-10-22.)
 - The Install tab's snippet with a site key and zone slug renders the zone on a blank page.
 - The WCAG 2.2 AA scans of the reworked screens are clean and a person's keyboard and screen-reader walk of the first-run path is recorded.
 
