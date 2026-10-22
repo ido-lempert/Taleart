@@ -17,7 +17,7 @@ describe('fake Storyly server', () => {
     const res = await get('/app', bearer);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.map((a) => a.title)).toEqual(['Demo shop', 'Odd shop', 'Clean shop', 'Media shop', 'Label shop']);
+    expect(body.data.map((a) => a.title)).toEqual(['Demo shop', 'Odd shop', 'Clean shop', 'Media shop', 'Label shop', 'Link shop']);
     expect((await get(`/app?token=${FAKE_STORYLY_TOKEN}`)).status).toBe(200);
   });
 
@@ -215,7 +215,7 @@ describe('fake Storyly server', () => {
       expect(labels.data).toHaveLength(20);
       // The same records on every run, the demo apps unchanged.
       fake.control.reset();
-      expect((await (await get('/app', bearer)).json()).data).toHaveLength(5);
+      expect((await (await get('/app', bearer)).json()).data).toHaveLength(6);
       fake.control.useScale({ factor: 0, failures: false });
       expect(await (await get(`/story?story_group_id=${groups.data[0].id}`, bearer)).json()).toEqual(stories);
     });

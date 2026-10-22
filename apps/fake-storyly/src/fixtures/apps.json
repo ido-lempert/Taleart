@@ -61,6 +61,18 @@
       "is_inbox_story": false,
       "settings": {},
       "detailed_info": {}
+    },
+    {
+      "id": 1006,
+      "token": "fake-app-token-1006",
+      "title": "Link shop",
+      "category": "shopping",
+      "store_type": "web",
+      "store_id": "link-shop.example",
+      "account_id": 501,
+      "is_inbox_story": false,
+      "settings": {},
+      "detailed_info": {}
     }
   ]
 }
