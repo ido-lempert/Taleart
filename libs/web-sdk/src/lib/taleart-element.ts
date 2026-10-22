@@ -25,6 +25,8 @@ const SITE_KEY_ATTR = 'site-key';
 const ZONE_ATTR = 'zone';
 // Every legacy zone key starts with this; a zone slug never holds `_`, so the two never meet.
 const ZONE_KEY_PREFIX = 'tak_';
+// Keys a page may pass by mistake: a warning names them by their start only.
+const KEY_PREFIXES = [ZONE_KEY_PREFIX, 'tas_'];
 const THEME_ATTR = 'theme';
 
 /** The SDK configuration of a zone, passed to {@link configureZone}. */
@@ -47,14 +49,14 @@ const connected = new Set<TaleartElement>();
  * zone's configuration; `configureZone(zone)` or `configureZone(zone, {})`
  * removes it. Rendered elements restyle at once, without a new request.
  * Invalid fields are ignored with one console warning each, naming the zone by
- * its slug, or by the start of a zone key only.
+ * its slug, or by the start of a key (`tak_…` or `tas_…`) only.
  */
 export function configureZone(zone: string, options?: ZoneOptions | null): void {
   if (typeof zone !== 'string' || !zone) {
     console.warn('TaleArt: configureZone needs a zone slug or zone key; the configuration is ignored');
     return;
   }
-  const name = zone.startsWith(ZONE_KEY_PREFIX) ? `${zone.slice(0, 8)}…` : zone;
+  const name = KEY_PREFIXES.some((prefix) => zone.startsWith(prefix)) ? `${zone.slice(0, 8)}…` : zone;
   const theme = readThemeOverride(options?.theme, `the theme of zone "${name}"`);
   if (Object.keys(theme).length) zoneThemes.set(zone, theme);
   else zoneThemes.delete(zone);

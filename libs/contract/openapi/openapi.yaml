@@ -348,8 +348,9 @@ paths:
         slug. When the project already has an active site key, that key is
         revoked in the same transaction (rotation), which affects every zone of
         the project. `key` appears only in this response; only its SHA-256 hash
-        is stored. A content manager gets 403 `forbidden`; an unknown project
-        404 `project_not_found`.
+        is stored, and the response is sent with `Cache-Control: no-store`. A
+        content manager gets 403 `forbidden`; an unknown project 404
+        `project_not_found`.
       responses:
         '201':
           description: The new site key, shown only once.
@@ -1337,7 +1338,11 @@ paths:
         has) answers the same 401 `invalid_site_key` body, so a caller cannot
         tell an unknown slug from a refused key. Without `zone`, the key is a
         legacy zone key (`tak_...`) and a missing, unknown or revoked key
-        answers 401 `invalid_zone_key`. CORS is open to any origin,
+        answers 401 `invalid_zone_key`. A 401 is sent with
+        `Cache-Control: no-store`. Every Delivery API request counts against
+        a per-address token bucket (by default 600 at once, 20 per second);
+        over it the API answers 429 `rate_limited` with `Retry-After`.
+        CORS is open to any origin,
         without credentials. Tale groups and their tales come in dashboard
         order; only `live` groups and tales whose start and end times, and
         their group's, contain the current time are listed (AD-6); each
@@ -1367,6 +1372,8 @@ paths:
         '304':
           description: The client's copy, named by `If-None-Match`, is still current.
         '401':
+          $ref: '#/components/responses/Error'
+        '429':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -4204,6 +4211,7 @@ components:
         - invalid_zone_key
         - site_key_not_found
         - invalid_site_key
+        - rate_limited
         - storyly_token_invalid
         - storyly_unavailable
         - importer_not_configured

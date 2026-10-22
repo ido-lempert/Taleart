@@ -12,6 +12,7 @@ import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from 
 import { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
+import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, type RateLimitOptions } from './rate-limit';
 
 // One message for a missing, unknown or revoked zone key, so a caller cannot tell them apart.
 const INVALID_KEY_MESSAGE = 'A valid zone key is required';
@@ -46,6 +47,8 @@ function slugParam(value: unknown): string | undefined {
 /** Answers the 401 of a refused request, by the way the request named its zone. */
 function refuse(res: Response, bySlug: boolean): void {
   res.setHeader('WWW-Authenticate', 'Bearer');
+  // A refusal is never kept by a browser or a shared cache.
+  res.setHeader('Cache-Control', 'no-store');
   res
     .status(401)
     .json(
@@ -96,6 +99,11 @@ export interface DeliveryOptions {
   publicApiUrl: string;
   /** The frame types, whose schema defaults fill each frame's missing settings (AD-5). */
   frameTypes: FrameTypeRegistry;
+  /**
+   * The per-address limit shared by both key paths ({@link DEFAULT_DELIVERY_RATE_LIMIT} when left
+   * out); null turns it off.
+   */
+  rateLimit?: RateLimitOptions | null;
 }
 
 /**
@@ -117,6 +125,9 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
     }
     next();
   });
+  const limit = options.rateLimit === undefined ? DEFAULT_DELIVERY_RATE_LIMIT : options.rateLimit;
+  // Before the key lookups, so a flood of guesses costs no queries.
+  if (limit) router.use(rateLimit(limit));
   router.use(requireDeliveryKey(pool));
 
   router.get('/zone', async (_req, res, next) => {

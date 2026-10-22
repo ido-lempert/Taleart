@@ -15,7 +15,9 @@ the zone's slug.
 A project has one site key (`tas_…`), issued in the dashboard; every zone of the project is placed with it and its
 slug, so several elements on a page share one key. Elements that ask for the same zone at the same time share one
 request. An unknown slug, or a revoked or rotated site key, renders nothing and logs one console error per element.
-Rotating the site key affects every zone of the project: update every page that uses it.
+Rotating the site key affects every zone of the project: update every page that uses it. The key is
+not a secret once it is in a page's HTML: anyone who sees it can read every zone of the project that has a display and
+visible content, by its slug.
 
 A legacy zone key still works on its own: `<taleart-view api-url="…" zone-key="tak_…">`. When an element has both,
 the site key and slug win.
@@ -83,7 +85,7 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 - A `theme` property set by script before the SDK defines `<taleart-view>` is applied when the element upgrades and wins
   over a `theme` attribute already present then, which is left unread and logs nothing; later attribute changes apply
   as usual.
-- Warnings about a zone's theme name the zone by its slug, or by the first 8 characters of a zone key only.
+- Warnings about a zone's theme name the zone by its slug, or by the first 8 characters of a key (`tak_…`, `tas_…`) only.
 - With an override, colour contrast is the host page's responsibility: keep titles at 4.5:1 and rings at 3:1 against the
   background (WCAG 2.2 AA).
 

@@ -544,8 +544,9 @@ try {
   await themedContext.close();
 
   // One site key for the project, zones named by slug (epic UX rework R3): the sample page's
-  // `?siteKey=…&zones=a,b,c` places one element per slug. Each shows its own display, an unknown slug
-  // renders nothing and logs one error, and a theme override for one slug changes only that zone.
+  // `?zones=a,b,c#siteKey=…` places one element per slug, the key in the fragment. Each shows its
+  // own display, an unknown slug renders nothing and logs one error, and a theme override for one
+  // slug changes only that zone.
   const siteContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const sitePage = await siteContext.newPage();
   const siteErrors = [];
@@ -580,7 +581,7 @@ try {
   );
   const siteTop = encodeURIComponent(JSON.stringify({ ringColors: ['#0000ff'] }));
   await sitePage.goto(
-    `http://localhost:${port}/?siteKey=tas_site&zones=home-top,home-promo,nope&api=${encodeURIComponent(API)}&theme=${siteTop}&themeZone=home-top`,
+    `http://localhost:${port}/?zones=home-top,home-promo,nope&api=${encodeURIComponent(API)}&theme=${siteTop}&themeZone=home-top#siteKey=tas_site`,
   );
   const siteViews = sitePage.locator('taleart-view');
   await siteViews.nth(0).locator('.bar').waitFor();

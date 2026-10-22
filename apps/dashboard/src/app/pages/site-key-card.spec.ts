@@ -75,6 +75,10 @@ describe('SiteKeyCard (epic UX rework R3, story 8.6)', () => {
     button('site-key-issue')?.click();
     await settle(fixture);
     expect(dialog()?.getAttribute('aria-modal')).toBe('true');
+    // Issuing opens every zone of the project to anyone who reads the key in the page's HTML.
+    expect(dialog()?.querySelector('#site-key-exposure')?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'anyone who sees it can read every zone of this project that has a display and visible content',
+    );
     await submit();
     const req = http.expectOne(url);
     expect(req.request.method).toBe('POST');
