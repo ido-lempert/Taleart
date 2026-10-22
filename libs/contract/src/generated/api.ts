@@ -1936,6 +1936,8 @@ export interface components {
             differences?: components["schemas"]["ImportDifference"][];
             /** @description How many more differences were found than the report stores. */
             differencesOmitted?: number;
+            /** @description How many imported tales may hold text, stickers and components the source's API does not expose, so they were not imported (Tale Studio R17): each imported tale, listed once per report as a count, not as differences. Absent when no tale was imported. */
+            unreadableLayers?: number;
             /** @description What the import never brings across, listed once, such as conversion records and stats. */
             notImportedByDesign?: string[];
             /** @description What was left out because it was not picked. Absent when the import took everything. */
@@ -1965,10 +1967,15 @@ export interface components {
          */
         ImportDifferenceEntity: "app" | "zone" | "taleGroup" | "tale" | "tag";
         /**
-         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason); keptLocalEdit: the field changed at the source, but a person had changed it in TaleArt, so their value was kept; removedAtSource: an earlier import brought the record (or label) across and the source no longer lists it, so it stays in TaleArt unchanged (listed again on every run while it is there); movedAtSource: the source lists the record under another parent than the one the import put it in; an import moves nothing, so it stays where it is.
+         * @description missing: a field the import needs is absent; renamed: an expected field came under another name; unexpected: a field the import does not know; wrongType: a needed field is empty or of the wrong type; notHeld: a field with a value TaleArt does not hold; invalidRecord: the record could not be read and was skipped; mediaNotImported: the record's media could not be copied, so it was imported without it (see reason); tagNotImported: a label could not become a tag, so it was skipped (see reason); keptLocalEdit: the field changed at the source, but a person had changed it in TaleArt, so their value was kept; removedAtSource: an earlier import brought the record (or label) across and the source no longer lists it, so it stays in TaleArt unchanged (listed again on every run while it is there); movedAtSource: the source lists the record under another parent than the one the import put it in; an import moves nothing, so it stays where it is; linkNotImported: a story's link (outlink or deep_link) is not a web address a tale's button may open, so it was not imported (see reason).
          * @enum {string}
          */
-        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported" | "tagNotImported" | "keptLocalEdit" | "removedAtSource" | "movedAtSource";
+        ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported" | "tagNotImported" | "keptLocalEdit" | "removedAtSource" | "movedAtSource" | "linkNotImported";
+        /**
+         * @description Why a story's link was not imported, by the rule every tale link follows (AD-15). scheme: not an http or https address (an app link such as myapp://, or javascript:); tooLong: over 2,048 characters; characters: it holds spaces or control characters; invalid: not an address a browser reads, or one without a host; credentials: it holds a user name or password.
+         * @enum {string}
+         */
+        ImportLinkFailure: "scheme" | "tooLong" | "characters" | "invalid" | "credentials";
         /**
          * @description Why a label did not become a tag. blank: it holds no text; tooLong: longer than a tag name may be; notText: the value is not text; invalidCharacters: it holds control characters, which a tag name may not.
          * @enum {string}
@@ -2000,8 +2007,8 @@ export interface components {
             field: string | null;
             /** @description For a rename, the name the source used; null otherwise. */
             sourceField: string | null;
-            /** @description For mediaNotImported, why the media was not copied; for tagNotImported, why the label did not become a tag; absent otherwise. */
-            reason?: components["schemas"]["ImportMediaFailure"] | components["schemas"]["ImportTagFailure"];
+            /** @description For mediaNotImported, why the media was not copied; for tagNotImported, why the label did not become a tag; for linkNotImported, why the link was refused; absent otherwise. The lists share some values (such as tooLong), so any of them matches. */
+            reason?: components["schemas"]["ImportMediaFailure"] | components["schemas"]["ImportTagFailure"] | components["schemas"]["ImportLinkFailure"];
         };
         /** @description Records read from the source so far, and records in TaleArt so far (already linked ones included). */
         ImportProgressCount: {
@@ -4342,7 +4349,8 @@ export const userRoleValues: ReadonlyArray<FlattenedDeepRequired<components>["sc
 export const importEntityChoiceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportEntityChoice"]> = ["taleGroups", "media", "tags"];
 export const importStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportStatus"]> = ["queued", "running", "done", "failed"];
 export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceEntity"]> = ["app", "zone", "taleGroup", "tale", "tag"];
-export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
+export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource", "linkNotImported"];
+export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
 export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "invalid_site_key", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "internal_error"];

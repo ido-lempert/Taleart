@@ -5232,6 +5232,44 @@ describe('App', () => {
       await flushRefresh(fixture, { projects: [acme], zones: [zone] });
     });
 
+    it("counts the tales' unreadable layers, lists links not imported and its button's re-import rows (Tale Studio R17)", async () => {
+      const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
+      const tale = (sourceId: string, name: string, position: number) => ({
+        sourceId,
+        name,
+        within: 'Calls to action',
+        withinSourceId: '3501',
+        position,
+      });
+      const differences = [
+        { ...difference('tale', tale('4503', 'App only', 3), 'linkNotImported', 'deep_link'), reason: 'scheme' },
+        { ...difference('tale', tale('4505', 'Long link', 5), 'linkNotImported', 'outlink'), reason: 'tooLong' },
+        difference('tale', tale('4501', 'Shop the sale', 1), 'keptLocalEdit', 'button_text'),
+        difference('tale', tale('4506', 'Both links', 6), 'keptLocalEdit', 'button'),
+        difference('tale', tale('4502', 'New in', 2), 'removedAtSource', 'button_text'),
+      ];
+      await answerPoll(
+        fixture,
+        job('done', { report: { ...report, differences, unreadableLayers: 7 }, finishedAt: '2026-10-20T12:00:09.000Z' }),
+      );
+      expect(root.querySelector('.import-unreadable')?.textContent?.trim()).toBe(
+        'Text, stickers and components of 7 tales: not readable through the API, so not imported.',
+      );
+      const lines = [...root.querySelectorAll('.import-difference-records > li')].map((li) =>
+        [li.querySelector('.import-difference-record'), ...li.querySelectorAll('.import-difference-lines > li')]
+          .map((node) => node?.textContent?.trim())
+          .join(' | '),
+      );
+      expect(lines).toEqual([
+        '"App only" (id 4503) in "Calls to action" | deep_link: link not imported (not an http or https link)',
+        '"Long link" (id 4505) in "Calls to action" | outlink: link not imported (longer than 2,048 characters)',
+        '"Shop the sale" (id 4501) in "Calls to action" | button_text: changed at the source, kept as changed in TaleArt',
+        '"Both links" (id 4506) in "Calls to action" | You removed the button; the source\'s change was not added',
+        '"New in" (id 4502) in "Calls to action" | button_text: no longer at the source; the button stays in TaleArt',
+      ]);
+      await flushRefresh(fixture, { projects: [acme], zones: [zone] });
+    });
+
     it('says when there are no differences, and keeps a long list closed with the omitted count', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       await answerPoll(
