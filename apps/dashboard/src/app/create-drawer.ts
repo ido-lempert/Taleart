@@ -23,6 +23,7 @@ import {
   SHOWN_STATUS_LABELS,
   switchStatus,
   taleShownStatus,
+  uniqueZoneSlug,
   zoneSlugFromName,
   type ContentStatus,
   type Invitation,
@@ -78,7 +79,11 @@ export class CreateDrawer implements OnInit {
 
   /** The slug the API makes from the typed name when none is given; '' when the name has no Latin letter or digit. */
   protected generatedSlug(): string {
-    return zoneSlugFromName(this.text);
+    const base = zoneSlugFromName(this.text);
+    if (!base) return '';
+    // Made unique against the picked project's zones, as the API does.
+    const taken = new Set(this.store.zones().filter((z) => z.projectId === this.projectId).map((z) => z.slug));
+    return uniqueZoneSlug(base, (slug) => taken.has(slug));
   }
   protected frameType = '';
   /** The image or video picked in the file input, if any. */

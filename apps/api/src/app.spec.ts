@@ -789,7 +789,7 @@ describe('Management API v1: projects and zones', () => {
 
       try {
         await legacySchema();
-        await pool.query('UPDATE zones SET slug = NULL');
+        await pool.query('UPDATE zones SET slug = NULL WHERE project_id = $1', [project.id]);
         const promo = await legacyFrame(home, 'banner', { loop: false });
         const unstaged = await legacyFrame(home, 'bar');
         await legacyStage(home, 'Top bar', 'top-bar', top.id);
@@ -804,7 +804,7 @@ describe('Management API v1: projects and zones', () => {
         expect(zones.map((z) => [z.name, z.slug, z.frame?.id ?? null, z.frame?.type ?? null])).toEqual([
           ['Top bar', 'top-bar', top.id, 'bar'],
           ['Promo', 'promo', promo, 'banner'],
-          ['Home – Bar 2', 'home-bar-2', unstaged, 'bar'],
+          ['Home – Bar 2', 'top-bar-bar-2', unstaged, 'bar'],
           ['Shop', 'shop', shopBar, 'bar'],
           ['Shop – Banner 1', 'shop-banner-1', shopBanner, 'banner'],
           ['Empty', 'empty', null, null],
@@ -860,7 +860,7 @@ describe('Management API v1: projects and zones', () => {
       const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
       try {
         await legacySchema();
-        await pool.query('UPDATE zones SET slug = NULL');
+        await pool.query('UPDATE zones SET slug = NULL WHERE project_id = $1', [project.id]);
         const bar = await legacyFrame(landing, 'bar', { gap: 8 });
         await legacyStage(landing, 'Main', 'home', bar);
         await legacyStage(landing, 'Footer', 'footer', bar);
@@ -887,7 +887,7 @@ describe('Management API v1: projects and zones', () => {
 
   describe('stages and frames fold into zones: edge cases', () => {
     // As in the describe above: the schema as it was before the rework.
-    async function legacySchema(): Promise<void> {
+    async function legacySchema(...projectIds: string[]): Promise<void> {
       await pool.query('ALTER TABLE zones ALTER COLUMN slug DROP NOT NULL');
       await pool.query('DROP INDEX frames_zone_id_key');
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS frames_id_zone_id_key ON frames (id, zone_id)');
@@ -905,7 +905,7 @@ describe('Management API v1: projects and zones', () => {
           FOREIGN KEY (frame_id, zone_id) REFERENCES frames (id, zone_id) ON DELETE CASCADE,
           CONSTRAINT stages_zone_id_key_key UNIQUE (zone_id, key)
         )`);
-      await pool.query('UPDATE zones SET slug = NULL');
+      await pool.query('UPDATE zones SET slug = NULL WHERE project_id = ANY($1::uuid[])', [projectIds]);
     }
 
     async function frameOf(zone: { id: string; projectId: string }, type: string): Promise<string> {
@@ -937,7 +937,7 @@ describe('Management API v1: projects and zones', () => {
       const shop = await zoneOf('חנות');
       const lone = await zoneOf('Lone');
       try {
-        await legacySchema();
+        await legacySchema(project.id);
         await frameOf(home, 'bar');
         await frameOf(home, 'banner');
         const top = await frameOf(shop, 'bar');
@@ -972,7 +972,7 @@ describe('Management API v1: projects and zones', () => {
       const staged = await (await post('/zones', { name: 'Home', projectId: a.id })).json();
       const other = await (await post('/zones', { name: 'Home', projectId: b.id })).json();
       try {
-        await legacySchema();
+        await legacySchema(a.id, b.id);
         await stageOf(staged, 'Top', 'home-top', await frameOf(staged, 'bar'));
         await stageOf(other, 'Top', 'home-top', await frameOf(other, 'bar'));
 
@@ -985,12 +985,43 @@ describe('Management API v1: projects and zones', () => {
       }
     });
 
+    it('reports a stage key another zone of the project had, with the slug its zone got instead', async () => {
+      const project = await createProject();
+      const first = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      const second = await (await post('/zones', { name: 'Shop', projectId: project.id })).json();
+      try {
+        await legacySchema(project.id);
+        await stageOf(first, 'Top', 'top', await frameOf(first, 'bar'));
+        await stageOf(second, 'Top', 'top', await frameOf(second, 'bar'));
+        await stageOf(second, 'Hero', 'top-2', await frameOf(second, 'banner'));
+
+        const logged: Record<string, unknown>[] = [];
+        const client = await pool.connect();
+        let report;
+        try {
+          report = await foldStagesIntoZones(client, {
+            copyPlacements: copyZonePlacements,
+            log: (_msg, fields) => logged.push(fields),
+          });
+        } finally {
+          client.release();
+        }
+        const hero = (await zonesListed()).find((z) => z.name === 'Hero');
+        // Shop's "top" is taken by Home: it becomes top-3, since Shop's other stage key top-2 is reserved too.
+        expect(report.renamedStageKeys).toEqual([{ zoneId: second.id, key: 'top', slug: 'top-3' }]);
+        expect(hero?.slug).toBe('top-2');
+        expect(logged).toEqual([{ zonesCreated: 1, slugsFilled: 2, renamedStageKeys: report.renamedStageKeys }]);
+      } finally {
+        await migrate(pool);
+      }
+    });
+
     it('rolls everything back when copying placements fails: stages, frames and zones stay as they were', async () => {
       const project = await createProject();
       const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
       await post(`/zones/${home.id}/tale-groups`, { name: 'Summer' });
       try {
-        await legacySchema();
+        await legacySchema(project.id);
         const top = await frameOf(home, 'bar');
         await stageOf(home, 'Top', 'top', top);
         await stageOf(home, 'Hero', 'hero', await frameOf(home, 'banner'));
@@ -1024,6 +1055,7 @@ describe('Management API v1: projects and zones', () => {
           expect(await foldStagesIntoZones(again, { copyPlacements: copyZonePlacements, log: () => undefined })).toEqual({
             zonesCreated: 1,
             slugsFilled: 1,
+            renamedStageKeys: [],
           });
         } finally {
           again.release();
@@ -1037,14 +1069,14 @@ describe('Management API v1: projects and zones', () => {
       const project = await createProject();
       const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
       try {
-        await legacySchema();
+        await legacySchema(project.id);
         await stageOf(home, 'Top', 'top', await frameOf(home, 'bar'));
         await stageOf(home, 'Hero', 'hero', await frameOf(home, 'banner'));
         await frameOf(home, 'bar');
 
         await Promise.all([migrate(pool), migrate(pool), migrate(pool)]);
 
-        expect((await zonesListed()).map((z) => z.slug)).toEqual(['top', 'hero', 'home-bar-2']);
+        expect((await zonesListed()).map((z) => z.slug)).toEqual(['top', 'hero', 'top-bar-2']);
         const indexes = await pool.query(
           "SELECT indexname FROM pg_indexes WHERE tablename = 'frames' ORDER BY indexname",
         );
