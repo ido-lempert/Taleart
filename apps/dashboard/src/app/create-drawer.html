@@ -542,7 +542,10 @@
             }
             <p class="visually-hidden" aria-live="polite">{{ statusAnnouncement() }}</p>
             <div>
-              <a class="btn btn--secondary btn--sm" [routerLink]="['/tales', tale.id, 'studio']" (click)="close()">
+              <a class="btn btn--secondary btn--sm" [routerLink]="['/tales', tale.id, 'studio']"
+                [queryParams]="{ zone: pageZoneId }"
+                (click)="close()"
+              >
                 Edit in Tale Studio
               </a>
             </div>

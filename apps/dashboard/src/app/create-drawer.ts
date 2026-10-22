@@ -12,7 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import {
   MAX_TALES_PER_GROUP,
   MAX_ZONE_SLUG_LENGTH,
@@ -54,8 +54,11 @@ import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from 
 export class CreateDrawer implements OnInit {
   protected readonly store = inject(DashboardStore);
   private readonly document = inject(DOCUMENT);
+  private readonly router = inject(Router);
   /** Replaces the opener as the return-focus target, when the opener goes away with the drawer's work. */
   private returnTo: HTMLElement | null = null;
+  /** The zone page the drawer was opened on, so Tale Studio's back link returns there; null elsewhere. */
+  protected readonly pageZoneId = /^\/zones\/([^/?#]+)/.exec(this.router.url)?.[1] ?? null;
   /** Read by the drawer when it is removed: the replacement target, else the element that opened it. */
   protected readonly returnFocus = (): HTMLElement | null => this.returnTo ?? this.store.drawerOpener;
   readonly request = input.required<DrawerRequest>();

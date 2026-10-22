@@ -274,7 +274,7 @@ function isDefault(field: ThemeField, value: unknown): boolean {
                       [checked]="t.cornerRadius === null"
                       (change)="setHost('cornerRadius', $any($event.target).checked)"
                     />
-                    Frame's own (a quarter of the item size, 12 px on a banner)
+                    The display's own (a quarter of the item size, 12 px on a banner)
                   </label>
                   @if (t.cornerRadius !== null) {
                     <input

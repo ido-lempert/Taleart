@@ -4,13 +4,16 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   HostListener,
   inject,
   input,
   linkedSignal,
   OnChanges,
+  type SimpleChanges,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
@@ -313,6 +316,38 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
+    .studio-help {
+      position: relative;
+    }
+    .studio-help__mark {
+      display: inline-grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .studio-help__panel {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 20;
+      width: min(420px, calc(100vw - 32px));
+      padding: var(--space-3) var(--space-4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-control);
+      background: var(--surface);
+      box-shadow: var(--shadow-raised);
+      font-size: var(--text-sm);
+    }
+    .studio-help__panel[hidden] {
+      display: none;
+    }
+    .studio-help__panel p {
+      margin: 0;
+    }
     .studio {
       display: flex;
       flex-wrap: wrap;
@@ -328,6 +363,8 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
       border-radius: var(--radius-control);
       container-type: size;
       touch-action: none;
+      /* Its layers and guides stack inside it, under the keyboard shortcuts popover. */
+      isolation: isolate;
     }
     .canvas__media {
       position: absolute;
@@ -473,7 +510,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
   template: `
     <div class="page">
       <header class="page-header">
-        <a class="back-link" [routerLink]="backLink()"><app-icon name="back" /> Back</a>
+        <a class="back-link" [routerLink]="backLink().link"><app-icon name="back" /> {{ backLink().text }}</a>
         <h2 class="page-header__title">Tale Studio</h2>
         @if (tale(); as t) {
           <p class="page-header__meta">{{ t.title }}</p>
@@ -509,6 +546,40 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
             >
               <app-icon name="redo" /> Redo
             </button>
+            <div class="studio-help" (focusout)="helpFocusOut($event)">
+              <button
+                #helpButton
+                type="button"
+                class="btn btn--ghost btn--sm studio-help__button"
+                id="studio-help-button"
+                aria-controls="studio-keys"
+                [attr.aria-expanded]="helpOpen()"
+                (click)="toggleHelp()"
+                (keydown.escape)="closeHelp($event)"
+              >
+                <span class="studio-help__mark" aria-hidden="true">?</span> Keyboard shortcuts
+              </button>
+              <!-- Stays in the page when closed: the canvas is described by it. -->
+              <div
+                class="studio-help__panel"
+                id="studio-keys"
+                role="group"
+                aria-label="Keyboard shortcuts"
+                tabindex="-1"
+                [hidden]="!helpOpen()"
+                (keydown.escape)="closeHelp($event)"
+              >
+                <p>
+                  Select a layer to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
+                  stops editing. Dragging snaps to the centre, the safe areas and other layers; hold Alt to place freely.
+                  On the canvas and in the layers list: {{ keys.forward }} and {{ keys.backward }} reorder,
+                  {{ keys.front }} and {{ keys.back }} bring to the front or the back, H hides, L locks, D duplicates,
+                  {{ keys.delete }} deletes, {{ keys['select-all'] }} selects all, and the context-menu key or Shift+F10
+                  opens the actions. Outside text fields, {{ undoKey }} undoes and {{ redoKey }} redoes. Changes save
+                  automatically.
+                </p>
+              </div>
+            </div>
             <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()">{{ saveText() }}</p>
           </div>
           <div class="studio-update" [class.is-pending]="unpublished()">
@@ -551,7 +622,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
           @if (duplicateResult(); as dup) {
             <p class="studio-notice" id="studio-duplicated">
               {{ dup.message }}
-              <a [routerLink]="['/tales', dup.id, 'studio']">Open the copy</a>
+              <a [routerLink]="['/tales', dup.id, 'studio']" [queryParams]="{ zone: zone() }">Open the copy</a>
             </p>
           }
           @if (duplicating() && tale(); as t) {
@@ -887,15 +958,6 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                   A tale holds one video, and plays for its length. Delete it to add another.
                 </p>
               }
-              <p class="field__hint" id="studio-keys">
-                Select a layer to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
-                stops editing. Dragging snaps to the centre, the safe areas and other layers; hold Alt to place freely.
-                On the canvas and in the layers list: {{ keys.forward }} and {{ keys.backward }} reorder,
-                {{ keys.front }} and {{ keys.back }} bring to the front or the back, H hides, L locks, D duplicates,
-                {{ keys.delete }} deletes, {{ keys['select-all'] }} selects all, and the context-menu key or Shift+F10
-                opens the actions. Outside text fields, {{ undoKey }} undoes and {{ redoKey }} redoes. Changes save
-                automatically.
-              </p>
               <section class="field" aria-labelledby="layers-title">
                 <h4 class="field__label" id="layers-title">Layers</h4>
                 <p class="field__hint" id="layers-hint">
@@ -1343,6 +1405,8 @@ export class TaleStudioPage implements OnChanges {
   private readonly router = inject(Router);
   /** The tale being edited, bound from the route's `:taleId`. */
   readonly taleId = input.required<string>();
+  /** The zone page the studio was opened from (`?zone=`), where its back link returns. */
+  readonly zone = input<string | undefined>(undefined);
 
   /** The document being edited; null until read. */
   protected readonly doc = signal<TaleDocument | null>(null);
@@ -1525,14 +1589,54 @@ export class TaleStudioPage implements OnChanges {
       }))
       .reverse(),
   );
-  /** The zone page the tale was opened from, or the zones list. */
+  /**
+   * Back to the zone page the studio was opened from (`?zone=`) when it lists the tale, else the
+   * first zone that does, named by the tale's group ("Back to Summer sale"); "Back" to the zones
+   * list while the group is not known.
+   */
   protected readonly backLink = computed(() => {
     const id = this.taleId();
-    const zone = Object.entries(this.store.taleGroups()).find(([, groups]) =>
-      groups.some((g) => g.tales.some((t) => t.id === id)),
-    );
-    return zone ? ['/zones', zone[0]] : ['/zones'];
+    const lists = this.store.taleGroups();
+    const from = this.zone();
+    const zones = from && lists[from] ? [from, ...Object.keys(lists).filter((z) => z !== from)] : Object.keys(lists);
+    for (const zoneId of zones) {
+      const group = lists[zoneId].find((g) => g.tales.some((t) => t.id === id));
+      if (group) return { link: ['/zones', zoneId], text: `Back to ${group.name}` };
+    }
+    return { link: ['/zones'], text: 'Back' };
   });
+
+  /** True while the keyboard shortcuts popover is open; closed when the studio opens. */
+  protected readonly helpOpen = signal(false);
+  private readonly helpButton = viewChild<ElementRef<HTMLButtonElement>>('helpButton');
+
+  protected toggleHelp(): void {
+    this.helpOpen.update((open) => !open);
+  }
+
+  /** Escape on the "?" button or in the popover closes it and puts focus back on the button. */
+  protected closeHelp(event: Event): void {
+    if (!this.helpOpen()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.helpOpen.set(false);
+    this.helpButton()?.nativeElement.focus();
+  }
+
+  /** Focus moving out of the "?" button and its popover closes it, leaving focus where it went. */
+  protected helpFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (next instanceof Node && (event.currentTarget as HTMLElement).contains(next)) return;
+    this.helpOpen.set(false);
+  }
+
+  /** A press outside the "?" button and its popover closes it, leaving focus where the press put it. */
+  @HostListener('document:pointerdown', ['$event'])
+  protected onDocumentPointer(event: PointerEvent): void {
+    if (!this.helpOpen()) return;
+    if (event.target instanceof Element && event.target.closest('.studio-help')) return;
+    this.helpOpen.set(false);
+  }
 
   /** What the save indicator says. */
   protected readonly saveText = computed(() => {
@@ -1711,8 +1815,10 @@ export class TaleStudioPage implements OnChanges {
   }
 
   // The route's tale changed (on opening, or after keeping a version as a new tale, where the
-  // page stays and its tale changes): start over with that tale's document.
-  ngOnChanges(): void {
+  // page stays and its tale changes): start over with that tale's document. Only the zone the
+  // studio came from changing (`?zone=`) keeps the tale as it is.
+  ngOnChanges(changes: SimpleChanges): void {
+    if (!changes['taleId']) return;
     this.held.set('');
     this.leavingForCopy = false;
     this.draftStored.set(false);
@@ -2088,7 +2194,9 @@ export class TaleStudioPage implements OnChanges {
     await this.store.refresh();
     // Saved as the new tale: leaving for it does not ask, and nothing more is saved here.
     this.leavingForCopy = true;
-    const opened = await this.router.navigate(['/tales', tale.id, 'studio']).catch(() => false);
+    const opened = await this.router
+      .navigate(['/tales', tale.id, 'studio'], { queryParams: { zone: this.zone() } })
+      .catch(() => false);
     if (!opened || this.taleId() === taleId) {
       // Still on the original: it stays in the stale choice, with the version on screen.
       this.leavingForCopy = false;
@@ -2794,6 +2902,8 @@ export class TaleStudioPage implements OnChanges {
 
   private openMenu(x: number, y: number, origin: Origin, returnId: string): void {
     this.stopEditing();
+    // One popup at a time: the layer menu closes the keyboard shortcuts popover.
+    this.helpOpen.set(false);
     this.menu.set({ x, y, items: this.menuItems(), origin, returnId });
   }
 
