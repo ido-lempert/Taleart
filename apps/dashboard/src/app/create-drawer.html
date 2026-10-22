@@ -2,7 +2,7 @@
   [heading]="heading()"
   [returnFocus]="returnFocus"
   [busy]="saving()"
-  [initialFocus]="focusMedia() ? '#create-file' : null"
+  [initialFocus]="focusMedia() ? '#tale-replace-media' : null"
   (closed)="close()"
 >
   <form class="drawer__form" (ngSubmit)="submit()" novalidate>
@@ -220,7 +220,7 @@
             />
           </div>
           <div class="field">
-            <label class="field__label" for="create-file">{{ fileLabel() }}</label>
+            <label class="field__label" for="create-file">Image or video (optional)</label>
             <input
               id="create-file"
               class="input input--file"
@@ -452,34 +452,38 @@
         }
         @case ('taleMedia') {
           @if (tale(); as tale) {
-            <p class="tale-drawer__title">{{ tale.title }}</p>
-            <div class="status-actions">
-              @if (isSwitchable(tale.storedStatus)) {
-                <app-show-switch
-                  [on]="tale.storedStatus === 'live'"
-                  [label]="'Show ' + tale.title"
-                  [stateText]="taleShownLabel(tale.storedStatus)"
-                  [disabled]="saving()"
-                  (toggled)="switchTale(tale, $event)"
-                />
+            <!-- Status first: it saves at once, so nothing below or in the footer undoes it (epic UX rework R12). -->
+            <section class="tale-drawer__status" aria-labelledby="tale-drawer-title">
+              <p class="tale-drawer__title" id="tale-drawer-title">{{ tale.title }}</p>
+              <div class="status-actions">
+                @if (isSwitchable(tale.storedStatus)) {
+                  <app-show-switch
+                    [on]="tale.storedStatus === 'live'"
+                    [label]="'Show ' + tale.title"
+                    [stateText]="taleShownLabel(tale.storedStatus)"
+                    [disabled]="saving()"
+                    (toggled)="switchTale(tale, $event)"
+                  />
+                }
+                @if (needsBadge(tale.status)) {
+                  <app-status-badge [status]="tale.status" kind="tale" />
+                }
+                @for (action of statusActions(tale.storedStatus); track action.status) {
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    [disabled]="saving()"
+                    (click)="changeTaleStatus(tale.id, action.status)"
+                  >
+                    {{ action.label }}
+                  </button>
+                }
+              </div>
+              @if (tale.status === 'blocked-by-group') {
+                <p class="field__hint">This tale is shown, but its tale group is off, so it does not show on the site.</p>
               }
-              @if (needsBadge(tale.status)) {
-                <app-status-badge [status]="tale.status" kind="tale" />
-              }
-              @for (action of statusActions(tale.storedStatus); track action.status) {
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  [disabled]="saving()"
-                  (click)="changeTaleStatus(tale.id, action.status)"
-                >
-                  {{ action.label }}
-                </button>
-              }
-            </div>
-            @if (tale.status === 'blocked-by-group') {
-              <p class="field__hint">This tale is shown, but its tale group is off, so it does not show on the site.</p>
-            }
+              <p class="field__hint">Changes save as you make them.</p>
+            </section>
             <!-- The whole window in words, readable by touch and keyboard; the card shows one bound. -->
             @if (describeWindow(tale); as window) {
               <div class="schedule-summary">
@@ -501,39 +505,53 @@
                 Edit in Tale Studio
               </a>
             </div>
-            <div class="media-preview">
-              @if (tale.media; as media) {
-                @if (media.kind === 'video') {
-                  <video
-                    class="media-preview__media"
-                    [src]="store.mediaSrc(tale)"
-                    [muted]="true"
-                    autoplay
-                    loop
-                    playsinline
-                    controls
-                    [attr.aria-label]="'Video of ' + tale.title"
-                  ></video>
+            <section class="tale-drawer__media" aria-labelledby="tale-media-heading">
+              <h3 class="field__label" id="tale-media-heading">Media</h3>
+              <div class="media-preview">
+                @if (tale.media; as media) {
+                  @if (media.kind === 'video') {
+                    <video
+                      class="media-preview__media"
+                      [src]="store.mediaSrc(tale)"
+                      [muted]="true"
+                      autoplay
+                      loop
+                      playsinline
+                      controls
+                      [attr.aria-label]="'Video of ' + tale.title"
+                    ></video>
+                  } @else {
+                    <img class="media-preview__media" [src]="store.mediaSrc(tale)" [alt]="'Media of ' + tale.title" />
+                  }
                 } @else {
-                  <img class="media-preview__media" [src]="store.mediaSrc(tale)" [alt]="'Media of ' + tale.title" />
+                  <p class="media-preview__empty">No media yet</p>
                 }
-              } @else {
-                <p class="media-preview__empty">No media yet</p>
-              }
-            </div>
-            <div class="field">
-              <label class="field__label" for="create-file">{{ fileLabel() }}</label>
+              </div>
+              <!-- The button is the control; the input only opens the picker and uploads what is picked. -->
               <input
+                #mediaInput
                 id="create-file"
-                class="input input--file"
                 type="file"
-                name="file"
+                hidden
                 [accept]="acceptedTypes"
-                (change)="pickFile($event)"
-                [attr.aria-describedby]="error() ? 'create-file-hint create-error' : 'create-file-hint'"
+                (change)="replaceMedia($event)"
               />
-              <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB.</p>
-            </div>
+              <button
+                type="button"
+                id="tale-replace-media"
+                class="btn btn--secondary btn--sm"
+                [disabled]="saving()"
+                [attr.aria-describedby]="error() ? 'create-file-hint create-error' : 'create-file-hint'"
+                (click)="chooseMedia()"
+              >
+                {{ tale.media ? 'Replace media' : 'Add media' }}
+              </button>
+              <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB. It replaces the media at once.</p>
+              @if (mediaProgress() !== null) {
+                <label class="field__hint" for="tale-media-progress">Uploading… {{ mediaProgress() }}%</label>
+                <progress id="tale-media-progress" max="100" [value]="mediaProgress()"></progress>
+              }
+            </section>
           } @else {
             <p class="muted">This tale no longer exists.</p>
           }
@@ -547,6 +565,9 @@
     <div class="drawer__footer">
       @if (showsResult()) {
         <button type="button" class="btn btn--primary" (click)="close()">Done</button>
+      } @else if (request().kind === 'taleMedia') {
+        <!-- Everything above saved as it changed: one way out, nothing to cancel. -->
+        <button type="button" class="btn btn--primary" [disabled]="saving()" (click)="close()">Done</button>
       } @else {
         <button type="button" class="btn btn--secondary" [disabled]="saving()" (click)="close()">Cancel</button>
         <button

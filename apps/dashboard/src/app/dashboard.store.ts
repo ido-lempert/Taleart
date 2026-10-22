@@ -1,6 +1,6 @@
 import { computed, inject, Injectable, PLATFORM_ID, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import {
   isErrorBody,
   type Frame,
@@ -812,20 +812,30 @@ export class DashboardStore {
     return '';
   }
 
-  /** Uploads or replaces a tale's image, GIF or video. */
-  async uploadTaleMedia(taleId: string, file: File): Promise<string> {
-    const message = await this.putMedia(taleId, file);
+  /** Uploads or replaces a tale's image, GIF or video; `progress` gets the share sent so far, 0 to 1. */
+  async uploadTaleMedia(taleId: string, file: File, progress?: (sent: number) => void): Promise<string> {
+    const message = await this.putMedia(taleId, file, progress);
     if (!message) await this.refresh();
     return message;
   }
 
   // Sends the file's bytes with its own type; the API checks type and size.
-  private async putMedia(taleId: string, file: File): Promise<string> {
+  private async putMedia(taleId: string, file: File, progress?: (sent: number) => void): Promise<string> {
     try {
-      await firstValueFrom(
-        this.http.put<Tale>(`${API_BASE}/tales/${taleId}/media`, file, {
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        }),
+      await new Promise<void>((resolve, reject) =>
+        this.http
+          .put<Tale>(`${API_BASE}/tales/${taleId}/media`, file, {
+            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+            observe: 'events',
+            reportProgress: !!progress,
+          })
+          .subscribe({
+            next: (event) => {
+              if (event.type === HttpEventType.UploadProgress && event.total) progress?.(event.loaded / event.total);
+            },
+            error: reject,
+            complete: resolve,
+          }),
       );
     } catch (err) {
       return apiErrorMessage(err, 'Media was not saved. Try again.');
