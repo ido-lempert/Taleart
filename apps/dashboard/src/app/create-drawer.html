@@ -556,7 +556,7 @@
               </button>
             </div>
             @if (statusWarning()) {
-              <p class="field__error">{{ statusWarning() }}</p>
+              <p class="field__error" role="alert">{{ statusWarning() }}</p>
             }
             <p class="visually-hidden" aria-live="polite">{{ statusAnnouncement() }}</p>
             <div>

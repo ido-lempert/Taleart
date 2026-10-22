@@ -284,7 +284,8 @@ export class ZoneDetailPage {
     });
     if (message) return;
     if (warning) this.statusErrors.update((errors) => ({ ...errors, [group.id]: warning }));
-    this.announce(`${tale.title} is now ${statusLabel(read, 'tale').toLowerCase()}${warning ? `. ${warning}` : ''}`);
+    // The warning is announced once, by the group's alert.
+    this.announce(`${tale.title} is now ${statusLabel(read, 'tale').toLowerCase()}`);
   }
 
   // Runs one status change for `savingId`, showing the API's message under the group `groupId`.

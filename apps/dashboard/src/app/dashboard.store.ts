@@ -283,9 +283,13 @@ export class DashboardStore {
     this.drawer.set(null);
   }
 
+  /** Bumped by each refresh, so an older one still loading writes nothing over a newer one's answers. */
+  private refreshes = 0;
+
   async refresh(): Promise<void> {
     const generation = this.generation;
-    const current = () => generation === this.generation;
+    const run = ++this.refreshes;
+    const current = () => generation === this.generation && run === this.refreshes;
     try {
       const projects = await firstValueFrom(this.http.get<Project[]>(`${API_BASE}/projects`));
       if (!current()) return;
@@ -570,14 +574,49 @@ export class DashboardStore {
    */
   async setTaleGroupStatus(taleGroupId: string, status: SettableStatus): Promise<string> {
     try {
-      await firstValueFrom(
+      const group = await firstValueFrom(
         this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/status`, { status }),
       );
+      this.applyGroupStatus(group);
     } catch (err) {
       return apiErrorMessage(err, 'The status was not changed. Try again.');
     }
     await this.refresh();
     return '';
+  }
+
+  // Shows a saved group status at once, from the API's answer, in every zone and project list: a
+  // refresh that started before the change cannot show the old one after it (see `refreshes`).
+  private applyGroupStatus(group: TaleGroup): void {
+    const apply = <G extends { id: string; status: TaleGroup['status']; storedStatus: TaleGroup['storedStatus'] }>(
+      lists: Record<string, G[]>,
+      patch: (g: G) => G,
+    ) =>
+      Object.fromEntries(
+        Object.entries(lists).map(([id, list]) => [id, list.map((g) => (g.id === group.id ? patch(g) : g))]),
+      );
+    this.taleGroups.update((lists) =>
+      apply(lists, (g) => ({ ...g, status: group.status, storedStatus: group.storedStatus, tales: group.tales })),
+    );
+    this.projectTaleGroups.update((lists) =>
+      apply(lists, (g) => ({ ...g, status: group.status, storedStatus: group.storedStatus })),
+    );
+  }
+
+  // Shows a saved tale status at once, from the API's answer, wherever its group is listed.
+  private applyTaleStatus(tale: Tale): void {
+    this.taleGroups.update((lists) =>
+      Object.fromEntries(
+        Object.entries(lists).map(([id, list]) => [
+          id,
+          list.map((g) =>
+            g.id === tale.taleGroupId
+              ? { ...g, tales: g.tales.map((t) => (t.id === tale.id ? { ...t, status: tale.status, storedStatus: tale.storedStatus } : t)) }
+              : g,
+          ),
+        ]),
+      ),
+    );
   }
 
   /** Publishes, pauses, archives or restores a tale (AD-6). Returns the saved tale, or the message to show. */
@@ -590,6 +629,7 @@ export class DashboardStore {
       tale = await firstValueFrom(
         this.http.put<TaleStatusResult>(`${API_BASE}/tales/${encodeURIComponent(taleId)}/status`, { status }),
       );
+      this.applyTaleStatus(tale);
     } catch (err) {
       return { tale: null, message: apiErrorMessage(err, 'The status was not changed. Try again.'), warning: '' };
     }

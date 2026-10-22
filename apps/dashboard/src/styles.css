@@ -385,7 +385,7 @@ select {
   outline-offset: 2px;
 }
 
-.show-switch__button:disabled {
+.show-switch__button[aria-disabled='true'] {
   opacity: 0.55;
   cursor: progress;
 }

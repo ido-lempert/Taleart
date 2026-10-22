@@ -274,7 +274,7 @@
                     @if (isSwitchable(group.storedStatus)) {
                       <app-show-switch
                         [on]="group.storedStatus === 'live'"
-                        [label]="'Turn on ' + group.name"
+                        [label]="group.name + ' on site'"
                         [stateText]="shownLabel(group.storedStatus, 'group')"
                         [disabled]="statusSaving().has(group.id)"
                         (toggled)="switchGroup(group, $event)"

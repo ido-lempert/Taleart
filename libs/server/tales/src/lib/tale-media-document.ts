@@ -176,6 +176,13 @@ export interface InStepOptions {
    * key; a person's edit is kept); a tale out of step is merged in full.
    */
   expectedKey?: string;
+  /**
+   * The media migration's run (R16), which writes the published document a `live` tale with none
+   * would have been delivered as. A media write (upload, replace, import) instead leaves a `live`
+   * tale with a studio draft and nothing published without a published document: the draft is
+   * "not updated yet" until the person publishes it (epic UX rework R6).
+   */
+  migration?: boolean;
 }
 
 // The tale row as the media steps read it, locked; absent columns read as null.
@@ -194,8 +201,8 @@ async function lockedTale(tx: Db, taleId: string): Promise<TaleRowForMedia | nul
  * Brings the tale's documents in step with its media (R16), in the caller's transaction, after
  * locking the tale row (every document write takes the row, then its keys). The draft is merged;
  * with none it is made from the published document, else from the media alone. The published
- * document is merged, or created only for a tale that is `live` now (otherwise going live publishes
- * the draft, as for any tale, 7.3). A tale never in step before gets legacy timing (5 s unless the
+ * document is merged, or created only for a tale that is `live` now with no studio draft, or any
+ * `live` tale in the migration (otherwise going live, or publishing, publishes the draft, 7.3). A tale never in step before gets legacy timing (5 s unless the
  * document sets a duration). Each changed document raises its revision, so an editor who had the
  * old one is asked to reload (409), and its `tale_media` rows are written. A document made from the
  * media alone is marked as the migration's (`document_created_by_migration`), so a rollback can
@@ -242,8 +249,10 @@ export async function bringTaleMediaInStep(
       row.inStep === options.expectedKey && { expectedKey: options.expectedKey }),
   };
   const draft = mergeTaleMedia(row.draft ?? row.published, media, merge) as TaleDocument;
+  // A tale with nothing published gets a media document only while it is `live` and, outside the
+  // migration, has no studio draft either (a new tale from media is published at creation).
   const published =
-    row.published !== null || row.status === 'live'
+    row.published !== null || (row.status === 'live' && (options.migration === true || row.draft === null))
       ? (mergeTaleMedia(row.published, media, merge) as TaleDocument)
       : null;
   for (const [before, after] of [
@@ -402,7 +411,7 @@ async function stepRow(
 ): Promise<InStepOutcome | 'later'> {
   await tx.query('SAVEPOINT tale_media_row');
   try {
-    const outcome = await bringTaleMediaInStep(tx, taleId);
+    const outcome = await bringTaleMediaInStep(tx, taleId, { migration: true });
     await tx.query('RELEASE SAVEPOINT tale_media_row');
     return outcome;
   } catch (err) {

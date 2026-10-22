@@ -81,15 +81,17 @@ export const SHOWN_STATUS_STEP = 'shown-status';
 // published document, or, as before the UX rework:
 // - media whose documents are not in step yet, which the Delivery API composes (R16) until the
 //   media migration writes the published document;
-// - no media and no published document, created before the shown-status step: such a tale showed
-//   the legacy placeholder, so it keeps showing it. A tale created since then is delivered only
-//   once it has a published document, so a new tale with nothing published ("not updated yet") is not.
+// - no published document, created before the shown-status step: such a tale showed its media
+//   (composed by the Delivery API, also when its documents are in step but only a studio draft
+//   exists) or the legacy placeholder, so it keeps showing it. A tale created since then is
+//   delivered only once it has a published document, so a new tale with nothing published
+//   ("not updated yet") is not.
 // Null checks only: no document is read.
 export function hasPublishedDocument(t: string): string {
   return (
     `(${t}.document IS NOT NULL ` +
     `OR (${t}.media_key IS NOT NULL AND ${t}.document_media_key IS DISTINCT FROM ${t}.media_key) ` +
-    `OR (${t}.media_key IS NULL ` +
+    `OR (${t}.document IS NULL ` +
     // Until the step has run, every tale is from before it.
     `AND ${t}.created_at < COALESCE((SELECT applied_at FROM tales_migrations WHERE step = '${SHOWN_STATUS_STEP}'), ` +
     `'infinity'::timestamptz)))`
@@ -565,12 +567,14 @@ export async function copyTaleGroup(
         [taleGroupId],
       );
     }
-    // Each copy keeps its tale's published and draft documents (AD-15), starting their own revisions.
+    // Each copy keeps its tale's published and draft documents (AD-15), starting their own revisions,
+    // and its creation time, so a copy of a tale from before the shown-status step is delivered as
+    // the source is (`hasPublishedDocument`).
     await tx.query(
       `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type, status,
-         starts_at, ends_at, document, draft_document, document_media_key)
+         starts_at, ends_at, document, draft_document, document_media_key, created_at)
        SELECT $2, $3, title, position, media_key, media_content_type, status, starts_at, ends_at, document,
-              draft_document, document_media_key FROM tales
+              draft_document, document_media_key, created_at FROM tales
        WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId, group.id, projectId],
     );
@@ -1019,11 +1023,13 @@ export async function taleGroupExists(db: Db, taleGroupId: string): Promise<bool
  * group (AD-4). The group row is locked, so the position and the
  * {@link MAX_TALES_PER_GROUP} check hold under concurrent adds. `withTale`
  * runs in the same transaction once the tale exists, as `withGroup` does for
- * {@link createTaleGroup}; if it throws, the tale is not created.
+ * {@link createTaleGroup}; if it throws, the tale is not created. The tale is
+ * stored `live` (Shown, AD-6 amended) unless `status` says `paused` (Hidden),
+ * as the importer does for a story that is not active at the source.
  */
 export async function createTale(
   db: TransactionalDb,
-  input: { taleGroupId: string; title: string },
+  input: { taleGroupId: string; title: string; status?: 'live' | 'paused' },
   withTale?: (tx: Db, tale: { taleId: string; projectId: string }) => Promise<void>,
 ): Promise<Tale> {
   if (!UUID.test(input.taleGroupId)) throw new TaleGroupNotFoundError(input.taleGroupId);
@@ -1049,7 +1055,7 @@ export async function createTale(
     const { rows } = await tx.query<TaleRow>(
       `INSERT INTO tales (tale_group_id, project_id, title, position, status) VALUES ($1, $2, $3, $4, $5)
        RETURNING ${TALE_COLUMNS}`,
-      [input.taleGroupId, projectId, input.title, next, NEW_TALE_STATUS],
+      [input.taleGroupId, projectId, input.title, next, input.status ?? NEW_TALE_STATUS],
     );
     if (withTale) await withTale(tx, { taleId: rows[0].id, projectId });
     return toTale(rows[0]);
@@ -1488,7 +1494,7 @@ export async function findPublishedMedia(
   const { rows } = await db.query<{ contentType: string | null }>(
     `(SELECT tales.media_content_type AS "contentType" FROM tales
       JOIN tale_groups ON tale_groups.id = tales.tale_group_id
-      WHERE tales.media_key = $1 AND ${deliveredTale('tales', '$2')} AND ${liveNow('tale_groups', '$2')}
+      WHERE tales.media_key = $1 AND ${deliveredTale('tales', '$2')} AND ${deliveredGroup('tale_groups', '$2')}
       LIMIT 1)
      UNION ALL
      (SELECT g.cover_content_type FROM tale_groups g

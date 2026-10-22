@@ -627,7 +627,8 @@ export class CreateDrawer implements OnInit {
     this.error.set(message);
     this.statusWarning.set(warning);
     // The saved tale's status as read, from the API's answer, not the list that may still be loading.
-    if (tale) this.statusAnnouncement.set(`Status: ${statusLabel(tale.status, 'tale')}${warning ? `. ${warning}` : ''}`);
+    // The warning is announced once, by its alert.
+    if (tale) this.statusAnnouncement.set(`Status: ${statusLabel(tale.status, 'tale')}`);
   }
 
   protected pickFile(event: Event): void {
