@@ -159,9 +159,9 @@ describe('project fonts', () => {
     });
     const sql = found.statements()[0];
     expect(sql).toMatch(/JOIN tale_fonts tf ON tf\.font_id = f\.id AND tf\.document = 'published' AND tf\.delivered/);
-    expect(sql).toMatch(/t\.status = 'live'/);
-    // The delivered-group rule: live in its window, with a live tale, placed in a zone.
-    expect(sql).toMatch(/g\.status = 'live'[\s\S]*FROM tales dt[\s\S]*FROM zone_tale_groups dz/);
+    expect(sql).toMatch(/\(t\.status IN \('draft', 'paused'\)\) IS NOT TRUE/);
+    // The delivered-group rule (none of its reasons): live in its window, placed in a zone, with a live tale.
+    expect(sql).toMatch(/\(g\.status IN \('draft', 'paused'\)\) IS NOT TRUE[\s\S]*FROM zone_tale_groups dz[\s\S]*FROM tales dt/);
     // No document is read: the draft is only checked for null (hasPublishedDocument).
     expect(sql).not.toMatch(/jsonb|draft_document(?! IS NULL)/);
     expect(await findPublishedFont(fakeDb([{ rows: [] }]).db, 'fonts/b.woff2')).toBeNull();

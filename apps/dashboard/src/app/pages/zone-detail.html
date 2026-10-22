@@ -6,6 +6,7 @@
         <a class="back-link" routerLink="/zones"><app-icon name="back" /> Zones</a>
         <h2 class="page-header__title">{{ zone.name }}</h2>
         <p class="page-header__meta">in {{ store.projectName(zone.projectId) }}</p>
+        <app-visibility class="zone-visibility" [visibility]="zone.visibility" viewing="zone" />
       </header>
 
       <section class="card section zone-section" aria-labelledby="playbook-title">
@@ -253,6 +254,7 @@
                         </ul>
                       }
                     </div>
+                    <app-visibility [visibility]="group.visibility" viewing="group" />
                     <p class="muted">
                       <span class="visually-hidden">Tales: </span>{{ group.tales.length }} / {{ maxTales }}
                     </p>
@@ -410,6 +412,12 @@
                           }
                         }
                         <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
+                        <app-visibility
+                          class="tale-card__visibility"
+                          [visibility]="tale.visibility"
+                          viewing="tale"
+                          [compact]="true"
+                        />
                         @if (isSwitchable(tale.storedStatus)) {
                           <app-show-switch
                             class="tale-card__switch"

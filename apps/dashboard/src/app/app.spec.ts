@@ -964,6 +964,21 @@ describe('App', () => {
         stages: [presetStage],
       });
       await settle(fixture);
+      // The new frame changes what the indicators say (epic UX rework R7), so the store reads them again.
+      const installedLater = {
+        ...zone,
+        playbookKey: 'home-stories-bar',
+        visibility: { visible: false, reasons: [{ code: 'zone-not-installed', subject: 'zone' }] },
+      };
+      await flushRefresh(fixture, {
+        projects: [acme],
+        zones: [installedLater],
+        frames: { z1: [frameBar, presetBar] },
+        stages: { z1: [presetStage] },
+      });
+      expect(root.querySelector('.page-header app-visibility .visibility__line')?.textContent?.trim()).toBe(
+        'Not visible: zone not installed',
+      );
 
       // Focus moves to the heading as the drawer goes, since the Apply playbook button is gone.
       expect(drawer()).toBeNull();
@@ -989,6 +1004,8 @@ describe('App', () => {
         .expectOne(`${API_BASE}/zones/z1/playbook`)
         .flush({ applied: false, zone: { ...zone, playbookKey: 'home-stories-bar' }, frames: [], stages: [] });
       await settle(fixture);
+      const applied = { ...zone, playbookKey: 'home-stories-bar' };
+      await flushRefresh(fixture, { projects: [acme], zones: [applied] });
       expect(store.framesOf('z1')).toEqual([]);
       expect(store.stagesOf('z1')).toEqual([]);
       expect(store.zone('z1')?.playbookKey).toBe('home-stories-bar');
@@ -1079,6 +1096,8 @@ describe('App', () => {
       expect(req.request.method).toBe('POST');
       req.flush(issued, { status: 201, statusText: 'Created' });
       await settle(fixture);
+      // A key installs the zone (epic UX rework R7), so its visibility is read again.
+      await flushRefresh(fixture, { ...oneZone, keys: { z1: activeKey } });
 
       expect(drawer()?.querySelector<HTMLInputElement>('#zone-key')?.value).toBe(issued.key);
       expect(drawer()?.textContent).toContain('Shown only now');
@@ -1111,6 +1130,7 @@ describe('App', () => {
       expect(req.request.method).toBe('POST');
       req.flush(rotated, { status: 201, statusText: 'Created' });
       await settle(fixture);
+      await flushRefresh(fixture, { ...oneZone, keys: { z1: { prefix: rotated.prefix, createdAt: rotated.createdAt } } });
       expect(drawer()?.querySelector<HTMLInputElement>('#zone-key')?.value).toBe(rotated.key);
 
       buttonNamed(drawer() as HTMLElement, 'Done').click();
@@ -1136,6 +1156,7 @@ describe('App', () => {
       expect(req.request.method).toBe('DELETE');
       req.flush(null, { status: 204, statusText: 'No Content' });
       await settle(fixture);
+      await flushRefresh(fixture, oneZone);
 
       expect(drawer()).toBeNull();
       expect(keySection(root).textContent).toContain('No key yet');
@@ -2989,6 +3010,123 @@ describe('App', () => {
       expect(drawer()).toBeNull();
       expect(root.querySelector('.group .ring img')).toBeNull();
       expect(root.querySelector('.group .ring')?.textContent?.trim()).toBe('S');
+    });
+  });
+
+  describe('visible on site (epic UX rework R7)', () => {
+    const VISIBLE = { visible: true, reasons: [] };
+    const off = { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] };
+    const noDisplay = {
+      visible: false,
+      reasons: [
+        { code: 'zone-no-display', subject: 'zone' },
+        { code: 'zone-not-installed', subject: 'zone' },
+      ],
+    };
+    const shownTale = { ...taleA, visibility: VISIBLE };
+    const hiddenTale = {
+      ...taleB,
+      status: 'paused',
+      storedStatus: 'paused',
+      visibility: { visible: false, reasons: [{ code: 'tale-hidden', subject: 'tale' }] },
+    };
+    const onGroup = { ...group, visibility: VISIBLE, tales: [shownTale, hiddenTale] };
+    const offGroup = {
+      ...group,
+      id: 'g2',
+      name: 'Winter',
+      status: 'draft',
+      storedStatus: 'draft',
+      position: 1,
+      visibility: off,
+      tales: [{ ...taleA, id: 't3', taleGroupId: 'g2', status: 'blocked-by-group', visibility: off }],
+    };
+    const visibleZone = { ...zone, visibility: VISIBLE };
+    const bareZone = { ...zone, visibility: noDisplay };
+    const productZone = { ...visibleZone, id: 'z3', name: 'Product page' };
+    const data: Data = {
+      projects: [acme],
+      zones: [visibleZone],
+      frames: { z1: [frameBar] },
+      groups: { z1: [onGroup, offGroup] },
+    };
+
+    const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    function row(root: HTMLElement, name: string): HTMLElement {
+      const found = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => text(li.querySelector('h4')) === name);
+      if (!found) throw new Error(`No ${name} row`);
+      return found;
+    }
+
+    it('says on the zone page whether the zone, each group and every tale card is visible, and why not', async () => {
+      const { root } = await open('/zones/z1', data);
+      expect(text(root.querySelector('.page-header app-visibility'))).toBe('Visible on site');
+
+      const summer = row(root, 'Summer');
+      expect(text(summer.querySelector('.group__name app-visibility'))).toBe('Visible on site');
+      const winter = row(root, 'Winter');
+      const line = winter.querySelector<HTMLButtonElement>('.group__name app-visibility button');
+      expect(text(line)).toBe('Not visible: group is off');
+      expect(text(root.querySelector(`#${line?.getAttribute('aria-describedby')}`))).toContain('group is off');
+
+      // Every tale card has a dot, shown tales included, named by its line.
+      const dots = [...summer.querySelectorAll('.tale-card app-visibility button')].map((b) => b.getAttribute('aria-label'));
+      expect(dots).toEqual(['Visible on site', 'Not visible: tale is hidden']);
+      expect(winter.querySelector('.tale-card app-visibility button')?.getAttribute('aria-label')).toBe(
+        'Not visible: group is off',
+      );
+    });
+
+    it('says on each zone card whether the zone is visible', async () => {
+      const { root } = await open('/zones', {
+        ...data,
+        zones: [bareZone, productZone],
+      });
+      const cards = [...root.querySelectorAll('.zone-card')];
+      expect(cards.map((c) => text(c.querySelector('app-visibility .visibility__line')))).toEqual([
+        'Not visible: zone has no display',
+        'Visible on site',
+      ]);
+      // The indicator is not inside the card's link, so its button is a control of its own.
+      expect(cards[0].querySelector('a app-visibility')).toBeNull();
+      expect(cards[0].querySelector('a')?.getAttribute('href')).toBe('/zones/z1');
+    });
+
+    it('announces what the indicator says after a group is turned on', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      row(root, 'Winter').querySelector<HTMLButtonElement>('[role=switch]')?.click();
+      await settle(fixture);
+      const on = { ...offGroup, status: 'live', storedStatus: 'live', visibility: noDisplay };
+      http.expectOne(`${API_BASE}/tale-groups/g2/status`).flush(on);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [onGroup, on] } });
+      await settle(fixture);
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(
+        'Winter is now on. Not visible: zone has no display',
+      );
+      expect(text(row(root, 'Winter').querySelector('.group__name app-visibility button'))).toBe(
+        'Not visible: zone has no display',
+      );
+    });
+
+    it('says on the Tale groups page whether each group is visible', async () => {
+      const notInZone = { visible: false, reasons: [{ code: 'not-in-any-zone', subject: 'group' }] };
+      const { fixture, root } = await open('/zones', {
+        ...data,
+        projectGroups: {
+          p1: [
+            { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 0, zoneIds: [], visibility: notInZone },
+            { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 2, zoneIds: ['z1'], visibility: VISIBLE },
+          ],
+        },
+      });
+      await navigate(fixture, '/tale-groups');
+      const rows = [...root.querySelectorAll<HTMLElement>('[aria-label="Tale groups in Acme"] > li')];
+      expect(rows.map((r) => text(r.querySelector('app-visibility .visibility__line')))).toEqual([
+        'Not visible: not in any zone',
+        'Visible on site in at least one zone',
+      ]);
     });
   });
 
