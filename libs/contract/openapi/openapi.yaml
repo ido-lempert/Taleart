@@ -1443,7 +1443,9 @@ paths:
         The group keeps its tales, tags and media; edits show in every zone it
         is placed in (AD-14). A group already placed here answers 200
         unchanged. A group that does not exist or belongs to another project
-        answers 400 `tale_group_not_found`. Unknown zone: 404 `zone_not_found`.
+        answers 400 `tale_group_not_found`. An archived group not placed here
+        yet answers 409 `tale_group_archived`: restore it first (epic UX rework
+        R10). Unknown zone: 404 `zone_not_found`.
       responses:
         '200':
           description: The group was already placed here; nothing changed.
@@ -1460,6 +1462,8 @@ paths:
         '400':
           $ref: '#/components/responses/Error'
         '403':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
@@ -4085,6 +4089,7 @@ components:
         - import_selection_invalid
         - preview_busy
         - invalid_status_transition
+        - tale_group_archived
         - unknown_template
         - concurrent_change
         - invalid_tale_document
