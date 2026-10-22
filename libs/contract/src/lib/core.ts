@@ -100,6 +100,7 @@ export type ImportDifferenceKind = Schemas['ImportDifferenceKind'];
 export type ImportDifferenceRecord = Schemas['ImportDifferenceRecord'];
 export type ImportMediaFailure = Schemas['ImportMediaFailure'];
 export type ImportTagFailure = Schemas['ImportTagFailure'];
+export type ImportLinkFailure = Schemas['ImportLinkFailure'];
 export type ImportChangeCount = Schemas['ImportChangeCount'];
 export type ImportChanges = Schemas['ImportChanges'];
 export type ImportPreviewRequest = Schemas['ImportPreviewRequest'];

@@ -6,6 +6,7 @@ import type {
   ImportDifferenceEntity,
   ImportDifferenceRecord,
   ImportEntityChoice,
+  ImportLinkFailure,
   ImportMediaFailure,
   ImportProgressCount,
   ImportStatus,
@@ -141,6 +142,14 @@ const TAG_FAILURE_LABELS: Record<ImportTagFailure, string> = {
   invalidCharacters: 'holds control characters',
 };
 
+const LINK_FAILURE_LABELS: Record<ImportLinkFailure, string> = {
+  scheme: 'not an http or https link',
+  tooLong: 'longer than 2,048 characters',
+  characters: 'holds spaces or control characters',
+  invalid: 'not a valid web address',
+  credentials: 'holds a user name or password',
+};
+
 /** One difference as a line under its record. */
 export function importDifferenceText(difference: ImportDifference): string {
   const field = difference.field ?? '';
@@ -168,11 +177,18 @@ export function importDifferenceText(difference: ImportDifference): string {
     case 'keptLocalEdit':
       return `${field}: changed at the source, kept as changed in TaleArt`;
     case 'removedAtSource':
-      return difference.entity === 'tag'
-        ? `${field}: label no longer at the source; the tag stays`
+      if (difference.entity === 'tag') return `${field}: label no longer at the source; the tag stays`;
+      return field === 'button_text'
+        ? `${field}: no longer at the source; the button stays in TaleArt`
         : 'no longer at the source; kept in TaleArt';
     case 'movedAtSource':
       return `${field}: moved to "${difference.record.within ?? ''}" at the source; it stays where it is in TaleArt`;
+    case 'linkNotImported': {
+      const label = difference.reason && LINK_FAILURE_LABELS[difference.reason as ImportLinkFailure];
+      return `${field}: link not imported${label ? ` (${label})` : ''}`;
+    }
+    case 'notReadable':
+      return 'text, stickers and components: not readable through the API, so not imported';
   }
 }
 

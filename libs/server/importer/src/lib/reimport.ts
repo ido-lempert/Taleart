@@ -25,6 +25,11 @@ export interface RecordFields {
   removedTags?: string[];
   /** The tale group (TaleArt id) a tale is in, as the import last saw it: tells a source move from a person's. */
   group?: string;
+  /**
+   * The button the import carried into a tale (epic Tale Studio R17): its element id in the tale's
+   * documents, and the label and destination last written there (TaleArt values, as written).
+   */
+  button?: { id: string; label: string; href: string };
 }
 
 /** What a merge decided for one field. */

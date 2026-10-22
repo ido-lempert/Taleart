@@ -1,4 +1,13 @@
-import type { ImportDifference, ImportDifferenceEntity, ImportDifferenceKind } from '@taleart/contract';
+import {
+  cleanText,
+  LABEL_TEXT_RULE,
+  linkUrlProblem,
+  MAX_LINK_LABEL_LENGTH,
+  type ImportDifference,
+  type ImportDifferenceEntity,
+  type ImportDifferenceKind,
+  type ImportLinkFailure,
+} from '@taleart/contract';
 import { printable } from './labels';
 
 /**
@@ -109,6 +118,71 @@ export interface CheckedRecord {
   segments?: unknown;
   /** A label record's `name` value as the source gave it, unchecked; label records only. */
   label?: unknown;
+  /** A story's call to action as a tale's button can carry it, or null when it has none it can carry; stories only. */
+  callToAction?: SourceCallToAction | null;
+}
+
+/** The source fields a story's link may come in, in the order the import prefers them. */
+export type LinkField = 'outlink' | 'deep_link';
+
+/**
+ * A story's call to action as a button can carry it (epic Tale Studio R17): its label (from
+ * `button_text`) and its destination, from `outlink`, else `deep_link`, each a web address a
+ * button may open.
+ */
+export interface SourceCallToAction {
+  label: string;
+  href: string;
+  /** The field the destination came from. */
+  hrefField: LinkField;
+  /** True when the label was cut to {@link MAX_LINK_LABEL_LENGTH} characters. */
+  shortened: boolean;
+}
+
+/**
+ * A story's `button_text` as a button's label: whitespace runs (line feeds and tabs too) become
+ * one space, characters a label may not hold are dropped, the ends trimmed, in Unicode NFC, cut
+ * to {@link MAX_LINK_LABEL_LENGTH} characters with "…". Null when no text is left.
+ */
+export function buttonLabel(value: unknown): { label: string; shortened: boolean } | null {
+  if (typeof value !== 'string') return null;
+  const text = cleanText(value.replace(/\s+/g, ' '), LABEL_TEXT_RULE).trim().normalize('NFC');
+  if (text === '') return null;
+  const characters = [...text];
+  if (characters.length <= MAX_LINK_LABEL_LENGTH) return { label: text, shortened: false };
+  return { label: `${characters.slice(0, MAX_LINK_LABEL_LENGTH - 1).join('').trimEnd()}…`, shortened: true };
+}
+
+/**
+ * Why a story's link value cannot become a button's destination (the one URL rule of tale links,
+ * `linkUrlProblem`, after trimming its ends), or null when it can. Only called for a value.
+ */
+export function linkFailure(value: unknown): ImportLinkFailure | null {
+  if (typeof value !== 'string') return 'invalid';
+  const problem = linkUrlProblem(value.trim());
+  return problem === 'empty' ? 'invalid' : problem;
+}
+
+// Reads a story's call to action: what a button carries, and the link values it refuses.
+function readCallToAction(values: ReadonlyMap<string, unknown>): {
+  carried: SourceCallToAction | null;
+  refused: Map<LinkField, ImportLinkFailure>;
+} {
+  const refused = new Map<LinkField, ImportLinkFailure>();
+  let link: { href: string; field: LinkField } | null = null;
+  for (const field of ['outlink', 'deep_link'] as const) {
+    const value = values.get(field);
+    if (!hasValue(value)) continue;
+    const failure = linkFailure(value);
+    if (failure !== null) refused.set(field, failure);
+    else if (link === null) link = { href: (value as string).trim(), field };
+  }
+  const label = buttonLabel(values.get('button_text'));
+  const carried =
+    label === null || link === null
+      ? null
+      : { label: label.label, href: link.href, hrefField: link.field, shortened: label.shortened };
+  return { carried, refused };
 }
 
 /**
@@ -184,7 +258,12 @@ export function checkRecord(
   const differences: ImportDifference[] = [];
   let omitted = 0;
   let recordRef: ImportDifference['record'] = { sourceId: null, name: null, within: null, withinSourceId: null, position };
-  const add = (kind: ImportDifferenceKind, field: string | null, sourceField: string | null = null) => {
+  const add = (
+    kind: ImportDifferenceKind,
+    field: string | null,
+    sourceField: string | null = null,
+    reason?: ImportLinkFailure,
+  ) => {
     if (differences.length >= MAX_DIFFERENCES_PER_RECORD || (budget !== undefined && budget.remaining <= 0)) {
       omitted++;
       return;
@@ -196,6 +275,7 @@ export function checkRecord(
       kind,
       field: field === null ? null : text(field),
       sourceField: sourceField === null ? null : text(sourceField),
+      ...(reason === undefined ? {} : { reason }),
     });
   };
   if (!isPlainObject(raw)) {
@@ -266,13 +346,18 @@ export function checkRecord(
       (field === 'sort_order' && sortOrderOf(value) === null);
     if (wrong) add('wrongType', field);
   }
+  // A story's call to action (R17): what a button carries is not listed as not held; a refused link is listed once, why.
+  const cta = entity === 'tale' ? readCallToAction(values) : null;
+  const carriedFields = new Set<string>(cta?.carried ? ['button_text', cta.carried.hrefField] : []);
   for (const field of shape.notHeld) {
     const value = values.get(field);
     if (!hasValue(value)) continue;
+    if (carriedFields.has(field) || cta?.refused.has(field as LinkField)) continue;
     // A story's internal name that repeats its title loses nothing.
     if (entity === 'tale' && field === 'name' && typeof value === 'string' && value.trim() === name.trim()) continue;
     add('notHeld', field);
   }
+  for (const [field, failure] of cta?.refused ?? []) add('linkNotImported', field, null, failure);
   for (const key of keys) {
     if (!consumed.has(key)) add('unexpected', key);
   }
@@ -283,6 +368,7 @@ export function checkRecord(
     record.media = values.get('media');
     record.mimeType = values.get('mime_type');
     record.status = values.get('status');
+    if (cta?.carried) record.callToAction = cta.carried;
   }
   if (entity === 'taleGroup') record.segments = values.get('segments');
   if (entity === 'tag') record.label = values.get('name');

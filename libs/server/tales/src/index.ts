@@ -83,6 +83,17 @@ export const setTaleMedia = thenClearFonts(tales.setTaleMedia);
 // commits (clearPublicMediaCache), so no answer read before the commit is kept.
 export { setTaleMediaIfNone, replaceTaleMediaIf } from './lib/tales';
 
+// The button an import carries into a tale (epic Tale Studio R17): written in the importer's transaction.
+export {
+  findImportedButton,
+  importedButtonElement,
+  setImportedButtonWhen,
+  withImportedButton,
+  type ImportedButton,
+  type ImportedButtonResult,
+  type ImportedButtonWrite,
+} from './lib/imported-button';
+
 export {
   bringTaleMediaInStep,
   classifyMigrationError,

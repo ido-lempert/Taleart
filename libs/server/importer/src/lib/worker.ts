@@ -23,6 +23,7 @@ import {
   orderTalesWhen,
   renameTaleGroupWhen,
   renameTaleWhen,
+  setImportedButtonWhen,
   sweepUnusedFontFiles,
   sweepUnusedProjectMediaFiles,
   taleExists,
@@ -80,7 +81,13 @@ import {
 } from './media-copy';
 import type { MediaFetchPolicy } from './media-fetch';
 import type { ImportJobSelection } from './preview';
-import { MAX_DIFFERENCES_PER_RECORD, storedText, type DifferenceBudget, type ReportText } from './record-shape';
+import {
+  MAX_DIFFERENCES_PER_RECORD,
+  storedText,
+  type DifferenceBudget,
+  type ReportText,
+  type SourceCallToAction,
+} from './record-shape';
 import {
   recordsOf,
   StorylyClient,
@@ -486,6 +493,79 @@ async function importLinked(
     // create resolved, so its callback ran and set the id.
     return { id: createdId, created: true };
   }
+}
+
+/** What carrying a story's call to action into its tale did (epic Tale Studio R17). */
+interface ButtonCarry {
+  /** The baseline to record: the button's element id and the values last written; absent when there is none. */
+  button?: NonNullable<RecordFields['button']>;
+  /** A value was written into the tale's documents. */
+  written: boolean;
+  /** The source fields whose change was not written, since a person had changed the button (or removed it). */
+  kept: string[];
+  /** The source no longer has a call to action, and the import's button is still there. */
+  removedAtSource: boolean;
+  /** The write was left out: it would break the documents' limits, or a document has the wrong shape. */
+  skipped: boolean;
+}
+
+/**
+ * Carries a story's call to action into its tale as a button (R17, AD-7), in the caller's
+ * transaction: a tale without the import's button gets one; a button the import wrote before
+ * follows the source per value ({@link mergeValue}: the label against `button_text`, the
+ * destination against its link field) unless a person changed that value; a button a person
+ * deleted is never added back. Nothing is written when the source has no call to action. Returns
+ * null when the tale is gone.
+ */
+async function carryButton(
+  tx: Db,
+  taleId: string,
+  cta: SourceCallToAction | null | undefined,
+  baseline: RecordFields['button'],
+): Promise<ButtonCarry | null> {
+  const carry: ButtonCarry = { button: baseline, written: false, kept: [], removedAtSource: false, skipped: false };
+  if (!cta && !baseline) return carry;
+  const id = baseline?.id ?? randomUUID();
+  let present = false;
+  let label: FieldMerge<string> | null = null;
+  let href: FieldMerge<string> | null = null;
+  const result = await setImportedButtonWhen(tx, taleId, id, (current) => {
+    present = current !== null;
+    // Not there: added when the import never wrote it; else a person removed it, and it stays removed.
+    if (current === null) return baseline === undefined && cta ? { label: cta.label, href: cta.href } : null;
+    if (!cta) return null;
+    label = mergeValue(baseline?.label, current.label, cta.label);
+    href = mergeValue(baseline?.href, current.href, cta.href);
+    const write = {
+      ...(label.write !== null ? { label: label.write } : {}),
+      ...(href.write !== null ? { href: href.write } : {}),
+    };
+    return Object.keys(write).length > 0 ? write : null;
+  });
+  if (result === null) return null;
+  if (result.outcome === 'skipped') return { ...carry, skipped: true };
+  if (!cta) return { ...carry, removedAtSource: present };
+  if (result.outcome === 'added') {
+    return { ...carry, button: { id, label: cta.label, href: cta.href }, written: true };
+  }
+  if (!present || baseline === undefined) {
+    // Removed by a person: a kept local edit for each value the source changed since.
+    const kept = [
+      ...(cta.label !== baseline?.label ? ['button_text'] : []),
+      ...(cta.href !== baseline?.href ? [cta.hrefField] : []),
+    ];
+    return { ...carry, kept };
+  }
+  const merged = { label: label as FieldMerge<string> | null, href: href as FieldMerge<string> | null };
+  return {
+    ...carry,
+    button: { id, label: merged.label?.baseline ?? baseline.label, href: merged.href?.baseline ?? baseline.href },
+    written: result.outcome === 'updated',
+    kept: [
+      ...(merged.label?.keptLocalEdit ? ['button_text'] : []),
+      ...(merged.href?.keptLocalEdit ? [cta.hrefField] : []),
+    ],
+  };
 }
 
 /**
@@ -946,6 +1026,8 @@ async function importContentWith(
         await beforeEach(report);
         stop.signal.throwIfAborted();
         let tale: { id: string; created: boolean } | null;
+        // What carrying the story's call to action did, on creation or on update.
+        let carried: ButtonCarry | null = null;
         try {
           tale = await importLinked(
             db,
@@ -954,9 +1036,14 @@ async function importContentWith(
             { type: 'tale', fields: { name: title, group: taleGroupId } },
             (id) => taleExists(db, id),
             (link) =>
-              createTale(db, { taleGroupId, title, status: storyStatus(story) }, (tx, created) =>
-                link(tx, created.taleId),
-              ),
+              createTale(db, { taleGroupId, title, status: storyStatus(story) }, async (tx, created) => {
+                await link(tx, created.taleId);
+                // The story's call to action, as a button in the new tale's documents, with its baseline (R17).
+                carried = null;
+                if (!story.callToAction) return;
+                carried = await carryButton(tx, created.taleId, story.callToAction, undefined);
+                if (carried?.button) await saveRecord(tx, 'tale', created.taleId, projectId, { button: carried.button });
+              }),
           );
         } catch (err) {
           if (err instanceof TaleGroupFullError) {
@@ -1005,7 +1092,11 @@ async function importContentWith(
               }
             }
             const fields: RecordFields = { name: merge.result().baseline, group: renamed.taleGroupId };
-            return { fields, update: { written: merge.result().write !== null, kept } };
+            carried = await carryButton(tx, taleId, story.callToAction, baseline?.button);
+            if (carried?.button) fields.button = carried.button;
+            kept.push(...(carried?.kept ?? []));
+            const written = merge.result().write !== null || carried?.written === true;
+            return { fields, update: { written, kept } };
           });
           if (update === null) {
             // Deleted since it was found: it counts as imported, as when it was read, with nothing changed.
@@ -1030,6 +1121,23 @@ async function importContentWith(
                 `Tale "${text(title)}" in "${text(name)}": a person moved it to another tale group in TaleArt, so it stays there`,
               );
             }
+          }
+        }
+        {
+          // What the source's API cannot show of the story: listed once per imported tale (R17).
+          const position = positions.get(story.id) ?? 1;
+          const parent = parentOf(name, group.id);
+          const at = keptDifference('tale', story, position, parent, '');
+          differences.addOne({ ...at, kind: 'notReadable', field: null });
+          const button = carried as ButtonCarry | null;
+          if (button?.removedAtSource) differences.addOne({ ...at, kind: 'removedAtSource', field: 'button_text' });
+          if (button?.skipped) {
+            note(
+              `Tale "${text(title)}" in "${text(name)}": its button could not be written, since the tale holds as many elements as it can`,
+            );
+          }
+          if (button?.written && story.callToAction?.shortened) {
+            note(`Tale "${text(title)}" in "${text(name)}": its button label was cut to 80 characters`);
           }
         }
         if (options.media && report.media && changes.media) {
