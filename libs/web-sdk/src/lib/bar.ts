@@ -268,6 +268,11 @@ function cover(group: DeliveryTaleGroup, reduced: boolean): HTMLElement {
   return defaultCoverElement(group, reduced);
 }
 
+/** The group's cover as the bar draws it, but still: the viewer's group chips on wide screens show it. */
+export function stillCover(group: DeliveryTaleGroup): HTMLElement {
+  return cover(group, true);
+}
+
 /** A banner slide's picture (R3): the group's default cover, still ({@link defaultCover}). */
 export function coverMedia(group: DeliveryTaleGroup): HTMLElement {
   return defaultCoverElement(group, true);
