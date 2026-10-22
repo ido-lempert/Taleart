@@ -301,7 +301,11 @@ export interface paths {
          */
         get: operations["listProjectTaleGroups"];
         put?: never;
-        post?: never;
+        /**
+         * Create a tale group in a project, placed in no zone (epic UX rework R14).
+         * @description The group starts Off (`draft`) with no tales and no placement; it can be shown in a zone later. Unknown project 404 `project_not_found`.
+         */
+        post: operations["createProjectTaleGroup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1295,7 +1299,7 @@ export interface components {
             /** @description Order within this zone; the zone's lists are sorted by it. */
             position: number;
         };
-        /** @description A tale group as the project's list shows it. */
+        /** @description A tale group as the project's list shows it (epic UX rework R14): the group's own fields, cover, tags and visibility in any zone it is placed in, with its tale counts instead of its tales, so the list stays small. */
         ProjectTaleGroup: {
             /** @description Whether the group is visible on the site now, in any zone it is placed in (epic UX rework R7). */
             visibility: components["schemas"]["Visibility"];
@@ -1310,17 +1314,23 @@ export interface components {
             storedStatus: components["schemas"]["ContentStatus"];
             /**
              * Format: date-time
-             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered (AD-6).
+             * @description Start of the window, ISO 8601 UTC, or null for no start (AD-6).
              */
             startsAt: string | null;
             /**
              * Format: date-time
-             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered (AD-6).
+             * @description End of the window, ISO 8601 UTC, or null for no end (AD-6).
              */
             endsAt: string | null;
-            taleCount: number;
+            /** @description The group's cover, or null when it has none, as on `TaleGroup`. */
+            cover: components["schemas"]["TaleGroupCover"] | null;
             /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
             zoneIds: string[];
+            /** @description The group's tags, by name ignoring case. */
+            tags: components["schemas"]["TaleGroupTag"][];
+            taleCount: number;
+            /** @description The group's tales that are Shown (stored `live`, AD-6 amended). */
+            shownTaleCount: number;
         };
         Tag: {
             /** Format: uuid */
@@ -1344,6 +1354,7 @@ export interface components {
             tagIds: string[];
         };
         CreateTaleGroupRequest: {
+            /** @description Trimmed before it is checked and stored; at most 100 characters. */
             name: string;
         };
         RenameTaleGroupRequest: {
@@ -2783,6 +2794,36 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectTaleGroup"][];
                 };
             };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createProjectTaleGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaleGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The created tale group, with no tales and no zones. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaleGroup"];
+                };
+            };
+            400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             default: components["responses"]["Error"];

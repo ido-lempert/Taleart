@@ -13,6 +13,7 @@ import {
   getTaleGroupCover,
   getTaleMedia,
   listProjectTaleGroups,
+  createProjectTaleGroup,
   listTaleGroups,
   OrderMismatchError,
   placeTaleGroup,
@@ -233,26 +234,44 @@ describe('placements', () => {
     expect(bad.query).toHaveBeenCalledTimes(1);
   });
 
-  it("lists the project's groups by name with tale counts and zones, including unplaced ones", async () => {
+  it("lists the project's groups by name with tale counts, Shown counts and zones, without tales, including unplaced ones", async () => {
     const g2 = '00000000-0000-4000-8000-000000000013';
     const { db, query } = fakeDb([
       {
         rows: [
-          { id: groupId, projectId, name: 'Autumn', taleCount: 2 },
-          { id: g2, projectId, name: 'beach', taleCount: 0 },
+          { id: groupId, projectId, name: 'Autumn', storedStatus: 'live', coverContentType: null, coverAnimated: false, taleCount: 3, shownTaleCount: 2 },
+          { id: g2, projectId, name: 'beach', storedStatus: 'draft', coverContentType: null, coverAnimated: false, taleCount: 0, shownTaleCount: 0 },
         ],
       },
       { rows: [{ taleGroupId: groupId, zoneId }] },
     ]);
-    expect(await listProjectTaleGroups(db, projectId)).toEqual([
-      { id: groupId, projectId, name: 'Autumn', ...NO_WINDOW, taleCount: 2, zoneIds: [zoneId], ...VIS },
-      { id: g2, projectId, name: 'beach', ...NO_WINDOW, taleCount: 0, zoneIds: [], ...VIS },
+    const listed = await listProjectTaleGroups(db, projectId);
+    expect(listed).toEqual([
+      { id: groupId, projectId, name: 'Autumn', status: 'live', storedStatus: 'live', ...NO_WINDOW, cover: null, taleCount: 3, shownTaleCount: 2, zoneIds: [zoneId], ...VIS },
+      { id: g2, projectId, name: 'beach', status: 'draft', storedStatus: 'draft', ...NO_WINDOW, cover: null, taleCount: 0, shownTaleCount: 0, zoneIds: [], ...VIS },
     ]);
-    expect(query.mock.calls[0][0]).toMatch(/ORDER BY lower\(name\), name, id/);
+    expect(listed[0]).not.toHaveProperty('tales');
+    const sql = query.mock.calls[0][0] as string;
+    expect(sql).toMatch(/ORDER BY lower\(name\), name, id/);
+    expect(sql).toMatch(/tales\.status = 'live'\)::int AS "shownTaleCount"/);
     expect(query.mock.calls[0][1]).toEqual([projectId]);
+    // No read of the tales themselves.
+    expect(query.mock.calls.some((c) => /FROM tales WHERE tale_group_id = ANY/.test(c[0] as string))).toBe(false);
     const none = fakeDb([]);
     expect(await listProjectTaleGroups(none.db, 'nope')).toEqual([]);
     expect(none.query).not.toHaveBeenCalled();
+  });
+
+  it('creates a group in the project, in no zone, with no tales', async () => {
+    const { db, query } = fakeDb([
+      { rows: [{ id: groupId, projectId, name: 'Loose', storedStatus: 'draft', coverContentType: null, coverAnimated: false }] },
+    ]);
+    expect(await createProjectTaleGroup(db, { projectId, name: 'Loose' })).toEqual(
+      expect.objectContaining({ id: groupId, name: 'Loose', status: 'draft', taleCount: 0, shownTaleCount: 0, zoneIds: [], ...VIS }),
+    );
+    expect(query.mock.calls[0][0]).toMatch(/INSERT INTO tale_groups \(project_id, name\) VALUES \(\$1, \$2\)/);
+    expect(query.mock.calls[0][1]).toEqual([projectId, 'Loose']);
+    expect(query.mock.calls.some((c) => /zone_tale_groups \(/.test(c[0] as string))).toBe(false);
   });
 });
 
@@ -1265,7 +1284,7 @@ describe('covers', () => {
     expect(group).not.toHaveProperty('coverAnimated');
   });
 
-  it('reads a group without a cover as cover null, and leaves the cover out of the project list', async () => {
+  it('reads a group without a cover as cover null, and carries the cover on the project list (R14)', async () => {
     const { db } = fakeDb([
       { rows: [{ ...coverRow, coverContentType: null, coverAnimated: false }] },
       { rows: [] },
@@ -1273,12 +1292,13 @@ describe('covers', () => {
     ]);
     expect((await getTaleGroup(db, groupId)).cover).toBeNull();
     const list = fakeDb([
-      { rows: [{ ...coverRow, coverContentType: 'image/jpeg', coverAnimated: false, taleCount: 1 }] },
+      { rows: [{ ...coverRow, coverContentType: 'image/jpeg', coverAnimated: false, taleCount: 0, shownTaleCount: 0 }] },
       { rows: [] },
     ]);
     const [listed] = await listProjectTaleGroups(list.db, projectId);
-    expect(listed).not.toHaveProperty('cover');
-    expect(listed.taleCount).toBe(1);
+    expect(listed.cover).toEqual({ kind: 'image', contentType: 'image/jpeg', animated: false, url: `/api/v1/tale-groups/${groupId}/cover` });
+    expect(JSON.stringify(listed)).not.toMatch(/coverKey|covers\//);
+    expect(listed.taleCount).toBe(0);
   });
 
   it('reads the stored cover key, type and motion, null without one, and refuses an unknown group', async () => {

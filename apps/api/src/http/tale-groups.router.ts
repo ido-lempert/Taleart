@@ -1,8 +1,10 @@
 import {
   ErrorCodes,
+  MAX_TALE_GROUP_NAME_LENGTH,
   type CopyTaleGroupRequest,
   type CreateTaleGroupRequest,
   type CreateTaleRequest,
+  type ProjectTaleGroup,
   type OrderTaleGroupsRequest,
   type OrderTalesRequest,
   type RenameTaleGroupRequest,
@@ -16,6 +18,7 @@ import { projectExists } from '@taleart/server-access';
 import {
   copyTaleGroup,
   createTale,
+  createProjectTaleGroup,
   createTaleGroup,
   getTaleGroup,
   listProjectTaleGroups,
@@ -29,7 +32,6 @@ import {
   setTaleGroupStatus,
   taleGroupExists,
   TaleGroupNotFoundError,
-  type StoredTaleGroup,
 } from '@taleart/server-tales';
 import { copyTaleGroupTags, setTaleGroupTags, tagsForTaleGroups } from '@taleart/server-targeting';
 import { zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
@@ -37,13 +39,13 @@ import { Router } from 'express';
 import type { Pool } from 'pg';
 import { authorize, authorizeParam } from './authorize';
 import { HttpError } from './errors';
-import { requiredSchedule, requiredSettableStatus, requiredString, requiredStringArray } from './validation';
+import { requiredName, requiredSchedule, requiredSettableStatus, requiredString, requiredStringArray } from './validation';
 
 /**
  * Tale groups with their tags. The tales module stores groups and the
  * targeting module their tags; the API composes the two (AD-1).
  */
-export async function withTags<G extends StoredTaleGroup>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
+export async function withTags<G extends { id: string }>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
   const tags = await tagsForTaleGroups(pool, groups.map((g) => g.id));
   return groups.map((group) => ({ ...group, tags: tags.get(group.id) ?? [] }));
 }
@@ -65,7 +67,7 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
     try {
       // Zone first (404), then the body (400).
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
-      const input: CreateTaleGroupRequest = { name: requiredString(req.body, 'name') };
+      const input: CreateTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
       const group = await createTaleGroup(pool, { zoneId: req.params.zoneId, ...input });
       res.status(201).json({ ...group, tags: [] } satisfies ZoneTaleGroup);
     } catch (err) {
@@ -115,13 +117,31 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
 export function projectTaleGroupsRouter(pool: Pool): Router {
   const router = Router();
 
-  router.get('/:projectId/tale-groups', authorizeParam(pool, 'project', 'projectId'), async (req, res, next) => {
+  const projectAccess = authorizeParam(pool, 'project', 'projectId');
+
+  router.get('/:projectId/tale-groups', projectAccess, async (req, res, next) => {
     try {
       const { projectId } = req.params;
       if (!(await projectExists(pool, projectId))) {
         throw new HttpError(404, ErrorCodes.projectNotFound, 'No project has this id');
       }
-      res.json(await listProjectTaleGroups(pool, projectId));
+      res.json((await withTags(pool, await listProjectTaleGroups(pool, projectId))) satisfies ProjectTaleGroup[]);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // A group in no zone yet, from the Tale groups page (epic UX rework R14).
+  router.post('/:projectId/tale-groups', projectAccess, async (req, res, next) => {
+    try {
+      // Project first (404), then the body (400).
+      const { projectId } = req.params;
+      if (!(await projectExists(pool, projectId))) {
+        throw new HttpError(404, ErrorCodes.projectNotFound, 'No project has this id');
+      }
+      const input: CreateTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
+      const group = await createProjectTaleGroup(pool, { projectId, ...input });
+      res.status(201).json({ ...group, tags: [] } satisfies ProjectTaleGroup);
     } catch (err) {
       next(err);
     }
@@ -140,7 +160,7 @@ export function taleGroupsRouter(pool: Pool): Router {
       // Tale group first (404), then the body (400).
       const { taleGroupId } = req.params;
       if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
-      const input: RenameTaleGroupRequest = { name: requiredString(req.body, 'name') };
+      const input: RenameTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
       const [body] = await withTags(pool, [await renameTaleGroup(pool, taleGroupId, input.name)]);
       res.json(body satisfies TaleGroup);
     } catch (err) {

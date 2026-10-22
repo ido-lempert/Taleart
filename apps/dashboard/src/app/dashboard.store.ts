@@ -39,7 +39,11 @@ export type DrawerRequest =
   | { kind: 'editZone'; zoneId: string }
   | { kind: 'display'; zoneId: string }
   | { kind: 'displaySettings'; zoneId: string }
-  | { kind: 'taleGroup'; zoneId: string }
+  /**
+   * A new tale group in the zone `zoneId`; with `projectId` (the Tale groups page, epic UX rework
+   * R14) the drawer offers the project's zones and "Not in a zone", starting at `zoneId` ('' for none).
+   */
+  | { kind: 'taleGroup'; zoneId: string; projectId?: string }
   | { kind: 'tale'; taleGroupId: string }
   | { kind: 'tags'; taleGroupId: string }
   | { kind: 'renameTaleGroup'; taleGroupId: string }
@@ -53,6 +57,14 @@ export type DrawerRequest =
 
 /** What a schedule drawer sets the start and end time of (AD-6). */
 export type ScheduleTarget = 'taleGroup' | 'tale';
+
+/** A tale group's own fields, as both the project's list and a zone's carry them (epic UX rework R14). */
+export type TaleGroupSummary = Omit<TaleGroup, 'tales'>;
+
+// How many of the tales are Shown (stored `live`, AD-6 amended).
+function shownTales(tales: readonly Pick<Tale, 'storedStatus'>[]): number {
+  return tales.filter((tale) => tale.storedStatus === 'live').length;
+}
 
 // The groups with one group's tales replaced.
 function withTales(groups: ZoneTaleGroup[], taleGroupId: string, tales: Tale[]): ZoneTaleGroup[] {
@@ -106,8 +118,16 @@ export class DashboardStore {
    * keyed by zone id. A group placed in several zones shows in each (AD-14).
    */
   readonly taleGroups = signal<Record<string, ZoneTaleGroup[]>>({});
-  /** Each project's tale groups by name, placed in a zone or not, keyed by project id. */
+  /**
+   * Each project's tale groups by name, placed in a zone or not, keyed by project id: only the
+   * projects a page asked for with {@link ensureProjectTaleGroups}, kept fresh by each refresh.
+   */
   readonly projectTaleGroups = signal<Record<string, ProjectTaleGroup[]>>({});
+  /** The projects whose tale group list a page asked for, and those being read on their own now. */
+  private readonly wantedProjectGroups = new Set<string>();
+  private readonly readingProjectGroups = new Set<string>();
+  /** The id of the tale group created last, by either create (epic UX rework R14); null before one. */
+  readonly createdTaleGroupId = signal<string | null>(null);
   /** Each project's tags by name, keyed by project id. */
   readonly tags = signal<Record<string, Tag[]>>({});
   /** True once the first refresh finished, successfully or not. */
@@ -199,11 +219,20 @@ export class DashboardStore {
     return this.taleGroups()[zoneId] ?? [];
   }
 
-  /** A tale group as some zone lists it; its content is the same in every zone (AD-14). */
+  /** A tale group as some zone lists it, with its tales; its content is the same in every zone (AD-14). */
   taleGroup(taleGroupId: string): ZoneTaleGroup | undefined {
     return Object.values(this.taleGroups())
       .flat()
       .find((g) => g.id === taleGroupId);
+  }
+
+  /**
+   * A tale group's own fields (name, project, status, window, cover, tags, zones), wherever it is
+   * listed: its project's list first, else a zone's (epic UX rework R14). The one lookup for anything
+   * but its tales, so a group in no zone is found too.
+   */
+  groupSummary(taleGroupId: string): TaleGroupSummary | undefined {
+    return this.projectTaleGroup(taleGroupId) ?? this.taleGroup(taleGroupId);
   }
 
   /** The project's tale groups by name, including those placed in no zone. */
@@ -220,7 +249,7 @@ export class DashboardStore {
 
   /** The zones of the group's project that do not hold the group yet: where "Show in another zone" can place it. */
   zonesToPlace(taleGroupId: string): Zone[] {
-    const group = this.projectTaleGroup(taleGroupId) ?? this.taleGroup(taleGroupId);
+    const group = this.groupSummary(taleGroupId);
     if (!group) return [];
     return this.zones().filter((z) => z.projectId === group.projectId && !group.zoneIds.includes(z.id));
   }
@@ -250,6 +279,29 @@ export class DashboardStore {
     return `${API_ORIGIN}${group.cover.url}${version ? `?v=${version}` : ''}`;
   }
 
+  /**
+   * Reads a project's tale group list once, when a page needs it (the Tale groups page, a zone page,
+   * Duplicate); later refreshes keep it fresh. A refresh that starts meanwhile wins over this read.
+   */
+  ensureProjectTaleGroups(projectId: string): void {
+    if (!projectId) return;
+    this.wantedProjectGroups.add(projectId);
+    if (projectId in this.projectTaleGroups() || this.readingProjectGroups.has(projectId)) return;
+    this.readingProjectGroups.add(projectId);
+    const generation = this.generation;
+    const run = this.refreshes;
+    firstValueFrom(this.http.get<ProjectTaleGroup[]>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tale-groups`))
+      .then(
+        (list) => {
+          if (generation === this.generation && run === this.refreshes) {
+            this.projectTaleGroups.update((lists) => ({ ...lists, [projectId]: list }));
+          }
+        },
+        () => undefined,
+      )
+      .finally(() => this.readingProjectGroups.delete(projectId));
+  }
+
   /** Bumped by reset(), so a refresh that started before it writes nothing. */
   private generation = 0;
 
@@ -262,6 +314,8 @@ export class DashboardStore {
     this.frameTypes.set([]);
     this.taleGroups.set({});
     this.projectTaleGroups.set({});
+    this.wantedProjectGroups.clear();
+    this.createdTaleGroupId.set(null);
     this.tags.set({});
     this.loaded.set(false);
     this.apiDown.set(false);
@@ -340,7 +394,7 @@ export class DashboardStore {
       if (!current()) return;
       this.tags.set(tags);
       const projectGroups = await this.loadEach<ProjectTaleGroup[]>(
-        projects,
+        projects.filter((p) => this.wantedProjectGroups.has(p.id)),
         (id) => `/projects/${encodeURIComponent(id)}/tale-groups`,
       );
       if (!current()) return;
@@ -453,12 +507,30 @@ export class DashboardStore {
     return '';
   }
 
+  /** Creates a tale group in a zone; returns the API's message, or '' and records the new group's id. */
   async createTaleGroup(zoneId: string, name: string): Promise<string> {
+    let created: ZoneTaleGroup;
     try {
-      await firstValueFrom(this.http.post<ZoneTaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, { name }));
+      created = await firstValueFrom(this.http.post<ZoneTaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, { name }));
     } catch (err) {
       return apiErrorMessage(err, 'Tale group was not saved. Try again.');
     }
+    this.createdTaleGroupId.set(created.id);
+    await this.refresh();
+    return '';
+  }
+
+  /** Creates a tale group in the project, placed in no zone yet (epic UX rework R14), as createTaleGroup does. */
+  async createProjectTaleGroup(projectId: string, name: string): Promise<string> {
+    let created: ProjectTaleGroup;
+    try {
+      created = await firstValueFrom(
+        this.http.post<ProjectTaleGroup>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tale-groups`, { name }),
+      );
+    } catch (err) {
+      return apiErrorMessage(err, 'Tale group was not saved. Try again.');
+    }
+    this.createdTaleGroupId.set(created.id);
     await this.refresh();
     return '';
   }
@@ -530,16 +602,25 @@ export class DashboardStore {
    * is placed in shows the new status, and its tales' status as read follows.
    */
   async setTaleGroupStatus(taleGroupId: string, status: SettableStatus): Promise<string> {
+    return (await this.changeTaleGroupStatus(taleGroupId, status)).message;
+  }
+
+  /** As setTaleGroupStatus, also returning the group as the API saved it (its visibility in any zone). */
+  async changeTaleGroupStatus(
+    taleGroupId: string,
+    status: SettableStatus,
+  ): Promise<{ message: string; group: TaleGroup | null }> {
+    let group: TaleGroup;
     try {
-      const group = await firstValueFrom(
+      group = await firstValueFrom(
         this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/status`, { status }),
       );
       this.applyGroupStatus(group);
     } catch (err) {
-      return apiErrorMessage(err, 'The status was not changed. Try again.');
+      return { message: apiErrorMessage(err, 'The status was not changed. Try again.'), group: null };
     }
     await this.refresh();
-    return '';
+    return { message: '', group };
   }
 
   // Shows a saved group status at once, from the API's answer, in every zone and project list and
@@ -557,7 +638,19 @@ export class DashboardStore {
       Object.fromEntries(
         Object.entries(lists).map(([id, list]) => [
           id,
-          list.map((g) => (g.id === group.id ? { ...g, status: group.status, storedStatus: group.storedStatus } : g)),
+          list.map((g) =>
+            g.id === group.id
+              ? {
+                  ...g,
+                  status: group.status,
+                  storedStatus: group.storedStatus,
+                  // The status route reads the group in any zone, as the project's list does.
+                  visibility: group.visibility,
+                  taleCount: group.tales.length,
+                  shownTaleCount: shownTales(group.tales),
+                }
+              : g,
+          ),
         ]),
       ),
     );
@@ -566,10 +659,26 @@ export class DashboardStore {
   // Shows a saved tale status at once, from the API's answer, wherever its group is listed, as
   // applyGroupStatus does.
   private applyTaleStatus(tale: Tale): void {
+    const before = this.tale(tale.id)?.storedStatus;
     this.patchZoneGroups(tale.taleGroupId, (g) => ({
       ...g,
       tales: g.tales.map((t) => (t.id === tale.id ? { ...t, status: tale.status, storedStatus: tale.storedStatus } : t)),
     }));
+    // The project's list counts Shown tales: from the group's tales when a zone lists them, else by the change.
+    const listed = this.taleGroup(tale.taleGroupId);
+    const delta = before === undefined ? 0 : Number(tale.storedStatus === 'live') - Number(before === 'live');
+    this.projectTaleGroups.update((lists) =>
+      Object.fromEntries(
+        Object.entries(lists).map(([id, list]) => [
+          id,
+          list.map((g) =>
+            g.id === tale.taleGroupId
+              ? { ...g, shownTaleCount: listed ? shownTales(listed.tales) : Math.max(0, g.shownTaleCount + delta) }
+              : g,
+          ),
+        ]),
+      ),
+    );
   }
 
   // Patches one group in every zone's list and in every confirmed order kept for a pending reorder.
