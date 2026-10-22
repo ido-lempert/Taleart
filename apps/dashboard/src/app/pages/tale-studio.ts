@@ -7,6 +7,7 @@ import {
   HostListener,
   inject,
   input,
+  linkedSignal,
   OnChanges,
   signal,
   untracked,
@@ -83,6 +84,7 @@ import { projectMediaSrc } from '../project-media.service';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
 import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
+import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
 import { changeCount, sameDocument, siteVersion, TaleHistory } from './tale-history';
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
@@ -307,6 +309,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     TaleEmojiPicker,
     TaleShapeStyle,
     TaleEmojiStyle,
+    DuplicateTale,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
@@ -535,7 +538,30 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
             >
               Discard changes
             </button>
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm"
+              id="studio-duplicate"
+              [attr.aria-disabled]="updating() || !tale() ? 'true' : null"
+              (click)="openDuplicate($event)"
+            >
+              Duplicate
+            </button>
           </div>
+          @if (duplicateResult(); as dup) {
+            <p class="studio-notice" id="studio-duplicated">
+              {{ dup.message }}
+              <a [routerLink]="['/tales', dup.id, 'studio']">Open the copy</a>
+            </p>
+          }
+          @if (duplicating() && tale(); as t) {
+            <app-duplicate-tale
+              [tale]="t"
+              [returnFocus]="duplicateOpener"
+              (duplicated)="duplicatedTale($event)"
+              (closed)="duplicating.set(false)"
+            />
+          }
           @if (saveState(); as s) {
             @if (s.kind === 'conflict') {
               <div class="form-error studio-alert" role="alert">
@@ -1328,6 +1354,14 @@ export class TaleStudioPage implements OnChanges {
   /** What the person should know after keeping their version as a new tale. */
   protected readonly notice = signal('');
   protected readonly announcement = signal('');
+  /** Whether the Duplicate drawer is open (epic Tale Studio R11), and the button that opened it. */
+  protected readonly duplicating = signal(false);
+  protected duplicateOpener: HTMLElement | null = null;
+  /** The last copy made here: what was said, and the copy's id for its link. */
+  protected readonly duplicateResult = linkedSignal<string, { id: string; message: string } | null>({
+    source: () => this.taleId(),
+    computation: () => null,
+  });
   /** Every change to the document, for undo and redo (epic Tale Studio R9). */
   private readonly history = new TaleHistory();
   /** What undo and redo would undo and redo now, by label; null for nothing. */
@@ -1970,6 +2004,9 @@ export class TaleStudioPage implements OnChanges {
   @HostListener('keydown', ['$event'])
   protected onStudioKey(event: KeyboardEvent): void {
     if (event.defaultPrevented || isTextEntry(event.target)) return;
+    // A drawer over the studio (Duplicate, the media and emoji pickers) keeps its keys to itself.
+    if (this.duplicating() || this.picker() || this.emojiPicker()) return;
+    if (event.target instanceof Element && event.target.closest('[role=dialog]')) return;
     const command = historyShortcut(event, this.apple);
     if (!command) return;
     event.preventDefault();
@@ -2111,6 +2148,40 @@ export class TaleStudioPage implements OnChanges {
 
   protected maxPercent(size: number): number {
     return this.percent(1 - size);
+  }
+
+  /**
+   * Opens the Duplicate drawer (epic Tale Studio R11). The copy is made from what is saved, so the
+   * latest changes are saved first; while they cannot be, nothing opens and the reason is shown.
+   */
+  protected async openDuplicate(event: Event): Promise<void> {
+    const opener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    if (this.updating()) {
+      this.say('Wait until the tale is updated, then duplicate it.');
+      return;
+    }
+    if (this.duplicating()) return;
+    if (!this.tale()) {
+      this.say('The tale is still loading. Try again in a moment.');
+      return;
+    }
+    this.error.set('');
+    if (!(await this.autosave.flush())) {
+      if (this.saveState().kind !== 'conflict') {
+        this.error.set('Your latest changes are not saved yet, so the tale was not duplicated. Try again once they are saved.');
+      }
+      return;
+    }
+    this.duplicateOpener = opener;
+    this.duplicating.set(true);
+  }
+
+  /** Closes the drawer and says where the copy went, with a link to open it. */
+  protected duplicatedTale(result: DuplicatedTale): void {
+    this.duplicating.set(false);
+    const message = duplicatedMessage(result);
+    this.duplicateResult.set({ id: result.copy.id, message });
+    this.say(message);
   }
 
   protected say(text: string): void {

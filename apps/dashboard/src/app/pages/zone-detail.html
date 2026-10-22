@@ -1,5 +1,13 @@
 <div class="page">
   <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</p>
+  @if (duplicating(); as d) {
+    <app-duplicate-tale
+      [tale]="d.tale"
+      [returnFocus]="d.opener"
+      (duplicated)="duplicated($event)"
+      (closed)="duplicating.set(null)"
+    />
+  }
   @if (store.loaded()) {
     @if (zone(); as zone) {
       <header class="page-header">
@@ -430,6 +438,28 @@
                           [attr.aria-label]="'Open tale ' + tale.title"
                           (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
                         ></button>
+                        <button
+                          type="button"
+                          class="tale-card__duplicate"
+                          [attr.data-duplicate]="tale.id"
+                          [attr.aria-label]="'Duplicate ' + tale.title"
+                          title="Duplicate"
+                          (click)="openDuplicate(tale, $event)"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <rect x="8" y="8" width="13" height="13" rx="2" />
+                            <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+                          </svg>
+                        </button>
                         <span
                           class="drag-handle tale-card__handle"
                           cdkDragHandle
