@@ -99,3 +99,24 @@ deferred: []
 
 **Manual checks:**
 - Playwright (`shots-8.11/`, ports 3397/4297/4397, own `_test` DB): 40 checks passed. Group of four from media, On: the sample page shows four; Pool hidden from its card with one press (saved at once, announced in the view): three; shown again: four; every card has a dot. Tale ⋯ items; Replace media over the view, Escape closes only it; keyboard reorder; Studio `?zone=` and back link reopening the view; Escape and focus return; deep link; Back closes. Axe (WCAG 2.2 AA tags) clean on the view at desktop, after a hide, and at 390x844; at 390x844 the view fills the screen with no horizontal scroll.
+
+## Review fixes (2026-10-22)
+
+Merged `autopilot/foundation` (7.8 at 8906799, then 7.13 at fd3a10f) first.
+
+- **Tab trap:** focus on something Tab does not reach (the heading the view opens on) wraps: Shift+Tab to the last control, Tab to the first (`drawer.ts`).
+- **History:** opening pushes an entry marked in its history state (`taleartGroupView`); closing it goes `Location.back()`, so Back afterwards leaves the page instead of landing on the same zone again. A deep link, a reload, or a dropped unknown id close in place (`replaceUrl`).
+- **Archive from the view:** the view closes and focus goes to Undo on the page; announced "… archived. Undo is above the list."
+- **Setup step from another tab:** one navigation sets `tab` and `group` together.
+- **Really modal:** once rendered, the view's element moves beside `.shell` (a manual portal), the shell and the skip link get `inert`, and the root stops scrolling; all lifted on close. The shell's drawers render beside the shell too (z-index above the view), so they stay usable over it. The `Drawer` got `restoreFocus`; the view puts focus back itself after lifting `inert`, once the page has updated, and only when focus was lost with it.
+- **Announcements** are cleared on open and close, so nothing is read again.
+- **Body** is `cdkScrollable` (drag auto-scrolls); images `loading="lazy"`; videos `preload="none"` and play only while on screen (`PlayWhenVisible`, IntersectionObserver).
+- **Store:** a refresh no longer overwrites a zone whose order writes are pending; it keeps the shown order and reads the zone again once the queue settles.
+- **Tale errors** name their tale ("Pool: …").
+- **Indicator tip:** Escape with a tip open closes only the tip (`stopPropagation`).
+- **Focus request** is per group and cleared on close, so a later open or a URL change focuses the heading.
+- **Focus fallback** when the group left the zone: the row now in its place, else the one before, else the "Tale groups" heading (`tabindex="-1"`).
+- **Unknown zone:** `?group=` is dropped too.
+- `openOtherZones` is a computed; the host has `display: contents`; the phone rule is the dashboard's breakpoint (narrower than 640 px, `max-width: 639.98px`).
+- **Tests:** dashboard specs listen to popstate as the app's first navigation does (`setUpLocationChangeListener` in `open`). New: Shift+Tab from the heading, inert and scroll lock with a drawer usable above, `Location.back()` on close with no own navigation and in-place close for a deep link, unknown zone, archive from the view, Duplicate over the view with stacked Escape, indicator tip Escape, refused reorder rolled back in the view, pending order kept through a refresh then read again, one navigation for the setup step and its focus not reused, leaving the page with the view open (the moved element is removed with it; found by the browser run).
+- **Verification:** full `run-many` lint/test/build of the 12 projects passes (dashboard 568 after the last fix, without `--parallel=2`); `web-sdk:size` and `types-check` pass; initial 494.91 kB. Browser run (`shots-8.11/`): 47 checks pass, including inert background and scroll lock, Shift+Tab from the heading, Back after closing leaving the zone page, archive from the view focusing Undo, axe clean on desktop, after a hide and at 390x844.
