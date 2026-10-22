@@ -89,7 +89,7 @@ import { VisibilityIndicator } from '../visibility';
                         [attr.aria-describedby]="'project-group-' + group.id"
                         (click)="store.openDrawer({ kind: 'placeTaleGroup', taleGroupId: group.id }, $event)"
                       >
-                        Add to zone…
+                        Show in another zone
                       </button>
                     } @else {
                       <!-- Kept in place, disabled, with its reason shown on hover and focus (report §6 #13). -->
@@ -100,7 +100,7 @@ import { VisibilityIndicator } from '../visibility';
                           aria-disabled="true"
                           [attr.aria-describedby]="'project-group-' + group.id + ' every-zone-' + group.id"
                         >
-                          Add to zone…
+                          Show in another zone
                         </button>
                         <span class="disabled-reason__tip" [id]="'every-zone-' + group.id">Already in every zone</span>
                       </span>
