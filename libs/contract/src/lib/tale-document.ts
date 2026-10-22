@@ -499,7 +499,7 @@ export function missingAltText(doc: {
 
 /** What a refusal says about an element {@link missingAltText} found. */
 export function missingAltTextMessage(found: { name: string }): string {
-  return `"${found.name}" needs alt text, or must be marked decorative, before the tale is published.`;
+  return `"${found.name}" needs alt text, or must be marked decorative, before the tale can be updated.`;
 }
 
 /**

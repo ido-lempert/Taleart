@@ -285,8 +285,37 @@ export class DashboardStore {
 
   /** Bumped by each refresh, so an older one still loading writes nothing over a newer one's answers. */
   private refreshes = 0;
+  /** The newest refresh still loading, or done; the one whose answers the store shows. */
+  private latestRefresh: Promise<void> = Promise.resolve();
 
+  /**
+   * Reads everything again. Resolves once the newest refresh has finished: a refresh that a newer
+   * one supersedes waits for that one, so a caller never goes on with answers the store dropped.
+   */
   async refresh(): Promise<void> {
+    let awaited = this.load();
+    this.latestRefresh = awaited;
+    await awaited;
+    while (this.latestRefresh !== awaited) {
+      awaited = this.latestRefresh;
+      await awaited;
+    }
+  }
+
+  /**
+   * One tale with its visibility in any zone (epic UX rework R7), as Tale Studio's status line
+   * shows it; null when it cannot be read. A failure does not show the API-down banner: the
+   * studio reads this in the background.
+   */
+  async readTale(taleId: string): Promise<Tale | null> {
+    try {
+      return await firstValueFrom(this.http.get<Tale>(`${API_BASE}/tales/${encodeURIComponent(taleId)}`));
+    } catch {
+      return null;
+    }
+  }
+
+  private async load(): Promise<void> {
     const generation = this.generation;
     const run = ++this.refreshes;
     const current = () => generation === this.generation && run === this.refreshes;
@@ -646,9 +675,9 @@ export class DashboardStore {
     await this.refresh();
     // Going live publishes the tale's studio draft when nothing is published yet, unless it no longer passes (AD-15).
     const warning = tale.draftNotPublished
-      ? "Tale is shown; its studio draft has problems and wasn't published. " +
+      ? "Tale is shown; its studio draft has problems and wasn't put on the site. " +
         (tale.draftNotPublishedReason ? `${tale.draftNotPublishedReason} ` : '') +
-        'Open Tale Studio to fix and publish it.'
+        'Open Tale Studio to fix it, then press Update tale.'
       : '';
     return { tale, message: '', warning };
   }

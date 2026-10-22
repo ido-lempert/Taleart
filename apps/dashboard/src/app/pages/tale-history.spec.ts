@@ -1,5 +1,5 @@
 import type { TaleDocument } from '@taleart/contract/tale-document';
-import { HISTORY_LIMIT, MERGE_WINDOW_MS, sameDocument, TaleHistory } from './tale-history';
+import { changeCount, HISTORY_LIMIT, MERGE_WINDOW_MS, sameDocument, siteVersion, TaleHistory } from './tale-history';
 
 // A document told apart by its background colour; each call makes a new object.
 function doc(n: number): TaleDocument {
@@ -87,5 +87,51 @@ describe('sameDocument', () => {
     expect(sameDocument(a, doc(2))).toBe(false);
     expect(sameDocument(a, null)).toBe(false);
     expect(sameDocument(null, null)).toBe(true);
+  });
+});
+
+describe('changeCount (epic UX rework R15)', () => {
+  const layer = (id: string, text: string) =>
+    ({
+      id,
+      type: 'text',
+      box: { x: 0, y: 0, w: 1, h: 0.1, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: { text },
+    }) as unknown as TaleDocument['elements'][number];
+  const site: TaleDocument = { ...doc(1), elements: [layer('a', 'A'), layer('b', 'B'), layer('c', 'C')] };
+  const count = (draft: TaleDocument | null, against: TaleDocument | null) => changeCount(draft, siteVersion(against));
+  const draft = (...elements: TaleDocument['elements']) => ({ ...site, elements });
+
+  it('is 0 for the same document, whatever its key order or objects', () => {
+    expect(count(site, { ...site, elements: [...site.elements] })).toBe(0);
+    expect(count(draft(layer('a', 'A'), layer('b', 'B'), layer('c', 'C')), site)).toBe(0);
+    expect(count(null, null)).toBe(0);
+  });
+
+  it('counts each layer against nothing on the site, and an empty draft as one change', () => {
+    expect(count(site, null)).toBe(3);
+    expect(count(doc(1), null)).toBe(1);
+  });
+
+  it('counts the site layers when there is no draft', () => {
+    expect(count(null, site)).toBe(3);
+    expect(count(null, doc(1))).toBe(1);
+  });
+
+  it('counts layers added, removed and changed, a new order, and a change to the tale itself', () => {
+    expect(count(draft(layer('a', 'A2'), layer('b', 'B'), layer('c', 'C')), site)).toBe(1);
+    expect(count(draft(layer('a', 'A'), layer('c', 'C'), layer('d', 'D')), site)).toBe(2);
+    expect(count(draft(layer('c', 'C'), layer('a', 'A'), layer('b', 'B')), site)).toBe(1);
+    expect(count({ ...doc(2), elements: site.elements }, site)).toBe(1);
+    expect(count({ ...doc(2), elements: [layer('a', 'A2'), layer('b', 'B'), layer('c', 'C')] }, site)).toBe(2);
+  });
+
+  it('counts a removal alone once, and a layer moved and edited as two', () => {
+    expect(count(draft(layer('a', 'A'), layer('c', 'C')), site)).toBe(1);
+    expect(count(draft(), site)).toBe(3);
+    expect(count(draft(layer('c', 'C2'), layer('a', 'A'), layer('b', 'B')), site)).toBe(2);
   });
 });

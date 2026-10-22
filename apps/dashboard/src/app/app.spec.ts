@@ -1992,7 +1992,7 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [live] } });
       await settle(fixture);
-      const warning = "Tale is shown; its studio draft has problems and wasn't published.";
+      const warning = "Tale is shown; its studio draft has problems and wasn't put on the site.";
       // Announced once, by its alert, not again by the status announcement.
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(warning);
       expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Status: Shown');
@@ -2521,8 +2521,15 @@ describe('App', () => {
       http
         .expectOne(`${API_BASE}/projects/p1/fonts`)
         .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 500, statusText: 'Down' });
+      // ...and the tale's visibility in any zone, for its status line (story 8.4).
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tales/t1`).flush({ ...taleA, visibility: { visible: true, reasons: [] } });
       await settle(fixture);
       expect(root.querySelector('h2.page-header__title')?.textContent).toContain('Tale Studio');
+      // Nothing stored or on the site yet: an empty tale, not updated.
+      expect(root.querySelector('#studio-update-state')?.textContent?.trim()).toBe(
+        'Visible on site · changes not updated yet',
+      );
       expect(root.querySelector('.canvas')).not.toBeNull();
     });
 
