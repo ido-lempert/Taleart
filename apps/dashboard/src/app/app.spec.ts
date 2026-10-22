@@ -336,7 +336,13 @@ describe('App', () => {
       await settle(fixture);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Home bar');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
-      await answerCreate(fixture, `${API_BASE}/zones`, { name: 'Home bar', projectId: 'p1' }, zone, oneZone);
+      await answerCreate(
+        fixture,
+        `${API_BASE}/zones`,
+        { name: 'Home bar', projectId: 'p1', template: 'stories-bar' },
+        zone,
+        oneZone,
+      );
 
       expect(drawer()).toBeNull();
       expect(root.querySelector('[aria-label=Zones]')?.textContent).toContain('Home bar');
@@ -390,7 +396,7 @@ describe('App', () => {
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/zones`);
-      expect(req.request.body).toEqual({ name: 'דף הבית', projectId: 'p1', slug: 'home' });
+      expect(req.request.body).toEqual({ name: 'דף הבית', projectId: 'p1', slug: 'home', template: 'stories-bar' });
       req.flush(
         { error: { code: 'slug_taken', message: 'Another zone of this project already has the slug "home"' } },
         { status: 409, statusText: 'Conflict' },
@@ -853,185 +859,174 @@ describe('App', () => {
     });
   });
 
-  describe('playbooks', () => {
-    const presetBar = {
-      id: 'f9',
-      zoneId: 'z1',
-      projectId: 'p1',
-      type: 'bar',
-      settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
-    };
-    const noPlaybookZone = { ...zone, playbookKey: null };
-    const bannerZone = { ...zone, playbookKey: 'promo-banner' };
-    const section = (root: HTMLElement) =>
-      root.querySelector<HTMLElement>('section[aria-labelledby="playbook-title"]') as HTMLElement;
-    const radios = () => [...(drawer()?.querySelectorAll<HTMLInputElement>('input[name=playbook]') ?? [])];
-    const preview = () => drawer()?.querySelector<HTMLElement>('.playbook-preview') ?? null;
-    const settingsShown = () =>
-      [...(preview()?.querySelectorAll('.playbook-preview__settings div') ?? [])].map((d) =>
-        [d.querySelector('dt')?.textContent?.trim(), d.querySelector('dd')?.textContent?.trim()].join(': '),
-      );
+  describe('zone templates (epic UX rework R5)', () => {
+    const radios = () => [...(drawer()?.querySelectorAll<HTMLInputElement>('input[name=template]') ?? [])];
 
-    async function openDrawer(fixture: ComponentFixture<App>, root: HTMLElement): Promise<HTMLButtonElement> {
-      const opener = buttonNamed(section(root), 'Apply playbook');
-      opener.click();
+    async function openNewZone(fixture: ComponentFixture<App>, root: HTMLElement): Promise<void> {
+      buttonNamed(root, 'New zone').click();
       await settle(fixture);
-      return opener;
     }
 
-    it('offers Apply playbook on a zone without one', async () => {
-      const { root } = await open('/zones/z1', { projects: [acme], zones: [noPlaybookZone] });
-      expect(section(root).textContent).toContain('No playbook yet.');
-      expect(buttonNamed(section(root), 'Apply playbook')).toBeTruthy();
-    });
-
-    it('names the applied playbook and its goal, with no Apply button', async () => {
-      const { root } = await open('/zones/z1', { projects: [acme], zones: [bannerZone] });
-      expect(section(root).textContent).toContain('Promo banner');
-      expect(section(root).textContent).toContain('wide banner');
-      expect([...section(root).querySelectorAll('button')]).toEqual([]);
-    });
-
-    it('shows what the picked playbook creates before applying it', async () => {
-      const { fixture, root } = await open('/zones/z1', oneZone);
-      await openDrawer(fixture, root);
-      expect(drawer()?.querySelector('h2')?.textContent).toContain('Apply playbook');
-      expect(drawer()?.textContent).toContain('In zone Home bar');
-      expect(drawer()?.querySelector('fieldset')?.hasAttribute('aria-describedby')).toBe(false);
+    it('offers the templates as a radio group, each with a description and a sketch of its display', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      const fieldset = drawer()?.querySelector<HTMLFieldSetElement>('fieldset.template-options');
+      expect(fieldset?.querySelector('legend')?.textContent?.trim()).toBe('Template');
       expect(radios().map((r) => [r.value, r.checked])).toEqual([
-        ['home-stories-bar', true],
+        ['stories-bar', true],
         ['promo-banner', false],
+        ['blank', false],
       ]);
-      const goal = drawer()?.querySelector(`#${radios()[0].getAttribute('aria-describedby')}`);
-      expect(goal?.textContent).toContain('row of circles');
-      expect(preview()?.textContent).toContain('Home page stories bar sets');
-      expect(preview()?.textContent).toContain('Bar display');
-      expect(settingsShown()).toEqual(['Shape: Circle', 'Size: Medium', 'Show titles: On', 'Alignment: Start', 'Gap: 12']);
-      expect(preview()?.textContent).not.toContain('Stage');
+      // Each radio is named by its label and described by its one-line description.
+      expect(radios().map((r) => r.closest('label')?.textContent?.trim())).toEqual(['Stories bar', 'Promo banner', 'Blank']);
+      const described = radios().map((r) => drawer()?.querySelector(`#${r.getAttribute('aria-describedby')}`)?.textContent);
+      expect(described[0]).toContain('row of circles');
+      expect(described[1]).toContain('wide banner');
+      expect(described[2]).toContain('No display yet');
+      // The sketches are decoration: hidden from assistive technology.
+      const sketches = [...(fieldset?.querySelectorAll<HTMLElement>('.template-sketch') ?? [])];
+      expect(sketches.map((s) => [s.dataset['kind'], s.getAttribute('aria-hidden')])).toEqual([
+        ['bar', 'true'],
+        ['banner', 'true'],
+        ['blank', 'true'],
+      ]);
+      expect(sketches.map((s) => s.querySelectorAll('i').length)).toEqual([4, 1, 0]);
+    });
 
+    it('creates the zone with the picked template in the same request', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Promo');
       radios()[1].click();
       await settle(fixture);
-      expect(preview()?.textContent).toContain('Banner display');
-      expect(settingsShown()).toEqual([
-        'Aspect ratio: 3:1',
-        'Autoplay: On',
-        'Interval seconds: 5',
-        'Show dots: On',
-        'Loop: On',
-      ]);
-      expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
-      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
-      await settle(fixture);
-      // Cancelling returns focus to the button that opened the drawer.
+      expect(radios().map((r) => r.checked)).toEqual([false, true, false]);
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      const created = { ...zone, name: 'Promo', createdFromTemplate: 'promo-banner' };
+      await answerCreate(
+        fixture,
+        `${API_BASE}/zones`,
+        { name: 'Promo', projectId: 'p1', template: 'promo-banner' },
+        created,
+        { projects: [acme], zones: [created] },
+      );
       expect(drawer()).toBeNull();
-      expect(document.activeElement).toBe(buttonNamed(section(root), 'Apply playbook'));
-    });
-
-    it('applies a playbook: the zone gets its display, and focus moves to the Playbook heading', async () => {
-      const store = TestBed.inject(DashboardStore);
-      const { fixture, root } = await open('/zones/z1', oneZone);
-      await openDrawer(fixture, root);
-      buttonNamed(drawer() as HTMLElement, 'Apply').click();
-      await settle(fixture);
-      const req = http.expectOne(`${API_BASE}/zones/z1/playbook`);
-      expect(req.request.method).toBe('PUT');
-      expect(req.request.body).toEqual({ key: 'home-stories-bar' });
-      req.flush({ applied: true, zone: { ...zone, playbookKey: 'home-stories-bar', frame: presetBar } });
-      await settle(fixture);
-      // The new display changes what the indicators say (epic UX rework R7), so the store reads them again.
-      const installedLater = {
-        ...zone,
-        playbookKey: 'home-stories-bar',
-        visibility: { visible: false, reasons: [{ code: 'zone-not-installed', subject: 'zone' }] },
-      };
-      await flushRefresh(fixture, { projects: [acme], zones: [installedLater], displays: { z1: presetBar } });
-      expect(root.querySelector('.page-header app-visibility .visibility__line')?.textContent?.trim()).toBe(
-        'Not visible: zone not installed',
-      );
-
-      // Focus moves to the heading as the drawer goes, since the Apply playbook button is gone.
-      expect(drawer()).toBeNull();
-      expect(document.activeElement?.id).toBe('playbook-title');
-      expect(store.zone('z1')?.playbookKey).toBe('home-stories-bar');
-      expect(store.displayOf('z1')).toEqual(presetBar);
-      expect(section(root).textContent).toContain('Home page stories bar');
-      expect(section(root).querySelector('button')).toBeNull();
-      expect(document.activeElement?.id).toBe('playbook-title');
-      // The preset display is an ordinary display: its settings open like any other.
-      expect(root.querySelector('#display-type')?.textContent).toContain('Bar');
-      expect(root.querySelector('.display-row button')).not.toBeNull();
-    });
-
-    it('adds nothing when the API says the zone already had the playbook', async () => {
-      const store = TestBed.inject(DashboardStore);
-      const { fixture, root } = await open('/zones/z1', oneZone);
-      await openDrawer(fixture, root);
-      buttonNamed(drawer() as HTMLElement, 'Apply').click();
-      await settle(fixture);
-      http
-        .expectOne(`${API_BASE}/zones/z1/playbook`)
-        .flush({ applied: false, zone: { ...zone, playbookKey: 'home-stories-bar', frame: null } });
-      await settle(fixture);
-      const applied = { ...zone, playbookKey: 'home-stories-bar' };
-      await flushRefresh(fixture, { projects: [acme], zones: [applied] });
-      expect(store.displayOf('z1')).toBeNull();
-      expect(store.zone('z1')?.playbookKey).toBe('home-stories-bar');
-    });
-
-    it('offers no Apply playbook on a zone that has a display', async () => {
-      const { root } = await open('/zones/z1', { ...oneZone, displays: { z1: frameBar } });
-      expect(section(root).textContent).toContain('A playbook sets a preset display for a zone that has none.');
-      expect(section(root).querySelector('button')).toBeNull();
-    });
-
-    it('warns when the zone got a display meanwhile, and refuses without a request', async () => {
-      const store = TestBed.inject(DashboardStore);
-      const { fixture, root } = await open('/zones/z1', oneZone);
-      await openDrawer(fixture, root);
-      expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
-      store.zones.update((zones) => zones.map((z) => ({ ...z, frame: frameBar })));
-      await settle(fixture);
-      const conflict = drawer()?.querySelector('#playbook-conflict');
-      expect(conflict?.textContent).toContain('already has a Bar display');
-      expect(conflict?.getAttribute('role')).toBe('alert');
-      const fieldset = drawer()?.querySelector('fieldset');
-      expect(fieldset?.getAttribute('aria-describedby')).toBe('playbook-conflict');
-      buttonNamed(drawer() as HTMLElement, 'Apply').click();
-      await settle(fixture);
       http.expectNone(`${API_BASE}/zones/z1/playbook`);
-      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain("change this zone's display type instead");
-      expect(drawer()?.querySelectorAll('[role=alert]')).toHaveLength(1);
-      expect(fieldset?.getAttribute('aria-describedby')).toBe('create-error');
     });
 
-    it("shows the API's message in the drawer", async () => {
-      const { fixture, root } = await open('/zones/z1', oneZone);
-      await openDrawer(fixture, root);
-      buttonNamed(drawer() as HTMLElement, 'Apply').click();
+    it('sends Blank too, so the zone records it', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Later');
+      radios()[2].click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/zones/z1/playbook`).flush(
-        { error: { code: 'playbook_already_applied', message: 'This zone already has the playbook "promo-banner"' } },
-        { status: 409, statusText: 'Conflict' },
-      );
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
-      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('already has the playbook');
+      const req = http.expectOne(`${API_BASE}/zones`);
+      expect(req.request.body).toEqual({ name: 'Later', projectId: 'p1', template: 'blank' });
     });
 
-    it('refuses another playbook on a zone that has one, naming it', async () => {
+    it('preselects the only project and hides the project picker', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      expect(drawer()?.querySelector('#create-project')).toBeNull();
+      expect(drawer()?.textContent).not.toContain('Choose a project');
+      expect(drawer()?.textContent).toContain('In project Acme');
+    });
+
+    it('shows the project picker when the user can access several projects', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme, globex] });
+      await openNewZone(fixture, root);
+      const picker = drawer()?.querySelector<HTMLSelectElement>('#create-project');
+      expect([...(picker?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Choose a project', 'Acme', 'Globex']);
+      expect(drawer()?.textContent).not.toContain('In project');
+    });
+
+    it('reads the project when Create is pressed: projects that load or change after the drawer opens', async () => {
       const store = TestBed.inject(DashboardStore);
-      const { fixture } = await open('/zones/z1', { projects: [acme], zones: [bannerZone] });
-      store.openDrawer({ kind: 'applyPlaybook', zoneId: 'z1' });
+      const { fixture } = await open('/zones', { projects: [acme, globex] });
+      store.projects.set([]);
+      store.openDrawer({ kind: 'zone' });
       await settle(fixture);
-      expect(radios().find((r) => r.checked)?.value).toBe('promo-banner');
-      expect(drawer()?.querySelector('#playbook-conflict')).toBeNull();
-      radios()[0].click();
+      // The only project arrives after the drawer opened: the picker hides and that project is used.
+      store.projects.set([globex]);
       await settle(fixture);
-      expect(drawer()?.querySelector('#playbook-conflict')?.textContent).toContain(
-        'already has the playbook Promo banner',
-      );
-      buttonNamed(drawer() as HTMLElement, 'Apply').click();
+      expect(drawer()?.querySelector('#create-project')).toBeNull();
+      expect(drawer()?.textContent).toContain('In project Globex');
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Shop');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
-      http.expectNone(`${API_BASE}/zones/z1/playbook`);
+      expect(http.expectOne(`${API_BASE}/zones`).request.body).toEqual({ name: 'Shop', projectId: 'p2', template: 'stories-bar' });
+    });
+
+    it('hides the picker and uses the remaining project when two projects become one', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones', { projects: [acme, globex] });
+      await openNewZone(fixture, root);
+      expect(drawer()?.querySelector('#create-project')).not.toBeNull();
+      store.projects.set([globex]);
+      await settle(fixture);
+      expect(drawer()?.querySelector('#create-project')).toBeNull();
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Shop');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      expect(http.expectOne(`${API_BASE}/zones`).request.body.projectId).toBe('p2');
+    });
+
+    it('marks the template group, not the name, when the API refuses the template', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Home');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await refuse(fixture, `${API_BASE}/zones`, 'unknown_template', 'template must be one of: stories-bar, promo-banner, blank');
+      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe('template-hint create-error');
+      expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBeNull();
+      expect(drawer()?.querySelector('#create-slug')?.getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it('marks the project picker, not the name, when the API refuses the project', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme, globex] });
+      await openNewZone(fixture, root);
+      const picker = drawer()?.querySelector<HTMLSelectElement>('#create-project') ?? null;
+      expect(picker?.getAttribute('aria-describedby')).toBeNull();
+      choose(picker, '');
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Home');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await refuse(fixture, `${API_BASE}/zones`, 'validation_failed', 'projectId is required');
+      expect(picker?.getAttribute('aria-invalid')).toBe('true');
+      expect(picker?.getAttribute('aria-describedby')).toBe('create-error');
+      expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBeNull();
+      expect(drawer()?.querySelector('fieldset.template-options')?.getAttribute('aria-describedby')).toBe('template-hint');
+    });
+
+    it('does not ask to choose a project when there is only one', async () => {
+      const { fixture, root } = await open('/zones', { projects: [acme] });
+      await openNewZone(fixture, root);
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/zones`).flush('down', { status: 502, statusText: 'Bad Gateway' });
+      await settle(fixture);
+      const alert = drawer()?.querySelector('[role=alert]')?.textContent ?? '';
+      expect(alert).toContain('Zone was not saved. Enter a name.');
+      expect(alert).not.toContain('Choose a project');
+    });
+
+    it('has no Playbook card or Apply playbook action on the zone page', async () => {
+      const { root } = await open('/zones/z1', oneZone);
+      const titles = [...root.querySelectorAll('.section__title')].map((h) => h.textContent?.trim());
+      expect(titles).not.toContain('Playbook');
+      expect(root.querySelector('#playbook-title')).toBeNull();
+      expect([...root.querySelectorAll('button')].map((b) => b.textContent?.trim())).not.toContain('Apply playbook');
+      expect(root.textContent?.toLowerCase()).not.toContain('playbook');
+      expect(root.querySelector('.zone-template')).toBeNull();
+    });
+
+    it('notes the template the zone was created from in the header', async () => {
+      const { root } = await open('/zones/z1', {
+        projects: [acme],
+        zones: [{ ...zone, createdFromTemplate: 'stories-bar' }],
+        displays: { z1: frameBar },
+      });
+      expect(root.querySelector('.page-header .zone-template')?.textContent?.trim()).toBe('Created from template: Stories bar');
     });
   });
 

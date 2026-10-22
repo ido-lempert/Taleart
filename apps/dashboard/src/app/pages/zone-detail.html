@@ -15,6 +15,9 @@
         <h2 class="page-header__title">{{ zone.name }}</h2>
         <p class="page-header__meta">
           in {{ store.projectName(zone.projectId) }} · <span class="zone-slug">Slug <code class="key-prefix">{{ zone.slug }}</code></span>
+          @if (createdFromTemplate(); as template) {
+            · <span class="zone-template">Created from template: {{ template }}</span>
+          }
         </p>
         <app-visibility class="zone-visibility" [visibility]="zone.visibility" viewing="zone" />
         <button
@@ -25,33 +28,6 @@
           Edit name and slug
         </button>
       </header>
-
-      <section class="card section zone-section" aria-labelledby="playbook-title">
-        <div class="section__header">
-          <h3 class="section__title" id="playbook-title" tabindex="-1">Playbook</h3>
-          @if (!zone.playbookKey && !zone.frame) {
-            <button
-              type="button"
-              class="btn btn--secondary btn--sm"
-              (click)="store.openDrawer({ kind: 'applyPlaybook', zoneId: zone.id }, $event)"
-            >
-              <app-icon name="plus" /> Apply playbook
-            </button>
-          }
-        </div>
-        @if (zone.playbookKey) {
-          @if (appliedPlaybook(); as playbook) {
-            <p class="playbook-applied"><span class="playbook-applied__name">{{ playbook.label }}</span> {{ playbook.goal }}</p>
-          } @else {
-            <p class="playbook-applied"><code class="key-prefix">{{ zone.playbookKey }}</code></p>
-          }
-          <p class="muted">Its display is below; change it like any other.</p>
-        } @else if (zone.frame) {
-          <p class="muted">No playbook. A playbook sets a preset display for a zone that has none.</p>
-        } @else {
-          <p class="muted">No playbook yet. A playbook sets a preset display, with its settings, for a goal.</p>
-        }
-      </section>
 
       <section class="card section zone-section" aria-labelledby="display-title">
         <div class="section__header">
