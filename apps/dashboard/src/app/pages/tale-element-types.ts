@@ -240,6 +240,15 @@ export function addMenuRows(types: readonly StudioElementType[]): { entry: AddMe
   return rows.filter((row) => row !== undefined);
 }
 
+/**
+ * The registry label of a type that is not among the registry's own (built-in) types: a test-only
+ * type's in a development build, else undefined.
+ */
+export function elementTypeLabel(key: string): string | undefined {
+  if (!(typeof ngDevMode === 'undefined' || ngDevMode)) return undefined;
+  return TALE_TEST_ELEMENT_TYPES.find((t) => t.key === key)?.label;
+}
+
 /** The localStorage switch a development build reads to offer the registry's test-only types. */
 export const TEST_ELEMENT_TYPES_STORAGE_KEY = 'taleart.testElementTypes';
 
