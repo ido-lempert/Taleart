@@ -822,6 +822,11 @@ describe('TaleartElement', () => {
     expect(el.shadowRoot?.childNodes.length).toBe(0);
     expect(('zone' + 'Key') in el).toBe(false);
     expect(errorSpy).not.toHaveBeenCalled();
+    // One warning tells the page what to use instead.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toBe(
+      'TaleArt: the zone-key attribute is no longer supported; place the zone with site-key and zone',
+    );
   });
 
   it('ignores a stage attribute: stages are gone (AD-17)', async () => {

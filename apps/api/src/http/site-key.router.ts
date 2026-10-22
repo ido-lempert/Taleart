@@ -36,6 +36,10 @@ export function siteKeyRouter(pool: Pool): Router {
     try {
       await existingProject(pool, req.params.projectId);
       const issued = await issueSiteKey(pool, { projectId: req.params.projectId, createdBy: caller(res).id });
+      // A first key installs the project's zones (epic UX rework R7): forget this process's "not public"
+      // answers, so their media and fonts are served at once.
+      clearPublicMediaCache();
+      clearPublicFontCache();
       // The secret is in this body only: no cache keeps it.
       res.setHeader('Cache-Control', 'no-store');
       res.status(201).json(issued);

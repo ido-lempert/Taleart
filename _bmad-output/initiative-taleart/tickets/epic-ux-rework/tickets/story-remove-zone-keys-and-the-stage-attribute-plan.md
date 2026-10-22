@@ -89,11 +89,29 @@ deferred: []
 - **Legacy-SDK check.** `legacy-sdk.mjs` and the R16 before/after pixel comparison in `a11y-review.mjs` are removed: the pre-rework build can only be placed with a zone key. The other R16 checks (migrated tale's name, default covers) stay. The review now has 2 known failures (landscape full height, landscape contrast) instead of 3.
 - **Dashboard.** Zone key card, its drawer, `zoneKeys` store state and its per-zone GET removed; the site key card's revoke text no longer mentions zone keys. Initial bundle 493.15 kB.
 
+## Release note (deploy)
+
+**This release needs a stop-the-world deploy, as story 8.5 did.** Stop every API instance of the release before, then start this one. Its start-up migration drops `zone_keys`, which the release before still reads, and its Delivery API refuses the zone keys and the `zone-key` pages of the release before. The drop runs in its own transaction with `SET LOCAL lock_timeout = '10s'`: if an old instance still holds the table, the start fails with a lock timeout instead of queueing every query behind it.
+
+## Review fixes (2026-10-22)
+
+- **Merge of 8.9.** The zone page is in tabs now; the Zone key section 8.9 left below the tab panels is deleted with its `zoneKey` computed, `issuedDate` and styles. The Install tab holds only the site key card, which names no zone key.
+- **Drop.** `dropZoneKeys` checks `to_regclass('zone_keys')`, then `BEGIN`, `SET LOCAL lock_timeout = '10s'`, `DROP TABLE IF EXISTS zone_keys`, `COMMIT` (rollback on error). Unit tests: the statement order, no transaction when the table is gone, rollback on a lock timeout.
+- **R16 visual guard, without zone keys.** `apps/sdk-sample/fixtures/r16-baseline/` holds one PNG per case, captured at 4768734 in a temporary worktree (removed): the "before" images the release before 7.11 (489b892) drew, except `image-1280.png`. Section 15 of `a11y-review.mjs` draws each case with this SDK and compares it with `differing()`: 0 pixels must differ.
+  - Decision (coordinator, owner may change): `image-1280.png` is this SDK's own output, since the wide-screen viewer (f752d74) was a requested change. The old comparison failed there with 766090 differing pixels.
+  - Pinned: `baseline.json` names the Chromium the PNGs were drawn with (156.0.8078.4, Playwright's bundled build). Another version fails one check that asks for a recapture.
+  - Result: image 390, image 1280, video, gif, overlay, empty, background-image, background-video: 0 pixels differ each.
+- **Docs.** The epic marks R4 retired (Description line, R4 header, R7's "zone not installed", Done when). Architecture AD-2 drops the `[ASSUMPTION]` on legacy zone keys and records the 2026-10-22 decision; AD-9 is site keys only.
+- **SDK.** An element with the old `zone-key` attribute logs one `console.warn` (once per element): "TaleArt: the zone-key attribute is no longer supported; place the zone with site-key and zone". The attribute name is built by concatenation, so the source check still passes. 21.87 KB gzipped.
+- **Sample page.** With only `key` or `keys`, one line says zone keys are no longer supported and how to open the page; `a11y-scan` checks it.
+- **Caches.** Issuing a site key now also clears this process's public media and font caches: a "not public" answer kept just before (for up to 30 s) would otherwise hide a newly installed zone's fonts.
+- **Tests.** A session cookie with a valid slug and no bearer key is refused; the two site key revokes in the Delivery tests assert 204; a delivered tale's project font is 404 after the site key is revoked and 200 at once after a new one is issued; the site key issue test asserts the info never contains the key's hash.
+
 ## Verification
 
 **Commands:**
-- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` -- passed (api 540, dashboard 474, web-sdk 341).
-- `web-sdk:size` 21.80 KB; `web-sdk:types-check` passed; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` 2 of 182 failed (known landscape ones); `sdk-sample:perf` cold p75 1265 ms.
+- `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-storyly` -- passed (after review fixes: api 548, dashboard 498, web-sdk 341, server-access 32).
+- `web-sdk:size` 21.87 KB; `web-sdk:types-check` passed; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` 2 of 207 failed (the known landscape full height and landscape contrast; every R16 baseline 0 px); `sdk-sample:perf` cold p75 1272 ms. Dashboard initial 493.15 kB.
 
 **Manual checks:**
 - Playwright (`shots-8.7/`): zone page without a Zone key card, Visible on site; sample page with two zones by slug and site key; `?key=` places nothing; old routes 404.

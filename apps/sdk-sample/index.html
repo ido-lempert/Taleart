@@ -73,6 +73,14 @@
       // `siteKey` with `zones=a,b` places one element per slug (epic UX rework R3).
       const siteKey = secret('siteKey') || '';
       const placements = siteKey ? list(params.get('zones') || params.get('zone')) : [];
+      // The zone key form of earlier builds (`key`, `keys`) places nothing now: say so in one line.
+      if (!siteKey && (secret('key') || secret('keys'))) {
+        const notice = document.createElement('p');
+        notice.id = 'old-key-notice';
+        notice.textContent =
+          'Zone keys are no longer supported: open this page with ?zones=<slug>#siteKey=<site key>.';
+        document.getElementById('views').before(notice);
+      }
       // The zones' SDK theme override (R9), before the elements load so they render with it.
       const theme = params.get('theme');
       if (theme) {
