@@ -1,2 +1,24 @@
-<docs-nx-welcome></docs-nx-welcome>
-<router-outlet></router-outlet>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <a class="site-header__brand" routerLink="/">TaleArt docs</a>
+</header>
+<div class="layout">
+  <nav class="side-nav" aria-label="Docs">
+    <ul>
+      @for (page of pages; track page.path) {
+        <li>
+          <a
+            [routerLink]="'/' + page.path"
+            routerLinkActive="is-active"
+            [routerLinkActiveOptions]="{ exact: true }"
+            ariaCurrentWhenActive="page"
+            >{{ page.label }}</a
+          >
+        </li>
+      }
+    </ul>
+  </nav>
+  <main id="main" class="content" tabindex="-1">
+    <router-outlet />
+  </main>
+</div>
