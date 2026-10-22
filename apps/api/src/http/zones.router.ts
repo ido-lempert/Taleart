@@ -9,6 +9,7 @@ import {
 import {
   createZoneFromTemplate,
   listZones,
+  markZonesFirstVisible,
   setDisplay,
   updateDisplay,
   updateZone,
@@ -25,10 +26,18 @@ import { requiredString } from './validation';
 
 /**
  * Zones with their visibility (epic UX rework R7): the zones module stores them, the tales module
- * knows what they deliver; the API composes the two (AD-1).
+ * knows what they deliver; the API composes the two (AD-1). A zone read as visible for the first
+ * time gets its `firstVisibleAt` here (R9), so every user's setup checklist goes away with it.
  */
-async function withZoneVisibility<Z extends { id: string }>(pool: Pool, zones: Z[]): Promise<(Z & Pick<Zone, 'visibility'>)[]> {
-  return withVisibility(zones, await zoneVisibilities(pool, zones.map((zone) => zone.id)));
+async function withZoneVisibility<Z extends Pick<Zone, 'id' | 'firstVisibleAt'>>(
+  pool: Pool,
+  zones: Z[],
+): Promise<(Z & Pick<Zone, 'visibility'>)[]> {
+  const read = withVisibility(zones, await zoneVisibilities(pool, zones.map((zone) => zone.id)));
+  const firstTime = read.filter((zone) => zone.visibility.visible && !zone.firstVisibleAt).map((zone) => zone.id);
+  if (firstTime.length === 0) return read;
+  const marked = await markZonesFirstVisible(pool, firstTime);
+  return read.map((zone) => ({ ...zone, firstVisibleAt: zone.firstVisibleAt ?? marked.get(zone.id) ?? null }));
 }
 
 // Settings as sent: validated against the frame type's JSON Schema in the zones module.

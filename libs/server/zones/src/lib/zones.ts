@@ -10,6 +10,9 @@ import { projectExists, type Db, type ProjectScope } from '@taleart/server-acces
 /** A zone as this module stores it: its visibility (epic UX rework R7) is composed in by the API. */
 export type StoredZone = Omit<Zone, 'visibility'>;
 
+// When the zone was first read as visible (epic UX rework R9), as an ISO 8601 UTC string, or null.
+const FIRST_VISIBLE_AT = `to_char(zones.first_visible_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "firstVisibleAt"`;
+
 /**
  * The columns of a zone as the API returns it: its slug, the template it was created from (a
  * note, epic UX rework R5, stored in `playbook_key`) and its
@@ -17,7 +20,7 @@ export type StoredZone = Omit<Zone, 'visibility'>;
  * `INSERT … RETURNING` and `UPDATE … RETURNING`.
  */
 export const ZONE_COLUMNS = `zones.id, zones.name, zones.slug, zones.project_id AS "projectId",
-  zones.playbook_key AS "createdFromTemplate",
+  zones.playbook_key AS "createdFromTemplate", ${FIRST_VISIBLE_AT},
   (SELECT json_build_object('id', f.id, 'zoneId', f.zone_id, 'projectId', f.project_id, 'type', f.type, 'settings', f.settings)
    FROM frames f WHERE f.zone_id = zones.id ORDER BY f.created_at, f.id LIMIT 1) AS frame`;
 
@@ -167,4 +170,21 @@ export async function renameZoneWhen(
   if (next === null || next === before) return { before, after: before };
   await db.query('UPDATE zones SET name = $2 WHERE id = $1', [zoneId, next]);
   return { before, after: next };
+}
+
+/**
+ * Records that the zones `zoneIds` were read as visible on the site (epic UX rework R9): each one's
+ * `first_visible_at` is set the first time and never changed or cleared afterwards, so the
+ * dashboard's setup checklist stays gone for every user. Answers each zone's `firstVisibleAt`,
+ * also for a zone another request marked first.
+ */
+export async function markZonesFirstVisible(db: Db, zoneIds: readonly string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(zoneIds.filter((id) => UUID.test(id)))];
+  if (ids.length === 0) return new Map();
+  const { rows } = await db.query<{ id: string; firstVisibleAt: string }>(
+    `UPDATE zones SET first_visible_at = COALESCE(first_visible_at, now())
+     WHERE id = ANY($1::uuid[]) RETURNING zones.id, ${FIRST_VISIBLE_AT}`,
+    [ids],
+  );
+  return new Map(rows.map((row) => [row.id, row.firstVisibleAt]));
 }

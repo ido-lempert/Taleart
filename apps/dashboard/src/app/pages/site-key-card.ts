@@ -37,6 +37,10 @@ function refusal(err: unknown, fallback: string): string {
     .site-key__snippet {
       overflow-wrap: anywhere;
     }
+    /* Muted text on the code's sunken background is under 4.5:1. */
+    .site-key__snippet code {
+      color: var(--text);
+    }
     .key-info {
       display: flex;
       flex-wrap: wrap;

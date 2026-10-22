@@ -54,6 +54,10 @@ export async function migrateZones(db: Db): Promise<void> {
   await db.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS slug text');
   await db.query('CREATE UNIQUE INDEX IF NOT EXISTS zones_project_id_slug_key ON zones (project_id, slug)');
 
+  // When the zone was first read as visible on the site (epic UX rework R9): set once, never
+  // cleared, so the dashboard's setup checklist stays gone after it. Null until then.
+  await db.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS first_visible_at timestamptz');
+
   // One theme per project (epic web zones R9, AD-4): only the fields the
   // project sets, as JSONB; readers fill the rest from TaleArt's default theme.
   await db.query(`
