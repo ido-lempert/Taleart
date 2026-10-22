@@ -1,6 +1,6 @@
 # web-sdk
 
-The TaleArt Web SDK: a `<taleart-view>` custom element that renders a zone's frames (bar, banner) and opens its
+The TaleArt Web SDK: a `<taleart-view>` custom element that renders a zone's display (a bar or a banner) and opens its
 tale groups in a full-screen viewer, reading published content from the Delivery API with the zone's key.
 
 ## Placing a zone
@@ -17,12 +17,11 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | --- | --- |
 | `api-url` / `apiUrl` | The TaleArt API origin. |
 | `zone-key` / `zoneKey` | The zone key (`tak_…`) issued in the dashboard. |
-| `stage` / `stage` | A stage key of the zone: render only that stage's frame. Empty renders every frame of the zone. |
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
 
 ## Theme
 
-The project's theme, set in the dashboard, styles the frames and the viewer. A host page can override any of its fields
+The project's theme, set in the dashboard, styles the zone's display and the viewer. A host page can override any of its fields
 for a zone, or for one element. There is no theme per frame. Each field resolves, in order, from:
 
 1. the element's `theme` property or attribute,
@@ -77,9 +76,9 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 The budget (NFR-006) is the first zone content visible within 1.5 s at p75 on a mid-tier phone over Fast 4G, with
 the SDK at most 50 KB gzipped. What the SDK does:
 
-- The first frame's covers in view load first, eager and at high fetch priority; every other picture (bar covers out
-  of view, the other frames) waits until they have loaded, at most 3 s. Bar covers out of view stay lazy, including
-  still canvas covers (animated images under reduced motion). A new render (another key or stage) starts over, and an
+- The display's covers in view load first, eager and at high fetch priority; every other picture (bar covers out
+  of view) waits until they have loaded, at most 3 s. Bar covers out of view stay lazy, including
+  still canvas covers (animated images under reduced motion). A new render (another key) starts over, and an
   element removed from the page starts no more downloads.
 - A still video cover (a first frame, metadata-only preload) counts as loaded at its first frame, or 1 s after its
   metadata when the browser loads no frame data up front.
@@ -162,8 +161,8 @@ when p75 first tale frame is over 1 s. `PERF_RUNS` (default 10), `PERF_BUDGET_MS
 
 What a run adds to the database, and deletes again at the end (also when it fails or gets SIGINT/SIGTERM): an admin
 user and their session (inserted directly, as the API tests sign in), and through the Management API a project, its
-zone, two frames, eight tale groups with their zone placements, covers and 24 tales, and a zone key; and a project
-font with a second zone, its bar frame, group, tale and key. The media files go
+zone, its bar display, eight tale groups with their zone placements, covers and 24 tales, and a zone key; and a project
+font with a second zone, its bar display, group, tale and key. The media files go
 to a temporary folder that is removed with them. A run killed outright (SIGKILL) leaves those rows, whose media keys
 then name files that no longer exist.
 

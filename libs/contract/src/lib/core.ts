@@ -21,13 +21,12 @@ export type Project = Schemas['Project'];
 export type CreateProjectRequest = Schemas['CreateProjectRequest'];
 export type Zone = Schemas['Zone'];
 export type CreateZoneRequest = Schemas['CreateZoneRequest'];
+export type UpdateZoneRequest = Schemas['UpdateZoneRequest'];
 export type FrameType = Schemas['FrameType'];
+/** A zone's display (AD-5, AD-17): a frame row, at most one per zone. The UI says Display. */
 export type Frame = Schemas['Frame'];
-export type CreateFrameRequest = Schemas['CreateFrameRequest'];
+export type SetFrameRequest = Schemas['SetFrameRequest'];
 export type UpdateFrameRequest = Schemas['UpdateFrameRequest'];
-export type Stage = Schemas['Stage'];
-export type CreateStageRequest = Schemas['CreateStageRequest'];
-export type RenameStageRequest = Schemas['RenameStageRequest'];
 export type ApplyPlaybookRequest = Schemas['ApplyPlaybookRequest'];
 export type AppliedPlaybook = Schemas['AppliedPlaybook'];
 export type TaleGroup = Schemas['TaleGroup'];
@@ -67,7 +66,6 @@ export type PasskeyResponse = Schemas['PasskeyResponse'];
 export type ZoneKeyInfo = Schemas['ZoneKeyInfo'];
 export type IssuedZoneKey = Schemas['IssuedZoneKey'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
-export type DeliveryStage = Schemas['DeliveryStage'];
 export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
 export type DeliveryTale = Schemas['DeliveryTale'];
@@ -209,34 +207,48 @@ export function normalizeTagName(value: unknown): string | null {
   return length >= 1 && length <= MAX_TAG_NAME_LENGTH ? name : null;
 }
 
-/** The most characters a stage key holds (epic web zones R7). */
-export const MAX_STAGE_KEY_LENGTH = 64;
+/** The most characters a zone slug holds (epic UX rework R1). */
+export const MAX_ZONE_SLUG_LENGTH = 64;
 
 /**
- * A stage key: lowercase letters and digits in words joined by single
- * hyphens, such as `home-top`. A host page names it in
- * `<taleart-view stage="<key>">`, so it is set on create and never changes.
+ * A zone slug: lowercase letters and digits in words joined by single
+ * hyphens, such as `home-top`, unique in the zone's project (epic UX rework
+ * R1, AD-17). A host page names the zone with it in `zone="<slug>"`.
  */
-export const STAGE_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const ZONE_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-/** True when `value` is a valid stage key: {@link STAGE_KEY_PATTERN}, at most {@link MAX_STAGE_KEY_LENGTH} characters. */
-export function isStageKey(value: unknown): value is string {
-  return typeof value === 'string' && value.length <= MAX_STAGE_KEY_LENGTH && STAGE_KEY_PATTERN.test(value);
+/** True when `value` is a valid zone slug: {@link ZONE_SLUG_PATTERN}, at most {@link MAX_ZONE_SLUG_LENGTH} characters. */
+export function isZoneSlug(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_ZONE_SLUG_LENGTH && ZONE_SLUG_PATTERN.test(value);
 }
 
 /**
- * A stage key suggested from a stage name: lowercase ASCII letters and digits,
- * every other run of characters a hyphen, trimmed to {@link MAX_STAGE_KEY_LENGTH}.
+ * A zone slug suggested from a name: lowercase ASCII letters and digits,
+ * every other run of characters a hyphen, trimmed to {@link MAX_ZONE_SLUG_LENGTH}.
  * '' when the name has no letter or digit to keep.
  */
-export function stageKeyFromName(name: string): string {
+export function zoneSlugFromName(name: string): string {
   const words = name
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-  return words.join('-').slice(0, MAX_STAGE_KEY_LENGTH).replace(/-+$/, '');
+  return words.join('-').slice(0, MAX_ZONE_SLUG_LENGTH).replace(/-+$/, '');
+}
+
+/**
+ * `base`, or `base-2`, `base-3`, … : the first that `taken` does not hold, cut so it stays
+ * within {@link MAX_ZONE_SLUG_LENGTH} characters. An empty base reads `zone`.
+ */
+export function uniqueZoneSlug(base: string, taken: (slug: string) => boolean): string {
+  const root = (base || 'zone').slice(0, MAX_ZONE_SLUG_LENGTH).replace(/-+$/, '');
+  if (!taken(root)) return root;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const slug = `${root.slice(0, MAX_ZONE_SLUG_LENGTH - suffix.length).replace(/-+$/, '')}${suffix}`;
+    if (!taken(slug)) return slug;
+  }
 }
 
 /** The most tales one tale group holds (FR-010). */
@@ -528,7 +540,9 @@ export const ErrorCodes = {
   unknownFrameType: 'unknown_frame_type',
   invalidFrameSettings: 'invalid_frame_settings',
   invalidTheme: 'invalid_theme',
-  frameNotFound: 'frame_not_found',
+  displayNotFound: 'display_not_found',
+  displayExists: 'display_exists',
+  slugTaken: 'slug_taken',
   taleGroupNotFound: 'tale_group_not_found',
   taleGroupFull: 'tale_group_full',
   taleNotFound: 'tale_not_found',
@@ -552,8 +566,6 @@ export const ErrorCodes = {
   importSelectionInvalid: 'import_selection_invalid',
   previewBusy: 'preview_busy',
   invalidStatusTransition: 'invalid_status_transition',
-  stageNotFound: 'stage_not_found',
-  stageKeyTaken: 'stage_key_taken',
   unknownPlaybook: 'unknown_playbook',
   playbookAlreadyApplied: 'playbook_already_applied',
   concurrentChange: 'concurrent_change',

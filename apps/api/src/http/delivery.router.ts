@@ -8,7 +8,7 @@ import {
 } from '@taleart/contract';
 import { zoneForKey, type KeyZone } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { findZone, getProjectTheme, listDeliveryStages, listFrames, type FrameTypeRegistry } from '@taleart/server-zones';
+import { findZone, getProjectTheme, type FrameTypeRegistry } from '@taleart/server-zones';
 import { Router, type RequestHandler } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
@@ -87,9 +87,7 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
       }
       // A zone without a display delivers no tale group (epic UX rework R7): its setup is part of
       // the Delivery filter (`deliveredPlacement`), the rule the Management API's indicator reads.
-      const [frames, stages, taleGroups, theme] = await Promise.all([
-        listFrames(pool, zoneId),
-        listDeliveryStages(pool, zoneId),
+      const [taleGroups, theme] = await Promise.all([
         listDeliveryTaleGroups(pool, zoneId),
         getProjectTheme(pool, zone.projectId),
       ]);
@@ -97,15 +95,15 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
       const body: DeliveryZone = {
         id: zone.id,
         name: zone.name,
+        slug: zone.slug,
         // The project's theme (R9), complete: TaleArt's default fills every field it leaves out.
         theme: theme.resolved,
-        frames: frames.map(({ id, type, settings }) => ({
-          id,
-          type,
-          settings: options.frameTypes.withDefaults(type, settings),
-        })),
-        // Key and frame only: a stage's name and id stay in the dashboard (R7).
-        stages: stages.map(({ key, frameId }) => ({ key, frameId })),
+        // The zone's one display (AD-17), every setting filled with its default.
+        frame: zone.frame && {
+          id: zone.frame.id,
+          type: zone.frame.type,
+          settings: options.frameTypes.withDefaults(zone.frame.type, zone.frame.settings),
+        },
         taleGroups: taleGroups.map((group) => ({
           id: group.id,
           name: group.name,

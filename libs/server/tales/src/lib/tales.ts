@@ -466,6 +466,21 @@ export async function createTaleGroup(
 }
 
 /**
+ * Gives `toZoneId` a copy of every placement of `fromZoneId`, at the same positions, so it lists the
+ * same tale groups in the same order (AD-14 amended, AD-17). A group already placed in `toZoneId`
+ * keeps its placement. Both zones must be of one project. The zones module's migration calls it
+ * when a stage or an extra frame becomes its own zone; run it in that migration's transaction.
+ */
+export async function copyZonePlacements(db: Db, fromZoneId: string, toZoneId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO zone_tale_groups (zone_id, tale_group_id, project_id, position, created_at)
+     SELECT $2, tale_group_id, project_id, position, created_at FROM zone_tale_groups WHERE zone_id = $1
+     ON CONFLICT (zone_id, tale_group_id) DO NOTHING`,
+    [fromZoneId, toZoneId],
+  );
+}
+
+/**
  * Places an existing tale group at the end of a zone (AD-14). The group must
  * belong to the zone's project ({@link TaleGroupNotInProjectError} otherwise).
  * A group already placed in the zone stays where it is: `placed` is false.

@@ -40,11 +40,12 @@ import {
   zoneDelivers,
   zoneReasonsSql,
   continueTaleMediaMigration,
+  copyZonePlacements,
   migrateTaleMediaDocuments,
   sweepUnusedProjectMediaFiles,
 } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
-import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
+import { applyPlaybook, foldStagesIntoZones, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool, PoolClient } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig, type ProjectMediaOptions } from './app';
@@ -215,10 +216,9 @@ describe('Management API v1: projects and zones', () => {
   // Gives the zone a display (a bar frame) when it has none: a zone without a display delivers no
   // tale group (epic UX rework R7), so a key alone would deliver nothing.
   async function withDisplay(zoneId: string): Promise<void> {
-    const frames = await (await fetch(`${base}/zones/${zoneId}/frames`)).json();
-    if (Array.isArray(frames) && frames.length === 0) {
-      expect((await post(`/zones/${zoneId}/frames`, { type: 'bar', settings: {} })).status).toBe(201);
-    }
+    const res = await post(`/zones/${zoneId}/frame`, { type: 'bar', settings: {} });
+    // 409: the zone already has its display (AD-17).
+    expect([201, 409]).toContain(res.status);
   }
 
   // Installs the zone as a host page needs it: a display, then a key (R7).
@@ -253,7 +253,14 @@ describe('Management API v1: projects and zones', () => {
     return (await post('/projects', { name })).json();
   }
 
-  async function createZone(): Promise<{ id: string; name: string; projectId: string; playbookKey: string | null }> {
+  async function createZone(): Promise<{
+    id: string;
+    name: string;
+    slug: string;
+    projectId: string;
+    playbookKey: string | null;
+    frame: { id: string; type: string; settings: unknown } | null;
+  }> {
     const project = await createProject();
     return (await post('/zones', { name: 'Home page bar', projectId: project.id })).json();
   }
@@ -276,7 +283,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, stages, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -314,8 +321,10 @@ describe('Management API v1: projects and zones', () => {
     expect(zone).toEqual({
       id: expect.any(String),
       name: 'Home page bar',
+      slug: 'home-page-bar',
       projectId: project.id,
       playbookKey: null,
+      frame: null,
       visibility: NEW_ZONE_VISIBILITY,
     });
 
@@ -394,12 +403,109 @@ describe('Management API v1: projects and zones', () => {
     const zones = await (await fetch(`${base}/zones`)).json();
     expect(projects).toEqual([{ id: project.id, name: 'Acme' }]);
     expect(zones).toEqual([
-      { id: expect.any(String), name: 'Home page bar', projectId: project.id, playbookKey: null, visibility: NEW_ZONE_VISIBILITY },
+      {
+        id: expect.any(String),
+        name: 'Home page bar',
+        slug: 'home-page-bar',
+        projectId: project.id,
+        playbookKey: null,
+        frame: null,
+        visibility: NEW_ZONE_VISIBILITY,
+      },
     ]);
   });
 
-  describe('frames', () => {
+  describe('zone slugs (epic UX rework R1)', () => {
     const unknownZoneId = '00000000-0000-4000-8000-000000000000';
+
+    function patchZone(zoneId: string, body: unknown): Promise<Response> {
+      return fetch(`${base}/zones/${zoneId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it('makes a slug from the name, unique in the project with a numeric suffix', async () => {
+      const project = await createProject();
+      const slugs: string[] = [];
+      for (const name of ['Home page', 'Home  Page!', 'Héro bänner', '***', 'דף הבית']) {
+        const res = await post('/zones', { name, projectId: project.id });
+        expect(res.status).toBe(201);
+        slugs.push((await res.json()).slug);
+      }
+      // A Hebrew name has no Latin letter or digit: its slug is `zone`, made unique like any other.
+      expect(slugs).toEqual(['home-page', 'home-page-2', 'hero-banner', 'zone', 'zone-2']);
+      // Another project may use the same slug.
+      const other = await createProject('Other');
+      expect((await (await post('/zones', { name: 'Home page', projectId: other.id })).json()).slug).toBe('home-page');
+    });
+
+    it('takes a given slug, and refuses one another zone of the project has', async () => {
+      const project = await createProject();
+      const created = await post('/zones', { name: 'Top', projectId: project.id, slug: 'home-top' });
+      expect(created.status).toBe(201);
+      expect((await created.json()).slug).toBe('home-top');
+      const taken = await post('/zones', { name: 'Other', projectId: project.id, slug: 'home-top' });
+      expect(taken.status).toBe(409);
+      expect(await taken.json()).toEqual({ error: { code: 'slug_taken', message: expect.stringContaining('home-top') } });
+      expect(await (await fetch(`${base}/zones`)).json()).toHaveLength(1);
+    });
+
+    it.each([['Home Top'], ['HOME'], ['home top'], ['home_top'], ['-home'], ['home--top'], [''], ['a'.repeat(65)], [7]])(
+      'refuses the slug %j with validation_failed',
+      async (slug) => {
+        const project = await createProject();
+        const res = await post('/zones', { name: 'Top', projectId: project.id, slug });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+        const zone = await createZone();
+        const changed = await patchZone(zone.id, { slug });
+        expect(changed.status).toBe(400);
+        expect((await changed.json()).error.code).toBe('validation_failed');
+      },
+    );
+
+    it('renames a zone and changes its slug; a taken slug is refused', async () => {
+      const project = await createProject();
+      const zone = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      await post('/zones', { name: 'Shop', projectId: project.id });
+      const res = await patchZone(zone.id, { name: ' Landing ', slug: 'landing-top' });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ...zone, name: 'Landing', slug: 'landing-top' });
+      const taken = await patchZone(zone.id, { slug: 'shop' });
+      expect(taken.status).toBe(409);
+      expect((await taken.json()).error.code).toBe('slug_taken');
+      for (const body of [{}, { name: '  ' }]) {
+        const bad = await patchZone(zone.id, body);
+        expect(bad.status).toBe(400);
+        expect((await bad.json()).error.code).toBe('validation_failed');
+      }
+      const unknown = await patchZone(unknownZoneId, { name: 'X' });
+      expect(unknown.status).toBe(404);
+      expect((await unknown.json()).error.code).toBe('zone_not_found');
+    });
+  });
+
+  describe('display (one frame per zone, AD-17)', () => {
+    const unknownZoneId = '00000000-0000-4000-8000-000000000000';
+    const barDefaults = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
+    const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
+
+    function patch(path: string, body: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function zoneListed(zoneId: string): Promise<{ frame: unknown }> {
+      const zones: { id: string; frame: unknown }[] = await (await fetch(`${base}/zones`)).json();
+      const zone = zones.find((z) => z.id === zoneId);
+      if (!zone) throw new Error('zone not listed');
+      return zone;
+    }
 
     it('lists the registered frame types, including bar and banner', async () => {
       const res = await fetch(`${base}/frame-types`);
@@ -430,92 +536,131 @@ describe('Management API v1: projects and zones', () => {
       });
     });
 
-    it('adds a bar frame to a zone, copying the zone project', async () => {
+    it("gives a zone its display with the type's defaults, copying the zone project, and lists it on the zone", async () => {
       const zone = await createZone();
-      const res = await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: {} });
+      expect(zone.frame).toBeNull();
+      const res = await post(`/zones/${zone.id}/frame`, { type: 'bar' });
       expect(res.status).toBe(201);
-      expect(await res.json()).toEqual({
-        id: expect.any(String),
-        zoneId: zone.id,
-        projectId: zone.projectId,
-        type: 'bar',
-        settings: {},
-      });
+      const frame = await res.json();
+      expect(frame).toEqual({ id: expect.any(String), zoneId: zone.id, projectId: zone.projectId, type: 'bar', settings: barDefaults });
+      expect((await zoneListed(zone.id)).frame).toEqual(frame);
       const { rows } = await pool.query('SELECT project_id FROM frames');
       expect(rows).toEqual([{ project_id: zone.projectId }]);
     });
 
-    it("lists a zone's frames oldest first, and only that zone's", async () => {
+    it('refuses a second display, also when two arrive at once', async () => {
       const zone = await createZone();
-      const other = await createZone();
-      const first = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
-      const second = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
-      await post(`/zones/${other.id}/frames`, { type: 'bar' });
+      const first = await (await post(`/zones/${zone.id}/frame`, { type: 'bar' })).json();
+      const second = await post(`/zones/${zone.id}/frame`, { type: 'banner' });
+      expect(second.status).toBe(409);
+      expect(await second.json()).toEqual({ error: { code: 'display_exists', message: expect.any(String) } });
+      expect((await zoneListed(zone.id)).frame).toEqual(first);
 
-      const res = await fetch(`${base}/zones/${zone.id}/frames`);
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual([first, second]);
+      const racing = await createZone();
+      const results = await Promise.all([
+        post(`/zones/${racing.id}/frame`, { type: 'bar' }),
+        post(`/zones/${racing.id}/frame`, { type: 'banner' }),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      const { rows } = await pool.query('SELECT 1 FROM frames WHERE zone_id = $1', [racing.id]);
+      expect(rows).toHaveLength(1);
+      // The database holds one display per zone too.
+      await expect(
+        pool.query("INSERT INTO frames (zone_id, project_id, type) VALUES ($1, $2, 'bar')", [zone.id, zone.projectId]),
+      ).rejects.toThrow(/frames_zone_id_key/);
     });
 
-    it('refuses a type that is not in the registry', async () => {
+    it('switches bar to banner and back, resetting the settings to each type\'s defaults and keeping the id', async () => {
       const zone = await createZone();
-      const res = await post(`/zones/${zone.id}/frames`, { type: 'carousel', settings: {} });
-      expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({
-        error: { code: 'unknown_frame_type', message: expect.any(String) },
-      });
-      expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([]);
+      const bar = await (await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: { gap: 20, shape: 'rounded-square' } })).json();
+      expect(bar.settings).toEqual({ gap: 20, shape: 'rounded-square' });
+      const banner = await patch(`/zones/${zone.id}/frame`, { type: 'banner' });
+      expect(banner.status).toBe(200);
+      expect(await banner.json()).toEqual({ ...bar, type: 'banner', settings: bannerDefaults });
+      const back = await (await patch(`/zones/${zone.id}/frame`, { type: 'bar' })).json();
+      expect(back).toEqual({ ...bar, settings: barDefaults });
+      // The same type again changes nothing; a type with settings takes them.
+      expect(await (await patch(`/zones/${zone.id}/frame`, { type: 'bar' })).json()).toEqual(back);
+      const withSettings = await (await patch(`/zones/${zone.id}/frame`, { type: 'banner', settings: { loop: false } })).json();
+      expect(withSettings).toEqual({ ...bar, type: 'banner', settings: { loop: false } });
+      expect((await zoneListed(zone.id)).frame).toEqual(withSettings);
     });
 
-    it('refuses settings the type schema does not allow, naming the property', async () => {
+    it('replaces the settings, validated against the type, and stores nothing invalid', async () => {
       const zone = await createZone();
-      const res = await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: { color: 'red' } });
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body).toEqual({ error: { code: 'invalid_frame_settings', message: expect.any(String) } });
-      expect(body.error.message).toContain('color');
-      expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([]);
-    });
-
-    it('refuses settings that are not an object', async () => {
-      const zone = await createZone();
-      const res = await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: ['x'] });
-      expect(res.status).toBe(400);
-      expect((await res.json()).error.code).toBe('invalid_frame_settings');
-    });
-
-    it('treats missing settings as {}', async () => {
-      const zone = await createZone();
-      const res = await post(`/zones/${zone.id}/frames`, { type: 'banner' });
-      expect(res.status).toBe(201);
-      expect((await res.json()).settings).toEqual({});
-    });
-
-    it('refuses a frame without a type', async () => {
-      const zone = await createZone();
-      const res = await post(`/zones/${zone.id}/frames`, { settings: {} });
-      expect(res.status).toBe(400);
-      expect((await res.json()).error.code).toBe('validation_failed');
-    });
-
-    it.each([unknownZoneId, 'not-a-uuid'])('answers 404 zone_not_found for zone %s', async (zoneId) => {
-      for (const res of [
-        await fetch(`${base}/zones/${zoneId}/frames`),
-        await post(`/zones/${zoneId}/frames`, { type: 'bar', settings: {} }),
-      ]) {
-        expect(res.status).toBe(404);
-        expect(await res.json()).toEqual({
-          error: { code: 'zone_not_found', message: expect.any(String) },
-        });
+      await post(`/zones/${zone.id}/frame`, { type: 'bar' });
+      const edited = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
+      const saved = await patch(`/zones/${zone.id}/frame`, { settings: edited });
+      expect(saved.status).toBe(200);
+      expect((await saved.json()).settings).toEqual(edited);
+      const cases: [unknown, string][] = [
+        [{ gap: 40 }, 'settings.gap must be at most 24'],
+        [{ shape: 'star' }, 'settings.shape must be one of: circle, rounded-square'],
+        [{ color: 'red' }, 'settings has unknown property "color"'],
+      ];
+      for (const [settings, message] of cases) {
+        const res = await patch(`/zones/${zone.id}/frame`, { settings: { ...edited, ...(settings as object) } });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: { code: 'invalid_frame_settings', message } });
+      }
+      // Banner settings on a bar, and an unknown type, are refused too.
+      expect((await (await patch(`/zones/${zone.id}/frame`, { settings: { loop: false } })).json()).error.code).toBe(
+        'invalid_frame_settings',
+      );
+      const unknownType = await patch(`/zones/${zone.id}/frame`, { type: 'carousel' });
+      expect(unknownType.status).toBe(400);
+      expect((await unknownType.json()).error.code).toBe('unknown_frame_type');
+      expect(((await zoneListed(zone.id)).frame as { settings: unknown }).settings).toEqual(edited);
+      for (const body of [{}, { type: '' }, { type: 3 }]) {
+        const res = await patch(`/zones/${zone.id}/frame`, body);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
       }
     });
 
-    it('answers 404 zone_not_found for an unknown zone even without a type', async () => {
-      const res = await post(`/zones/${unknownZoneId}/frames`, {});
+    it('refuses an unknown type, invalid settings or no type when setting a display, creating nothing', async () => {
+      const zone = await createZone();
+      const cases: [unknown, string][] = [
+        [{ type: 'carousel' }, 'unknown_frame_type'],
+        [{ type: 'bar', settings: { color: 'red' } }, 'invalid_frame_settings'],
+        [{ type: 'bar', settings: ['x'] }, 'invalid_frame_settings'],
+        [{ settings: {} }, 'validation_failed'],
+      ];
+      for (const [body, code] of cases) {
+        const res = await post(`/zones/${zone.id}/frame`, body);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe(code);
+      }
+      expect((await zoneListed(zone.id)).frame).toBeNull();
+    });
+
+    it('answers 404 for an unknown zone, and display_not_found for a zone without one', async () => {
+      for (const res of [
+        await post(`/zones/${unknownZoneId}/frame`, { type: 'bar' }),
+        await patch(`/zones/${unknownZoneId}/frame`, { type: 'bar' }),
+        await post('/zones/not-a-uuid/frame', { type: 'bar' }),
+      ]) {
+        expect(res.status).toBe(404);
+        expect((await res.json()).error.code).toBe('zone_not_found');
+      }
+      const zone = await createZone();
+      const res = await patch(`/zones/${zone.id}/frame`, { type: 'bar' });
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({
-        error: { code: 'zone_not_found', message: expect.any(String) },
-      });
+      expect((await res.json()).error.code).toBe('display_not_found');
+    });
+
+    it('has no frames or stages endpoint any more', async () => {
+      const zone = await createZone();
+      for (const [method, path] of [
+        ['GET', `/zones/${zone.id}/frames`],
+        ['POST', `/zones/${zone.id}/frames`],
+        ['GET', `/zones/${zone.id}/stages`],
+        ['POST', `/zones/${zone.id}/stages`],
+      ]) {
+        const res = await fetch(`${base}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
+        expect({ path, status: res.status }).toEqual({ path, status: 404 });
+        expect((await res.json()).error.code).toBe('not_found');
+      }
     });
 
     it('accepts a new type added to the registry by configuration only', async () => {
@@ -543,13 +688,13 @@ describe('Management API v1: projects and zones', () => {
         expect(types).toContainEqual({ key: 'test-strip', label: 'Test strip', schema: expect.objectContaining({ required: ['height'] }) });
 
         const zone = await createZone();
-        const missing = await post(`/zones/${zone.id}/frames`, { type: 'test-strip', settings: {} });
+        const missing = await post(`/zones/${zone.id}/frame`, { type: 'test-strip', settings: {} });
         expect(missing.status).toBe(400);
         const body = await missing.json();
         expect(body.error.code).toBe('invalid_frame_settings');
         expect(body.error.message).toContain('height');
 
-        const saved = await post(`/zones/${zone.id}/frames`, { type: 'test-strip', settings: { height: 40 } });
+        const saved = await post(`/zones/${zone.id}/frame`, { type: 'test-strip', settings: { height: 40 } });
         expect(saved.status).toBe(201);
         expect((await saved.json()).settings).toEqual({ height: 40 });
       } finally {
@@ -558,321 +703,389 @@ describe('Management API v1: projects and zones', () => {
       }
     });
 
-    it('keeps frames after the API restarts', async () => {
+    it('keeps the display after the API restarts', async () => {
       const zone = await createZone();
-      const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
+      const frame = await (await post(`/zones/${zone.id}/frame`, { type: 'bar' })).json();
       await restart();
-      expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([frame]);
-    });
-
-    describe('frame settings', () => {
-      const edited = { shape: 'rounded-square', size: 'large', showTitles: false, alignment: 'center', gap: 20 };
-
-      function patch(path: string, body: unknown): Promise<Response> {
-        return fetch(`${base}${path}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-      }
-
-      async function barFrame(): Promise<{ zone: { id: string }; frame: { id: string } }> {
-        const zone = await createZone();
-        const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
-        return { zone, frame };
-      }
-
-      it('replaces a bar frame settings and keeps them', async () => {
-        const { zone, frame } = await barFrame();
-
-        const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: edited });
-        expect(res.status).toBe(200);
-        expect(await res.json()).toEqual({ ...frame, settings: edited });
-        expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([{ ...frame, settings: edited }]);
-
-        // A later save replaces the whole object.
-        const again = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: { gap: 8 } });
-        expect((await again.json()).settings).toEqual({ gap: 8 });
-      });
-
-      it.each([
-        [{ gap: 40 }, 'settings.gap must be at most 24'],
-        [{ gap: 3 }, 'settings.gap must be at least 4'],
-        [{ gap: 12.5 }, 'settings.gap must be integer'],
-        [{ shape: 'star' }, 'settings.shape must be one of: circle, rounded-square'],
-        [{ color: 'red' }, 'settings has unknown property "color"'],
-      ])('refuses %j with invalid_frame_settings and stores nothing', async (settings, message) => {
-        const { zone, frame } = await barFrame();
-        await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: edited });
-
-        const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: { ...edited, ...settings } });
-        expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({ error: { code: 'invalid_frame_settings', message } });
-        const [stored] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
-        expect(stored.settings).toEqual(edited);
-      });
-
-      it('refuses a body without settings', async () => {
-        const { zone, frame } = await barFrame();
-        const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, {});
-        expect(res.status).toBe(400);
-        expect((await res.json()).error.code).toBe('validation_failed');
-      });
-
-      it('answers 404 for an unknown zone, an unknown frame and a frame of another zone', async () => {
-        const { zone, frame } = await barFrame();
-        const other = await barFrame();
-        const cases: [string, string][] = [
-          [`/zones/${unknownZoneId}/frames/${frame.id}`, 'zone_not_found'],
-          [`/zones/${zone.id}/frames/${unknownZoneId}`, 'frame_not_found'],
-          [`/zones/${zone.id}/frames/not-a-uuid`, 'frame_not_found'],
-          [`/zones/${zone.id}/frames/${other.frame.id}`, 'frame_not_found'],
-        ];
-        for (const [path, code] of cases) {
-          const res = await patch(path, { settings: {} });
-          expect({ path, status: res.status }).toEqual({ path, status: 404 });
-          expect((await res.json()).error.code).toBe(code);
-        }
-        const [untouched] = await (await fetch(`${base}/zones/${other.zone.id}/frames`)).json();
-        expect(untouched.settings).toEqual({});
-      });
-
-      describe('banner', () => {
-        const bannerEdited = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 3, showDots: false, loop: false };
-
-        async function bannerFrame(): Promise<{ zone: { id: string }; frame: { id: string } }> {
-          const zone = await createZone();
-          const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
-          return { zone, frame };
-        }
-
-        it('replaces a banner frame settings and keeps them', async () => {
-          const { zone, frame } = await bannerFrame();
-          const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: bannerEdited });
-          expect(res.status).toBe(200);
-          expect(await res.json()).toEqual({ ...frame, settings: bannerEdited });
-          expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([{ ...frame, settings: bannerEdited }]);
-        });
-
-        it.each([
-          [{ intervalSeconds: 2 }, 'settings.intervalSeconds must be at least 3'],
-          [{ intervalSeconds: 16 }, 'settings.intervalSeconds must be at most 15'],
-          [{ intervalSeconds: 4.5 }, 'settings.intervalSeconds must be integer'],
-          [{ aspectRatio: '4:3' }, 'settings.aspectRatio must be one of: 16:9, 3:1, 1:1'],
-          [{ autoplay: 'yes' }, 'settings.autoplay must be boolean'],
-          [{ speed: 1 }, 'settings has unknown property "speed"'],
-        ])('refuses %j with invalid_frame_settings and stores nothing', async (settings, message) => {
-          const { zone, frame } = await bannerFrame();
-          await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: bannerEdited });
-
-          const res = await patch(`/zones/${zone.id}/frames/${frame.id}`, { settings: { ...bannerEdited, ...settings } });
-          expect(res.status).toBe(400);
-          expect(await res.json()).toEqual({ error: { code: 'invalid_frame_settings', message } });
-          const [stored] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
-          expect(stored.settings).toEqual(bannerEdited);
-        });
-      });
+      expect((await zoneListed(zone.id)).frame).toEqual(frame);
     });
   });
 
-  describe('stages', () => {
-    const unknownId = '00000000-0000-4000-8000-000000000000';
-
-    function send(method: string, path: string, body?: unknown): Promise<Response> {
-      return fetch(`${base}${path}`, {
-        method,
-        headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+  describe('stages and frames fold into zones (epic UX rework R2)', () => {
+    // Puts the schema back as it was before the rework: no slug required, several frames per zone,
+    // and the stages table as the zones module created it (epic web zones R7).
+    async function legacySchema(): Promise<void> {
+      await pool.query('ALTER TABLE zones ALTER COLUMN slug DROP NOT NULL');
+      await pool.query('DROP INDEX frames_zone_id_key');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS frames_id_zone_id_key ON frames (id, zone_id)');
+      await pool.query(`
+        CREATE TABLE stages (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          zone_id uuid NOT NULL,
+          project_id uuid NOT NULL REFERENCES projects(id),
+          frame_id uuid NOT NULL,
+          name text NOT NULL,
+          key text NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+          FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id),
+          FOREIGN KEY (frame_id, zone_id) REFERENCES frames (id, zone_id) ON DELETE CASCADE,
+          CONSTRAINT stages_zone_id_key_key UNIQUE (zone_id, key)
+        )`);
     }
 
-    // A zone with a bar and a banner frame.
-    async function setup(): Promise<{
-      zone: { id: string; projectId: string };
-      bar: { id: string };
-      banner: { id: string };
-    }> {
-      const zone = await createZone();
-      const bar = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
-      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
-      return { zone, bar, banner };
-    }
-
-    async function stagesOf(zoneId: string): Promise<{ id: string; name: string; key: string; frameId: string }[]> {
-      const res = await fetch(`${base}/zones/${zoneId}/stages`);
-      expect(res.status).toBe(200);
-      return res.json();
-    }
-
-    it('creates stages with trimmed names in the zone project and lists them oldest first', async () => {
-      const { zone, bar, banner } = await setup();
-      const created = await post(`/zones/${zone.id}/stages`, { name: '  Top bar ', key: 'top-bar', frameId: bar.id });
-      expect(created.status).toBe(201);
-      const top = await created.json();
-      expect(top).toEqual({
-        id: expect.any(String),
-        zoneId: zone.id,
-        projectId: zone.projectId,
-        frameId: bar.id,
-        name: 'Top bar',
-        key: 'top-bar',
-      });
-      const hero = await (await post(`/zones/${zone.id}/stages`, { name: 'Hero', key: 'hero', frameId: banner.id })).json();
-      // A second stage may show the same frame.
-      const again = await (await post(`/zones/${zone.id}/stages`, { name: 'Footer', key: 'footer', frameId: bar.id })).json();
-
-      expect(await stagesOf(zone.id)).toEqual([top, hero, again]);
-      const other = await createZone();
-      expect(await stagesOf(other.id)).toEqual([]);
-      const { rows } = await pool.query('SELECT project_id FROM stages');
-      expect(rows.every((row) => row.project_id === zone.projectId)).toBe(true);
-    });
-
-    it('refuses a blank name, a bad key or a missing frame with validation_failed, storing nothing', async () => {
-      const { zone, bar } = await setup();
-      for (const body of [
-        { key: 'top', frameId: bar.id },
-        { name: '   ', key: 'top', frameId: bar.id },
-        { name: 'Top', frameId: bar.id },
-        { name: 'Top', key: 'Top Bar', frameId: bar.id },
-        { name: 'Top', key: '-top', frameId: bar.id },
-        { name: 'Top', key: 'top_bar', frameId: bar.id },
-        { name: 'Top', key: 'a'.repeat(65), frameId: bar.id },
-        { name: 'Top', key: 'top' },
-      ]) {
-        const res = await post(`/zones/${zone.id}/stages`, body);
-        expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({ error: { code: 'validation_failed', message: expect.any(String) } });
-      }
-      expect(await stagesOf(zone.id)).toEqual([]);
-      expect((await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'a'.repeat(64), frameId: bar.id })).status).toBe(201);
-    });
-
-    it("refuses a frame that is not one of the zone's frames with frame_not_found", async () => {
-      const { zone } = await setup();
-      const other = await setup();
-      for (const frameId of [other.bar.id, unknownId, 'f1']) {
-        const res = await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId });
-        expect(res.status).toBe(400);
-        expect(await res.json()).toEqual({ error: { code: 'frame_not_found', message: expect.any(String) } });
-      }
-      expect(await stagesOf(zone.id)).toEqual([]);
-    });
-
-    it('refuses a key another stage of the zone has with 409, and allows it in another zone', async () => {
-      const { zone, bar, banner } = await setup();
-      expect((await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).status).toBe(201);
-      const taken = await post(`/zones/${zone.id}/stages`, { name: 'Other', key: 'top', frameId: banner.id });
-      expect(taken.status).toBe(409);
-      expect(await taken.json()).toEqual({ error: { code: 'stage_key_taken', message: expect.any(String) } });
-      expect(await stagesOf(zone.id)).toHaveLength(1);
-
-      const other = await setup();
-      const elsewhere = await post(`/zones/${other.zone.id}/stages`, { name: 'Top', key: 'top', frameId: other.bar.id });
-      expect(elsewhere.status).toBe(201);
-    });
-
-    it('renames a stage, keeping its key and frame', async () => {
-      const { zone, bar } = await setup();
-      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
-      const res = await send('PATCH', `/zones/${zone.id}/stages/${stage.id}`, { name: ' Hero ', key: 'hero', frameId: unknownId });
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ ...stage, name: 'Hero' });
-      expect(await stagesOf(zone.id)).toEqual([{ ...stage, name: 'Hero' }]);
-
-      const blank = await send('PATCH', `/zones/${zone.id}/stages/${stage.id}`, { name: ' ' });
-      expect(blank.status).toBe(400);
-      expect((await blank.json()).error.code).toBe('validation_failed');
-      expect((await send('PATCH', `/zones/${zone.id}/stages/${stage.id}`)).status).toBe(400);
-    });
-
-    it('deletes a stage, freeing its key', async () => {
-      const { zone, bar } = await setup();
-      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
-      const res = await send('DELETE', `/zones/${zone.id}/stages/${stage.id}`);
-      expect(res.status).toBe(204);
-      expect(await stagesOf(zone.id)).toEqual([]);
-      expect((await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).status).toBe(201);
-    });
-
-    it('answers stage_not_found for an unknown stage or a stage of another zone', async () => {
-      const { zone } = await setup();
-      const other = await setup();
-      const theirs = await (
-        await post(`/zones/${other.zone.id}/stages`, { name: 'Top', key: 'top', frameId: other.bar.id })
-      ).json();
-      for (const stageId of [unknownId, 'nope', theirs.id]) {
-        for (const [method, body] of [
-          ['PATCH', { name: 'Hero' }],
-          ['DELETE', undefined],
-        ] as const) {
-          const res = await send(method, `/zones/${zone.id}/stages/${stageId}`, body);
-          expect(res.status).toBe(404);
-          expect(await res.json()).toEqual({ error: { code: 'stage_not_found', message: expect.any(String) } });
-        }
-      }
-      expect(await stagesOf(other.zone.id)).toEqual([theirs]);
-    });
-
-    it('answers zone_not_found on every stage route of an unknown zone', async () => {
-      for (const [method, path, body] of [
-        ['GET', `/zones/${unknownId}/stages`, undefined],
-        ['POST', `/zones/${unknownId}/stages`, { name: 'Top', key: 'top', frameId: unknownId }],
-        ['PATCH', `/zones/${unknownId}/stages/${unknownId}`, { name: 'Top' }],
-        ['DELETE', `/zones/${unknownId}/stages/${unknownId}`, undefined],
-      ] as const) {
-        const res = await send(method, path, body);
-        expect(res.status).toBe(404);
-        expect((await res.json()).error.code).toBe('zone_not_found');
-      }
-    });
-
-    it('refuses with 403 on every stage route of a zone in a project the caller cannot access', async () => {
-      const { zone, bar } = await setup();
-      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
-      const own = await createProject('Own');
-      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
-      await addProjectMember(pool, own.id, user.id);
-      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
-
-      for (const [method, path, body] of [
-        ['GET', `/zones/${zone.id}/stages`, undefined],
-        ['POST', `/zones/${zone.id}/stages`, { name: 'Mine', key: 'mine', frameId: bar.id }],
-        ['PATCH', `/zones/${zone.id}/stages/${stage.id}`, { name: 'Mine' }],
-        ['DELETE', `/zones/${zone.id}/stages/${stage.id}`, undefined],
-      ] as const) {
-        const res = await send(method, path, body);
-        expect(res.status).toBe(403);
-        expect((await res.json()).error.code).toBe('forbidden');
-      }
-      const { rows } = await pool.query('SELECT name FROM stages');
-      expect(rows).toEqual([{ name: 'Top' }]);
-    });
-
-    it("keeps a stage's frame in its own zone in the database too", async () => {
-      const { zone } = await setup();
-      const other = await setup();
-      await expect(
-        pool.query('INSERT INTO stages (zone_id, project_id, frame_id, name, key) VALUES ($1, $2, $3, $4, $5)', [
-          zone.id,
-          zone.projectId,
-          other.bar.id,
-          'Sneaky',
-          'sneaky',
-        ]),
-      ).rejects.toThrow(/foreign key/);
-    });
-
-    it('keeps stages when the migration runs again', async () => {
-      const { zone, bar } = await setup();
-      const stage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: bar.id })).json();
-      await restart();
-      await restart();
-      expect(await stagesOf(zone.id)).toEqual([stage]);
-      const { rows } = await pool.query<{ conname: string }>(
-        "SELECT conname FROM pg_constraint WHERE conrelid = 'stages'::regclass AND contype = 'f'",
+    async function legacyFrame(zone: { id: string; projectId: string }, type: string, settings: object = {}): Promise<string> {
+      const { rows } = await pool.query<{ id: string }>(
+        'INSERT INTO frames (zone_id, project_id, type, settings) VALUES ($1, $2, $3, $4) RETURNING id',
+        [zone.id, zone.projectId, type, JSON.stringify(settings)],
       );
-      expect(rows).toHaveLength(3);
+      return rows[0].id;
+    }
+
+    async function legacyStage(zone: { id: string; projectId: string }, name: string, key: string, frameId: string): Promise<void> {
+      await pool.query('INSERT INTO stages (zone_id, project_id, frame_id, name, key) VALUES ($1, $2, $3, $4, $5)', [
+        zone.id,
+        zone.projectId,
+        frameId,
+        name,
+        key,
+      ]);
+    }
+
+    async function snapshot(): Promise<unknown> {
+      const [zones, frames, placements, keys] = await Promise.all([
+        pool.query('SELECT id, project_id, name, slug, playbook_key, created_at FROM zones ORDER BY id'),
+        pool.query('SELECT id, zone_id, project_id, type, settings, created_at FROM frames ORDER BY id'),
+        pool.query('SELECT zone_id, tale_group_id, position FROM zone_tale_groups ORDER BY zone_id, tale_group_id'),
+        pool.query('SELECT id, zone_id, revoked_at FROM zone_keys ORDER BY id'),
+      ]);
+      return { zones: zones.rows, frames: frames.rows, placements: placements.rows, keys: keys.rows };
+    }
+
+    async function groupIds(zoneId: string): Promise<string[]> {
+      const groups: { id: string }[] = await (await fetch(`${base}/zones/${zoneId}/tale-groups`)).json();
+      return groups.map((g) => g.id);
+    }
+
+    // A live group with one live tale, delivered as a tale from before the rework.
+    async function liveGroup(zoneId: string, name: string): Promise<string> {
+      const group = await (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: `${name} 1` })).json();
+      await publish('tale-groups', group.id);
+      await asLegacy(tale.id);
+      return group.id;
+    }
+
+    it('turns a zone of two stages and an unstaged frame, and a zone of two frames, into five zones of one display', async () => {
+      const project = await createProject();
+      const zoneOf = async (name: string) => (await post('/zones', { name, projectId: project.id })).json();
+      const home = await zoneOf('Home');
+      const shop = await zoneOf('Shop');
+      const empty = await zoneOf('Empty');
+      await pool.query("UPDATE zones SET playbook_key = 'home-stories-bar' WHERE id = $1", [home.id]);
+      const homeGroups = [await liveGroup(home.id, 'G1'), await liveGroup(home.id, 'G2')];
+      const shopGroups = [await liveGroup(shop.id, 'G3')];
+      // The original zone's key stays its own (owner decision 2026-10-22: no legacy resolution).
+      const top = await (await post(`/zones/${home.id}/frame`, { type: 'bar', settings: { gap: 20 } })).json();
+      const { key: homeKey } = await (await postKey(home.id)).json();
+
+      try {
+        await legacySchema();
+        await pool.query('UPDATE zones SET slug = NULL WHERE project_id = $1', [project.id]);
+        const promo = await legacyFrame(home, 'banner', { loop: false });
+        const unstaged = await legacyFrame(home, 'bar');
+        await legacyStage(home, 'Top bar', 'top-bar', top.id);
+        await legacyStage(home, 'Promo', 'promo', promo);
+        const shopBar = await legacyFrame(shop, 'bar');
+        const shopBanner = await legacyFrame(shop, 'banner');
+
+        await migrate(pool);
+
+        const zones: { id: string; name: string; slug: string; playbookKey: string | null; frame: { id: string; type: string } | null }[] =
+          await (await fetch(`${base}/zones`)).json();
+        expect(zones.map((z) => [z.name, z.slug, z.frame?.id ?? null, z.frame?.type ?? null])).toEqual([
+          ['Top bar', 'top-bar', top.id, 'bar'],
+          ['Promo', 'promo', promo, 'banner'],
+          ['Home – Bar 2', 'top-bar-bar-2', unstaged, 'bar'],
+          ['Shop', 'shop', shopBar, 'bar'],
+          ['Shop – Banner 1', 'shop-banner-1', shopBanner, 'banner'],
+          ['Empty', 'empty', null, null],
+        ]);
+        // The original zones keep their ids; the new ones keep the playbook note.
+        expect([zones[0].id, zones[3].id, zones[5].id]).toEqual([home.id, shop.id, empty.id]);
+        expect(zones.slice(0, 3).map((z) => z.playbookKey)).toEqual(['home-stories-bar', 'home-stories-bar', 'home-stories-bar']);
+        // Every zone of a staged or framed zone lists the same tale groups in the same order (AD-14).
+        for (const zone of zones.slice(0, 3)) expect(await groupIds(zone.id)).toEqual(homeGroups);
+        for (const zone of zones.slice(3, 5)) expect(await groupIds(zone.id)).toEqual(shopGroups);
+        expect(await groupIds(empty.id)).toEqual([]);
+        // The settings moved with each frame.
+        expect((zones[1].frame as unknown as { settings: unknown }).settings).toEqual({ loop: false });
+        expect((await pool.query("SELECT to_regclass('stages') AS t")).rows[0].t).toBeNull();
+
+        // The Delivery API serves each zone with its own display and its groups.
+        const deliver = async (key: string) =>
+          (await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } })).json();
+        const homeBody = await deliver(homeKey);
+        expect([homeBody.id, homeBody.slug, homeBody.frame.id, homeBody.frame.settings.gap]).toEqual([home.id, 'top-bar', top.id, 20]);
+        expect(homeBody.taleGroups.map((g: { id: string }) => g.id)).toEqual(homeGroups);
+        for (const zone of zones.slice(1, 5)) {
+          // New zones get no key until one is issued (owner decision 2026-10-22).
+          expect(await (await fetch(`${base}/zones/${zone.id}/key`)).json()).toBeNull();
+          const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+          const body = await deliver(key);
+          expect([body.id, body.name, body.slug, body.frame.id, body.frame.type]).toEqual([
+            zone.id,
+            zone.name,
+            zone.slug,
+            zone.frame?.id,
+            zone.frame?.type,
+          ]);
+          expect(body.taleGroups.map((g: { id: string }) => g.id)).toEqual(zone.name.startsWith('Shop') ? shopGroups : homeGroups);
+        }
+        // A later change to one zone's list changes only that zone (AD-14).
+        await fetch(`${base}/zones/${zones[1].id}/tale-groups/${homeGroups[0]}`, { method: 'DELETE' });
+        expect(await groupIds(zones[1].id)).toEqual([homeGroups[1]]);
+        expect(await groupIds(home.id)).toEqual(homeGroups);
+
+        // A second run changes nothing.
+        const before = await snapshot();
+        await migrate(pool);
+        expect(await snapshot()).toEqual(before);
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('copies a frame two stages show, and makes clashing slugs unique, oldest zone first', async () => {
+      const project = await createProject();
+      const landing = await (await post('/zones', { name: 'Landing', projectId: project.id })).json();
+      const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      try {
+        await legacySchema();
+        await pool.query('UPDATE zones SET slug = NULL WHERE project_id = $1', [project.id]);
+        const bar = await legacyFrame(landing, 'bar', { gap: 8 });
+        await legacyStage(landing, 'Main', 'home', bar);
+        await legacyStage(landing, 'Footer', 'footer', bar);
+
+        await migrate(pool);
+
+        const zones: { id: string; name: string; slug: string; frame: { id: string; settings: unknown } | null }[] = await (
+          await fetch(`${base}/zones`)
+        ).json();
+        expect(zones.map((z) => [z.name, z.slug])).toEqual([
+          ['Main', 'home'],
+          ['Footer', 'footer'],
+          ['Home', 'home-2'],
+        ]);
+        expect(zones[0].frame?.id).toBe(bar);
+        expect(zones[1].frame?.id).not.toBe(bar);
+        expect(zones[1].frame?.settings).toEqual({ gap: 8 });
+        expect(zones[2].id).toBe(home.id);
+      } finally {
+        await migrate(pool);
+      }
+    });
+  });
+
+  describe('stages and frames fold into zones: edge cases', () => {
+    // As in the describe above: the schema as it was before the rework.
+    async function legacySchema(...projectIds: string[]): Promise<void> {
+      await pool.query('ALTER TABLE zones ALTER COLUMN slug DROP NOT NULL');
+      await pool.query('DROP INDEX frames_zone_id_key');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS frames_id_zone_id_key ON frames (id, zone_id)');
+      await pool.query('CREATE INDEX IF NOT EXISTS frames_zone_id_idx ON frames (zone_id, created_at)');
+      await pool.query(`
+        CREATE TABLE stages (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          zone_id uuid NOT NULL,
+          project_id uuid NOT NULL REFERENCES projects(id),
+          frame_id uuid NOT NULL,
+          name text NOT NULL,
+          key text NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+          FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id),
+          FOREIGN KEY (frame_id, zone_id) REFERENCES frames (id, zone_id) ON DELETE CASCADE,
+          CONSTRAINT stages_zone_id_key_key UNIQUE (zone_id, key)
+        )`);
+      await pool.query('UPDATE zones SET slug = NULL WHERE project_id = ANY($1::uuid[])', [projectIds]);
+    }
+
+    async function frameOf(zone: { id: string; projectId: string }, type: string): Promise<string> {
+      const { rows } = await pool.query<{ id: string }>(
+        'INSERT INTO frames (zone_id, project_id, type) VALUES ($1, $2, $3) RETURNING id',
+        [zone.id, zone.projectId, type],
+      );
+      return rows[0].id;
+    }
+
+    async function stageOf(zone: { id: string; projectId: string }, name: string, key: string, frameId: string): Promise<void> {
+      await pool.query('INSERT INTO stages (zone_id, project_id, frame_id, name, key) VALUES ($1, $2, $3, $4, $5)', [
+        zone.id,
+        zone.projectId,
+        frameId,
+        name,
+        key,
+      ]);
+    }
+
+    async function zonesListed(): Promise<{ id: string; name: string; slug: string; projectId: string; frame: { id: string } | null }[]> {
+      return (await fetch(`${base}/zones`)).json();
+    }
+
+    it('slugs Hebrew names from the original zone, falls back for a stage key that is not a slug, and keeps a lone stage zone', async () => {
+      const project = await createProject();
+      const zoneOf = async (name: string) => (await post('/zones', { name, projectId: project.id })).json();
+      const home = await zoneOf('דף הבית');
+      const shop = await zoneOf('חנות');
+      const lone = await zoneOf('Lone');
+      try {
+        await legacySchema(project.id);
+        await frameOf(home, 'bar');
+        await frameOf(home, 'banner');
+        const top = await frameOf(shop, 'bar');
+        const hero = await frameOf(shop, 'banner');
+        await stageOf(shop, 'למעלה', 'Bad Key', top);
+        await stageOf(shop, 'גיבור', 'also bad', hero);
+        await stageOf(lone, 'Only stage', 'only-stage', await frameOf(lone, 'bar'));
+
+        await migrate(pool);
+
+        const zones = await zonesListed();
+        expect(zones.map((z) => [z.name, z.slug])).toEqual([
+          ['דף הבית', 'zone'],
+          ['דף הבית – Banner 1', 'zone-banner-1'],
+          // Stage keys that are not slugs: the names give none either, so `zone` and the original's slug.
+          ['למעלה', 'zone-2'],
+          ['גיבור', 'zone-2-banner'],
+          ['Only stage', 'only-stage'],
+        ]);
+        expect(zones[4].id).toBe(lone.id);
+        expect(zones.every((z) => z.frame !== null)).toBe(true);
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('gives two projects the same stage key as their slug, and reserves stage keys before names', async () => {
+      const a = await createProject('A');
+      const b = await createProject('B');
+      // In A, an older zone named "Home top" would take `home-top` from its name; the stage key wins.
+      const named = await (await post('/zones', { name: 'Home top', projectId: a.id })).json();
+      const staged = await (await post('/zones', { name: 'Home', projectId: a.id })).json();
+      const other = await (await post('/zones', { name: 'Home', projectId: b.id })).json();
+      try {
+        await legacySchema(a.id, b.id);
+        await stageOf(staged, 'Top', 'home-top', await frameOf(staged, 'bar'));
+        await stageOf(other, 'Top', 'home-top', await frameOf(other, 'bar'));
+
+        await migrate(pool);
+
+        const slugOf = new Map((await zonesListed()).map((z) => [z.id, z.slug]));
+        expect([slugOf.get(named.id), slugOf.get(staged.id), slugOf.get(other.id)]).toEqual(['home-top-2', 'home-top', 'home-top']);
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('reports a stage key another zone of the project had, with the slug its zone got instead', async () => {
+      const project = await createProject();
+      const first = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      const second = await (await post('/zones', { name: 'Shop', projectId: project.id })).json();
+      try {
+        await legacySchema(project.id);
+        await stageOf(first, 'Top', 'top', await frameOf(first, 'bar'));
+        await stageOf(second, 'Top', 'top', await frameOf(second, 'bar'));
+        await stageOf(second, 'Hero', 'top-2', await frameOf(second, 'banner'));
+
+        const logged: Record<string, unknown>[] = [];
+        const client = await pool.connect();
+        let report;
+        try {
+          report = await foldStagesIntoZones(client, {
+            copyPlacements: copyZonePlacements,
+            log: (_msg, fields) => logged.push(fields),
+          });
+        } finally {
+          client.release();
+        }
+        const hero = (await zonesListed()).find((z) => z.name === 'Hero');
+        // Shop's "top" is taken by Home: it becomes top-3, since Shop's other stage key top-2 is reserved too.
+        expect(report.renamedStageKeys).toEqual([{ zoneId: second.id, key: 'top', slug: 'top-3' }]);
+        expect(hero?.slug).toBe('top-2');
+        expect(logged).toEqual([{ zonesCreated: 1, slugsFilled: 2, renamedStageKeys: report.renamedStageKeys }]);
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('rolls everything back when copying placements fails: stages, frames and zones stay as they were', async () => {
+      const project = await createProject();
+      const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      await post(`/zones/${home.id}/tale-groups`, { name: 'Summer' });
+      try {
+        await legacySchema(project.id);
+        const top = await frameOf(home, 'bar');
+        await stageOf(home, 'Top', 'top', top);
+        await stageOf(home, 'Hero', 'hero', await frameOf(home, 'banner'));
+        const before = await pool.query('SELECT id, name, slug FROM zones ORDER BY id');
+        const frames = await pool.query('SELECT id, zone_id FROM frames ORDER BY id');
+
+        const client = await pool.connect();
+        try {
+          await expect(
+            foldStagesIntoZones(client, {
+              copyPlacements: async () => {
+                throw new Error('copy failed');
+              },
+            }),
+          ).rejects.toThrow('copy failed');
+        } finally {
+          client.release();
+        }
+
+        expect((await pool.query('SELECT id, name, slug FROM zones ORDER BY id')).rows).toEqual(before.rows);
+        expect((await pool.query('SELECT id, zone_id FROM frames ORDER BY id')).rows).toEqual(frames.rows);
+        expect((await pool.query('SELECT key FROM stages ORDER BY created_at')).rows).toEqual([{ key: 'top' }, { key: 'hero' }]);
+        const slug = await pool.query(
+          "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'zones' AND column_name = 'slug'",
+        );
+        expect(slug.rows[0].is_nullable).toBe('YES');
+
+        // The real copy then folds it.
+        const again = await pool.connect();
+        try {
+          expect(await foldStagesIntoZones(again, { copyPlacements: copyZonePlacements, log: () => undefined })).toEqual({
+            zonesCreated: 1,
+            slugsFilled: 1,
+            renamedStageKeys: [],
+          });
+        } finally {
+          again.release();
+        }
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('folds once when several API instances migrate at the same time', async () => {
+      const project = await createProject();
+      const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      try {
+        await legacySchema(project.id);
+        await stageOf(home, 'Top', 'top', await frameOf(home, 'bar'));
+        await stageOf(home, 'Hero', 'hero', await frameOf(home, 'banner'));
+        await frameOf(home, 'bar');
+
+        await Promise.all([migrate(pool), migrate(pool), migrate(pool)]);
+
+        expect((await zonesListed()).map((z) => z.slug)).toEqual(['top', 'hero', 'top-bar-2']);
+        const indexes = await pool.query(
+          "SELECT indexname FROM pg_indexes WHERE tablename = 'frames' ORDER BY indexname",
+        );
+        // One display per zone; the indexes only the stages needed are gone.
+        expect(indexes.rows.map((r) => r.indexname)).toEqual(['frames_pkey', 'frames_zone_id_key']);
+      } finally {
+        await migrate(pool);
+      }
     });
   });
 
@@ -889,10 +1102,8 @@ describe('Management API v1: projects and zones', () => {
       });
     }
 
-    async function counts(zoneId: string): Promise<{ frames: number; stages: number }> {
-      const frames = await pool.query('SELECT 1 FROM frames WHERE zone_id = $1', [zoneId]);
-      const stages = await pool.query('SELECT 1 FROM stages WHERE zone_id = $1', [zoneId]);
-      return { frames: frames.rowCount ?? 0, stages: stages.rowCount ?? 0 };
+    async function frameCount(zoneId: string): Promise<number> {
+      return (await pool.query('SELECT 1 FROM frames WHERE zone_id = $1', [zoneId])).rowCount ?? 0;
     }
 
     async function zoneListed(zoneId: string): Promise<{ playbookKey: string | null }> {
@@ -908,7 +1119,7 @@ describe('Management API v1: projects and zones', () => {
       expect(await (await fetch(`${base}/zones`)).json()).toEqual([zone]);
     });
 
-    it('applies "Home page stories bar": a bar frame with the preset settings, its stage, and the key on the zone', async () => {
+    it('applies "Home page stories bar": a bar display with the preset settings, and the key on the zone', async () => {
       const zone = await createZone();
       const res = await apply(zone.id, { key: 'home-stories-bar' });
       expect(res.status).toBe(200);
@@ -919,52 +1130,35 @@ describe('Management API v1: projects and zones', () => {
         zone: {
           ...zone,
           playbookKey: 'home-stories-bar',
+          frame: { id: expect.any(String), zoneId: zone.id, projectId: zone.projectId, type: 'bar', settings: barSettings },
           visibility: notVisible(why('zone-not-installed', 'zone'), why('no-tale-groups', 'zone')),
         },
-        frames: [{ id: expect.any(String), zoneId: zone.id, projectId: zone.projectId, type: 'bar', settings: barSettings }],
-        stages: [
-          {
-            id: expect.any(String),
-            zoneId: zone.id,
-            projectId: zone.projectId,
-            frameId: body.frames[0].id,
-            name: 'Home page stories bar',
-            key: 'home-stories-bar',
-          },
-        ],
       });
-      expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual(body.frames);
-      expect(await (await fetch(`${base}/zones/${zone.id}/stages`)).json()).toEqual(body.stages);
       expect(await (await fetch(`${base}/zones`)).json()).toEqual([body.zone]);
     });
 
-    it('applies "Promo banner" to another zone, and the Delivery API returns its frame and stage', async () => {
+    it('applies "Promo banner" to another zone, and the Delivery API returns its display', async () => {
       const first = await createZone();
       await apply(first.id, { key: 'home-stories-bar' });
       const zone = await createZone();
       const body = await (await apply(zone.id, { key: 'promo-banner' })).json();
-      expect(body.frames.map((f: { type: string; settings: unknown }) => [f.type, f.settings])).toEqual([
-        ['banner', bannerSettings],
-      ]);
-      expect(body.stages.map((s: { key: string; name: string }) => [s.key, s.name])).toEqual([
-        ['promo-banner', 'Promo banner'],
-      ]);
+      expect([body.zone.frame.type, body.zone.frame.settings]).toEqual(['banner', bannerSettings]);
       expect((await zoneListed(first.id)).playbookKey).toBe('home-stories-bar');
       const { key } = await (await postKey(zone.id)).json();
       const delivered = await (
         await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } })
       ).json();
-      expect(delivered.frames).toEqual([{ id: body.frames[0].id, type: 'banner', settings: bannerSettings }]);
-      expect(delivered.stages).toEqual([{ key: 'promo-banner', frameId: body.frames[0].id }]);
+      expect(delivered.frame).toEqual({ id: body.zone.frame.id, type: 'banner', settings: bannerSettings });
     });
 
-    it('adds the preset after the frames and stages a zone already has', async () => {
+    it('refuses a zone that already has a display, creating nothing and recording no key', async () => {
       const zone = await createZone();
-      const own = await (await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: { gap: 20 } })).json();
-      const ownStage = await (await post(`/zones/${zone.id}/stages`, { name: 'Top', key: 'top', frameId: own.id })).json();
-      const body = await (await apply(zone.id, { key: 'promo-banner' })).json();
-      expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([own, body.frames[0]]);
-      expect(await (await fetch(`${base}/zones/${zone.id}/stages`)).json()).toEqual([ownStage, body.stages[0]]);
+      await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: { gap: 20 } });
+      const res = await apply(zone.id, { key: 'promo-banner' });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('display_exists');
+      expect(await frameCount(zone.id)).toBe(1);
+      expect((await zoneListed(zone.id)).playbookKey).toBeNull();
     });
 
     it('creates nothing when the same playbook is applied again', async () => {
@@ -972,8 +1166,8 @@ describe('Management API v1: projects and zones', () => {
       const first = await (await apply(zone.id, { key: 'home-stories-bar' })).json();
       const again = await apply(zone.id, { key: 'home-stories-bar' });
       expect(again.status).toBe(200);
-      expect(await again.json()).toEqual({ applied: false, zone: first.zone, frames: [], stages: [] });
-      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+      expect(await again.json()).toEqual({ applied: false, zone: first.zone });
+      expect(await frameCount(zone.id)).toBe(1);
     });
 
     it('applies once when the same playbook is applied twice at the same time', async () => {
@@ -982,52 +1176,36 @@ describe('Management API v1: projects and zones', () => {
       expect(results.map((r) => r.status)).toEqual([200, 200]);
       const bodies = await Promise.all(results.map((r) => r.json()));
       expect(bodies.map((b) => b.applied).sort()).toEqual([false, true]);
-      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+      expect(await frameCount(zone.id)).toBe(1);
     });
 
-    it('never fails with 500 when an apply races a manual stage with the same key', async () => {
+    it('never fails with 500 when an apply races a display set by hand', async () => {
       for (let round = 0; round < 8; round++) {
         const zone = await createZone();
-        const own = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
         const [applied, manual] = await Promise.all([
           apply(zone.id, { key: 'promo-banner' }),
-          post(`/zones/${zone.id}/stages`, { name: 'Mine', key: 'promo-banner', frameId: own.id }),
+          post(`/zones/${zone.id}/frame`, { type: 'bar' }),
         ]);
-        // Exactly one of them gets the key; the other is refused with stage_key_taken.
+        // Exactly one of them gives the zone its display; the other is refused with display_exists.
         expect([
           [200, 409],
           [409, 201],
         ]).toContainEqual([applied.status, manual.status]);
         const refused = applied.status === 409 ? applied : manual;
-        expect((await refused.json()).error.code).toBe('stage_key_taken');
-        const { rows } = await pool.query('SELECT key FROM stages WHERE zone_id = $1', [zone.id]);
-        expect(rows).toEqual([{ key: 'promo-banner' }]);
-        // A refused apply leaves no frame and no key behind.
-        expect(await counts(zone.id)).toEqual({ frames: applied.status === 200 ? 2 : 1, stages: 1 });
+        expect((await refused.json()).error.code).toBe('display_exists');
+        expect(await frameCount(zone.id)).toBe(1);
         expect((await zoneListed(zone.id)).playbookKey).toBe(applied.status === 200 ? 'promo-banner' : null);
       }
     });
 
-    it("keeps a playbook's frame and stage order in the database", async () => {
+    it('applies a playbook from another registry through the zones module', async () => {
       const zone = await createZone();
-      const [bar, banner] = [PLAYBOOKS[0].frames[0], PLAYBOOKS[1].frames[0]];
-      const three: Playbook = {
-        key: 'three',
-        label: 'Three',
-        goal: 'Test',
-        frames: [
-          { ...banner, stage: { key: 'one', name: 'One' } },
-          { ...bar, stage: { key: 'two', name: 'Two' } },
-          { ...banner, stage: { key: 'three', name: 'Three' } },
-        ],
-      };
+      const custom: Playbook = { key: 'wide', label: 'Wide', goal: 'Test', frame: { ...PLAYBOOKS[1].frame } };
       const registry = loadFrameTypeRegistry(frameTypesDir);
-      const result = await applyPlaybook(pool, registry, { zoneId: zone.id, key: 'three' }, [three]);
-      const frames: { id: string; type: string }[] = await (await fetch(`${base}/zones/${zone.id}/frames`)).json();
-      expect(frames.map((f) => f.id)).toEqual(result.frames.map((f) => f.id));
-      expect(frames.map((f) => f.type)).toEqual(['banner', 'bar', 'banner']);
-      const stages: { key: string }[] = await (await fetch(`${base}/zones/${zone.id}/stages`)).json();
-      expect(stages.map((s) => s.key)).toEqual(['one', 'two', 'three']);
+      const result = await applyPlaybook(pool, registry, { zoneId: zone.id, key: 'wide' }, [custom]);
+      expect(result.applied).toBe(true);
+      expect(result.zone.playbookKey).toBe('wide');
+      expect(result.zone.frame?.type).toBe('banner');
     });
 
     it('refuses another playbook on a zone that has one, writing nothing', async () => {
@@ -1036,21 +1214,8 @@ describe('Management API v1: projects and zones', () => {
       const res = await apply(zone.id, { key: 'promo-banner' });
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: { code: 'playbook_already_applied', message: expect.any(String) } });
-      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
+      expect(await frameCount(zone.id)).toBe(1);
       expect((await zoneListed(zone.id)).playbookKey).toBe('home-stories-bar');
-    });
-
-    it('refuses a playbook whose stage key the zone already uses, creating no frame and recording no key', async () => {
-      const zone = await createZone();
-      const own = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
-      await post(`/zones/${zone.id}/stages`, { name: 'Mine', key: 'promo-banner', frameId: own.id });
-      const res = await apply(zone.id, { key: 'promo-banner' });
-      expect(res.status).toBe(409);
-      expect(await res.json()).toEqual({
-        error: { code: 'stage_key_taken', message: expect.stringContaining('promo-banner') },
-      });
-      expect(await counts(zone.id)).toEqual({ frames: 1, stages: 1 });
-      expect((await zoneListed(zone.id)).playbookKey).toBeNull();
     });
 
     it('refuses a missing or unknown key with 400', async () => {
@@ -1063,7 +1228,7 @@ describe('Management API v1: projects and zones', () => {
       const res = await apply(zone.id, { key: 'nope' });
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: { code: 'unknown_playbook', message: expect.any(String) } });
-      expect(await counts(zone.id)).toEqual({ frames: 0, stages: 0 });
+      expect(await frameCount(zone.id)).toBe(0);
     });
 
     it('answers zone_not_found for an unknown zone', async () => {
@@ -1083,10 +1248,10 @@ describe('Management API v1: projects and zones', () => {
       const res = await apply(zone.id, { key: 'promo-banner' });
       expect(res.status).toBe(403);
       expect((await res.json()).error.code).toBe('forbidden');
-      expect(await counts(zone.id)).toEqual({ frames: 0, stages: 0 });
+      expect(await frameCount(zone.id)).toBe(0);
     });
 
-    it('lets a content manager of the project apply a playbook and edit its frame', async () => {
+    it('lets a content manager of the project apply a playbook and edit its display', async () => {
       const zone = await createZone();
       const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
       await addProjectMember(pool, zone.projectId, user.id);
@@ -1094,7 +1259,7 @@ describe('Management API v1: projects and zones', () => {
       const body = await (await apply(zone.id, { key: 'home-stories-bar' })).json();
       expect(body.applied).toBe(true);
       const settings = { ...barSettings, shape: 'rounded-square', gap: 20 };
-      const edited = await fetch(`${base}/zones/${zone.id}/frames/${body.frames[0].id}`, {
+      const edited = await fetch(`${base}/zones/${zone.id}/frame`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings }),
@@ -3662,9 +3827,9 @@ describe('Management API v1: projects and zones', () => {
       await signInAsContentManager([a.project.id]);
       const requests: [string, string, unknown?][] = [
         ['POST', '/zones', { name: 'Mine', projectId: b.project.id }],
-        ['GET', `/zones/${b.zone.id}/frames`],
-        ['POST', `/zones/${b.zone.id}/frames`, { type: 'bar' }],
-        ['PATCH', `/zones/${b.zone.id}/frames/00000000-0000-4000-8000-000000000000`, { settings: {} }],
+        ['PATCH', `/zones/${b.zone.id}`, { name: 'Mine' }],
+        ['POST', `/zones/${b.zone.id}/frame`, { type: 'bar' }],
+        ['PATCH', `/zones/${b.zone.id}/frame`, { settings: {} }],
         ['GET', `/zones/${b.zone.id}/tale-groups`],
         ['POST', `/zones/${b.zone.id}/tale-groups`, { name: 'Mine' }],
         ['PUT', `/zones/${b.zone.id}/tale-groups/order`, { taleGroupIds: [b.group.id] }],
@@ -3709,8 +3874,9 @@ describe('Management API v1: projects and zones', () => {
       const { a } = await twoProjects();
       await signInAsContentManager([a.project.id]);
       expect((await send('POST', '/zones', { name: 'Mine', projectId: a.project.id })).status).toBe(201);
-      expect((await send('GET', `/zones/${a.zone.id}/frames`)).status).toBe(200);
-      expect((await send('POST', `/zones/${a.zone.id}/frames`, { type: 'bar' })).status).toBe(201);
+      expect((await send('PATCH', `/zones/${a.zone.id}`, { slug: 'mine-too' })).status).toBe(200);
+      expect((await send('POST', `/zones/${a.zone.id}/frame`, { type: 'bar' })).status).toBe(201);
+      expect((await send('PATCH', `/zones/${a.zone.id}/frame`, { type: 'banner' })).status).toBe(200);
       expect((await send('POST', `/zones/${a.zone.id}/tale-groups`, { name: 'Mine' })).status).toBe(201);
       expect((await send('POST', `/tale-groups/${a.group.id}/tales`, { title: 'Mine' })).status).toBe(201);
       expect((await send('GET', `/tales/${a.tale.id}/media`)).status).toBe(200);
@@ -3727,7 +3893,7 @@ describe('Management API v1: projects and zones', () => {
       expect((await send('PUT', `/tale-groups/${a.group.id}/status`, { status: 'live' })).status).toBe(200);
       expect((await send('PUT', `/tales/${a.tale.id}/status`, { status: 'live' })).status).toBe(200);
 
-      expect((await send('GET', `/zones/${unknownId}/frames`)).status).toBe(404);
+      expect((await send('POST', `/zones/${unknownId}/frame`, { type: 'bar' })).status).toBe(404);
       expect((await send('POST', `/tale-groups/${unknownId}/tales`, { title: 'X' })).status).toBe(404);
       expect((await send('GET', `/tales/${unknownId}/media`)).status).toBe(404);
       expect((await send('PUT', `/tale-groups/${unknownId}/tags`, { tagIds: [] })).status).toBe(404);
@@ -3855,6 +4021,14 @@ describe('Management API v1: projects and zones', () => {
       return globalThis.fetch(`${base}${path}`, { method, headers: { Cookie: cookie } });
     }
 
+    function patch(path: string, body: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
     function deliver(key?: string, headers: Record<string, string> = {}): Promise<Response> {
       const all: Record<string, string> = { ...headers };
       if (key !== undefined) all['Authorization'] = `Bearer ${key}`;
@@ -3924,7 +4098,7 @@ describe('Management API v1: projects and zones', () => {
 
     it('lets a browser revalidate the zone: private, no-cache, by key, 304 while unchanged', async () => {
       const zone = await createZone();
-      await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: {} });
+      await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: {} });
       const { key } = await issue(zone.id);
 
       const first = await deliver(key);
@@ -3943,19 +4117,19 @@ describe('Management API v1: projects and zones', () => {
       expect(await same.text()).toBe('');
 
       // A change answers the new zone at once.
-      await post(`/zones/${zone.id}/frames`, { type: 'banner', settings: {} });
+      await patch(`/zones/${zone.id}/frame`, { type: 'banner' });
       const changed = await deliver(key, revalidate);
       expect(changed.status).toBe(200);
-      expect((await changed.json()).frames).toHaveLength(2);
+      expect((await changed.json()).frame.type).toBe('banner');
 
       // A refused key never gets a 304, whatever ETag it sends.
       await send('DELETE', `/zones/${zone.id}/key`);
       await expectInvalidKey(await deliver(key, revalidate));
     });
 
-    it('serves the zone and its frames to a valid key', async () => {
+    it('serves the zone, its slug and its display to a valid key', async () => {
       const zone = await createZone();
-      const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: {} })).json();
+      const frame = await (await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: {} })).json();
       const { key } = await issue(zone.id);
 
       const res = await deliver(key);
@@ -3965,87 +4139,67 @@ describe('Management API v1: projects and zones', () => {
       expect(await res.json()).toEqual({
         id: zone.id,
         name: zone.name,
+        slug: zone.slug,
         // The project sets no theme: TaleArt's default (R9).
         theme: DEFAULT_THEME,
         // Stored as {}, delivered with every default of the bar schema.
-        frames: [
-          {
-            id: frame.id,
-            type: 'bar',
-            settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
-          },
-        ],
-        stages: [],
+        frame: {
+          id: frame.id,
+          type: 'bar',
+          settings: { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 },
+        },
         taleGroups: [],
       });
     });
 
-    it('delivers a frame settings with the stored values over the defaults', async () => {
+    it('delivers a bar display with the stored values over the defaults', async () => {
       const zone = await createZone();
-      const frame = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
-      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
-      const saved = await globalThis.fetch(`${base}/zones/${zone.id}/frames/${frame.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
-        body: JSON.stringify({ settings: { shape: 'rounded-square', showTitles: false, gap: 20 } }),
-      });
+      const frame = await (await post(`/zones/${zone.id}/frame`, { type: 'bar' })).json();
+      const saved = await patch(`/zones/${zone.id}/frame`, { settings: { shape: 'rounded-square', showTitles: false, gap: 20 } });
       expect(saved.status).toBe(200);
       const { key } = await issue(zone.id);
 
-      const { frames } = await (await deliver(key)).json();
-      expect(frames).toEqual([
-        {
-          id: frame.id,
-          type: 'bar',
-          settings: { shape: 'rounded-square', size: 'medium', showTitles: false, alignment: 'start', gap: 20 },
-        },
-        // Stored as {}, delivered with every default of the banner schema.
-        { id: banner.id, type: 'banner', settings: bannerDefaults },
-      ]);
+      expect((await (await deliver(key)).json()).frame).toEqual({
+        id: frame.id,
+        type: 'bar',
+        settings: { shape: 'rounded-square', size: 'medium', showTitles: false, alignment: 'start', gap: 20 },
+      });
     });
 
-    it('delivers a banner frame with its saved settings over the defaults', async () => {
+    it('delivers a banner display with its saved settings over the defaults, and its new type at once', async () => {
       const zone = await createZone();
-      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
-      const saved = await globalThis.fetch(`${base}/zones/${zone.id}/frames/${banner.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
-        body: JSON.stringify({ settings: { aspectRatio: '3:1', intervalSeconds: 3, showDots: false } }),
+      const bar = await (await post(`/zones/${zone.id}/frame`, { type: 'bar' })).json();
+      const { key } = await issue(zone.id);
+      const saved = await patch(`/zones/${zone.id}/frame`, {
+        type: 'banner',
+        settings: { aspectRatio: '3:1', intervalSeconds: 3, showDots: false },
       });
       expect(saved.status).toBe(200);
-      const { key } = await issue(zone.id);
 
-      const { frames } = await (await deliver(key)).json();
-      expect(frames).toEqual([
-        { id: banner.id, type: 'banner', settings: { ...bannerDefaults, aspectRatio: '3:1', intervalSeconds: 3, showDots: false } },
-      ]);
+      expect((await (await deliver(key)).json()).frame).toEqual({
+        id: bar.id,
+        type: 'banner',
+        settings: { ...bannerDefaults, aspectRatio: '3:1', intervalSeconds: 3, showDots: false },
+      });
     });
 
     it('delivers only valid settings when a stored row is invalid, filling defaults', async () => {
-      const zone = await createZone();
-      const bar = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
-      const listed = await (await post(`/zones/${zone.id}/frames`, { type: 'bar' })).json();
-      const banner = await (await post(`/zones/${zone.id}/frames`, { type: 'banner' })).json();
-      // Written by hand, past the API's validation, as an older schema or a manual edit could leave them.
-      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [
-        bar.id,
-        JSON.stringify({ gap: 40, shape: 'star', size: 'large', color: 'red' }),
-      ]);
-      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [listed.id, JSON.stringify(['x'])]);
-      await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [
-        banner.id,
-        JSON.stringify({ stray: 1, intervalSeconds: 40, aspectRatio: '</style>', loop: false }),
-      ]);
-      const { key } = await issue(zone.id);
-
-      const res = await deliver(key);
-      expect(res.status).toBe(200);
       const defaults = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
-      expect((await res.json()).frames).toEqual([
-        { id: bar.id, type: 'bar', settings: { ...defaults, size: 'large' } },
-        { id: listed.id, type: 'bar', settings: defaults },
-        { id: banner.id, type: 'banner', settings: { ...bannerDefaults, loop: false } },
-      ]);
+      const cases: [string, unknown, object][] = [
+        ['bar', { gap: 40, shape: 'star', size: 'large', color: 'red' }, { ...defaults, size: 'large' }],
+        ['bar', ['x'], defaults],
+        ['banner', { stray: 1, intervalSeconds: 40, aspectRatio: '</style>', loop: false }, { ...bannerDefaults, loop: false }],
+      ];
+      for (const [type, stored, delivered] of cases) {
+        const zone = await createZone();
+        const frame = await (await post(`/zones/${zone.id}/frame`, { type })).json();
+        // Written by hand, past the API's validation, as an older schema or a manual edit could leave them.
+        await pool.query('UPDATE frames SET settings = $2 WHERE id = $1', [frame.id, JSON.stringify(stored)]);
+        const { key } = await issue(zone.id);
+        const res = await deliver(key);
+        expect(res.status).toBe(200);
+        expect((await res.json()).frame).toEqual({ id: frame.id, type, settings: delivered });
+      }
     });
 
     it("delivers the zone's project theme with defaults filled in (R9)", async () => {
@@ -4115,36 +4269,6 @@ describe('Management API v1: projects and zones', () => {
       expect(theme).toEqual({ ...DEFAULT_THEME, cornerRadius: 4 });
     });
 
-    it("delivers the zone's stages, key and frame only, oldest first, and drops deleted ones", async () => {
-      const zone = await createZone();
-      const circle = await (await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: { shape: 'circle' } })).json();
-      const square = await (
-        await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: { shape: 'rounded-square' } })
-      ).json();
-      const round = await (await post(`/zones/${zone.id}/stages`, { name: 'Round bar', key: 'round', frameId: circle.id })).json();
-      await post(`/zones/${zone.id}/stages`, { name: 'Square bar', key: 'square', frameId: square.id });
-      // Another zone's stages never show.
-      const other = await createZone();
-      const otherFrame = await (await post(`/zones/${other.id}/frames`, { type: 'bar' })).json();
-      await post(`/zones/${other.id}/stages`, { name: 'Elsewhere', key: 'elsewhere', frameId: otherFrame.id });
-      const { key } = await issue(zone.id);
-
-      const body = await (await deliver(key)).json();
-      expect(body.stages).toEqual([
-        { key: 'round', frameId: circle.id },
-        { key: 'square', frameId: square.id },
-      ]);
-      expect(body.frames.map((f: { id: string; settings: { shape: string } }) => [f.id, f.settings.shape])).toEqual([
-        [circle.id, 'circle'],
-        [square.id, 'rounded-square'],
-      ]);
-      expect(JSON.stringify(body.stages)).not.toContain('Round bar');
-      expect(JSON.stringify(body.stages)).not.toContain(round.id);
-
-      expect((await send('DELETE', `/zones/${zone.id}/stages/${round.id}`)).status).toBe(204);
-      expect((await (await deliver(key)).json()).stages).toEqual([{ key: 'square', frameId: square.id }]);
-    });
-
     describe('tale groups and public media', () => {
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8]);
       const gif = Buffer.from('GIF89a-tiny-gif');
@@ -4182,7 +4306,7 @@ describe('Management API v1: projects and zones', () => {
 
       it('serves the tale groups and tales in dashboard order with absolute public media URLs', async () => {
         const zone = await createZone();
-        await post(`/zones/${zone.id}/frames`, { type: 'bar', settings: {} });
+        await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: {} });
         const b = await addGroup(zone.id, 'B');
         const a = await addGroup(zone.id, 'A');
         const ordered = await fetch(`${base}/zones/${zone.id}/tale-groups/order`, {
@@ -7639,13 +7763,12 @@ describe('Management API v1: projects and zones', () => {
         on: 'zone',
         reason: () => why('zone-no-display', 'zone'),
         omits: 'everything',
-        // No route removes a frame until story 5; the fixture removes it as such a route would.
+        // No route removes a display; the fixture removes the frame row as such a route would.
         breakIt: async (f) => {
-          await pool.query('DELETE FROM stages WHERE zone_id = $1', [f.zoneId]);
           await pool.query('DELETE FROM frames WHERE zone_id = $1', [f.zoneId]);
         },
         fix: async (f) =>
-          expect((await post(`/zones/${f.zoneId}/frames`, { type: 'banner', settings: {} })).status).toBe(201),
+          expect((await post(`/zones/${f.zoneId}/frame`, { type: 'banner', settings: {} })).status).toBe(201),
       },
       {
         name: 'zone not installed',
@@ -7962,7 +8085,7 @@ describe('Management API v1: projects and zones', () => {
         await postKey(ready.id);
         const bare = await (await post('/zones', { name: 'Bare', projectId: project.id })).json();
         const keyless = await (await post('/zones', { name: 'Keyless', projectId: project.id })).json();
-        expect((await post(`/zones/${keyless.id}/frames`, { type: 'bar', settings: {} })).status).toBe(201);
+        expect((await post(`/zones/${keyless.id}/frame`, { type: 'bar', settings: {} })).status).toBe(201);
         const { rows: step } = await pool.query<{ appliedAt: Date }>(
           "SELECT applied_at AS \"appliedAt\" FROM tales_migrations WHERE step = 'shown-status'",
         );
@@ -9086,7 +9209,9 @@ describe('Management API v1: projects and zones', () => {
       });
       const zones = await projectZones(project.id);
       expect(zones.map((z) => z.name)).toEqual(['Home page', 'Product page', 'Checkout']);
-      for (const zone of zones) expect(await (await fetch(`${base}/zones/${zone.id}/frames`)).json()).toEqual([]);
+      // A another tool zone imports as one TaleArt zone without a display (epic UX rework, importer touch point).
+      for (const zone of zones) expect((zone as { frame?: unknown }).frame).toBeNull();
+      expect(zones.map((z) => (z as { slug?: string }).slug)).toEqual(['home-page', 'product-page', 'checkout']);
       const links = await pool.query(
         'SELECT source_system, source_type, source_id, target_type, target_id FROM import_links WHERE project_id = $1 ORDER BY source_id',
         [project.id],

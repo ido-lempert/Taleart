@@ -2,24 +2,19 @@ import {
   ErrorCodes,
   type AppliedPlaybook,
   type ApplyPlaybookRequest,
-  type CreateFrameRequest,
-  type CreateStageRequest,
   type CreateZoneRequest,
-  type RenameStageRequest,
+  type SetFrameRequest,
   type UpdateFrameRequest,
+  type UpdateZoneRequest,
   type Zone,
 } from '@taleart/contract';
 import {
   applyPlaybook,
-  createFrame,
-  createStage,
   createZone,
-  deleteStage,
-  listFrames,
-  listStages,
   listZones,
-  renameStage,
-  updateFrameSettings,
+  setDisplay,
+  updateDisplay,
+  updateZone,
   zoneExists,
   ZoneNotFoundError,
   type FrameTypeRegistry,
@@ -39,6 +34,11 @@ async function withZoneVisibility<Z extends { id: string }>(pool: Pool, zones: Z
   return withVisibility(zones, await zoneVisibilities(pool, zones.map((zone) => zone.id)));
 }
 
+// Settings as sent: validated against the frame type's JSON Schema in the zones module.
+function bodySettings(body: unknown): unknown {
+  return (body as { settings?: unknown } | undefined)?.settings;
+}
+
 export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
   const router = Router();
 
@@ -52,9 +52,12 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
 
   router.post('/', async (req, res, next) => {
     try {
-      const input: CreateZoneRequest = {
+      const slug = (req.body as Partial<CreateZoneRequest> | undefined)?.slug;
+      const input = {
         name: requiredString(req.body, 'name'),
         projectId: requiredString(req.body, 'projectId'),
+        // Checked in the zones module: a slug (400) free in the project (409); made from the name when missing.
+        ...(slug !== undefined && { slug: slug as unknown }),
       };
       await authorize(pool, res, 'project', input.projectId);
       const [zone] = await withZoneVisibility(pool, [await createZone(pool, input)]);
@@ -64,41 +67,47 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
     }
   });
 
-  router.get('/:zoneId/frames', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+  // A zone's name and slug (epic UX rework R1).
+  router.patch('/:zoneId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
     try {
-      res.json(await listFrames(pool, req.params.zoneId));
+      const body = (req.body ?? {}) as Partial<Record<keyof UpdateZoneRequest, unknown>>;
+      const zone = await updateZone(pool, req.params.zoneId, { name: body.name, slug: body.slug });
+      if (!zone) throw new ZoneNotFoundError(req.params.zoneId);
+      const [withVis] = await withZoneVisibility(pool, [zone]);
+      res.json(withVis);
     } catch (err) {
       next(err);
     }
   });
 
-  router.post('/:zoneId/frames', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+  // A zone's display: its one frame (AD-5, AD-17).
+  router.post('/:zoneId/frame', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
     try {
-      // Zone first (404), then the body (400), then the registry.
+      // Zone first (404), then the body (400), then the registry (400) and the zone's display (409).
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
-      const input: CreateFrameRequest = {
+      const input: SetFrameRequest = {
         type: requiredString(req.body, 'type'),
-        // Validated against the type's JSON Schema in the zones module; a
-        // missing value is treated as {} there.
-        settings: (req.body as { settings?: CreateFrameRequest['settings'] } | undefined)?.settings,
+        settings: bodySettings(req.body) as SetFrameRequest['settings'],
       };
-      res.status(201).json(await createFrame(pool, frameTypes, { zoneId: req.params.zoneId, ...input }));
+      res.status(201).json(await setDisplay(pool, frameTypes, { zoneId: req.params.zoneId, ...input }));
     } catch (err) {
       next(err);
     }
   });
 
-  router.patch('/:zoneId/frames/:frameId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
+  router.patch('/:zoneId/frame', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
     try {
-      // Zone first (404), then the body (400), then the frame (404) and its type's schema (400).
+      // Zone first (404), then the body (400), then the display (404) and its type's schema (400).
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
-      const settings = (req.body as Partial<UpdateFrameRequest> | undefined)?.settings;
-      if (settings === undefined) throw new HttpError(400, ErrorCodes.validationFailed, 'settings is required');
+      const body = (req.body ?? {}) as Partial<Record<keyof UpdateFrameRequest, unknown>>;
+      if (body.type !== undefined && (typeof body.type !== 'string' || !body.type.trim())) {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'type must be a frame type key');
+      }
       res.json(
-        await updateFrameSettings(pool, frameTypes, {
+        await updateDisplay(pool, frameTypes, {
           zoneId: req.params.zoneId,
-          frameId: req.params.frameId,
-          settings,
+          type: body.type === undefined ? undefined : (body.type as string).trim(),
+          settings: body.settings,
         }),
       );
     } catch (err) {
@@ -106,47 +115,7 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
     }
   });
 
-  // Stages (epic web zones R7): each shows one of the zone's frames on a host page.
-  router.get('/:zoneId/stages', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
-    try {
-      res.json(await listStages(pool, req.params.zoneId));
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  router.post('/:zoneId/stages', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
-    try {
-      // Zone first (404), then the body (400), then the frame (400) and the key (409), in the zones module.
-      const body = (req.body ?? {}) as Partial<Record<keyof CreateStageRequest, unknown>>;
-      res.status(201).json(
-        await createStage(pool, { zoneId: req.params.zoneId, name: body.name, key: body.key, frameId: body.frameId }),
-      );
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  router.patch('/:zoneId/stages/:stageId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
-    try {
-      // Only the name changes: a page names the stage by its key, which stays.
-      const body = (req.body ?? {}) as Partial<Record<keyof RenameStageRequest, unknown>>;
-      res.json(await renameStage(pool, { zoneId: req.params.zoneId, stageId: req.params.stageId, name: body.name }));
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  router.delete('/:zoneId/stages/:stageId', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
-    try {
-      await deleteStage(pool, { zoneId: req.params.zoneId, stageId: req.params.stageId });
-      res.sendStatus(204);
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Playbooks (epic web zones R8): a preset set of frames with a stage each, applied in one transaction.
+  // Playbooks (epic web zones R8, AD-17): a preset display, applied in one transaction.
   router.put('/:zoneId/playbook', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
     try {
       // Zone first (404), then the key (400), then conflicts (409), in the zones module.

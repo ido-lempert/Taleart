@@ -51,6 +51,11 @@ import { VisibilityIndicator } from '../visibility';
     .zone-card app-visibility {
       z-index: 1;
     }
+    .zone-card .pill,
+    .zone-card__slug {
+      align-self: flex-start;
+      overflow-wrap: anywhere;
+    }
     .zone-card__meta {
       display: flex;
       align-items: center;
@@ -96,8 +101,8 @@ import { VisibilityIndicator } from '../visibility';
                 No zones in {{ store.selectedProject()?.name }} yet
               </h2>
               <p class="empty__text">
-                A zone is a place in your app or site where tales show. Create
-                one to add frames and tale groups.
+                A zone is one spot in your app or site where tales show. Create
+                one, then choose its display and add tale groups.
               </p>
               <button
                 type="button"
@@ -115,16 +120,11 @@ import { VisibilityIndicator } from '../visibility';
                 <div class="card zone-card">
                   <a class="zone-card__name" [routerLink]="['/zones', zone.id]">{{ zone.name }}</a>
                   <app-visibility [visibility]="zone.visibility" viewing="zone" />
-                  @if (store.framesOf(zone.id).length > 0) {
-                    <ul class="pill-list" aria-label="Frame types">
-                      @for (frame of store.framesOf(zone.id); track frame.id) {
-                        <li class="pill">
-                          {{ store.frameTypeLabel(frame.type) }}
-                        </li>
-                      }
-                    </ul>
+                  <span class="zone-card__slug"><span class="visually-hidden">Slug </span><code class="key-prefix">{{ zone.slug }}</code></span>
+                  @if (zone.frame; as display) {
+                    <span class="pill"><span class="visually-hidden">Display: </span>{{ store.frameTypeLabel(display.type) }}</span>
                   } @else {
-                    <span class="muted">No frames yet</span>
+                    <span class="muted">No display yet</span>
                   }
                   <span class="zone-card__meta">
                     <app-icon name="tales" />

@@ -1,7 +1,7 @@
 // First zone content on a mid-tier mobile profile over Fast 4G (NFR-006, epic web zones R10).
 //
-// Starts the built API on a test database, seeds a zone through the Management API (a bar and a
-// banner frame; tale groups with an animated cover, still covers and one without a cover, each with
+// Starts the built API on a test database, seeds a zone through the Management API (a bar display,
+// AD-17; tale groups with an animated cover, still covers and one without a cover, each with
 // full-size tale images), serves the sample page, and loads it again and again in headless Chromium
 // throttled to Fast 4G with a 4x slower CPU. Each load reads the `taleart:first-content` performance
 // mark the Web SDK sets once the first frame is on the page with the covers in view loaded. Prints
@@ -228,12 +228,12 @@ async function signIn(databaseUrl, seeded) {
   }
 }
 
-// The seeded zone: a bar and a banner frame and eight live tale groups of three live tales each.
+// The seeded zone: a bar display and eight live tale groups of three live tales each.
 // The first group has an animated cover (it counts toward the budget, R12), the third none (its
 // bar item shows the first tale's full-size image), the others a still cover.
 const GROUPS = ['New in', 'Summer sale', 'Behind the scenes', 'Top picks', 'Outdoor', 'Kids', 'Beauty', 'Gifts'];
 
-// Deletes what the run added: the seeded project with its zone, frames, stages, theme, groups,
+// Deletes what the run added: the seeded project with its zones, displays, theme, groups,
 // tales, placements and key, then the admin with their session. Media files go with the temp dir.
 async function removeSeeded(databaseUrl, { userId, projectId }) {
   if (!userId && !projectId) return;
@@ -252,7 +252,6 @@ async function removeSeeded(databaseUrl, { userId, projectId }) {
         'tale_group_tags',
         'tales',
         'tale_groups',
-        'stages',
         'frames',
         'project_themes',
         'zones',
@@ -288,8 +287,7 @@ async function seed(apiUrl, cookie, media, seeded) {
   const project = await call('POST', '/projects', { name: `Perf ${new Date().toISOString()}` });
   seeded.projectId = project.id;
   const zone = await call('POST', '/zones', { name: 'Home', projectId: project.id });
-  await call('POST', `/zones/${zone.id}/frames`, { type: 'bar', settings: {} });
-  await call('POST', `/zones/${zone.id}/frames`, { type: 'banner', settings: {} });
+  await call('POST', `/zones/${zone.id}/frame`, { type: 'bar', settings: {} });
   let photo = 0;
   for (const [index, name] of GROUPS.entries()) {
     const group = await call('POST', `/zones/${zone.id}/tale-groups`, { name });
@@ -312,7 +310,7 @@ async function seed(apiUrl, cookie, media, seeded) {
     'application/octet-stream',
   );
   const fontZone = await call('POST', '/zones', { name: 'Fonts', projectId: project.id });
-  await call('POST', `/zones/${fontZone.id}/frames`, { type: 'bar', settings: {} });
+  await call('POST', `/zones/${fontZone.id}/frame`, { type: 'bar', settings: {} });
   const group = await call('POST', `/zones/${fontZone.id}/tale-groups`, { name: 'Brand' });
   const tale = await call('POST', `/tale-groups/${group.id}/tales`, { title: 'Brand story' });
   const elements = Array.from({ length: 20 }, (_, i) => ({
@@ -381,7 +379,7 @@ async function measure(browser, url) {
     };
     await page.goto(url, { waitUntil: 'commit' });
     const cold = await read();
-    // Let the page settle (covers, the banner's next slide) before listing what it requested.
+    // Let the page settle (covers) before listing what it requested.
     await page.waitForTimeout(1500);
     const fontRequests = (
       await page.evaluate(() => performance.getEntriesByType('resource').map((r) => r.name))

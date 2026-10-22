@@ -6,7 +6,16 @@ import {
   loadFrameTypeRegistry,
   UnknownFrameTypeError,
 } from './frame-types';
-import { createFrame, findZone, FrameNotFoundError, listFrames, updateFrameSettings, ZoneNotFoundError } from './frames';
+import {
+  DisplayConcurrentChangeError,
+  DisplayExistsError,
+  DisplayNotFoundError,
+  EmptyDisplayChangeError,
+  findZone,
+  setDisplay,
+  updateDisplay,
+  ZoneNotFoundError,
+} from './frames';
 
 const shippedDir = join(__dirname, '../../../../contract/frame-types');
 const zoneId = '00000000-0000-4000-8000-000000000001';
@@ -164,96 +173,164 @@ describe('frame-type registry', () => {
   });
 });
 
-describe('frames', () => {
+describe('display', () => {
   const registry = new FrameTypeRegistry([
-    { key: 'bar', label: 'Bar', schema: { type: 'object', properties: {}, additionalProperties: false } },
+    {
+      key: 'bar',
+      label: 'Bar',
+      schema: { type: 'object', properties: { gap: { type: 'integer', default: 12 } }, additionalProperties: false },
+    },
+    {
+      key: 'banner',
+      label: 'Banner',
+      schema: { type: 'object', properties: { loop: { type: 'boolean', default: true } }, additionalProperties: false },
+    },
   ]);
+  const zoneRow = { rows: [{ project_id: projectId }] };
+  const frameId = '00000000-0000-4000-8000-000000000003';
 
   it('does not query for a zone id that is not a UUID', async () => {
     const query = vi.fn();
-    await expect(listFrames({ query } as unknown as Db, 'nope')).rejects.toBeInstanceOf(ZoneNotFoundError);
+    await expect(setDisplay({ query } as unknown as Db, registry, { zoneId: 'nope', type: 'bar' })).rejects.toBeInstanceOf(
+      ZoneNotFoundError,
+    );
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('refuses an unknown zone without inserting', async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [] });
+  it('refuses an unknown zone, an unknown type and invalid settings without inserting', async () => {
+    const none = vi.fn().mockResolvedValue({ rows: [] });
+    await expect(setDisplay({ query: none } as unknown as Db, registry, { zoneId, type: 'bar' })).rejects.toBeInstanceOf(
+      ZoneNotFoundError,
+    );
+    const query = vi.fn().mockResolvedValue(zoneRow);
     await expect(
-      createFrame({ query } as unknown as Db, registry, { zoneId, type: 'bar' }),
-    ).rejects.toBeInstanceOf(ZoneNotFoundError);
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0][0]).not.toMatch(/INSERT/);
-  });
-
-  it('refuses invalid settings without inserting', async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [{ project_id: projectId }] });
-    await expect(
-      createFrame({ query } as unknown as Db, registry, { zoneId, type: 'bar', settings: { color: 'red' } }),
+      setDisplay({ query } as unknown as Db, registry, { zoneId, type: 'bar', settings: { color: 'red' } }),
     ).rejects.toBeInstanceOf(InvalidFrameSettingsError);
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0][0]).not.toMatch(/INSERT/);
+    await expect(setDisplay({ query } as unknown as Db, registry, { zoneId, type: 'strip' })).rejects.toBeInstanceOf(
+      UnknownFrameTypeError,
+    );
+    expect(query.mock.calls.some(([sql]) => /INSERT/.test(sql))).toBe(false);
   });
 
-  it("copies the zone's project and stores missing settings as {}", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({ rows: [{ project_id: projectId }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'f1' }] });
-    await createFrame({ query } as unknown as Db, registry, { zoneId, type: 'bar' });
-    expect(query.mock.calls[1][1]).toEqual([zoneId, projectId, 'bar', '{}']);
+  it("copies the zone's project, stores the type's defaults when settings are missing, and inserts only into an empty zone", async () => {
+    const query = vi.fn().mockResolvedValueOnce(zoneRow).mockResolvedValueOnce({ rows: [{ id: 'f1' }] });
+    await setDisplay({ query } as unknown as Db, registry, { zoneId, type: 'bar' });
+    expect(query.mock.calls[1][0]).toMatch(/WHERE NOT EXISTS \(SELECT 1 FROM frames WHERE zone_id = \$1\)/);
+    expect(query.mock.calls[1][1]).toEqual([zoneId, projectId, 'bar', '{"gap":12}']);
   });
 
-  describe('updateFrameSettings', () => {
-    const frameId = '00000000-0000-4000-8000-000000000003';
-    const zoneRow = { rows: [{ project_id: projectId }] };
+  it('refuses a second display', async () => {
+    const query = vi.fn().mockResolvedValueOnce(zoneRow).mockResolvedValueOnce({ rows: [] });
+    await expect(setDisplay({ query } as unknown as Db, registry, { zoneId, type: 'bar' })).rejects.toBeInstanceOf(
+      DisplayExistsError,
+    );
+  });
 
-    it('refuses an unknown zone', async () => {
-      const query = vi.fn().mockResolvedValue({ rows: [] });
-      await expect(
-        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: {} }),
-      ).rejects.toBeInstanceOf(ZoneNotFoundError);
+  describe('updateDisplay', () => {
+    const display = { rows: [{ id: frameId, type: 'bar' }] };
+
+    it('refuses an unknown zone, an empty change and a zone without a display', async () => {
+      const none = vi.fn().mockResolvedValue({ rows: [] });
+      await expect(updateDisplay({ query: none } as unknown as Db, registry, { zoneId, settings: {} })).rejects.toBeInstanceOf(
+        ZoneNotFoundError,
+      );
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(updateDisplay({ query } as unknown as Db, registry, { zoneId })).rejects.toBeInstanceOf(
+        EmptyDisplayChangeError,
+      );
+      await expect(updateDisplay({ query } as unknown as Db, registry, { zoneId, type: 'bar' })).rejects.toBeInstanceOf(
+        DisplayNotFoundError,
+      );
     });
 
-    it('refuses a malformed frame id without querying for it', async () => {
-      const query = vi.fn().mockResolvedValue(zoneRow);
-      await expect(
-        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId: 'nope', settings: {} }),
-      ).rejects.toBeInstanceOf(FrameNotFoundError);
-      expect(query).toHaveBeenCalledTimes(1);
+    it("resets the settings to the new type's defaults when the type changes", async () => {
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [{}] });
+      await updateDisplay({ query } as unknown as Db, registry, { zoneId, type: 'banner' });
+      expect(query.mock.calls[2][0]).toMatch(/UPDATE frames SET type = \$2, settings = \$3/);
+      expect(query.mock.calls[2][1]).toEqual([frameId, 'banner', '{"loop":true}', 'bar']);
     });
 
-    it('refuses a frame that is not in the zone', async () => {
-      const query = vi.fn().mockResolvedValueOnce(zoneRow).mockResolvedValueOnce({ rows: [] });
+    it('validates settings against the new type, and writes nothing when they do not match', async () => {
+      const query = vi.fn().mockResolvedValueOnce(zoneRow).mockResolvedValueOnce(display);
       await expect(
-        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: {} }),
-      ).rejects.toBeInstanceOf(FrameNotFoundError);
-      expect(query.mock.calls[1][1]).toEqual([frameId, zoneId]);
-    });
-
-    it('refuses invalid settings without updating', async () => {
-      const query = vi.fn().mockResolvedValueOnce(zoneRow).mockResolvedValueOnce({ rows: [{ type: 'bar' }] });
-      await expect(
-        updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: { color: 'red' } }),
+        updateDisplay({ query } as unknown as Db, registry, { zoneId, type: 'banner', settings: { gap: 4 } }),
       ).rejects.toBeInstanceOf(InvalidFrameSettingsError);
       expect(query).toHaveBeenCalledTimes(2);
     });
 
-    it('stores valid settings and returns the frame', async () => {
-      const frame = { id: frameId, zoneId, projectId, type: 'bar', settings: {} };
+    it('stores new settings and keeps the type', async () => {
+      const frame = { id: frameId, zoneId, projectId, type: 'bar', settings: { gap: 4 } };
       const query = vi
         .fn()
         .mockResolvedValueOnce(zoneRow)
-        .mockResolvedValueOnce({ rows: [{ type: 'bar' }] })
+        .mockResolvedValueOnce(display)
         .mockResolvedValueOnce({ rows: [frame] });
-      expect(await updateFrameSettings({ query } as unknown as Db, registry, { zoneId, frameId, settings: {} })).toBe(
-        frame,
-      );
-      expect(query.mock.calls[2][0]).toMatch(/UPDATE frames/);
-      expect(query.mock.calls[2][1]).toEqual([frameId, zoneId, '{}']);
+      expect(await updateDisplay({ query } as unknown as Db, registry, { zoneId, settings: { gap: 4 } })).toBe(frame);
+      expect(query.mock.calls[2][1]).toEqual([frameId, 'bar', '{"gap":4}', 'bar']);
+    });
+
+    it('writes only while the display still has the type it read, checking again once, then refuses', async () => {
+      const banner = { rows: [{ id: frameId, type: 'banner' }] };
+      const saved = { id: frameId, zoneId, projectId, type: 'banner', settings: {} };
+      // The type switched to banner between the read and the write: the settings are checked again against banner.
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(banner)
+        .mockResolvedValueOnce({ rows: [saved] });
+      expect(await updateDisplay({ query } as unknown as Db, registry, { zoneId, settings: {} })).toBe(saved);
+      expect(query.mock.calls[2][0]).toMatch(/WHERE id = \$1 AND type = \$4/);
+      expect(query.mock.calls[2][1]).toEqual([frameId, 'bar', '{}', 'bar']);
+      expect(query.mock.calls[4][1]).toEqual([frameId, 'banner', '{}', 'banner']);
+
+      // Settings for a bar on a display that became a banner are refused, nothing written.
+      const switched = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(banner);
+      await expect(
+        updateDisplay({ query: switched } as unknown as Db, registry, { zoneId, settings: { gap: 4 } }),
+      ).rejects.toBeInstanceOf(InvalidFrameSettingsError);
+
+      // Two misses in a row: a concurrent change.
+      const busy = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(
+        updateDisplay({ query: busy } as unknown as Db, registry, { zoneId, settings: { gap: 4 } }),
+      ).rejects.toBeInstanceOf(DisplayConcurrentChangeError);
+    });
+
+    it('changes nothing for the same type without settings', async () => {
+      const frame = { id: frameId, zoneId, projectId, type: 'bar', settings: { gap: 4 } };
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce(zoneRow)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce({ rows: [frame] });
+      expect(await updateDisplay({ query } as unknown as Db, registry, { zoneId, type: 'bar' })).toBe(frame);
+      expect(query.mock.calls[2][0]).not.toMatch(/UPDATE/);
     });
   });
 
   it('finds a zone by id, and null for an unknown or malformed id', async () => {
-    const zone = { id: zoneId, name: 'Bar', projectId };
+    const zone = { id: zoneId, name: 'Bar', slug: 'bar', projectId, playbookKey: null, frame: null };
     expect(await findZone({ query: vi.fn().mockResolvedValue({ rows: [zone] }) } as unknown as Db, zoneId)).toEqual(zone);
     expect(await findZone({ query: vi.fn().mockResolvedValue({ rows: [] }) } as unknown as Db, zoneId)).toBeNull();
     const query = vi.fn();
