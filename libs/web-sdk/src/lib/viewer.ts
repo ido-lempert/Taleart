@@ -1,10 +1,9 @@
 import {
   DEFAULT_TALE_DURATION_MS,
-  isStageTaleMedia,
-  LEGACY_PLACEHOLDER_COLOR,
   LEGACY_TALE_DURATION_MS,
   MAX_TALE_VIDEO_MS,
-  type DeliveryTaleDocument,
+  stageTaleMedia,
+  type DeliveryTale,
   type DeliveryTaleElement,
   type DeliveryTaleGroup,
 } from '@taleart/contract';
@@ -16,13 +15,6 @@ import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/ren
 /** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
 export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
 
-// A tale a server from before R16 sent without a document: the legacy placeholder, for 5 s.
-const NO_DOCUMENT: DeliveryTaleDocument = {
-  version: 1,
-  canvas: { background: { type: 'color', color: LEGACY_PLACEHOLDER_COLOR } },
-  durationMs: LEGACY_TALE_DURATION_MS,
-  elements: [],
-};
 /** A document's video that makes no progress for this long while it should play ends its tale. */
 export const VIDEO_STALL_MS = 5000;
 /** Horizontal travel that makes a pointer gesture a swipe between groups. */
@@ -531,31 +523,42 @@ export class TaleViewer {
     // fills the canvas, is drawn full-bleed in the stage behind the canvas, as tale media always
     // was, and keeps its rules: a video runs the tale for its whole length, with sound where the
     // browser allows it. The canvas carries the tale's name.
-    const doc = current.document ?? NO_DOCUMENT;
-    this.duration = doc.durationMs ?? DEFAULT_TALE_DURATION_MS;
-    const elements = Array.isArray(doc.elements) ? doc.elements : [];
-    const own = isStageTaleMedia(elements[0], 0) ? elements[0] : null;
-    this.media = own && this.renderStageMedia(own);
-    if (this.media) stage.prepend(this.media);
-    // Behind the stage media, the canvas colour fills the stage, such as the bands a contained
-    // image leaves; without stage media the canvas paints its own colour.
-    stage.style.backgroundColor = (this.media && canvasColor(doc)) || '';
-    // Its project fonts load now that it opens (R18); its text shows the fallback stack until then.
-    loadTaleFonts(current);
-    // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
-    this.layer = renderTaleDocument(this.media ? { ...doc, elements: elements.slice(1) } : doc, {
-      background: !this.media,
-      label: current.title || `Tale ${tale + 1}`,
-      reducedMotion: this.reduced,
-    });
-    this.parts.top.before(this.layer);
-    // Its video element (R5) runs the tale: it plays, pauses and ends with it. Next to the tale's
-    // own video it only loops along, muted.
-    const docVideo = this.layer.querySelector('video');
-    if (docVideo && !this.video) this.useVideo(docVideo, true);
-    else if (docVideo) {
-      docVideo.loop = true;
-      this.alongside.push(docVideo);
+    const doc = current.document;
+    if (!doc) {
+      // A tale sent without a document (a server from before R16): its media as the viewer always
+      // drew it, named by the tale's title, for 5 s or its video's length.
+      this.duration = IMAGE_DURATION_MS;
+      this.media = this.renderLegacyMedia(current);
+      stage.prepend(this.media);
+      stage.style.backgroundColor = '';
+    } else {
+      this.duration = doc.durationMs ?? DEFAULT_TALE_DURATION_MS;
+      const elements = Array.isArray(doc.elements) ? doc.elements : [];
+      const own = stageTaleMedia(doc);
+      this.media = own && this.renderStageMedia(own);
+      if (this.media) stage.prepend(this.media);
+      // Behind the stage media, the canvas colour fills the stage, such as the bands a contained
+      // image leaves; so does it for a document with nothing to show (a tale without media, which
+      // always showed its placeholder colour across the stage). Otherwise the canvas paints it.
+      const empty = elements.length === 0 && doc.canvas?.background?.type === 'color';
+      stage.style.backgroundColor = ((this.media || empty) && canvasColor(doc)) || '';
+      // Its project fonts load now that it opens (R18); its text shows the fallback stack until then.
+      loadTaleFonts(current);
+      // A tale document (AD-16): its elements on a 9:16 canvas between the tap zones and the controls.
+      this.layer = renderTaleDocument(this.media ? { ...doc, elements: elements.slice(1) } : doc, {
+        background: !this.media,
+        label: current.title || `Tale ${tale + 1}`,
+        reducedMotion: this.reduced,
+      });
+      this.parts.top.before(this.layer);
+      // Its video element (R5) runs the tale: it plays, pauses and ends with it. Next to the tale's
+      // own video it only loops along, muted.
+      const docVideo = this.layer.querySelector('video');
+      if (docVideo && !this.video) this.useVideo(docVideo, true);
+      else if (docVideo) {
+        docVideo.loop = true;
+        this.alongside.push(docVideo);
+      }
     }
     this.options.onGroupShown?.(g.id);
     if (this.reduced) {
@@ -566,6 +569,35 @@ export class TaleViewer {
     }
     if (this.video) this.applyPause();
     else this.startTimed();
+  }
+
+  // A tale's media sent outside a document (servers before R16), exactly as the viewer drew it: an
+  // image or video named by the tale's title, or a placeholder of that name.
+  private renderLegacyMedia(tale: DeliveryTale): HTMLElement {
+    const label = tale.title || `Tale ${this.tale + 1}`;
+    const media = tale.media;
+    const url = mediaUrl(media?.url);
+    if (media?.kind === 'image' && url) {
+      const img = el('img', 'media');
+      img.alt = label;
+      img.src = url;
+      img.draggable = false;
+      return img;
+    }
+    if (media?.kind === 'video' && url) {
+      const video = el('video', 'media');
+      video.setAttribute('aria-label', label);
+      video.playsInline = true;
+      // Under reduced motion the video waits on its first frame (`#t` paints it in Safari) until Play.
+      video.preload = this.reduced ? 'metadata' : 'auto';
+      video.src = this.reduced ? `${url}#t=0.001` : url;
+      this.useVideo(video);
+      return video;
+    }
+    const placeholder = el('span', 'media');
+    placeholder.setAttribute('role', 'img');
+    placeholder.setAttribute('aria-label', label);
+    return placeholder;
   }
 
   // The tale's own media in the stage (R16), as the viewer always drew a tale's media: full-bleed

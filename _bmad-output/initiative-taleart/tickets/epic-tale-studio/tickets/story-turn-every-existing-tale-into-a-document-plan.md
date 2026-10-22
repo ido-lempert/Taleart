@@ -3,13 +3,13 @@ title: 'Turn every existing tale into a document'
 type: 'feature'
 ticket: '11'
 created: '2026-10-22'
-status: 'in-review'
+status: 'built'
 baseline_revision: '489b892'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
-review: ''
-review_source: ''
+review: 'thorough'
+review_source: 'pinned'
 lenses_ran: []
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -93,11 +93,35 @@ deferred: []
 - sdk-sample: stubs are document-shaped (`mediaTale` in `a11y-shared.mjs`); `a11y-review` section 14 compares the legacy viewer framing with the migrated document pixel by pixel (6 picture/viewport cases and one overlay case: 0 pixels differ) and checks the colour cover.
 - `import-scale.scale.ts`: its TRUNCATE now lists `tale_media` and `project_media` (it failed on the foreign key since 7.5).
 - Verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`): `run-many -t lint test build` on the 12 projects passes (contract 206, server-tales 199, server-importer 276, web-sdk 320, dashboard 353, api 465 tests); `web-sdk:size` 18.82 KB; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 183 checks; `sdk-sample:perf` cold p75 1,285 ms, first tale frame p75 70 ms; `api:import-scale` 1,000 tales passes.
+- Review fixes verification (2026-10-22, `--skip-nx-cache`, `taleart_w2_test`, on foundation d2bba46): `run-many -t lint test build` on the 12 projects passes (api 480, web-sdk 335, dashboard 367, server-importer 276, contract 251, server-tales 227 tests); `web-sdk:size` 19.70 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` 0 violations; `sdk-sample:a11y-review` all 198 checks (R16: 0 pixels differ in 6 cases against the 489b892 SDK); `sdk-sample:perf` cold p75 1,271 ms, first tale frame p75 68 ms; `api:import-scale` passes; dashboard initial bundle 492.14 kB; `api:tale-media-rollback` dry run reports and changes nothing.
 - Not verified by hand: a signed-in browser walk of the studio on a migrated tale, a real screen reader, a production-size database (the batch test seeds 1,200 rows).
 
 ## Plan Change Log
 
+- 2026-10-22, review of 7.11 (coordinator): the rollback is now a shipped, reversible data step (`api:tale-media-rollback`, dry run by default) and a deploy switch (`TALE_MEDIA_MIGRATION`, default on; off while the previous release runs, since it refuses `taleMedia`); the default cover stays "the first tale with media" (its lowest media element) in the bar, banner and cover editor; the SDK keeps drawing a tale sent without a document as before; the stage path applies only on a colour background. KEEP: the out-of-step model (`document_media_key`), Delivery composition, the stage path's legacy playback rules, the pixel comparison.
+
 ## Review Triage Log
+
+### 2026-10-22 — Coordinator review (after merging `autopilot/foundation` d2bba46, Tale Studio 7.6)
+- **Verdicts:** 17 findings, all patched; none deferred. Merge: conflicts in `tale-document.ts`, `tale-studio.ts`, `a11y-review.mjs` (7.6's section 14 kept, this story's renumbered 15), `a11y-scan.mjs` resolved; 7.6's second `overMedia: !!this.tale()?.media` converted, and both backdrop bases now count only a media background, so `textBackdropAt` meets the tale's media element once.
+- **Findings:**
+  1. `[patch]` Re-import uses the keep-edits mode only when `document_media_key` equals the import's earlier key; otherwise a full merge. HTTP test: a never-migrated tale, an older instance's write, a 60-element document (left out of step, reason `limits`).
+  2. `[patch]` Rollback: `apps/api/scripts/tale-media-rollback.mjs` + `nx run api:tale-media-rollback` (dry run; `--apply`; `--yes-production` for a database not ending in `_test`) strips `taleMedia`, restores the media columns from what the documents showed, nulls migration-made documents, prunes `tale_media`. `TALE_MEDIA_MIGRATION=off` stops the migration and every `taleMedia` write (Delivery still composes); deploy order documented in `db.ts`, the script and the architecture memlog. HTTP tests for both.
+  3. `[patch]` The viewer draws a tale without a document as before (`renderLegacyMedia`: image or video named by the title, placeholder, 5 s). Test.
+  4. `[patch]` Default cover: the lowest media element (background, image, video or image sticker) of the first tale that has one, else the first tale's colour; bar and banner; cover editor reverted to "first tale with media". Tests.
+  5. `[patch]` Keep-as-copy is in step only when the kept document holds the source's media as `taleMedia`; else NULL. Tests (both cases).
+  6. `[patch]` `stageTaleMedia(doc)` (contract): the stage path only on a colour background; over a media background the element draws on the canvas. Viewer and studio use it. Test.
+  7. `[patch]` `getTaleDocument` composes the media of an out-of-step tale (the Delivery function, `withOutOfStepMedia`; never a published document that does not exist), so the studio canvas, preview and contrast match. Test.
+  8. `[patch]` `bringTaleMediaInStep` sets legacy timing itself when the tale was never in step. Test.
+  9. `[patch]` Pixel comparison: "before" is the Web SDK built from 489b892 (`apps/sdk-sample/legacy-sdk.mjs`, git archive + Vite, cached in the OS temp folder) on the previous server's response; "after" is this SDK on `fixtures/r16-migration.json`, which an api test checks against the real migration's Delivery output (`UPDATE_R16_FIXTURE=1` rewrites it). Image (phone, desktop), video first frame, GIF, studio text over media, no-media placeholder: 0 pixels differ; a check confirms which SDK drew each side.
+  10. `[patch]` A document with no elements on a colour paints the stage, so the no-media placeholder covers the stage as before. Test.
+  11. `[patch]` Background continuation: one process (session advisory lock), passes with doubling backoff (1 s to 60 s, 8 attempts), cancellable on shutdown, progress logged; per-row savepoint, so a malformed document is rolled back, logged and marked; skip reason and key recorded (`document_media_skip_key`, `document_media_skip_reason`), not taken up again until the key changes (each start retries once). Tests.
+  12. `[patch]` AD-16 amended for the stage-video exception; architecture memlog entry; epic R12 note.
+  13. `[patch]` Chosen: restyling switches rules, made explicit. The inspector says how the tale's media plays and what changes it; the change that switches it announces it ("…a layer like any other: muted, and at most 15 seconds"). Test.
+  14. `[patch]` `checkTaleMediaFlag`: on save and keep-as-copy, `taleMedia` only on the tale's own key and kind, else 400 at `/elements/i/props/taleMedia`; the studio's replace drops the mark. Test.
+  15. `[patch]` A missing draft is made from the published document plus the media. Test.
+  16. `[patch]` The importer clears the public caches after its transaction commits (`setTaleMediaIfNone`/`replaceTaleMediaIf` no longer clear inside it).
+  17. `[patch]` No-media tales seeded in the fixture and the Delivery tests; the accessible-name change (a group named by the title, decorative media) is a review check and noted here.
 
 ## Design Notes
 

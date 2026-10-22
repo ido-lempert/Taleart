@@ -174,6 +174,27 @@ describe('TaleStudioPage', () => {
     expect(root.querySelector(`#layer-state-${OWN_MEDIA.id}`)?.textContent ?? '').not.toContain('Outside safe area');
   });
 
+  it("says when moving the tale's media makes it a layer like any other, and the inspector tells how it plays", async () => {
+    const video = { ...OWN_MEDIA, type: 'video', props: { ...OWN_MEDIA.props, mediaKey: 'tales/0b.mp4' } };
+    await open({
+      document: { ...existing, elements: [video as unknown as TaleDocument['elements'][number]] },
+      revision: 1,
+    });
+    const el = root.querySelector(`#studio-el-${OWN_MEDIA.id}`) as HTMLElement;
+    el.click();
+    await settle(fixture);
+    expect(root.querySelector('#studio-tale-media-hint')?.textContent).toContain('with sound and for its whole length');
+    const rotation = root.querySelector('#studio-rotation') as HTMLInputElement;
+    rotation.value = '10';
+    rotation.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(root.querySelector('[aria-live=polite]')?.textContent).toContain(
+      "The tale's video is now a layer like any other: muted, and at most 15 seconds.",
+    );
+    expect(root.querySelector('#studio-tale-media-hint')?.textContent).toContain('now a layer like any other');
+  });
+
   it('shows saved text as literal text, placed from its box', async () => {
     await open({ document: existing, revision: 3 });
     const [el] = elements();
@@ -1774,10 +1795,10 @@ describe('TaleStudioPage', () => {
     });
 
     it('warns about low contrast, and says when it cannot check over media, never blocking a save', async () => {
-      // Over the tale's media (R16), here above the text in the list so the text stays the first layer.
+      // Over the tale's media (R16), its bottom layer.
       const element = { ...existing.elements[0], props: { text: 'Hi' } };
-      await open({ document: { ...existing, elements: [element, OWN_MEDIA] } as TaleDocument, revision: 1 });
-      canvasText().click();
+      await open({ document: { ...existing, elements: [OWN_MEDIA, element] } as TaleDocument, revision: 1 });
+      (root.querySelector(`#studio-el-${element.id}`) as HTMLElement).click();
       await settle(fixture);
       expect(contrast()).toContain("can't be checked over media");
       await set('ts-background', 'box');
@@ -1792,7 +1813,7 @@ describe('TaleStudioPage', () => {
       await set('ts-bg-hex', '#000000');
       expect(live()).toBe('Background colour set to #000000 Contrast is enough now.');
       await set('ts-bg-hex', '#ffff00');
-      expect((await saveNow(2)).document.elements[0].props).toMatchObject({ backgroundColor: '#ffff00' });
+      expect((await saveNow(2)).document.elements[1].props).toMatchObject({ backgroundColor: '#ffff00' });
     });
 
     it('checks against the canvas colour when the tale has no media', async () => {

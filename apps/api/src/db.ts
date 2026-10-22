@@ -1,6 +1,6 @@
 import { migrateAccess, migrateZoneKeys } from '@taleart/server-access';
 import { migrateImporter } from '@taleart/server-importer';
-import { migrateTales } from '@taleart/server-tales';
+import { migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
 import { migrateTargeting } from '@taleart/server-targeting';
 import { migrateZones } from '@taleart/server-zones';
 import type { Db } from '@taleart/server-access';
@@ -52,9 +52,20 @@ const migrations: ReadonlyArray<{ module: string; run: (db: Db) => Promise<void>
 const MIGRATION_LOCK_SQL = "SELECT pg_advisory_lock(hashtextextended('taleart:migrations', 0))";
 const MIGRATION_UNLOCK_SQL = "SELECT pg_advisory_unlock(hashtextextended('taleart:migrations', 0))";
 
+/**
+ * TALE_MEDIA_MIGRATION (Tale Studio R16): `on` (the default) writes each tale's media into its
+ * documents, at start and on every media write; `off` writes none, for a fleet that still runs the
+ * previous release, which refuses documents with a `taleMedia` element. Deploy the new release to
+ * every instance with `off`, then restart them with `on`.
+ */
+export function taleMediaMigrationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env['TALE_MEDIA_MIGRATION'] ?? 'on').trim().toLowerCase() !== 'off';
+}
+
 // Runs every module's migration, in order, on one connection holding the
 // migration lock. Safe to run on every start.
 export async function migrate(pool: Pool): Promise<void> {
+  setTaleMediaDocumentsEnabled(taleMediaMigrationEnabled());
   const client = await pool.connect();
   let failed: Error | undefined;
   try {

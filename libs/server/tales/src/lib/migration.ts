@@ -259,8 +259,15 @@ export async function migrateTales(db: Db): Promise<void> {
   // index finds the tales still out of step, and is empty once they are all in step. The column
   // stays null for older tales, which the run below brings in step for up to 10 s; the API finishes
   // the rest in the background (continueTaleMediaMigration), and the Delivery API composes the media
-  // of any tale still out of step meanwhile. The legacy media columns stay (rollback).
+  // of any tale still out of step meanwhile. The legacy media columns stay (rollback). The API turns
+  // it off with TALE_MEDIA_MIGRATION=off (setTaleMediaDocumentsEnabled) while instances of the
+  // previous release still run.
   await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_key text');
+  // A tale left out of step for a reason (`key`, `limits` or `malformed`), recorded with the media key
+  // it was skipped for, so the background run does not take it up again until that key changes; each
+  // start tries it once more.
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_key text');
+  await db.query('ALTER TABLE tales ADD COLUMN IF NOT EXISTS document_media_skip_reason text');
   await db.query(
     `CREATE INDEX IF NOT EXISTS tales_media_out_of_step_idx ON tales (id)
      WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key`,

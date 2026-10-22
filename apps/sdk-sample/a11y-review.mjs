@@ -13,6 +13,7 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
 import { axeViolations, freePort, loadAxe, mediaTale, startSample } from './a11y-shared.mjs';
+import { buildLegacySdk } from './legacy-sdk.mjs';
 
 const { values: args } = parseArgs({ options: { shots: { type: 'string' }, json: { type: 'string' } } });
 const shotsDir = args.shots ? resolve(args.shots) : null;
@@ -1808,30 +1809,31 @@ try {
     await context.close();
   }
 
-  // 15. Existing tales become documents (Tale Studio 7.11, epic R16): a tale from before documents,
-  //     now a document whose media is its `taleMedia` element, looks exactly as the viewer drew it
-  //     before. The "before" is the legacy viewer's own framing (its CSS from before 7.11: a black,
-  //     at most 9:16 wide frame, the media contained full-bleed in it); the "after" is the SDK's
-  //     viewer on the migrated document, its controls hidden. Both are screenshotted and compared
-  //     pixel by pixel, for a 9:16, a landscape and a tall picture, on a phone and a desktop window,
-  //     and for a studio text over the media on its canvas colour.
+  // 15. Existing tales become documents (Tale Studio 7.11, epic R16): every tale from before
+  //     documents looks exactly as it did. "Before" is the release before 7.11 (the Web SDK built
+  //     from 489b892 by legacy-sdk.mjs) on what that release's server sent: the tale's media, and its
+  //     stored document if any. "After" is this SDK on the documents the real migration wrote, as the
+  //     Delivery API serves them (fixtures/r16-migration.json, which api's tests check against the
+  //     server). Both are screenshotted with the viewer's controls hidden and compared pixel by pixel:
+  //     an image (phone and desktop), a video's first frame, a GIF, a studio text over the media, and
+  //     a tale with no media (the placeholder).
   {
-    const picture = (w, h) =>
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
-      `<rect width="${w}" height="${h}" fill="#f97316"/><rect x="${w / 4}" y="${h / 4}" width="${w / 2}" ` +
-      `height="${h / 2}" fill="#1d4ed8"/></svg>`;
-    const pictures = { portrait: picture(90, 160), landscape: picture(160, 90), tall: picture(90, 195) };
-    // The viewer's framing before 7.11 (viewer.ts VIEWER_STYLES at 489b892), for tale media.
-    const legacyPage = (svg, background = '') =>
-      '<!doctype html><meta charset="utf-8"><style>' +
-      'html,body{margin:0;height:100%}' +
-      '.viewer{position:fixed;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;background:#000;overflow:hidden}' +
-      '.frame{position:relative;width:100%;max-width:56.25vh;height:100%;margin:0 auto}' +
-      `.stage{position:absolute;inset:0;background-color:${background || 'transparent'}}` +
-      '.media{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}' +
-      '</style><div class="viewer"><div class="frame"><div class="stage">' +
-      `<img class="media" alt="" src="data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}">` +
-      '</div></div></div>';
+    const legacyBundle = readFileSync(buildLegacySdk('489b892'));
+    const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, 'fixtures/r16-migration.json'), 'utf8'));
+    const withApi = (value) => JSON.parse(JSON.stringify(value).replaceAll('{API}', API));
+    // A picture with edges, so a shift or a scale shows; a one-frame GIF; the review's WebM.
+    const picture =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="160" viewBox="0 0 90 160">' +
+      '<rect width="90" height="160" fill="#f97316"/><rect x="22.5" y="40" width="45" height="80" fill="#1d4ed8"/></svg>';
+    const gif = Buffer.from('R0lGODlhAgACAPAAAP8AAAAA/yH5BAAAAAAALAAAAAACAAIAAAICjAsAOw==', 'base64');
+    const cases = [
+      ['image', { width: 390, height: 844 }],
+      ['image', { width: 1280, height: 800 }],
+      ['video', { width: 390, height: 844 }],
+      ['gif', { width: 390, height: 844 }],
+      ['overlay', { width: 390, height: 844 }],
+      ['empty', { width: 390, height: 844 }],
+    ];
     // Counts the pixels that differ (by more than 2 in any channel) between two PNG screenshots.
     const differing = (page, a, b) =>
       page.evaluate(
@@ -1855,72 +1857,120 @@ try {
         },
         [a.toString('base64'), b.toString('base64')],
       );
-
-    const cases = [];
-    for (const viewport of [
-      { width: 390, height: 844 },
-      { width: 1280, height: 800 },
-    ]) {
-      for (const shape of Object.keys(pictures)) cases.push({ viewport, shape, overlay: false });
-    }
-    cases.push({ viewport: { width: 390, height: 844 }, shape: 'portrait', overlay: true });
-    for (const { viewport, shape, overlay } of cases) {
-      const url = `${API}/media/tales/${shape}.svg`;
-      const document = overlay
-        ? { version: 1, canvas: { background: { type: 'color', color: '#1f3a5f' } }, elements: [] }
-        : null;
-      const tale = mediaTale(
-        `legacy-${shape}`,
-        'Legacy',
-        { kind: 'image', contentType: 'image/svg+xml', url },
-        document,
-      );
+    // The viewer on one tale, with the SDK given (`legacy` serves the release before), its controls hidden.
+    async function viewerShot(name, viewport, tale, legacy) {
       const z = zone({
         frames: [{ id: 'f1', type: 'bar', settings: {} }],
-        taleGroups: [{ id: 'gl', name: 'Legacy', cover: null, tales: [tale] }],
+        taleGroups: [{ id: 'gl', name: 'Legacy', cover: null, tales: [{ id: `t-${name}`, title: 'Legacy', ...tale }] }],
       });
-      const context = await browser.newContext({ viewport, reducedMotion: 'reduce' });
-      const page = await openSample(context, { zone: z, svg: pictures[shape] });
-      await view(page).locator('button.item').first().click();
-      await dialogOf(page).waitFor();
+      const context = await browser.newContext({
+        viewport,
+        reducedMotion: name === 'video' ? 'reduce' : 'no-preference',
+      });
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (err) => errors.push(String(err)));
+      if (legacy) {
+        await page.route('**/sdk/index.js', (route) =>
+          route.fulfill({ body: legacyBundle, contentType: 'text/javascript; charset=utf-8' }),
+        );
+      }
+      await page.route(`${API}/delivery/v1/zone`, (route) => route.fulfill({ json: z, headers: CORS }));
+      await page.route(`${API}/media/**`, (route) => {
+        const url = route.request().url();
+        const headers = { 'Access-Control-Allow-Origin': '*' };
+        if (url.includes('.mp4')) return route.fulfill({ body: videoBytes, contentType: 'video/webm', headers });
+        if (url.includes('.gif')) return route.fulfill({ body: gif, contentType: 'image/gif', headers });
+        return route.fulfill({ body: picture, contentType: 'image/svg+xml', headers });
+      });
+      await page.goto(`http://localhost:${port}/?key=tak_review&api=${encodeURIComponent(API)}`);
+      await page.locator('taleart-view button.item').first().click();
+      await page.locator('taleart-view dialog.viewer').waitFor();
       await page.evaluate(() => {
         const dialog = document.querySelector('taleart-view').shadowRoot.querySelector('dialog');
         dialog.querySelector('.top').style.visibility = 'hidden';
         dialog.focus();
       });
-      await page.waitForTimeout(300);
-      const after = await page.screenshot();
-      const legacy = await context.newPage();
-      await legacy.setContent(legacyPage(pictures[shape], overlay ? '#1f3a5f' : ''));
-      await legacy.waitForTimeout(100);
-      const before = await legacy.screenshot();
-      const diff = await differing(legacy, before, after);
-      const where = `${viewport.width}x${viewport.height}, ${shape} picture${overlay ? ' under a document on a colour' : ''}`;
+      await page.waitForTimeout(600);
+      const png = await page.screenshot();
+      // Which SDK drew it: the release before drew a tale without a document with no canvas at all.
+      const canvas = await page.evaluate(
+        () => !!document.querySelector('taleart-view').shadowRoot.querySelector('dialog .ta-area'),
+      );
+      await context.close();
+      return { png, errors, canvas };
+    }
+    for (const [name, viewport] of cases) {
+      const entry = fixture.tales.find((t) => t.name === name);
+      const before = await viewerShot(name, viewport, withApi(entry.before), true);
+      const after = await viewerShot(
+        name,
+        viewport,
+        { media: withApi(entry.before).media, document: withApi(entry.after) },
+        false,
+      );
+      const scratch = await browser.newPage();
+      const diff = await differing(scratch, before.png, after.png);
+      await scratch.close();
+      const where = `${name}, ${viewport.width}x${viewport.height}`;
       check(
         'R16',
         diff === 0,
         `a tale from before documents looks the same after the migration (${where}; ${diff} pixels differ)`,
       );
+      check('4.1.2', before.errors.length + after.errors.length === 0, `no page errors before or after (${where})`);
+      check(
+        'R16',
+        after.canvas && (name === 'overlay' || !before.canvas),
+        `"before" is drawn by the release before, "after" by this SDK from the migrated document (${where})`,
+      );
       if (shotsDir) {
-        writeFileSync(
-          resolve(shotsDir, `legacy-before-${viewport.width}-${shape}${overlay ? '-overlay' : ''}.png`),
-          before,
-        );
-        writeFileSync(
-          resolve(shotsDir, `legacy-after-${viewport.width}-${shape}${overlay ? '-overlay' : ''}.png`),
-          after,
-        );
+        writeFileSync(resolve(shotsDir, `r16-before-${name}-${viewport.width}.png`), before.png);
+        writeFileSync(resolve(shotsDir, `r16-after-${name}-${viewport.width}.png`), after.png);
       }
-      check('4.1.2', page.errors.length === 0, `no console errors on the migrated tale (${where})`);
+    }
+    // The accessible name moved (R16): the release before named an image tale by its image's alt text
+    // (the title); now the tale's media is decorative and the canvas, a group, carries the title.
+    {
+      const entry = fixture.tales.find((t) => t.name === 'image');
+      const z = zone({
+        frames: [{ id: 'f1', type: 'bar', settings: {} }],
+        taleGroups: [
+          {
+            id: 'gl',
+            name: 'Legacy',
+            cover: null,
+            tales: [{ id: 't', title: 'Beach', media: null, document: withApi(entry.after) }],
+          },
+        ],
+      });
+      const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const page = await openSample(context, { zone: z });
+      await view(page).locator('button.item').first().click();
+      await dialogOf(page).waitFor();
+      const tree = await dialogOf(page).ariaSnapshot();
+      check(
+        '1.1.1',
+        /group "Beach"/.test(tree) && !/img/.test(tree),
+        'a migrated tale is named by its title, its decorative media hidden',
+      );
+      await axe(page, 'viewer on a migrated tale');
       await context.close();
     }
 
-    // The bar's default cover (R16): the first tale's lowest media element; a text tale, its colour.
+    // The bar's default cover (R16): the lowest media element of the first tale with media, as before;
+    // a group with no media at all shows its first tale's colour.
     const coverZone = zone({
       frames: [{ id: 'f1', type: 'bar', settings: {} }],
       taleGroups: [
         { id: 'gt', name: 'Opening hours', cover: null, tales: [textTale('t1', 'Hours', ['Open every day'])] },
         { id: 'gm', name: 'Beach', cover: null, tales: [mediaTale('m1', 'Beach', media('image', 'm1'))] },
+        {
+          id: 'gn',
+          name: 'Later',
+          cover: null,
+          tales: [textTale('n1', 'Words', ['First']), mediaTale('n2', 'Picture', media('image', 'n2'))],
+        },
       ],
     });
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -1941,8 +1991,13 @@ try {
     );
     check('R16', covers[1].tag === 'IMG', "a group of a media tale shows the tale's media as its cover");
     check(
+      'R16',
+      covers[2].tag === 'IMG',
+      'a group whose first tale has no media shows the next tale with media, as before',
+    );
+    check(
       '1.1.1',
-      covers.every((c, i) => c.name === ['Opening hours', 'Beach'][i]),
+      covers.every((c, i) => c.name === ['Opening hours', 'Beach', 'Later'][i]),
       'each bar item is named by its group',
     );
     await axe(page, 'bar with a colour cover');

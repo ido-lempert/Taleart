@@ -2566,7 +2566,7 @@ describe('App', () => {
 
     it('uploads a picked image as the cover and shows it in the ring', async () => {
       const { fixture, root } = await openCover({ ...oneZone, groups: { z1: [{ ...group, cover: null, tales: [] }] } });
-      expect(drawer()?.textContent).toContain("First tale's media, or its background colour (default)");
+      expect(drawer()?.textContent).toContain("First tale's image (default)");
       // Without a video tale, only an upload is offered.
       expect(radio('Frame of a video tale').disabled).toBe(true);
       expect(radio('Animated, from a video tale').disabled).toBe(true);
@@ -2629,7 +2629,7 @@ describe('App', () => {
       expect(drawer()?.querySelector('.cover-current img.ring__cover')?.getAttribute('src')).toBe(
         `${MEDIA_ORIGIN}/api/v1/tales/t1/media`,
       );
-      expect(drawer()?.textContent).toContain("First tale's media, or its background colour (default)");
+      expect(drawer()?.textContent).toContain("First tale's image (default)");
       expect(root.querySelector('.group .ring')?.classList.contains('ring--cover')).toBe(false);
     });
 

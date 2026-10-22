@@ -27,7 +27,8 @@ import {
   hasVideoElement,
   isMediaElement,
   isOutsideSafeArea,
-  isStageTaleMedia,
+  isTaleMediaElement,
+  stageTaleMedia,
   limitedVideoCount,
   MAX_VIDEO_ELEMENTS,
   MAX_TALE_DURATION_MS,
@@ -261,6 +262,14 @@ export function textView(props: unknown, themeFont: string | null): TextView {
 export function newTextProps(text: string): TextElementProps {
   const { font, ...style } = DEFAULT_TEXT_STYLE;
   return { text, font: { ...font }, ...style };
+}
+
+// The props of a media element given other media: other media is not the tale's own (R16), so the
+// mark goes, and the server keeps the tale's media apart from it.
+function replacedMedia<P extends object>(props: P, mediaKey: string): P {
+  const next: Record<string, unknown> = { ...props, mediaKey };
+  delete next['taleMedia'];
+  return next as P;
 }
 
 /**
@@ -1076,7 +1085,7 @@ export function newTextProps(text: string): TextElementProps {
                     <app-tale-media-style
                       [element]="el"
                       [videoSeconds]="
-                        el.type === 'video' && !isStageTaleMedia(el, d.elements.indexOf(el))
+                        el.type === 'video' && el !== stageMedia()
                           ? (videoSeconds().get(el.props.mediaKey) ?? null)
                           : null
                       "
@@ -1088,6 +1097,20 @@ export function newTextProps(text: string): TextElementProps {
                         openPicker('replace', el.type === 'video' ? 'video' : 'image', el.id, el.type === 'sticker')
                       "
                     />
+                    @if (isTaleMedia(el)) {
+                      <p class="field__hint" id="studio-tale-media-hint">
+                        @if (el === stageMedia()) {
+                          This is the tale's media: it fills the stage and plays as before{{
+                            el.type === 'video' ? ', with sound and for its whole length' : ''
+                          }}. Moving, resizing, rotating, rounding or fading it makes it a layer like any other{{
+                            el.type === 'video' ? ' (muted, at most 15 seconds)' : ''
+                          }}.
+                        } @else {
+                          This is the tale's media, now a layer like any other. At the bottom, filling the canvas, it
+                          plays as the tale's media again.
+                        }
+                      </p>
+                    }
                   } @else {
                     <app-tale-text-style
                       [elementId]="el.id"
@@ -1342,7 +1365,9 @@ export class TaleStudioPage implements OnChanges {
   private keyToggled = false;
 
   protected readonly maxElements = MAX_TALE_ELEMENTS;
-  protected readonly isStageTaleMedia = isStageTaleMedia;
+  /** The tale's own media while it is drawn full-bleed, with its legacy playback rules (R16), or null. */
+  protected readonly stageMedia = computed(() => stageTaleMedia(this.doc()));
+  protected readonly isTaleMedia = isTaleMediaElement;
   protected readonly maxText = MAX_TEXT_LENGTH;
   protected readonly safeArea = TALE_SAFE_AREA;
   private readonly apple = isApple();
@@ -1429,7 +1454,7 @@ export class TaleStudioPage implements OnChanges {
         el,
         name: layerName(el, this.doc()?.elements ?? [el]),
         // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design.
-        outside: !isStageTaleMedia(el, i) && isOutsideSafeArea(el.box),
+        outside: el !== this.stageMedia() && isOutsideSafeArea(el.box),
         lowContrast:
           el.type === 'text' &&
           textContrast(resolveTextStyle(el.props), textBackdropAt(elements, i, this.backdrop())).kind === 'low',
@@ -1438,7 +1463,7 @@ export class TaleStudioPage implements OnChanges {
         // A video over 15 s plays only its first 15 s (R5); the tale's own media video plays in full (R16).
         longVideo:
           el.type === 'video' &&
-          !isStageTaleMedia(el, i) &&
+          el !== this.stageMedia() &&
           (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
       .reverse(),
@@ -2023,6 +2048,20 @@ export class TaleStudioPage implements OnChanges {
     return notes.join(' ');
   }
 
+  // When the tale's own media (R16) stops or starts being drawn full-bleed, what that does to how it
+  // plays, said with the change (the choice in the plan: restyling keeps nothing implicit).
+  private stageMediaChange(before: TaleDocument, next: TaleDocument): string {
+    const was = stageTaleMedia(before);
+    const now = stageTaleMedia(next);
+    if (was && !now && next.elements.some((e) => e.id === was.id)) {
+      return was.type === 'video'
+        ? "The tale's video is now a layer like any other: muted, and at most 15 seconds."
+        : "The tale's media is now a layer like any other.";
+    }
+    if (!was && now) return "The tale's media fills the stage again, as tale media plays.";
+    return '';
+  }
+
   private element(id: string): TaleElement | undefined {
     return this.doc()?.elements.find((e) => e.id === id);
   }
@@ -2052,7 +2091,9 @@ export class TaleStudioPage implements OnChanges {
       return false;
     }
     this.history.record(label, before, next, mergeKey);
-    this.contrastNote = this.contrastChange(before, next);
+    this.contrastNote = [this.contrastChange(before, next), this.stageMediaChange(before, next)]
+      .filter(Boolean)
+      .join(' ');
     // Said with the change's own announcement; alone when the change says nothing.
     if (this.contrastNote) setTimeout(() => this.contrastNote && this.say(''), 0);
     this.doc.set(next);
@@ -2737,7 +2778,7 @@ export class TaleStudioPage implements OnChanges {
       const kind = kindName(element);
       this.change(`${kind} replaced`, (elements) =>
         elements.map((e) =>
-          e.id === id && isMediaElement(e) ? ({ ...e, props: { ...e.props, mediaKey: media.key } } as TaleElement) : e,
+          e.id === id && isMediaElement(e) ? ({ ...e, props: replacedMedia(e.props, media.key) } as TaleElement) : e,
         ),
       );
       this.say(`${kind} replaced`);

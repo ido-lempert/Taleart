@@ -13,6 +13,7 @@ import type { MediaStorage } from '@taleart/server-storage';
 import {
   getTaleMedia,
   withMediaKeyDeletionGuard,
+  clearPublicMediaCache,
   replaceTaleMediaIf,
   setTaleMediaIfNone,
   TaleNotFoundError,
@@ -681,6 +682,9 @@ async function importTaleMediaWith(
     if (err instanceof TaleNotFoundError) return { kind: 'taleGone' };
     throw err;
   }
+  // The tale's media is an element of its documents (Tale Studio R16): once the change is committed,
+  // this process forgets its public answers, so the replaced key stops being served at once.
+  if (result.used) clearPublicMediaCache();
   if (!result.used) await removeCopy();
   return result.outcome;
 }

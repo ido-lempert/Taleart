@@ -75,16 +75,21 @@ export const setTaleGroupSchedule = thenClearFonts(tales.setTaleGroupSchedule);
 export const setTaleSchedule = thenClearFonts(tales.setTaleSchedule);
 // A tale's media is an element of its documents (R16), so setting it can make a key public or private.
 export const setTaleMedia = thenClearFonts(tales.setTaleMedia);
-export const setTaleMediaIfNone = thenClearFonts(tales.setTaleMediaIfNone);
-export const replaceTaleMediaIf = thenClearFonts(tales.replaceTaleMediaIf);
+// These two run inside the importer's transaction: the importer clears the public caches once it
+// commits (clearPublicMediaCache), so no answer read before the commit is kept.
+export { setTaleMediaIfNone, replaceTaleMediaIf } from './lib/tales';
 
 export {
   bringTaleMediaInStep,
   continueTaleMediaMigration,
   mergeTaleMedia,
   migrateTaleMediaDocuments,
+  setTaleMediaDocumentsEnabled,
   taleMediaDocument,
+  taleMediaDocumentsEnabled,
   type InStepOutcome,
+  type SkipReason,
+  type TaleMediaContinuation,
   type TaleMediaMigration,
   type TaleMediaMigrationOptions,
 } from './lib/tale-media-document';

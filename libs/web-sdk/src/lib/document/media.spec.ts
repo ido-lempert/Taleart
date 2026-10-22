@@ -349,6 +349,15 @@ describe('TaleViewer with a document video (epic Tale Studio R5)', () => {
     expect(position()).toBe('2');
   });
 
+  it("draws the tale's own media on the canvas, above a media background, as the studio does", () => {
+    const background = { type: 'media', url: IMG, fit: 'cover', color: '#000000' } as never;
+    open(false, [tale('t1', doc([own('image', `${API}/media/tales/t.png`)], { canvas: { background } }))]);
+    expect(dialog().querySelector('.stage > .media')).toBeNull();
+    const canvas = dialog().querySelector('.ta-canvas') as HTMLElement;
+    expect(canvas.querySelector('.ta-bg')).not.toBeNull();
+    expect(canvas.querySelector('img.ta-media')?.getAttribute('src')).toBe(`${API}/media/tales/t.png`);
+  });
+
   it("draws the tale's own GIF still under reduced motion (R12), its label from the element", () => {
     const gif = { ...own('image', `${API}/media/tales/t.gif`), a11y: { label: 'Dancing cat' } };
     open(true, [tale('t1', doc([gif]))]);

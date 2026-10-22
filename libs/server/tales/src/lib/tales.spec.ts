@@ -425,10 +425,11 @@ describe('keep a document as a new tale', () => {
     const tale = await copyTaleWithDocument(db, taleId, document);
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
     expect(insert?.[0]).toMatch(/title \|\| ' \(copy\)'/);
-    expect(insert?.[0]).toMatch(/media_key, media_content_type, document_media_key,\s+\$3::jsonb, 1/);
+    // In step only when the kept document holds the tale's media as its own (R16).
+    expect(insert?.[0]).toMatch(/media_key, media_content_type,\s+CASE WHEN \$4 THEN media_key END, \$3::jsonb, 1/);
     expect(insert?.[0]).toMatch(/draft_document, draft_revision\)/);
     expect((insert?.[0] as string).split('RETURNING')[0]).not.toMatch(/status|starts_at/);
-    expect(insert?.[1]).toEqual([taleId, 3, JSON.stringify(document)]);
+    expect(insert?.[1]).toEqual([taleId, 3, JSON.stringify(document), false]);
     expect(statements().indexOf('BEGIN')).toBe(0);
     expect(statements()).toContain('COMMIT');
     // The group is locked first, then the source tale is share-locked, as copyTaleGroup does.

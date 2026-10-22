@@ -334,6 +334,18 @@ export function isStageTaleMedia(element: unknown, index: number): boolean {
   );
 }
 
+/**
+ * The document's element drawn full-bleed behind the canvas, as tale media always was (R16), or
+ * null: its bottom element when {@link isStageTaleMedia}, and only on a colour background. Over a
+ * media background the tale's own media is drawn on the canvas above the background, as Tale
+ * Studio draws it.
+ */
+export function stageTaleMedia<E>(doc: { canvas?: unknown; elements?: readonly E[] } | null | undefined): E | null {
+  const background = (doc?.canvas as { background?: { type?: unknown } } | undefined)?.background;
+  const first = Array.isArray(doc?.elements) ? doc.elements[0] : undefined;
+  return background?.type !== 'media' && first !== undefined && isStageTaleMedia(first, 0) ? first : null;
+}
+
 /** The video elements that count toward {@link MAX_VIDEO_ELEMENTS}: every video but the tale's own media. */
 export function limitedVideoCount(doc: { elements: readonly { type: string }[] } | null | undefined): number {
   return doc?.elements.filter((e) => e.type === 'video' && !isTaleMediaElement(e)).length ?? 0;
