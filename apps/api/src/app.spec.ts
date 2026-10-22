@@ -5837,7 +5837,7 @@ describe('Management API v1: projects and zones', () => {
         element(2, 'image', image, { a11y: {} }),
       ]);
       expect((await save(tale.id, value, 0)).status).toBe(200);
-      const message = '"Image 2" needs alt text, or must be marked decorative, before the tale is published.';
+      const message = '"Image 2" needs alt text, or must be marked decorative, before the tale can be updated.';
       const res = await publishDraft(tale.id);
       expect(res.status).toBe(400);
       expect((await res.json()).error).toEqual({
@@ -6256,7 +6256,7 @@ describe('Management API v1: projects and zones', () => {
         expect(refused.status).toBe(400);
         expect((await refused.json()).error).toEqual({
           code: 'invalid_tale_document',
-          message: '"Sticker 1" needs alt text, or must be marked decorative, before the tale is published.',
+          message: '"Sticker 1" needs alt text, or must be marked decorative, before the tale can be updated.',
           pointer: '/elements/4/a11y/label',
         });
         elements[4] = item(5, 'sticker', { mediaKey: sticker }, { a11y: { decorative: true } });

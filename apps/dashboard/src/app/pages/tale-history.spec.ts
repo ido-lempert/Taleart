@@ -1,5 +1,5 @@
 import type { TaleDocument } from '@taleart/contract/tale-document';
-import { HISTORY_LIMIT, MERGE_WINDOW_MS, sameDocument, TaleHistory } from './tale-history';
+import { changeCount, HISTORY_LIMIT, MERGE_WINDOW_MS, sameDocument, TaleHistory } from './tale-history';
 
 // A document told apart by its background colour; each call makes a new object.
 function doc(n: number): TaleDocument {
@@ -87,5 +87,33 @@ describe('sameDocument', () => {
     expect(sameDocument(a, doc(2))).toBe(false);
     expect(sameDocument(a, null)).toBe(false);
     expect(sameDocument(null, null)).toBe(true);
+  });
+});
+
+describe('changeCount (epic UX rework R15)', () => {
+  const layer = (id: string, text: string) =>
+    ({
+      id,
+      type: 'text',
+      box: { x: 0, y: 0, w: 1, h: 0.1, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: { text },
+    }) as unknown as TaleDocument['elements'][number];
+  const site: TaleDocument = { ...doc(1), elements: [layer('a', 'A'), layer('b', 'B'), layer('c', 'C')] };
+
+  it('is 0 for the same document and counts each layer when nothing is on the site', () => {
+    expect(changeCount(site, { ...site, elements: [...site.elements] })).toBe(0);
+    expect(changeCount(site, null)).toBe(3);
+    expect(changeCount(doc(1), null)).toBe(1);
+  });
+
+  it('counts layers added, removed and changed, a new order, and a change to the tale itself', () => {
+    expect(changeCount({ ...site, elements: [layer('a', 'A2'), layer('b', 'B'), layer('c', 'C')] }, site)).toBe(1);
+    expect(changeCount({ ...site, elements: [layer('a', 'A'), layer('c', 'C'), layer('d', 'D')] }, site)).toBe(2);
+    expect(changeCount({ ...site, elements: [layer('c', 'C'), layer('a', 'A'), layer('b', 'B')] }, site)).toBe(1);
+    expect(changeCount({ ...doc(2), elements: site.elements }, site)).toBe(1);
+    expect(changeCount({ ...doc(2), elements: [layer('a', 'A2'), layer('b', 'B'), layer('c', 'C')] }, site)).toBe(2);
   });
 });

@@ -129,3 +129,30 @@ export function sameDocument(a: TaleDocument | null, b: TaleDocument | null): bo
   if (a === null || b === null) return false;
   return canonical(a) === canonical(b);
 }
+
+/**
+ * How many changes the draft holds against the version on the site (epic UX rework R15): each
+ * layer added, removed or changed is one, a new layer order is one, and a change to the tale
+ * itself (its canvas or duration) is one. Against nothing on the site, each of the draft's layers
+ * is one. Never under 1 when the two differ.
+ */
+export function changeCount(draft: TaleDocument | null, site: TaleDocument | null): number {
+  if (sameDocument(draft, site)) return 0;
+  if (draft === null || site === null) return Math.max((draft ?? site)?.elements.length ?? 0, 1);
+  const siteById = new Map(site.elements.map((element) => [element.id, element]));
+  const draftIds = new Set(draft.elements.map((element) => element.id));
+  let count = 0;
+  for (const element of draft.elements) {
+    const before = siteById.get(element.id);
+    if (!before || canonical(before) !== canonical(element)) count++;
+  }
+  count += site.elements.filter((element) => !draftIds.has(element.id)).length;
+  const kept = (elements: readonly { id: string }[], other: ReadonlySet<string>) =>
+    elements
+      .filter((element) => other.has(element.id))
+      .map((element) => element.id)
+      .join(',');
+  if (kept(draft.elements, new Set(siteById.keys())) !== kept(site.elements, draftIds)) count++;
+  if (canonical({ ...draft, elements: [] }) !== canonical({ ...site, elements: [] })) count++;
+  return Math.max(count, 1);
+}
