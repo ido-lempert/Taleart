@@ -1,5 +1,5 @@
 // Public interface of the zones module (AD-1). It owns the `zones` (with each
-// zone's slug and applied playbook key), `frames` (a zone's one display, AD-17)
+// zone's slug and "created from template" note), `frames` (a zone's one display, AD-17)
 // and `project_themes` tables and the frame-type registry, and checks projects
 // only through @taleart/server-access.
 export { migrateZones } from './lib/migration';
@@ -13,7 +13,6 @@ export {
   InvalidZoneError,
   SlugTakenError,
   type StoredZone,
-  type StoredAppliedPlaybook,
 } from './lib/zones';
 export {
   setDisplay,
@@ -28,13 +27,7 @@ export {
   EmptyDisplayChangeError,
   DisplayConcurrentChangeError,
 } from './lib/frames';
-export {
-  applyPlaybook,
-  PlaybookKeyRequiredError,
-  UnknownPlaybookError,
-  PlaybookAlreadyAppliedError,
-  PlaybookConcurrentChangeError,
-} from './lib/playbooks';
+export { createZoneFromTemplate, UnknownTemplateError } from './lib/templates';
 export {
   FrameTypeRegistry,
   loadFrameTypeRegistry,

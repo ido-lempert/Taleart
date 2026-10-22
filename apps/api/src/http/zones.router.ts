@@ -1,7 +1,5 @@
 import {
   ErrorCodes,
-  type AppliedPlaybook,
-  type ApplyPlaybookRequest,
   type CreateZoneRequest,
   type SetFrameRequest,
   type UpdateFrameRequest,
@@ -9,8 +7,7 @@ import {
   type Zone,
 } from '@taleart/contract';
 import {
-  applyPlaybook,
-  createZone,
+  createZoneFromTemplate,
   listZones,
   setDisplay,
   updateDisplay,
@@ -52,15 +49,17 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
 
   router.post('/', async (req, res, next) => {
     try {
-      const slug = (req.body as Partial<CreateZoneRequest> | undefined)?.slug;
+      const body = req.body as Partial<Record<keyof CreateZoneRequest, unknown>> | undefined;
       const input = {
         name: requiredString(req.body, 'name'),
         projectId: requiredString(req.body, 'projectId'),
         // Checked in the zones module: a slug (400) free in the project (409); made from the name when missing.
-        ...(slug !== undefined && { slug: slug as unknown }),
+        ...(body?.slug !== undefined && { slug: body.slug }),
+        // A template from the registry (400 `unknown_template`) sets the display in the same transaction (R5).
+        ...(body?.template !== undefined && { template: body.template }),
       };
       await authorize(pool, res, 'project', input.projectId);
-      const [zone] = await withZoneVisibility(pool, [await createZone(pool, input)]);
+      const [zone] = await withZoneVisibility(pool, [await createZoneFromTemplate(pool, frameTypes, input)]);
       res.status(201).json(zone);
     } catch (err) {
       next(err);
@@ -110,19 +109,6 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
           settings: body.settings,
         }),
       );
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // Playbooks (epic web zones R8, AD-17): a preset display, applied in one transaction.
-  router.put('/:zoneId/playbook', authorizeParam(pool, 'zone', 'zoneId'), async (req, res, next) => {
-    try {
-      // Zone first (404), then the key (400), then conflicts (409), in the zones module.
-      const body = (req.body ?? {}) as Partial<Record<keyof ApplyPlaybookRequest, unknown>>;
-      const applied = await applyPlaybook(pool, frameTypes, { zoneId: req.params.zoneId, key: body.key });
-      const [zone] = await withZoneVisibility(pool, [applied.zone]);
-      res.json({ ...applied, zone } satisfies AppliedPlaybook);
     } catch (err) {
       next(err);
     }

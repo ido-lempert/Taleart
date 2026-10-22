@@ -27,8 +27,6 @@ export type FrameType = Schemas['FrameType'];
 export type Frame = Schemas['Frame'];
 export type SetFrameRequest = Schemas['SetFrameRequest'];
 export type UpdateFrameRequest = Schemas['UpdateFrameRequest'];
-export type ApplyPlaybookRequest = Schemas['ApplyPlaybookRequest'];
-export type AppliedPlaybook = Schemas['AppliedPlaybook'];
 export type TaleGroup = Schemas['TaleGroup'];
 export type ZoneTaleGroup = Schemas['ZoneTaleGroup'];
 export type ProjectTaleGroup = Schemas['ProjectTaleGroup'];
@@ -116,7 +114,7 @@ export type ErrorBody = Schemas['ErrorBody'];
  */
 export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: ThemeSettings };
 
-export * from './playbooks';
+export * from './templates';
 export * from './visibility';
 
 /** Every machine error code the API can return. */
@@ -566,8 +564,7 @@ export const ErrorCodes = {
   importSelectionInvalid: 'import_selection_invalid',
   previewBusy: 'preview_busy',
   invalidStatusTransition: 'invalid_status_transition',
-  unknownPlaybook: 'unknown_playbook',
-  playbookAlreadyApplied: 'playbook_already_applied',
+  unknownTemplate: 'unknown_template',
   concurrentChange: 'concurrent_change',
   invalidTaleDocument: 'invalid_tale_document',
   taleDocumentTooLarge: 'tale_document_too_large',

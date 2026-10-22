@@ -36,10 +36,12 @@ export async function migrateZones(db: Db): Promise<void> {
   // A zone's frame is found through the unique index `frames_zone_id_key` (one display per zone),
   // which `foldStagesIntoZones` creates; the older frames_zone_id_idx is dropped there.
 
-  // The key of the playbook applied to the zone (epic web zones R8), from the
-  // playbook registry in libs/contract; a playbook is registry data, not a table.
-  // Since AD-17 only a "created from template" note.
+  // The key of the template the zone was created from (epic UX rework R5), from the
+  // template registry in libs/contract: only a "created from template" note. The column
+  // keeps its name from when templates were playbooks (epic web zones R8).
   await db.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS playbook_key text');
+  // The playbook "home-stories-bar" is the template "stories-bar" (forward-only; runs again harmlessly).
+  await db.query("UPDATE zones SET playbook_key = 'stories-bar' WHERE playbook_key = 'home-stories-bar'");
 
   // Rows created in one transaction keep their creation order: now() is the
   // transaction's start time, clock_timestamp() is not.

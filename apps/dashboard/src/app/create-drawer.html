@@ -61,15 +61,48 @@
               }
             </p>
           </div>
-          <div class="field">
-            <label class="field__label" for="create-project">Project</label>
-            <select id="create-project" class="select" name="projectId" [(ngModel)]="projectId">
-              <option value="">Choose a project</option>
-              @for (project of store.projects(); track project.id) {
-                <option [value]="project.id">{{ project.name }}</option>
-              }
-            </select>
-          </div>
+          <fieldset class="template-options" aria-describedby="template-hint">
+            <legend class="field__label">Template</legend>
+            @for (template of templates; track template.key) {
+              <div class="template-option">
+                <label class="template-option__choice">
+                  <input
+                    type="radio"
+                    name="template"
+                    [value]="template.key"
+                    [checked]="templateKey() === template.key"
+                    [attr.aria-describedby]="'template-desc-' + template.key"
+                    (change)="templateKey.set(template.key); error.set('')"
+                  />
+                  <span class="template-sketch" [attr.data-kind]="template.frame?.type ?? 'blank'" aria-hidden="true">
+                    @if (template.frame?.type === 'bar') {
+                      <i></i><i></i><i></i><i></i>
+                    } @else if (template.frame?.type === 'banner') {
+                      <i></i>
+                    }
+                  </span>
+                  <span class="template-option__label">{{ template.label }}</span>
+                </label>
+                <p class="field__hint template-option__desc" [id]="'template-desc-' + template.key">
+                  {{ template.description }}
+                </p>
+              </div>
+            }
+            <p class="field__hint template-options__hint" id="template-hint">
+              A template sets the zone's display once. Change it any time on the zone page.
+            </p>
+          </fieldset>
+          @if (!onlyProject()) {
+            <div class="field">
+              <label class="field__label" for="create-project">Project</label>
+              <select id="create-project" class="select" name="projectId" [(ngModel)]="projectId">
+                <option value="">Choose a project</option>
+                @for (project of store.projects(); track project.id) {
+                  <option [value]="project.id">{{ project.name }}</option>
+                }
+              </select>
+            </div>
+          }
         }
         @case ('editZone') {
           @if (editedZone()) {
@@ -324,56 +357,6 @@
             </div>
           } @else {
             <p class="muted">This tale group no longer exists.</p>
-          }
-        }
-        @case ('applyPlaybook') {
-          @if (playbookZone()) {
-            <fieldset class="tag-options" [attr.aria-describedby]="playbookDescribedBy()">
-              <legend class="field__label">Playbook</legend>
-              @for (playbook of playbooks; track playbook.key) {
-                <label class="checkbox">
-                  <input
-                    type="radio"
-                    name="playbook"
-                    [value]="playbook.key"
-                    [checked]="playbookKey() === playbook.key"
-                    [attr.aria-describedby]="'playbook-goal-' + playbook.key"
-                    (change)="playbookKey.set(playbook.key); error.set('')"
-                  />
-                  <span>{{ playbook.label }}</span>
-                </label>
-                <p class="field__hint playbook-goal" [id]="'playbook-goal-' + playbook.key">{{ playbook.goal }}</p>
-              }
-            </fieldset>
-            @if (pickedPlaybook(); as playbook) {
-              <section class="playbook-preview" aria-labelledby="playbook-preview-title">
-                <h3 class="field__label" id="playbook-preview-title">{{ playbook.label }} sets</h3>
-                <ul class="playbook-preview__list">
-                  @for (item of playbookPreview(); track $index) {
-                    <li class="playbook-preview__item">
-                      <p class="playbook-preview__frame">{{ item.type }} display</p>
-                      <dl class="playbook-preview__settings" [attr.aria-label]="item.type + ' display settings'">
-                        @for (setting of item.settings; track setting.label) {
-                          <div>
-                            <dt>{{ setting.label }}</dt>
-                            <dd>{{ setting.value }}</dd>
-                          </div>
-                        }
-                      </dl>
-                    </li>
-                  }
-                </ul>
-              </section>
-              <p class="field__hint">
-                The display uses the project's theme and stays editable after you apply it. A zone has one playbook;
-                applying it again adds nothing.
-              </p>
-            }
-            @if (playbookConflict() && !error()) {
-              <p class="form-error" role="alert" id="playbook-conflict">{{ playbookConflict() }}</p>
-            }
-          } @else {
-            <p class="muted">This zone no longer exists.</p>
           }
         }
         @case ('placeTaleGroup') {
