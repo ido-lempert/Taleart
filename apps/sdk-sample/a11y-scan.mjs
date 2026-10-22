@@ -3,9 +3,9 @@
 // stubbed, so no API, database or key is needed. Also drives the viewer by keyboard and checks
 // that focus returns to the bar item and the viewed group shows the seen ring after a reload.
 // A zone has one display (AD-17): the page places a second zone, whose display is a banner, below
-// the bar zone (`?keys=`), with its own key. The banner: rotating and stopped, its controls, swipe,
+// the bar zone (`?zones=…#siteKey=…`), each named by its slug. The banner: rotating and stopped, its controls, swipe,
 // opening the viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
-// Then two zones with two bars, each with its own shape and its own named items, and an unknown key
+// Then two zones with two bars, each with its own shape and its own named items, and an unknown slug
 // that renders nothing and logs one error.
 // Then templates (epic UX rework R5): a zone created from each template with a display renders its preset.
 // Then one site key with zones named by slug (epic UX rework R3): two zones, an unknown slug, and a
@@ -100,20 +100,34 @@ const bannerZone = (settings) => ({ ...ZONE, id: 'z2', name: 'Home promo', slug:
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' };
 
-// Serves the Delivery API by key: each key in `zones` reads its zone; any other key is refused.
+// The project's site key the scan's pages place their zones with (epic UX rework R3).
+const SITE_KEY = 'tas_scan';
+
+// Serves the Delivery API by site key and slug: each slug in `zones` reads its zone with SITE_KEY;
+// any other slug or key is refused, as the API refuses it.
 async function serve(page, zones) {
-  await page.route(`${API}/delivery/v1/zone`, (route) => {
-    const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
-    return zones[key]
-      ? route.fulfill({ json: zones[key], headers: CORS })
-      : route.fulfill({ status: 401, json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } }, headers: CORS });
-  });
+  await page.route(
+    (url) => url.href.startsWith(`${API}/delivery/v1/zone?`),
+    (route) => {
+      const slug = new URL(route.request().url()).searchParams.get('zone') ?? '';
+      const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
+      return key === SITE_KEY && Object.hasOwn(zones, slug)
+        ? route.fulfill({ json: zones[slug], headers: CORS })
+        : route.fulfill({
+            status: 401,
+            json: { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } },
+            headers: CORS,
+          });
+    },
+  );
   await page.route(`${API}/media/**`, (route) =>
     route.fulfill({ body: SVG, contentType: 'image/svg+xml', headers: { 'Access-Control-Allow-Origin': '*' } }),
   );
 }
 
-const pageUrl = (port, keys, extra = '') => `http://localhost:${port}/?keys=${keys.join(',')}&api=${encodeURIComponent(API)}${extra}`;
+// The sample page placing one element per slug, the site key in the fragment; `extra` joins the query.
+const pageUrl = (port, slugs, extra = '') =>
+  `http://localhost:${port}/?zones=${slugs.join(',')}&api=${encodeURIComponent(API)}${extra}#siteKey=${SITE_KEY}`;
 
 async function scan(page, label, axe) {
   return (await axeViolations(page, label, axe)).length;
@@ -142,9 +156,9 @@ try {
   const errors = [];
   page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
   page.on('pageerror', (err) => errors.push(String(err)));
-  await serve(page, { tak_bar: ZONE, tak_banner: bannerZone({ intervalSeconds: 3 }) });
+  await serve(page, { bar: ZONE, banner: bannerZone({ intervalSeconds: 3 }) });
 
-  await page.goto(pageUrl(port, ['tak_bar', 'tak_banner']));
+  await page.goto(pageUrl(port, ['bar', 'banner']));
   // The bar zone's element, then the banner zone's.
   const barView = page.locator('taleart-view').nth(0);
   const bannerView = page.locator('taleart-view').nth(1);
@@ -336,8 +350,8 @@ try {
   const reduced = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
   const still = await reduced.newPage();
   const settings = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 3, showDots: false, loop: true };
-  await serve(still, { tak_bar: ZONE, tak_banner: bannerZone(settings) });
-  await still.goto(pageUrl(port, ['tak_bar', 'tak_banner']));
+  await serve(still, { bar: ZONE, banner: bannerZone(settings) });
+  await still.goto(pageUrl(port, ['bar', 'banner']));
   const stillBanner = still.locator('taleart-view section.banner');
   await stillBanner.waitFor();
   const ratioBox = await stillBanner.locator('.b-viewport').boundingBox();
@@ -353,8 +367,8 @@ try {
   // A 3:1 banner on a 390 px phone with autoplay: no control overlaps another, targets are 44 px.
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const narrow = await phone.newPage();
-  await serve(narrow, { tak_banner: bannerZone({ aspectRatio: '3:1', intervalSeconds: 3 }) });
-  await narrow.goto(pageUrl(port, ['tak_banner']));
+  await serve(narrow, { banner: bannerZone({ aspectRatio: '3:1', intervalSeconds: 3 }) });
+  await narrow.goto(pageUrl(port, ['banner']));
   const narrowBanner = narrow.locator('taleart-view section.banner');
   await narrowBanner.waitFor();
   const boxes = {
@@ -375,7 +389,7 @@ try {
   await phone.close();
 
   // Two zones on one page (AD-17), each a bar with its own shape and its own tale groups, so every
-  // control has its own name; a third element with an unknown key renders nothing and logs one error.
+  // control has its own name; a third element with an unknown slug renders nothing and logs one error.
   const twoZones = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const placed2 = await twoZones.newPage();
   const placedErrors = [];
@@ -397,8 +411,8 @@ try {
       { id: 'ge', name: 'Sale', cover: null, tales: [image('e1', 'Half price')] },
     ],
   };
-  await serve(placed2, { tak_round: roundZone, tak_square: squareZone });
-  await placed2.goto(pageUrl(port, ['tak_round', 'tak_square', 'tak_nope']));
+  await serve(placed2, { round: roundZone, square: squareZone });
+  await placed2.goto(pageUrl(port, ['round', 'square', 'nope']));
   const views = placed2.locator('taleart-view');
   await views.nth(0).locator('.bar').waitFor();
   await views.nth(1).locator('.bar').waitFor();
@@ -417,10 +431,10 @@ try {
   );
   const allLabels = shapes.flatMap((s) => s.labels);
   check(new Set(allLabels).size === allLabels.length && allLabels.length === 5, 'every bar item on the page has its own name');
-  check(shapes[2].nodes === 0, 'an unknown key renders nothing');
+  check(shapes[2].nodes === 0, 'an unknown slug renders nothing');
   // The browser itself also reports the refused request (401) on the console.
   const sdkErrors = placedErrors.filter((e) => !e.startsWith('Failed to load resource'));
-  check(sdkErrors.length === 1 && sdkErrors[0].includes('TaleArt'), `an unknown key logs one error${sdkErrors.length === 1 ? '' : `: ${placedErrors.join('; ')}`}`);
+  check(sdkErrors.length === 1 && sdkErrors[0].includes('TaleArt'), `an unknown slug logs one error${sdkErrors.length === 1 ? '' : `: ${placedErrors.join('; ')}`}`);
   check(placedWarnings.length === 0, 'no warnings with two zones');
   await views.nth(1).locator('button.item').first().click();
   const placedDialog = views.nth(1).locator('dialog.viewer');
@@ -429,7 +443,7 @@ try {
   await placed2.keyboard.press('Escape');
   await placedDialog.waitFor({ state: 'hidden' });
   check((await focused(placed2, 1))?.group === 'gd', "closing the viewer returns focus to the second zone's bar item");
-  violations += await scan(placed2, 'two zones and an unknown key', axe);
+  violations += await scan(placed2, 'two zones and an unknown slug', axe);
   await twoZones.close();
 
   // Templates (epic UX rework R5): a zone shaped as the API creates it from each template with a
@@ -458,8 +472,8 @@ try {
       if (msg.type() === 'error' || msg.type() === 'warning') playedErrors.push(msg.text());
     });
     played.on('pageerror', (err) => playedErrors.push(String(err)));
-    await serve(played, { tak_scan: { ...ZONE, slug: templateKey, frame } });
-    await played.goto(pageUrl(port, ['tak_scan']));
+    await serve(played, { scan: { ...ZONE, slug: templateKey, frame } });
+    await played.goto(pageUrl(port, ['scan']));
     const view = 'taleart-view';
     await played.locator(`${view} ${frame.type === 'bar' ? '.bar' : 'section.banner'}`).waitFor();
     const look = await played.evaluate((selector) => {
@@ -508,10 +522,10 @@ try {
     accentColor: '#ffcc00',
   };
   await serve(themed, {
-    tak_bar: { ...ZONE, theme: THEME, frame: { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } } },
-    tak_banner: { ...bannerZone({ autoplay: false }), theme: THEME },
+    bar: { ...ZONE, theme: THEME, frame: { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } } },
+    banner: { ...bannerZone({ autoplay: false }), theme: THEME },
   });
-  await themed.goto(pageUrl(port, ['tak_bar', 'tak_banner']));
+  await themed.goto(pageUrl(port, ['bar', 'banner']));
   const themedItems = themed.locator('taleart-view').nth(0).locator('button.item');
   await themedItems.first().waitFor();
   const css = (locator, prop) => locator.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
@@ -618,11 +632,11 @@ try {
   overridden.on('pageerror', (err) => overrideErrors.push(String(err)));
   const projectTheme = { ...DEFAULT_THEME, ringStyle: 'solid', ringColors: ['#ff0000'], ringWidth: 3, cornerRadius: 16 };
   await serve(overridden, {
-    tak_top: { ...ZONE, theme: projectTheme },
-    tak_hero: { ...bannerZone({ autoplay: false }), theme: projectTheme },
+    top: { ...ZONE, theme: projectTheme },
+    hero: { ...bannerZone({ autoplay: false }), theme: projectTheme },
   });
   const sdkTheme = encodeURIComponent(JSON.stringify({ ringColors: ['#0000ff'], cornerRadius: 0, ringWidth: 9 }));
-  const twoZoneUrl = pageUrl(port, ['tak_top', 'tak_hero']);
+  const twoZoneUrl = (extra = '') => pageUrl(port, ['top', 'hero'], extra);
   const overrideLooks = async () => {
     const bar = overridden.locator('taleart-view').nth(0).locator('.bar');
     const banner = overridden.locator('taleart-view').nth(1).locator('section.banner');
@@ -635,7 +649,7 @@ try {
       bannerRadius: await css(banner.locator('.b-viewport'), 'border-top-left-radius'),
     };
   };
-  await overridden.goto(`${twoZoneUrl}&theme=${sdkTheme}`);
+  await overridden.goto(twoZoneUrl(`&theme=${sdkTheme}`));
   const withOverride = await overrideLooks();
   check(withOverride.ring === 'rgb(0, 0, 255)', "the zone's SDK ring colour wins over the project's in the bar zone");
   check(withOverride.bannerRing === '#0000ff', "the banner zone takes its zone's override too");
@@ -646,7 +660,7 @@ try {
     'the invalid SDK ringWidth logs one warning per configured zone, naming the field',
   );
   violations += await scan(overridden, 'SDK theme override', axe);
-  await overridden.goto(twoZoneUrl);
+  await overridden.goto(twoZoneUrl());
   const withoutOverride = await overrideLooks();
   check(withoutOverride.ring === 'rgb(255, 0, 0)', "without the SDK value the project's ring colour returns");
   check(withoutOverride.bannerRadius === '16px', "without the SDK value the project's corner radius returns");

@@ -20,13 +20,11 @@ import { TaleViewer, VIEWER_STYLES } from './viewer';
 export const TALEART_ELEMENT_TAG = 'taleart-view';
 
 const API_URL_ATTR = 'api-url';
-const ZONE_KEY_ATTR = 'zone-key';
 const SITE_KEY_ATTR = 'site-key';
 const ZONE_ATTR = 'zone';
-// Every legacy zone key starts with this; a zone slug never holds `_`, so the two never meet.
-const ZONE_KEY_PREFIX = 'tak_';
-// Keys a page may pass by mistake: a warning names them by their start only.
-const KEY_PREFIXES = [ZONE_KEY_PREFIX, 'tas_'];
+// A site key a page may pass by mistake: a warning names it by its start only. A zone slug never
+// holds `_`, so the two never meet.
+const SITE_KEY_PREFIX = 'tas_';
 const THEME_ATTR = 'theme';
 
 /** The SDK configuration of a zone, passed to {@link configureZone}. */
@@ -35,7 +33,7 @@ export interface ZoneOptions {
   theme?: Partial<Theme> | null;
 }
 
-// The checked theme overrides set with configureZone, by zone slug or legacy zone key, and the connected
+// The checked theme overrides set with configureZone, by zone slug, and the connected
 // elements they restyle.
 const zoneThemes = new Map<string, Readonly<Partial<Theme>>>();
 const connected = new Set<TaleartElement>();
@@ -43,32 +41,30 @@ const connected = new Set<TaleartElement>();
 /**
  * Configures a zone for every `<taleart-view>` that shows it, now and later
  * (R9). `zone` is the zone's slug, as in `zone="home-top"` (epic UX rework
- * R3), or a legacy zone key (`tak_…`) for elements placed with `zone-key`.
- * `theme` holds theme fields that win over the project's theme for that
+ * R3). `theme` holds theme fields that win over the project's theme for that
  * zone; an element's own `theme` wins over them. Calling again replaces the
  * zone's configuration; `configureZone(zone)` or `configureZone(zone, {})`
  * removes it. Rendered elements restyle at once, without a new request.
  * Invalid fields are ignored with one console warning each, naming the zone by
- * its slug, or by the start of a key (`tak_…` or `tas_…`) only.
+ * its slug, or a site key passed by mistake by its start (`tas_…`) only.
  */
 export function configureZone(zone: string, options?: ZoneOptions | null): void {
   if (typeof zone !== 'string' || !zone) {
-    console.warn('TaleArt: configureZone needs a zone slug or zone key; the configuration is ignored');
+    console.warn('TaleArt: configureZone needs a zone slug; the configuration is ignored');
     return;
   }
-  const name = KEY_PREFIXES.some((prefix) => zone.startsWith(prefix)) ? `${zone.slice(0, 8)}…` : zone;
+  const name = zone.startsWith(SITE_KEY_PREFIX) ? `${zone.slice(0, 8)}…` : zone;
   const theme = readThemeOverride(options?.theme, `the theme of zone "${name}"`);
   if (Object.keys(theme).length) zoneThemes.set(zone, theme);
   else zoneThemes.delete(zone);
   for (const element of connected) element.retheme();
 }
 
-// What an element asks the Delivery API for, and the name its zone configuration is set under:
-// the site key and slug when `site-key` is set, else the legacy zone key; null while incomplete.
+// What an element asks the Delivery API for, and the name its zone configuration is set under
+// (the slug); null while the site key or the slug is missing.
 function zoneRequest(element: TaleartElement): { request: ZoneRequest; configName: string } | null {
-  const { siteKey, zone, zoneKey } = element;
-  if (siteKey) return zone ? { request: { key: siteKey, zone }, configName: zone } : null;
-  return zoneKey ? { request: { key: zoneKey }, configName: zoneKey } : null;
+  const { siteKey, zone } = element;
+  return siteKey && zone ? { request: { key: siteKey, zone }, configName: zone } : null;
 }
 
 interface FocusTarget {
@@ -88,8 +84,7 @@ interface FrameView {
  * `<taleart-view api-url="…" site-key="…" zone="home-top">`: reads the
  * zone with that slug from the Delivery API with the project's site key
  * (epic UX rework R3; several elements share one site key, and elements that
- * ask for the same zone at once share one request), or, with
- * `zone-key="…"` instead, the zone of a legacy zone key. It renders the
+ * ask for the same zone at once share one request). It renders the
  * zone in its Shadow DOM: its
  * display, a bar or a banner (AD-17); a zone without a display renders
  * nothing. Frame types it does not know are skipped (AD-5). A refused key, an unknown slug or a
@@ -103,7 +98,7 @@ interface FrameView {
  */
 export class TaleartElement extends HTMLElement {
   static get observedAttributes(): string[] {
-    return [API_URL_ATTR, SITE_KEY_ATTR, ZONE_ATTR, ZONE_KEY_ATTR, THEME_ATTR];
+    return [API_URL_ATTR, SITE_KEY_ATTR, ZONE_ATTR, THEME_ATTR];
   }
 
   private readonly root = this.attachShadow({ mode: 'open' });
@@ -125,7 +120,7 @@ export class TaleartElement extends HTMLElement {
   // Stops animated covers COVER_MOTION_MS after they start moving (WCAG 2.2.2).
   private coverTimer: ReturnType<typeof setTimeout> | undefined;
   // This element's checked, frozen theme override, and the rendered wrapper with the name its
-  // zone configuration is set under (slug or zone key) and the theme the Delivery API sent.
+  // zone configuration is set under (its slug) and the theme the Delivery API sent.
   private themeOverride: Readonly<Partial<Theme>> = Object.freeze({});
   private themed: { element: HTMLElement; configName: string; theme: unknown } | null = null;
   // True while the `theme` attribute present at upgrade is to be skipped, because a script set the property first.
@@ -195,14 +190,6 @@ export class TaleartElement extends HTMLElement {
   }
   set zone(value: string) {
     this.setAttribute(ZONE_ATTR, value);
-  }
-
-  /** A legacy zone key (`tak_…`), used when no {@link siteKey} is set. */
-  get zoneKey(): string {
-    return this.getAttribute(ZONE_KEY_ATTR) ?? '';
-  }
-  set zoneKey(value: string) {
-    this.setAttribute(ZONE_KEY_ATTR, value);
   }
 
   connectedCallback(): void {

@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { TransactionalDb } from './db';
 import { SiteKeyNotFoundError } from './errors';
-import { issueSiteKey, projectForSiteKey, revokeSiteKey, siteKeyInfo } from './siteKeys';
-import { zoneInstalledSql } from './zoneKeys';
+import { issueSiteKey, projectForSiteKey, revokeSiteKey, siteKeyInfo, zoneInstalledSql } from './siteKeys';
 
 type FakeDb = TransactionalDb & { query: ReturnType<typeof vi.fn> };
 
@@ -88,10 +87,11 @@ describe('site keys', () => {
     expect(db.query).toHaveBeenCalledTimes(3);
   });
 
-  it('counts a zone installed by its project site key or its own zone key', () => {
-    const text = zoneInstalledSql('z.id', 'z.project_id');
-    expect(text).toContain('FROM site_keys isk WHERE isk.project_id = z.project_id AND isk.revoked_at IS NULL');
-    expect(text).toContain('FROM zone_keys izk WHERE izk.zone_id = z.id AND izk.revoked_at IS NULL');
-    expect(text).toMatch(/^\(EXISTS .* OR EXISTS .*\)$/);
+  it('counts a zone installed only by its project site key', () => {
+    const text = zoneInstalledSql('z.project_id');
+    expect(text).toBe(
+      'EXISTS (SELECT 1 FROM site_keys isk WHERE isk.project_id = z.project_id AND isk.revoked_at IS NULL)',
+    );
+    expect(text).not.toContain('zone_keys');
   });
 });

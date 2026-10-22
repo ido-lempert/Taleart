@@ -4,7 +4,9 @@ import { FIRST_CONTENT_MARK, ZONE_MARK } from './first-content';
 import { configureZone, defineTaleartElement, TALEART_ELEMENT_TAG, TaleartElement } from './taleart-element';
 
 const API = 'https://api.example.com';
-const KEY = 'tak_testkey';
+// Elements are placed with the project's site key and a zone slug (zone keys are gone, story 8.7).
+const SITE = 'tas_testkey';
+const SLUG = 'home';
 
 const zone: DeliveryZone = {
   id: 'z1',
@@ -39,7 +41,7 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-async function mount(attrs: Record<string, string> = { 'api-url': API, 'zone-key': KEY }): Promise<TaleartElement> {
+async function mount(attrs: Record<string, string> = { 'api-url': API, 'site-key': SITE, zone: SLUG }): Promise<TaleartElement> {
   const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
   for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, value);
   document.body.appendChild(el);
@@ -82,8 +84,8 @@ describe('TaleartElement', () => {
     await mount();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`${API}/delivery/v1/zone`);
-    expect(init.headers).toEqual({ Authorization: `Bearer ${KEY}` });
+    expect(url).toBe(`${API}/delivery/v1/zone?zone=${SLUG}`);
+    expect(init.headers).toEqual({ Authorization: `Bearer ${SITE}` });
     expect(init.credentials).toBe('omit');
   });
 
@@ -166,8 +168,8 @@ describe('TaleartElement', () => {
       ),
     );
     afterEach(() => {
-      configureZone(KEY, {});
-      configureZone('tak_other', {});
+      configureZone(SLUG, {});
+      configureZone('other', {});
     });
 
     it("uses the project's theme when the SDK configuration sets none, without logging", async () => {
@@ -177,10 +179,10 @@ describe('TaleartElement', () => {
     });
 
     it("lets the zone's configured theme win for every element of that zone", async () => {
-      configureZone(KEY, { theme: { ringColors: ['#0000ff'] } });
+      configureZone(SLUG, { theme: { ringColors: ['#0000ff'] } });
       const a = await mount();
       const b = await mount();
-      const other = await mount({ 'api-url': API, 'zone-key': 'tak_other' });
+      const other = await mount({ 'api-url': API, 'site-key': SITE, zone: 'other' });
       for (const el of [a, b]) {
         expect(prop(el, '--ta-ring')).toBe('#0000ff');
         // The display sits in the one themed wrapper.
@@ -195,7 +197,7 @@ describe('TaleartElement', () => {
     });
 
     it("lets the element's theme property win over the zone's", async () => {
-      configureZone(KEY, { theme: { ringColors: ['#0000ff'], accentColor: '#ffcc00' } });
+      configureZone(SLUG, { theme: { ringColors: ['#0000ff'], accentColor: '#ffcc00' } });
       const el = await mount();
       const sibling = await mount();
       el.theme = { ringColors: ['#00ff00'] };
@@ -208,7 +210,8 @@ describe('TaleartElement', () => {
     it('reads the theme attribute as JSON', async () => {
       const el = await mount({
         'api-url': API,
-        'zone-key': KEY,
+        'site-key': SITE,
+        zone: SLUG,
         theme: '{"cornerRadius":0,"fontFamily":"Georgia, serif"}',
       });
       expect(prop(el, '--ta-radius')).toBe('0px');
@@ -225,13 +228,13 @@ describe('TaleartElement', () => {
     });
 
     it("restores the project's values live when an override is removed, without a new request", async () => {
-      configureZone(KEY, { theme: { ringColors: ['#0000ff'] } });
+      configureZone(SLUG, { theme: { ringColors: ['#0000ff'] } });
       const el = await mount();
       el.theme = { ringWidth: 1 };
       expect([prop(el, '--ta-ring'), prop(el, '--ta-ring-width')]).toEqual(['#0000ff', '1px']);
       el.theme = null;
       expect(prop(el, '--ta-ring-width')).toBe('3px');
-      configureZone(KEY, {});
+      configureZone(SLUG, {});
       expect(prop(el, '--ta-ring')).toBe('#ff0000');
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
@@ -255,13 +258,13 @@ describe('TaleartElement', () => {
     });
 
     it('ignores an invalid field with one warning naming it, and keeps the valid ones', async () => {
-      configureZone(KEY, { theme: { ringWidth: 9, ringColors: ['#0000ff'] } as never });
+      configureZone(SLUG, { theme: { ringWidth: 9, ringColors: ['#0000ff'] } as never });
       const el = await mount();
       expect(prop(el, '--ta-ring')).toBe('#0000ff');
       expect(prop(el, '--ta-ring-width')).toBe('3px');
       expect(warnings()).toEqual([expect.stringContaining('"ringWidth"')]);
       // A reload does not warn again.
-      el.zoneKey = KEY;
+      el.zone = SLUG;
       await settle();
       expect(warnSpy).toHaveBeenCalledTimes(1);
     });
@@ -283,7 +286,7 @@ describe('TaleartElement', () => {
       el.theme = 'blue' as never;
       el.theme = ['#0000ff'] as never;
       el.setAttribute('theme', '{bad json');
-      configureZone(KEY, { theme: 42 as never });
+      configureZone(SLUG, { theme: 42 as never });
       configureZone('', { theme: {} });
       expect(warnSpy).toHaveBeenCalledTimes(5);
       expect(prop(el, '--ta-ring')).toBe('#ff0000');
@@ -291,15 +294,16 @@ describe('TaleartElement', () => {
     });
 
     it('applies the zone and element overrides set before the element loads, and after a reload', async () => {
-      configureZone(KEY, { theme: { ringColors: ['#0000ff'] } });
+      configureZone(SLUG, { theme: { ringColors: ['#0000ff'] } });
       const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
       el.theme = { ringWidth: 4 };
       el.setAttribute('api-url', API);
-      el.setAttribute('zone-key', KEY);
+      el.setAttribute('site-key', SITE);
+      el.setAttribute('zone', SLUG);
       document.body.appendChild(el);
       await settle();
       expect([prop(el, '--ta-ring'), prop(el, '--ta-ring-width')]).toEqual(['#0000ff', '4px']);
-      el.zoneKey = 'tak_other';
+      el.zone = 'other';
       await settle();
       // Another zone: the zone option no longer applies, the element's own still does.
       expect([prop(el, '--ta-ring'), prop(el, '--ta-ring-width')]).toEqual(['#ff0000', '4px']);
@@ -318,7 +322,8 @@ describe('TaleartElement', () => {
     });
 
     it('warns once for theme="null", and clears silently for a missing or empty attribute', async () => {
-      const el = await mount({ 'api-url': API, 'zone-key': KEY, theme: '{"ringColors":["#00ff00"]}' });
+      const el = await mount({ 'api-url': API, 'site-key': SITE,
+        zone: SLUG, theme: '{"ringColors":["#00ff00"]}' });
       expect(prop(el, '--ta-ring')).toBe('#00ff00');
       el.setAttribute('theme', 'null');
       expect(warnings()).toEqual([expect.stringContaining('theme attribute must be a JSON object')]);
@@ -332,11 +337,11 @@ describe('TaleartElement', () => {
       expect(warnSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('names the zone in its warnings by the start of its key only', async () => {
-      const key = 'tak_0123456789abcdef';
+    it('names a site key passed by mistake in its warnings by its start only', async () => {
+      const key = 'tas_0123456789abcdef';
       configureZone(key, { theme: { ringWidth: 9 } as never });
       expect(warnings()).toEqual([
-        'TaleArt: the theme of zone "tak_0123…" has an invalid or unknown field "ringWidth"; it is ignored',
+        'TaleArt: the theme of zone "tas_0123…" has an invalid or unknown field "ringWidth"; it is ignored',
       ]);
       expect(warnings()[0]).not.toContain(key);
       configureZone(key);
@@ -344,9 +349,9 @@ describe('TaleartElement', () => {
 
     it('removes the zone configuration with configureZone(key) or configureZone(key, {})', async () => {
       const el = await mount();
-      const clears = [() => configureZone(KEY), () => configureZone(KEY, {}), () => configureZone(KEY, { theme: null })];
+      const clears = [() => configureZone(SLUG), () => configureZone(SLUG, {}), () => configureZone(SLUG, { theme: null })];
       for (const clear of clears) {
-        configureZone(KEY, { theme: { ringColors: ['#0000ff'] } });
+        configureZone(SLUG, { theme: { ringColors: ['#0000ff'] } });
         expect(prop(el, '--ta-ring')).toBe('#0000ff');
         clear();
         expect(prop(el, '--ta-ring')).toBe('#ff0000');
@@ -354,15 +359,15 @@ describe('TaleartElement', () => {
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it("never applies a new zone's override to content rendered for the old key", async () => {
-      configureZone('tak_other', { theme: { ringColors: ['#0000ff'] } });
+    it("never applies a new zone's override to content rendered for the old zone", async () => {
+      configureZone('other', { theme: { ringColors: ['#0000ff'] } });
       const el = await mount();
       const oldWrapper = el.shadowRoot?.querySelector<HTMLElement>('.taleart');
-      el.zoneKey = 'tak_other';
+      el.zone = 'other';
       // Before the new load runs, the old content still belongs to the old zone.
       el.retheme();
       expect(oldWrapper?.style.getPropertyValue('--ta-ring')).toBe('#ff0000');
-      configureZone('tak_other', { theme: { ringColors: ['#0000fe'] } });
+      configureZone('other', { theme: { ringColors: ['#0000fe'] } });
       expect(oldWrapper?.style.getPropertyValue('--ta-ring')).toBe('#ff0000');
       await settle();
       expect(prop(el, '--ta-ring')).toBe('#0000fe');
@@ -374,7 +379,8 @@ describe('TaleartElement', () => {
       el.setAttribute('theme', '{bad json');
       (el as unknown as { theme: unknown }).theme = { ringColors: ['#00ff00'] };
       el.setAttribute('api-url', API);
-      el.setAttribute('zone-key', KEY);
+      el.setAttribute('site-key', SITE);
+      el.setAttribute('zone', SLUG);
       document.body.appendChild(el);
       customElements.define(tag, class extends TaleartElement {});
       await settle();
@@ -405,7 +411,8 @@ describe('TaleartElement', () => {
       const el = document.createElement(tag) as TaleartElement;
       (el as unknown as { theme: unknown }).theme = { ringColors: ['#00ff00'] };
       el.setAttribute('api-url', API);
-      el.setAttribute('zone-key', KEY);
+      el.setAttribute('site-key', SITE);
+      el.setAttribute('zone', SLUG);
       document.body.appendChild(el);
       customElements.define(tag, class extends TaleartElement {});
       await settle();
@@ -597,7 +604,7 @@ describe('TaleartElement', () => {
   it('moves focus to the matching item of the new bar when a reload closes the open viewer', async () => {
     const el = await mount();
     items(el)[1].click();
-    el.zoneKey = 'tak_other';
+    el.zone = 'other';
     await settle();
     expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
     expect(items(el)).toHaveLength(3);
@@ -608,7 +615,7 @@ describe('TaleartElement', () => {
     const el = await mount();
     items(el)[1].click();
     fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: [zone.taleGroups[0], zone.taleGroups[2]] }));
-    el.zoneKey = 'tak_other';
+    el.zone = 'other';
     await settle();
     expect(el.shadowRoot?.activeElement).toBe(items(el)[0]);
   });
@@ -745,21 +752,13 @@ describe('TaleartElement', () => {
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
-    it('prefers the site key and slug over a legacy zone key on the same element', async () => {
-      fetchMock.mockImplementation(answer(['home-top']));
-      await mount(site('home-top', { 'zone-key': KEY }));
-      expect(fetchMock.mock.calls[0][0]).toBe(`${API}/delivery/v1/zone?zone=home-top`);
-    });
-
     it("applies a theme configured for one slug to that zone's elements only", async () => {
       fetchMock.mockImplementation(answer(['home-top', 'home-promo']));
       configureZone('home-top', { theme: { ringColors: ['#0000ff'] } });
       const top = await mount(site('home-top'));
       const promo = await mount(site('home-promo'));
-      const legacy = await mount();
       expect(prop(top, '--ta-ring')).toBe('#0000ff');
       expect(prop(promo, '--ta-ring')).not.toBe('#0000ff');
-      expect(prop(legacy, '--ta-ring')).not.toBe('#0000ff');
       // Live, without a new request, and removable.
       const requests = fetchMock.mock.calls.length;
       configureZone('home-promo', { theme: { ringColors: ['#00ff00'] } });
@@ -767,30 +766,26 @@ describe('TaleartElement', () => {
       configureZone('home-top');
       expect(prop(top, '--ta-ring')).not.toBe('#0000ff');
       expect(fetchMock.mock.calls.length).toBe(requests);
-      // A warning names the slug in full (it is no secret), and a zone key only by its start.
+      // A warning names the slug in full (it is no secret), and a site key passed by mistake only by its start.
       configureZone('home-top', { theme: { ringWidth: 9 } as never });
-      configureZone('tak_secretsecret', { theme: { ringWidth: 9 } as never });
-      // A site key passed by mistake is masked too.
       configureZone('tas_secretsecret', { theme: { ringWidth: 9 } as never });
       expect(warnSpy.mock.calls.map((call: unknown[]) => String(call[0]))).toEqual([
         'TaleArt: the theme of zone "home-top" has an invalid or unknown field "ringWidth"; it is ignored',
-        'TaleArt: the theme of zone "tak_secr…" has an invalid or unknown field "ringWidth"; it is ignored',
         'TaleArt: the theme of zone "tas_secr…" has an invalid or unknown field "ringWidth"; it is ignored',
       ]);
       expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('secretsecret');
-      configureZone('tak_secretsecret', {});
       configureZone('tas_secretsecret', {});
     });
   });
 
   it('renders nothing and logs one error with the API message for a refused key', async () => {
     fetchMock.mockImplementation(async () =>
-      respond(401, { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } }),
+      respond(401, { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } }),
     );
     const el = await mount();
     expect(el.shadowRoot?.childNodes.length).toBe(0);
     expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(String(errorSpy.mock.calls[0][0])).toContain('A valid zone key is required');
+    expect(String(errorSpy.mock.calls[0][0])).toContain('A valid site key and zone are required');
   });
 
   it('renders nothing and logs one error on a network failure', async () => {
@@ -821,8 +816,16 @@ describe('TaleartElement', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  it('ignores a zone-key attribute: zone keys are gone (story 8.7)', async () => {
+    const el = await mount({ 'api-url': API, ['zone' + '-key']: 'old' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(el.shadowRoot?.childNodes.length).toBe(0);
+    expect(('zone' + 'Key') in el).toBe(false);
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it('ignores a stage attribute: stages are gone (AD-17)', async () => {
-    const el = await mount({ 'api-url': API, 'zone-key': KEY, stage: 'nope' });
+    const el = await mount({ 'api-url': API, 'site-key': SITE, zone: SLUG, stage: 'nope' });
     expect(el.shadowRoot?.querySelector('.bar')).not.toBeNull();
     expect('stage' in el).toBe(false);
     expect(warnSpy).not.toHaveBeenCalled();
@@ -895,7 +898,7 @@ describe('TaleartElement', () => {
       const el = await mount();
       items(el)[1].click();
       expect(el.shadowRoot?.querySelector('dialog')?.hasAttribute('open')).toBe(true);
-      el.zoneKey = 'tak_other';
+      el.zone = 'other';
       await settle();
       expect(el.shadowRoot?.querySelector('dialog[open]')).toBeNull();
       expect(el.shadowRoot?.activeElement).toBe(items(el)[1]);
@@ -906,7 +909,7 @@ describe('TaleartElement', () => {
       withBanner({ id: 'f2', type: 'banner', settings: {} });
       const el = await mount();
       slideButtons(el)[1].click();
-      el.zoneKey = 'tak_other';
+      el.zone = 'other';
       await settle();
       expect(el.shadowRoot?.activeElement).toBe(slideButtons(el)[1]);
       // Focus moved by the SDK is not the visitor interacting: the new banner still rotates.
@@ -922,7 +925,7 @@ describe('TaleartElement', () => {
       const first = track();
       expect(first?.getAttribute('aria-live')).toBe('off');
       timeouts.mockClear();
-      el.zoneKey = 'tak_other';
+      el.zone = 'other';
       await settle();
       expect(timeouts).toHaveBeenCalled();
       expect(track()).not.toBe(first);
@@ -932,14 +935,17 @@ describe('TaleartElement', () => {
     });
   });
 
-  it('accepts the API URL and key as properties, and waits until both are set', async () => {
+  it('accepts the API URL, site key and slug as properties, and waits until all are set', async () => {
     const el = await mount({});
     expect(fetchMock).not.toHaveBeenCalled();
     el.apiUrl = API;
-    el.zoneKey = KEY;
+    el.siteKey = SITE;
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+    el.zone = SLUG;
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(el.getAttribute('zone-key')).toBe(KEY);
+    expect([el.getAttribute('site-key'), el.getAttribute('zone')]).toEqual([SITE, SLUG]);
     expect(items(el)).toHaveLength(3);
   });
 
@@ -1006,7 +1012,8 @@ describe('TaleartElement', () => {
     );
     const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
     el.setAttribute('api-url', API);
-    el.setAttribute('zone-key', KEY);
+    el.setAttribute('site-key', SITE);
+      el.setAttribute('zone', SLUG);
     document.body.appendChild(el);
     await vi.advanceTimersByTimeAsync(10);
     const cover = () => el.shadowRoot?.querySelector<HTMLVideoElement>('video.cover');
@@ -1076,7 +1083,7 @@ describe('TaleartElement', () => {
       await paint();
       expect(marks(ZONE_MARK)).toBe(1);
       expect(marks(FIRST_CONTENT_MARK)).toBe(1);
-      el.setAttribute('zone-key', 'tak_other');
+      el.setAttribute('zone', 'other');
       await paint();
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([1, 1]);
@@ -1085,7 +1092,7 @@ describe('TaleartElement', () => {
     it('marks the zone once even when the render shows nothing (a zone without a display)', async () => {
       fetchMock.mockImplementation(async () => respond(200, { ...zone, frame: null }));
       const el = await mount();
-      el.setAttribute('zone-key', 'tak_other');
+      el.setAttribute('zone', 'other');
       await paint();
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([1, 0]);
@@ -1112,14 +1119,15 @@ describe('TaleartElement', () => {
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
         el.setAttribute('api-url', API);
-        el.setAttribute('zone-key', KEY);
+        el.setAttribute('site-key', SITE);
+      el.setAttribute('zone', SLUG);
         document.body.appendChild(el);
         await vi.advanceTimersByTimeAsync(1000);
         const first = heldVideo(el);
         expect(first?.getAttribute('src')).toBeNull();
 
-        // A new key one second in: the first render is dropped before it showed its covers.
-        el.setAttribute('zone-key', 'tak_other');
+        // A new zone one second in: the first render is dropped before it showed its covers.
+        el.setAttribute('zone', 'other');
         await vi.advanceTimersByTimeAsync(10);
         const second = heldVideo(el) as HTMLVideoElement;
         expect(second).not.toBe(first);
@@ -1143,7 +1151,8 @@ describe('TaleartElement', () => {
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         const el = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
         el.setAttribute('api-url', API);
-        el.setAttribute('zone-key', KEY);
+        el.setAttribute('site-key', SITE);
+      el.setAttribute('zone', SLUG);
         document.body.appendChild(el);
         await vi.advanceTimersByTimeAsync(10);
         const held = heldVideo(el) as HTMLVideoElement;
@@ -1158,7 +1167,7 @@ describe('TaleartElement', () => {
     });
 
     it('marks nothing for a refused key', async () => {
-      fetchMock.mockImplementation(async () => respond(401, { error: { code: 'invalid_zone_key', message: 'No' } }));
+      fetchMock.mockImplementation(async () => respond(401, { error: { code: 'invalid_site_key', message: 'No' } }));
       await mount();
       await paint();
       expect([marks(ZONE_MARK), marks(FIRST_CONTENT_MARK)]).toEqual([0, 0]);

@@ -237,10 +237,39 @@ describe('Management API v1: projects and zones', () => {
     expect([201, 409]).toContain(res.status);
   }
 
-  // Installs the zone as a host page needs it: a display, then a key (R7).
-  async function postKey(zoneId: string): Promise<Response> {
+  // The raw site key these tests last issued for each project, by project id. Zone keys are gone
+  // (UX rework story 8.7): a zone is placed only with its project's site key and its slug, so placing
+  // a second zone of a project reuses the key, since issuing again would rotate it.
+  const issuedSiteKeys = new Map<string, string>();
+
+  // Installs the zone as a host page needs it: a display, then its project's site key (R7). Returns
+  // the zone's delivery handle, `<site key>|<slug>`, which deliverZone reads.
+  async function installZone(zoneId: string): Promise<string> {
     await withDisplay(zoneId);
-    return post(`/zones/${zoneId}/key`, {});
+    const { rows } = await pool.query<{ projectId: string; slug: string }>(
+      'SELECT project_id AS "projectId", slug FROM zones WHERE id = $1',
+      [zoneId],
+    );
+    const { projectId, slug } = rows[0];
+    let key = issuedSiteKeys.get(projectId);
+    const info = (await (await fetch(`${base}/projects/${projectId}/site-key`)).json()) as { prefix: string } | null;
+    if (!key || !info || !key.startsWith(info.prefix)) {
+      const res = await post(`/projects/${projectId}/site-key`, {});
+      expect(res.status).toBe(201);
+      key = (await res.json()).key as string;
+      issuedSiteKeys.set(projectId, key);
+    }
+    return `${key}|${slug}`;
+  }
+
+  // Reads a zone from the Delivery API by its handle (see installZone), as the Web SDK does: the
+  // site key as a bearer token and the slug as `?zone=`. Without a handle, no key and no slug are sent.
+  function deliverZone(handle?: string, headers: Record<string, string> = {}): Promise<Response> {
+    const all: Record<string, string> = { ...headers };
+    if (handle === undefined) return globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: all });
+    const [key, slug = ''] = handle.split('|');
+    all['Authorization'] = `Bearer ${key}`;
+    return globalThis.fetch(`${origin}/delivery/v1/zone?zone=${encodeURIComponent(slug)}`, { headers: all });
   }
 
   // Sets the stored status of a tale group or tale (AD-6), as the dashboard's Publish, Pause, Archive and Restore do.
@@ -299,7 +328,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -772,7 +801,7 @@ describe('Management API v1: projects and zones', () => {
         pool.query('SELECT id, project_id, name, slug, playbook_key, created_at FROM zones ORDER BY id'),
         pool.query('SELECT id, zone_id, project_id, type, settings, created_at FROM frames ORDER BY id'),
         pool.query('SELECT zone_id, tale_group_id, position FROM zone_tale_groups ORDER BY zone_id, tale_group_id'),
-        pool.query('SELECT id, zone_id, revoked_at FROM zone_keys ORDER BY id'),
+        pool.query('SELECT id, project_id, revoked_at FROM site_keys ORDER BY id'),
       ]);
       return { zones: zones.rows, frames: frames.rows, placements: placements.rows, keys: keys.rows };
     }
@@ -800,9 +829,10 @@ describe('Management API v1: projects and zones', () => {
       await pool.query("UPDATE zones SET playbook_key = 'home-stories-bar' WHERE id = $1", [home.id]);
       const homeGroups = [await liveGroup(home.id, 'G1'), await liveGroup(home.id, 'G2')];
       const shopGroups = [await liveGroup(shop.id, 'G3')];
-      // The original zone's key stays its own (owner decision 2026-10-22: no legacy resolution).
       const top = await (await post(`/zones/${home.id}/frame`, { type: 'bar', settings: { gap: 20 } })).json();
-      const { key: homeKey } = await (await postKey(home.id)).json();
+      // The project's site key, issued before the fold, places every folded zone by its new slug.
+      await installZone(home.id);
+      const siteKey = (await pool.query('SELECT prefix FROM site_keys WHERE revoked_at IS NULL')).rows[0].prefix;
 
       try {
         await legacySchema();
@@ -839,14 +869,16 @@ describe('Management API v1: projects and zones', () => {
 
         // The Delivery API serves each zone with its own display and its groups.
         const deliver = async (key: string) =>
-          (await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } })).json();
+          (await deliverZone(key)).json();
+        const homeKey = await installZone(home.id);
+        expect(homeKey.startsWith(siteKey)).toBe(true);
         const homeBody = await deliver(homeKey);
         expect([homeBody.id, homeBody.slug, homeBody.frame.id, homeBody.frame.settings.gap]).toEqual([home.id, 'top-bar', top.id, 20]);
         expect(homeBody.taleGroups.map((g: { id: string }) => g.id)).toEqual(homeGroups);
         for (const zone of zones.slice(1, 5)) {
-          // New zones get no key until one is issued (owner decision 2026-10-22).
-          expect(await (await fetch(`${base}/zones/${zone.id}/key`)).json()).toBeNull();
-          const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+          // The same site key, with the new zone's slug.
+          const key = await installZone(zone.id);
+          expect(key.startsWith(siteKey)).toBe(true);
           const body = await deliver(key);
           expect([body.id, body.name, body.slug, body.frame.id, body.frame.type]).toEqual([
             zone.id,
@@ -1145,9 +1177,9 @@ describe('Management API v1: projects and zones', () => {
       const project = await createProject();
       const zone = await (await post('/zones', { name: 'Promo', projectId: project.id, template: 'promo-banner' })).json();
       expect([zone.createdFromTemplate, zone.frame.type, zone.frame.settings]).toEqual(['promo-banner', 'banner', bannerSettings]);
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       const delivered = await (
-        await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } })
+        await deliverZone(key)
       ).json();
       expect(delivered.frame).toEqual({ id: zone.frame.id, type: 'banner', settings: bannerSettings });
     });
@@ -1890,8 +1922,8 @@ describe('Management API v1: projects and zones', () => {
       await publish('tale-groups', a.id, c.id);
       await publish('tales', tale.id);
       await asLegacy(tale.id);
-      const { key } = await (await postKey(z2.id)).json();
-      const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const key = await installZone(z2.id);
+      const delivered = await deliverZone(key);
       // C has no live tale, so only A is delivered.
       expect((await delivered.json()).taleGroups).toEqual([
         {
@@ -1932,8 +1964,8 @@ describe('Management API v1: projects and zones', () => {
       for (const zoneId of [z.id, z2.id]) {
         expect((await listed(zoneId)).find((g) => g.id === a.id)?.name).toBe('Summer sale');
       }
-      const { key } = await (await postKey(z2.id)).json();
-      const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const key = await installZone(z2.id);
+      const delivered = await deliverZone(key);
       expect((await delivered.json()).taleGroups.map((g: { name: string }) => g.name)).toEqual(['C', 'Summer sale']);
     });
 
@@ -2321,7 +2353,7 @@ describe('Management API v1: projects and zones', () => {
     it("replacing a shared file on the copy keeps it for the source; the last tale's replace deletes it", async () => {
       const { staging, production, g, one } = await setup();
       // Installed, so its delivered media is public (R7).
-      await postKey(staging.id);
+      await installZone(staging.id);
       await publish('tale-groups', g.id);
       await publish('tales', one.id);
       const c: Listed = await (await copy(g.id, production.id)).json();
@@ -3283,12 +3315,12 @@ describe('Management API v1: projects and zones', () => {
       await publish('tale-groups', group.id);
       await publish('tales', tale.id);
       await asLegacy(tale.id);
-      const { key } = await (await postKey(group.zoneId)).json();
+      const key = await installZone(group.zoneId);
       return { id: group.id, zoneId: group.zoneId, taleId: tale.id, key };
     }
 
     async function deliveredGroups(key: string): Promise<{ id: string; cover: { url: string } | null }[]> {
-      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const res = await deliverZone(key);
       expect(res.status).toBe(200);
       return (await res.json()).taleGroups;
     }
@@ -3997,7 +4029,7 @@ describe('Management API v1: projects and zones', () => {
     });
   });
 
-  describe('zone keys and the Delivery API', () => {
+  describe('the Delivery API', () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
     const bannerDefaults = { aspectRatio: '16:9', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
 
@@ -4013,17 +4045,14 @@ describe('Management API v1: projects and zones', () => {
       });
     }
 
+    // A zone by its delivery handle (`<site key>|<slug>`, see installZone); without one, no key.
     function deliver(key?: string, headers: Record<string, string> = {}): Promise<Response> {
-      const all: Record<string, string> = { ...headers };
-      if (key !== undefined) all['Authorization'] = `Bearer ${key}`;
-      return globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: all });
+      return deliverZone(key, headers);
     }
 
-    async function issue(zoneId: string): Promise<{ key: string; prefix: string; createdAt: string }> {
-      await withDisplay(zoneId);
-      const res = await send('POST', `/zones/${zoneId}/key`);
-      expect(res.status).toBe(201);
-      return res.json();
+    // Installs the zone with its project's site key; `key` is the zone's delivery handle.
+    async function issue(zoneId: string): Promise<{ key: string }> {
+      return { key: await installZone(zoneId) };
     }
 
     async function signInAsContentManager(projectId: string): Promise<void> {
@@ -4037,48 +4066,46 @@ describe('Management API v1: projects and zones', () => {
       expect(res.headers.get('cache-control')).toBe('no-store');
       expect(res.headers.get('access-control-allow-origin')).toBe('*');
       const body = await res.json();
-      expect(body.error.code).toBe('invalid_zone_key');
+      expect(body.error.code).toBe('invalid_site_key');
       return body.error.message;
     }
 
-    it('answers null while a zone has no key, and 404 for an unknown zone', async () => {
+    it('has no zone key routes left (UX rework story 8.7): each answers 404 not_found', async () => {
       const zone = await createZone();
-      const res = await send('GET', `/zones/${zone.id}/key`);
-      expect(res.status).toBe(200);
-      expect(await res.json()).toBeNull();
-
       for (const method of ['GET', 'POST', 'DELETE']) {
-        const unknown = await send(method, `/zones/${unknownId}/key`);
-        expect(unknown.status).toBe(404);
-        expect((await unknown.json()).error.code).toBe('zone_not_found');
+        const res = await send(method, `/zones/${zone.id}/key`);
+        expect(res.status).toBe(404);
+        expect((await res.json()).error.code).toBe('not_found');
       }
+      // Nor is the old table left behind.
+      expect((await pool.query("SELECT to_regclass('zone_keys') AS t")).rows[0].t).toBeNull();
     });
 
-    it('issues a key shown once, and then reports only its prefix and date', async () => {
+    it('drops a zone_keys table left by an earlier release, with its rows, and a second run changes nothing', async () => {
       const zone = await createZone();
-      const issued = await issue(zone.id);
-      expect(issued.key).toMatch(/^tak_[A-Za-z0-9_-]{43}$/);
-      expect(issued.prefix).toBe(issued.key.slice(0, 10));
-      expect(Number.isNaN(Date.parse(issued.createdAt))).toBe(false);
-
-      const info = await send('GET', `/zones/${zone.id}/key`);
-      expect(info.status).toBe(200);
-      const text = await info.text();
-      expect(JSON.parse(text)).toEqual({ prefix: issued.prefix, createdAt: issued.createdAt });
-      expect(text).not.toContain(issued.key);
-      expect(text).not.toContain(createHash('sha256').update(issued.key).digest('hex'));
-    });
-
-    it('stores hashes and prefixes, never keys', async () => {
-      const zone = await createZone();
-      const issued = await issue(zone.id);
-      const { rows } = await pool.query('SELECT * FROM zone_keys');
-      expect(rows).toHaveLength(1);
-      expect(rows[0].key_hash).toBe(createHash('sha256').update(issued.key).digest('hex'));
-      expect(rows[0].prefix).toBe(issued.prefix);
-      expect(rows[0].zone_id).toBe(zone.id);
-      expect(rows[0].project_id).toBe(zone.projectId);
-      expect(JSON.stringify(rows)).not.toContain(issued.key);
+      // The table as the release before story 8.7 created it, with one active key.
+      await pool.query(`
+        CREATE TABLE zone_keys (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          zone_id uuid NOT NULL,
+          project_id uuid NOT NULL REFERENCES projects (id),
+          key_hash text NOT NULL,
+          prefix text NOT NULL,
+          created_by uuid REFERENCES users (id) ON DELETE SET NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          revoked_at timestamptz,
+          FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id)
+        )`);
+      await pool.query(
+        "INSERT INTO zone_keys (zone_id, project_id, key_hash, prefix) VALUES ($1, $2, 'hash', 'tak_abcdef')",
+        [zone.id, zone.projectId],
+      );
+      await migrate(pool);
+      expect((await pool.query("SELECT to_regclass('zone_keys') AS t")).rows[0].t).toBeNull();
+      // The zone is untouched, and only a site key installs it.
+      expect((await pool.query('SELECT 1 FROM zones WHERE id = $1', [zone.id])).rowCount).toBe(1);
+      await migrate(pool);
+      expect((await pool.query("SELECT to_regclass('zone_keys') AS t")).rows[0].t).toBeNull();
     });
 
     it('lets a browser revalidate the zone: private, no-cache, by key, 304 while unchanged', async () => {
@@ -4108,7 +4135,7 @@ describe('Management API v1: projects and zones', () => {
       expect((await changed.json()).frame.type).toBe('banner');
 
       // A refused key never gets a 304, whatever ETag it sends.
-      await send('DELETE', `/zones/${zone.id}/key`);
+      await send('DELETE', `/projects/${zone.projectId}/site-key`);
       await expectInvalidKey(await deliver(key, revalidate));
     });
 
@@ -4449,11 +4476,10 @@ describe('Management API v1: projects and zones', () => {
           }
         });
 
-        it('limits each address on both key paths with 429 and Retry-After, when the limit is on', async () => {
+        it('limits each address with 429 and Retry-After, when the limit is on', async () => {
           const project = await createProject();
           const zone = await placedZone(project.id, 'Limited');
           const { key } = await issueSite(project.id);
-          const zoneKey = (await (await send('POST', `/zones/${zone.id}/key`)).json()).key;
           const limited = createApp(
             pool,
             loadFrameTypeRegistry(frameTypesDir),
@@ -4472,10 +4498,10 @@ describe('Management API v1: projects and zones', () => {
             // A preflight is not counted.
             expect((await globalThis.fetch(at, { method: 'OPTIONS' })).status).toBe(204);
             expect((await get(key, `?zone=${zone.slug}`)).status).toBe(200);
-            expect((await get(zoneKey)).status).toBe(200);
             // A refusal counts too, so guessing keys or slugs is limited.
+            expect((await get(key)).status).toBe(401);
             expect((await get(key, '?zone=nope')).status).toBe(401);
-            for (const res of [await get(key, `?zone=${zone.slug}`), await get(zoneKey)]) {
+            for (const res of [await get(key, `?zone=${zone.slug}`), await get(key)]) {
               expect(res.status).toBe(429);
               expect(res.headers.get('retry-after')).toBe('2');
               expect(res.headers.get('cache-control')).toBe('no-store');
@@ -4513,7 +4539,7 @@ describe('Management API v1: projects and zones', () => {
           expect(rows[0].n).toBe(1);
         });
 
-        it("serves each zone of the project by its slug with that zone's own display and groups, as a zone key does", async () => {
+        it("serves each zone of the project by its slug with that zone's own display and groups", async () => {
           const project = await createProject();
           const top = await placedZone(project.id, 'Home top', 'bar');
           const promo = await placedZone(project.id, 'Home promo', 'banner');
@@ -4529,10 +4555,6 @@ describe('Management API v1: projects and zones', () => {
           const promoBody = await (await deliverSlug(key, promo.slug)).json();
           expect(promoBody).toMatchObject({ id: promo.id, slug: promo.slug, frame: { type: 'banner' } });
           expect(promoBody.taleGroups.map((g: { id: string }) => g.id)).toEqual([promo.groupId]);
-
-          // The same body a legacy zone key gets for the zone.
-          const zoneKey = (await (await send('POST', `/zones/${top.id}/key`)).json()).key;
-          expect(await (await deliver(zoneKey)).json()).toEqual(topBody);
         });
 
         it('refuses an unknown slug exactly like a refused key, and a slug of another project too', async () => {
@@ -4542,7 +4564,6 @@ describe('Management API v1: projects and zones', () => {
           const otherZone = await placedZone(otherProject.id, 'Globex only');
           const { key } = await issueSite(project.id);
           const otherKey = (await issueSite(otherProject.id)).key;
-          const zoneKey = (await send('POST', `/zones/${zone.id}/key`).then((r) => r.json())).key;
 
           await expectRefused(await deliverSlug(key, 'nope'));
           await expectRefused(await deliverSlug(key, otherZone.slug));
@@ -4555,15 +4576,15 @@ describe('Management API v1: projects and zones', () => {
           await expectRefused(await deliverSlug(undefined, zone.slug));
           await expectRefused(await deliverSlug(`tas_${randomBytes(32).toString('base64url')}`, zone.slug));
           await expectRefused(await deliverSlug(key.toUpperCase(), zone.slug));
-          // A zone key is no site key, even for its own zone's slug.
-          await expectRefused(await deliverSlug(zoneKey, zone.slug));
+          // A key of the old zone key form is refused like any other.
+          await expectRefused(await deliverSlug(`tak_${randomBytes(32).toString('base64url')}`, zone.slug));
           // Each key reads its own project only.
           expect((await deliverSlug(otherKey, otherZone.slug)).status).toBe(200);
           await expectRefused(await deliverSlug(otherKey, zone.slug));
 
-          // Without a slug, the legacy zone key path answers as before.
-          expect((await deliver(zoneKey)).status).toBe(200);
-          expect(await expectInvalidKey(await deliver(key))).toBe('A valid zone key is required');
+          // Without a slug, the site key is refused with the same body (zone keys are gone, story 8.7).
+          await expectRefused(await deliverSlug(key, undefined));
+          await expectRefused(await deliverSlug(undefined, undefined));
         });
 
         it('counts a zone as installed while its project has a site key, with the same rule for public media', async () => {
@@ -4591,8 +4612,8 @@ describe('Management API v1: projects and zones', () => {
           expect(await reasons(zone.id)).toEqual(['zone-not-installed']);
           expect((await getPublic(mediaUrl)).status).toBe(404);
 
-          // A legacy zone key still installs its own zone alone.
-          await send('POST', `/zones/${zone.id}/key`);
+          // Only a site key installs a zone (story 8.7): a new one does, and the media is public again.
+          await issueSite(project.id);
           expect(await zoneVisibility(zone.id)).toEqual(VISIBLE);
           expect((await getPublic(mediaUrl)).status).toBe(200);
         });
@@ -4828,9 +4849,9 @@ describe('Management API v1: projects and zones', () => {
         expect(res.headers.get('etag')).toBe(`"${new URL(url).pathname.slice('/media/'.length)}"`);
         expect(Buffer.from(await res.arrayBuffer())).toEqual(png);
 
-        // Media never needs the key, but a zone whose key is revoked is not installed, so nothing
-        // shows in it and its media is private until it has a key again (epic UX rework R7).
-        await send('DELETE', `/zones/${zone.id}/key`);
+        // Media never needs the key, but a zone whose project's site key is revoked is not installed,
+        // so nothing shows in it and its media is private until it has a key again (epic UX rework R7).
+        await send('DELETE', `/projects/${zone.projectId}/site-key`);
         expect((await getPublic(url)).status).toBe(404);
         await issue(zone.id);
         expect((await getPublic(url)).status).toBe(200);
@@ -5168,7 +5189,7 @@ describe('Management API v1: projects and zones', () => {
           const { zone, group, l1, l2, urls } = await liveZone();
           await expectStatus('tales', l2.id, 'paused', 200);
           const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
-          await postKey(target.id);
+          await installZone(target.id);
           const res = await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id });
           expect(res.status).toBe(201);
           const copy: Group = await res.json();
@@ -5385,7 +5406,7 @@ describe('Management API v1: projects and zones', () => {
         it('keeps a key copies share public while one copy is in its window, and 404 once neither is', async () => {
           const { zone, group, l1, urls } = await liveZone();
           const target = await (await post('/zones', { name: 'Other', projectId: zone.projectId })).json();
-          await postKey(target.id);
+          await installZone(target.id);
           const copy: Scheduled = await (await post(`/tale-groups/${group.id}/copy`, { zoneId: target.id })).json();
           await publish('tale-groups', copy.id);
           const copiedL1 = copy.tales[0].id;
@@ -5431,82 +5452,25 @@ describe('Management API v1: projects and zones', () => {
       });
     });
 
-    it('rotates: the old key is revoked at once and the new key works', async () => {
+    it('answers 401 invalid_site_key with one message for a missing, unknown, malformed or session-only caller', async () => {
       const zone = await createZone();
-      const first = await issue(zone.id);
-      const second = await issue(zone.id);
-      expect(second.key).not.toBe(first.key);
-
-      await expectInvalidKey(await deliver(first.key));
-      expect((await deliver(second.key)).status).toBe(200);
-      expect(await (await send('GET', `/zones/${zone.id}/key`)).json()).toEqual({
-        prefix: second.prefix,
-        createdAt: second.createdAt,
-      });
-      const { rows } = await pool.query('SELECT revoked_at FROM zone_keys WHERE zone_id = $1 ORDER BY created_at', [
-        zone.id,
-      ]);
-      expect(rows).toHaveLength(2);
-      expect(rows[0].revoked_at).not.toBeNull();
-      expect(rows[1].revoked_at).toBeNull();
-    });
-
-    it('keeps at most one active key under concurrent rotations', async () => {
-      const zone = await createZone();
-      const results = await Promise.all([1, 2, 3, 4].map(() => send('POST', `/zones/${zone.id}/key`)));
-      expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201]);
-      const { rows } = await pool.query('SELECT 1 FROM zone_keys WHERE zone_id = $1 AND revoked_at IS NULL', [zone.id]);
-      expect(rows).toHaveLength(1);
-    });
-
-    it('revokes: 204, info answers null, the key stops working, and nothing is deleted', async () => {
-      const zone = await createZone();
-      const { key } = await issue(zone.id);
-      const res = await send('DELETE', `/zones/${zone.id}/key`);
-      expect(res.status).toBe(204);
-      expect(await (await send('GET', `/zones/${zone.id}/key`)).json()).toBeNull();
-      await expectInvalidKey(await deliver(key));
-      expect((await pool.query('SELECT 1 FROM zone_keys WHERE revoked_at IS NOT NULL')).rowCount).toBe(1);
-
-      const again = await send('DELETE', `/zones/${zone.id}/key`);
-      expect(again.status).toBe(404);
-      expect((await again.json()).error.code).toBe('zone_key_not_found');
-    });
-
-    it('revokes the new key after a rotation, also when the two race', async () => {
-      const zone = await createZone();
-      await issue(zone.id);
-      const rotated = await issue(zone.id);
-      expect((await send('DELETE', `/zones/${zone.id}/key`)).status).toBe(204);
-      await expectInvalidKey(await deliver(rotated.key));
-
-      await issue(zone.id);
-      const [rotate, revoke] = await Promise.all([
-        send('POST', `/zones/${zone.id}/key`),
-        send('DELETE', `/zones/${zone.id}/key`),
-      ]);
-      expect(rotate.status).toBe(201);
-      expect(revoke.status).toBe(204);
-      const active = await pool.query('SELECT 1 FROM zone_keys WHERE zone_id = $1 AND revoked_at IS NULL', [zone.id]);
-      expect(active.rowCount).toBeLessThanOrEqual(1);
-    });
-
-    it('answers 401 invalid_zone_key with one message for a missing, unknown, malformed or session-only caller', async () => {
-      const zone = await createZone();
-      await issue(zone.id);
+      const key = (await issue(zone.id)).key.split('|')[0];
       const messages = new Set([
         await expectInvalidKey(await deliver()),
+        // A site key without a slug: the zone key path is gone (UX rework story 8.7).
+        await expectInvalidKey(await deliver(undefined, { Authorization: `Bearer ${key}` })),
         await expectInvalidKey(await deliver('tak_unknownkeyunknownkeyunknownkeyunknownkey0')),
+        await expectInvalidKey(await deliver(`tak_unknownkeyunknownkeyunknownkeyunknownkey0|${zone.slug}`)),
         await expectInvalidKey(await deliver('not-a-key')),
         await expectInvalidKey(await deliver(undefined, { Authorization: 'Basic abc' })),
         await expectInvalidKey(await deliver(undefined, { Cookie: sessionCookie })),
       ]);
-      expect(messages.size).toBe(1);
+      expect([...messages]).toEqual(['A valid site key and zone are required']);
     });
 
-    it('does not accept a zone key on the Management API', async () => {
+    it('does not accept a site key on the Management API', async () => {
       const zone = await createZone();
-      const { key } = await issue(zone.id);
+      const key = (await issue(zone.id)).key.split('|')[0];
       const res = await globalThis.fetch(`${base}/zones`, { headers: { Authorization: `Bearer ${key}` } });
       expect(res.status).toBe(401);
       expect((await res.json()).error.code).toBe('unauthenticated');
@@ -5525,31 +5489,6 @@ describe('Management API v1: projects and zones', () => {
       expect(res.headers.get('access-control-allow-origin')).toBe('*');
       expect(res.headers.get('access-control-allow-headers')).toMatch(/Authorization/);
       expect(res.headers.get('access-control-allow-credentials')).toBeNull();
-    });
-
-    it('lets a content manager see the key info but not issue, rotate or revoke', async () => {
-      const zone = await createZone();
-      const issued = await issue(zone.id);
-      await signInAsContentManager(zone.projectId);
-
-      const info = await send('GET', `/zones/${zone.id}/key`);
-      expect(info.status).toBe(200);
-      expect(await info.json()).toEqual({ prefix: issued.prefix, createdAt: issued.createdAt });
-      for (const method of ['POST', 'DELETE']) {
-        const res = await send(method, `/zones/${zone.id}/key`);
-        expect(res.status).toBe(403);
-        expect((await res.json()).error.code).toBe('forbidden');
-      }
-      expect((await deliver(issued.key)).status).toBe(200);
-    });
-
-    it('refuses a zone key route in a project the caller cannot access', async () => {
-      const zone = await createZone();
-      const other = await createProject('Beta');
-      await signInAsContentManager(other.id);
-      const res = await send('GET', `/zones/${zone.id}/key`);
-      expect(res.status).toBe(403);
-      expect((await res.json()).error.code).toBe('forbidden');
     });
   });
 
@@ -5652,12 +5591,12 @@ describe('Management API v1: projects and zones', () => {
       // Hidden, so showing it later publishes its draft, as going live does (AD-15).
       expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
       expect((await save(tale.id, doc(elements(font.id)), 0)).status).toBe(200);
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       return { zone, font, group, tale, key: key as string };
     }
 
     async function delivered(key: string) {
-      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const res = await deliverZone(key);
       expect(res.status).toBe(200);
       return (await res.json()).taleGroups as { tales: { id: string; fonts?: { id: string; url: string }[] }[] }[];
     }
@@ -6103,8 +6042,8 @@ describe('Management API v1: projects and zones', () => {
     }
 
     async function delivered(zoneId: string) {
-      const { key } = await (await postKey(zoneId)).json();
-      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const key = await installZone(zoneId);
+      const res = await deliverZone(key);
       expect(res.status).toBe(200);
       return (await res.json()).taleGroups as { tales: { id: string; document: Record<string, unknown> | null }[] }[];
     }
@@ -6308,7 +6247,7 @@ describe('Management API v1: projects and zones', () => {
 
     it("delivers public URLs for a published tale's media and serves them only while it is delivered", async () => {
       const { zone, group, tale } = await setup();
-      await postKey(zone.id);
+      await installZone(zone.id);
       const image = await uploaded(zone.projectId);
       const hidden = await uploaded(zone.projectId, 'image/gif', gif);
       const video = await uploaded(zone.projectId, 'video/mp4', mp4);
@@ -6661,7 +6600,7 @@ describe('Management API v1: projects and zones', () => {
 
       it('refuses to publish a sticker without alt text, then delivers each new element with URLs', async () => {
         const { zone, group, tale } = await setup();
-        await postKey(zone.id);
+        await installZone(zone.id);
         const sticker = await uploaded(zone.projectId);
         const elements = [
           item(1, 'shape', rounded, { a11y: { decorative: true } }),
@@ -6774,8 +6713,8 @@ describe('Management API v1: projects and zones', () => {
     }
 
     async function delivered(zoneId: string) {
-      const { key } = await (await postKey(zoneId)).json();
-      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const key = await installZone(zoneId);
+      const res = await deliverZone(key);
       expect(res.status).toBe(200);
       return (await res.json()).taleGroups as {
         id: string;
@@ -7467,7 +7406,7 @@ describe('Management API v1: projects and zones', () => {
       clearDeliveryCache();
       const bodies: string[] = [];
       for (const key of keys) {
-        const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+        const res = await deliverZone(key);
         expect(res.status).toBe(200);
         bodies.push(await res.text());
       }
@@ -7521,7 +7460,7 @@ describe('Management API v1: projects and zones', () => {
       await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [ids.b5]);
       await pool.query("DELETE FROM tale_media WHERE tale_id = $1 AND document = 'published'", [ids.b5]);
       const keys: string[] = [];
-      for (const z of [zone, second]) keys.push((await (await postKey(z.id)).json()).key);
+      for (const z of [zone, second]) keys.push((await installZone(z.id)));
       // As before the step: it has not run.
       await pool.query('DELETE FROM tales_migrations');
       return { never, ids, keys };
@@ -7674,7 +7613,7 @@ describe('Management API v1: projects and zones', () => {
       const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
       await publish('tale-groups', g.id);
       await post(`/tale-groups/${g.id}/tales`, { title: 'Title only' });
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       expect((await deliveries([key])).map(shape)).toEqual([[]]);
     });
 
@@ -7698,7 +7637,7 @@ describe('Management API v1: projects and zones', () => {
       // Not updated yet: the draft (now with the media) waits for the person to publish it.
       expect(await state(drafted.id)).toBeNull();
       expect(await state(fromMedia.id)).not.toBeNull();
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['From media']]]]);
     });
 
@@ -7714,7 +7653,7 @@ describe('Management API v1: projects and zones', () => {
       });
       expect(saved.status).toBe(200);
       const fromMedia = await (await post(`/tale-groups/${g.id}/tales`, { title: 'From media' })).json();
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       const previous = process.env['TALE_MEDIA_MIGRATION'];
       process.env['TALE_MEDIA_MIGRATION'] = 'off';
       try {
@@ -7747,7 +7686,7 @@ describe('Management API v1: projects and zones', () => {
       // As markTaleMediaSeen leaves it: in step, a draft, nothing published.
       await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [t.id]);
       await asLegacy(t.id);
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       const [body] = await deliveries([key]);
       const tales = JSON.parse(body).taleGroups[0].tales as { title: string; document: { elements: { props: { taleMedia?: boolean } }[] } }[];
       expect(tales.map((tale) => tale.title)).toEqual(['Seen']);
@@ -7764,7 +7703,7 @@ describe('Management API v1: projects and zones', () => {
       expect(copy.status).toBe(201);
       const copied = await copy.json();
       await publish('tale-groups', copied.id);
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       const [body] = await deliveries([key]);
       const groups = JSON.parse(body).taleGroups as { id: string; tales: { title: string; document: unknown }[] }[];
       expect(groups.map((group) => group.tales.map((tale) => tale.title))).toEqual([['Title only'], ['Title only']]);
@@ -7825,7 +7764,7 @@ describe('Management API v1: projects and zones', () => {
 
     async function fixture(): Promise<Fixture> {
       const zone = await createZone();
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
       await publish('tale-groups', group.id);
       const taleId = await taleFromMedia(group.id, 'Target');
@@ -7836,7 +7775,7 @@ describe('Management API v1: projects and zones', () => {
     // What the site shows for the zone: the groups and tales its key delivers; nothing without a key.
     async function delivered(key: string | null): Promise<{ groups: string[]; tales: string[] }> {
       if (key === null) return { groups: [], tales: [] };
-      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const res = await deliverZone(key);
       expect(res.status).toBe(200);
       const body: { taleGroups: { id: string; tales: { id: string }[] }[] } = await res.json();
       return {
@@ -8070,16 +8009,14 @@ describe('Management API v1: projects and zones', () => {
         reason: () => why('zone-not-installed', 'zone'),
         omits: 'everything',
         breakIt: async (f) => {
-          expect((await send('DELETE', `/zones/${f.zoneId}/key`)).status).toBe(204);
-          // The revoked key is refused: the site shows nothing.
-          const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, {
-            headers: { Authorization: `Bearer ${f.key}` },
-          });
+          expect((await send('DELETE', `/projects/${f.projectId}/site-key`)).status).toBe(204);
+          // The revoked site key is refused: the site shows nothing.
+          const res = await deliverZone(f.key as string);
           expect(res.status).toBe(401);
           f.key = null;
         },
         fix: async (f) => {
-          f.key = (await (await postKey(f.zoneId)).json()).key;
+          f.key = (await installZone(f.zoneId));
         },
       },
       {
@@ -8176,9 +8113,10 @@ describe('Management API v1: projects and zones', () => {
       const f = await fixture();
       const bare = await (await post('/zones', { name: 'Bare', projectId: f.projectId })).json();
       expect((await send('PUT', `/zones/${bare.id}/tale-groups/${f.groupId}`)).status).toBe(201);
-      // In the bare zone the placement is not visible, for the bare zone's reasons...
+      // In the bare zone the placement is not visible, for the bare zone's reason (it is installed by
+      // its project's site key, the only key since story 8.7)...
       const there = (await listed(bare.id)).find((g) => g.id === f.groupId);
-      expect(there?.visibility).toEqual(notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')));
+      expect(there?.visibility).toEqual(notVisible(why('zone-no-display', 'zone')));
       expect(there?.tales[0].visibility.visible).toBe(false);
       // ...while the group and its tale, read for every zone, are visible through the set-up one.
       expect((await projectGroup(f)).visibility).toEqual(VISIBLE);
@@ -8188,7 +8126,7 @@ describe('Management API v1: projects and zones', () => {
     it('words a zone with no tale group apart from one whose groups are not visible', async () => {
       const f = await fixture();
       const empty = await (await post('/zones', { name: 'Empty', projectId: f.projectId })).json();
-      await postKey(empty.id);
+      await installZone(empty.id);
       expect(await zoneVisibility(empty.id)).toEqual(notVisible(why('no-tale-groups', 'zone')));
       expect((await setStatus('tale-groups', f.groupId, 'paused')).status).toBe(200);
       expect(await zoneVisibility(f.zoneId)).toEqual(notVisible(why('no-visible-groups', 'zone')));
@@ -8286,18 +8224,20 @@ describe('Management API v1: projects and zones', () => {
       const { cover: coverKey, media: mediaKey } = await keys();
       const status = async (key: string) => (await globalThis.fetch(`${origin}/media/${key}`)).status;
       expect([await status(coverKey), await status(mediaKey)]).toEqual([200, 200]);
-      // Placed only in a zone without a display (or key): nothing of it is public.
+      // Placed only in a zone without a display: nothing of it is public.
       const bare = await (await post('/zones', { name: 'Bare', projectId: f.projectId })).json();
       expect((await send('PUT', `/zones/${bare.id}/tale-groups/${f.groupId}`)).status).toBe(201);
       expect((await send('DELETE', `/zones/${f.zoneId}/tale-groups/${f.groupId}`)).status).toBe(204);
       expect([await status(coverKey), await status(mediaKey)]).toEqual([404, 404]);
-      expect((await projectGroup(f)).visibility).toEqual(
-        notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')),
-      );
-      // Its zone gets a display and a key: public again.
-      await postKey(bare.id);
+      expect((await projectGroup(f)).visibility).toEqual(notVisible(why('zone-no-display', 'zone')));
+      // Its zone gets a display: public again, through the project's site key.
+      await installZone(bare.id);
       expect([await status(coverKey), await status(mediaKey)]).toEqual([200, 200]);
       expect((await projectGroup(f)).visibility).toEqual(VISIBLE);
+      // Without the project's site key: private again, and the zone says it is not installed.
+      expect((await send('DELETE', `/projects/${f.projectId}/site-key`)).status).toBe(204);
+      expect([await status(coverKey), await status(mediaKey)]).toEqual([404, 404]);
+      expect((await projectGroup(f)).visibility).toEqual(notVisible(why('zone-not-installed', 'zone')));
     });
 
     // The Delivery filter before story 8.2, kept as text: the new clause-built predicates must answer
@@ -8320,7 +8260,9 @@ describe('Management API v1: projects and zones', () => {
         `AND EXISTS (SELECT 1 FROM zone_tale_groups oz WHERE oz.tale_group_id = ${g}.id)`;
       const setUp = (zone: string) =>
         `EXISTS (SELECT 1 FROM frames of WHERE of.zone_id = ${zone}) ` +
-        `AND EXISTS (SELECT 1 FROM zone_keys ok WHERE ok.zone_id = ${zone} AND ok.revoked_at IS NULL)`;
+        // Installed: since story 8.7 only an active site key of the zone's project counts.
+        `AND EXISTS (SELECT 1 FROM site_keys ok JOIN zones oz2 ON oz2.project_id = ok.project_id ` +
+        `WHERE oz2.id = ${zone} AND ok.revoked_at IS NULL)`;
       const setUpPlacement = (g: string) =>
         `EXISTS (SELECT 1 FROM zone_tale_groups sp WHERE sp.tale_group_id = ${g}.id AND ${setUp('sp.zone_id')})`;
       const STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'];
@@ -8376,7 +8318,7 @@ describe('Management API v1: projects and zones', () => {
         const bounds = [null, new Date(now.getTime() - hour), new Date(now.getTime() + hour), now];
         const project = await createProject();
         const ready = await (await post('/zones', { name: 'Ready', projectId: project.id })).json();
-        await postKey(ready.id);
+        await installZone(ready.id);
         const bare = await (await post('/zones', { name: 'Bare', projectId: project.id })).json();
         const keyless = await (await post('/zones', { name: 'Keyless', projectId: project.id })).json();
         expect((await post(`/zones/${keyless.id}/frame`, { type: 'bar', settings: {} })).status).toBe(201);
@@ -8407,7 +8349,8 @@ describe('Management API v1: projects and zones', () => {
         );
 
         // Groups: every stored key x window x (a delivered tale or not) x placement (none, ready, bare,
-        // keyless, ready and bare).
+        // keyless, ready and bare). With one site key per project, "keyless" is installed too; the
+        // comparison without the site key below covers zones that are not.
         const placements = [[], [ready.id], [bare.id], [keyless.id], [ready.id, bare.id]];
         const { rows: groups } = await pool.query<{ id: string; name: string }>(
           `INSERT INTO tale_groups (project_id, name, status, starts_at, ends_at)
@@ -8441,6 +8384,11 @@ describe('Management API v1: projects and zones', () => {
         try {
           await client.query('BEGIN');
           await client.query("DELETE FROM tales_migrations WHERE step = 'shown-status'");
+          await compare(client, now);
+          await client.query('ROLLBACK');
+          // Without the project's site key no zone is installed (story 8.7: a site key is the only key).
+          await client.query('BEGIN');
+          await client.query('UPDATE site_keys SET revoked_at = now() WHERE project_id = $1', [project.id]);
           await compare(client, now);
           await client.query('ROLLBACK');
         } finally {
@@ -8705,10 +8653,10 @@ describe('Management API v1: projects and zones', () => {
       await publish('tales', beach.id, copy.id);
       await update(beach.id);
       await update(copy.id);
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       const deliver = async () => {
         clearDeliveryCache();
-        const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+        const res = await deliverZone(key);
         expect(res.status).toBe(200);
         const body = await res.json();
         return body.taleGroups.find((g: { id: string }) => g.id === first.id).tales as {
@@ -8840,9 +8788,9 @@ describe('Management API v1: projects and zones', () => {
         ).rows[0];
       expect(await row(copy.id)).toMatchObject({ key: media[0].key, inStep: null });
       await publish('tales', copy.id);
-      const { key } = await (await postKey(zone.id)).json();
+      const key = await installZone(zone.id);
       clearDeliveryCache();
-      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const res = await deliverZone(key);
       const tales = (await res.json()).taleGroups.find((g: { id: string }) => g.id === first.id).tales as {
         id: string;
         document: { elements: { id: string; props: { taleMedia?: boolean; url?: string } }[] };
@@ -8866,7 +8814,7 @@ describe('Management API v1: projects and zones', () => {
 
     it('makes the copy a new tale: a pre-step original without a published document gives a copy "not updated yet"', async () => {
       const { zone, first } = await setup();
-      await postKey(zone.id);
+      await installZone(zone.id);
       const make = async (title: string) =>
         (await (await post(`/tale-groups/${first.id}/tales`, { title })).json()) as { id: string };
       // From before the shown-status step: one with nothing published (shown as a placeholder), one
@@ -9820,9 +9768,9 @@ describe('Management API v1: projects and zones', () => {
 
       const zoneId = (await pool.query('SELECT zone_id FROM zone_tale_groups WHERE tale_group_id = $1', [groupId])).rows[0]
         .zone_id as string;
-      const { key } = await (await postKey(zoneId)).json();
+      const key = await installZone(zoneId);
       clearDeliveryCache();
-      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const res = await deliverZone(key);
       const delivered = ((await res.json()).taleGroups as { id: string; tales: { title: string }[] }[]).find(
         (g) => g.id === groupId,
       );
@@ -11895,7 +11843,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
+        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
       );
     });
 

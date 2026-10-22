@@ -21,14 +21,12 @@ function errorMessage(body: unknown): string | null {
   return typeof error?.message === 'string' ? error.message : null;
 }
 
-/**
- * How an element names its zone: the project's site key with the zone's slug (epic UX rework R3),
- * or a legacy zone key alone.
- */
+/** How an element names its zone: the project's site key with the zone's slug (epic UX rework R3). */
 export interface ZoneRequest {
+  /** The project's site key. */
   key: string;
-  /** The zone's slug, sent with a site key; absent for a zone key. */
-  zone?: string;
+  /** The zone's slug. */
+  zone: string;
 }
 
 // A response read once and shared by every element that asked for the same zone at the same time.
@@ -39,13 +37,13 @@ interface SharedResponse {
 }
 
 // The requests in flight, by URL and key: elements on one page that share a site key and a slug
-// (or a zone key) send one request. An entry leaves when its request settles, so a later load
+// send one request. An entry leaves when its request settles, so a later load
 // (after a change on the page) asks the API again.
 const inFlight = new Map<string, Promise<SharedResponse>>();
 
 /**
  * Reads a zone from the Delivery API at `apiUrl`, with the key as a bearer token and never a
- * cookie, and the slug as the `zone` query parameter when there is one. Throws
+ * cookie, and the slug as the `zone` query parameter. Throws
  * {@link DeliveryError} for a refused key or slug, any other error status or a network failure.
  */
 export async function fetchZone(
@@ -53,8 +51,7 @@ export async function fetchZone(
   request: ZoneRequest,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DeliveryZone> {
-  const query = request.zone === undefined ? '' : `?zone=${encodeURIComponent(request.zone)}`;
-  const url = `${apiUrl.replace(/\/+$/, '')}${DELIVERY_PATH}/zone${query}`;
+  const url = `${apiUrl.replace(/\/+$/, '')}${DELIVERY_PATH}/zone?zone=${encodeURIComponent(request.zone)}`;
   const id = `${url}\n${request.key}`;
   let shared = inFlight.get(id);
   if (!shared) {

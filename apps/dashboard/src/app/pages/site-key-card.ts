@@ -138,8 +138,8 @@ function refusal(err: unknown, fallback: string): string {
                 @case ('revoke') {
                   <p>
                     Revoke <code class="key-prefix">{{ info()?.prefix }}…</code>?
-                    <strong>This affects every zone of this project:</strong> it stops working at once, and zones
-                    without a zone key of their own show nothing on your pages until you issue a new site key.
+                    <strong>This affects every zone of this project:</strong> it stops working at once, and its zones
+                    show nothing on your pages until you issue a new site key.
                   </p>
                 }
                 @default {

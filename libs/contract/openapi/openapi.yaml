@@ -1216,88 +1216,21 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
-  /zones/{zoneId}/key:
-    parameters:
-      - name: zoneId
-        in: path
-        required: true
-        schema:
-          type: string
-    get:
-      operationId: getZoneKey
-      summary: Whether the zone has an active key, with its prefix and issue date.
-      description: >-
-        Answers `null` when the zone has no active key. Never returns the key
-        or its hash. Anyone who can access the zone's project may read it.
-      responses:
-        '200':
-          description: The active key's info, or null.
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  - $ref: '#/components/schemas/ZoneKeyInfo'
-                  - type: 'null'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-    post:
-      operationId: issueZoneKey
-      summary: Issue a zone key, or rotate it (admins only).
-      description: >-
-        Creates a new key for the zone. When the zone already has an active key,
-        that key is revoked in the same transaction (rotation). `key` appears
-        only in this response; only its SHA-256 hash is stored. A content
-        manager gets 403 `forbidden`; an unknown zone 404 `zone_not_found`.
-      responses:
-        '201':
-          description: The new key, shown only once.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IssuedZoneKey'
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
-    delete:
-      operationId: revokeZoneKey
-      summary: Revoke the zone's active key (admins only).
-      description: >-
-        The key stops working on the Delivery API at once. A zone without an
-        active key answers 404 `zone_key_not_found`.
-      responses:
-        '204':
-          description: The key is revoked.
-        '403':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        default:
-          $ref: '#/components/responses/Error'
   /zone:
     servers:
       - url: /delivery/v1
-        description: Delivery API (AD-2), for SDKs. Accepts zone keys only.
+        description: Delivery API (AD-2), for SDKs. Accepts site keys only.
     get:
       operationId: getDeliveryZone
-      summary: A zone, named by site key and slug or by a legacy zone key, with its display and tale groups (Delivery API).
+      summary: A zone, named by site key and slug, with its display and tale groups (Delivery API).
       description: >-
-        Served under `/delivery/v1`. Accepts only a delivery key in
-        `Authorization: Bearer <key>`, never a session. With the `zone` query
-        parameter, the key is the project's site key (`tas_...`) and the
-        response is the project's zone with that slug (epic UX rework R3);
-        every refusal on that path (a missing, unknown or revoked site key,
-        any other key, a missing slug, or a slug no zone of the key's project
-        has) answers the same 401 `invalid_site_key` body, so a caller cannot
-        tell an unknown slug from a refused key. Without `zone`, the key is a
-        legacy zone key (`tak_...`) and a missing, unknown or revoked key
-        answers 401 `invalid_zone_key`. A 401 is sent with
+        Served under `/delivery/v1`. Accepts only the project's site key
+        (`tas_...`) in `Authorization: Bearer <key>`, never a session, and
+        answers the project's zone whose slug the `zone` query parameter
+        names (epic UX rework R3). Every refusal (a missing, unknown or
+        revoked site key, any other key, a missing slug, or a slug no zone of
+        the key's project has) answers the same 401 `invalid_site_key` body,
+        so a caller cannot tell an unknown slug from a refused key. A 401 is sent with
         `Cache-Control: no-store`. Every Delivery API request counts against
         a per-address token bucket (by default 600 at once, 20 per second);
         over it the API answers 429 `rate_limited` with `Retry-After`.
@@ -1311,11 +1244,10 @@ paths:
         unchanged) and sees a change at once (NFR-006).
       security:
         - siteKey: []
-        - zoneKey: []
       parameters:
         - name: zone
           in: query
-          required: false
+          required: true
           description: >-
             The zone's slug (lowercase letters, digits and hyphens), sent with
             the project's site key, as a host page names it in `zone="..."`.
@@ -1339,7 +1271,7 @@ paths:
   /media/{key}:
     servers:
       - url: /
-        description: Public media (AD-11). No session and no zone key.
+        description: Public media (AD-11). No session and no site key.
     parameters:
       - name: key
         in: path
@@ -2403,12 +2335,6 @@ components:
         The project's site key (`tas_...`) issued in the dashboard (AD-9
         amended), sent as `Authorization: Bearer <key>` with the zone's slug
         in the `zone` query parameter. Only the Delivery API accepts it.
-    zoneKey:
-      type: http
-      scheme: bearer
-      description: >-
-        A zone key (`tak_...`) issued in the dashboard (AD-9), sent as
-        `Authorization: Bearer <key>`. Only the Delivery API accepts it.
   parameters:
     InvitationToken:
       name: token
@@ -3016,16 +2942,6 @@ components:
           description: Every tale id of the group, once each, in the new order.
           items:
             type: string
-    ZoneKeyInfo:
-      type: object
-      required: [prefix, createdAt]
-      properties:
-        prefix:
-          type: string
-          description: The start of the key, `tak_` and the next 6 characters, to recognise it.
-        createdAt:
-          type: string
-          format: date-time
     SiteKeyInfo:
       type: object
       required: [prefix, createdAt]
@@ -3043,18 +2959,6 @@ components:
         key:
           type: string
           description: The secret site key, `tas_` and 32 random bytes in base64url. Shown only once.
-        prefix:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-    IssuedZoneKey:
-      type: object
-      required: [key, prefix, createdAt]
-      properties:
-        key:
-          type: string
-          description: The secret zone key, `tak_` and 32 random bytes in base64url. Shown only once.
         prefix:
           type: string
         createdAt:
@@ -4155,8 +4059,6 @@ components:
         - email_taken
         - tag_exists
         - tag_not_found
-        - zone_key_not_found
-        - invalid_zone_key
         - site_key_not_found
         - invalid_site_key
         - rate_limited
