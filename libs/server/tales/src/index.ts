@@ -14,6 +14,7 @@ export {
   getTaleGroup,
   createTaleGroup,
   listProjectTaleGroups,
+  createProjectTaleGroup,
   renameTaleGroup,
   renameTaleGroupWhen,
   renameTaleWhen,
@@ -55,6 +56,7 @@ export {
   type StoredTaleGroup,
   type StoredWindow,
   type StoredZoneTaleGroup,
+  type StoredProjectTaleGroup,
   type TransactionalDb,
 } from './lib/tales';
 
