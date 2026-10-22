@@ -103,6 +103,25 @@ function pickMenuItem(root: ParentNode, menu: string, item: string): void {
   found.click();
 }
 
+/** A ⋯ menu's items as it shows them, each with its disabled reason; the menu is closed again. */
+function menuItems(root: ParentNode, menu: string): { label: string; reason: string; disabled: boolean }[] {
+  const trigger = root.querySelector<HTMLButtonElement>(`button[aria-label="${menu}"]`);
+  if (!trigger) throw new Error(`No ${menu} menu`);
+  trigger.click();
+  const items = [...document.querySelectorAll<HTMLElement>(`#${trigger.getAttribute('aria-controls')} [role=menuitem]`)].map(
+    (item) => ({
+      label: item.firstElementChild?.textContent?.trim() ?? '',
+      reason: item.querySelector('.menu-button__reason')?.textContent?.trim() ?? '',
+      disabled: item.getAttribute('aria-disabled') === 'true',
+    }),
+  );
+  trigger.click();
+  return items;
+}
+
+/** Every item of a group row's ⋯ menu, in order (epic UX rework R10). */
+const GROUP_MENU = ['Rename', 'Cover', 'Tags', 'Schedule', 'Show in another zone', 'Copy to zone', 'Remove from this zone', 'Archive'];
+
 function type(input: HTMLInputElement | null, value: string): void {
   if (!input) throw new Error('No input');
   input.value = value;
@@ -598,7 +617,7 @@ describe('App', () => {
       expect(root.querySelector('#display-type')?.textContent).toContain('Bar');
       const row = root.querySelector('[aria-label="Tale groups in Home bar"] li');
       expect(row?.textContent).toContain('Summer');
-      expect(row?.textContent).toContain('2 / 100');
+      expect(row?.textContent).toContain('2 of 2 shown');
       const cards = [...root.querySelectorAll('[aria-label="Tales in Summer"] .tale-card__title')];
       expect(cards.map((c) => c.textContent?.trim())).toEqual(['A', 'B']);
       expect(row?.querySelector('.tale-add')?.textContent).toContain('Add tale');
@@ -971,7 +990,7 @@ describe('App', () => {
         ...oneZone,
         groups: { z1: [{ ...group, tales: [] }] },
       });
-      expect(root.querySelector('[aria-label="Tale groups in Home bar"]')?.textContent).toContain('0 / 100');
+      expect(root.querySelector('[aria-label="Tale groups in Home bar"]')?.textContent).toContain('No tales yet');
 
       for (const [title, tales] of [
         ['A', [taleA]],
@@ -1923,25 +1942,27 @@ describe('App', () => {
       expect(alsoIn?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Also in: Product page');
       expect(alsoIn?.querySelector('a')?.getAttribute('href')).toBe('/zones/z3');
       expect(groupRow(root, 'Winter').querySelector('.group__zones')).toBeNull();
-      // Summer is in every zone of its project: "Add to zone…" stays, disabled, with its reason (report §6 #13).
-      const full = buttonNamed(groupRow(root, 'Summer'), 'Add to zone…');
-      expect(full.getAttribute('aria-disabled')).toBe('true');
-      const reasonIds = full.getAttribute('aria-describedby')?.split(' ') ?? [];
-      expect(reasonIds[0]).toBe('group-name-g1');
-      // The reason is its description, and shows under it on hover and focus (not a title only).
-      const reason = root.querySelector(`#${reasonIds[1]}`);
-      expect(reason?.textContent).toBe('Already in every zone');
-      expect(reason?.className).toBe('disabled-reason__tip');
-      expect(reason?.parentElement?.contains(full)).toBe(true);
-      full.click();
+      // Summer is in every zone of its project: "Show in another zone" stays in its ⋯ menu, disabled,
+      // with its reason (epic UX rework R10, report §6 #13).
+      const summer = menuItems(groupRow(root, 'Summer'), 'More for Summer');
+      expect(summer.map((item) => item.label)).toEqual(GROUP_MENU);
+      expect(summer.filter((item) => item.disabled)).toEqual([
+        { label: 'Show in another zone', reason: 'Already in every zone', disabled: true },
+      ]);
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Show in another zone');
       await settle(fixture);
       expect(drawer()).toBeNull();
-      expect(groupRow(root, 'Summer').querySelector('.group__actions .muted')).toBeNull();
-      const add = buttonNamed(groupRow(root, 'Winter'), 'Add to zone…');
-      expect(add.getAttribute('aria-describedby')).toBe('group-name-g2');
-      expect(add.hasAttribute('aria-disabled')).toBe(false);
-      expect(buttonNamed(groupRow(root, 'Summer'), 'Remove from this zone')).toBeTruthy();
-      expect(buttonNamed(groupRow(root, 'Summer'), 'Rename')).toBeTruthy();
+      const winterMenu = menuItems(groupRow(root, 'Winter'), 'More for Winter');
+      expect(winterMenu.find((item) => item.label === 'Show in another zone')).toEqual({
+        label: 'Show in another zone',
+        reason: '',
+        disabled: false,
+      });
+      // No action button outside the menu besides the switch, the move buttons and the name.
+      const buttons = [...groupRow(root, 'Summer').querySelectorAll('.group-row button:not([role=menuitem])')].map(
+        (b) => b.getAttribute('aria-label') ?? b.textContent?.trim(),
+      );
+      expect(buttons.filter((name) => GROUP_MENU.some((item) => name?.startsWith(item)))).toEqual([]);
     });
 
     it('adds a group to another zone of its project from the drawer, then shows it there and "Also in"', async () => {
@@ -1951,9 +1972,9 @@ describe('App', () => {
         projectGroups: { p1: [{ id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 0, zoneIds: ['z1'] }] },
       });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Add to zone…').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Show in another zone');
       await settle(fixture);
-      expect(drawer()?.querySelector('h2')?.textContent).toContain('Add to zone');
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Show in another zone');
       expect(drawer()?.textContent).toContain('Tale group Summer');
       const options = [...(drawer()?.querySelectorAll<HTMLInputElement>('input[type=radio]') ?? [])];
       // Only the project's zones that do not hold the group yet.
@@ -1977,10 +1998,10 @@ describe('App', () => {
       expect(groupRow(root, 'Summer').querySelector('.group__zones')?.textContent).toContain('Product page');
     });
 
-    it("shows the API's message in the Add to zone drawer", async () => {
+    it("shows the API's message in the Show in another zone drawer", async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Add to zone…').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Show in another zone');
       await settle(fixture);
       drawer()?.querySelector<HTMLInputElement>('input[type=radio]')?.click();
       buttonNamed(drawer() as HTMLElement, 'Add').click();
@@ -1999,7 +2020,7 @@ describe('App', () => {
     it('removes a group from this zone after confirming that it stays in the project', async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared], z3: [{ ...shared, position: 0 }] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Remove from this zone').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Remove from this zone');
       await settle(fixture);
       const text = drawer()?.textContent?.replace(/\s+/g, ' ') ?? '';
       expect(text).toContain('Remove Summer from Home bar?');
@@ -2024,7 +2045,7 @@ describe('App', () => {
       const store = TestBed.inject(DashboardStore);
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared], z3: [{ ...shared, position: 0 }] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Rename').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Rename');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Rename tale group');
       const input = drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null;
@@ -2049,7 +2070,7 @@ describe('App', () => {
     it("shows the API's message in the Rename drawer", async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Rename').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Rename');
       await settle(fixture);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, '  ');
       buttonNamed(drawer() as HTMLElement, 'Save').click();
@@ -2061,7 +2082,7 @@ describe('App', () => {
     it("shows the API's message in the Remove drawer", async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
 
-      buttonNamed(groupRow(root, 'Summer'), 'Remove from this zone').click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Remove from this zone');
       await settle(fixture);
       buttonNamed(drawer() as HTMLElement, 'Remove').click();
       await settle(fixture);
@@ -2135,9 +2156,7 @@ describe('App', () => {
     it('copies a group to a zone of another project from the drawer and links to the target zone', async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
 
-      const copyButton = buttonNamed(groupRow(root, 'Summer'), 'Copy to zone…');
-      expect(copyButton.getAttribute('aria-describedby')).toBe('group-name-g1');
-      copyButton.click();
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Copy to zone');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Copy to zone');
       expect(drawer()?.textContent).toContain('Tale group Summer');
@@ -2187,7 +2206,7 @@ describe('App', () => {
       const theirs = { id: 'g8', projectId: 'p2', name: 'Elsewhere', position: 0, zoneIds: ['z2'], tales: [], tags: [] };
       const { fixture, root } = await open('/zones/z2', { ...twoZones, groups: { z2: [theirs] } });
 
-      buttonNamed(groupRow(root, 'Elsewhere'), 'Copy to zone…').click();
+      pickMenuItem(groupRow(root, 'Elsewhere'), 'More for Elsewhere', 'Copy to zone');
       await settle(fixture);
       const projectSelect = drawer()?.querySelector<HTMLSelectElement>('select[name=copyProject]') ?? null;
       expect([...(projectSelect?.options ?? [])].map((o) => o.textContent?.trim())).toEqual(['Globex', 'Acme']);
@@ -2246,6 +2265,224 @@ describe('App', () => {
       expect(await saving).toBe('');
       await settle(fixture);
       expect(store.taleGroupsOf('z3')[0].tales.map((t) => t.id)).toEqual(['t2', 't1']);
+    });
+  });
+
+  describe('tale groups as a list (epic UX rework R10)', () => {
+    const VISIBLE = { visible: true, reasons: [] };
+    const OFF = { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] };
+    const hidden = { ...taleB, status: 'paused', storedStatus: 'paused' };
+    const summer = { ...group, visibility: VISIBLE, tales: [taleA, hidden] };
+    const winter = {
+      ...group,
+      id: 'g2',
+      name: 'Winter sale for the whole family',
+      status: 'draft',
+      storedStatus: 'draft',
+      position: 1,
+      visibility: OFF,
+      tales: [],
+    };
+    const spring = {
+      ...group,
+      id: 'g3',
+      name: 'Spring',
+      status: 'scheduled',
+      startsAt: '2099-12-01T09:00:00.000Z',
+      position: 2,
+      tales: [{ ...taleA, id: 't3', taleGroupId: 'g3' }],
+    };
+    const three: Data = { ...oneZone, displays: { z1: frameBar }, groups: { z1: [summer, winter, spring] } };
+    const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    function row(root: HTMLElement, name: string): HTMLElement {
+      const found = [...root.querySelectorAll<HTMLElement>('.group')].find((li) => text(li.querySelector('h4')) === name);
+      if (!found) throw new Error(`No ${name} row`);
+      return found;
+    }
+
+    function opener(root: HTMLElement, name: string): HTMLButtonElement {
+      return row(root, name).querySelector('.group-row__open') as HTMLButtonElement;
+    }
+
+    it('lists each group as one row: name, "n of m shown", switch, indicator, chip only with a window, and ⋯', async () => {
+      const { root } = await open('/zones/z1', three);
+
+      const list = root.querySelector('ul[aria-label="Tale groups in Home bar"]');
+      expect(list?.children).toHaveLength(3);
+      expect([...(list?.children ?? [])].every((li) => li.tagName === 'LI')).toBe(true);
+      expect(text(row(root, 'Summer').querySelector('.group-row__count'))).toBe('1 of 2 shown');
+      expect(text(row(root, 'Winter sale for the whole family').querySelector('.group-row__count'))).toBe('No tales yet');
+      expect(text(row(root, 'Spring').querySelector('.group-row__count'))).toBe('1 of 1 shown');
+      expect(text(row(root, 'Summer').querySelector('.group-row__status app-visibility'))).toBe('Visible on site');
+      expect(text(row(root, 'Winter sale for the whole family').querySelector('.group-row__status app-visibility button'))).toBe(
+        'Not visible: group is off',
+      );
+      // The switch is named per group, its state in aria-checked.
+      const winterSwitch = row(root, 'Winter sale for the whole family').querySelector('[role=switch]');
+      expect(winterSwitch?.getAttribute('aria-label')).toBe('Winter sale for the whole family on site');
+      expect(winterSwitch?.getAttribute('aria-checked')).toBe('false');
+      // A schedule chip only where a window exists; no capacity or schedule words otherwise.
+      expect(row(root, 'Summer').querySelector('.window-chip')).toBeNull();
+      expect(text(row(root, 'Spring').querySelector('.group-row .window-chip'))).toContain('Starts');
+      expect(text(row(root, 'Summer').querySelector('.group-row'))).not.toContain('/ 100');
+      for (const name of ['Summer', 'Spring']) {
+        expect(row(root, name).querySelector(`button[aria-label="More for ${name}"]`)?.getAttribute('aria-haspopup')).toBe('menu');
+      }
+      // Below the list: New tale group and Add existing group.
+      const actions = root.querySelector('#zone-panel-groups .groups-actions');
+      expect([...(actions?.querySelectorAll('button') ?? [])].map((b) => text(b))).toEqual(['New tale group', 'Add existing group']);
+    });
+
+    it('opens a group from its name or a click on the row, but not from its switch, ⋯ or move buttons', async () => {
+      const { fixture, root } = await open('/zones/z1', three);
+      const body = () => row(root, 'Summer').querySelector<HTMLElement>('.group-body') as HTMLElement;
+      const name = opener(root, 'Summer');
+
+      // Collapsed by default; the tale strip is in the group's body.
+      expect(name.getAttribute('aria-expanded')).toBe('false');
+      expect(name.getAttribute('aria-controls')).toBe(body().id);
+      expect(body().hidden).toBe(true);
+      expect(body().querySelector('[aria-label="Tales in Summer"]')).not.toBeNull();
+
+      name.click();
+      await settle(fixture);
+      expect(name.getAttribute('aria-expanded')).toBe('true');
+      expect(body().hidden).toBe(false);
+      name.click();
+      await settle(fixture);
+      expect(body().hidden).toBe(true);
+
+      // The cover and the row's blank space open it.
+      (row(root, 'Summer').querySelector('.group-row__cover') as HTMLElement).click();
+      await settle(fixture);
+      expect(body().hidden).toBe(false);
+      (row(root, 'Summer').querySelector('.group-row') as HTMLElement).click();
+      await settle(fixture);
+      expect(body().hidden).toBe(true);
+
+      // Its own controls do their own thing and leave it closed.
+      menuItems(row(root, 'Summer'), 'More for Summer');
+      (row(root, 'Summer').querySelector('[aria-label="Move Summer later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z1/tale-groups/order`)
+        .flush([
+          { ...winter, position: 0 },
+          { ...summer, position: 1 },
+          spring,
+        ]);
+      await settle(fixture);
+      row(root, 'Summer').querySelector<HTMLButtonElement>('[role=switch]')?.click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tale-groups/g1/status`).flush({ ...summer, status: 'paused', storedStatus: 'paused' });
+      await settle(fixture);
+      await flushRefresh(fixture, three);
+      await settle(fixture);
+      expect(body().hidden).toBe(true);
+      expect(opener(root, 'Summer').getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('archives a group from its ⋯ menu at once and announces it', async () => {
+      const { fixture, root } = await open('/zones/z1', three);
+
+      pickMenuItem(row(root, 'Summer'), 'More for Summer', 'Archive');
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g1/status`);
+      expect(req.request.method).toBe('PUT');
+      expect(req.request.body).toEqual({ status: 'archived' });
+      const archived = { ...summer, status: 'archived', storedStatus: 'archived' };
+      req.flush(archived);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...three, groups: { z1: [archived, winter, spring] } });
+      await settle(fixture);
+
+      expect(row(root, 'Summer').querySelector('.group-row [role=switch]')).toBeNull();
+      expect(text(row(root, 'Summer').querySelector('.group-row .status-badge'))).toBe('Status: Archived');
+      expect(menuItems(row(root, 'Summer'), 'More for Summer').map((item) => item.label).at(-1)).toBe('Restore');
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toContain('Summer is now archived');
+    });
+
+    it('adds an existing group of the project from "Add existing group", leaving out archived ones', async () => {
+      const autumn = { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 3, zoneIds: [], storedStatus: 'paused' };
+      const old = { id: 'g8', projectId: 'p1', name: 'Old', taleCount: 1, zoneIds: [], storedStatus: 'archived' };
+      const here = { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 2, zoneIds: ['z1'], storedStatus: 'live' };
+      const { fixture, root } = await open('/zones/z1', { ...three, projectGroups: { p1: [autumn, old, here] } });
+
+      const add = root.querySelector<HTMLButtonElement>('#add-existing-group') as HTMLButtonElement;
+      expect(add.hasAttribute('aria-disabled')).toBe(false);
+      add.click();
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      expect(panel.querySelector('h2')?.textContent).toContain('Add existing group');
+      const options = [...panel.querySelectorAll<HTMLInputElement>('input[type=radio]')];
+      expect(options.map((o) => text(o.closest('label')))).toEqual(['Autumn 3 tales · Not in a zone']);
+      expect(options[0].checked).toBe(true);
+
+      buttonNamed(panel, 'Add').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones/z1/tale-groups/g9`);
+      expect(req.request.method).toBe('PUT');
+      req.flush({ id: 'g9', projectId: 'p1', name: 'Autumn', position: 3, zoneIds: ['z1'], tales: [], tags: [] });
+      await settle(fixture);
+      const autumnGroup = { ...group, id: 'g9', name: 'Autumn', status: 'paused', storedStatus: 'paused', position: 3, tales: [] };
+      await flushRefresh(fixture, {
+        ...three,
+        groups: { z1: [summer, winter, spring, autumnGroup] },
+        projectGroups: { p1: [{ ...autumn, zoneIds: ['z1'] }, old, here] },
+      });
+      await settle(fixture);
+
+      expect(drawer()).toBeNull();
+      expect(row(root, 'Autumn')).toBeTruthy();
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe('Autumn added to Home bar');
+      // Nothing left to add: the button stays, disabled, with its reason.
+      const after = root.querySelector<HTMLButtonElement>('#add-existing-group') as HTMLButtonElement;
+      expect(after.getAttribute('aria-disabled')).toBe('true');
+      expect(text(root.querySelector(`#${after.getAttribute('aria-describedby')}`))).toBe(
+        'No other tale group of this project to add',
+      );
+      after.click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+    });
+
+    it("shows the API's message in the Add existing group drawer", async () => {
+      const autumn = { id: 'g9', projectId: 'p1', name: 'Autumn', taleCount: 0, zoneIds: [], storedStatus: 'paused' };
+      const { fixture, root } = await open('/zones/z1', { ...three, projectGroups: { p1: [autumn] } });
+
+      root.querySelector<HTMLButtonElement>('#add-existing-group')?.click();
+      await settle(fixture);
+      expect(text(drawer()?.querySelector('label'))).toBe('Autumn 0 tales · Not in a zone');
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones/z1/tale-groups/g9`)
+        .flush({ error: { code: 'tale_group_not_found', message: 'taleGroupId does not match' } }, { status: 400, statusText: 'Bad Request' });
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('taleGroupId does not match');
+    });
+
+    it('offers New tale group and Add existing group in an empty zone too', async () => {
+      const { root } = await open('/zones/z1', oneZone);
+      expect(root.textContent).toContain('No tale groups yet');
+      expect(root.querySelector('#new-tale-group')?.classList).toContain('btn--primary');
+      expect(root.querySelector('#add-existing-group')).not.toBeNull();
+    });
+
+    it('stacks rows in two lines on a narrow list and wraps names between words (390 px)', async () => {
+      // jsdom does no layout: this checks the rules the page applies, which the browser run
+      // screenshots at 390x844.
+      await open('/zones/z1', three);
+      const css = [...document.querySelectorAll('style')].map((style) => style.textContent ?? '').join('\n');
+      const at = css.indexOf('@container group-list (max-width: 40rem)');
+      expect(at).toBeGreaterThan(-1);
+      expect(css.slice(at)).toMatch(
+        /grid-template-areas:\s*["']reorder cover main menu["']\s*["']reorder cover status status["']/,
+      );
+      expect(css).toMatch(/container:\s*group-list\s*\/\s*inline-size/);
+      expect(css).toMatch(/\.group-row__name[^{]*\{[^}]*overflow-wrap:\s*break-word/);
+      expect(css).toMatch(/\.visibility__text[^{]*\{[^}]*overflow-wrap:\s*break-word/);
     });
   });
 
@@ -2437,12 +2674,11 @@ describe('App', () => {
       ];
     }
 
-    // The text buttons of a group row before Tags (the switch has no text of its own).
-    function statusButtons(row: HTMLElement): string[] {
-      const names = [...row.querySelectorAll<HTMLButtonElement>('.group__actions button')]
-        .filter((b) => b.getAttribute('role') !== 'switch')
-        .map((b) => b.textContent?.trim() ?? '');
-      return names.slice(0, names.indexOf('Tags'));
+    // The status items of a group row's ⋯ menu: Archive or Restore (epic UX rework R10).
+    function statusButtons(root: HTMLElement, name: string): string[] {
+      return menuItems(groupRow(root, name), `More for ${name}`)
+        .map((item) => item.label)
+        .filter((label) => label === 'Archive' || label === 'Restore');
     }
 
     it('gives each group an On/Off switch and each tale card a Shown/Hidden switch, with Archive or Restore beside', async () => {
@@ -2454,11 +2690,10 @@ describe('App', () => {
       expect(groupRow(root, 'Archived one').querySelector('[role=switch]')).toBeNull();
       expect(badge(groupRow(root, 'Archived one'))).toBe('Status: Archived');
       for (const name of ['Summer', 'Draft one', 'Paused one']) {
-        expect(groupRow(root, name).querySelector('.group__title .status-badge')).toBeNull();
-        expect(statusButtons(groupRow(root, name))).toEqual(['Archive']);
+        expect(groupRow(root, name).querySelector('.group-row .status-badge')).toBeNull();
+        expect(statusButtons(root, name)).toEqual(['Archive']);
       }
-      expect(statusButtons(groupRow(root, 'Archived one'))).toEqual(['Restore']);
-      expect(buttonNamed(groupRow(root, 'Draft one'), 'Archive').getAttribute('aria-describedby')).toBe('group-name-g2');
+      expect(statusButtons(root, 'Archived one')).toEqual(['Restore']);
 
       const summer = groupRow(root, 'Summer');
       expect(switchState(summer, 'Show A')).toEqual(['Shown', 'true']);
@@ -2512,7 +2747,7 @@ describe('App', () => {
     it('restores an archived group as off', async () => {
       const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [archived] } });
 
-      buttonNamed(groupRow(root, 'Archived one'), 'Restore').click();
+      pickMenuItem(groupRow(root, 'Archived one'), 'More for Archived one', 'Restore');
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tale-groups/g4/status`);
       expect(req.request.body).toEqual({ status: 'paused' });
@@ -2522,7 +2757,7 @@ describe('App', () => {
       await settle(fixture);
 
       expect(switchState(groupRow(root, 'Archived one'), 'Archived one on site')).toEqual(['Off', 'false']);
-      expect(statusButtons(groupRow(root, 'Archived one'))).toEqual(['Archive']);
+      expect(statusButtons(root, 'Archived one')).toEqual(['Archive']);
     });
 
     it("shows the API's message when a switch is refused, and keeps its state", async () => {
@@ -3028,7 +3263,9 @@ describe('App', () => {
       const chips = [...root.querySelectorAll('[aria-label="Tags of Summer"] li')].map((li) => li.textContent?.trim());
       expect(chips).toEqual(['Beach', 'summer']);
       expect(root.querySelector('[aria-label="Tags of Winter"] li')).toBeNull();
-      expect(root.querySelectorAll('button[aria-label^="Tags of "]').length).toBe(2);
+      // Tags is an item of every group's ⋯ menu (epic UX rework R10).
+      expect(root.querySelectorAll('button[aria-label^="More for "]').length).toBe(2);
+      expect(menuItems(root, 'More for Winter').map((item) => item.label)).toContain('Tags');
     });
 
     it("opens the Tags drawer with the project's tags as checkboxes, creates a tag and saves the set", async () => {
@@ -3038,7 +3275,7 @@ describe('App', () => {
         tags: { p1: [beach] },
       });
 
-      (root.querySelector('button[aria-label="Tags of Summer"]') as HTMLButtonElement).click();
+      pickMenuItem(root, 'More for Summer', 'Tags');
       await settle(fixture);
       const panel = drawer() as HTMLElement;
       expect(panel.querySelector('h2')?.textContent).toContain('Tags');
@@ -3085,7 +3322,7 @@ describe('App', () => {
         groups: { z1: [{ ...group, tales: [] }] },
         tags: { p1: [summer] },
       });
-      (root.querySelector('button[aria-label="Tags of Summer"]') as HTMLButtonElement).click();
+      pickMenuItem(root, 'More for Summer', 'Tags');
       await settle(fixture);
       const panel = drawer() as HTMLElement;
       expect(panel.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked).toBe(false);
@@ -3175,7 +3412,7 @@ describe('App', () => {
         ['Summer', 'g1', true],
         ['Spring', 'g3', false],
       ] as const) {
-        (root.querySelector(`button[aria-label="Tags of ${name}"]`) as HTMLButtonElement).click();
+        pickMenuItem(root, `More for ${name}`, 'Tags');
         await settle(fixture);
         const panel = drawer() as HTMLElement;
         if (created) {
@@ -3392,7 +3629,7 @@ describe('App', () => {
 
     async function openCover(data: Data) {
       const opened = await open('/zones/z1', data);
-      buttonNamed(opened.root, 'Cover').click();
+      pickMenuItem(opened.root, 'More for Summer', 'Cover');
       await settle(opened.fixture);
       return opened;
     }
@@ -3467,7 +3704,7 @@ describe('App', () => {
       });
       expect(root.querySelector('.group .ring img.ring__cover')?.getAttribute('src')).toBe('/api/v1/tale-groups/g1/cover');
 
-      buttonNamed(root, 'Cover').click();
+      pickMenuItem(root, 'More for Summer', 'Cover');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Cover');
       expect(drawer()?.textContent).toContain('Still cover');
@@ -3809,9 +4046,9 @@ describe('App', () => {
       expect(text(root.querySelector('.page-header app-visibility'))).toBe('Visible on site');
 
       const summer = row(root, 'Summer');
-      expect(text(summer.querySelector('.group__name app-visibility'))).toBe('Visible on site');
+      expect(text(summer.querySelector('.group-row__status app-visibility'))).toBe('Visible on site');
       const winter = row(root, 'Winter');
-      const line = winter.querySelector<HTMLButtonElement>('.group__name app-visibility button');
+      const line = winter.querySelector<HTMLButtonElement>('.group-row__status app-visibility button');
       expect(text(line)).toBe('Not visible: group is off');
       expect(text(root.querySelector(`#${line?.getAttribute('aria-describedby')}`))).toContain('group is off');
 
@@ -3850,7 +4087,7 @@ describe('App', () => {
       expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(
         'Winter is now on. Not visible: zone has no display',
       );
-      expect(text(row(root, 'Winter').querySelector('.group__name app-visibility button'))).toBe(
+      expect(text(row(root, 'Winter').querySelector('.group-row__status app-visibility button'))).toBe(
         'Not visible: zone has no display',
       );
     });
