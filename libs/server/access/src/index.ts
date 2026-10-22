@@ -26,7 +26,16 @@ export {
   EmailTakenError,
   ZoneKeyNotFoundError,
 } from './lib/errors';
-export { migrateZoneKeys, issueZoneKey, revokeZoneKey, zoneKeyInfo, zoneForKey, type KeyZone } from './lib/zoneKeys';
+export {
+  migrateZoneKeys,
+  issueZoneKey,
+  revokeZoneKey,
+  zoneKeyInfo,
+  zoneForKey,
+  zoneIdsWithActiveKey,
+  zoneInstalledSql,
+  type KeyZone,
+} from './lib/zoneKeys';
 export {
   SimpleWebAuthnVerifier,
   type PasskeyVerifier,

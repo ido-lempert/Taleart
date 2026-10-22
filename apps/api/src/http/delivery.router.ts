@@ -85,6 +85,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         res.status(401).json(errorBody(ErrorCodes.invalidZoneKey, INVALID_KEY_MESSAGE));
         return;
       }
+      // A zone without a display delivers no tale group (epic UX rework R7): its setup is part of
+      // the Delivery filter (`deliveredPlacement`), the rule the Management API's indicator reads.
       const [frames, stages, taleGroups, theme] = await Promise.all([
         listFrames(pool, zoneId),
         listDeliveryStages(pool, zoneId),

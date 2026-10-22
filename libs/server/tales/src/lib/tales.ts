@@ -48,6 +48,8 @@ import {
   type KeyedDeliveryDocument,
   TaleDocumentTooLargeError,
 } from './tale-document';
+import { deliveredGroup, deliveredPlacement, deliveredTale } from './delivery-rule';
+import { groupsAndTalesVisibility, groupVisibilities, taleVisibilities, withVisibility } from './visibility';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -65,57 +67,8 @@ const TALE_COLUMNS =
   'tales.starts_at AS "startsAt", tales.ends_at AS "endsAt", ' +
   '(SELECT owner.status FROM tale_groups owner WHERE owner.id = tales.tale_group_id) AS "groupStatus"';
 
-// Live content inside its window at $n (AD-6), for the table or alias `t`:
-// at or after its start and before its end; a missing bound is open.
-export function liveNow(t: string, param: string): string {
-  return (
-    `${t}.status = 'live' AND (${t}.starts_at IS NULL OR ${t}.starts_at <= ${param}) ` +
-    `AND (${t}.ends_at IS NULL OR ${t}.ends_at > ${param})`
-  );
-}
-
-/** The tales migration step after which new tales start live (AD-6 amended 2026-10-23); see migration.ts. */
-export const SHOWN_STATUS_STEP = 'shown-status';
-
-// True for a tale, alias `t`, that has something published to deliver (AD-6 amended, AD-15): a
-// published document, or, as before the UX rework:
-// - media whose documents are not in step yet, which the Delivery API composes (R16) until the
-//   media migration writes the published document; not for a tale with only a studio draft, whose
-//   media alone was never what its person saw (media replaced while TALE_MEDIA_MIGRATION is off, or
-//   a skipped merge): it waits for the draft to be published, as any tale "not updated yet";
-// - created before the shown-status step (with no published document): such a tale showed its media
-//   (composed by the Delivery API, also when its documents are in step but only a studio draft
-//   exists) or the legacy placeholder, so it keeps showing it. A tale created since then is
-//   delivered only once it has a published document, so a new tale with nothing published
-//   ("not updated yet") is not.
-// Null checks only: no document is read.
-export function hasPublishedDocument(t: string): string {
-  return (
-    `(${t}.document IS NOT NULL ` +
-    `OR (${t}.media_key IS NOT NULL AND ${t}.document_media_key IS DISTINCT FROM ${t}.media_key ` +
-    `AND (${t}.document IS NOT NULL OR ${t}.draft_document IS NULL)) ` +
-    // Until the step has run, every tale is from before it.
-    `OR (${t}.created_at < COALESCE((SELECT applied_at FROM tales_migrations WHERE step = '${SHOWN_STATUS_STEP}'), ` +
-    `'infinity'::timestamptz)))`
-  );
-}
-
-// A tale the Delivery API delivers at $n, for the tales alias `t`, given that its group is
-// delivered: live in its window, with something published (AD-6, AD-15).
-export function deliveredTale(t: string, param: string): string {
-  return `${liveNow(t, param)} AND ${hasPublishedDocument(t)}`;
-}
-
-// A group the Delivery API delivers at $n, for the tale_groups alias `g`: live
-// in its window, with a delivered tale, and placed in a zone (AD-6,
-// AD-14). The one rule for the Delivery list and the public cover and font lookups.
-export function deliveredGroup(g: string, param: string): string {
-  return (
-    `${liveNow(g, param)} ` +
-    `AND EXISTS (SELECT 1 FROM tales dt WHERE dt.tale_group_id = ${g}.id AND ${deliveredTale('dt', param)}) ` +
-    `AND EXISTS (SELECT 1 FROM zone_tale_groups dz WHERE dz.tale_group_id = ${g}.id)`
-  );
-}
+// The Delivery filter and the visibility reasons, from one list of clauses (epic UX rework R7).
+export { deliveredGroup, deliveredTale, hasPublishedDocument, SHOWN_STATUS_STEP } from './delivery-rule';
 
 /**
  * A tale group as this module stores it: everything but its tags, which the
@@ -145,16 +98,16 @@ interface CoverRow {
 }
 
 // A tale_groups row as GROUP_COLUMNS reads it, with the placement's position when read through a zone.
-type GroupRow = Omit<StoredTaleGroup, 'tales' | 'zoneIds' | 'status' | 'startsAt' | 'endsAt' | 'cover'> &
+type GroupRow = Omit<StoredTaleGroup, 'tales' | 'zoneIds' | 'status' | 'startsAt' | 'endsAt' | 'cover' | 'visibility'> &
   WindowRow &
   CoverRow;
 type ZoneGroupRow = GroupRow & { position: number };
 
 // The group's fields as the API returns them: the window in ISO 8601 UTC and the status as read (AD-6).
-type GroupFields = Omit<StoredTaleGroup, 'tales' | 'zoneIds'>;
+type GroupFields = Omit<StoredTaleGroup, 'tales' | 'zoneIds' | 'visibility'>;
 
 // A tales row as TALE_COLUMNS reads it. The storage key stays inside the module.
-type TaleRow = Omit<Tale, 'media' | 'status' | 'startsAt' | 'endsAt'> &
+type TaleRow = Omit<Tale, 'media' | 'status' | 'startsAt' | 'endsAt' | 'visibility'> &
   WindowRow & { mediaContentType: string | null; groupStatus: ContentStatus };
 
 function iso(value: Date | null | undefined): string | null {
@@ -187,7 +140,7 @@ function toGroup<T extends GroupRow>(row: T): Omit<T, keyof WindowRow | keyof Co
 }
 
 // The API derives the media URL from the tale id; the row holds only the key (AD-11).
-function toTale({ mediaContentType, groupStatus, ...tale }: TaleRow): Tale {
+function toTale({ mediaContentType, groupStatus, ...tale }: TaleRow): Omit<Tale, 'visibility'> {
   const media =
     mediaContentType !== null && isMediaContentType(mediaContentType)
       ? { kind: mediaKind(mediaContentType), contentType: mediaContentType, url: taleMediaUrl(tale.id) }
@@ -350,7 +303,7 @@ async function zoneGroups(db: Db, zoneId: string): Promise<StoredZoneTaleGroup[]
      ORDER BY zone_tale_groups.position, tale_groups.id`,
     [zoneId],
   );
-  return withTales(db, groups.rows);
+  return withTales(db, groups.rows, zoneId);
 }
 
 // One placed group of the zone, or undefined when the group is not placed there.
@@ -361,7 +314,7 @@ async function zoneGroup(db: Db, zoneId: string, taleGroupId: string): Promise<S
      WHERE zone_tale_groups.zone_id = $1 AND zone_tale_groups.tale_group_id = $2`,
     [zoneId, taleGroupId],
   );
-  const [group] = await withTales(db, rows);
+  const [group] = await withTales(db, rows, zoneId);
   return group;
 }
 
@@ -402,10 +355,14 @@ async function zoneIdsOf(db: Db, taleGroupIds: string[]): Promise<Map<string, st
   return byGroup;
 }
 
-// Adds each group's tales, by position, and the zones it is placed in; computes its status as read.
+// Adds each group's tales, by position, and the zones it is placed in; computes its status as read
+// and the visibility of the group and its tales (R7): in the zone `zoneId` when the zone lists
+// them, else in any zone.
 async function withTales<T extends GroupRow>(
   db: Db,
   groups: T[],
+  zoneId?: string,
+  now: Date = new Date(),
 ): Promise<(Omit<T, keyof GroupRow> & StoredTaleGroup)[]> {
   if (groups.length === 0) return [];
   const ids = groups.map((g) => g.id);
@@ -414,11 +371,32 @@ async function withTales<T extends GroupRow>(
     [ids],
   );
   const zoneIds = await zoneIdsOf(db, ids);
-  return groups.map((group) => ({
-    ...toGroup(group),
+  const visible = await groupsAndTalesVisibility(db, ids, now, zoneId);
+  return withVisibility(groups, visible.groups).map(({ visibility, ...group }) => ({
+    ...toGroup(group as unknown as T),
+    visibility,
     zoneIds: zoneIds.get(group.id) ?? [],
-    tales: tales.rows.filter((tale) => tale.taleGroupId === group.id).map(toTale),
+    tales: withVisibility(
+      tales.rows.filter((tale) => tale.taleGroupId === group.id).map(toTale),
+      visible.tales,
+    ),
   })) as (Omit<T, keyof GroupRow> & StoredTaleGroup)[];
+}
+
+// Tales with their visibility in any zone their group is placed in (R7).
+async function visibleTales<T extends { id: string }>(
+  db: Db,
+  tales: T[],
+  now: Date = new Date(),
+): Promise<(T & Pick<Tale, 'visibility'>)[]> {
+  return withVisibility(
+    tales,
+    await taleVisibilities(
+      db,
+      tales.map((tale) => tale.id),
+      now,
+    ),
+  );
 }
 
 /**
@@ -435,11 +413,16 @@ export async function listProjectTaleGroups(db: Db, projectId: string): Promise<
     [projectId],
   );
   const zoneIds = await zoneIdsOf(db, rows.map((g) => g.id));
+  const visible = await groupVisibilities(
+    db,
+    rows.map((g) => g.id),
+    new Date(),
+  );
   // The project's list carries no cover; the zone lists and a group's own reads do.
-  return rows.map(({ taleCount, ...row }) => {
+  return withVisibility(rows, visible).map(({ taleCount, visibility, ...row }) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { cover, ...group } = toGroup(row);
-    return { ...group, taleCount, zoneIds: zoneIds.get(row.id) ?? [] };
+    return { ...group, taleCount, zoneIds: zoneIds.get(row.id) ?? [], visibility };
   });
 }
 
@@ -473,7 +456,8 @@ export async function createTaleGroup(
       [input.zoneId, group.id, projectId],
     );
     if (withGroup) await withGroup(tx, { taleGroupId: group.id, projectId });
-    return { ...toGroup(group), position: placed.rows[0].position, zoneIds: [input.zoneId], tales: [] };
+    const [visibility] = (await groupVisibilities(tx, [group.id], new Date(), input.zoneId)).values();
+    return { ...toGroup(group), visibility, position: placed.rows[0].position, zoneIds: [input.zoneId], tales: [] };
   });
 }
 
@@ -592,7 +576,7 @@ export async function copyTaleGroup(
       [zoneId, group.id, projectId],
     );
     if (withCopy) await withCopy(tx, { sourceTaleGroupId: taleGroupId.toLowerCase(), taleGroupId: group.id, projectId });
-    const [copy] = await withTales(tx, [{ ...group, position: placed.rows[0].position }]);
+    const [copy] = await withTales(tx, [{ ...group, position: placed.rows[0].position }], zoneId);
     return copy;
   });
 }
@@ -724,7 +708,7 @@ export async function orderTales(
       `SELECT ${TALE_COLUMNS} FROM tales WHERE tale_group_id = $1 ORDER BY position, id`,
       [taleGroupId],
     );
-    return rows.map(toTale);
+    return visibleTales(tx, rows.map(toTale));
   });
 }
 
@@ -913,9 +897,8 @@ export async function setTaleStatus(
             taleId,
             status,
           ]);
-    return draftNotPublished
-      ? { ...toTale(rows[0]), draftNotPublished: true, draftNotPublishedReason: reason }
-      : toTale(rows[0]);
+    const [tale] = await visibleTales(tx, [toTale(rows[0])]);
+    return draftNotPublished ? { ...tale, draftNotPublished: true, draftNotPublishedReason: reason } : tale;
   });
 }
 
@@ -994,7 +977,8 @@ export async function setTaleSchedule(db: Db, taleId: string, window: StoredWind
     [taleId, window.startsAt, window.endsAt],
   );
   if (rows.length === 0) throw new TaleNotFoundError(taleId);
-  return toTale(rows[0]);
+  const [tale] = await visibleTales(db, [toTale(rows[0])]);
+  return tale;
 }
 
 /** The project of a tale group, or null when it does not exist. Ids that are not UUIDs never match. */
@@ -1060,7 +1044,8 @@ export async function createTale(
       [input.taleGroupId, projectId, input.title, next, input.status ?? NEW_TALE_STATUS],
     );
     if (withTale) await withTale(tx, { taleId: rows[0].id, projectId });
-    return toTale(rows[0]);
+    const [tale] = await visibleTales(tx, [toTale(rows[0])]);
+    return tale;
   });
 }
 
@@ -1139,7 +1124,8 @@ export async function copyTaleWithDocument(
     if (rows.length === 0) throw new TaleNotFoundError(taleId);
     await recordTaleFonts(tx, rows[0].id, 'draft', document, false);
     await recordTaleMedia(tx, rows[0].id, 'draft', document, false);
-    return toTale(rows[0]);
+    const [tale] = await visibleTales(tx, [toTale(rows[0])]);
+    return tale;
   });
 }
 
@@ -1202,7 +1188,8 @@ export async function setTaleMedia(
     if (rows.length === 0) throw new TaleNotFoundError(taleId);
     await bringTaleMediaInStep(tx, taleId);
     const { previousKey, ...row } = rows[0];
-    return { tale: toTale(row), previousKey };
+    const [tale] = await visibleTales(tx, [toTale(row)]);
+    return { tale, previousKey };
   });
 }
 
@@ -1391,7 +1378,7 @@ export async function listDeliveryTaleGroups(
        tale_groups.cover_content_type AS "coverContentType", tale_groups.cover_animated AS "coverAnimated"
      FROM zone_tale_groups
      JOIN tale_groups ON tale_groups.id = zone_tale_groups.tale_group_id
-     WHERE zone_tale_groups.zone_id = $1 AND ${deliveredGroup('tale_groups', '$2')}
+     WHERE zone_tale_groups.zone_id = $1 AND ${deliveredPlacement('tale_groups', 'zone_tale_groups.zone_id', '$2')}
      ORDER BY zone_tale_groups.position, tale_groups.id`,
     [zoneId, now],
   );

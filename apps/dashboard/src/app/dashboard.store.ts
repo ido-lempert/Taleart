@@ -374,6 +374,8 @@ export class DashboardStore {
         this.http.post<IssuedZoneKey>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/key`, {}),
       );
       this.zoneKeys.update((all) => ({ ...all, [zoneId]: { prefix: key.prefix, createdAt: key.createdAt } }));
+      // A key installs the zone (epic UX rework R7): its visibility and its groups' change.
+      void this.refresh();
       return { key, message: '' };
     } catch (err) {
       return { key: null, message: apiErrorMessage(err, 'The key was not issued. Try again.') };
@@ -388,6 +390,7 @@ export class DashboardStore {
       return apiErrorMessage(err, 'The key was not revoked. Try again.');
     }
     this.zoneKeys.update((all) => ({ ...all, [zoneId]: null }));
+    await this.refresh();
     return '';
   }
 
@@ -448,6 +451,8 @@ export class DashboardStore {
     this.zones.update((zones) => zones.map((zone) => (zone.id === zoneId ? result.zone : zone)));
     this.frames.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.frames] }));
     this.stages.update((all) => ({ ...all, [zoneId]: [...(all[zoneId] ?? []), ...result.stages] }));
+    // Its frames give the zone a display (epic UX rework R7): its groups' and tales' indicators change.
+    void this.refresh();
     return '';
   }
 

@@ -104,3 +104,26 @@ export async function zoneForKey(db: Db, key: string | undefined): Promise<KeyZo
   );
   return rows[0] ?? null;
 }
+
+/**
+ * The zones among `zoneIds` that have an active key: installed, until the site key of epic UX
+ * rework story 6 (R7 "zone not installed").
+ */
+export async function zoneIdsWithActiveKey(db: Db, zoneIds: readonly string[]): Promise<Set<string>> {
+  const ids = zoneIds.filter((id) => UUID.test(id));
+  if (ids.length === 0) return new Set();
+  const { rows } = await db.query<{ zoneId: string }>(
+    'SELECT DISTINCT zone_id AS "zoneId" FROM zone_keys WHERE zone_id = ANY($1::uuid[]) AND revoked_at IS NULL',
+    [ids],
+  );
+  return new Set(rows.map((row) => row.zoneId));
+}
+
+/**
+ * SQL that is true when the zone whose id is the expression `zoneId` is installed: it has an
+ * active key (until the site key of epic UX rework story 6). The access module owns `zone_keys`;
+ * other modules build their visibility and Delivery rules with this (R7).
+ */
+export function zoneInstalledSql(zoneId: string): string {
+  return `EXISTS (SELECT 1 FROM zone_keys zk WHERE zk.zone_id = ${zoneId} AND zk.revoked_at IS NULL)`;
+}

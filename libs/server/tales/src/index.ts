@@ -153,3 +153,23 @@ export {
   NothingToPublishError,
   TaleDocumentTooLargeError,
 } from './lib/tale-document';
+// "Visible on site / Not visible because…" (epic UX rework R7): from the clauses the Delivery
+// filter is made of, so the indicator and the site cannot disagree.
+export {
+  GROUP_OWN_REASON_CLAUSES,
+  GROUP_REASON_CLAUSES,
+  TALE_REASON_CLAUSES,
+  ZONE_REASON_CLAUSES,
+  ZONE_SETUP_CLAUSES,
+  deliveredGroup,
+  deliveredPlacement,
+  deliveredTale,
+  groupReasonsSql,
+  hasPublishedDocument,
+  taleReasonsSql,
+  zoneDelivers,
+  zoneReasonsSql,
+  zoneSetUp,
+  type ReasonClause,
+} from './lib/delivery-rule';
+export { groupVisibilities, taleVisibilities, withVisibility, zoneVisibilities } from './lib/visibility';

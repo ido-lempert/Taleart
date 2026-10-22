@@ -4,6 +4,7 @@ import { MAX_TALES_PER_GROUP, type ProjectTaleGroup, type Zone } from '@taleart/
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { StatusBadge } from '../status';
+import { VisibilityIndicator } from '../visibility';
 
 /**
  * The selected project's tale groups by name, with the zones each is placed
@@ -13,7 +14,7 @@ import { StatusBadge } from '../status';
  */
 @Component({
   selector: 'app-tale-groups-page',
-  imports: [RouterLink, Icon, StatusBadge],
+  imports: [RouterLink, Icon, StatusBadge, VisibilityIndicator],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .group-list {
@@ -63,6 +64,7 @@ import { StatusBadge } from '../status';
                     <span class="ring" aria-hidden="true">{{ group.name.charAt(0) }}</span>
                     <div class="group-row__name">
                       <h3 [id]="'project-group-' + group.id">{{ group.name }}</h3>
+                      <app-visibility [visibility]="group.visibility" viewing="group" [anyZone]="true" />
                       <p class="muted">
                         <app-status-badge [status]="group.status" kind="group" />
                         <span class="visually-hidden">Tales: </span>{{ group.taleCount }} / {{ maxTales }}

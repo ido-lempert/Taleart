@@ -384,7 +384,7 @@ describe('public media of documents', () => {
     expect(await findPublishedDocumentMedia(db, IMAGE, now)).toEqual({ key: IMAGE, contentType: 'image/png' });
     const [sql, params] = calls()[0];
     expect(sql).toMatch(/tm\.storage_key = \$1 AND tm\.document = 'published' AND tm\.delivered/);
-    expect(sql).toMatch(/t\.status = 'live'/);
+    expect(sql).toMatch(/\(t\.status IN \('draft', 'paused'\)\) IS NOT TRUE/);
     expect(sql).toMatch(/EXISTS \(SELECT 1 FROM zone_tale_groups dz WHERE dz\.tale_group_id = g\.id\)/);
     expect(params).toEqual([IMAGE, now]);
     // Kept: no second query within the TTL.

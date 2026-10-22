@@ -53,6 +53,8 @@ const projectId = '00000000-0000-4000-8000-000000000002';
 const groupId = '00000000-0000-4000-8000-000000000003';
 // No start and no end time, as rows without a window read (AD-6).
 const NO_WINDOW = { startsAt: null, endsAt: null };
+// Every group and tale read carries its visibility (epic UX rework R7); the API tests check its reasons.
+const VIS = { visibility: expect.objectContaining({ visible: expect.any(Boolean) }) };
 
 // A fake pool whose connection answers queries in order from `answers`.
 function fakeDb(answers: unknown[]) {
@@ -152,7 +154,7 @@ describe('placements', () => {
     const result = await placeTaleGroup(db, zoneId, groupId);
     expect(result).toEqual({
       placed: true,
-      group: { ...placedRow, ...NO_WINDOW, cover: null, tales: [], zoneIds: ['00000000-0000-4000-8000-0000000000aa', zoneId] },
+      group: { ...placedRow, ...NO_WINDOW, cover: null, tales: [], zoneIds: ['00000000-0000-4000-8000-0000000000aa', zoneId], ...VIS },
     });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
@@ -226,8 +228,8 @@ describe('placements', () => {
       { rows: [{ taleGroupId: groupId, zoneId }] },
     ]);
     expect(await listProjectTaleGroups(db, projectId)).toEqual([
-      { id: groupId, projectId, name: 'Autumn', ...NO_WINDOW, taleCount: 2, zoneIds: [zoneId] },
-      { id: g2, projectId, name: 'beach', ...NO_WINDOW, taleCount: 0, zoneIds: [] },
+      { id: groupId, projectId, name: 'Autumn', ...NO_WINDOW, taleCount: 2, zoneIds: [zoneId], ...VIS },
+      { id: g2, projectId, name: 'beach', ...NO_WINDOW, taleCount: 0, zoneIds: [], ...VIS },
     ]);
     expect(query.mock.calls[0][0]).toMatch(/ORDER BY lower\(name\), name, id/);
     expect(query.mock.calls[0][1]).toEqual([projectId]);
@@ -240,7 +242,7 @@ describe('placements', () => {
 describe('rename', () => {
   it('renames the group itself and returns it with its tales and zones', async () => {
     const { db, query } = fakeDb([{ rows: [{ id: groupId, projectId, name: 'B' }] }, { rows: [] }, { rows: [{ taleGroupId: groupId, zoneId }] }]);
-    expect(await renameTaleGroup(db, groupId, 'B')).toEqual({ id: groupId, projectId, name: 'B', ...NO_WINDOW, cover: null, tales: [], zoneIds: [zoneId] });
+    expect(await renameTaleGroup(db, groupId, 'B')).toEqual({ id: groupId, projectId, name: 'B', ...NO_WINDOW, cover: null, tales: [], zoneIds: [zoneId], ...VIS });
     expect(query.mock.calls[0][0]).toMatch(/UPDATE tale_groups SET name = \$2 WHERE id = \$1/);
     expect(query.mock.calls[0][1]).toEqual([groupId, 'B']);
   });
@@ -334,7 +336,8 @@ describe('one tale group', () => {
       ...NO_WINDOW,
       cover: null,
       zoneIds: [zoneId],
-      tales: [{ id: 't1', taleGroupId: groupId, ...NO_WINDOW, media: null }],
+      ...VIS,
+      tales: [{ id: 't1', taleGroupId: groupId, ...NO_WINDOW, media: null, ...VIS }],
     });
   });
 });
@@ -379,7 +382,7 @@ describe('tales', () => {
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
     // New tales are stored live (Shown, AD-6 amended).
     expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2, 'live']);
-    expect(tale).toEqual({ id: 't1', ...NO_WINDOW, media: null });
+    expect(tale).toEqual({ id: 't1', ...NO_WINDOW, media: null, ...VIS });
   });
 
   it('runs the callback in the same transaction once the tale exists, and rolls back when it throws', async () => {
@@ -501,8 +504,8 @@ describe('tale media', () => {
     ]);
     const [group] = await listTaleGroups(db, zoneId);
     expect(group.tales).toEqual([
-      { ...row, ...NO_WINDOW, media: { kind: 'video', contentType: 'video/mp4', url: `/api/v1/tales/${taleId}/media` } },
-      { ...row, ...NO_WINDOW, id: 't2', media: null },
+      { ...row, ...NO_WINDOW, media: { kind: 'video', contentType: 'video/mp4', url: `/api/v1/tales/${taleId}/media` }, ...VIS },
+      { ...row, ...NO_WINDOW, id: 't2', media: null, ...VIS },
     ]);
     expect(JSON.stringify(group)).not.toMatch(/key/i);
   });
@@ -538,7 +541,7 @@ describe('tale media', () => {
     expect(query.mock.calls.at(-1)?.[0]).toBe('COMMIT');
     expect(result).toEqual({
       previousKey: 'tales/old.png',
-      tale: { ...row, ...NO_WINDOW, media: { kind: 'image', contentType: 'image/gif', url: `/api/v1/tales/${taleId}/media` } },
+      tale: { ...row, ...NO_WINDOW, media: { kind: 'image', contentType: 'image/gif', url: `/api/v1/tales/${taleId}/media` }, ...VIS },
     });
   });
 
@@ -724,13 +727,13 @@ describe('delivery', () => {
     ]);
     expect(statements()[0]).toMatch(/FROM zone_tale_groups[\s\S]*ORDER BY zone_tale_groups\.position, tale_groups\.id/);
     // Only live groups and their live tales are delivered (AD-6).
-    expect(statements()[0]).toMatch(/tale_groups\.status = 'live'/);
-    expect(statements()[1]).toMatch(/tales\.status = 'live'[\s\S]*ORDER BY position, id/);
+    expect(statements()[0]).toMatch(/\(tale_groups\.status IN \('draft', 'paused'\)\) IS NOT TRUE/);
+    expect(statements()[1]).toMatch(/\(tales\.status IN \('draft', 'paused'\)\) IS NOT TRUE[\s\S]*ORDER BY position, id/);
     // ...inside their start and end time, and their group's (AD-6).
     expect(statements()[0]).toMatch(
-      /tale_groups\.starts_at IS NULL OR tale_groups\.starts_at <= \$2\) AND \(tale_groups\.ends_at IS NULL OR tale_groups\.ends_at > \$2\)/,
+      /\(tale_groups\.starts_at > \$2\) IS NOT TRUE AND \(tale_groups\.ends_at <= \$2\) IS NOT TRUE/,
     );
-    expect(statements()[1]).toMatch(/tales\.starts_at IS NULL OR tales\.starts_at <= \$2\) AND \(tales\.ends_at IS NULL OR tales\.ends_at > \$2\)/);
+    expect(statements()[1]).toMatch(/\(tales\.starts_at > \$2\) IS NOT TRUE AND \(tales\.ends_at <= \$2\) IS NOT TRUE/);
   });
 
   it("composes the tale's media into the document of a tale out of step (R16), and lets its key be resolved", async () => {
@@ -811,9 +814,9 @@ describe('delivery', () => {
     expect(await findPublishedMedia(found.db, 'tales/x.mp4')).toEqual({ key: 'tales/x.mp4', contentType: 'video/mp4' });
     expect(found.query.mock.calls[0][1]).toEqual(['tales/x.mp4', expect.any(Date)]);
     // Published: a live tale of a live group, each inside its window (AD-6, AD-11).
-    expect(found.query.mock.calls[0][0]).toMatch(/tales\.status = 'live' AND \(tales\.starts_at IS NULL/);
-    expect(found.query.mock.calls[0][0]).toMatch(/tale_groups\.status = 'live' AND \(tale_groups\.starts_at IS NULL/);
-    expect(found.query.mock.calls[0][0]).toMatch(/tale_groups\.ends_at > \$2/);
+    expect(found.query.mock.calls[0][0]).toMatch(/\(tales\.status IN \('draft', 'paused'\)\) IS NOT TRUE[\s\S]*\(tales\.starts_at > \$2\) IS NOT TRUE/);
+    expect(found.query.mock.calls[0][0]).toMatch(/\(tale_groups\.status IN \('draft', 'paused'\)\) IS NOT TRUE[\s\S]*\(tale_groups\.starts_at > \$2\) IS NOT TRUE/);
+    expect(found.query.mock.calls[0][0]).toMatch(/\(tale_groups\.ends_at <= \$2\) IS NOT TRUE/);
     const missing = fakeDb([{ rows: [] }]);
     expect(await findPublishedMedia(missing.db, 'tales/old.png')).toBeNull();
   });
@@ -875,7 +878,8 @@ describe('copy to zone', () => {
       cover: null,
       position: 3,
       zoneIds: [zoneId],
-      tales: [{ id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, ...NO_WINDOW, media: null }],
+      ...VIS,
+      tales: [{ id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, ...NO_WINDOW, media: null, ...VIS }],
     });
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([zoneId]);
@@ -1010,7 +1014,7 @@ describe('status', () => {
       { rows: [] },
       { rows: [] },
     ]);
-    expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, status: 'live', ...NO_WINDOW, cover: null, zoneIds: [], tales: [] });
+    expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, status: 'live', ...NO_WINDOW, cover: null, zoneIds: [], tales: [], ...VIS });
     expect(statements()).toContain('SELECT status FROM tale_groups WHERE id = $1 FOR UPDATE');
     const update = query.mock.calls.find((c) => /UPDATE tale_groups SET status/.test(c[0] as string));
     expect(update?.[1]).toEqual([groupId, 'live']);
@@ -1069,6 +1073,7 @@ describe('status', () => {
       status: 'paused',
       ...NO_WINDOW,
       media: null,
+      ...VIS,
     });
     const update = paused.query.mock.calls.find((c) => /UPDATE tales SET status/.test(c[0] as string));
     expect(update?.[1]).toEqual([taleId, 'paused']);
@@ -1325,8 +1330,9 @@ describe('covers', () => {
     const { db, query } = fakeDb([{ rows: [{ contentType: 'image/jpeg' }] }]);
     expect(await findPublishedMedia(db, 'covers/a.jpg')).toEqual({ key: 'covers/a.jpg', contentType: 'image/jpeg' });
     const sql = query.mock.calls[0][0] as string;
-    expect(sql).toMatch(/g\.cover_key = \$1 AND g\.status = 'live' AND \(g\.starts_at IS NULL OR g\.starts_at <= \$2\)/);
-    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM tales dt WHERE dt\.tale_group_id = g\.id AND dt\.status = 'live'/);
+    expect(sql).toMatch(/g\.cover_key = \$1 AND \(\(g\.status = 'archived'\) IS NOT TRUE AND \(g\.status IN \('draft', 'paused'\)\) IS NOT TRUE/);
+    expect(sql).toMatch(/\(g\.starts_at > \$2\) IS NOT TRUE/);
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM tales dt WHERE dt\.tale_group_id = g\.id AND \(\(dt\.status = 'archived'\) IS NOT TRUE/);
     expect(sql).toMatch(/EXISTS \(SELECT 1 FROM zone_tale_groups dz WHERE dz\.tale_group_id = g\.id\)/);
   });
 
