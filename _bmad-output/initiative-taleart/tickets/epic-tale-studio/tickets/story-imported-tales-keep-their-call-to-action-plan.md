@@ -3,7 +3,7 @@ title: 'Imported tales keep their call to action'
 type: 'feature'
 ticket: '13'
 created: '2026-10-22'
-status: 'in-progress'
+status: 'built'
 baseline_revision: '761f612'
 route: 'full'
 route_source: 'auto'
@@ -78,13 +78,13 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] contract: kinds, reason, box; generate.
-- [ ] server-tales: imported button merge and write; unit tests.
-- [ ] importer: CTA reading, carrying, re-import; unit tests (record-shape, worker with fake source).
-- [ ] fake-another tool: Link shop fixture.
-- [ ] api: HTTP tests against the fake (create, report, re-import, person edit, idempotency).
-- [ ] dashboard: report lines; tests.
-- [ ] Playwright walk; screenshots in `shots-7.13/`.
+- [x] contract: kinds, reason, box; generate.
+- [x] server-tales: imported button merge and write; unit tests.
+- [x] importer: CTA reading, carrying, re-import; unit tests (record-shape, worker with fake source).
+- [x] fake-another tool: Link shop fixture.
+- [x] api: HTTP tests against the fake (create, report, re-import, person edit, idempotency).
+- [x] dashboard: report lines; tests.
+- [x] Playwright walk; screenshots in `shots-7.13/`.
 
 **Acceptance Criteria:**
 - Given the Link shop import, when the sample page shows the zone, then the "Shop the sale" tale shows a button that opens its link.
@@ -92,6 +92,16 @@ deferred: []
 - Given the full verification, every project lints, tests and builds; `api:import-scale` passes.
 
 ## Implementation Notes
+
+- Merged `autopilot/foundation` 8c5c105 (8.7 zone keys removed, 8.9) mid-build; no conflicts.
+- Contract: `ImportDifferenceKind` + `linkNotImported`, `notReadable`; new `ImportLinkFailure` (`scheme|tooLong|characters|invalid|credentials`, the `linkUrlProblem` values; `empty` never listed); `ImportDifference.reason` is now `anyOf` (shared `tooLong` would fail `oneOf`); `IMPORTED_BUTTON_BOX` `{0.2, 0.77, 0.6, 0.07}`.
+- Tales module: `imported-button.ts` (`withImportedButton` pure merge, `setImportedButtonWhen` compare-and-set with the tale row `FOR UPDATE`, media keys share-locked, revisions raised, `tale_media`/`tale_fonts` rewritten, `checkTaleDocument` limit guard). A tale with no documents gets a draft, plus a published document when `live`; otherwise only the documents it has are written (no draft is made from the published document).
+- Importer: `record-shape.ts` reads the CTA (`buttonLabel`, `linkFailure`) and replaces the rows; `worker.ts` `carryButton` runs in the creation transaction (link, button, baseline `import_records.fields.button`) and in the re-import `updateRecord` transaction; a written button counts the tale `updated`. The `notReadable` row is added by the worker per imported tale (created or linked), with field null; notes for a cut label (only when written) and for a write skipped at the limits.
+- Report wording (dashboard): `deep_link: link not imported (not an http or https link)` (also `longer than 2,048 characters`, `holds spaces or control characters`, `not a valid web address`, `holds a user name or password`); `text, stickers and components: not readable through the API, so not imported`; `button_text: no longer at the source; the button stays in TaleArt`; kept edits reuse `button_text: changed at the source, kept as changed in TaleArt`.
+- Fixture: app 1006 "Link shop" → instance 2501 "Link wall" → group 3501 "Calls to action", stories 4501–4507 (https outlink, http deep link with a messy label, `myapp://`, `javascript:`, 2,061-char URL, outlink + `myapp://`, a passive one).
+- Existing tests updated for the new rows: the Odd shop's 4101 (https deep link + label) is now a button; Clean shop lists two `notReadable` rows (renamed test); `differenceLines` in the API spec leaves `notReadable` out and the per-tale count is asserted separately.
+- Verification (2026-10-22, `taleart_w713_test`): `run-many -t lint test build` on the 12 projects passes (api 553, dashboard 509, server-importer 282, server-tales 270, contract 333, web-sdk 382, fake-another tool 18 tests); `web-sdk:size` 23.51 KB gzipped; `web-sdk:types-check` passes; `api:import-scale` 1,000 tales passes (40 s).
+- Playwright walk (API 3396 / dashboard 4296 / sample 4396 on `taleart_w713e2e_test`, fake another tool in-process on 4496, virtual passkey): 17 of 17 checks — report rows, the "Shop now" button on the sample page (`?zones=<slug>#siteKey=…`) opening `https://shop.example/sale` (routed locally), re-import after the source label changed shows "Shop the sale now". Screenshots in the scratchpad `shots-7.13/`.
 
 ## Plan Change Log
 
