@@ -3,6 +3,7 @@ import {
   type CopyTaleGroupRequest,
   type CreateTaleGroupRequest,
   type CreateTaleRequest,
+  type ProjectTaleGroup,
   type OrderTaleGroupsRequest,
   type OrderTalesRequest,
   type RenameTaleGroupRequest,
@@ -16,6 +17,7 @@ import { projectExists } from '@taleart/server-access';
 import {
   copyTaleGroup,
   createTale,
+  createProjectTaleGroup,
   createTaleGroup,
   getTaleGroup,
   listProjectTaleGroups,
@@ -115,13 +117,31 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
 export function projectTaleGroupsRouter(pool: Pool): Router {
   const router = Router();
 
-  router.get('/:projectId/tale-groups', authorizeParam(pool, 'project', 'projectId'), async (req, res, next) => {
+  const projectAccess = authorizeParam(pool, 'project', 'projectId');
+
+  router.get('/:projectId/tale-groups', projectAccess, async (req, res, next) => {
     try {
       const { projectId } = req.params;
       if (!(await projectExists(pool, projectId))) {
         throw new HttpError(404, ErrorCodes.projectNotFound, 'No project has this id');
       }
-      res.json(await listProjectTaleGroups(pool, projectId));
+      res.json((await withTags(pool, await listProjectTaleGroups(pool, projectId))) satisfies ProjectTaleGroup[]);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // A group in no zone yet, from the Tale groups page (epic UX rework R14).
+  router.post('/:projectId/tale-groups', projectAccess, async (req, res, next) => {
+    try {
+      // Project first (404), then the body (400).
+      const { projectId } = req.params;
+      if (!(await projectExists(pool, projectId))) {
+        throw new HttpError(404, ErrorCodes.projectNotFound, 'No project has this id');
+      }
+      const input: CreateTaleGroupRequest = { name: requiredString(req.body, 'name') };
+      const group = await createProjectTaleGroup(pool, { projectId, ...input });
+      res.status(201).json({ ...group, tags: [] } satisfies ProjectTaleGroup);
     } catch (err) {
       next(err);
     }

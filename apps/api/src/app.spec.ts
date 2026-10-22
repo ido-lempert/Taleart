@@ -2067,18 +2067,46 @@ describe('Management API v1: projects and zones', () => {
       expect(groups).toEqual([
         {
           id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [],
+          // The whole group (epic UX rework R14): tales, cover and tags, so the Tale groups page needs no zone list.
+          cover: null, tags: [], tales: [expect.objectContaining({ title: 'Beach', taleGroupId: a.id })],
           // In no zone (R7); its one tale has nothing published either.
           visibility: notVisible(why('group-off', 'group'), why('not-in-any-zone', 'group'), why('no-shown-tales', 'group')),
         },
-        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], visibility: SOME_VISIBILITY },
-        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], visibility: SOME_VISIBILITY },
-        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tales: [], visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], tales: [], visibility: SOME_VISIBILITY },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tales: [], visibility: SOME_VISIBILITY },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
 
       for (const id of [unknownId, 'nope']) {
         const missing = await fetch(`${base}/projects/${id}/tale-groups`);
+        expect(missing.status).toBe(404);
+        expect((await missing.json()).error.code).toBe('project_not_found');
+      }
+    });
+
+    it('creates a tale group in no zone from the project, Off, with tags on the project list (R14)', async () => {
+      const { project } = await setup();
+      const res = await post(`/projects/${project.id}/tale-groups`, { name: 'Loose' });
+      expect(res.status).toBe(201);
+      const created = await res.json();
+      expect(created).toMatchObject({
+        projectId: project.id, name: 'Loose', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null,
+        cover: null, tags: [], tales: [], taleCount: 0, zoneIds: [],
+      });
+      expect(created.visibility.visible).toBe(false);
+      expect(created.visibility.reasons.map((r: { code: string }) => r.code)).toContain('not-in-any-zone');
+
+      const tag = await (await post(`/projects/${project.id}/tags`, { name: 'Promo' })).json();
+      expect((await send('PUT', `/tale-groups/${created.id}/tags`, { tagIds: [tag.id] })).status).toBe(200);
+      const listedGroups: { id: string; tags: { name: string }[] }[] = await (await fetch(`${base}/projects/${project.id}/tale-groups`)).json();
+      expect(listedGroups.find((g) => g.id === created.id)?.tags.map((t) => t.name)).toEqual(['Promo']);
+
+      const blank = await post(`/projects/${project.id}/tale-groups`, { name: '  ' });
+      expect(blank.status).toBe(400);
+      for (const id of [unknownId, 'nope']) {
+        const missing = await post(`/projects/${id}/tale-groups`, { name: 'X' });
         expect(missing.status).toBe(404);
         expect((await missing.json()).error.code).toBe('project_not_found');
       }

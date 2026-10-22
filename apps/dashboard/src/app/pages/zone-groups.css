@@ -1,5 +1,5 @@
 /* The zone page's Tale groups list (epic UX rework R10): kept apart from the page's other styles. */
-/* One row per group (epic UX rework R10); its open body below it, until story 8.11's group view. */
+/* One item per group (epic UX rework R10): the shared row (../group-row.css), then its open body until story 8.11's group view. */
 .group {
   display: flex;
   flex-direction: column;
@@ -10,102 +10,6 @@
 }
 .group:first-child {
   border-top: 0;
-}
-.group-row {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-  grid-template-areas: 'reorder cover main status menu';
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  min-width: 0;
-  cursor: pointer;
-}
-.group-row__reorder {
-  grid-area: reorder;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  cursor: default;
-}
-.group-row__moves {
-  flex-direction: column;
-}
-.group-row__moves .move-btn {
-  width: 24px;
-  height: 24px;
-}
-.group-row__cover {
-  grid-area: cover;
-}
-.group-row__main {
-  grid-area: main;
-  min-width: 0;
-}
-/* Names wrap between words; a word breaks only when it is wider than the row on its own. */
-.group-row__name {
-  margin: 0;
-  font-size: var(--text-md);
-  font-weight: 600;
-  overflow-wrap: break-word;
-}
-.group-row__open {
-  min-height: 24px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  text-align: start;
-  overflow-wrap: break-word;
-  cursor: pointer;
-}
-.group-row__open:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.group-row__open:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-  border-radius: var(--radius-control);
-}
-.group-row__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  margin: var(--space-1) 0 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-.group-row__status {
-  grid-area: status;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2) var(--space-3);
-  min-width: 0;
-  max-width: 22rem;
-}
-.group-row__menu {
-  grid-area: menu;
-}
-/* Narrow rows stack in two lines: handle, cover, name and ⋯, then the switch and the indicator. */
-@container group-list (max-width: 40rem) {
-  .group-row {
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      'reorder cover main menu'
-      'reorder cover status status';
-  }
-  .group-row__status {
-    justify-content: flex-start;
-    max-width: none;
-  }
-  .group-row__cover {
-    --ring-size: 44px;
-    font-size: 16px;
-  }
 }
 .group-body {
   display: flex;
@@ -125,16 +29,6 @@
   margin: 0;
   font-size: var(--text-sm);
   overflow-wrap: break-word;
-}
-.group-row__max {
-  color: var(--text-muted);
-}
-.group-row__tags {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
 }
 /* Neutral: archiving is not an error. */
 .undo-bar {

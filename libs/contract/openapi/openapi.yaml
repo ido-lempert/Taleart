@@ -408,6 +408,33 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+    post:
+      operationId: createProjectTaleGroup
+      summary: Create a tale group in a project, placed in no zone (epic UX rework R14).
+      description: >-
+        The group starts Off (`draft`) with no tales and no placement; it can
+        be shown in a zone later. Unknown project 404 `project_not_found`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaleGroupRequest'
+      responses:
+        '201':
+          description: The created tale group, with no tales and no zones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectTaleGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects/{projectId}/theme:
     parameters:
       - name: projectId
@@ -2605,50 +2632,19 @@ components:
               minimum: 0
               description: Order within this zone; the zone's lists are sorted by it.
     ProjectTaleGroup:
-      type: object
-      description: A tale group as the project's list shows it.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, taleCount, zoneIds, visibility]
-      properties:
-        visibility:
-          $ref: '#/components/schemas/Visibility'
-          description: Whether the group is visible on the site now, in any zone it is placed in (epic UX rework R7).
-        id:
-          type: string
-          format: uuid
-        projectId:
-          type: string
-          format: uuid
-        name:
-          type: string
-        status:
-          $ref: '#/components/schemas/ContentStatus'
-          description: The group's status as read (AD-6), as on `TaleGroup`.
-        storedStatus:
-          $ref: '#/components/schemas/ContentStatus'
-          description: The status key a person set (AD-6).
-        startsAt:
-          type: [string, 'null']
-          format: date-time
-          description: >-
-            Start of the window, ISO 8601 UTC, or null for no start. Before it,
-            live content reads `scheduled` and is not delivered (AD-6).
-        endsAt:
-          type: [string, 'null']
-          format: date-time
-          description: >-
-            End of the window, ISO 8601 UTC, or null for no end; later than
-            `startsAt`. From it on, live content reads `expired` and is not
-            delivered (AD-6).
-        taleCount:
-          type: integer
-          minimum: 0
-          maximum: 100
-        zoneIds:
-          type: array
-          description: Every zone the group is placed in, in the order it was placed; empty when none.
-          items:
-            type: string
-            format: uuid
+      description: >-
+        A tale group as the project's list shows it: the whole group, with its
+        tales, cover, tags and visibility in any zone it is placed in, and its
+        tale count (epic UX rework R14).
+      allOf:
+        - $ref: '#/components/schemas/TaleGroup'
+        - type: object
+          required: [taleCount]
+          properties:
+            taleCount:
+              type: integer
+              minimum: 0
+              maximum: 100
     Tag:
       type: object
       required: [id, projectId, name]

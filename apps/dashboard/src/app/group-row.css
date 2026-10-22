@@ -1,0 +1,135 @@
+/*
+ * The tale group row (epic UX rework R10, R14), shared by the zone page and the Tale groups page.
+ * Not encapsulated, so it also styles what the pages project into the row (the reorder cell, the
+ * name); every selector starts with .group-row. A list of rows is the container `group-list`.
+ */
+app-group-row {
+  display: block;
+  min-width: 0;
+}
+.group-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'reorder cover main status menu';
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+/* A row with no lead cell (the Tale groups page) has no empty first column. */
+.group-row:not(:has(> .group-row__reorder)) {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'cover main status menu';
+}
+/* A row that opens its group on a click (the zone page). */
+.group-row--opens {
+  cursor: pointer;
+}
+.group-row__reorder {
+  grid-area: reorder;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: default;
+}
+.group-row__moves {
+  flex-direction: column;
+}
+.group-row__moves .move-btn {
+  width: 24px;
+  height: 24px;
+}
+.group-row__cover {
+  grid-area: cover;
+}
+.group-row__main {
+  grid-area: main;
+  min-width: 0;
+}
+/* Names wrap between words; a word breaks only when it is wider than the row on its own. */
+.group-row__name {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+.group-row__open {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: break-word;
+  cursor: pointer;
+}
+.group-row__open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.group-row__open:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+.group-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.group-row__status {
+  grid-area: status;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  max-width: 22rem;
+}
+.group-row__menu {
+  grid-area: menu;
+}
+/* Narrow rows stack in two lines: handle, cover, name and ⋯, then the switch and the indicator. */
+@container group-list (max-width: 40rem) {
+  .group-row {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'reorder cover main menu'
+      'reorder cover status status';
+  }
+  .group-row:not(:has(> .group-row__reorder)) {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'cover main menu'
+      'cover status status';
+  }
+  .group-row__status {
+    justify-content: flex-start;
+    max-width: none;
+  }
+  .group-row__cover {
+    --ring-size: 44px;
+    font-size: 16px;
+  }
+}
+.group-row__max {
+  color: var(--text-muted);
+}
+.group-row__tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+}
+/* The zones a group is in, under its meta (the Tale groups page). */
+.group-row__zones {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  overflow-wrap: break-word;
+}

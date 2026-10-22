@@ -163,10 +163,17 @@
                     A click on the row outside its controls opens the group, as its name does (R10). It
                     is a pointer shortcut only: the name's button is the keyboard and screen reader way.
                   -->
-                  <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events, @angular-eslint/template/interactive-supports-focus -->
-                  <div class="group-row" (click)="rowClick(group, $event)">
+                  <app-group-row
+                    [group]="group"
+                    [items]="groupMenus().get(group.id) ?? []"
+                    [saving]="statusSaving().has(group.id)"
+                    [opens]="true"
+                    (toggled)="switchGroup(group, $event)"
+                    (picked)="groupPicked(group, $event)"
+                    (click)="rowClick(group, $event)"
+                  >
                     @if (!filtering()) {
-                      <div class="group-row__reorder">
+                      <div class="group-row__reorder" groupRowLead>
                         <span class="drag-handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
                           <app-icon name="grip" />
                         </span>
@@ -194,68 +201,19 @@
                         </div>
                       </div>
                     }
-                    <span class="ring group-row__cover" [class.ring--cover]="!!group.cover" aria-hidden="true">
-                      @if (group.cover; as cover) {
-                        @if (cover.kind === 'video') {
-                          <video class="ring__cover" [src]="store.coverSrc(group) + '#t=0.001'" [muted]="true" playsinline preload="metadata"></video>
-                        } @else {
-                          <img class="ring__cover" [src]="store.coverSrc(group)" alt="" />
-                        }
-                      } @else {
-                        {{ group.name.charAt(0) }}
-                      }
-                    </span>
-                    <div class="group-row__main">
-                      <h4 class="group-row__name">
-                        <button
-                          type="button"
-                          class="group-row__open"
-                          [id]="'group-name-' + group.id"
-                          [attr.aria-expanded]="isOpen(group.id)"
-                          [attr.aria-controls]="'group-body-' + group.id"
-                          (click)="toggleGroup(group)"
-                        >
-                          {{ group.name }}
-                        </button>
-                      </h4>
-                      <div class="group-row__meta">
-                        <span class="group-row__count">{{ shownCount(group) }}<span class="group-row__max"> · max {{ maxTales }}</span></span>
-                        @if (group.tags.length > 0) {
-                          <ul class="pill-list group-row__tags" [attr.aria-label]="'Tags of ' + group.name">
-                            @for (tag of group.tags; track tag.id) {
-                              <li class="pill pill--tag">{{ tag.name }}</li>
-                            }
-                          </ul>
-                        }
-                        @if (windowChip(group); as chip) {
-                          <span class="window-chip" [title]="describeWindow(group)">
-                            <span class="visually-hidden">Schedule: </span>{{ chip }}
-                          </span>
-                        }
-                      </div>
-                    </div>
-                    <div class="group-row__status">
-                      @if (isSwitchable(group.storedStatus)) {
-                        <app-show-switch
-                          [on]="group.storedStatus === 'live'"
-                          [label]="group.name + ' on site'"
-                          [stateText]="shownLabel(group.storedStatus, 'group')"
-                          [disabled]="statusSaving().has(group.id)"
-                          (toggled)="switchGroup(group, $event)"
-                        />
-                      }
-                      @if (needsBadge(group.status)) {
-                        <app-status-badge [status]="group.status" kind="group" />
-                      }
-                      <app-visibility class="group-row__visibility" [visibility]="group.visibility" viewing="group" />
-                    </div>
-                    <app-menu-button
-                      class="group-row__menu"
-                      [label]="'More for ' + group.name"
-                      [items]="groupMenus().get(group.id) ?? []"
-                      (picked)="groupPicked(group, $event)"
-                    />
-                  </div>
+                    <h4 class="group-row__name" groupRowName>
+                      <button
+                        type="button"
+                        class="group-row__open"
+                        [id]="'group-name-' + group.id"
+                        [attr.aria-expanded]="isOpen(group.id)"
+                        [attr.aria-controls]="'group-body-' + group.id"
+                        (click)="toggleGroup(group)"
+                      >
+                        {{ group.name }}
+                      </button>
+                    </h4>
+                  </app-group-row>
                   @if (statusErrors()[group.id]; as statusError) {
                     <div class="banner banner--inline" role="alert">
                       <app-icon name="alert" />

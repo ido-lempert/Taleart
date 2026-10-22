@@ -413,31 +413,38 @@ async function visibleTales<T extends { id: string }>(
   );
 }
 
+/** A tale group as the project's list shows it; tags are composed in by the API. */
+export type StoredProjectTaleGroup = Omit<ProjectTaleGroup, 'tags'>;
+
 /**
- * Every tale group of the project by name, ignoring case, with its tale count
- * and the zones it is placed in; a group placed in no zone is listed too (AD-14).
+ * Every tale group of the project by name, ignoring case, with its tales, its tale count and the
+ * zones it is placed in, and its visibility in any of them; a group placed in no zone is listed too
+ * (AD-14, epic UX rework R14).
  */
-export async function listProjectTaleGroups(db: Db, projectId: string): Promise<ProjectTaleGroup[]> {
+export async function listProjectTaleGroups(db: Db, projectId: string): Promise<StoredProjectTaleGroup[]> {
   if (!UUID.test(projectId)) return [];
-  const { rows } = await db.query<GroupRow & { taleCount: number }>(
-    `SELECT ${GROUP_COLUMNS},
-       (SELECT count(*) FROM tales WHERE tales.tale_group_id = tale_groups.id)::int AS "taleCount"
-     FROM tale_groups WHERE project_id = $1
+  const { rows } = await db.query<GroupRow>(
+    `SELECT ${GROUP_COLUMNS} FROM tale_groups WHERE project_id = $1
      ORDER BY lower(name), name, id`,
     [projectId],
   );
-  const zoneIds = await zoneIdsOf(db, rows.map((g) => g.id));
-  const visible = await groupVisibilities(
-    db,
-    rows.map((g) => g.id),
-    new Date(),
+  return (await withTales(db, rows)).map((group) => ({ ...group, taleCount: group.tales.length }));
+}
+
+/**
+ * Creates a tale group in the project, placed in no zone (epic UX rework R14). It starts Off
+ * (`draft`, AD-6 amended) with no tales. The caller checks that the project exists.
+ */
+export async function createProjectTaleGroup(
+  db: Db,
+  input: { projectId: string; name: string },
+): Promise<StoredProjectTaleGroup> {
+  const { rows } = await db.query<GroupRow>(
+    `INSERT INTO tale_groups (project_id, name) VALUES ($1, $2) RETURNING ${GROUP_COLUMNS}`,
+    [input.projectId, input.name],
   );
-  // The project's list carries no cover; the zone lists and a group's own reads do.
-  return withVisibility(rows, visible).map(({ taleCount, visibility, ...row }) => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { cover, ...group } = toGroup(row);
-    return { ...group, taleCount, zoneIds: zoneIds.get(row.id) ?? [], visibility };
-  });
+  const [group] = await withTales(db, rows);
+  return { ...group, taleCount: 0 };
 }
 
 /**
