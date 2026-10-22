@@ -322,6 +322,12 @@ class AlreadyLinkedError extends Error {}
 
 const emptyCount = () => ({ source: 0, imported: 0, skipped: 0 });
 
+// The status a new tale is stored with (AD-6 amended): Shown (`live`) for a story that is ACTIVE
+// (1) at the source, Hidden (`paused`) for any other or no status. Its start and end time
+// (ts_start, ts_end) are importer story 2.11's. A tale imported before keeps the status it has.
+const storyStatus = (story: SourceStory): 'live' | 'paused' =>
+  story.status === 1 || story.status === '1' ? 'live' : 'paused';
+
 /**
  * The records in source order: ascending `sort_order`, ties in response
  * order, then the records without a usable `sort_order` in response order.
@@ -947,7 +953,10 @@ async function importContentWith(
             'tale',
             { type: 'tale', fields: { name: title, group: taleGroupId } },
             (id) => taleExists(db, id),
-            (link) => createTale(db, { taleGroupId, title }, (tx, created) => link(tx, created.taleId)),
+            (link) =>
+              createTale(db, { taleGroupId, title, status: storyStatus(story) }, (tx, created) =>
+                link(tx, created.taleId),
+              ),
           );
         } catch (err) {
           if (err instanceof TaleGroupFullError) {

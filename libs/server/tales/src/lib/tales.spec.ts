@@ -43,6 +43,7 @@ import {
   TaleNotFoundError,
   type TransactionalDb,
 } from './tales';
+import type { DbConnection } from '@taleart/server-access';
 import { migrateTales } from './migration';
 import { InvalidTaleDocumentError } from './tale-document';
 import { ZoneNotFoundError } from '@taleart/server-zones';
@@ -255,7 +256,7 @@ describe('rename', () => {
 describe('migration', () => {
   it('creates placements keyed to the zone and group projects, and moves old zone columns into them', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    await migrateTales({ query } as unknown as TransactionalDb);
+    await migrateTales({ query } as unknown as DbConnection);
     const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS zone_tale_groups/);
     expect(sql).toMatch(/PRIMARY KEY \(zone_id, tale_group_id\)/);
@@ -846,7 +847,7 @@ describe('copy to zone', () => {
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
     // ...and each tale's document (AD-15).
     expect(insertTales?.[0]).toMatch(
-      /media_key, media_content_type, status, starts_at, ends_at, document,\s+draft_document, document_media_key FROM tales/,
+      /media_key, media_content_type, status, starts_at, ends_at, document,\s+draft_document, document_media_key, created_at FROM tales/,
     );
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
     expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);
@@ -1171,7 +1172,7 @@ describe('schedule', () => {
 
   it('adds nullable window columns with a CHECK, once', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    await migrateTales({ query } as unknown as TransactionalDb);
+    await migrateTales({ query } as unknown as DbConnection);
     const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
     for (const table of ['tale_groups', 'tales']) {
       expect(sql).toContain(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS starts_at timestamptz`);
@@ -1338,7 +1339,7 @@ describe('covers', () => {
 
   it('adds the nullable cover columns and their index, once', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    await migrateTales({ query } as unknown as TransactionalDb);
+    await migrateTales({ query } as unknown as DbConnection);
     const sql = query.mock.calls.map((c) => c[0] as string).join('\n');
     expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_key text');
     expect(sql).toContain('ALTER TABLE tale_groups ADD COLUMN IF NOT EXISTS cover_content_type text');

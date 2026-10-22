@@ -103,6 +103,8 @@ export interface CheckedRecord {
   media?: unknown;
   /** A story's `mime_type` value as the source gave it, unchecked; stories only. */
   mimeType?: unknown;
+  /** A story's `status` value as the source gave it, unchecked; stories only. */
+  status?: unknown;
   /** A story group's `segments` value (its labels) as the source gave it, unchecked; story groups only. */
   segments?: unknown;
   /** A label record's `name` value as the source gave it, unchecked; label records only. */
@@ -280,6 +282,7 @@ export function checkRecord(
   if (entity === 'tale') {
     record.media = values.get('media');
     record.mimeType = values.get('mime_type');
+    record.status = values.get('status');
   }
   if (entity === 'taleGroup') record.segments = values.get('segments');
   if (entity === 'tag') record.label = values.get('name');

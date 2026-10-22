@@ -1,4 +1,4 @@
-import type { Db } from '@taleart/server-access';
+import type { DbConnection } from '@taleart/server-access';
 import { recordTaleFonts } from './project-fonts';
 import { checkTaleDocument } from './tale-document';
 import { migrateTaleMediaDocuments } from './tale-media-document';
@@ -11,7 +11,7 @@ const STORED_STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'i
  * Forward-only migration for the tables the tales module owns. Runs after the
  * zones migration, because every zone placement references a zone (AD-4).
  */
-export async function migrateTales(db: Db): Promise<void> {
+export async function migrateTales(db: DbConnection): Promise<void> {
   // A tale group belongs to its project, not to a zone (AD-14). Installs made
   // before AD-14 still have zone_id and position here until the step below.
   await db.query(`
@@ -306,7 +306,11 @@ export async function migrateTales(db: Db): Promise<void> {
  * neither media nor a document were created before it, and so keep the legacy placeholder
  * (`hasPublishedDocument`).
  */
-export async function migrateShownStatus(client: Db): Promise<{ applied: boolean; madeLive: number; published: number }> {
+export async function migrateShownStatus(
+  client: DbConnection,
+  options: { log?: (level: 'info' | 'warn', msg: string) => void } = {},
+): Promise<{ applied: boolean; madeLive: number; published: number }> {
+  const log = options.log ?? logJson;
   await client.query(`
     CREATE TABLE IF NOT EXISTS tales_migrations (
       step text PRIMARY KEY,
@@ -323,16 +327,31 @@ export async function migrateShownStatus(client: Db): Promise<{ applied: boolean
       await client.query('COMMIT');
       return { applied: false, madeLive: 0, published: 0 };
     }
+    // The draft groups are share locked first, so an instance of the previous release turning one
+    // live meanwhile either went first (the group is not draft any more) or waits for this step:
+    // no tale of a group that is live by then is made live here.
+    const groups = await client.query<{ id: string }>(
+      `SELECT id FROM tale_groups WHERE status = 'draft' ORDER BY id FOR SHARE`,
+    );
     const { rows } = await client.query<{ id: string; draft: unknown; unpublished: boolean }>(
       `UPDATE tales SET status = 'live'
-       FROM tale_groups g
-       WHERE g.id = tales.tale_group_id AND g.status = 'draft' AND tales.status = 'draft'
-       RETURNING tales.id, tales.draft_document AS draft, tales.document IS NULL AS unpublished`,
+       WHERE tale_group_id = ANY($1::uuid[]) AND status = 'draft'
+       RETURNING id, draft_document AS draft, document IS NULL AS unpublished`,
+      [groups.rows.map((g) => g.id)],
     );
     let published = 0;
     for (const row of rows) {
       if (!row.unpublished || row.draft === null) continue;
-      if ((await publishDraftGoingLive(client, row.id, row.draft)) === null) published++;
+      // In a savepoint: an unexpected error keeps the tale's status change and skips only its
+      // publish; the media step that follows then gives it its media document, as any live tale.
+      await client.query('SAVEPOINT shown_status_publish');
+      try {
+        if ((await publishDraftGoingLive(client, row.id, row.draft)) === null) published++;
+        await client.query('RELEASE SAVEPOINT shown_status_publish');
+      } catch (err) {
+        await client.query('ROLLBACK TO SAVEPOINT shown_status_publish');
+        log('warn', `Tale ${row.id}: made live, but its draft could not be published (${String(err)})`);
+      }
     }
     await client.query('COMMIT');
     return { applied: true, madeLive: rows.length, published };
@@ -340,6 +359,11 @@ export async function migrateShownStatus(client: Db): Promise<{ applied: boolean
     await client.query('ROLLBACK');
     throw err;
   }
+}
+
+// The API's log line format, for a migration run without a logger.
+function logJson(level: 'info' | 'warn', msg: string): void {
+  (level === 'warn' ? console.warn : console.log)(JSON.stringify({ level, msg }));
 }
 
 // True when a stored document passes the document check, as the Delivery API requires.

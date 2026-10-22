@@ -85,6 +85,27 @@ deferred: []
 - API tests: Delivery responses for both seeded zones are byte-identical before and after the migration. A second run is a no-op.
 - Browser check on a fresh database: screenshots are in `shots-8.1/`. Delivery returned no groups with the group Off, then Tale 1, Tale 2, Tale 3 after turning it On, then Tale 1, Tale 3 after hiding Tale 2, then nothing after turning it Off again.
 
+## Review fixes (2026-10-22)
+
+- Legacy delivery rule: a tale created before the step with no published document is delivered as before, whatever its media's step state. This covers a tale whose media a studio save marked in step (`markTaleMediaSeen`): Delivery composes its media, as the release before did. The migration test has this fixture (b5).
+- Importer (owner decision): a new tale from an ACTIVE (1) story is stored `live` (Shown); any other or missing status is stored `paused` (Hidden). Tales imported before keep their status. Start and end times (`ts_start`, `ts_end`) are left to importer story 2.11: note there that it should map them onto the tale's window.
+- Migration:
+  - The draft groups are share locked first, and the UPDATE is limited to those ids.
+  - Each publish runs in its own savepoint: on an error the status change is kept, the publish is skipped and a warning is logged.
+  - The migration functions take a `DbConnection` (one checked-out connection).
+- A tale group copy carries `created_at` over, so copies of legacy title-only tales keep the placeholder.
+- `findPublishedMedia` uses `deliveredGroup` for tale media.
+- Media sync (owner decision): uploading or replacing media on a `live` tale that has a studio draft and nothing published leaves the published document empty ("not updated yet"). A new tale from media with no draft is still published at creation. The media migration keeps writing published documents for live tales.
+- Dashboard:
+  - The group switch is named "<group> on site". The tale switch keeps "Show <title>".
+  - While saving, the switch is `aria-disabled` and ignores clicks, so focus stays on it.
+  - The draft warning is announced only by its alert.
+  - Status changes apply the PUT answer to the store at once, and an older refresh is dropped when a newer one starts.
+
+## Deploy note: the mixed-version window
+
+During a rolling deploy, instances of the previous release run beside this one. They create new tales as `draft`, the old default. In a group that is On, such tales stay Hidden until someone shows them; a tale created in a group that was never live is not made live, because the step runs once. Old instances also deliver every live tale, so a tale created `live` by this release with nothing published can show its legacy placeholder from an old instance until the rollout ends. Old instances still use Publish and Pause, which store the same keys the switch does. Keep the window short: deploy every instance, then let the step run on the first start of the new release.
+
 ## Review notes
 
 - Flag: the legacy placeholder rule uses the tale's `created_at` against the step's `applied_at` instead of a new column.

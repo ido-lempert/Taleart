@@ -3,7 +3,7 @@ import { migrateImporter } from '@taleart/server-importer';
 import { migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
 import { migrateTargeting } from '@taleart/server-targeting';
 import { migrateZones } from '@taleart/server-zones';
-import type { Db } from '@taleart/server-access';
+import type { DbConnection } from '@taleart/server-access';
 import { Pool } from 'pg';
 
 export const defaultDatabaseUrl =
@@ -38,7 +38,7 @@ export function createPool(connectionString?: string, max = databasePoolMax()): 
 // tale groups. The access module's zone keys reference zones, so their
 // migration is a separate step after zones. The importer runs last: its jobs
 // and links reference projects and the records it imports.
-const migrations: ReadonlyArray<{ module: string; run: (db: Db) => Promise<void> }> = [
+const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Promise<void> }> = [
   { module: 'access', run: migrateAccess },
   { module: 'zones', run: migrateZones },
   { module: 'access (zone keys)', run: migrateZoneKeys },

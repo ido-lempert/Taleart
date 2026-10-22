@@ -5472,6 +5472,20 @@ describe('Management API v1: projects and zones', () => {
       expect((await getPublic(url)).status).toBe(404);
     });
 
+    it('keeps a font private while the only shown tale using it has nothing published (AD-6 amended)', async () => {
+      const { group, tale } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      // Shown without going live, so nothing is published: "not updated yet".
+      await pool.query("UPDATE tales SET status = 'live' WHERE id = $1", [tale.id]);
+      await publish('tale-groups', group.id);
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts')).rows[0].storage_key as string;
+      clearPublicFontCache();
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(404);
+
+      await publishDraft(tale.id);
+      clearPublicFontCache();
+      expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(200);
+    });
+
     it('keeps a font private when only a hidden element or an unplaced group uses it', async () => {
       const hidden = await liveTale((id) => [text(1, { source: 'project', fontId: id }, { hidden: true })]);
       await publish('tale-groups', hidden.group.id);
@@ -5753,6 +5767,33 @@ describe('Management API v1: projects and zones', () => {
       const fixed = doc([element(1, 'image', image), element(2, 'image', image, { a11y: { decorative: true } })]);
       expect((await save(tale.id, fixed, 1)).status).toBe(200);
       expect((await publishDraft(tale.id)).status).toBe(200);
+    });
+
+    it('keeps document media and the cover private while the only shown tale has nothing published (AD-6 amended)', async () => {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      // Shown from the start, with only a studio draft: "not updated yet".
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      const image = await uploaded(zone.projectId);
+      expect((await save(tale.id, doc([element(1, 'image', image)]), 0)).status).toBe(200);
+      const cover = await fetch(`${base}/tale-groups/${group.id}/cover`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+        body: png,
+      });
+      expect(cover.status).toBe(200);
+      const coverKey = (await pool.query('SELECT cover_key FROM tale_groups WHERE id = $1', [group.id])).rows[0]
+        .cover_key as string;
+      await publish('tale-groups', group.id);
+
+      expect(await delivered(zone.id)).toEqual([]);
+      expect((await getPublic(image)).status).toBe(404);
+      expect((await getPublic(coverKey)).status).toBe(404);
+
+      expect((await publishDraft(tale.id)).status).toBe(200);
+      expect((await delivered(zone.id)).length).toBe(1);
+      expect((await getPublic(image)).status).toBe(200);
+      expect((await getPublic(coverKey)).status).toBe(200);
     });
 
     it("delivers public URLs for a published tale's media and serves them only while it is delivered", async () => {
@@ -6958,9 +6999,15 @@ describe('Management API v1: projects and zones', () => {
         b2: await tale(live, 'b2 draft', 'draft', 'media'),
         b3: await tale(live, 'b3 placeholder', 'live', 'none'),
         b4: await tale(live, 'b4 studio draft', 'draft', 'studio'),
+        b5: await tale(live, 'b5 seen', 'live', 'media'),
         c1: await tale(paused, 'c1 draft', 'draft', 'media'),
         c2: await tale(paused, 'c2 live', 'live', 'media'),
       };
+      // (b5) A live tale whose media a studio save marked in step (markTaleMediaSeen) with nothing
+      // published, as a tale made while TALE_MEDIA_MIGRATION was off and then edited: the Delivery
+      // API composes its media.
+      await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [ids.b5]);
+      await pool.query("DELETE FROM tale_media WHERE tale_id = $1 AND document = 'published'", [ids.b5]);
       const keys: string[] = [];
       for (const z of [zone, second]) keys.push((await (await post(`/zones/${z.id}/key`, {})).json()).key);
       // As before the step: it has not run.
@@ -6977,7 +7024,8 @@ describe('Management API v1: projects and zones', () => {
     it('makes the draft tales of never-live groups live, keeps the others, and changes no Delivery answer', async () => {
       const { never, keys } = await preRework();
       const before = await deliveries(keys);
-      expect(before.map(shape)).toEqual([[['Live', ['b1 live', 'b3 placeholder']]], [['Live', ['b1 live', 'b3 placeholder']]]]);
+      const liveGroup = ['Live', ['b1 live', 'b3 placeholder', 'b5 seen']];
+      expect(before.map(shape)).toEqual([[liveGroup], [liveGroup]]);
       const rowsBefore = await snapshot();
 
       await migrate(pool);
@@ -6993,6 +7041,7 @@ describe('Management API v1: projects and zones', () => {
         ['b2 draft', 'draft'],
         ['b3 placeholder', 'live'],
         ['b4 studio draft', 'draft'],
+        ['b5 seen', 'live'],
         ['c1 draft', 'draft'],
         ['c2 live', 'live'],
       ]);
@@ -7014,7 +7063,7 @@ describe('Management API v1: projects and zones', () => {
       const [on] = await deliveries([keys[0]]);
       expect(shape(on)).toEqual([
         ['Never live', ['a1 media', 'a2 studio', 'a4 empty']],
-        ['Live', ['b1 live', 'b3 placeholder']],
+        liveGroup,
       ]);
     });
 
@@ -7039,6 +7088,75 @@ describe('Management API v1: projects and zones', () => {
       expect(await deliveries(keys)).toEqual(delivered);
     });
 
+    it('runs once when two starts migrate at the same time', async () => {
+      const { keys } = await preRework();
+      const before = await deliveries(keys);
+
+      await Promise.all([migrate(pool), migrate(pool)]);
+
+      expect((await pool.query('SELECT step FROM tales_migrations')).rows).toEqual([{ step: 'shown-status' }]);
+      const after = await snapshot();
+      expect(after.filter((r) => r.status === 'live').map((r) => r.title)).toEqual([
+        'a1 media',
+        'a2 studio',
+        'a4 empty',
+        'b1 live',
+        'b3 placeholder',
+        'b5 seen',
+        'c2 live',
+      ]);
+      // Each made-live draft is published once.
+      expect(after.find((r) => r.title === 'a2 studio')?.revision).toBe(1);
+      expect(await deliveries(keys)).toEqual(before);
+    });
+
+    it("keeps a tale's status change when publishing its draft fails, and logs it", async () => {
+      const { ids } = await preRework();
+      // Publishing a2's draft fails as an unexpected database error would.
+      await pool.query(`
+        CREATE FUNCTION fail_a2_publish() RETURNS trigger LANGUAGE plpgsql AS $fn$
+        BEGIN
+          IF NEW.title = 'a2 studio' AND NEW.document IS NOT NULL THEN RAISE EXCEPTION 'disk full'; END IF;
+          RETURN NEW;
+        END $fn$;
+        CREATE TRIGGER fail_a2_publish BEFORE UPDATE ON tales FOR EACH ROW EXECUTE FUNCTION fail_a2_publish();
+      `);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      let logged = '';
+      try {
+        await migrate(pool);
+        logged = warn.mock.calls.flat().join('\n');
+      } finally {
+        warn.mockRestore();
+        await pool.query('DROP TRIGGER fail_a2_publish ON tales; DROP FUNCTION fail_a2_publish();');
+      }
+      const after = await snapshot();
+      const a2 = after.find((r) => r.title === 'a2 studio');
+      expect([a2?.status, a2?.document]).toEqual(['live', null]);
+      // The others went on: a1's draft is published.
+      expect(after.find((r) => r.title === 'a1 media')?.revision).toBe(1);
+      expect(logged).toContain(`Tale ${ids.a2}: made live, but its draft could not be published`);
+    });
+
+    it('runs the step while TALE_MEDIA_MIGRATION is off, with no Delivery answer changed', async () => {
+      const { keys } = await preRework();
+      const before = await deliveries(keys);
+      const previous = process.env['TALE_MEDIA_MIGRATION'];
+      process.env['TALE_MEDIA_MIGRATION'] = 'off';
+      try {
+        await migrate(pool);
+        const after = await snapshot();
+        expect(after.filter((r) => r.status === 'live').map((r) => r.title)).toContain('a1 media');
+        expect(after.find((r) => r.title === 'a2 studio')?.revision).toBe(1);
+        expect(await deliveries(keys)).toEqual(before);
+      } finally {
+        if (previous === undefined) delete process.env['TALE_MEDIA_MIGRATION'];
+        else process.env['TALE_MEDIA_MIGRATION'] = previous;
+      }
+      await migrate(pool);
+      expect(await deliveries(keys)).toEqual(before);
+    });
+
     it('does not deliver a title-only tale created after the step', async () => {
       const zone = await createZone();
       const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
@@ -7046,6 +7164,47 @@ describe('Management API v1: projects and zones', () => {
       await post(`/tale-groups/${g.id}/tales`, { title: 'Title only' });
       const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
       expect((await deliveries([key])).map(shape)).toEqual([[]]);
+    });
+
+    it('publishes nothing when media is uploaded to a shown tale with only a studio draft; a tale from media alone is published', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
+      await publish('tale-groups', g.id);
+      const drafted = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Drafted' })).json();
+      const saved = await fetch(`${base}/tales/${drafted.id}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document: textDocument('Drafted'), revision: 0 }),
+      });
+      expect(saved.status).toBe(200);
+      const fromMedia = await (await post(`/tale-groups/${g.id}/tales`, { title: 'From media' })).json();
+      for (const id of [drafted.id, fromMedia.id]) {
+        const res = await fetch(`${base}/tales/${id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+        expect(res.status).toBe(200);
+      }
+      const state = async (id: string) => (await (await fetch(`${base}/tales/${id}/document`)).json()).published.document;
+      // Not updated yet: the draft (now with the media) waits for the person to publish it.
+      expect(await state(drafted.id)).toBeNull();
+      expect(await state(fromMedia.id)).not.toBeNull();
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['From media']]]]);
+    });
+
+    it('delivers a copy of a group from before the step as the source: its title-only tales keep the placeholder', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Old' })).json();
+      await publish('tale-groups', g.id);
+      const t = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Title only' })).json();
+      await asLegacy(t.id);
+      const copy = await post(`/tale-groups/${g.id}/copy`, { zoneId: zone.id });
+      expect(copy.status).toBe(201);
+      const copied = await copy.json();
+      await publish('tale-groups', copied.id);
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const [body] = await deliveries([key]);
+      const groups = JSON.parse(body).taleGroups as { id: string; tales: { title: string; document: unknown }[] }[];
+      expect(groups.map((group) => group.tales.map((tale) => tale.title))).toEqual([['Title only'], ['Title only']]);
+      expect(groups[1].tales[0].document).toEqual(groups[0].tales[0].document);
     });
   });
 
@@ -7892,6 +8051,50 @@ describe('Management API v1: projects and zones', () => {
       if (!record) throw new Error(`No fixture ${id}`);
       return record;
     }
+
+    it('imports an active story Shown and any other Hidden, also a new one re-imported into a group that is On', async () => {
+      const project = await createProject();
+      const stories = fake.control.data.stories['3001'] as { data: Record<string, unknown>[] };
+      fixture(stories, 4002)['status'] = 2; // PASSIVE at the source
+      startWorker();
+      expect((await importOnce(project.id))['status']).toBe('done');
+      const statusOf = async (title: string) =>
+        (await pool.query('SELECT status FROM tales WHERE project_id = $1 AND title = $2', [project.id, title])).rows[0]
+          ?.status;
+      const first = fixture(stories, 4001);
+      expect(await statusOf(first['title'] as string)).toBe('live');
+      expect(await statusOf(fixture(stories, 4002)['title'] as string)).toBe('paused');
+
+      // The group is turned On; the source then adds a passive and an active story to it.
+      const groupId = (
+        await pool.query('SELECT tale_group_id AS id FROM tales WHERE project_id = $1 AND title = $2', [
+          project.id,
+          first['title'],
+        ])
+      ).rows[0].id as string;
+      await publish('tale-groups', groupId);
+      stories.data.push(
+        { ...first, id: 4901, title: 'New passive', name: 'New passive', status: 2, sort_order: 8 },
+        { ...first, id: 4902, title: 'New active', name: 'New active', status: 1, sort_order: 9 },
+      );
+      expect((await importOnce(project.id))['status']).toBe('done');
+      expect(await statusOf('New passive')).toBe('paused');
+      expect(await statusOf('New active')).toBe('live');
+
+      const zoneId = (await pool.query('SELECT zone_id FROM zone_tale_groups WHERE tale_group_id = $1', [groupId])).rows[0]
+        .zone_id as string;
+      const { key } = await (await post(`/zones/${zoneId}/key`, {})).json();
+      clearDeliveryCache();
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const delivered = ((await res.json()).taleGroups as { id: string; tales: { title: string }[] }[]).find(
+        (g) => g.id === groupId,
+      );
+      const titles = delivered?.tales.map((t) => t.title) ?? [];
+      expect(titles).toContain('New active');
+      expect(titles).toContain(first['title']);
+      expect(titles).not.toContain('New passive');
+      expect(titles).not.toContain(fixture(stories, 4002)['title']);
+    });
 
     // The media files stored so far in the test MEDIA_DIR.
     function storedMediaFiles(): string[] {
