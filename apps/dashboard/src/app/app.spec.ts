@@ -1800,13 +1800,20 @@ describe('App', () => {
       expect(req.request.body).toEqual({ taleGroupId: 'g9' });
       req.flush(copy, { status: 201, statusText: 'Created' });
       await settle(fixture);
-      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...group, tales: [taleA, taleB] }, { ...autumn, tales: [copy] }] } });
-      await settle(fixture);
-
+      // Closed and said at once, before the groups are read again.
       expect(drawer()).toBeNull();
       expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(
         'Duplicated as A (copy) in Autumn. The copy is hidden until you show it.',
       );
+      // Only the project's groups are read again, not everything.
+      http.expectNone(`${API_BASE}/projects`);
+      http.expectOne(`${API_BASE}/projects/p1/tale-groups`).flush([
+        { ...projectGroups.p1[0], taleCount: 4 },
+        ...projectGroups.p1.slice(1),
+      ]);
+      http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush([{ ...group, tales: [taleA, taleB] }, { ...autumn, tales: [copy] }]);
+      await settle(fixture);
+
       const card = root.querySelector('[data-duplicate="t9"]')?.closest('.tale-card');
       expect(card?.querySelector('.show-switch__state')?.textContent?.trim()).toBe('Hidden');
       expect(card?.querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('false');
@@ -1835,13 +1842,71 @@ describe('App', () => {
           { status: 409, statusText: 'Conflict' },
         );
       await settle(fixture);
-      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('A tale group holds at most 100 tales');
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(
+        'Summer already holds 100 tales. Choose another tale group.',
+      );
       expect(select?.getAttribute('aria-invalid')).toBe('true');
+
+      // A group gone meanwhile, and a lost connection, in plain words.
+      buttonNamed(drawer() as HTMLElement, 'Duplicate').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t2/duplicate`)
+        .flush(
+          { error: { code: 'tale_group_not_found', message: 'taleGroupId does not match a tale group' } },
+          { status: 400, statusText: 'Bad Request' },
+        );
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(
+        'That tale group is no longer available. Choose another.',
+      );
+      buttonNamed(drawer() as HTMLElement, 'Duplicate').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tales/t2/duplicate`).error(new ProgressEvent('error'), { status: 0 });
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Check the connection');
 
       buttonNamed(drawer() as HTMLElement, 'Cancel').click();
       await settle(fixture);
       expect(drawer()).toBeNull();
       expect(document.activeElement?.getAttribute('data-duplicate')).toBe('t2');
+    });
+
+    it('chooses the first group with room, and says so when no group has room', async () => {
+      const fullSummer = { ...group, tales: [taleA, taleB] };
+      const { fixture, root } = await open('/zones/z1', {
+        ...data,
+        groups: { z1: [fullSummer, autumn] },
+        projectGroups: { p1: [{ ...projectGroups.p1[1], taleCount: 100 }, projectGroups.p1[0], projectGroups.p1[2]] },
+      });
+      root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]')?.click();
+      await settle(fixture);
+      expect(options().map((o) => [o.label, o.selected])).toEqual([
+        ['Summer (this group): 100 / 100, full', false],
+        ['Autumn: 3 / 100', true],
+        ['Winter: 100 / 100, full', false],
+      ]);
+      expect(drawer()?.querySelector('#duplicate-hint')?.textContent).toBe('The copy goes last in Autumn.');
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+
+      const store = TestBed.inject(DashboardStore);
+      store.projectTaleGroups.set({ p1: [{ ...projectGroups.p1[1], taleCount: 100 }] } as never);
+      await settle(fixture);
+      root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]')?.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('#duplicate-hint')?.textContent).toContain(
+        'Every tale group of this project already holds 100 tales',
+      );
+      expect((drawer()?.querySelector('#duplicate-submit') as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("offers the tale's own group when the project's groups have not been read", async () => {
+      const { fixture, root } = await open('/zones/z1', { ...data, projectGroups: {} });
+      root.querySelector<HTMLButtonElement>('[data-duplicate="t1"]')?.click();
+      await settle(fixture);
+      expect(options()).toEqual([{ label: 'Summer (this group): 2 / 100', disabled: false, selected: true }]);
+      expect(drawer()?.querySelector('#duplicate-hint')?.textContent).toBe('The copy goes right after the original.');
     });
   });
 

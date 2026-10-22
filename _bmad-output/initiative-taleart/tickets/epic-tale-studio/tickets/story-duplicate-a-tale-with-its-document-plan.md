@@ -32,7 +32,7 @@ deferred: []
 ## Boundaries & Constraints
 
 **Always:**
-- The copy is stored `paused` (Hidden, owner decision 2026-10-22), titled "<title> (copy)", keeps the start and end time, media key, R16 media state (`document_media_key`, `document_created_by_migration`) and creation time (so `hasPublishedDocument` treats it as the original).
+- The copy is stored `paused` (Hidden, owner decision 2026-10-22), titled "<title> (copy)", keeps the start and end time, media key, R16 media state (`document_media_key`, `document_created_by_migration`); it is created now, a new tale (review decision), so it does not inherit a pre-step tale's legacy delivery.
 - Documents: the original's published document becomes the copy's published document and its draft the copy's draft, each at revision 1 (0 when null), so a pending change stays pending and "Update tale" means the same on both. Every element gets a new UUID, the same new id for the same element in both documents.
 - Media and fonts are never copied: the copy's `tale_media` and `tale_fonts` rows are recorded in the same transaction, so `isMediaKeyInUse` and the font deletion guard see the copy; the original's row and its fonts are share-locked meanwhile.
 - Placement: in the original's group, right after it (the later tales move one on); in another group, last. The target group row is locked `FOR UPDATE`, so `MAX_TALES_PER_GROUP` (409 `tale_group_full`) and positions hold under concurrent adds and duplicates.
@@ -88,7 +88,21 @@ deferred: []
 
 ## Plan Change Log
 
+- 2026-10-22, review of 7.12 (coordinator): a duplicate is a new tale, created now; it no longer inherits the original's creation time, so a copy of a tale from before the shown-status step with nothing published reads "not updated yet" until Update tale (supersedes "keeps … creation time" above). KEEP: shared keys with the copy's own `tale_media`/`tale_fonts` rows, lock order (target group, then source row, then fonts), both documents with one id map, status codes.
+
 ## Review Triage Log
+
+### 2026-10-22 — Coordinator review
+- **Verdicts:** no must-fix; 7 findings patched, none deferred. Tenancy, lock order and shared-key guards confirmed.
+- **Findings:**
+  1. `[patch]` `created_at` is now `now()`. Tests: a pre-step source with nothing published gives a copy "not updated yet" once shown; one with a published document gives a visible copy.
+  2. `[patch]` Tale Studio ignores undo/redo shortcuts while the Duplicate drawer, a picker, or any dialog has the key. Test.
+  3. `[patch]` The drawer chooses the first group with room (own group first), keeps the person's pick while it has room, and says so and disables Duplicate when no group has room. Tests, including the fallback when the project's groups are not read (own group from the zone list).
+  4. `[patch]` Refusals in plain words (`duplicateRefusal`): group gone, group full (named), tale gone, no access, no connection, else a generic line. Tests.
+  5. `[patch]` The drawer closes and announces as soon as the copy exists; then only the project's groups (project list and its zones' lists) are read again in the background, no full reload, also from the studio. Tests.
+  6. `[patch]` Duplicating an archived tale gives a Hidden copy. Test.
+  7. `[patch]` Duplicate while Update tale runs says "Wait until the tale is updated, then duplicate it." Test.
+- Added tests: the copy's `tale_fonts` rows for draft and published, and 409 `font_in_use` when only the copy uses a font; an out-of-step original gives an out-of-step copy delivered with the media composed under the copy's own id and merged by the media migration; `document_media_key`/`document_created_by_migration` carried; duplicates racing a reorder, an add, a status change and a save on the same groups (no 5xx, positions 0..n-1, the cap holds: two of three adds into a group with two places); studio POST failure, full group, focus return.
 
 ## Design Notes
 

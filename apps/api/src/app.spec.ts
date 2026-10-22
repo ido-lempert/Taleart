@@ -8346,6 +8346,184 @@ describe('Management API v1: projects and zones', () => {
       expect(order.slice(1, 3)).toEqual(['Arrival (copy)', 'Arrival (copy)']);
       expect(order.slice(3)).toEqual(['Beach', 'Beach (copy)', 'Beach (copy)', 'Beach (copy)', 'Cliffs']);
     });
+
+    it('keeps positions and the cap under duplicates racing reorders, adds, status changes and saves', async () => {
+      const { zone, first, second, a, beach, c, mediaKey } = await setup();
+      // The target group has room for two more.
+      await pool.query(
+        `INSERT INTO tales (tale_group_id, project_id, title, position)
+         SELECT $1, $2, 'Filler ' || n, n FROM generate_series(0, 97) AS n`,
+        [second.id, zone.projectId],
+      );
+      const { revision } = await state(beach.id);
+      const results = await Promise.all([
+        duplicate(beach.id),
+        duplicate(beach.id, { taleGroupId: second.id }),
+        fetch(`${base}/tale-groups/${first.id}/tales/order`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taleIds: [c.id, beach.id, a.id] }),
+        }),
+        duplicate(a.id, { taleGroupId: second.id }),
+        post(`/tale-groups/${second.id}/tales`, { title: 'Added' }),
+        setStatus('tales', beach.id, 'paused'),
+        fetch(`${base}/tales/${beach.id}/document`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document: styled('Racing', mediaKey), revision }),
+        }),
+        duplicate(beach.id),
+      ]);
+      const statuses = results.map((r) => r.status);
+      // Nothing fails for another reason: an order that lost the race to an add is refused (409),
+      // and the target group's two places go to two of the three adds.
+      expect(statuses.filter((s) => s >= 500)).toEqual([]);
+      expect([200, 409]).toContain(statuses[2]);
+      const intoSecond = [statuses[1], statuses[3], statuses[4]];
+      expect(intoSecond.filter((s) => s === 201)).toHaveLength(2);
+      expect(intoSecond.filter((s) => s === 409)).toHaveLength(1);
+      expect([statuses[0], statuses[5], statuses[6], statuses[7]]).toEqual([201, 200, 200, 201]);
+      expect(await titles(second.id)).toHaveLength(100);
+      const order = await titles(first.id);
+      expect(order).toHaveLength(5);
+      expect(order.filter((t) => t === 'Beach (copy)')).toHaveLength(2);
+      // Each copy sits right after its original whatever order the requests took.
+      expect(order[order.indexOf('Beach') + 1]).toBe('Beach (copy)');
+    });
+
+    it('carries the media state over: an out-of-step original gives a copy composed on delivery and merged later', async () => {
+      const { zone, first, beach, c, mediaKey } = await setup();
+      const { rows: before } = await pool.query(
+        'SELECT document_media_key, document_created_by_migration FROM tales WHERE id = $1',
+        [beach.id],
+      );
+      await pool.query('UPDATE tales SET document_created_by_migration = true WHERE id = $1', [beach.id]);
+      const kept = await (await duplicate(beach.id)).json();
+      const { rows: copied } = await pool.query(
+        'SELECT document_media_key, document_created_by_migration FROM tales WHERE id = $1',
+        [kept.id],
+      );
+      expect(copied[0]).toEqual({ ...before[0], document_created_by_migration: true });
+
+      // "Cliffs": a published text document, and media its documents are not in step with (R16).
+      await save(c.id, styled('Cliffs', mediaKey));
+      await update(c.id);
+      const { rows: media } = await pool.query<{ key: string }>('SELECT media_key AS key FROM tales WHERE id = $1', [beach.id]);
+      await pool.query(
+        "UPDATE tales SET media_key = $2, media_content_type = 'image/png', document_media_key = NULL WHERE id = $1",
+        [c.id, media[0].key],
+      );
+      const copy = await (await duplicate(c.id)).json();
+      const row = async (id: string) =>
+        (
+          await pool.query<{ key: string | null; inStep: string | null; document: Doc; draft: Doc }>(
+            'SELECT media_key AS key, document_media_key AS "inStep", document, draft_document AS draft FROM tales WHERE id = $1',
+            [id],
+          )
+        ).rows[0];
+      expect(await row(copy.id)).toMatchObject({ key: media[0].key, inStep: null });
+      await publish('tales', copy.id);
+      const { key } = await (await postKey(zone.id)).json();
+      clearDeliveryCache();
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      const tales = (await res.json()).taleGroups.find((g: { id: string }) => g.id === first.id).tales as {
+        id: string;
+        document: { elements: { id: string; props: { taleMedia?: boolean; url?: string } }[] };
+      }[];
+      const delivered = tales.find((t) => t.id === copy.id);
+      // Composed under the copy's own id, with the shared file.
+      expect(delivered?.document.elements[0]).toMatchObject({ id: copy.id, props: { taleMedia: true } });
+      expect(delivered?.document.elements[0].props.url).toContain(media[0].key);
+
+      const client = await pool.connect();
+      try {
+        await migrateTaleMediaDocuments(client, { batchSize: 500, budgetMs: 0 });
+      } finally {
+        client.release();
+      }
+      const merged = await row(copy.id);
+      expect(merged.inStep).toBe(media[0].key);
+      expect(merged.document.elements[0].props).toMatchObject({ mediaKey: media[0].key, taleMedia: true });
+      expect(merged.draft.elements[0].props).toMatchObject({ mediaKey: media[0].key, taleMedia: true });
+    });
+
+    it('makes the copy a new tale: a pre-step original without a published document gives a copy "not updated yet"', async () => {
+      const { zone, first } = await setup();
+      await postKey(zone.id);
+      const make = async (title: string) =>
+        (await (await post(`/tale-groups/${first.id}/tales`, { title })).json()) as { id: string };
+      // From before the shown-status step: one with nothing published (shown as a placeholder), one
+      // with a published document.
+      const bare = await make('Bare');
+      const studio = await make('Studio');
+      await save(studio.id, styled('Old', await uploadMedia(zone.projectId)));
+      await update(studio.id);
+      await asLegacy(bare.id, studio.id);
+      const visibility = async (id: string) => (await (await fetch(`${base}/tales/${id}`)).json()).visibility;
+      expect((await visibility(bare.id)).visible).toBe(true);
+
+      const bareCopy = await (await duplicate(bare.id)).json();
+      const studioCopy = await (await duplicate(studio.id)).json();
+      const { rows } = await pool.query<{ fresh: boolean }>(
+        "SELECT created_at > now() - interval '1 minute' AS fresh FROM tales WHERE id = ANY($1::uuid[])",
+        [[bareCopy.id, studioCopy.id]],
+      );
+      expect(rows.map((r) => r.fresh)).toEqual([true, true]);
+      await publish('tales', bareCopy.id, studioCopy.id);
+      const bareSeen = await visibility(bareCopy.id);
+      expect(bareSeen.visible).toBe(false);
+      expect(bareSeen.reasons.map((r: { code: string }) => r.code)).toContain('not-updated-yet');
+      expect((await visibility(studioCopy.id)).visible).toBe(true);
+    });
+
+    it('gives a Hidden copy of an archived tale', async () => {
+      const { beach } = await setup();
+      expect((await setStatus('tales', beach.id, 'archived')).status).toBe(200);
+      const res = await duplicate(beach.id);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({ storedStatus: 'paused', status: 'paused' });
+    });
+
+    it("records the copy's project fonts, so a font only the copy still uses cannot be deleted", async () => {
+      const { zone, beach, mediaKey } = await setup();
+      const data = Buffer.alloc(2048, 7);
+      data.fill(0, 0, 50);
+      data.write('wOF2', 0, 'latin1');
+      data.writeUInt32BE(0x00010000, 4);
+      data.writeUInt32BE(2048, 8);
+      data.writeUInt16BE(1, 12);
+      data.writeUInt32BE(1024, 16);
+      data.writeUInt32BE(2048 - 50, 20);
+      data[49] = 0x10;
+      const query = new URLSearchParams({ family: 'Brand Sans', weight: '700', style: 'normal', fallback: 'serif', licence: 'confirmed' });
+      const uploadRes = await fetch(`${base}/projects/${zone.projectId}/fonts?${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'font/woff2' },
+        body: data,
+      });
+      expect(uploadRes.status).toBe(201);
+      const font = await uploadRes.json();
+      const withFont = (text: string) => {
+        const d = styled(text, mediaKey);
+        const t = d.elements.find((e) => e.type === 'text') as { props: Record<string, unknown> };
+        t.props = { ...t.props, font: { source: 'project', fontId: font.id }, fallback: 'serif' };
+        return d;
+      };
+      await save(beach.id, withFont('Brand'));
+      await update(beach.id);
+      const copy = await (await duplicate(beach.id)).json();
+      const { rows } = await pool.query<{ document: string }>(
+        'SELECT document FROM tale_fonts WHERE tale_id = $1 AND font_id = $2 ORDER BY document',
+        [copy.id, font.id],
+      );
+      expect(rows.map((r) => r.document)).toEqual(['draft', 'published']);
+      // The original stops using it; the copy still does.
+      await save(beach.id, styled('Plain', mediaKey));
+      await update(beach.id);
+      const removed = await fetch(`${base}/projects/${zone.projectId}/fonts/${font.id}`, { method: 'DELETE' });
+      expect(removed.status).toBe(409);
+      expect((await removed.json()).error.code).toBe('font_in_use');
+    });
   });
 
   describe('imports from another tool', () => {
