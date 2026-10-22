@@ -571,6 +571,7 @@ export const ErrorCodes = {
   importSelectionInvalid: 'import_selection_invalid',
   previewBusy: 'preview_busy',
   invalidStatusTransition: 'invalid_status_transition',
+  taleGroupArchived: 'tale_group_archived',
   unknownTemplate: 'unknown_template',
   concurrentChange: 'concurrent_change',
   invalidTaleDocument: 'invalid_tale_document',
