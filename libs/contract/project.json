@@ -13,7 +13,8 @@
       "inputs": [
         "{projectRoot}/openapi/openapi.yaml",
         "{projectRoot}/tale-document/**/*.json",
-        "{projectRoot}/scripts/generate-tale-document-schemas.mjs"
+        "{projectRoot}/scripts/generate-tale-document-schemas.mjs",
+        "{projectRoot}/scripts/tale-document-registry.mjs"
       ],
       "outputs": [
         "{projectRoot}/src/generated/api.ts",
