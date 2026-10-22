@@ -39,7 +39,6 @@ import {
   InvitationInvalidError,
   PasskeyFailedError,
   SetupClosedError,
-  ZoneKeyNotFoundError,
   SiteKeyNotFoundError,
 } from '@taleart/server-access';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError } from '@taleart/server-targeting';
@@ -81,7 +80,6 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof DisplayNotFoundError ||
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
-    err instanceof ZoneKeyNotFoundError ||
     err instanceof SiteKeyNotFoundError ||
     err instanceof FontNotFoundError
   ) {

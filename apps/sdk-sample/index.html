@@ -47,13 +47,12 @@
       element per zone slug with the project's site key, each under its own heading; the API URL defaults to
       <code>http://localhost:3333</code>. Each element shows its zone's display, a bar or a banner. Keys go in the
       fragment (after <code>#</code>), which the browser never sends to a server or in a Referer header; the query
-      still works. A legacy zone key still works: <code>#key=&lt;zone key&gt;</code> places one zone,
-      <code>#keys=&lt;key&gt;,&lt;key&gt;</code> one element per key.
+      still works.
     </p>
     <p>
       Add <code>&amp;theme=&lt;JSON&gt;</code> to override the project's theme in the SDK configuration, for example
       <code>&amp;theme={"ringStyle":"solid","ringColors":["#0000ff"]}</code>. The page passes it to
-      <code>configureZone(zone, { theme })</code> for every zone, or only for the slug (or key) named by
+      <code>configureZone(zone, { theme })</code> for every zone, or only for the slug named by
       <code>&amp;themeZone=&lt;slug&gt;</code>; a field set there wins over the project's theme, and an invalid one is
       ignored with a console warning. One element can also take its own <code>theme</code> property or JSON attribute,
       which wins over the zone's. See the web-sdk README for every field.
@@ -71,38 +70,43 @@
       const secret = (name) => fragment.get(name) || params.get(name);
       const apiUrl = params.get('api') || 'http://localhost:3333';
       const list = (value) => (value || '').split(',').map((k) => k.trim()).filter(Boolean);
-      // `siteKey` with `zones=a,b` places one element per slug (epic UX rework R3); otherwise `key` places one
-      // zone and `keys=a,b` one element per legacy zone key.
+      // `siteKey` with `zones=a,b` places one element per slug (epic UX rework R3).
       const siteKey = secret('siteKey') || '';
-      const placements = siteKey
-        ? list(params.get('zones') || params.get('zone')).map((zone) => ({ name: zone, set: (view) => { view.siteKey = siteKey; view.zone = zone; } }))
-        : list(secret('keys') || secret('key')).map((key) => ({ name: key, set: (view) => { view.zoneKey = key; } }));
+      const placements = siteKey ? list(params.get('zones') || params.get('zone')) : [];
+      // The zone key form of earlier builds (`key`, `keys`) places nothing now: say so in one line.
+      if (!siteKey && (secret('key') || secret('keys'))) {
+        const notice = document.createElement('p');
+        notice.id = 'old-key-notice';
+        notice.textContent =
+          'Zone keys are no longer supported: open this page with ?zones=<slug>#siteKey=<site key>.';
+        document.getElementById('views').before(notice);
+      }
       // The zones' SDK theme override (R9), before the elements load so they render with it.
       const theme = params.get('theme');
       if (theme) {
         try {
           const parsed = JSON.parse(theme);
           const only = params.get('themeZone');
-          for (const { name } of placements) if (!only || only === name) configureZone(name, { theme: parsed });
+          for (const zone of placements) if (!only || only === zone) configureZone(zone, { theme: parsed });
         } catch {
           console.warn('Sample page: the theme parameter is not valid JSON; it is ignored');
         }
       }
-      const several = placements.length > 1 || (siteKey && placements.length > 0);
-      const views = several
-        ? placements.map((placement, i) => {
-            const section = document.createElement('section');
-            const heading = document.createElement('h2');
-            heading.textContent = siteKey ? `Zone ${placement.name}` : `Zone ${i + 1}`;
-            const view = document.createElement('taleart-view');
-            placement.set(view);
-            section.append(heading, view);
-            return { section, view };
-          })
-        : [{ section: null, view: document.getElementById('zone') }];
-      if (several) document.getElementById('views').replaceChildren(...views.map((v) => v.section));
-      else if (placements[0]) placements[0].set(views[0].view);
-      for (const { view } of views) view.apiUrl = apiUrl;
+      // One element per slug, each under its own heading; without any, the page keeps its empty element.
+      if (placements.length > 0) {
+        const sections = placements.map((zone) => {
+          const section = document.createElement('section');
+          const heading = document.createElement('h2');
+          heading.textContent = `Zone ${zone}`;
+          const view = document.createElement('taleart-view');
+          view.apiUrl = apiUrl;
+          view.siteKey = siteKey;
+          view.zone = zone;
+          section.append(heading, view);
+          return section;
+        });
+        document.getElementById('views').replaceChildren(...sections);
+      }
     </script>
   </body>
 </html>

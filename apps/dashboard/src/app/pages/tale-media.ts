@@ -10,6 +10,7 @@ import {
   MAX_TALE_VIDEO_MS,
   MEDIA_FITS,
   type ImageElementProps,
+  type ImageButtonElement,
   type MediaElement,
   type MediaFit,
   type StickerElementProps,
@@ -367,7 +368,7 @@ const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
   `,
 })
 export class TaleMediaStyle {
-  readonly element = input.required<MediaElement>();
+  readonly element = input.required<Exclude<MediaElement, ImageButtonElement>>();
   readonly locked = input(false);
   readonly lockedHint = input('');
   /** The video's length in seconds once the canvas read it; null for an image or before. */

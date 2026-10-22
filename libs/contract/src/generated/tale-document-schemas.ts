@@ -677,5 +677,146 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
         }
       }
     }
+  },
+  {
+    "key": "button",
+    "label": "Button",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ButtonElementProps",
+      "description": "The props of a button (epic Tale Studio R7): a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one (R7, R14).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "variant",
+        "color",
+        "fill"
+      ],
+      "properties": {
+        "label": {
+          "description": "The text on the button: plain text on one line, its accessible name.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "href": {
+          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). Servers check it in full; clients check it again before rendering.",
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^[hH][tT][tT][pP][sS]?://"
+        },
+        "newTab": {
+          "description": "Opens the destination in a new tab, with `noopener`; the same tab when left out.",
+          "type": "boolean"
+        },
+        "variant": {
+          "description": "`filled` paints the button in `fill`; `outline` draws only its edge in `fill`.",
+          "type": "string",
+          "enum": [
+            "filled",
+            "outline"
+          ]
+        },
+        "color": {
+          "description": "The label colour as #RRGGBB or #RRGGBBAA.",
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "fill": {
+          "description": "The button colour as #RRGGBB or #RRGGBBAA: its fill, or its edge for an outline button.",
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "radius": {
+          "description": "The corner radius as a fraction of the canvas height; 0 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        }
+      }
+    }
+  },
+  {
+    "key": "image-button",
+    "label": "Image button",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ImageButtonElementProps",
+      "description": "The props of a custom image button (epic Tale Studio R7): an image of the tale's project, by its storage key (AD-11), never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination (R7, R12, R14).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mediaKey"
+      ],
+      "properties": {
+        "mediaKey": {
+          "description": "The storage key of an image (PNG, JPEG, GIF or WebP) of the tale's project, as the server made it.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp)$"
+        },
+        "href": {
+          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^[hH][tT][tT][pP][sS]?://"
+        },
+        "newTab": {
+          "description": "Opens the destination in a new tab, with `noopener`; the same tab when left out.",
+          "type": "boolean"
+        },
+        "radius": {
+          "description": "The corner radius as a fraction of the canvas height; 0 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        }
+      }
+    }
+  },
+  {
+    "key": "swipe-up",
+    "label": "Swipe-up link",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "SwipeUpElementProps",
+      "description": "The props of a swipe-up link (epic Tale Studio R7): a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "color",
+        "background"
+      ],
+      "properties": {
+        "label": {
+          "description": "The text of the link: plain text on one line, its accessible name.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "href": {
+          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^[hH][tT][tT][pP][sS]?://"
+        },
+        "newTab": {
+          "description": "Opens the destination in a new tab, with `noopener`; the same tab when left out.",
+          "type": "boolean"
+        },
+        "color": {
+          "description": "The label and arrow colour as #RRGGBB or #RRGGBBAA.",
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "background": {
+          "description": "The colour of the pill behind the label as #RRGGBB or #RRGGBBAA (#RRGGBB00 for none).",
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        }
+      }
+    }
   }
 ];

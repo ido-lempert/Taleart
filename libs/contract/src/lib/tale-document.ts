@@ -54,11 +54,34 @@ export type ShapeElement = TaleElementOf<'shape', ShapeElementProps>;
 export type EmojiElement = TaleElementOf<'emoji', EmojiElementProps>;
 /** An image sticker: a PNG, WebP or GIF of the tale's project, by storage key (epic Tale Studio R6). */
 export type StickerElement = TaleElementOf<'sticker', StickerElementProps>;
+/** The props of a `button` element, from `element-types/button.schema.json` (epic Tale Studio R7). */
+export type ButtonElementProps = Schemas['ButtonElementProps'];
+/** The props of an `image-button` element, from `element-types/image-button.schema.json` (epic Tale Studio R7). */
+export type ImageButtonElementProps = Schemas['ImageButtonElementProps'];
+/** The props of a `swipe-up` element, from `element-types/swipe-up.schema.json` (epic Tale Studio R7). */
+export type SwipeUpElementProps = Schemas['SwipeUpElementProps'];
+/** A button: a labelled link, filled or outlined (epic Tale Studio R7). */
+export type ButtonElement = TaleElementOf<'button', ButtonElementProps>;
+/** A custom image button: an image of the tale's project that is a link, named by its alt text (R7). */
+export type ImageButtonElement = TaleElementOf<'image-button', ImageButtonElementProps>;
+/** The swipe-up link: a label pinned to the bottom safe area; a tale holds at most one (R7). */
+export type SwipeUpElement = TaleElementOf<'swipe-up', SwipeUpElementProps>;
+/** A call to action: an element that is a link to its destination (R7). */
+export type LinkElement = ButtonElement | ImageButtonElement | SwipeUpElement;
 /** An element that shows media of the tale's project. */
-export type MediaElement = ImageElement | VideoElement | StickerElement;
+export type MediaElement = ImageElement | VideoElement | StickerElement | ImageButtonElement;
 
 /** Every element type of the registry, a discriminated union keyed by `type` (AD-15). */
-export type TaleElement = TextElement | ImageElement | VideoElement | ShapeElement | EmojiElement | StickerElement;
+export type TaleElement =
+  | TextElement
+  | ImageElement
+  | VideoElement
+  | ShapeElement
+  | EmojiElement
+  | StickerElement
+  | ButtonElement
+  | ImageButtonElement
+  | SwipeUpElement;
 
 /** The registered element type keys. */
 export type TaleElementType = TaleElement['type'];
@@ -407,9 +430,9 @@ export interface DocumentMediaRef {
 }
 
 /** The element types that show media of the tale's project by storage key. */
-export const MEDIA_ELEMENT_TYPES = ['image', 'video', 'sticker'] as const;
+export const MEDIA_ELEMENT_TYPES = ['image', 'video', 'sticker', 'image-button'] as const;
 
-/** True when the element is an `image`, a `video` or an image `sticker`. */
+/** True when the element is an `image`, a `video`, an image `sticker` or an `image-button`. */
 export function isMediaElement<T extends { type: string }>(
   element: T,
 ): element is Extract<T, { type: (typeof MEDIA_ELEMENT_TYPES)[number] }> {
@@ -456,7 +479,12 @@ export function hasVideoElement(doc: { elements: readonly { type: string }[] } |
   return !!doc?.elements.some((element) => element.type === 'video');
 }
 
-const MEDIA_NAMES: Readonly<Record<string, string>> = { image: 'Image', video: 'Video', sticker: 'Sticker' };
+const MEDIA_NAMES: Readonly<Record<string, string>> = {
+  image: 'Image',
+  video: 'Video',
+  sticker: 'Sticker',
+  'image-button': 'Image button',
+};
 
 /**
  * How Tale Studio, and refusals, name a media element: its alt text, shortened to 40 characters,
@@ -478,9 +506,13 @@ export function mediaElementName(
   return `${MEDIA_NAMES[type]} ${n}`;
 }
 
-/** True when the element tells assistive technology what it shows, or is marked as showing nothing to tell (R12). */
-export function hasAltText(element: { a11y?: { label?: string; decorative?: boolean } }): boolean {
-  return element.a11y?.decorative === true || (element.a11y?.label ?? '').trim() !== '';
+/**
+ * True when the element tells assistive technology what it shows, or is marked as showing nothing
+ * to tell (R12). An image button is a link: only alt text names it, the decorative mark does not count.
+ */
+export function hasAltText(element: { type?: string; a11y?: { label?: string; decorative?: boolean } }): boolean {
+  const named = (element.a11y?.label ?? '').trim() !== '';
+  return element.type === 'image-button' ? named : named || element.a11y?.decorative === true;
 }
 
 /**
@@ -498,8 +530,10 @@ export function missingAltText(doc: {
 }
 
 /** What a refusal says about an element {@link missingAltText} found. */
-export function missingAltTextMessage(found: { name: string }): string {
-  return `"${found.name}" needs alt text, or must be marked decorative, before the tale can be updated.`;
+export function missingAltTextMessage(found: { name: string; type?: string }): string {
+  return found.type === 'image-button'
+    ? `"${found.name}" needs alt text before the tale can be updated.`
+    : `"${found.name}" needs alt text, or must be marked decorative, before the tale can be updated.`;
 }
 
 /**
@@ -598,8 +632,9 @@ function shortName(value: unknown): string {
 
 /**
  * How Tale Studio's layers list, and the server's refusals, name the element at `index` of a
- * document's elements of any trust: a text's first 40 characters on one line ("Empty text"); an
- * image's, video's or image sticker's alt text, else its kind and place ("Image 2",
+ * document's elements of any trust: a text's first 40 characters on one line ("Empty text"); a
+ * button's or swipe-up link's label ("Button 1", "Swipe-up link"); an image's, video's, image
+ * sticker's or image button's alt text, else its kind and place ("Image 2",
  * {@link mediaElementName}); an emoji with its name ("🎉 party popper"), or alone; a shape's label,
  * else its shape and place among the shapes of that kind ("Rectangle 1"); another type its place
  * ("Layer 3").
@@ -609,10 +644,16 @@ export function elementName(
   index: number,
 ): string {
   const element = elements[index];
-  const props = (element?.props ?? {}) as { text?: unknown; emoji?: unknown; shape?: unknown };
+  const props = (element?.props ?? {}) as { text?: unknown; emoji?: unknown; shape?: unknown; label?: unknown };
   switch (element?.type) {
     case 'text':
       return shortName(props.text) || 'Empty text';
+    case 'button':
+      return (
+        shortName(props.label) || `Button ${elements.slice(0, index + 1).filter((e) => e.type === 'button').length}`
+      );
+    case 'swipe-up':
+      return shortName(props.label) || 'Swipe-up link';
     case 'emoji': {
       const emoji = typeof props.emoji === 'string' ? props.emoji : '';
       const label = shortName(element.a11y?.label);
@@ -718,4 +759,211 @@ export function assertEmojiCheckSupported(): void {
 export function isEmojiGlyph(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MAX_EMOJI_LENGTH) return false;
   return emojiRegExp().test(value);
+}
+
+// ---- Calls to action: buttons, image buttons and the swipe-up link (epic Tale Studio R7, R14; AD-15, AD-16) ----
+
+/** The element types that are links to a destination (R7). */
+export const LINK_ELEMENT_TYPES = ['button', 'image-button', 'swipe-up'] as const;
+
+/** True when the element is a `button`, an `image-button` or the `swipe-up` link. */
+export function isLinkElement<T extends { type: string }>(
+  element: T,
+): element is Extract<T, { type: (typeof LINK_ELEMENT_TYPES)[number] }> {
+  return (LINK_ELEMENT_TYPES as readonly string[]).includes(element.type);
+}
+
+/** The longest destination URL, in characters. */
+export const MAX_LINK_URL_LENGTH = 2048;
+
+/** The most characters (code points) a button's or swipe-up link's label holds. */
+export const MAX_LINK_LABEL_LENGTH = 80;
+
+/** The most swipe-up links one document holds (R7). */
+export const MAX_SWIPE_UP_ELEMENTS = 1;
+
+/**
+ * Why a destination URL is refused (R7, R14; AD-15):
+ * - `empty`: no address;
+ * - `tooLong`: over {@link MAX_LINK_URL_LENGTH} characters;
+ * - `characters`: spaces, control characters, or bidi controls anywhere (browsers drop tabs and
+ *   line feeds from URLs, which would let `java\tscript:` through a looser check);
+ * - `scheme`: not an absolute `http://` or `https://` URL (`javascript:`, `data:`, `ftp:`, a
+ *   relative or protocol-relative URL);
+ * - `invalid`: not a URL a browser parses, or one without a host;
+ * - `credentials`: a user name or password in the URL, even empty (`https://:@host`), as the
+ *   importer's URL policy refuses them.
+ */
+export type LinkUrlProblem = 'empty' | 'tooLong' | 'characters' | 'scheme' | 'invalid' | 'credentials';
+
+// Any character at or below the space, DEL, C1 controls, the no-break and other Unicode spaces
+// (U+00A0, U+1680, U+2000-U+200A, U+202F, U+205F, U+3000), invisible and format characters (soft
+// hyphen, zero-width space and joiners, U+FEFF), the line and paragraph separators, and the bidi
+// marks, embeddings, overrides and isolates (U+061C, U+200E/F, U+202A-U+202E, U+2066-U+2069):
+// none belongs in a link a person reads, and each can make one address look like another.
+// eslint-disable-next-line no-control-regex
+const LINK_URL_BAD_CHARACTER = /[\u0000-\u0020\u007f-\u00a0\u00ad\u061c\u1680\u2000-\u200f\u2028-\u202f\u205f\u2066-\u2069\u3000\ufeff]/;
+const LINK_URL_SCHEME = /^https?:\/\//i;
+
+/**
+ * Why `value` is not a destination a link may open, or null when it is one: an absolute `http` or
+ * `https` URL of at most 2,048 characters, with a host, without credentials, spaces or control
+ * characters (R7, R14). The server refuses a document holding another; Tale Studio checks the
+ * same rule as people type, and the Web SDK checks it again before it renders a link (AD-16).
+ */
+export function linkUrlProblem(value: unknown): LinkUrlProblem | null {
+  if (typeof value !== 'string' || value === '') return 'empty';
+  if (value.length > MAX_LINK_URL_LENGTH) return 'tooLong';
+  if (LINK_URL_BAD_CHARACTER.test(value)) return 'characters';
+  if (!LINK_URL_SCHEME.test(value)) return 'scheme';
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return 'invalid';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'scheme';
+  if (url.hostname === '') return 'invalid';
+  // Credentials, even empty ones (`https://:@host`): any `@` in the authority as typed. A backslash
+  // ends the authority as a slash does, as browsers parse it: `https://example.com\@evil.example`
+  // is accepted and opens example.com, the host it shows first.
+  const authority = value.slice(value.indexOf('//') + 2).split(/[/?#\\]/)[0];
+  if (url.username !== '' || url.password !== '' || authority.includes('@')) return 'credentials';
+  return null;
+}
+
+/** True when `value` is a destination a link may open ({@link linkUrlProblem}). */
+export function isLinkUrl(value: unknown): value is string {
+  return linkUrlProblem(value) === null;
+}
+
+/** What Tale Studio, and server refusals, say about each {@link LinkUrlProblem}. */
+export const LINK_URL_MESSAGES: Readonly<Record<LinkUrlProblem, string>> = {
+  empty: 'Enter the web address the link opens.',
+  tooLong: 'A web address holds at most 2,048 characters.',
+  characters: 'A web address may not hold spaces or control characters.',
+  scheme: 'Only web addresses starting with http:// or https:// can be linked.',
+  invalid: 'This is not a valid web address.',
+  credentials: 'A web address may not hold a user name or password.',
+};
+
+/**
+ * The first visible link of a document without a valid destination, with its name, which keeps
+ * the document from being published (R7); null when there is none. A draft may hold a link whose
+ * address is still to be entered.
+ */
+export function missingLinkUrl(doc: {
+  elements: readonly { type: string; hidden?: boolean; a11y?: { label?: string }; props?: unknown }[];
+}): { index: number; name: string } | null {
+  const index = doc.elements.findIndex(
+    (e) =>
+      isLinkElement({ type: e.type }) &&
+      e.hidden !== true &&
+      !isLinkUrl((e.props as { href?: unknown } | undefined)?.href),
+  );
+  return index < 0 ? null : { index, name: elementName(doc.elements, index) };
+}
+
+/** What a refusal says about a link {@link missingLinkUrl} found. */
+export function missingLinkUrlMessage(found: { name: string }): string {
+  return `"${found.name}" needs a web address before the tale can be updated.`;
+}
+
+/**
+ * The swipe-up link's box (R7): pinned to the bottom safe area, centred. Every swipe-up link has
+ * it; the server refuses another, and Tale Studio does not move it.
+ */
+export const SWIPE_UP_BOX: TaleElementBox = { x: 0.2, y: 0.87, w: 0.6, h: 0.09, rotation: 0 };
+
+/** The swipe-up link's label size, as a fraction of the canvas height. */
+export const SWIPE_UP_FONT_SIZE = 0.024;
+
+/** True when a box is {@link SWIPE_UP_BOX}. */
+export function isSwipeUpBox(box: TaleElementBox): boolean {
+  return (
+    box.x === SWIPE_UP_BOX.x &&
+    box.y === SWIPE_UP_BOX.y &&
+    box.w === SWIPE_UP_BOX.w &&
+    box.h === SWIPE_UP_BOX.h &&
+    box.rotation === SWIPE_UP_BOX.rotation
+  );
+}
+
+/** Where a new button goes: centred, above the bottom safe area. */
+export const NEW_BUTTON_BOX: TaleElementBox = { x: 0.2, y: 0.74, w: 0.6, h: 0.07, rotation: 0 };
+
+/** Where a new image button goes: a square box (on the 9:16 canvas) above the bottom safe area. */
+export const NEW_IMAGE_BUTTON_BOX: TaleElementBox = { x: 0.35, y: 0.5, w: 0.3, h: 0.16875, rotation: 0 };
+
+/** The largest corner radius of a button or image button, as a fraction of the canvas height. */
+export const MAX_LINK_RADIUS = 0.5;
+
+/** A button's style: `filled` paints it, `outline` draws its edge. */
+export type ButtonVariant = ButtonElementProps['variant'];
+
+/** The button styles, in the order Tale Studio offers them. */
+export const BUTTON_VARIANTS: readonly ButtonVariant[] = ['filled', 'outline'];
+
+/** The props of a new button: a white, rounded, filled button with dark text, and no destination yet. */
+export function newButtonProps(): ButtonElementProps {
+  return { label: 'Learn more', variant: 'filled', color: '#111827', fill: '#FFFFFF', radius: 0.035 };
+}
+
+/** The props of a new swipe-up link: white text on a translucent dark pill, and no destination yet. */
+export function newSwipeUpProps(): SwipeUpElementProps {
+  return { label: 'See more', color: '#FFFFFF', background: '#000000B3' };
+}
+
+/** A button's look with every value checked again: what Tale Studio and the Web SDK draw. */
+export interface ButtonStyle {
+  variant: ButtonVariant;
+  /** The label colour. */
+  color: string;
+  /** The fill, or an outline button's edge. */
+  fill: string;
+  /** The corner radius as a fraction of the canvas height. */
+  radius: number;
+}
+
+/**
+ * A button's props of any trust as the values to draw (AD-16): each checked again, and one that
+ * fails takes its default (a filled white button with near-black text and square corners).
+ */
+export function resolveButtonStyle(props: unknown): ButtonStyle {
+  const p = (typeof props === 'object' && props !== null ? props : {}) as Record<string, unknown>;
+  return {
+    variant: p['variant'] === 'outline' ? 'outline' : 'filled',
+    color: colorOrNull(p['color']) ?? '#111827',
+    fill: colorOrNull(p['fill']) ?? '#FFFFFF',
+    radius: numberIn(p['radius'], 0, MAX_LINK_RADIUS, 0),
+  };
+}
+
+/** A swipe-up link's look with every value checked again. */
+export interface SwipeUpStyle {
+  color: string;
+  background: string;
+}
+
+/** A swipe-up link's props of any trust as the values to draw (AD-16); a value that fails takes its default. */
+export function resolveSwipeUpStyle(props: unknown): SwipeUpStyle {
+  const p = (typeof props === 'object' && props !== null ? props : {}) as Record<string, unknown>;
+  return { color: colorOrNull(p['color']) ?? '#FFFFFF', background: colorOrNull(p['background']) ?? '#000000B3' };
+}
+
+/** The width of an outline button's edge, as a fraction of the canvas height. */
+export const BUTTON_OUTLINE_WIDTH = 0.004;
+
+/**
+ * A button's label size as a fraction of the canvas height: 40% of its box's height, at most 6%
+ * of the canvas, so the label sits on one line in a box of any height.
+ */
+export function buttonFontSize(box: { h: number }): number {
+  return Math.round(Math.min(box.h * 0.4, 0.06) * 100000) / 100000;
+}
+
+/** A link's label as it is drawn: one line, without the characters a label may not hold, within its limit. */
+export function linkLabel(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return [...cleanText(value.replace(/\s+/g, ' '), LABEL_TEXT_RULE)].slice(0, MAX_LINK_LABEL_LENGTH).join('').trim();
 }
