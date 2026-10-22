@@ -1,0 +1,180 @@
+<!-- Duplicate's drawer is beside the view's, not in it, so each keeps its own focus trap. -->
+@if (duplicating(); as d) {
+  <app-duplicate-tale
+    [tale]="d.tale"
+    [returnFocus]="d.opener"
+    (duplicated)="duplicated($event)"
+    (closed)="duplicating.set(null)"
+  />
+}
+<app-drawer
+  [heading]="group().name"
+  [wide]="true"
+  [panelId]="panelId()"
+  [initialFocus]="initialFocus() ?? 'title'"
+  [restoreFocus]="false"
+  (closed)="closed.emit()"
+>
+  <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</p>
+  <div class="group-view__head">
+    <div class="group-view__status">
+      @if (isSwitchable(group().storedStatus)) {
+        <app-show-switch
+          [on]="group().storedStatus === 'live'"
+          [label]="group().name + ' on site'"
+          [stateText]="shownLabel(group().storedStatus, 'group')"
+          [disabled]="groupSaving()"
+          (toggled)="switched.emit($event)"
+        />
+      }
+      @if (needsBadge(group().status)) {
+        <app-status-badge [status]="group().status" kind="group" />
+      }
+      <app-visibility class="group-view__visibility" [visibility]="group().visibility" viewing="group" />
+    </div>
+    <app-menu-button
+      class="group-view__menu"
+      [label]="'More for ' + group().name"
+      [items]="menuItems()"
+      (picked)="menuPicked.emit($event)"
+    />
+    <p class="group-view__meta">
+      <span class="group-view__count">{{ shownCount() }}<span class="group-view__max"> · max {{ maxTales }}</span></span>
+      @if (windowChip(group()); as chip) {
+        <span class="window-chip" [title]="describeWindow(group())">
+          <span class="visually-hidden">Schedule: </span>{{ chip }}
+        </span>
+      }
+    </p>
+    @if (group().tags.length > 0) {
+      <ul class="pill-list group-view__tags" [attr.aria-label]="'Tags of ' + group().name">
+        @for (tag of group().tags; track tag.id) {
+          <li class="pill pill--tag">{{ tag.name }}</li>
+        }
+      </ul>
+    }
+    @if (otherZones().length > 0) {
+      <p class="group__zones muted">
+        Also in:
+        @for (other of otherZones(); track other.id; let last = $last) {
+          <a [routerLink]="['/zones', other.id]">{{ other.name }}</a>@if (!last) {<span>, </span>}
+        }
+      </p>
+    }
+  </div>
+  <div class="drawer__body group-view__body" cdkScrollable>
+    @if (groupError() || error(); as message) {
+      <div class="banner banner--inline" role="alert">
+        <app-icon name="alert" />
+        <span>{{ message }}</span>
+      </div>
+    }
+    <div class="group-view__toolbar">
+      <button
+        type="button"
+        class="btn btn--secondary btn--sm"
+        id="group-view-add-tale"
+        [attr.aria-label]="'Add tale to ' + group().name"
+        (click)="store.openDrawer({ kind: 'tale', taleGroupId: group().id }, $event)"
+      >
+        <app-icon name="plus" /> Add tale
+      </button>
+      @if (group().tales.length > 1) {
+        <p class="muted group-view__hint">Drag a tale, or use its arrows, to change the order.</p>
+      }
+    </div>
+    @if (group().tales.length === 0) {
+      <p class="muted group-view__empty">No tales yet. Add one: it shows on the site while the group is on.</p>
+    } @else {
+      <ol
+        class="tale-list group-view__list"
+        [attr.aria-label]="'Tales in ' + group().name"
+        cdkDropList
+        cdkDropListOrientation="mixed"
+        (cdkDropListDropped)="dropTale($event)"
+      >
+        @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
+          <li class="tale-card" [attr.data-tone]="tone(tale.id)" cdkDrag cdkDragPreviewContainer="parent">
+            @if (tale.media; as media) {
+              @if (media.kind === 'video') {
+                <!-- Loads and plays only while on screen: a group can hold 100 tales. -->
+                <video
+                  class="tale-card__media"
+                  appPlayWhenVisible
+                  [src]="store.mediaSrc(tale)"
+                  [muted]="true"
+                  loop
+                  playsinline
+                  preload="none"
+                  aria-hidden="true"
+                ></video>
+              } @else {
+                <img class="tale-card__media" [src]="store.mediaSrc(tale)" alt="" loading="lazy" />
+              }
+            }
+            <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
+            <app-visibility class="tale-card__visibility" [visibility]="tale.visibility" viewing="tale" [compact]="true" />
+            @if (isSwitchable(tale.storedStatus)) {
+              <app-show-switch
+                class="tale-card__switch"
+                [on]="tale.storedStatus === 'live'"
+                [label]="'Show ' + tale.title"
+                [stateText]="shownLabel(tale.storedStatus, 'tale')"
+                [disabled]="saving().has(tale.id)"
+                (toggled)="switchTale(tale, $event)"
+              />
+            }
+            @if (needsBadge(tale.status)) {
+              <app-status-badge class="tale-card__status" [status]="tale.status" kind="tale" />
+            }
+            <span class="tale-card__title">
+              @if (cardChip(tale); as chip) {
+                <span class="window-chip window-chip--card">
+                  <span class="visually-hidden">Schedule: </span>{{ chip }}
+                </span>
+              }
+              <span class="tale-card__name">{{ tale.title }}</span>
+            </span>
+            <button
+              type="button"
+              class="tale-card__open"
+              [attr.aria-label]="'Open tale ' + tale.title"
+              (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
+            ></button>
+            <app-menu-button
+              class="tale-card__menu"
+              [label]="'More for ' + tale.title"
+              [items]="taleMenus().get(tale.id) ?? []"
+              (picked)="talePicked(tale, $event)"
+            />
+            <span class="drag-handle tale-card__handle" cdkDragHandle title="Drag to reorder" aria-hidden="true">
+              <app-icon name="grip" />
+            </span>
+            <div class="move-controls tale-card__moves">
+              <button
+                type="button"
+                class="move-btn"
+                [attr.data-move]="'tale:' + tale.id + ':earlier'"
+                [attr.aria-label]="'Move ' + tale.title + ' earlier'"
+                [disabled]="tFirst"
+                (click)="stepTale(ti, 'earlier')"
+              >
+                <app-icon name="left" />
+              </button>
+              <button
+                type="button"
+                class="move-btn"
+                [attr.data-move]="'tale:' + tale.id + ':later'"
+                [attr.aria-label]="'Move ' + tale.title + ' later'"
+                [disabled]="tLast"
+                (click)="stepTale(ti, 'later')"
+              >
+                <app-icon name="right" />
+              </button>
+            </div>
+          </li>
+        }
+      </ol>
+    }
+  </div>
+</app-drawer>

@@ -164,7 +164,7 @@ describe('TaleStudioPage', () => {
     expect(canvas.getAttribute('aria-label')).toBe('Canvas, 9:16');
     expect(canvas.querySelector('img, video')).toBeNull();
     expect(elements()).toHaveLength(0);
-    expect(root.querySelector('a.back-link')?.getAttribute('href')).toBe('/zones/z1');
+    expect(root.querySelector('a.back-link')?.getAttribute('href')).toBe('/zones/z1?group=g1');
   });
 
   describe('back link and keyboard help (story 8.15)', () => {
@@ -172,7 +172,7 @@ describe('TaleStudioPage', () => {
       await open({ document: null, revision: 0 });
       const back = root.querySelector('a.back-link');
       expect(back?.textContent?.trim()).toBe('Back to Summer');
-      expect(back?.getAttribute('href')).toBe('/zones/z1');
+      expect(back?.getAttribute('href')).toBe('/zones/z1?group=g1');
     });
 
     it('says only "Back", to the zones list, while the group is not known', async () => {
@@ -254,12 +254,12 @@ describe('TaleStudioPage', () => {
       root = fixture.nativeElement as HTMLElement;
       const back = () => root.querySelector('a.back-link');
       expect(back()?.textContent?.trim()).toBe('Back to Summer');
-      expect(back()?.getAttribute('href')).toBe('/zones/z2');
+      expect(back()?.getAttribute('href')).toBe('/zones/z2?group=g1');
 
       // A zone that does not list the tale falls back to the first one that does.
       fixture.componentRef.setInput('zone', 'z9');
       fixture.detectChanges();
-      expect(back()?.getAttribute('href')).toBe('/zones/z1');
+      expect(back()?.getAttribute('href')).toBe('/zones/z1?group=g1');
     });
 
     it('closes when focus leaves it, and stays open while focus moves inside it', async () => {

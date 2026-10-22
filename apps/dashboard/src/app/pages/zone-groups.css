@@ -1,5 +1,5 @@
 /* The zone page's Tale groups list (epic UX rework R10): kept apart from the page's other styles. */
-/* One item per group (epic UX rework R10): the shared row (../group-row.css), then its open body until story 8.11's group view. */
+/* One item per group (epic UX rework R10): the shared row (../group-row.css); opening it opens its group view (R11). */
 .group {
   display: flex;
   flex-direction: column;
@@ -10,25 +10,6 @@
 }
 .group:first-child {
   border-top: 0;
-}
-.group-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-width: 0;
-  padding-inline-start: var(--space-4);
-  border-inline-start: 3px solid var(--border);
-}
-.group-body__about {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
-}
-.group__zones {
-  margin: 0;
-  font-size: var(--text-sm);
-  overflow-wrap: break-word;
 }
 /* Neutral: archiving is not an error. */
 .undo-bar {

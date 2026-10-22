@@ -60,6 +60,11 @@ export class CreateDrawer implements OnInit {
   /** Read by the drawer when it is removed: the replacement target, else the element that opened it. */
   protected readonly returnFocus = (): HTMLElement | null => this.returnTo ?? this.store.drawerOpener;
   readonly request = input.required<DrawerRequest>();
+  /** Replace media (epic UX rework R11) opens the tale drawer with focus on its media field. */
+  protected readonly focusMedia = computed(() => {
+    const request = this.request();
+    return request.kind === 'taleMedia' && request.focus === 'media';
+  });
 
   protected readonly error = signal('');
   protected readonly saving = signal(false);

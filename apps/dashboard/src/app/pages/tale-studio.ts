@@ -612,7 +612,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
   template: `
     <div class="page">
       <header class="page-header">
-        <a class="back-link" [routerLink]="backLink().link"><app-icon name="back" /> {{ backLink().text }}</a>
+        <a class="back-link" [routerLink]="backLink().link" [queryParams]="backLink().query"><app-icon name="back" /> {{ backLink().text }}</a>
         <h2 class="page-header__title">Tale Studio</h2>
         @if (tale(); as t) {
           <p class="page-header__meta">{{ t.title }}</p>
@@ -1739,7 +1739,7 @@ export class TaleStudioPage implements OnChanges {
   );
   /**
    * Back to the zone page the studio was opened from (`?zone=`) when it lists the tale, else the
-   * first zone that does, named by the tale's group ("Back to Summer sale"); "Back" to the zones
+   * first zone that does, with the tale's group open (`?group=`) and named ("Back to Summer sale"); "Back" to the zones
    * list while the group is not known.
    */
   protected readonly backLink = computed(() => {
@@ -1749,9 +1749,10 @@ export class TaleStudioPage implements OnChanges {
     const zones = from && lists[from] ? [from, ...Object.keys(lists).filter((z) => z !== from)] : Object.keys(lists);
     for (const zoneId of zones) {
       const group = lists[zoneId].find((g) => g.tales.some((t) => t.id === id));
-      if (group) return { link: ['/zones', zoneId], text: `Back to ${group.name}` };
+      // Back into the group's view on the zone page (epic UX rework R11).
+      if (group) return { link: ['/zones', zoneId], query: { group: group.id }, text: `Back to ${group.name}` };
     }
-    return { link: ['/zones'], text: 'Back' };
+    return { link: ['/zones'], query: null, text: 'Back' };
   });
 
   /** True while the keyboard shortcuts popover is open; closed when the studio opens. */
