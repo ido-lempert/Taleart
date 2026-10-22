@@ -557,8 +557,8 @@ export interface paths {
         get: operations["listZones"];
         put?: never;
         /**
-         * Create a zone in a project, without a display.
-         * @description `slug` is optional: when missing, it is made from the name (lowercase ASCII letters and digits joined by hyphens; `zone` when the name has none, as a Hebrew name has none) and made unique in the project with `-2`, `-3`. A given slug must be lowercase letters and digits, words joined by single hyphens, at most 64 characters (400 `validation_failed`), and free in the project (409 `slug_taken`). A blank name answers 400 `validation_failed`; a project that does not exist 400 `project_not_found`; a project the caller cannot access 403 `forbidden`.
+         * Create a zone in a project, from a template or without a display.
+         * @description `template` is optional: a template with a display gives the new zone that display with its preset settings in the same transaction, so a refused display leaves no zone; its key is recorded as the zone's `createdFromTemplate` note. A key not in the template registry answers 400 `unknown_template` and nothing is created. `slug` is optional: when missing, it is made from the name (lowercase ASCII letters and digits joined by hyphens; `zone` when the name has none, as a Hebrew name has none) and made unique in the project with `-2`, `-3`. A given slug must be lowercase letters and digits, words joined by single hyphens, at most 64 characters (400 `validation_failed`), and free in the project (409 `slug_taken`). A blank name answers 400 `validation_failed`; a project that does not exist 400 `project_not_found`; a project the caller cannot access 403 `forbidden`.
          */
         post: operations["createZone"];
         delete?: never;
@@ -630,28 +630,6 @@ export interface paths {
          * @description A new `type` changes the display's frame type and resets its settings to that type's defaults, unless `settings` is given too. `settings` replaces the settings and is validated against the JSON Schema of the display's (new) type (AD-5): an invalid value answers 400 `invalid_frame_settings` naming the field, and nothing is stored. A body with neither answers 400 `validation_failed`. The display keeps its id, so events keep their `frame_id` (AD-10). Unknown zone: 404 `zone_not_found`; a zone without a display: 404 `display_not_found`. When another change switches the display's type meanwhile, the change is checked again against the new type once, then refused with 409 `concurrent_change`; nothing is stored and it can be tried again.
          */
         patch: operations["updateZoneFrame"];
-        trace?: never;
-    };
-    "/zones/{zoneId}/playbook": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                zoneId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Apply a playbook to a zone, giving it the playbook's display.
-         * @description A playbook is a preset display with its settings (epic web zones R8, AD-17), defined in the playbook registry in `libs/contract`. In one transaction the zone gets the playbook's display, which stays editable, and records its key. Applying the zone's own playbook again creates nothing (`applied: false`). A missing key answers 400 `validation_failed`; a key not in the registry 400 `unknown_playbook`; a zone that has another playbook 409 `playbook_already_applied`; a zone that already has a display 409 `display_exists`, and nothing is created. A concurrent change to the zone that fails the apply twice answers 409 `concurrent_change`; nothing is created and it can be tried again. Unknown zone: 404 `zone_not_found`.
-         */
-        put: operations["applyZonePlaybook"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/zones/{zoneId}/key": {
@@ -1215,8 +1193,8 @@ export interface components {
             slug: string;
             /** Format: uuid */
             projectId: string;
-            /** @description The key of the playbook the zone had applied (epic web zones R8), from the playbook registry in `libs/contract`; null when none. Only a "created from template" note (AD-17); a zone the migration made from a stage keeps its original zone's key. */
-            playbookKey: string | null;
+            /** @description The key of the template the zone was created from (epic UX rework R5), from the template registry in `libs/contract`; null when none. Only a "created from template" note: the template set the display once and nothing links the zone to it afterwards. A zone the migration made from a stage keeps its original zone's note. */
+            createdFromTemplate: string | null;
             /** @description The zone's display (AD-5, AD-17): at most one frame, or null when the zone has none. A zone without a display delivers nothing. */
             frame: components["schemas"]["Frame"] | null;
         };
@@ -1226,6 +1204,11 @@ export interface components {
             projectId: string;
             /** @description The zone's slug. When missing, it is made from the name and made unique in the project with a numeric suffix (`home-2`). A slug another zone of the project has answers 409 `slug_taken`. */
             slug?: string;
+            /**
+             * @description A template from the template registry in `libs/contract` (epic UX rework R5). It sets the zone's display and its settings once, in the same transaction, and is recorded as the zone's `createdFromTemplate` note. `blank` sets no display. When missing, the zone has no display and no note.
+             * @enum {string}
+             */
+            template?: "stories-bar" | "promo-banner" | "blank";
         };
         /** @description At least one of `name` and `slug`. */
         UpdateZoneRequest: {
@@ -1269,16 +1252,6 @@ export interface components {
             settings?: {
                 [key: string]: unknown;
             };
-        };
-        ApplyPlaybookRequest: {
-            /** @description A playbook key from the playbook registry in `libs/contract`. */
-            key: string;
-        };
-        /** @description The outcome of applying a playbook to a zone (epic web zones R8, AD-17): the zone with its playbook key and its display. Applying the zone's own playbook again creates nothing. */
-        AppliedPlaybook: {
-            /** @description True when this call gave the zone the playbook's display; false when the zone already had it. */
-            applied: boolean;
-            zone: components["schemas"]["Zone"];
         };
         /** @description A tale group belongs to its project (AD-14). Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
         TaleGroup: {
@@ -2076,7 +2049,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "unknown_playbook" | "playbook_already_applied" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "zone_key_not_found" | "invalid_zone_key" | "storyly_token_invalid" | "storyly_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -3331,37 +3304,6 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
-    applyZonePlaybook: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                zoneId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApplyPlaybookRequest"];
-            };
-        };
-        responses: {
-            /** @description The zone with the playbook applied, and what this call created. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AppliedPlaybook"];
-                };
-            };
-            400: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
     getZoneKey: {
         parameters: {
             query?: never;
@@ -4315,6 +4257,7 @@ export const pathsProjectsProjectIdFontsPostParametersQueryWeightValues: Readonl
 export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["style"]> = ["normal", "italic"];
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
+export const createZoneRequestTemplateValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["CreateZoneRequest"]["template"]> = ["stories-bar", "promo-banner", "blank"];
 export const visibilityReasonSubjectValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReason"]["subject"]> = ["zone", "group", "tale"];
 export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet", "no-visible-groups", "no-tale-groups"];
 export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ContentStatus"]> = ["draft", "live", "scheduled", "processing", "invalid-media", "paused", "blocked-by-group", "expired", "quota-reached", "archived"];
@@ -4336,7 +4279,7 @@ export const importDifferenceEntityValues: ReadonlyArray<FlattenedDeepRequired<c
 export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportDifferenceKind"]> = ["missing", "renamed", "unexpected", "wrongType", "notHeld", "invalidRecord", "mediaNotImported", "tagNotImported", "keptLocalEdit", "removedAtSource", "movedAtSource"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "unknown_playbook", "playbook_already_applied", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "zone_key_not_found", "invalid_zone_key", "storyly_token_invalid", "storyly_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];

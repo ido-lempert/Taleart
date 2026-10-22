@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
-  findPlaybook,
+  findTemplate,
   groupShownStatus,
   isSwitchable,
   MAX_TALES_PER_GROUP,
@@ -43,7 +43,7 @@ const TONES = 6;
 type Direction = 'earlier' | 'later';
 
 /**
- * One zone: its playbook, its display (one frame, AD-17), its zone key and its tale groups, each a row of 9:16 tale cards with
+ * One zone: its display (one frame, AD-17), its zone key and its tale groups, each a row of 9:16 tale cards with
  * the group's tags. A group can be placed in several zones (AD-14): its row says
  * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Each group
  * has its On/Off switch and each tale card its Shown/Hidden switch (AD-6 amended, epic UX rework R6),
@@ -164,17 +164,8 @@ type Direction = 'earlier' | 'later';
       width: auto;
       min-width: 10rem;
     }
-    .playbook-applied__name {
-      font-weight: 600;
-      overflow-wrap: anywhere;
-    }
-    .playbook-applied {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: var(--space-1) var(--space-3);
-      margin: 0 0 var(--space-2);
-      overflow-wrap: anywhere;
+    .zone-template {
+      white-space: nowrap;
     }
     .key-info {
       display: flex;
@@ -235,8 +226,11 @@ export class ZoneDetailPage {
   protected readonly changingType = signal(false);
   /** The API's message when it refused a display change; cleared when the zone changes. */
   protected readonly displayError = linkedSignal({ source: this.zoneId, computation: () => '' });
-  /** The playbook applied to the zone (R8), when the registry still has it. */
-  protected readonly appliedPlaybook = computed(() => findPlaybook(this.zone()?.playbookKey));
+  /** The name of the template the zone was created from (epic UX rework R5): a note only, or ''. */
+  protected readonly createdFromTemplate = computed(() => {
+    const key = this.zone()?.createdFromTemplate;
+    return key ? (findTemplate(key)?.label ?? key) : '';
+  });
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
   /** The zone's active key (prefix and date only), or null. */
   protected readonly zoneKey = computed(() => this.store.zoneKey(this.zoneId()));
