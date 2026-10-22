@@ -25,9 +25,10 @@ import {
   ERROR_CODES,
   ErrorCodes,
   IMPORT_STATUSES,
-  isStageKey,
-  MAX_STAGE_KEY_LENGTH,
-  stageKeyFromName,
+  isZoneSlug,
+  MAX_ZONE_SLUG_LENGTH,
+  zoneSlugFromName,
+  uniqueZoneSlug,
   invitationPath,
   isImportActive,
   isErrorBody,
@@ -338,25 +339,36 @@ describe('imports', () => {
   });
 });
 
-describe('stage keys (epic web zones R7)', () => {
+describe('zone slugs (epic UX rework R1)', () => {
   it('accepts lowercase words joined by single hyphens, up to 64 characters', () => {
-    for (const key of ['home', 'home-top', 'bar-2', '2024', 'a'.repeat(MAX_STAGE_KEY_LENGTH)]) {
-      expect(isStageKey(key)).toBe(true);
+    for (const key of ['home', 'home-top', 'bar-2', '2024', 'a'.repeat(MAX_ZONE_SLUG_LENGTH)]) {
+      expect(isZoneSlug(key)).toBe(true);
     }
   });
 
   it('refuses anything else', () => {
     for (const key of ['', 'Home', 'home top', '-home', 'home-', 'home--top', 'home_top', 'héro', 'a'.repeat(65), 7, null]) {
-      expect(isStageKey(key)).toBe(false);
+      expect(isZoneSlug(key)).toBe(false);
     }
   });
 
   it('suggests a key from a name', () => {
-    expect(stageKeyFromName(' Home page: Top bar! ')).toBe('home-page-top-bar');
-    expect(stageKeyFromName('Héro Bänner 2')).toBe('hero-banner-2');
-    expect(stageKeyFromName('***')).toBe('');
-    const long = stageKeyFromName(`${'a'.repeat(63)} b`);
+    expect(zoneSlugFromName(' Home page: Top bar! ')).toBe('home-page-top-bar');
+    expect(zoneSlugFromName('Héro Bänner 2')).toBe('hero-banner-2');
+    expect(zoneSlugFromName('***')).toBe('');
+    const long = zoneSlugFromName(`${'a'.repeat(63)} b`);
     expect(long).toBe('a'.repeat(63));
-    expect(isStageKey(long)).toBe(true);
+    expect(isZoneSlug(long)).toBe(true);
+  });
+
+  it('makes a slug unique with a numeric suffix, within 64 characters', () => {
+    const taken = new Set(['home', 'home-2', 'zone']);
+    expect(uniqueZoneSlug('shop', (s) => taken.has(s))).toBe('shop');
+    expect(uniqueZoneSlug('home', (s) => taken.has(s))).toBe('home-3');
+    expect(uniqueZoneSlug('', (s) => taken.has(s))).toBe('zone-2');
+    const long = 'a'.repeat(MAX_ZONE_SLUG_LENGTH);
+    const next = uniqueZoneSlug(long, (s) => s === long);
+    expect(next).toBe(`${'a'.repeat(62)}-2`);
+    expect(isZoneSlug(next)).toBe(true);
   });
 });
