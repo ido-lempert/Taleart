@@ -258,9 +258,11 @@
                     <p class="muted">
                       <span class="visually-hidden">Tales: </span>{{ group.tales.length }} / {{ maxTales }}
                     </p>
-                    <p class="group__schedule muted">
-                      <span class="visually-hidden">Schedule: </span>{{ describeWindow(group) || 'No schedule' }}
-                    </p>
+                    @if (windowChip(group); as chip) {
+                      <p class="window-chip" [title]="describeWindow(group)">
+                        <span class="visually-hidden">Schedule: </span>{{ chip }}
+                      </p>
+                    }
                     @if (otherZones(group); as others) {
                       @if (others.length > 0) {
                         <p class="group__zones muted">
@@ -313,14 +315,6 @@
                       type="button"
                       class="btn btn--secondary btn--sm"
                       [attr.aria-describedby]="'group-name-' + group.id"
-                      (click)="store.openDrawer({ kind: 'schedule', target: 'taleGroup', id: group.id }, $event)"
-                    >
-                      Schedule
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn--secondary btn--sm"
-                      [attr.aria-describedby]="'group-name-' + group.id"
                       (click)="store.openDrawer({ kind: 'cover', taleGroupId: group.id }, $event)"
                     >
                       Cover
@@ -353,6 +347,11 @@
                     >
                       Remove from this zone
                     </button>
+                    <app-menu-button
+                      [label]="'More for ' + group.name"
+                      [items]="groupMenu"
+                      (picked)="groupPicked(group, $event)"
+                    />
                   </div>
                   @if (!filtering()) {
                     <div class="move-controls">
@@ -431,35 +430,26 @@
                         @if (needsBadge(tale.status)) {
                           <app-status-badge class="tale-card__status" [status]="tale.status" kind="tale" />
                         }
-                        <span class="tale-card__title">{{ tale.title }}</span>
+                        <span class="tale-card__title">
+                          @if (cardChip(tale); as chip) {
+                            <span class="window-chip window-chip--card">
+                              <span class="visually-hidden">Schedule: </span>{{ chip }}
+                            </span>
+                          }
+                          <span class="tale-card__name">{{ tale.title }}</span>
+                        </span>
                         <button
                           type="button"
                           class="tale-card__open"
                           [attr.aria-label]="'Open tale ' + tale.title"
                           (click)="store.openDrawer({ kind: 'taleMedia', taleId: tale.id }, $event)"
                         ></button>
-                        <button
-                          type="button"
-                          class="tale-card__duplicate"
-                          [attr.data-duplicate]="tale.id"
-                          [attr.aria-label]="'Duplicate ' + tale.title"
-                          title="Duplicate"
-                          (click)="openDuplicate(tale, $event)"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                            focusable="false"
-                          >
-                            <rect x="8" y="8" width="13" height="13" rx="2" />
-                            <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
-                          </svg>
-                        </button>
+                        <app-menu-button
+                          class="tale-card__menu"
+                          [label]="'More for ' + tale.title"
+                          [items]="taleMenu"
+                          (picked)="talePicked(tale, $event)"
+                        />
                         <span
                           class="drag-handle tale-card__handle"
                           cdkDragHandle
