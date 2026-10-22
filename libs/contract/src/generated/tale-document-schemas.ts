@@ -820,3 +820,58 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     }
   }
 ];
+
+/**
+ * The registry's `testOnly` entries, each with its props schema (epic Tale Studio R8): taken only
+ * where configured (`elementTypeRegistry({ testTypes: true })`), never by a production build.
+ */
+export const TALE_TEST_ELEMENT_TYPES: readonly {
+  readonly key: string;
+  readonly label: string;
+  readonly schema: { readonly [key: string]: unknown };
+}[] = [
+  {
+    "key": "test-badge",
+    "label": "Test badge",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "TestBadgeElementProps",
+      "description": "A test-only element type (epic Tale Studio R8): it proves that a type registered by configuration reaches the studio's Add menu and inspector, the server's validation and the SDK's renderer lookup. It is `testOnly` in the registry: the server accepts it only with TALE_TEST_ELEMENT_TYPES=on outside production, the dashboard offers it only in development builds that opt in, and no SDK renders it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "color",
+        "tone"
+      ],
+      "properties": {
+        "label": {
+          "description": "The badge's text, one line without control characters.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e]*$"
+        },
+        "color": {
+          "description": "The badge's colour, as #RRGGBB.",
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "tone": {
+          "description": "Whether the badge is filled or outlined.",
+          "type": "string",
+          "enum": [
+            "solid",
+            "outline"
+          ]
+        },
+        "count": {
+          "description": "A number shown beside the label, 0 to 99.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 99
+        }
+      }
+    }
+  }
+];

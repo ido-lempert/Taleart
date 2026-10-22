@@ -4,6 +4,7 @@ import {
   SWIPE_UP_BOX,
   type DeliveryTaleDocument,
   type DeliveryTaleElement,
+  type TaleElementType,
 } from '@taleart/contract';
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
 import { mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
@@ -13,22 +14,29 @@ import { renderText } from './text';
 /** Renders one element of its type as DOM, or null to render nothing. */
 export type ElementRenderer = (element: DeliveryTaleElement, context: RenderContext) => HTMLElement | null;
 
+// One renderer per registered element type (AD-16, R8). Typed by the registry's union, so a type
+// added to the contract's registry and union does not compile here until it has its renderer.
+// Test-only types of the registry are not in the union and have none: no SDK renders them.
+const RENDERERS: { readonly [K in TaleElementType]: ElementRenderer } = {
+  text: renderText,
+  image: renderImage,
+  video: renderVideo,
+  shape: renderShape,
+  emoji: renderEmoji,
+  sticker: renderSticker,
+  button: renderButton,
+  'image-button': renderImageButton,
+  'swipe-up': renderSwipeUp,
+};
+
 /**
  * One renderer per element type, keyed by the element-type registry's keys (AD-16). A type that
  * is not here renders nothing, so an older SDK still shows the rest of a tale (AD-15). A Map, so
  * a type such as `constructor` or `__proto__` is unknown rather than an inherited property.
  */
-export const ELEMENT_RENDERERS: ReadonlyMap<string, ElementRenderer> = new Map<string, ElementRenderer>([
-  ['text', renderText],
-  ['image', renderImage],
-  ['video', renderVideo],
-  ['shape', renderShape],
-  ['emoji', renderEmoji],
-  ['sticker', renderSticker],
-  ['button', renderButton],
-  ['image-button', renderImageButton],
-  ['swipe-up', renderSwipeUp],
-]);
+export const ELEMENT_RENDERERS: ReadonlyMap<string, ElementRenderer> = new Map<string, ElementRenderer>(
+  Object.entries(RENDERERS),
+);
 
 /**
  * The document stage's look. The area fills its parent inside the device's safe-area insets (the

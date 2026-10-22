@@ -28,7 +28,7 @@ import {
   projectFontRefs,
   TALE_DOCUMENT_VERSION,
   TALE_DOCUMENT_V1_SCHEMA,
-  TALE_ELEMENT_TYPE_REGISTRY,
+  elementTypeRegistry,
   type DeliveryTaleDocument,
   type TaleCanvas,
   type TaleDocument,
@@ -207,16 +207,38 @@ interface Validators {
   props: Map<string, ValidateFunction>;
 }
 
-let validators: Validators | null = null;
+// One set of compiled schemas without the registry's test-only types and one with them.
+const validators = new Map<boolean, Validators>();
 
-// The schemas are compiled once, on first use.
+// The deployment switch for the registry's test-only element types (epic Tale Studio R8), read by
+// the API from TALE_TEST_ELEMENT_TYPES: off unless a test or a development server turns it on.
+let testTypes = false;
+
+/**
+ * Accepts the element-type registry's test-only types on write (on), or refuses them as unknown
+ * types (off, the default). For tests and development servers only; the API never turns it on in
+ * production (R8).
+ */
+export function setTestElementTypesEnabled(on: boolean): void {
+  testTypes = on;
+}
+
+/** True while the registry's test-only element types are accepted on write. */
+export function testElementTypesEnabled(): boolean {
+  return testTypes;
+}
+
+// The schemas of every registered type the server takes, compiled once, on first use: the
+// registry is the one list of types (AD-15, R8).
 function compiled(): Validators {
-  if (validators) return validators;
+  const cached = validators.get(testTypes);
+  if (cached) return cached;
   const ajv = new Ajv2020({ allErrors: false });
   const props = new Map<string, ValidateFunction>();
-  for (const { key, schema } of TALE_ELEMENT_TYPE_REGISTRY) props.set(key, ajv.compile(schema));
-  validators = { document: ajv.compile(TALE_DOCUMENT_V1_SCHEMA), props };
-  return validators;
+  for (const { key, schema } of elementTypeRegistry({ testTypes })) props.set(key, ajv.compile(schema));
+  const compiledNow = { document: ajv.compile(TALE_DOCUMENT_V1_SCHEMA), props };
+  validators.set(testTypes, compiledNow);
+  return compiledNow;
 }
 
 // Refuses a number that is not finite anywhere in the value (JSON's 1e999 parses as Infinity).
