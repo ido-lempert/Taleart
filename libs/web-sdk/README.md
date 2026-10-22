@@ -19,8 +19,8 @@ Rotating the site key affects every zone of the project: update every page that 
 not a secret once it is in a page's HTML: anyone who sees it can read every zone of the project that has a display and
 visible content, by its slug.
 
-A legacy zone key still works on its own: `<taleart-view api-url="…" zone-key="tak_…">`. When an element has both,
-the site key and slug win.
+An element renders only with both a site key and a slug. Zone keys and the `stage` attribute of
+earlier builds are gone.
 
 Loading the SDK registers `<taleart-view>`. The ES build exports the API below; the UMD build puts the same exports on
 `window.TaleartWebSdk`.
@@ -30,7 +30,6 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | `api-url` / `apiUrl` | The TaleArt API origin. |
 | `site-key` / `siteKey` | The project's site key (`tas_…`) issued in the dashboard. |
 | `zone` / `zone` | The zone's slug, such as `home-top`, shown on the zone page. |
-| `zone-key` / `zoneKey` | A legacy zone key (`tak_…`), used when no site key is set. |
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
 
 ## Theme
@@ -39,8 +38,7 @@ The project's theme, set in the dashboard, styles the zone's display and the vie
 for a zone, or for one element. There is no theme per frame. Each field resolves, in order, from:
 
 1. the element's `theme` property or attribute,
-2. the zone's `configureZone(zone, { theme })` option, where `zone` is the zone's slug (or, for an element placed with
-   a legacy zone key, that key),
+2. the zone's `configureZone(zone, { theme })` option, where `zone` is the zone's slug,
 3. the project's theme,
 4. TaleArt's default.
 
@@ -49,9 +47,6 @@ import { configureZone } from 'https://your-cdn.example/taleart/index.js';
 
 // Every <taleart-view> with zone="home-top"; other zones keep the project's theme.
 configureZone('home-top', { theme: { ringStyle: 'solid', ringColors: ['#0055ff'] } });
-
-// Every <taleart-view> with this legacy zone key.
-configureZone('tak_…', { theme: { cornerRadius: 0 } });
 
 // One element only.
 document.querySelector('taleart-view').theme = { cornerRadius: 0 };
@@ -85,7 +80,7 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 - A `theme` property set by script before the SDK defines `<taleart-view>` is applied when the element upgrades and wins
   over a `theme` attribute already present then, which is left unread and logs nothing; later attribute changes apply
   as usual.
-- Warnings about a zone's theme name the zone by its slug, or by the first 8 characters of a key (`tak_…`, `tas_…`) only.
+- Warnings about a zone's theme name the zone by its slug, or a site key passed by mistake by its first 8 characters (`tas_…`) only.
 - With an override, colour contrast is the host page's responsibility: keep titles at 4.5:1 and rings at 3:1 against the
   background (WCAG 2.2 AA).
 
@@ -179,8 +174,8 @@ when p75 first tale frame is over 1 s. `PERF_RUNS` (default 10), `PERF_BUDGET_MS
 
 What a run adds to the database, and deletes again at the end (also when it fails or gets SIGINT/SIGTERM): an admin
 user and their session (inserted directly, as the API tests sign in), and through the Management API a project, its
-zone, its bar display, eight tale groups with their zone placements, covers and 24 tales, and a zone key; and a project
-font with a second zone, its bar display, group, tale and key. The media files go
+zone, its bar display, eight tale groups with their zone placements, covers and 24 tales, and the project's site key; and a
+project font with a second zone, its bar display, group and tale. The media files go
 to a temporary folder that is removed with them. A run killed outright (SIGKILL) leaves those rows, whose media keys
 then name files that no longer exist.
 

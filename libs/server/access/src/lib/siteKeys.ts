@@ -28,6 +28,9 @@ export async function migrateSiteKeys(db: Db): Promise<void> {
   await db.query(
     'CREATE UNIQUE INDEX IF NOT EXISTS site_keys_active_project_key ON site_keys (project_id) WHERE revoked_at IS NULL',
   );
+  // Zone keys are gone (epic UX rework, owner decision 2026-10-22): the site key and a zone slug are
+  // the only way to place a zone. Nothing in `zone_keys` needs keeping.
+  await db.query('DROP TABLE IF EXISTS zone_keys');
 }
 
 /** A new site key: `tas_` and 32 random bytes in base64url. */
@@ -100,4 +103,13 @@ export async function projectForSiteKey(db: Db, key: string | undefined): Promis
     [hashToken(key ?? '')],
   );
   return key?.startsWith(SITE_KEY_PREFIX) ? (rows[0]?.projectId ?? null) : null;
+}
+
+/**
+ * SQL that is true when the project whose id is the expression `projectId` has an active site key,
+ * which is what makes each of its zones installed (epic UX rework R7 "zone not installed"). The access
+ * module owns `site_keys`; other modules build their visibility and Delivery rules with this.
+ */
+export function zoneInstalledSql(projectId: string): string {
+  return `EXISTS (SELECT 1 FROM site_keys isk WHERE isk.project_id = ${projectId} AND isk.revoked_at IS NULL)`;
 }

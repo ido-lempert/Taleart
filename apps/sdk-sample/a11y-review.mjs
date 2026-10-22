@@ -13,7 +13,6 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
 import { axeViolations, freePort, loadAxe, mediaTale, startSample } from './a11y-shared.mjs';
-import { buildLegacySdk } from './legacy-sdk.mjs';
 
 const { values: args } = parseArgs({ options: { shots: { type: 'string' }, json: { type: 'string' } } });
 const shotsDir = args.shots ? resolve(args.shots) : null;
@@ -86,7 +85,7 @@ const groups = (names = ['Summer sale', 'New arrivals', 'Stories']) => [
   },
 ];
 // The page under review. A zone has one display (AD-17), so `frames` here lists the displays the
-// page shows: one zone per entry, each with its own key and its own <taleart-view>, in this order,
+// page shows: one zone per entry, each with its own slug and its own <taleart-view>, in this order,
 // all showing the same tale groups (see `zonesOf`).
 const zone = (overrides = {}) => ({
   id: 'z1',
@@ -101,32 +100,36 @@ const zone = (overrides = {}) => ({
   ...overrides,
 });
 
-// The zones a page fixture stands for, keyed by their zone keys: one zone per display, as the
-// Delivery API sends it (`frame`). `legacy` keeps the pre-rework `frames` list too, for the SDK
-// build from before the rework that the R16 comparison loads.
-function zonesOf(page, { legacy = false } = {}) {
+// The project's site key the review's pages place their zones with (epic UX rework R3).
+const SITE_KEY = 'tas_review';
+
+// The zones a page fixture stands for, keyed by their slugs: one zone per display, as the Delivery
+// API sends it (`frame`).
+function zonesOf(page) {
   const { frames = [], ...rest } = page;
   return Object.fromEntries(
-    frames.map((frame, i) => [
-      i === 0 ? 'tak_review' : `tak_review_${i + 1}`,
-      {
-        ...rest,
-        id: i === 0 ? rest.id : `${rest.id}-${i + 1}`,
-        slug: i === 0 ? rest.slug : `${rest.slug}-${i + 1}`,
-        frame,
-        ...(legacy && { frames: [frame], stages: [] }),
-      },
-    ]),
+    frames.map((frame, i) => {
+      const slug = i === 0 ? rest.slug : `${rest.slug}-${i + 1}`;
+      return [slug, { ...rest, id: i === 0 ? rest.id : `${rest.id}-${i + 1}`, slug, frame }];
+    }),
   );
 }
 
-// Answers the Delivery API by the request's key, as the API does.
+// True for a Delivery API zone request, whatever its query.
+const deliveryZoneUrl = (url) => url.href.startsWith(`${API}/delivery/v1/zone?`);
+
+// Answers the Delivery API by the site key and the `zone` slug, as the API does.
 function deliverZones(zones) {
   return (route) => {
+    const slug = new URL(route.request().url()).searchParams.get('zone') ?? '';
     const key = (route.request().headers()['authorization'] ?? '').replace(/^Bearer\s+/i, '');
-    return zones[key]
-      ? route.fulfill({ json: zones[key], headers: CORS })
-      : route.fulfill({ status: 401, json: { error: { code: 'invalid_zone_key', message: 'A valid zone key is required' } }, headers: CORS });
+    return key === SITE_KEY && Object.hasOwn(zones, slug)
+      ? route.fulfill({ json: zones[slug], headers: CORS })
+      : route.fulfill({
+          status: 401,
+          json: { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } },
+          headers: CORS,
+        });
   };
 }
 
@@ -223,7 +226,7 @@ async function openSample(
   page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
   page.on('pageerror', (err) => errors.push(String(err)));
   const zones = zonesOf(z);
-  await page.route(`${API}/delivery/v1/zone`, deliverZones(zones));
+  await page.route(deliveryZoneUrl, deliverZones(zones));
   await page.route(`${API}/media/**`, (route) =>
     route.request().url().endsWith('.webm')
       ? route.fulfill({ body: videoBytes, contentType: 'video/webm', headers: { 'Access-Control-Allow-Origin': '*' } })
@@ -241,7 +244,9 @@ async function openSample(
       { dir, lang, host },
     );
   }
-  await page.goto(`http://localhost:${port}/?keys=${Object.keys(zones).join(',')}&api=${encodeURIComponent(API)}${query}`);
+  await page.goto(
+    `http://localhost:${port}/?zones=${Object.keys(zones).join(',')}&api=${encodeURIComponent(API)}${query}#siteKey=${SITE_KEY}`,
+  );
   await page.locator('taleart-view button.item, taleart-view section.banner').first().waitFor();
   page.errors = errors;
   return page;
@@ -1259,7 +1264,7 @@ try {
     check('4.1.2', named.every((n) => n !== ''), 'two zones: every control of both displays has a name');
     check(
       '1.3.1',
-      (await page.locator('#views h2').allTextContents()).join() === 'Zone 1,Zone 2',
+      (await page.locator('#views h2').allTextContents()).join() === 'Zone home,Zone home-2',
       'two zones: each display sits under its own heading',
     );
     await axe(page, 'two zones: a bar zone and a banner zone');
@@ -1873,137 +1878,13 @@ try {
     await context.close();
   }
 
-  // 15. Existing tales become documents (Tale Studio 7.11, epic R16): every tale from before
-  //     documents looks exactly as it did. "Before" is the release before 7.11 (the Web SDK built
-  //     from 489b892 by legacy-sdk.mjs) on what that release's server sent: the tale's media, and its
-  //     stored document if any. "After" is this SDK on the documents the real migration wrote, as the
-  //     Delivery API serves them (fixtures/r16-migration.json, which api's tests check against the
-  //     server). Both are screenshotted with the viewer's controls hidden and compared pixel by pixel:
-  //     an image (phone and desktop), a video's first frame, a GIF, a studio text over the media, and
-  //     a tale with no media (the placeholder).
+  // 15. Existing tales become documents (Tale Studio 7.11, epic R16): this SDK on the documents the
+  //     real migration wrote, as the Delivery API serves them (fixtures/r16-migration.json, which api's
+  //     tests check against the server). The pixel comparison with the SDK build from before the
+  //     rework is gone with the zone keys that build needed (UX rework story 8.7).
   {
-    const legacyBundle = buildLegacySdk('489b892');
-    if (!legacyBundle) {
-      console.log('SKIPPED - [R16] the release before 7.11 (489b892) is not in this checkout; no pixel comparison');
-    }
     const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, 'fixtures/r16-migration.json'), 'utf8'));
     const withApi = (value) => JSON.parse(JSON.stringify(value).replaceAll('{API}', API));
-    // A picture with edges, so a shift or a scale shows; a one-frame GIF; the review's WebM.
-    const picture =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="160" viewBox="0 0 90 160">' +
-      '<rect width="90" height="160" fill="#f97316"/><rect x="22.5" y="40" width="45" height="80" fill="#1d4ed8"/></svg>';
-    const backdrop =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90" viewBox="0 0 160 90">' +
-      '<rect width="160" height="90" fill="#16a34a"/><circle cx="80" cy="45" r="30" fill="#fde047"/></svg>';
-    const gif = Buffer.from('R0lGODlhAgACAPAAAP8AAAAA/yH5BAAAAAAALAAAAAACAAIAAAICjAsAOw==', 'base64');
-    const cases = [
-      ['image', { width: 390, height: 844 }],
-      ['image', { width: 1280, height: 800 }],
-      ['video', { width: 390, height: 844 }],
-      ['gif', { width: 390, height: 844 }],
-      ['overlay', { width: 390, height: 844 }],
-      ['empty', { width: 390, height: 844 }],
-      ['background-image', { width: 390, height: 844 }],
-      ['background-video', { width: 390, height: 844 }],
-    ];
-    // Counts the pixels that differ (by more than 2 in any channel) between two PNG screenshots.
-    const differing = (page, a, b) =>
-      page.evaluate(
-        async ([a, b]) => {
-          const load = async (base64) => {
-            const img = new Image();
-            img.src = `data:image/png;base64,${base64}`;
-            await img.decode();
-            const canvas = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            return ctx.getImageData(0, 0, img.width, img.height).data;
-          };
-          const [x, y] = await Promise.all([load(a), load(b)]);
-          if (x.length !== y.length) return Infinity;
-          let count = 0;
-          for (let i = 0; i < x.length; i += 4) {
-            if (Math.max(...[0, 1, 2].map((c) => Math.abs(x[i + c] - y[i + c]))) > 2) count++;
-          }
-          return count;
-        },
-        [a.toString('base64'), b.toString('base64')],
-      );
-    // The viewer on one tale, with the SDK given (`legacy` serves the release before), its controls hidden.
-    async function viewerShot(name, viewport, tale, legacy) {
-      const z = zone({
-        frames: [{ id: 'f1', type: 'bar', settings: {} }],
-        taleGroups: [{ id: 'gl', name: 'Legacy', cover: null, tales: [{ id: `t-${name}`, title: 'Legacy', ...tale }] }],
-      });
-      const context = await browser.newContext({
-        viewport,
-        reducedMotion: name.endsWith('video') ? 'reduce' : 'no-preference',
-      });
-      const page = await context.newPage();
-      const errors = [];
-      page.on('pageerror', (err) => errors.push(String(err)));
-      if (legacy) {
-        await page.route('**/sdk/index.js', (route) =>
-          route.fulfill({ body: legacyBundle, contentType: 'text/javascript; charset=utf-8' }),
-        );
-      }
-      // The SDK build from before the rework reads `frames`; the current one reads `frame` (AD-17).
-      await page.route(`${API}/delivery/v1/zone`, deliverZones(zonesOf(z, { legacy })));
-      await page.route(`${API}/media/**`, (route) => {
-        const url = route.request().url();
-        const headers = { 'Access-Control-Allow-Origin': '*' };
-        if (url.includes('.mp4')) return route.fulfill({ body: videoBytes, contentType: 'video/webm', headers });
-        if (url.includes('.gif')) return route.fulfill({ body: gif, contentType: 'image/gif', headers });
-        // A media background: a landscape picture of other colours, contained, so its bands show.
-        if (url.includes('-bg.')) return route.fulfill({ body: backdrop, contentType: 'image/svg+xml', headers });
-        return route.fulfill({ body: picture, contentType: 'image/svg+xml', headers });
-      });
-      await page.goto(`http://localhost:${port}/?key=tak_review&api=${encodeURIComponent(API)}`);
-      await page.locator('taleart-view button.item').first().click();
-      await page.locator('taleart-view dialog.viewer').waitFor();
-      await page.evaluate(() => {
-        const dialog = __taOne('dialog');
-        dialog.querySelector('.top').style.visibility = 'hidden';
-        dialog.focus();
-      });
-      await page.waitForTimeout(600);
-      const png = await page.screenshot();
-      // Which SDK drew it: the release before drew a tale without a document with no canvas at all.
-      const canvas = await page.evaluate(
-        () => !!__taOne('dialog .ta-area'),
-      );
-      await context.close();
-      return { png, errors, canvas };
-    }
-    for (const [name, viewport] of legacyBundle ? cases : []) {
-      const entry = fixture.tales.find((t) => t.name === name);
-      const before = await viewerShot(name, viewport, withApi(entry.before), true);
-      const after = await viewerShot(
-        name,
-        viewport,
-        { media: withApi(entry.before).media, document: withApi(entry.after) },
-        false,
-      );
-      const scratch = await browser.newPage();
-      const diff = await differing(scratch, before.png, after.png);
-      await scratch.close();
-      const where = `${name}, ${viewport.width}x${viewport.height}`;
-      check(
-        'R16',
-        diff === 0,
-        `a tale from before documents looks the same after the migration (${where}; ${diff} pixels differ)`,
-      );
-      check('4.1.2', before.errors.length + after.errors.length === 0, `no page errors before or after (${where})`);
-      check(
-        'R16',
-        after.canvas && (!!entry.before.document || !before.canvas),
-        `"before" is drawn by the release before, "after" by this SDK from the migrated document (${where})`,
-      );
-      if (shotsDir) {
-        writeFileSync(resolve(shotsDir, `r16-before-${name}-${viewport.width}.png`), before.png);
-        writeFileSync(resolve(shotsDir, `r16-after-${name}-${viewport.width}.png`), after.png);
-      }
-    }
     // The accessible name moved (R16): the release before named an image tale by its image's alt text
     // (the title); now the tale's media is decorative and the canvas, a group, carries the title.
     {

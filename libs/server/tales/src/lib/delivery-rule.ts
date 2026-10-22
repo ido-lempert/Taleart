@@ -70,12 +70,11 @@ export const TALE_REASON_CLAUSES: readonly ReasonClause[] = [
 
 /**
  * What a zone needs before the site shows anything in it (R7), on a zone id expression: a display
- * (its frame, AD-17) and an installed key (an active site key of its project, or an active legacy
- * zone key of the zone; epic UX rework R3).
+ * (its frame, AD-17) and an installed key (an active site key of its project; epic UX rework R3).
  */
 export const ZONE_SETUP_CLAUSES: readonly ReasonClause[] = [
   { code: 'zone-no-display', subject: 'zone', when: (z) => `NOT ${zoneHasDisplaySql(z)}` },
-  { code: 'zone-not-installed', subject: 'zone', when: (z) => `NOT ${zoneInstalledSql(z, zoneProjectIdSql(z))}` },
+  { code: 'zone-not-installed', subject: 'zone', when: (z) => `NOT ${zoneInstalledSql(zoneProjectIdSql(z))}` },
 ];
 
 /**

@@ -48,7 +48,7 @@ export function siteKeyRouter(pool: Pool): Router {
     try {
       await existingProject(pool, req.params.projectId);
       await revokeSiteKey(pool, req.params.projectId);
-      // Zones without a zone key are no longer installed (epic UX rework R7): forget this process's public answers.
+      // The project's zones are no longer installed (epic UX rework R7): forget this process's public answers.
       clearPublicMediaCache();
       clearPublicFontCache();
       res.sendStatus(204);

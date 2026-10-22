@@ -6,7 +6,6 @@ import {
   type Frame,
   type FrameType,
   type Invitation,
-  type IssuedZoneKey,
   type Project,
   type ProjectTaleGroup,
   type SetScheduleRequest,
@@ -16,7 +15,6 @@ import {
   type TaleGroup,
   type TaleGroupCover,
   type Zone,
-  type ZoneKeyInfo,
   type ZoneTaleGroup,
   type ZoneTemplateKey,
 } from '@taleart/contract/core';
@@ -50,14 +48,10 @@ export type DrawerRequest =
   | { kind: 'copyTaleGroup'; taleGroupId: string }
   | { kind: 'taleMedia'; taleId: string }
   | { kind: 'cover'; taleGroupId: string }
-  | { kind: 'schedule'; target: ScheduleTarget; id: string }
-  | { kind: 'zoneKey'; zoneId: string; action: ZoneKeyAction };
+  | { kind: 'schedule'; target: ScheduleTarget; id: string };
 
 /** What a schedule drawer sets the start and end time of (AD-6). */
 export type ScheduleTarget = 'taleGroup' | 'tale';
-
-/** What a zone key drawer does: issue the first key, rotate the active one, or revoke it. */
-export type ZoneKeyAction = 'issue' | 'rotate' | 'revoke';
 
 // The groups with one group's tales replaced.
 function withTales(groups: ZoneTaleGroup[], taleGroupId: string, tales: Tale[]): ZoneTaleGroup[] {
@@ -115,8 +109,6 @@ export class DashboardStore {
   readonly projectTaleGroups = signal<Record<string, ProjectTaleGroup[]>>({});
   /** Each project's tags by name, keyed by project id. */
   readonly tags = signal<Record<string, Tag[]>>({});
-  /** Each zone's active key (prefix and date, never the key), or null; keyed by zone id. */
-  readonly zoneKeys = signal<Record<string, ZoneKeyInfo | null>>({});
   /** True once the first refresh finished, successfully or not. */
   readonly loaded = signal(false);
   readonly apiDown = signal(false);
@@ -230,11 +222,6 @@ export class DashboardStore {
     return this.zones().filter((z) => z.projectId === group.projectId && !group.zoneIds.includes(z.id));
   }
 
-  /** The zone's active key info, or null when it has none. */
-  zoneKey(zoneId: string): ZoneKeyInfo | null {
-    return this.zoneKeys()[zoneId] ?? null;
-  }
-
   tagsOf(projectId: string): Tag[] {
     return this.tags()[projectId] ?? [];
   }
@@ -273,7 +260,6 @@ export class DashboardStore {
     this.taleGroups.set({});
     this.projectTaleGroups.set({});
     this.tags.set({});
-    this.zoneKeys.set({});
     this.loaded.set(false);
     this.apiDown.set(false);
     this.drawer.set(null);
@@ -356,9 +342,6 @@ export class DashboardStore {
       );
       if (!current()) return;
       this.projectTaleGroups.set(projectGroups);
-      const keys = await this.loadEach<ZoneKeyInfo | null>(zones, (id) => `/zones/${encodeURIComponent(id)}/key`);
-      if (!current()) return;
-      this.zoneKeys.set(Object.fromEntries(zones.map((zone) => [zone.id, keys[zone.id] ?? null])));
       this.apiDown.set(false);
     } catch (err) {
       // A 401 means the session ended; the auth interceptor sends the user to sign-in.
@@ -400,36 +383,6 @@ export class DashboardStore {
     } catch (err) {
       return { invitation: null, message: apiErrorMessage(err, 'The invitation was not created. Try again.') };
     }
-  }
-
-  /**
-   * Issues a key for a zone (admins only). When the zone has a key, this
-   * rotates it: the old key stops working at once. The key is shown only now.
-   */
-  async issueZoneKey(zoneId: string): Promise<{ key: IssuedZoneKey | null; message: string }> {
-    try {
-      const key = await firstValueFrom(
-        this.http.post<IssuedZoneKey>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/key`, {}),
-      );
-      this.zoneKeys.update((all) => ({ ...all, [zoneId]: { prefix: key.prefix, createdAt: key.createdAt } }));
-      // A key installs the zone (epic UX rework R7): its visibility and its groups' change.
-      void this.refresh();
-      return { key, message: '' };
-    } catch (err) {
-      return { key: null, message: apiErrorMessage(err, 'The key was not issued. Try again.') };
-    }
-  }
-
-  /** Revokes a zone's key (admins only); it stops working at once. */
-  async revokeZoneKey(zoneId: string): Promise<string> {
-    try {
-      await firstValueFrom(this.http.delete<void>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/key`));
-    } catch (err) {
-      return apiErrorMessage(err, 'The key was not revoked. Try again.');
-    }
-    this.zoneKeys.update((all) => ({ ...all, [zoneId]: null }));
-    await this.refresh();
-    return '';
   }
 
   /** Creates a zone; an empty slug lets the API make one from the name, unique in the project (epic UX rework R1). */

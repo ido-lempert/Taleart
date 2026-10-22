@@ -44,8 +44,6 @@ import {
   taleGroupCoverUrl,
   taleMediaUrl,
   USER_ROLES,
-  ZONE_KEY_PREFIX,
-  zoneKeyPrefix,
   SITE_KEY_PREFIX,
   siteKeyPrefix,
 } from '../index';
@@ -176,19 +174,17 @@ describe('tags', () => {
   });
 });
 
-describe('zone keys', () => {
-  it('shows tak_ and the next 6 characters as the prefix', () => {
-    expect(ZONE_KEY_PREFIX).toBe('tak_');
-    expect(zoneKeyPrefix('tak_abcdefghijklmnop')).toBe('tak_abcdef');
-  });
-});
-
 describe('site keys (epic UX rework R3)', () => {
   it('shows tas_ and the next 6 characters as the prefix, and names its error codes', () => {
     expect(SITE_KEY_PREFIX).toBe('tas_');
     expect(siteKeyPrefix('tas_abcdefghijklmnop')).toBe('tas_abcdef');
     expect(ErrorCodes.invalidSiteKey).toBe('invalid_site_key');
     expect(ErrorCodes.siteKeyNotFound).toBe('site_key_not_found');
+  });
+
+  it('has no zone key codes left (story 8.7: zone keys are removed)', () => {
+    expect(Object.values(ErrorCodes)).not.toContain('invalid_zone_key');
+    expect(Object.values(ErrorCodes)).not.toContain('zone_key_not_found');
   });
 });
 

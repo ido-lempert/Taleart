@@ -61,8 +61,6 @@ export type InvitationPreview = Schemas['InvitationPreview'];
 export type PasskeyCreationOptions = Schemas['PasskeyCreationOptions'];
 export type PasskeyRequestOptions = Schemas['PasskeyRequestOptions'];
 export type PasskeyResponse = Schemas['PasskeyResponse'];
-export type ZoneKeyInfo = Schemas['ZoneKeyInfo'];
-export type IssuedZoneKey = Schemas['IssuedZoneKey'];
 /** A project's active site key as the dashboard shows it (AD-9 amended): prefix and date, never the key. */
 export type SiteKeyInfo = Schemas['SiteKeyInfo'];
 /** A newly issued site key, the only time the key itself is shown. */
@@ -158,10 +156,10 @@ export function invitationPath(token: string): string {
   return `/invite/${encodeURIComponent(token)}`;
 }
 
-/** Delivery API base path (AD-2): SDKs only, zone keys only. */
+/** Delivery API base path (AD-2): SDKs only, site keys only. */
 export const DELIVERY_API_BASE = '/delivery/v1';
 
-/** Base path of public media (AD-11): no session and no zone key. */
+/** Base path of public media (AD-11): no session and no site key. */
 export const PUBLIC_MEDIA_BASE = '/media';
 
 /**
@@ -173,23 +171,15 @@ export function publicMediaUrl(apiUrl: string, key: string): string {
   return `${apiUrl.replace(/\/+$/, '')}${PUBLIC_MEDIA_BASE}/${path}`;
 }
 
-/** Every zone key starts with this (AD-9). */
-export const ZONE_KEY_PREFIX = 'tak_';
-
-/** How many characters of a key, after {@link ZONE_KEY_PREFIX}, its display prefix shows. */
-export const ZONE_KEY_PREFIX_CHARS = 6;
-
-/** The display prefix of a zone key: `tak_` and the next 6 characters. */
-export function zoneKeyPrefix(key: string): string {
-  return key.slice(0, ZONE_KEY_PREFIX.length + ZONE_KEY_PREFIX_CHARS);
-}
-
 /** Every site key starts with this (AD-9 amended, epic UX rework R3). */
 export const SITE_KEY_PREFIX = 'tas_';
 
+/** How many characters of a site key, after {@link SITE_KEY_PREFIX}, its display prefix shows. */
+export const SITE_KEY_PREFIX_CHARS = 6;
+
 /** The display prefix of a site key: `tas_` and the next 6 characters. */
 export function siteKeyPrefix(key: string): string {
-  return key.slice(0, SITE_KEY_PREFIX.length + ZONE_KEY_PREFIX_CHARS);
+  return key.slice(0, SITE_KEY_PREFIX.length + SITE_KEY_PREFIX_CHARS);
 }
 
 /** The Delivery API's query parameter that names a zone by its slug, sent with a site key. */
@@ -571,8 +561,6 @@ export const ErrorCodes = {
   emailTaken: 'email_taken',
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',
-  zoneKeyNotFound: 'zone_key_not_found',
-  invalidZoneKey: 'invalid_zone_key',
   siteKeyNotFound: 'site_key_not_found',
   invalidSiteKey: 'invalid_site_key',
   rateLimited: 'rate_limited',
