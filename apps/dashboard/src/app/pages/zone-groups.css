@@ -1,5 +1,5 @@
 /* The zone page's Tale groups list (epic UX rework R10): kept apart from the page's other styles. */
-/* One row per group (epic UX rework R10); its open body below it, until story 8.11's group view. */
+/* One row per group (epic UX rework R10); opening it opens its group view (R11). */
 .group {
   display: flex;
   flex-direction: column;
@@ -106,25 +106,6 @@
     --ring-size: 44px;
     font-size: 16px;
   }
-}
-.group-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-width: 0;
-  padding-inline-start: var(--space-4);
-  border-inline-start: 3px solid var(--border);
-}
-.group-body__about {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
-}
-.group__zones {
-  margin: 0;
-  font-size: var(--text-sm);
-  overflow-wrap: break-word;
 }
 .group-row__max {
   color: var(--text-muted);

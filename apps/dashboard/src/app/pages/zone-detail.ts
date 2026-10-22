@@ -15,15 +15,12 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   findTemplate,
-  groupShownStatus,
   isSwitchable,
   MAX_TALES_PER_GROUP,
-  SHOWN_STATUS_LABELS,
   switchStatus,
   taleShownStatus,
   type ContentStatus,
   type SettableStatus,
-  type Tale,
   type TaleGroup,
   type TaleGroupTag,
   type Zone,
@@ -34,7 +31,7 @@ import { Icon } from '../icon';
 import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
 import { describeWindow, windowChip } from '../schedule';
 import { describeSettings, type Settings } from '../settings-form';
-import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
+import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from '../status';
 import { visibilityLine, visibilityReasons, VisibilityIndicator } from '../visibility';
 import {
   showsSetup,
@@ -47,10 +44,11 @@ import {
   type ZoneTab,
 } from '../zone-setup';
 import { AddExistingGroup, addableGroups } from './add-existing-group';
-import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
+import { GroupView, shownCount, shownLabel } from './group-view';
 import { SiteKeyCard } from './site-key-card';
 
-const TONES = 6;
+/** The query parameter naming the group whose view is open (epic UX rework R11). */
+const GROUP_PARAM = 'group';
 
 /** Which way a move button moves its item. */
 type Direction = 'earlier' | 'later';
@@ -69,12 +67,12 @@ type Direction = 'earlier' | 'later';
  * Cover, Tags, Schedule, Show in another zone, Copy to zone, Remove from this zone, Archive or
  * Restore); an item that cannot apply stays, disabled, with its reason. A status the switch does
  * not say (scheduled, blocked by group, archived) shows as a badge. Opening a group (its name, or
- * a click on the row outside its controls) shows, until story 8.11's group view, its tags, the
- * other zones it is in (AD-14) and its tale strip, whose 9:16 cards each have a Shown/Hidden
- * switch. Groups and tales reorder by drag, or by their move earlier and later buttons (the
- * single-pointer and keyboard alternative, WCAG 2.2 SC 2.5.7), each move announced. Tag chips above
- * the groups filter them; groups do not reorder while a filter is on, since the order covers every
- * group of the zone. "New tale group" and "Add existing group" sit below the list.
+ * a click on the row outside its controls) opens its group view (R11, `GroupView`): a wide drawer,
+ * a page on phones, whose group is in the URL (`?group=<id>`), so it deep-links and Back closes it.
+ * Groups reorder by drag, or by their move earlier and later buttons (the single-pointer and
+ * keyboard alternative, WCAG 2.2 SC 2.5.7), each move announced. Tag chips above the groups filter
+ * them; groups do not reorder while a filter is on, since the order covers every group of the zone.
+ * "New tale group" and "Add existing group" sit below the list.
  */
 @Component({
   selector: 'app-zone-detail-page',
@@ -88,7 +86,7 @@ type Direction = 'earlier' | 'later';
     CdkDropList,
     CdkDrag,
     CdkDragHandle,
-    DuplicateTale,
+    GroupView,
     AddExistingGroup,
     SiteKeyCard,
   ],
@@ -277,14 +275,6 @@ type Direction = 'earlier' | 'later';
     .zone-theme-link {
       margin: var(--space-4) 0 0;
     }
-    /* A tale's schedule chip on its card: above the title, on a dark plate so it reads over any media. */
-    .window-chip--card {
-      margin: 0 0 var(--space-1);
-      border-color: transparent;
-      background: rgb(0 0 0 / 62%);
-      color: #fff;
-      font-size: 11px;
-    }
   `,
 })
 export class ZoneDetailPage {
@@ -298,6 +288,8 @@ export class ZoneDetailPage {
   readonly zoneId = input.required<string>();
   /** Bound from the `?tab=` query parameter: the selected tab, the default when missing (epic UX rework R9). */
   readonly tab = input<string | undefined>();
+  /** Bound from the `?group=` query parameter: the group whose view is open (epic UX rework R11). */
+  readonly group = input<string | undefined>();
 
   protected readonly tabs = ZONE_TABS;
   /**
@@ -349,6 +341,20 @@ export class ZoneDetailPage {
         void this.router.navigate([], {
           relativeTo: this.route,
           queryParams: { [ZONE_TAB_PARAM]: null },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+      }
+    });
+    // A `?group=` naming no group of this zone (removed from it, a stale link) is dropped, in place.
+    effect(() => {
+      const id = this.group();
+      if (id === undefined || !this.store.loaded() || !this.zone()) return;
+      if (!this.groups().some((group) => group.id === id)) {
+        this.openGroupId.set(null);
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: { [GROUP_PARAM]: null },
           queryParamsHandling: 'merge',
           replaceUrl: true,
         });
@@ -487,15 +493,8 @@ export class ZoneDetailPage {
           group.tales.every((tale) => taleShownStatus(tale.storedStatus) !== 'shown'),
       );
       if (allHidden && !this.host.nativeElement.querySelector(offSwitch)) {
-        this.openGroups.update((ids) => new Set(ids).add(allHidden.id));
         this.selectTab(step.tab);
-        afterNextRender(
-          () =>
-            this.host.nativeElement
-              .querySelector<HTMLElement>(`#group-body-${allHidden.id} [role=switch][aria-checked=false]`)
-              ?.focus(),
-          { injector: this.injector },
-        );
+        this.openGroup(allHidden, '.group-view__list [role=switch][aria-checked=false]');
         return;
       }
       this.selectTab(step.tab, (root) =>
@@ -544,10 +543,6 @@ export class ZoneDetailPage {
   protected readonly isSwitchable = isSwitchable;
   protected readonly describeWindow = describeWindow;
   protected readonly windowChip = windowChip;
-  /** A tale card's chip: one bound, short; the tale drawer shows the whole window. */
-  protected cardChip(tale: Tale): string {
-    return windowChip(tale, new Date(), 'short');
-  }
 
   /**
    * Each group row's ⋯ menu, by group id (epic UX rework R8, R10). "Show in another zone" stays,
@@ -579,11 +574,6 @@ export class ZoneDetailPage {
     }
     return menus;
   });
-  /** The ⋯ menu of a tale card (epic UX rework R8, R11). */
-  protected readonly taleMenu: readonly MenuItem[] = [
-    { id: 'schedule', label: 'Schedule' },
-    { id: 'duplicate', label: 'Duplicate' },
-  ];
 
   /** Does what a group's ⋯ menu item says; a drawer it opens returns focus to the menu's button. */
   protected groupPicked(group: TaleGroup, pick: MenuPick): void {
@@ -614,26 +604,60 @@ export class ZoneDetailPage {
 
   protected readonly maxTales = MAX_TALES_PER_GROUP;
 
-  /** The groups whose row is open, showing their tale strip until story 8.11's group view. */
-  private readonly openGroups = signal<ReadonlySet<string>>(new Set());
+  /**
+   * The group whose view is open: follows the URL (`?group=`, reload, back and forward), and
+   * changes at once on a click, before the URL has caught up.
+   */
+  protected readonly openGroupId = linkedSignal<string | null>(() => this.group() ?? null);
+  /** The open group, while this zone lists it. */
+  protected readonly openedGroup = computed(() => {
+    const id = this.openGroupId();
+    return id ? (this.groups().find((group) => group.id === id) ?? null) : null;
+  });
+  /** A selector of the control the view focuses when it opens; its heading when null. */
+  protected readonly groupViewFocus = signal<string | null>(null);
 
   protected isOpen(groupId: string): boolean {
-    return this.openGroups().has(groupId);
+    return this.openedGroup()?.id === groupId;
   }
 
-  /** Opens or closes a group (its name's button). */
-  protected toggleGroup(group: TaleGroup): void {
-    this.openGroups.update((ids) => {
-      const next = new Set(ids);
-      if (!next.delete(group.id)) next.add(group.id);
-      return next;
+  /** Opens a group's view (its name's button, a row click): a history entry, so Back closes it. */
+  protected openGroup(group: TaleGroup, focus: string | null = null): void {
+    this.groupViewFocus.set(focus);
+    this.openGroupId.set(group.id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { [GROUP_PARAM]: group.id },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Closes the group view; the drawer puts focus back on the group's name. */
+  protected closeGroup(): void {
+    this.openGroupId.set(null);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { [GROUP_PARAM]: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 
   /**
-   * A click on the row opens or closes the group, as its name does, unless it was on one of the
-   * row's own controls (switch, ⋯ and its menu, move buttons, handle, indicator, links) or ended a
-   * text selection.
+   * Where focus goes when the group view closes: the group's name in its row, found at that moment
+   * (also after a deep link, which no button opened). Without the row (the group left the zone),
+   * the drawer falls back to the page.
+   */
+  protected readonly groupViewReturn = computed(() => {
+    const id = this.openedGroup()?.id;
+    return (): HTMLElement | null =>
+      id ? this.host.nativeElement.querySelector<HTMLElement>(`[id="group-name-${id}"]`) : null;
+  });
+
+  /**
+   * A click on the row opens the group, as its name does, unless it was on one of the row's own
+   * controls (switch, ⋯ and its menu, move buttons, handle, indicator, links) or ended a text
+   * selection.
    */
   protected rowClick(group: TaleGroup, event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
@@ -646,15 +670,11 @@ export class ZoneDetailPage {
       return;
     }
     if ((globalThis.getSelection?.()?.toString() ?? '') !== '') return;
-    this.toggleGroup(group);
+    this.openGroup(group);
   }
 
   /** "3 of 4 shown": the group's tales that are Shown, of all its tales. */
-  protected shownCount(group: TaleGroup): string {
-    if (group.tales.length === 0) return 'No tales yet';
-    const shown = group.tales.filter((tale) => taleShownStatus(tale.storedStatus) === 'shown').length;
-    return `${shown} of ${group.tales.length} shown`;
-  }
+  protected readonly shownCount = shownCount;
 
   /** The project's groups that "Add existing group" can place here. */
   protected readonly addableGroups = computed(() => addableGroups(this.store, this.zoneId()));
@@ -729,16 +749,8 @@ export class ZoneDetailPage {
     this.announce(`${name} added to ${this.zone()?.name ?? 'this zone'}`);
   }
 
-  /** Does what a tale's ⋯ menu item says; a drawer it opens returns focus to the menu's button. */
-  protected talePicked(tale: Tale, pick: MenuPick): void {
-    if (pick.id === 'schedule') this.store.openDrawer({ kind: 'schedule', target: 'tale', id: tale.id }, pick.opener);
-    if (pick.id === 'duplicate') this.duplicating.set({ tale, opener: pick.opener });
-  }
-
   /** "On" or "Off" for a group, "Shown" or "Hidden" for a tale, from its stored key (AD-6 amended). */
-  protected shownLabel(stored: ContentStatus, kind: StatusKind): string {
-    return SHOWN_STATUS_LABELS[kind === 'group' ? groupShownStatus(stored) : taleShownStatus(stored)];
-  }
+  protected readonly shownLabel = shownLabel;
 
   protected pickType(event: Event): void {
     this.pickedType.set((event.target as HTMLSelectElement).value);
@@ -781,30 +793,6 @@ export class ZoneDetailPage {
     );
   }
 
-  /** Shows (stores live) or hides (stores paused) a tale from its card, at once, then announces it. */
-  protected async switchTale(group: TaleGroup, tale: Tale, on: boolean): Promise<void> {
-    const status = switchStatus(tale.storedStatus, on);
-    if (!status) return;
-    let read: ContentStatus = status;
-    let warning = '';
-    const message = await this.saving(group.id, tale.id, async () => {
-      const result = await this.store.setTaleStatus(tale.id, status);
-      if (result.tale) read = result.tale.status;
-      warning = result.warning;
-      return result.message;
-    });
-    if (message) return;
-    if (warning) this.statusErrors.update((errors) => ({ ...errors, [group.id]: warning }));
-    // The warning is announced once, by the group's alert.
-    const saved = this.groups()
-      .find((g) => g.id === group.id)
-      ?.tales.find((t) => t.id === tale.id);
-    this.announce(
-      `${tale.title} is now ${statusLabel(read, 'tale').toLowerCase()}` +
-        (saved?.visibility ? `. ${visibilityLine(saved.visibility, 'tale')}` : ''),
-    );
-  }
-
   // Runs one status change for `savingId`, showing the API's message under the group `groupId`.
   private async saving(groupId: string, savingId: string, change: () => Promise<string>): Promise<string> {
     this.statusErrors.update((errors) => {
@@ -840,23 +828,11 @@ export class ZoneDetailPage {
     this.moveGroup(event.previousIndex, event.currentIndex);
   }
 
-  protected dropTale(group: TaleGroup, event: CdkDragDrop<unknown>): void {
-    if (event.previousIndex === event.currentIndex) return;
-    this.moveTale(group, event.previousIndex, event.currentIndex);
-  }
-
   protected stepGroup(index: number, direction: Direction): void {
     const group = this.groups()[index];
     if (!group) return;
     this.moveGroup(index, index + (direction === 'earlier' ? -1 : 1));
     this.refocus(`group:${group.id}`, direction);
-  }
-
-  protected stepTale(group: TaleGroup, index: number, direction: Direction): void {
-    const tale = group.tales[index];
-    if (!tale) return;
-    this.moveTale(group, index, index + (direction === 'earlier' ? -1 : 1));
-    this.refocus(`tale:${tale.id}`, direction);
   }
 
   private moveGroup(from: number, to: number): void {
@@ -869,31 +845,14 @@ export class ZoneDetailPage {
     void this.save(this.store.orderTaleGroups(this.zoneId(), ids));
   }
 
-  private moveTale(group: TaleGroup, from: number, to: number): void {
-    if (to < 0 || to >= group.tales.length) return;
-    const ids = group.tales.map((t) => t.id);
-    moveItemInArray(ids, from, to);
-    this.announce(`${group.tales[from].title} moved to position ${to + 1} of ${ids.length}`);
-    void this.save(this.store.orderTales(this.zoneId(), group.id, ids));
-  }
-
   private async save(request: Promise<string>): Promise<void> {
     this.orderError.set('');
     const message = await request;
     if (message) this.orderError.set(message);
   }
 
-  /** The tale whose Duplicate drawer is open, with the button that opened it. */
-  protected readonly duplicating = signal<{ tale: Tale; opener: HTMLElement | null } | null>(null);
-
-  /** Closes the drawer and says where the copy went; the new card shows Hidden. */
-  protected duplicated(result: DuplicatedTale): void {
-    this.duplicating.set(null);
-    this.announce(duplicatedMessage(result));
-  }
-
   // A repeated message is changed by a trailing no-break space, so it is announced again.
-  private announce(message: string): void {
+  protected announce(message: string): void {
     this.announcement.update((last) => (last === message ? `${message}\u00a0` : message));
   }
 
@@ -915,12 +874,5 @@ export class ZoneDetailPage {
       },
       { injector: this.injector },
     );
-  }
-
-  /** A stable placeholder tone for a tale, derived from its id. */
-  protected tone(id: string): number {
-    let hash = 0;
-    for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-    return hash % TONES;
   }
 }

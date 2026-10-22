@@ -46,7 +46,8 @@ export type DrawerRequest =
   | { kind: 'placeTaleGroup'; taleGroupId: string }
   | { kind: 'removeTaleGroup'; zoneId: string; taleGroupId: string }
   | { kind: 'copyTaleGroup'; taleGroupId: string }
-  | { kind: 'taleMedia'; taleId: string }
+  /** `focus: 'media'` (Replace media, epic UX rework R11) puts focus on the media file field. */
+  | { kind: 'taleMedia'; taleId: string; focus?: 'media' }
   | { kind: 'cover'; taleGroupId: string }
   | { kind: 'schedule'; target: ScheduleTarget; id: string };
 
