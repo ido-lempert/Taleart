@@ -433,7 +433,7 @@ export class CreateDrawer implements OnInit {
       case 'editZone':
         return 'Name and slug';
       case 'placeTaleGroup':
-        return 'Add to zone';
+        return 'Show in another zone';
       case 'copyTaleGroup':
         return 'Copy to zone';
       case 'removeTaleGroup':

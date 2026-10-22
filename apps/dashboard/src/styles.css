@@ -941,15 +941,15 @@ select {
 
 /* Move buttons show on hover and focus; always on touch screens, which cannot hover. */
 @media (hover: hover) {
-  .group__header .move-controls,
+  .group-row .move-controls,
   .tale-card__moves,
   .tale-card__handle {
     opacity: 0;
     transition: opacity 120ms ease;
   }
 
-  .group__header:hover .move-controls,
-  .group__header:focus-within .move-controls,
+  .group-row:hover .move-controls,
+  .group-row:focus-within .move-controls,
   .tale-card:hover .tale-card__moves,
   .tale-card:focus-within .tale-card__moves,
   .tale-card:hover .tale-card__handle,
