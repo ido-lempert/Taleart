@@ -1,4 +1,10 @@
-<app-drawer [heading]="heading()" [returnFocus]="returnFocus" [busy]="saving()" (closed)="close()">
+<app-drawer
+  [heading]="heading()"
+  [returnFocus]="returnFocus"
+  [busy]="saving()"
+  [initialFocus]="focusMedia() ? '#create-file' : null"
+  (closed)="close()"
+>
   <form class="drawer__form" (ngSubmit)="submit()" novalidate>
     <div class="drawer__body">
       @if (context()) {
