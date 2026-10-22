@@ -179,6 +179,22 @@
   }
 }
 
+/*
+ * Under 375 px (a small phone, or 400 % zoom) the title and the actions do not fit on one line: the
+ * actions wrap to a second row instead of scrolling the page sideways (WCAG 1.4.10).
+ */
+@media (max-width: 374.98px) {
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+    padding-block: var(--space-2);
+  }
+
+  .topbar__actions {
+    margin-left: auto;
+  }
+}
+
 .user-menu {
   display: flex;
   align-items: center;
