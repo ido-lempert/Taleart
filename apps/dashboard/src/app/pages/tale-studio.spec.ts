@@ -2178,29 +2178,42 @@ describe('TaleStudioPage', () => {
   });
 
   describe('Duplicate (epic Tale Studio R11)', () => {
-    it('saves the latest changes first, duplicates into the chosen group, announces it and links to the copy', async () => {
+    let refresh: ReturnType<typeof vi.fn>;
+    const dialog = () => document.querySelector('[role=dialog]') as HTMLElement | null;
+
+    beforeEach(() => {
       const store = TestBed.inject(DashboardStore);
       store.projectTaleGroups.set({
-        p1: [{ id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 1, zoneIds: ['z1'] }],
+        p1: [
+          { id: 'g1', projectId: 'p1', name: 'Summer', taleCount: 1, zoneIds: ['z1'] },
+          { id: 'g2', projectId: 'p1', name: 'Winter', taleCount: 100, zoneIds: [] },
+        ],
       } as unknown as ReturnType<typeof store.projectTaleGroups>);
-      const refresh = vi.spyOn(store, 'refresh').mockResolvedValue();
+      refresh = vi.spyOn(store, 'refresh').mockResolvedValue() as never;
+    });
+
+    // Adds a text (an unsaved change), presses Duplicate and answers the save that goes first.
+    async function openDrawer(): Promise<HTMLElement> {
       await open({ document: existing, revision: 1 });
       buttonNamed(root, 'Add text').click();
       await settle(fixture);
-
       buttonNamed(root, 'Duplicate').click();
       await settle(fixture);
       // The copy is made from what is saved: the unsaved change goes first, then the drawer opens.
-      expect(document.querySelector('[role=dialog]')).toBeNull();
+      expect(dialog()).toBeNull();
       const save = http.expectOne(url);
       expect(save.request.method).toBe('PUT');
       save.flush({ document: save.request.body.document, revision: 2 });
       await settle(fixture);
-      const dialog = document.querySelector('[role=dialog]') as HTMLElement;
-      expect(dialog.querySelector('h2')?.textContent).toContain('Duplicate tale');
-      expect(dialog.querySelector('select')?.value).toBe('g1');
+      return dialog() as HTMLElement;
+    }
 
-      buttonNamed(dialog, 'Duplicate').click();
+    it('saves the latest changes first, duplicates into the chosen group, announces it and links to the copy', async () => {
+      const drawer = await openDrawer();
+      expect(drawer.querySelector('h2')?.textContent).toContain('Duplicate tale');
+      expect(drawer.querySelector('select')?.value).toBe('g1');
+
+      buttonNamed(drawer, 'Duplicate').click();
       await settle(fixture);
       const req = http.expectOne(`${API_BASE}/tales/t1/duplicate`);
       expect(req.request.body).toEqual({ taleGroupId: 'g1' });
@@ -2209,14 +2222,79 @@ describe('TaleStudioPage', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       fixture.detectChanges();
 
-      expect(refresh).toHaveBeenCalled();
-      expect(document.querySelector('[role=dialog]')).toBeNull();
+      expect(dialog()).toBeNull();
       const said = 'Duplicated as Beach (copy) in Summer. The copy is hidden until you show it.';
       expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(said);
       const notice = root.querySelector('#studio-duplicated');
       expect(notice?.textContent).toContain(said);
       expect(notice?.querySelector('a')?.getAttribute('href')).toBe('/tales/t9/studio');
       expect(root.textContent).not.toContain('Publish');
+      // No full reload: only the project's groups are read again, in the background.
+      expect(refresh).not.toHaveBeenCalled();
+      http.expectOne(`${API_BASE}/projects/p1/tale-groups`).flush([]);
+    });
+
+    it('keeps the drawer open on a refusal, never offers a full group, and returns focus to Duplicate', async () => {
+      const drawer = await openDrawer();
+      const options = [...drawer.querySelectorAll('option')].map((o) => [o.textContent?.trim(), o.disabled]);
+      expect(options).toEqual([
+        ['Summer (this group): 1 / 100', false],
+        ['Winter: 100 / 100, full', true],
+      ]);
+      buttonNamed(drawer, 'Duplicate').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t1/duplicate`)
+        .flush({ error: { code: 'tale_group_full', message: 'full' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      expect(drawer.querySelector('[role=alert]')?.textContent?.trim()).toBe(
+        'Summer already holds 100 tales. Choose another tale group.',
+      );
+      buttonNamed(drawer, 'Duplicate').click();
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t1/duplicate`)
+        .flush({ error: { code: 'internal', message: 'boom' } }, { status: 500, statusText: 'Error' });
+      await settle(fixture);
+      expect(drawer.querySelector('[role=alert]')?.textContent?.trim()).toBe('The tale was not duplicated. Try again.');
+
+      buttonNamed(drawer, 'Cancel').click();
+      await settle(fixture);
+      expect(dialog()).toBeNull();
+      expect(document.activeElement?.id).toBe('studio-duplicate');
+      expect(root.querySelector('#studio-duplicated')).toBeNull();
+    });
+
+    it('leaves undo and redo to the drawer while it is open', async () => {
+      const drawer = await openDrawer();
+      const before = elements().length;
+      key(drawer.querySelector('select') as HTMLElement, 'z', { ctrlKey: true });
+      key(drawer.querySelector('#duplicate-submit') as HTMLElement, 'z', { ctrlKey: true, shiftKey: true });
+      await settle(fixture);
+      expect(elements()).toHaveLength(before);
+      http.expectNone(url);
+    });
+
+    it('says to wait while Update tale is running instead of doing nothing', async () => {
+      await open({ document: existing, revision: 1 });
+      buttonNamed(root, 'Add text').click();
+      await settle(fixture);
+      (root.querySelector('#studio-update') as HTMLButtonElement).click();
+      await settle(fixture);
+      const save = http.expectOne(url);
+      buttonNamed(root, 'Duplicate').click();
+      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+      expect(root.querySelector('[aria-live=polite]')?.textContent).toBe(
+        'Wait until the tale is updated, then duplicate it.',
+      );
+      expect(dialog()).toBeNull();
+      const draft = save.request.body.document;
+      save.flush({ document: draft, revision: 2 });
+      await settle(fixture);
+      http.expectOne(`${url}/publish`).flush({ document: draft, revision: 2, published: { document: draft, revision: 2 } });
+      await settle(fixture);
     });
 
     it('does not open while the latest changes cannot be saved', async () => {

@@ -2004,6 +2004,9 @@ export class TaleStudioPage implements OnChanges {
   @HostListener('keydown', ['$event'])
   protected onStudioKey(event: KeyboardEvent): void {
     if (event.defaultPrevented || isTextEntry(event.target)) return;
+    // A drawer over the studio (Duplicate, the media and emoji pickers) keeps its keys to itself.
+    if (this.duplicating() || this.picker() || this.emojiPicker()) return;
+    if (event.target instanceof Element && event.target.closest('[role=dialog]')) return;
     const command = historyShortcut(event, this.apple);
     if (!command) return;
     event.preventDefault();
@@ -2153,7 +2156,15 @@ export class TaleStudioPage implements OnChanges {
    */
   protected async openDuplicate(event: Event): Promise<void> {
     const opener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
-    if (this.updating() || this.duplicating() || !this.tale()) return;
+    if (this.updating()) {
+      this.say('Wait until the tale is updated, then duplicate it.');
+      return;
+    }
+    if (this.duplicating()) return;
+    if (!this.tale()) {
+      this.say('The tale is still loading. Try again in a moment.');
+      return;
+    }
     this.error.set('');
     if (!(await this.autosave.flush())) {
       if (this.saveState().kind !== 'conflict') {

@@ -1164,8 +1164,11 @@ function withNewElementIds(doc: unknown, ids: Map<string, string>): unknown {
  * - shares the original's storage keys, never copying a file (AD-14): its tale media and the media
  *   and project fonts its documents use, recorded in `tale_media` and `tale_fonts` for the copy, so
  *   a file the copy uses is never judged unused while the copy holds it ({@link isMediaKeyInUse});
- * - keeps the title (with " (copy)"), start and end time, R16 media state and creation time, so
- *   it is delivered as the original is once shown (`hasPublishedDocument`).
+ * - keeps the title (with " (copy)"), start and end time and R16 media state (an out-of-step
+ *   original gives an out-of-step copy, composed on delivery and merged by the media migration);
+ * - is a new tale, created now (decision 2026-10-22): it does not inherit the legacy delivery of a
+ *   tale from before the shown-status step, so a copy of one with no published document reads
+ *   "not updated yet" until someone presses Update tale (`hasPublishedDocument`).
  * Throws {@link TaleNotFoundError}.
  */
 export async function duplicateTale(
@@ -1230,11 +1233,11 @@ export async function duplicateTale(
     const { rows } = await tx.query<TaleRow>(
       `INSERT INTO tales (tale_group_id, project_id, title, position, status, starts_at, ends_at, media_key,
          media_content_type, document_media_key, document_created_by_migration, document, document_revision,
-         draft_document, draft_revision, created_at)
+         draft_document, draft_revision)
        SELECT $2, project_id, title || ' (copy)', $3, 'paused', starts_at, ends_at, media_key, media_content_type,
               document_media_key, document_created_by_migration, $4::jsonb,
               CASE WHEN $4::jsonb IS NULL THEN 0 ELSE 1 END, $5::jsonb,
-              CASE WHEN $5::jsonb IS NULL THEN 0 ELSE 1 END, created_at
+              CASE WHEN $5::jsonb IS NULL THEN 0 ELSE 1 END
        FROM tales WHERE id = $1
        RETURNING ${TALE_COLUMNS}`,
       [
