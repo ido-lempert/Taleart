@@ -688,7 +688,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
               type="button"
               class="btn btn--ghost btn--sm"
               id="studio-preview"
-              aria-controls="studio-preview-pane"
+              [attr.aria-controls]="previewOpen() ? 'studio-preview-pane' : null"
               [attr.aria-expanded]="previewOpen()"
               (click)="previewOpen.set(!previewOpen())"
             >

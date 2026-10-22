@@ -27,8 +27,9 @@ export function linkHref(value: unknown): string | null {
 
 // An `<a>` to the element's destination (R7, AD-16): never an opener or a referrer; a new tab only
 // when the element asks for one. Null without a destination that passes the rule. In an inert
-// context (the Tale Studio preview, which shows a draft) the link looks the same but has no `href`
-// or target: it goes nowhere, and a draft's destination never becomes a live link in the dashboard.
+// context (the Tale Studio preview, which shows a draft) the link looks and focuses the same but has
+// no `href` or target: it goes nowhere, and a draft's destination never becomes a live link in the
+// dashboard.
 function anchor(element: DeliveryTaleElement, className: string, context?: RenderContext): HTMLAnchorElement | null {
   const props = element.props as { href?: unknown; newTab?: unknown };
   const href = linkHref(props.href);
@@ -37,8 +38,10 @@ function anchor(element: DeliveryTaleElement, className: string, context?: Rende
   a.className = `ta-el ta-cta ${className}`;
   a.draggable = false;
   if (context?.inertLinks) {
+    // Still a focusable link, so focus and the keyboard behave as for a visitor (the tale waits
+    // while a link has focus); it only goes nowhere.
     a.setAttribute('role', 'link');
-    a.setAttribute('aria-disabled', 'true');
+    a.tabIndex = 0;
     return a;
   }
   a.href = href;

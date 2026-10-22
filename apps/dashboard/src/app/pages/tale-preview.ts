@@ -81,7 +81,8 @@ function absolute(url: string): string {
   template: `
     <h4 class="field__label" id="preview-title">Preview</h4>
     <p class="field__hint" id="preview-hint">
-      As the Web SDK shows it on a phone, with your unsaved changes. Links show but do not open here.
+      As the Web SDK shows it on a phone, with your unsaved changes. Links show but do not open here, and sound is
+      off until you turn it on.
     </p>
     <div class="preview__controls">
       <label class="field__label" for="preview-size">Phone size</label>
@@ -104,7 +105,11 @@ function absolute(url: string): string {
         />
         Show safe areas
       </label>
-      <button type="button" class="btn btn--secondary btn--sm" id="preview-replay" (click)="replay()">
+      <label class="checkbox">
+        <input type="checkbox" id="preview-sound" [checked]="sound()" (change)="sound.set($any($event.target).checked)" />
+        Sound
+      </label>
+      <button #replayButton type="button" class="btn btn--secondary btn--sm" id="preview-replay" (click)="replay()">
         Play from the start
       </button>
     </div>
@@ -140,9 +145,11 @@ export class TalePreviewPane {
   protected readonly size = signal<PreviewSizeId>(DEFAULT_PREVIEW_SIZE);
   protected readonly screen = computed(() => PREVIEW_SIZES.find((s) => s.id === this.size()) ?? PREVIEW_SIZES[1]);
   protected readonly safeArea = signal(false);
+  protected readonly sound = signal(false);
   protected readonly ended = signal(false);
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
+  private readonly replayButton = viewChild.required<ElementRef<HTMLButtonElement>>('replayButton');
   private readonly preview = signal<TalePreview | null>(null);
 
   /** The tale as a visitor's SDK would be sent it: the draft, delivered. */
@@ -169,19 +176,27 @@ export class TalePreviewPane {
 
   constructor() {
     afterNextRender(() => {
-      this.preview.set(new TalePreview(this.host().nativeElement, { onEnded: () => this.ended.set(true) }));
+      this.preview.set(
+        new TalePreview(this.host().nativeElement, {
+          onEnded: () => this.ended.set(true),
+          onStarted: () => this.ended.set(false),
+        }),
+      );
     });
     inject(DestroyRef).onDestroy(() => this.preview()?.destroy());
     effect(() => this.preview()?.show(this.tale()));
     effect(() => this.preview()?.setTheme(this.theme()));
     effect(() => this.preview()?.setSafeArea(this.safeArea()));
+    effect(() => this.preview()?.setSound(this.sound()));
   }
 
   /** Plays the tale again from its start, with the document as it is now. */
   protected replay(): void {
     const preview = this.preview();
     if (!preview) return;
-    this.ended.set(false);
+    const fromEnd = this.ended();
     preview.replay();
+    // "Play again" goes away with the end card: focus stays in the pane, on Play from the start.
+    if (fromEnd) this.replayButton().nativeElement.focus();
   }
 }

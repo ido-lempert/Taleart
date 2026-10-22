@@ -4,6 +4,8 @@
 // not include it, and importing it registers no custom element.
 export {
   DEFAULT_PREVIEW_SIZE,
+  PREVIEW_REDRAW_MS,
+  PREVIEW_RESTART_MS,
   PREVIEW_SIZES,
   previewDocument,
   TalePreview,

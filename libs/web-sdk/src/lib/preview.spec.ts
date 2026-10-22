@@ -2,8 +2,15 @@ import type { DeliveryTaleDocument, DeliveryTaleElement } from '@taleart/contrac
 import * as entry from '../preview';
 import * as sdk from '../index';
 import { renderTaleDocument } from './document/renderer';
-import { PREVIEW_SIZES, previewDocument, TalePreview, type PreviewTale } from './preview';
-import { WIDE_QUERY } from './viewer';
+import {
+  PREVIEW_REDRAW_MS,
+  PREVIEW_RESTART_MS,
+  PREVIEW_SIZES,
+  previewDocument,
+  TalePreview,
+  type PreviewTale,
+} from './preview';
+import { TaleViewer, WIDE_QUERY } from './viewer';
 
 // Tale Studio story 7.9 (R10, AD-16): the studio preview is the SDK's own viewer and renderer.
 
@@ -33,8 +40,18 @@ const doc = (elements: DeliveryTaleElement[], durationMs?: number): DeliveryTale
   ...(durationMs === undefined ? {} : { durationMs }),
   elements,
 });
-const tale = (document: DeliveryTaleDocument, groupName = 'Summer'): PreviewTale => ({
-  id: 'tale-1',
+const ownVideo = (url = 'https://media.test/tales/own.mp4'): DeliveryTaleElement =>
+  ({
+    id: 'own',
+    type: 'video',
+    box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+    a11y: { decorative: true },
+    props: { url, fit: 'contain', taleMedia: true },
+  }) as unknown as DeliveryTaleElement;
+const docVideo = (url = 'https://media.test/media/clip.mp4'): DeliveryTaleElement =>
+  ({ id: 'clip', type: 'video', box: box(0.3), a11y: { decorative: true }, props: { url, fit: 'cover' } }) as unknown as DeliveryTaleElement;
+const tale = (document: DeliveryTaleDocument, groupName = 'Summer', id = 'tale-1'): PreviewTale => ({
+  id,
   title: 'Sale',
   groupName,
   document,
@@ -44,6 +61,7 @@ let host: HTMLElement;
 let outside: HTMLInputElement;
 let preview: TalePreview;
 let ended: number;
+let started: number;
 const root = () => host.shadowRoot as ShadowRoot;
 const q = (selector: string) => root().querySelector(selector) as HTMLElement | null;
 const texts = () => [...root().querySelectorAll('.ta-glyphs')].map((n) => n.textContent);
@@ -55,7 +73,8 @@ beforeEach(() => {
   document.body.append(outside, host);
   outside.focus();
   ended = 0;
-  preview = new TalePreview(host, { onEnded: () => ended++ });
+  started = 0;
+  preview = new TalePreview(host, { onEnded: () => ended++, onStarted: () => started++ });
 });
 
 afterEach(() => {
@@ -116,7 +135,11 @@ describe('TalePreview', () => {
     expect(dialog.hasAttribute('open')).toBe(true);
     expect(dialog.hasAttribute('data-embedded')).toBe(true);
     expect(root().querySelectorAll('.segment')).toHaveLength(1);
-    expect(q('.close')?.getAttribute('aria-label')).toBe('Close');
+    // Not announced as a dialog: a region described as a preview, its Close stops the preview.
+    expect(dialog.getAttribute('role')).toBe('region');
+    expect(dialog.getAttribute('aria-roledescription')).toBe('preview');
+    expect(dialog.getAttribute('aria-label')).toBe('Summer');
+    expect(q('.close')?.getAttribute('aria-label')).toBe('Stop preview');
     expect(q('.pause')?.getAttribute('aria-label')).toBe('Pause');
     expect(q('.name')?.textContent).toBe('Summer');
     expect(texts()).toEqual(['Hello']);
@@ -181,20 +204,49 @@ describe('TalePreview', () => {
     vi.advanceTimersByTime(3000);
     const fill = q('.fill');
     preview.show(tale(doc([text('Hello, world'), text('Second', 0.5)]), 'Renamed'));
+    vi.advanceTimersByTime(PREVIEW_REDRAW_MS);
     expect(texts()).toEqual(['Hello, world', 'Second']);
     expect(q('.name')?.textContent).toBe('Renamed');
     // The same progress bar runs on: the tale ends 7 s after it started, not after the change.
     expect(q('.fill')).toBe(fill);
-    vi.advanceTimersByTime(4000);
+    vi.advanceTimersByTime(4000 - PREVIEW_REDRAW_MS);
     expect(ended).toBe(1);
   });
 
-  it('starts over when the duration changes', () => {
+  it('redraws once typing pauses, and not at all for an unchanged tale', () => {
+    preview.show(tale(doc([text('H')])));
+    const image = q('.ta-canvas');
+    for (const value of ['He', 'Hel', 'Hell']) {
+      preview.show(tale(doc([text(value)])));
+      vi.advanceTimersByTime(PREVIEW_REDRAW_MS - 1);
+    }
+    expect(texts()).toEqual(['H']);
+    vi.advanceTimersByTime(1);
+    expect(texts()).toEqual(['Hell']);
+    const drawn = q('.ta-canvas');
+    expect(drawn).not.toBe(image);
+    preview.show(tale(doc([text('Hell')])));
+    vi.advanceTimersByTime(PREVIEW_REDRAW_MS);
+    expect(q('.ta-canvas')).toBe(drawn);
+  });
+
+  it('starts over when the duration changes, once the changes stop, without announcing the tale again', () => {
     preview.show(tale(doc([text('Hello')], 5000)));
     vi.advanceTimersByTime(4000);
-    preview.show(tale(doc([text('Hello')], 6000)));
+    const status = q('.sr-only') as HTMLElement;
+    expect(status.textContent).toBe('Summer, tale 1 of 1');
+    status.textContent = '';
+    for (const ms of [5500, 6000]) {
+      preview.show(tale(doc([text('Hello')], ms)));
+      vi.advanceTimersByTime(PREVIEW_RESTART_MS - 1);
+    }
+    expect(q('.fill')?.style.getPropertyValue('--taleart-duration')).toBe('5000ms');
+    vi.advanceTimersByTime(1);
     expect(q('.fill')?.style.getPropertyValue('--taleart-duration')).toBe('6000ms');
-    vi.advanceTimersByTime(5999);
+    vi.advanceTimersByTime(10);
+    expect(status.textContent).toBe('');
+    expect(started).toBe(1);
+    vi.advanceTimersByTime(5989);
     expect(ended).toBe(0);
     vi.advanceTimersByTime(1);
     expect(ended).toBe(1);
@@ -240,7 +292,8 @@ describe('TalePreview', () => {
       expect(a.hasAttribute('href')).toBe(false);
       expect(a.hasAttribute('target')).toBe(false);
       expect(a.getAttribute('role')).toBe('link');
-      expect(a.getAttribute('aria-disabled')).toBe('true');
+      expect(a.hasAttribute('aria-disabled')).toBe(false);
+      expect(a.tabIndex).toBe(0);
       const click = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true });
       a.dispatchEvent(click);
       expect(click.defaultPrevented).toBe(true);
@@ -248,6 +301,34 @@ describe('TalePreview', () => {
     // Its look and name are the visitor's: the new-tab note is still said.
     expect(links[0].textContent).toBe('Shop now (opens in a new tab)');
     expect(links[0].style.backgroundColor).not.toBe('');
+  });
+
+  it('waits while a link has focus, as for a visitor', () => {
+    preview.show(tale(doc([button('https://example.com/shop')], 3000)));
+    (q('a.ta-cta') as HTMLAnchorElement).focus();
+    expect(q('dialog')?.hasAttribute('data-paused')).toBe(true);
+    vi.advanceTimersByTime(10_000);
+    expect(ended).toBe(0);
+    outside.focus();
+    vi.advanceTimersByTime(3000);
+    expect(ended).toBe(1);
+  });
+
+  it('lets the page scroll over the preview', () => {
+    preview.show(tale(doc([])));
+    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+    q('.stage')?.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(false);
+  });
+
+  it('starts another tale from its start, even after the last one ended', () => {
+    preview.show(tale(doc([text('One')], 3000)));
+    vi.advanceTimersByTime(3000);
+    expect(ended).toBe(1);
+    preview.show(tale(doc([text('Two')], 3000), 'Summer', 'tale-2'));
+    expect(preview.isOpen).toBe(true);
+    expect(started).toBe(2);
+    expect(texts()).toEqual(['Two']);
   });
 
   it('renders nothing for a draft link the SDK would refuse', () => {
@@ -286,5 +367,87 @@ describe('renderTaleDocument links', () => {
     expect(inert.hasAttribute('href')).toBe(false);
     expect(inert.className).toBe(live.className);
     expect(inert.style.cssText).toBe(live.style.cssText);
+  });
+});
+
+describe('TalePreview with video', () => {
+  let play: ReturnType<typeof vi.spyOn>;
+  let load: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
+  });
+
+  it("starts muted, and plays the tale's own video with sound only when asked", () => {
+    preview.show(tale(doc([ownVideo(), text('Hi')])));
+    const video = q('video.media') as HTMLVideoElement;
+    expect(play).toHaveBeenCalled();
+    expect(video.muted).toBe(true);
+    preview.setSound(true);
+    expect(video.muted).toBe(false);
+    preview.setSound(false);
+    expect(video.muted).toBe(true);
+  });
+
+  it("keeps the running video through repeated edits, redrawing only the document", () => {
+    preview.show(tale(doc([ownVideo(), text('Hi')])));
+    const video = q('video.media');
+    const plays = play.mock.calls.length;
+    for (const value of ['Hi there', 'Hi there!', 'Hi there!!']) {
+      preview.show(tale(doc([ownVideo(), text(value)])));
+      vi.advanceTimersByTime(PREVIEW_REDRAW_MS);
+      expect(q('video.media')).toBe(video);
+      expect(texts()).toEqual([value]);
+    }
+    expect(video?.hasAttribute('src')).toBe(true);
+    expect(load).not.toHaveBeenCalled();
+    // Only asked to go on playing (a no-op for a playing video), never paused or reloaded.
+    expect(play.mock.calls.length).toBeGreaterThanOrEqual(plays);
+  });
+
+  it("restarts a tale run by a document's video once edits stop, releasing the old video", () => {
+    preview.show(tale(doc([docVideo(), text('Hi')])));
+    const first = q('video') as HTMLVideoElement;
+    for (const value of ['A', 'AB', 'ABC']) {
+      preview.show(tale(doc([docVideo(), text(value)])));
+      vi.advanceTimersByTime(200);
+    }
+    expect(q('video')).toBe(first);
+    vi.advanceTimersByTime(PREVIEW_RESTART_MS);
+    expect(q('video')).not.toBe(first);
+    expect(texts()).toEqual(['ABC']);
+    expect(first.hasAttribute('src')).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect((q('video') as HTMLVideoElement).muted).toBe(true);
+  });
+});
+
+describe('the public viewer', () => {
+  it('still opens as a modal dialog that takes focus and keeps the page from scrolling', () => {
+    const proto = HTMLDialogElement.prototype as { showModal?: () => void };
+    const original = proto.showModal;
+    const showModal = vi.fn(function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    });
+    proto.showModal = showModal;
+    try {
+      const viewer = new TaleViewer(host, [
+        { id: 'g', name: 'G', cover: null, tales: [{ id: 't', title: 'T', media: null, document: doc([]) }] },
+      ]);
+      viewer.open('g');
+      const dialog = host.querySelector('dialog') as HTMLDialogElement;
+      expect(showModal).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(dialog);
+      expect(dialog.hasAttribute('data-embedded')).toBe(false);
+      expect(dialog.hasAttribute('role')).toBe(false);
+      expect(dialog.querySelector('.close')?.getAttribute('aria-label')).toBe('Close');
+      const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true });
+      dialog.dispatchEvent(wheel);
+      expect(wheel.defaultPrevented).toBe(true);
+      viewer.close();
+    } finally {
+      proto.showModal = original;
+    }
   });
 });
