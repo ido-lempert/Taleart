@@ -116,6 +116,26 @@ deferred: []
 - **Tests.** `?zone[x]=y` refused; a revoke racing a rotation (8 rounds) leaves either the rotated key active and working or nothing active; 401 and 201 cache headers; the rate limit (unit and API); the cache generation (media and fonts); two elements with different site keys and the same slug send two requests; the masked `tas_` warning. Public media answering 404 right after a site key revoke, for a zone installed only by it, was already asserted.
 - **Later option (not built).** A zone could opt out of the site key ("this zone requires its own key"), for a zone that must not be readable with the project's public key.
 
+## Follow-up review fixes (2026-10-22)
+
+- **Bounded rate limiter.** The buckets are kept least recently seen first: each request re-inserts its bucket. A new client beyond 10,000 forgets the oldest. Buckets that are full again are dropped at most once a minute, so no request scans them all. A clock that goes back refills nothing (`Math.max(0, t - at)`).
+- **Clients.** An IPv6 client counts by its /64. An IPv4-mapped address (`::ffff:a.b.c.d`, also in hex) counts as that IPv4 address.
+- **Configuration.** Bad values stop the API at start, before the migrations, with an error naming the variable.
+  - `DELIVERY_RATE_LIMIT_BURST` must be a whole number of at least 1, or 0 to turn the limit off.
+  - `DELIVERY_RATE_LIMIT_PER_SECOND` must be above 0.
+  - `TRUST_PROXY` accepts only a hop count from 1 to 10, or a comma-separated list of IP addresses, CIDR ranges and `loopback`, `linklocal`, `uniquelocal`. Set exactly the proxies in front of the API. The checks use `node:net`, since `proxy-addr` is not a direct dependency; Express compiles the accepted value with it.
+  - The limit is per API process, as `main.ts` and `rate-limit.ts` say.
+- **CORS.** Delivery responses send `Access-Control-Expose-Headers: Retry-After`.
+- **Issue drawer.** It adds that slugs are often guessable (such as "home").
+- **Tests.**
+  - The LRU cap and eviction order.
+  - The prune interval and a clock going back.
+  - The /64 and IPv4-mapped grouping.
+  - Refused burst and rate values.
+  - Refused and accepted `TRUST_PROXY` values.
+  - The exposed header on a 429.
+  - The drawer's guessable-slug sentence.
+
 ## Verification
 
 **Commands:**
