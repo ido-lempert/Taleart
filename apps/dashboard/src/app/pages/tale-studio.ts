@@ -52,7 +52,6 @@ import {
   MAX_SWIPE_UP_ELEMENTS,
   MEDIA_FITS,
   MIN_TALE_DURATION_MS,
-  SHAPE_KINDS,
   BUTTON_OUTLINE_WIDTH,
   buttonFontSize,
   linkLabel,
@@ -72,6 +71,7 @@ import {
   resolveSwipeUpStyle,
   SWIPE_UP_BOX,
   SWIPE_UP_FONT_SIZE,
+  TALE_ELEMENT_TYPE_REGISTRY,
   TALE_SAFE_AREA,
   type MediaElement,
   type ShapeElement,
@@ -110,6 +110,15 @@ import { changeCount, sameDocument, siteVersion, TaleHistory } from './tale-hist
 import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
 import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } from './tale-media';
 import { needsLinkUrl, TaleLinkStyle } from './tale-links';
+import {
+  addMenuRows,
+  elementTypeLabel,
+  STUDIO_TEST_ELEMENT_TYPES,
+  studioElementTypes,
+  type AddMenuEntry,
+  type StudioElementType,
+} from './tale-element-types';
+import { TaleFieldsInspector } from './tale-fields-inspector';
 import {
   SHAPE_NAMES,
   TaleEmojiPicker,
@@ -192,21 +201,12 @@ const REORDERED: Record<ReorderCommand, [string, string]> = {
   back: ['moved to the back', 'Already at the back'],
 };
 const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
-const KIND_NAMES: Readonly<Record<TaleElement['type'], string>> = {
-  text: 'Text',
-  image: 'Image',
-  video: 'Video',
-  shape: 'Shape',
-  emoji: 'Emoji',
-  sticker: 'Sticker',
-  button: 'Button',
-  'image-button': 'Image button',
-  'swipe-up': 'Swipe-up link',
-};
+// The name people read for each registered type: its registry label ("Text", "Swipe-up link"), R8.
+const KIND_NAMES: ReadonlyMap<string, string> = new Map(TALE_ELEMENT_TYPE_REGISTRY.map((t) => [t.key, t.label]));
 /** How people read an element's type: "Text", "Image", "Video", "Emoji", "Sticker", or a shape's ("Ellipse"). */
 export const kindName = (element: { type: TaleElement['type']; props?: unknown }): string => {
   const shape = element.type === 'shape' ? (element.props as { shape?: ShapeKind } | undefined)?.shape : undefined;
-  return (shape && SHAPE_NAMES[shape]) || KIND_NAMES[element.type];
+  return (shape && SHAPE_NAMES[shape]) || KIND_NAMES.get(element.type) || elementTypeLabel(element.type) || 'Layer';
 };
 
 /** How the canvas draws a shape, as the Web SDK renders it: each value from the contract's `resolveShapeStyle`. */
@@ -371,6 +371,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     TaleShapeStyle,
     TaleEmojiStyle,
     TaleLinkStyle,
+    TaleFieldsInspector,
     DuplicateTale,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -938,7 +939,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                           ></span>
                         }
                       </span>
-                    } @else {
+                    } @else if (el.type === 'emoji') {
                       <!-- An emoji is text in the platform's emoji fonts, sized to its box (R6). -->
                       <span
                         class="el__emoji"
@@ -946,6 +947,16 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                         [style.font-family]="emojiFont"
                         [style.font-size]="emojiSize(el.box)"
                         [textContent]="el.props.emoji"
+                      ></span>
+                    } @else {
+                      <!-- A type registered by configuration (R8): its descriptor's stand-in, in a dashed box. -->
+                      @let c = configuredView($any(el));
+                      <span
+                        class="el__link"
+                        [style.color]="c.color"
+                        [style.border]="'0.3cqh dashed ' + c.color"
+                        [style.font-size]="c.fontSize"
+                        [textContent]="c.text"
                       ></span>
                     }
                   </button>
@@ -1019,108 +1030,28 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
               }
             </div>
             <div class="panel">
-              <div class="row">
-                <button
-                  type="button"
-                  class="btn btn--secondary"
-                  id="studio-add"
-                  [disabled]="d.elements.length >= maxElements"
-                  (click)="addText()"
-                >
-                  <app-icon name="plus" /> Add text
-                </button>
-                <button
-                  type="button"
-                  class="btn btn--secondary"
-                  id="studio-add-image"
-                  [disabled]="d.elements.length >= maxElements || !projectId()"
-                  (click)="openPicker('add', 'image')"
-                >
-                  <app-icon name="image" /> Add image
-                </button>
-                <button
-                  type="button"
-                  class="btn btn--secondary"
-                  id="studio-add-video"
-                  [disabled]="d.elements.length >= maxElements || !projectId()"
-                  [attr.aria-disabled]="videoLimitReached() ? 'true' : null"
-                  [attr.aria-describedby]="videoLimitReached() ? 'studio-video-hint' : null"
-                  (click)="openPicker('add', 'video')"
-                >
-                  <app-icon name="video" /> Add video
-                </button>
-              </div>
-              <div class="row">
-                @for (shape of shapeKinds; track shape) {
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    [id]="'studio-add-' + shape"
-                    [disabled]="d.elements.length >= maxElements"
-                    (click)="addShape(shape)"
-                  >
-                    <app-icon name="shape" /> Add {{ shapeNames[shape].toLowerCase() }}
-                  </button>
-                }
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  id="studio-add-emoji"
-                  [disabled]="d.elements.length >= maxElements"
-                  (click)="openEmojiPicker()"
-                >
-                  <app-icon name="emoji" /> Add emoji
-                </button>
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  id="studio-add-sticker"
-                  [disabled]="d.elements.length >= maxElements || !projectId()"
-                  (click)="openPicker('add', 'image', null, true)"
-                >
-                  <app-icon name="sticker" /> Add sticker
-                </button>
-              </div>
-              <div class="row">
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  id="studio-add-button"
-                  [disabled]="d.elements.length >= maxElements"
-                  (click)="addButton()"
-                >
-                  <app-icon name="button" /> Add button
-                </button>
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  id="studio-add-image-button"
-                  [disabled]="d.elements.length >= maxElements || !projectId()"
-                  (click)="openPicker('add', 'image', null, false, true)"
-                >
-                  <app-icon name="image-button" /> Add image button
-                </button>
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  id="studio-add-swipe-up"
-                  [disabled]="d.elements.length >= maxElements"
-                  [attr.aria-disabled]="swipeUpLimitReached() ? 'true' : null"
-                  [attr.aria-describedby]="swipeUpLimitReached() ? 'studio-swipe-up-hint' : null"
-                  (click)="addSwipeUp()"
-                >
-                  <app-icon name="swipe-up" /> Add swipe-up link
-                </button>
-              </div>
-              @if (swipeUpLimitReached()) {
-                <p class="field__hint" id="studio-swipe-up-hint">
-                  A tale holds one swipe-up link. Delete it to add another.
-                </p>
+              <!-- The Add menu, from the element-type registry and each type's studio descriptor (R8). -->
+              @for (row of addRows; track $index) {
+                <div class="row">
+                  @for (item of row; track item.entry.id) {
+                    @let limited = limitReached(item.entry);
+                    <button
+                      type="button"
+                      class="btn btn--secondary"
+                      [class.btn--sm]="item.entry.small"
+                      [id]="item.entry.id"
+                      [disabled]="d.elements.length >= maxElements || (item.entry.needsProject && !projectId())"
+                      [attr.aria-disabled]="limited ? 'true' : null"
+                      [attr.aria-describedby]="limited ? item.entry.limit?.hintId : null"
+                      (click)="addFromMenu(item.entry, item.type)"
+                    >
+                      <app-icon [name]="item.entry.icon" /> {{ item.entry.label }}
+                    </button>
+                  }
+                </div>
               }
-              @if (videoLimitReached()) {
-                <p class="field__hint" id="studio-video-hint">
-                  A tale holds one video, and plays for its length. Delete it to add another.
-                </p>
+              @for (limit of reachedLimits(); track limit.hintId) {
+                <p class="field__hint" [id]="limit.hintId">{{ limit.hint }}</p>
               }
               <section class="field" aria-labelledby="layers-title">
                 <h4 class="field__label" id="layers-title">Layers</h4>
@@ -1362,6 +1293,13 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       (notice)="say($event)"
                       (replace)="openPicker('replace', 'image', el.id, false, true)"
                     />
+                  } @else if (fieldsTypeOf(el); as configured) {
+                    <app-tale-fields-inspector
+                      [element]="el"
+                      [type]="configured"
+                      [locked]="el.locked"
+                      (changed)="restyleElement(el.id, $event)"
+                    />
                   } @else if (el.type === 'emoji') {
                     <app-tale-emoji-style
                       [element]="el"
@@ -1371,7 +1309,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       (notice)="say($event)"
                       (replace)="openEmojiPicker(el.id)"
                     />
-                  } @else if (el.type !== 'text') {
+                  } @else if (isMedia(el)) {
                     <app-tale-media-style
                       [element]="el"
                       [videoSeconds]="
@@ -1401,7 +1339,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                         }
                       </p>
                     }
-                  } @else {
+                  } @else if (el.type === 'text') {
                     <app-tale-text-style
                       [elementId]="el.id"
                       [props]="el.props"
@@ -1413,6 +1351,11 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       (changed)="restyle(el.id, $event)"
                       (notice)="say($event)"
                     />
+                  } @else {
+                    <!-- A type this studio has no descriptor for (R8): kept as it is; it can be moved or deleted. -->
+                    <p class="field__hint" id="studio-unknown-type-hint">
+                      This layer's type can't be edited here. It stays in the tale as it is; you can move or delete it.
+                    </p>
                   }
                   <div class="row">
                     <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">
@@ -1708,8 +1651,17 @@ export class TaleStudioPage implements OnChanges {
     heading: string;
     returnFocus: HTMLElement | null;
   } | null>(null);
-  protected readonly shapeKinds = SHAPE_KINDS;
-  protected readonly shapeNames = SHAPE_NAMES;
+  /** The element types the studio offers, from the registry and each type's descriptor (R8). */
+  protected readonly elementTypes = studioElementTypes({ testTypes: inject(STUDIO_TEST_ELEMENT_TYPES) });
+  private readonly typesByKey = new Map(this.elementTypes.map((t) => [t.key, t]));
+  /** The Add menu's rows of entries, in registry order (R8). */
+  protected readonly addRows = addMenuRows(this.elementTypes);
+  /** The Add menu's limits the tale has reached, whose hints show under the menu. */
+  protected readonly reachedLimits = computed(() =>
+    this.elementTypes
+      .flatMap((t) => t.add.flatMap((a) => (a.limit?.reached(this.doc()) ? [a.limit] : [])))
+      .sort((a, b) => a.hintOrder - b.hintOrder),
+  );
   protected readonly emojiFont = EMOJI_FONT_STACK;
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
   protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
@@ -1717,6 +1669,10 @@ export class TaleStudioPage implements OnChanges {
   protected readonly swipeUpLimitReached = computed(
     () => (this.doc()?.elements.filter((e) => e.type === 'swipe-up').length ?? 0) >= MAX_SWIPE_UP_ELEMENTS,
   );
+  /** True when the Add entry's type is at its limit (the video, the swipe-up link). */
+  protected limitReached(entry: AddMenuEntry): boolean {
+    return entry.limit?.reached(this.doc()) ?? false;
+  }
   /** True when the tale holds its one video; the tale's own media video (R16) does not count, as before documents. */
   protected readonly videoLimitReached = computed(() => limitedVideoCount(this.doc()) >= MAX_VIDEO_ELEMENTS);
   /** The tale's duration in seconds, as the duration field shows it: 7 when the document sets none. */
@@ -3332,6 +3288,80 @@ export class TaleStudioPage implements OnChanges {
     if ((this.doc()?.elements.length ?? 0) < MAX_TALE_ELEMENTS) return true;
     this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
     return false;
+  }
+
+  /** Runs an Add menu entry (R8): the studio's own flow for a built-in type, else a configured type's. */
+  protected addFromMenu(entry: AddMenuEntry, type: StudioElementType): void {
+    const action = entry.action;
+    switch (action.kind) {
+      case 'text':
+        return this.addText();
+      case 'media':
+        return this.openPicker('add', action.media);
+      case 'sticker':
+        return this.openPicker('add', 'image', null, true);
+      case 'image-button':
+        return this.openPicker('add', 'image', null, false, true);
+      case 'shape':
+        return this.addShape(action.shape);
+      case 'emoji':
+        return this.openEmojiPicker();
+      case 'button':
+        return this.addButton();
+      case 'swipe-up':
+        return this.addSwipeUp();
+      case 'configured':
+        return this.addConfigured(type);
+    }
+  }
+
+  /** Adds an element of a type registered by configuration (R8), from its descriptor, and opens its inspector. */
+  private addConfigured(type: StudioElementType): void {
+    if (this.isHeld() || !this.roomForLayer() || !type.create) return;
+    const element = {
+      id: crypto.randomUUID(),
+      type: type.key,
+      box: { ...type.create.box },
+      hidden: false,
+      locked: false,
+      a11y: { ...(type.create.a11y ?? {}) },
+      props: type.create.props(),
+    } as unknown as TaleElement;
+    this.change(`${type.label} added`, (elements) => [...elements, element]);
+    this.selectOnly(element.id);
+    this.say(`${type.label} added`);
+    const first = typeof type.inspector === 'object' ? type.inspector.fields[0] : undefined;
+    if (first) this.focusSoon(`field-${type.key}-${first.prop}-${element.id}`);
+  }
+
+  /** True for an image, video, image sticker or image button: the media inspector edits it. */
+  protected isMedia(element: TaleElement): element is MediaElement {
+    return isMediaElement(element);
+  }
+
+  /** The registered type of an element whose inspector is its descriptor's fields (R8), or null. */
+  protected fieldsTypeOf(element: { type: string }): StudioElementType | null {
+    const type = this.typesByKey.get(element.type);
+    return type && typeof type.inspector === 'object' ? type : null;
+  }
+
+  /** How the canvas draws an element of a configured type: its descriptor's stand-in text. */
+  protected configuredView(element: { type: string; box: TaleElementBox; props: unknown }): {
+    text: string;
+    color: string;
+    fontSize: string;
+  } {
+    const type = this.typesByKey.get(element.type);
+    const props = (typeof element.props === 'object' && element.props !== null ? element.props : {}) as Record<
+      string,
+      unknown
+    >;
+    const color = typeof props['color'] === 'string' && /^#[0-9a-f]{6}$/i.test(props['color']) ? props['color'] : '#ffffff';
+    return {
+      text: type?.preview?.(props) ?? type?.label ?? element.type,
+      color,
+      fontSize: `${Math.round(Math.min(element.box.h * 0.45, 0.05) * 100000) / 1000}cqh`,
+    };
   }
 
   /** Adds a button (R7) above the bottom safe area, with no web address yet. */

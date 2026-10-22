@@ -6,9 +6,100 @@ import type { components } from '../generated/api';
 import type { DeliveryCanvas, MediaContentType } from './core';
 import type { TextFont } from './text-style';
 
-export { TALE_DOCUMENT_V1_SCHEMA, TALE_ELEMENT_TYPE_REGISTRY } from '../generated/tale-document-schemas';
+import { TALE_ELEMENT_TYPE_REGISTRY, TALE_TEST_ELEMENT_TYPES } from '../generated/tale-document-schemas';
+
+export {
+  TALE_DOCUMENT_V1_SCHEMA,
+  TALE_ELEMENT_TYPE_REGISTRY,
+  TALE_TEST_ELEMENT_TYPES,
+} from '../generated/tale-document-schemas';
 
 type Schemas = components['schemas'];
+
+// ---- The element-type registry (epic Tale Studio R8; AD-15) ----
+
+/** One registered element type: its key, the name people read, and the JSON Schema of its props. */
+export type ElementTypeEntry = (typeof TALE_ELEMENT_TYPE_REGISTRY)[number];
+
+/**
+ * The element types a server, editor or test takes, in registry order: every entry of
+ * `element-types/registry.json`, and with `testTypes` its `testOnly` entries too. Test types are
+ * for tests and development only: a production server or dashboard never asks for them (R8).
+ */
+export function elementTypeRegistry(options: { testTypes?: boolean } = {}): readonly ElementTypeEntry[] {
+  return options.testTypes ? [...TALE_ELEMENT_TYPE_REGISTRY, ...TALE_TEST_ELEMENT_TYPES] : TALE_ELEMENT_TYPE_REGISTRY;
+}
+
+/** The registered element type with this key, or null (test types only with `testTypes`). */
+export function elementTypeEntry(key: string, options: { testTypes?: boolean } = {}): ElementTypeEntry | null {
+  return elementTypeRegistry(options).find((entry) => entry.key === key) ?? null;
+}
+
+/** The JSON Schema keywords an editor checks for one prop of a registered type ({@link propValueProblem}). */
+export interface PropSchema {
+  type?: string;
+  enum?: readonly unknown[];
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  description?: string;
+}
+
+/** The schema of the prop `name` in a type's props schema, with whether it is required; null when there is none. */
+export function propSchema(
+  schema: { readonly [key: string]: unknown },
+  name: string,
+): { schema: PropSchema; required: boolean } | null {
+  const properties = schema['properties'] as Record<string, PropSchema> | undefined;
+  if (!properties || !Object.prototype.hasOwnProperty.call(properties, name)) return null;
+  const required = Array.isArray(schema['required']) && (schema['required'] as unknown[]).includes(name);
+  return { schema: properties[name], required };
+}
+
+/**
+ * Why `value` breaks the prop's schema, in words for the person editing it, or null when it passes:
+ * the keywords type, enum, minLength, maxLength (in code points, as JSON Schema counts them),
+ * pattern, minimum and maximum. An editor checks a new type's props with it as they are typed; the
+ * server checks the whole schema again on every write (R8, R14). `undefined` is a missing value.
+ */
+export function propValueProblem(schema: PropSchema, value: unknown, required: boolean): string | null {
+  if (value === undefined) return required ? 'This is required.' : null;
+  switch (schema.type) {
+    case 'string': {
+      if (typeof value !== 'string') return 'Enter text.';
+      if (schema.enum && !schema.enum.includes(value)) return 'Choose one of the options.';
+      const length = [...value].length;
+      if (schema.minLength !== undefined && length < schema.minLength) {
+        return schema.minLength === 1 ? 'Enter some text.' : `Use at least ${schema.minLength} characters.`;
+      }
+      if (schema.maxLength !== undefined && length > schema.maxLength) {
+        return `Use at most ${schema.maxLength.toLocaleString('en')} characters.`;
+      }
+      if (schema.pattern !== undefined && !new RegExp(schema.pattern, 'u').test(value)) {
+        return 'This value is not allowed here.';
+      }
+      return null;
+    }
+    case 'integer':
+    case 'number': {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 'Enter a number.';
+      if (schema.type === 'integer' && !Number.isInteger(value)) return 'Enter a whole number.';
+      const { minimum: min, maximum: max } = schema;
+      if ((min !== undefined && value < min) || (max !== undefined && value > max)) {
+        if (min !== undefined && max !== undefined) return `Enter a number from ${min} to ${max}.`;
+        return min !== undefined ? `Enter ${min} or more.` : `Enter ${max} or less.`;
+      }
+      if (schema.enum && !schema.enum.includes(value)) return 'Choose one of the options.';
+      return null;
+    }
+    case 'boolean':
+      return typeof value === 'boolean' ? null : 'Choose yes or no.';
+    default:
+      return schema.enum && !schema.enum.includes(value) ? 'Choose one of the options.' : null;
+  }
+}
 
 /** A colour as `#RRGGBB` or `#RRGGBBAA`. */
 export type TaleColor = Schemas['Color'];

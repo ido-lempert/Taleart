@@ -8,6 +8,7 @@
     { "key": "sticker", "label": "Sticker", "schema": "sticker.schema.json" },
     { "key": "button", "label": "Button", "schema": "button.schema.json" },
     { "key": "image-button", "label": "Image button", "schema": "image-button.schema.json" },
-    { "key": "swipe-up", "label": "Swipe-up link", "schema": "swipe-up.schema.json" }
+    { "key": "swipe-up", "label": "Swipe-up link", "schema": "swipe-up.schema.json" },
+    { "key": "test-badge", "label": "Test badge", "schema": "test-badge.schema.json", "testOnly": true }
   ]
 }
