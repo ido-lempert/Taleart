@@ -7,6 +7,12 @@
 #   Tales lane (tales module, Delivery, covers):                       11 (after 5) -> 12
 #   Importer touch point:                                              13 (after 7 and 11)
 # Then 14 (performance, after 10, 11 and 17), 15 (accessibility review, hitl), 16 (sweep).
+#
+# UX rework (epic-ux-rework, owner decisions 2026-10-23) runs before 7.7 onward:
+#   7.7 after 8.1 (status model) and 8.4 (Update tale, same studio publish bar);
+#   7.9 after 8.7 (SDK zone and key changes) and 8.12 (last zone-page layout story it previews beside);
+#   7.12 after 8.1 (a duplicate's default status); 7.14 after 8.7 (SDK budget re-measured);
+#   7.15 after 8.17 (the rework's accessibility review covers the reworked zone screens).
 
 [[entry]]
 id = 1
@@ -96,7 +102,7 @@ title = "Add a button, an image button and a swipe-up link"
 description = "Adds call-to-action element types per epic R7: button (label, filled or outline, colours, corner radius), custom image button (image with alt text) and swipe-up link (label, pinned to the bottom safe area, at most one per tale), each with a destination URL and same-tab (default) or new-tab with noopener. The server accepts only absolute http or https URLs up to 2,048 characters; the SDK renders <a> elements, checks the scheme again, and opens the swipe-up link on a swipe-up gesture, a click, or Enter on its focused label. CTA click events belong to epic-analytics."
 verify = "Add one of each with destinations; on the sample page each opens its URL by click and by keyboard, the swipe-up link also by swiping up, and a new-tab button opens a tab without opener access; saving 'javascript:alert(1)' or an ftp URL is refused; a second swipe-up link cannot be added."
 covers = ["R7", "R14"]
-after = [6]
+after = [6, "8.1", "8.4"]
 hitl = false
 risk = "medium"
 
@@ -118,7 +124,7 @@ title = "Preview the tale exactly as the Web SDK renders it"
 description = "Builds the document renderer in libs/web-sdk so the dashboard can import it (AD-16) and adds a preview pane to Tale Studio that mounts it on the unsaved document with the viewer chrome (progress, close) at phone sizes (390x844 default, plus a smaller and a larger size), playing the tale for its duration, with the safe-area overlay toggle. The studio canvas and the preview read the same document; nothing is rendered by a second code path."
 verify = "Open the preview of a tale with text, media, a shape, an emoji and a button; capture it and the sample page's viewer at 390x844: apart from the host page they match; an unsaved change shows in the preview at once."
 covers = ["R10"]
-after = [8]
+after = [8, "8.7", "8.12"]
 hitl = false
 risk = "medium"
 references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-16"]
@@ -152,7 +158,7 @@ title = "Duplicate a tale with its document"
 description = "A content manager duplicates a tale from its card or from Tale Studio into the same tale group or another group of the project (PRD FR-012). The copy is a new draft placed after the original (or last in the target group), with the whole document, new element ids, and the same media storage keys (not copied; AD-14 shared-key rule)."
 verify = "Duplicate a styled tale into another group; edit the copy's text: the original is unchanged; publish both: each shows its media on the sample page; delete the original: the copy's media still loads."
 covers = ["R11"]
-after = [11]
+after = [11, "8.1"]
 hitl = false
 risk = "low"
 
@@ -175,7 +181,7 @@ title = "Keep the Web SDK within budget with the document renderer"
 description = "Extends the web-zones measurement target (story 3.11) with time to first tale frame after opening the viewer for a tale with 20 elements, and makes the SDK meet the budgets: at most 50 KB gzipped, p75 first zone content at most 1.5 s, p75 first tale frame at most 1 s on Fast 4G, with project fonts swapping in after the first frame and loaded only when a tale that uses them opens; these limits, the 500 KB font cap and the document limits are starting values this story tunes. When the bundle passes 40 KB gzipped, the viewer and renderers move to a chunk loaded on first open (AD-16) and the size check reports both chunks."
 verify = "Run the measurement target named in the web-sdk README: it reports the bundle at or under 50 KB gzipped, p75 first content at or under 1.5 s and p75 first tale frame at or under 1 s for a tale using a project font; the network log of a page whose tales use no project font shows no font request."
 covers = ["R15"]
-after = [10, 11, 17]
+after = [10, 11, 17, "8.7"]
 hitl = false
 risk = "medium"
 
@@ -186,7 +192,7 @@ title = "Accessibility review of Tale Studio and composed tales"
 description = "Re-runs the automated WCAG 2.2 AA scans of the studio and the sample page and fixes what they find; a person then composes a tale with text, an image, a shape, an emoji and a button using only the keyboard and a screen reader (VoiceOver or NVDA), and walks the published tale on the sample page; the walk is recorded and its issues are fixed."
 verify = "Both scans report no WCAG 2.2 AA violations, and the walk record shows every studio action done without a pointer and every element of the published tale announced in visual order."
 covers = ["R12", "R13"]
-after = [10, 12, 13]
+after = [10, 12, 13, "8.17"]
 hitl = true # a person does the keyboard and screen-reader walk
 risk = "medium"
 

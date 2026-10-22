@@ -1,0 +1,220 @@
+# Breakdown for epic-ux-rework, vertical slices in build order.
+# Each entry is a flow a person reviews in the dashboard or on the sample host page that loads the Web SDK.
+# Table order is build order; id is permanent.
+#
+# Phase 1, concept and status model with migrations:
+#   Status lane (tales module, contract, Delivery filter): 1 -> 2 -> 3, 4
+#   Zone lane (zones and access modules, Delivery API, SDK), after 2 because it changes
+#   the indicator's zone reasons: 5 -> 6 -> 7, and 8 after 5
+#   After 2, the zone lane runs beside 3 and 4; they share the zone page, so merges there need care.
+# Phase 2, layout (dashboard): 9 -> 10 -> 11 -> 12 -> 13, and 14 after 10
+# Phase 3, polish: 15, 16, then 17 (accessibility review, hitl), 18 (sweep).
+# Sizes (S, M, L) are the UX report's, for planning only; not estimates.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: turning a group On shows its tales; tales are hidden one by one"
+description = "Size M. Adds the shown-status mapping to libs/contract (group On = live, Off = draft or paused; tale Shown = live, Hidden = draft or paused; Archived) and changes the tales module: new tales are stored live, turning Off and hiding store paused, blocked-by-group applies when the group is draft or paused, and a tale with nothing published is not delivered (epic R6). A forward-only migration makes draft tales in never-live groups live and leaves draft tales in live groups draft, so no visitor sees a change. The dashboard's current group rows and tale cards say On/Off and Shown/Hidden with a switch in place of Publish/Pause; Archive stays where it is until story 10."
+verify = "On the sample page: create a group with three tales from media, turn it On: all three show; hide one: two show; turn the group Off: none show and each tale reads blocked by group; on a pre-rework database snapshot, the Delivery responses for every zone are byte-identical before and after the migration."
+covers = ["R6"]
+after = ["3.3", "3.4"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-6", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-15"]
+notes = ["Owner decisions D2 and D3 (2026-10-23)."]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Every zone, group and tale says whether it is visible, and why not"
+description = "Size M. Adds one visibility function (contract types, tales and zones modules) that the Delivery filter and the Management API both use, returning visible plus the reasons of epic R7, and shows it in the current dashboard: a dot and 'Visible on site' or 'Not visible: <reason>' on zone cards, group rows and every tale card. 'Zone not installed' and 'zone has no display' use today's zone key and frames until stories 5 and 6 change them."
+verify = "A fixture per reason puts content in that state: the indicator names it and the sample page shows nothing; fixing it turns the indicator to 'Visible on site' and the sample page shows the content; a unit test runs the indicator and the Delivery filter on the same fixtures and they agree on every case."
+covers = ["R7"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Schedules stay out of sight until used"
+description = "Size S. Removes every 'No schedule' text and the row's Schedule button; Schedule moves into the group's and tale's ⋯ (a temporary menu on today's row until story 10 builds the real one); a chip shows a window when one exists; the schedule drawer offers 'Remove schedule' only then; a window that hides content shows as 'Not visible: starts …' or 'ended …' (epic R8)."
+verify = "A group and a tale without a window show no schedule text or button outside the ⋯ menu; set a future start: the chip and 'Not visible: starts …' appear; remove it: both disappear."
+covers = ["R8"]
+after = [2]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Tale Studio says Update tale and speaks the indicator's words"
+description = "Size S. Renames 'Publish changes' to 'Update tale' and 'Discard draft' to 'Discard changes', removes 'Publish' from the studio, and makes the status line use the indicator (epic R15); behaviour stays as AD-15 defines it."
+verify = "Edit a visible tale: the line says changes are not updated yet and the sample page is unchanged; press Update tale: the sample page shows the edit and the line says up to date; in a group that is Off the line says 'Not visible: group is off'."
+covers = ["R15"]
+after = [2]
+hitl = false
+risk = "low"
+notes = ["Owner decision D4 (2026-10-23)."]
+
+[[entry]]
+id = 5
+type = "story"
+title = "A zone has one display and a slug; stages and frames migrate into zones"
+description = "Size L. Zones get a slug and at most one display (a frame row, unique per zone); the stages API and the dashboard Stages card go away, and the Frames card becomes a single Display card (epic R1). A forward-only migration follows epic R2: each stage and each extra frame becomes its own zone with copied placements, recording the original zone id and stage key for legacy keys. Until story 7, the Delivery API keeps serving old zone keys through those records."
+verify = "On a database seeded with a zone of two stages and an unstaged frame and a zone of two frames without stages, the migration yields five zones with one display each, the expected names and slugs and identical placement lists, and a second run changes nothing; the sample page with each old zone key and stage shows what it showed before."
+covers = ["R1", "R2"]
+after = [2, "3.7", "3.10"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-17", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-14"]
+notes = ["Owner decision D1 (2026-10-23)."]
+
+[[entry]]
+id = 6
+type = "story"
+title = "Place a zone with the project's site key and its slug"
+description = "Size M. Adds the project site key to the access module (one active per project, shown once, hashed, rotate and revoke, AD-9), lets the Delivery API answer a site key plus a zone slug (AD-2), and adds the site-key and zone attributes and properties to <taleart-view>, with the SDK theme override set per zone slug (epic R3). Issuing the site key is a temporary action on the zone page until the Install tab (story 13)."
+verify = "Issue a site key, place two zones of the project on the sample page with it: each shows its own display and groups; an unknown slug and a revoked site key render nothing and log one console error each; a theme override for one slug changes only that zone; the bundle stays at or under 50 KB gzipped."
+covers = ["R3"]
+after = [5]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-2", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-9"]
+notes = ["Owner decision D6 (2026-10-23)."]
+
+[[entry]]
+id = 7
+type = "story"
+title = "Old zone keys and the stage attribute keep working"
+description = "Size M. Makes the legacy paths final and tested (epic R4): a pre-rework zone key with stage shows the zone migrated from that stage; without stage it shows every display migrated from its zone, stacked in the old order; configureZone(zoneKey) keeps its theme override; the pre-rework SDK build gets the response shape it expects. Settles the epic's open question on keys without stage first."
+verify = "The sample page's legacy-SDK check passes unchanged against the reworked API with a pre-rework key, with and without stage; the current SDK shows the same with the same key; configureZone(zoneKey) still overrides the ring colour; first content stays at or under 1.5 s p75."
+covers = ["R4"]
+after = [6]
+hitl = false
+risk = "high"
+unknown = "For a pre-rework zone key with no stage attribute, keep the stacked rendering of all migrated displays (recommended), or show only the first migrated zone?"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Pick a template when creating a zone"
+description = "Size S. Renames the playbook registry to templates (Stories bar, Promo banner, plus Blank) and adds the template choice to the New zone drawer, which sets the display once and records the 'created from template' note; removes the Playbook card and the apply-playbook action; preselects and hides the project picker when the user has one project (epic R5)."
+verify = "Create a zone from each template and see its preset display on the sample page; with one project the drawer shows no project picker; no Playbook card or apply action remains."
+covers = ["R5"]
+after = [5]
+hitl = false
+risk = "low"
+notes = ["Owner decision D7 (2026-10-23)."]
+
+[[entry]]
+id = 9
+type = "story"
+title = "Zone page with a header, a setup checklist and three tabs"
+description = "Size M. Replaces the five equal cards with a header (name, indicator, display type, group count, installed state), tabs Tale groups (default), Display (type, settings, 'Style: project theme' link) and Install (key actions moved here; snippet in story 13), with the tab in the URL, and a setup checklist shown until the zone is first visible (epic R9)."
+verify = "A new zone opens on Tale groups with three open checklist steps; doing each ticks it; once the zone is visible the checklist is gone after reload; reloading on the Display tab keeps it; the theme link opens the project theme."
+covers = ["R9"]
+after = [2, 5, 6, 8]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Tale groups as a list with a switch and a ⋯ menu"
+description = "Size M. Turns each placed group on the Tale groups tab into one list row: reorder handle (drag and keyboard), cover, name, 'n of m shown', On/Off switch, indicator text and a ⋯ menu holding Rename, Cover, Tags, Schedule, Show in another zone, Copy to zone, Remove from this zone and Archive, with disabled items stating their reason; 'New tale group' and 'Add existing group' below; stacked two-line rows at 390 px (epic R10). The tale strip moves into the group view (story 11)."
+verify = "A zone with three groups lists them with counts and indicators; switching one On updates its indicator and the sample page; every ⋯ item works, and 'Show in another zone' is disabled with 'Already in every zone' when it applies; a 390x844 screenshot shows full names and no horizontal scroll."
+covers = ["R10", "R8"]
+after = [3, 9]
+hitl = false
+risk = "medium"
+notes = ["Owner decision D5 (2026-10-23)."]
+
+[[entry]]
+id = 11
+type = "story"
+title = "Open a group to show or hide each tale in one action"
+description = "Size M. Clicking a group row opens a wide drawer (a page on phones) with its tale strip, 'Add tale', and on each card a Shown/Hidden toggle, the indicator dot and a ⋯ menu (Edit in Tale Studio, Replace media, Schedule, Archive) (epic R11)."
+verify = "Open a group of four tales and hide one from its card in one action: the sample page shows three; show it again: four; every card, shown ones included, has a dot."
+covers = ["R11", "R7"]
+after = [10]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 12
+type = "story"
+title = "The tale drawer saves status at once and closes with Done"
+description = "Size S. Moves the tale's Shown/Hidden toggle and status to the top of the tale drawer, saving at once, makes Replace media its own action, and replaces the Cancel / Upload footer with one Done button (epic R12)."
+verify = "Hide a tale in the drawer and press Done: it stays hidden; replace its media: the new media shows on the sample page; the drawer has no Cancel button."
+covers = ["R12"]
+after = [11]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 13
+type = "story"
+title = "Install tab: copy the snippet and open a test page"
+description = "Size S. Fills the Install tab: the project's site key (issue, rotate with its project-wide warning, revoke; shown once), the copy-ready snippet with the API URL and the zone slug, a Copy button, 'Open test page' that renders the zone on a TaleArt-served page with the key just issued or a pasted one, and a migrated zone's legacy zone key with rotate and revoke (epic R13). Adds the dashboard end-to-end first-run test that counts actions from sign-up to a visible tale."
+verify = "Issue a site key on the Install tab and paste the copied snippet into a blank HTML page: the zone shows; 'Open test page' shows the same; a migrated zone lists its legacy key; the first-run end-to-end test reaches a visible tale in at most 15 actions."
+covers = ["R13"]
+after = [7, 9, 12]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 14
+type = "story"
+title = "Zones list and Tale groups page show status, with filters"
+description = "Size S. Zone rows show the indicator, display type, group count and installed state; the Tale groups page uses the list row from story 10 (with the zones each group is in), adds filters Visible, Off, Scheduled, Not in a zone and Archived, and a 'New tale group' button (epic R14)."
+verify = "With zones and groups in every state, each filter lists exactly the matching groups; 'New tale group' creates a group from that page; each zone row shows the right indicator and install state."
+covers = ["R14"]
+after = [10]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 15
+type = "story"
+title = "Copy and small fixes from the review"
+description = "Size S. The API-unreachable banner says 'We can't reach TaleArt. Retrying…'; Tale Studio's keyboard help becomes a '?' popover closed by default; the studio back link names its group; no screen names a frame 'Frame 1 · Bar' (epic R16)."
+verify = "Stop the API: the banner shows the new text; Tale Studio opens with the help closed and its back link reads 'Back to <group name>'."
+covers = ["R16"]
+after = [4, 5]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 16
+type = "story"
+title = "Docs and README: site key, zone, display and template"
+description = "Size S. Rewrites the Web SDK README and the docs app pages for site-key plus zone, keeps zone-key and stage documented as still supported, explains what the migration did to stages and frames, applies the glossary (zone, display, template, tale group, tale, theme) to the docs and dashboard help text, and updates the research terminology map's zone, stage, frame and playbook rows (epic R17)."
+verify = "The README and docs contain no instruction to create a stage or apply a playbook; the docs snippet pasted into the sample page renders a zone; the docs build passes."
+covers = ["R17"]
+after = [7, 8, 13]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 17
+type = "story"
+title = "Accessibility review of the reworked dashboard (WCAG 2.2 AA)"
+description = "Size M. Runs automated WCAG 2.2 AA scans of the zones list, the zone page on each tab, the group drawer, the tale drawer, the Tale groups page and the Tale Studio status bar, and fixes what they find; a person then completes the first-run path with only a keyboard and a screen reader (VoiceOver or NVDA), and the walk and its fixes are recorded (epic R18)."
+verify = "All scans report no WCAG 2.2 AA violations, and the recorded walk shows every step of the first-run path done without a pointer, with switches, menus, tabs, reordering and status changes announced."
+covers = ["R18"]
+after = [11, 12, 13, 14, 15]
+hitl = true # a person does the keyboard and screen-reader walk
+risk = "medium"
+
+[[entry]]
+id = 18
+type = "story"
+title = "Refactor sweep"
+description = "Size S. Cleanup only, scoped at start from plans and review findings this epic deferred; removes code left only for stages, multiple frames per zone and playbooks that the legacy paths no longer need."
+verify = "The full test suite passes, the legacy-SDK check passes, and the dashboard and sample page behave as before, with no behaviour change."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+hitl = false
+risk = "low"
