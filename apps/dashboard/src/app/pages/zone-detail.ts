@@ -11,7 +11,7 @@ import {
   linkedSignal,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   findTemplate,
   groupShownStatus,
@@ -35,6 +35,16 @@ import { describeWindow, windowChip } from '../schedule';
 import { describeSettings, type Settings } from '../settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
+import {
+  showsSetup,
+  ZONE_TAB_PARAM,
+  ZONE_TABS,
+  zoneInstalled,
+  zoneSetupSteps,
+  zoneTab,
+  type ZoneSetupStep,
+  type ZoneTab,
+} from '../zone-setup';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 import { SiteKeyCard } from './site-key-card';
 
@@ -44,7 +54,14 @@ const TONES = 6;
 type Direction = 'earlier' | 'later';
 
 /**
- * One zone: its display (one frame, AD-17), its zone key and its tale groups, each a row of 9:16 tale cards with
+ * One zone (epic UX rework R9): a header with its name, slug, indicator (R7) and a summary (display
+ * type, group count, installed or not, the template it came from); a setup checklist until the zone
+ * is first visible; and three tabs, Tale groups (the default), Display and Install, following the
+ * WAI-ARIA tabs pattern with automatic activation: arrow keys, Home and End move focus and select
+ * the tab at once, since every panel is already rendered. The selected tab is in the URL
+ * (`?tab=display`), so a reload keeps it and back and forward step through tabs.
+ *
+ * The Tale groups tab lists its tale groups, each a row of 9:16 tale cards with
  * the group's tags. A group can be placed in several zones (AD-14): its row says
  * where else it shows, and offers "Add to zone…", "Copy to zone…" and "Remove from this zone". Each group
  * has its On/Off switch and each tale card its Shown/Hidden switch (AD-6 amended, epic UX rework R6),
@@ -194,6 +211,126 @@ type Direction = 'earlier' | 'later';
       flex-wrap: wrap;
       gap: var(--space-2);
     }
+    .zone-header__title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: var(--space-1) var(--space-4);
+    }
+    .zone-header__title h2 {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .zone-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin: var(--space-1) 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .zone-setup__steps {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .zone-setup__step {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2) var(--space-3);
+    }
+    /* The step's state is also in words beside it; the mark only repeats it. */
+    .zone-setup__mark {
+      display: inline-grid;
+      flex: none;
+      place-items: center;
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border-strong);
+      border-radius: 50%;
+      color: #fff;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .zone-setup__step--done .zone-setup__mark {
+      border-color: var(--success);
+      background: var(--success);
+    }
+    .zone-setup__step--done .zone-setup__mark::before {
+      content: '\\2713';
+      font-weight: 700;
+    }
+    .zone-setup__link {
+      min-height: 24px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--ink);
+      font: inherit;
+      font-weight: 600;
+      text-align: start;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+    .zone-setup__step--done .zone-setup__link {
+      font-weight: 400;
+    }
+    .zone-setup__state {
+      color: var(--text-muted);
+      font-size: var(--text-sm);
+    }
+    .zone-setup__count {
+      margin: 0;
+    }
+    /* The tab list scrolls on its own when it cannot fit, so the page never scrolls sideways. */
+    .zone-tabs {
+      display: flex;
+      gap: var(--space-1);
+      max-width: 100%;
+      margin-bottom: calc(var(--space-6) * -1 + var(--space-4));
+      overflow-x: auto;
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .zone-tab {
+      flex: none;
+      min-height: 44px;
+      padding: 0 var(--space-4);
+      border: 0;
+      border-bottom: 3px solid transparent;
+      background: none;
+      color: var(--text-secondary);
+      font: inherit;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .zone-tab:hover {
+      color: var(--ink);
+    }
+    .zone-tab[aria-selected='true'] {
+      border-bottom-color: var(--ember-strong);
+      color: var(--ink);
+    }
+    .zone-tab:focus-visible {
+      outline-offset: -3px;
+    }
+    .zone-panel {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-6);
+      min-width: 0;
+    }
+    .zone-panel[hidden] {
+      display: none;
+    }
+    .zone-theme-link {
+      margin: var(--space-4) 0 0;
+    }
     /* A tale's schedule chip on its card: above the title, on a dark plate so it reads over any media. */
     .window-chip--card {
       margin: 0 0 var(--space-1);
@@ -207,10 +344,42 @@ type Direction = 'earlier' | 'later';
 export class ZoneDetailPage {
   protected readonly store = inject(DashboardStore);
   protected readonly auth = inject(AuthStore);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   /** Bound from the `:zoneId` route parameter. */
   readonly zoneId = input.required<string>();
+  /** Bound from the `?tab=` query parameter: the selected tab, the default when missing (epic UX rework R9). */
+  readonly tab = input<string | undefined>();
+
+  protected readonly tabs = ZONE_TABS;
+  /**
+   * The selected tab: follows the URL (reload, back and forward), and changes at once on a click or
+   * key, before the URL has caught up, so focus can move into the panel in the same turn.
+   */
+  protected readonly selectedTab = linkedSignal<ZoneTab>(() => zoneTab(this.tab()));
+  /** The header's group count, such as "1 tale group". */
+  protected readonly groupCount = computed(() => {
+    const count = this.groups().length;
+    return `${count} tale group${count === 1 ? '' : 's'}`;
+  });
+  /** Installed or not (an active site key, epic UX rework R3); null while unknown. */
+  protected readonly installed = computed(() => {
+    const zone = this.zone();
+    return zone ? zoneInstalled(zone) : null;
+  });
+  /** The setup checklist's steps, each ticked from the zone's visibility (R7, R9). */
+  protected readonly setupSteps = computed(() => {
+    const zone = this.zone();
+    return zone ? zoneSetupSteps(zone) : [];
+  });
+  protected readonly setupDoneCount = computed(() => this.setupSteps().filter((step) => step.done).length);
+  /** The checklist shows only until the zone is first visible, as the API records it. */
+  protected readonly setupShown = computed(() => {
+    const zone = this.zone();
+    return !!zone && showsSetup(zone);
+  });
 
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected readonly zone = computed(() => this.store.zone(this.zoneId()));
@@ -243,6 +412,75 @@ export class ZoneDetailPage {
       const zone = id === this.zoneId() ? undefined : this.store.zone(id);
       return zone ? [zone] : [];
     });
+  }
+
+  /**
+   * Selects a tab and puts it in the URL (a history entry, so back and forward step through tabs).
+   * `focus` then moves focus, once the panel shows, to the tab itself ('tab') or to the element it
+   * finds in the page, else to the panel.
+   */
+  protected selectTab(tab: ZoneTab, focus: 'tab' | ((root: HTMLElement) => HTMLElement | null) | null = null): void {
+    const changed = this.selectedTab() !== tab;
+    this.selectedTab.set(tab);
+    if (changed) {
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { [ZONE_TAB_PARAM]: tab === 'groups' ? null : tab },
+        queryParamsHandling: 'merge',
+      });
+    }
+    if (!focus) return;
+    const move = () => {
+      const root = this.host.nativeElement;
+      const target =
+        focus === 'tab'
+          ? root.querySelector<HTMLElement>(`#zone-tab-${tab}`)
+          : (focus(root) ?? root.querySelector<HTMLElement>(`#zone-panel-${tab}`));
+      target?.focus();
+    };
+    if (changed) afterNextRender(move, { injector: this.injector });
+    else move();
+  }
+
+  /** The tab list's keys (WAI-ARIA tabs, automatic activation): arrows wrap, Home and End go to the ends. */
+  protected tabKey(event: KeyboardEvent): void {
+    const ids = this.tabs.map((tab) => tab.id);
+    const at = ids.indexOf(this.selectedTab());
+    const next: Partial<Record<string, number>> = {
+      ArrowRight: (at + 1) % ids.length,
+      ArrowLeft: (at - 1 + ids.length) % ids.length,
+      Home: 0,
+      End: ids.length - 1,
+    };
+    const index = next[event.key];
+    if (index === undefined || !(event.target as HTMLElement).matches('[role=tab]')) return;
+    event.preventDefault();
+    this.selectTab(ids[index], 'tab');
+  }
+
+  /** Opens the tab where a setup step is done and focuses its control (R9). */
+  protected goToStep(step: ZoneSetupStep): void {
+    const first = (root: HTMLElement, ...selectors: string[]): HTMLElement | null => {
+      for (const selector of selectors) {
+        const found = root.querySelector<HTMLElement>(selector);
+        if (found) return found;
+      }
+      return null;
+    };
+    if (step.id === 'display') {
+      this.selectTab(step.tab, (root) => first(root, '#display-choose', '#display-type-select'));
+    } else if (step.id === 'install') {
+      this.selectTab(step.tab, (root) => first(root, '#site-key-issue', '#site-key-rotate'));
+    } else {
+      this.selectTab(step.tab, (root) =>
+        first(
+          root,
+          '#zone-panel-groups .group [role=switch][aria-checked=false]',
+          '#zone-panel-groups .group [role=switch]',
+          '#zone-panel-groups .empty .btn--primary',
+        ),
+      );
+    }
   }
 
   /** A key's issue date, such as "20 Oct 2026". */
