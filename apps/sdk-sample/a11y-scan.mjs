@@ -616,6 +616,14 @@ try {
   check(siteLooks[0].ring === '#0000ff' && siteLooks[1].ring === '#ff0000', 'a theme override for one slug changes only that zone');
   check(new Set(siteRequests).size === siteRequests.length, 'one request per zone');
   violations += await scan(sitePage, 'site key with two zones and an unknown slug', axe);
+  // The zone key form of earlier builds places nothing and says so in one line (story 8.7).
+  await sitePage.goto(`http://localhost:${port}/?api=${encodeURIComponent(API)}#key=tak_old`);
+  const oldNotice = (await sitePage.locator('#old-key-notice').textContent()) ?? '';
+  check(oldNotice.includes('Zone keys are no longer supported'), 'a page with only the old key says zone keys are gone');
+  check(
+    (await sitePage.evaluate(() => document.querySelector('taleart-view')?.shadowRoot?.childNodes.length ?? 0)) === 0,
+    'a page with only the old key places nothing',
+  );
   await siteContext.close();
 
   // The zones' SDK theme override (R9): a red project ring, overridden in blue for each zone in the

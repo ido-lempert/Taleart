@@ -25,6 +25,8 @@ const ZONE_ATTR = 'zone';
 // A site key a page may pass by mistake: a warning names it by its start only. A zone slug never
 // holds `_`, so the two never meet.
 const SITE_KEY_PREFIX = 'tas_';
+// The attribute of the zone keys removed in UX rework story 8.7, named only to warn a page that still uses it.
+const REMOVED_KEY_ATTR = 'zone' + '-key';
 const THEME_ATTR = 'theme';
 
 /** The SDK configuration of a zone, passed to {@link configureZone}. */
@@ -127,6 +129,8 @@ export class TaleartElement extends HTMLElement {
   private skipThemeAttribute = false;
   // True once this element has set its zone mark, and its first-content mark (for a render still on the page).
   private zoneMarked = false;
+  // True once this element has warned about the removed zone key attribute (once per element).
+  private warnedRemovedKey = false;
   private marked = false;
   // Aborts the current render's first-content work (loadFirstContent).
   private renderAbort: AbortController | null = null;
@@ -194,6 +198,12 @@ export class TaleartElement extends HTMLElement {
 
   connectedCallback(): void {
     connected.add(this);
+    if (!this.warnedRemovedKey && this.hasAttribute(REMOVED_KEY_ATTR)) {
+      this.warnedRemovedKey = true;
+      console.warn(
+        `TaleArt: the ${REMOVED_KEY_ATTR} attribute is no longer supported; place the zone with site-key and zone`,
+      );
+    }
     if (typeof matchMedia === 'function') {
       const query = matchMedia(REDUCED_MOTION_QUERY);
       this.motionQuery = query;

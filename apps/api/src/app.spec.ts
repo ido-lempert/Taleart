@@ -4138,7 +4138,7 @@ describe('Management API v1: projects and zones', () => {
       expect((await changed.json()).frame.type).toBe('banner');
 
       // A refused key never gets a 304, whatever ETag it sends.
-      await send('DELETE', `/projects/${zone.projectId}/site-key`);
+      expect((await send('DELETE', `/projects/${zone.projectId}/site-key`)).status).toBe(204);
       await expectInvalidKey(await deliver(key, revalidate));
     });
 
@@ -4398,6 +4398,7 @@ describe('Management API v1: projects and zones', () => {
           const text = await info.text();
           expect(JSON.parse(text)).toEqual({ prefix: issued.prefix, createdAt: issued.createdAt });
           expect(text).not.toContain(issued.key);
+          expect(text).not.toContain(createHash('sha256').update(issued.key).digest('hex'));
 
           const { rows } = await pool.query('SELECT * FROM site_keys');
           expect(rows).toHaveLength(1);
@@ -4854,7 +4855,7 @@ describe('Management API v1: projects and zones', () => {
 
         // Media never needs the key, but a zone whose project's site key is revoked is not installed,
         // so nothing shows in it and its media is private until it has a key again (epic UX rework R7).
-        await send('DELETE', `/projects/${zone.projectId}/site-key`);
+        expect((await send('DELETE', `/projects/${zone.projectId}/site-key`)).status).toBe(204);
         expect((await getPublic(url)).status).toBe(404);
         await issue(zone.id);
         expect((await getPublic(url)).status).toBe(200);
@@ -5467,6 +5468,12 @@ describe('Management API v1: projects and zones', () => {
         await expectInvalidKey(await deliver('not-a-key')),
         await expectInvalidKey(await deliver(undefined, { Authorization: 'Basic abc' })),
         await expectInvalidKey(await deliver(undefined, { Cookie: sessionCookie })),
+        // A signed-in session and a valid slug, with no bearer key: a session never reads Delivery (AD-2).
+        await expectInvalidKey(
+          await globalThis.fetch(`${origin}/delivery/v1/zone?zone=${encodeURIComponent(zone.slug)}`, {
+            headers: { Cookie: sessionCookie },
+          }),
+        ),
       ]);
       expect([...messages]).toEqual(['A valid site key and zone are required']);
     });
@@ -5924,6 +5931,23 @@ describe('Management API v1: projects and zones', () => {
       await publishDraft(tale.id);
       clearPublicFontCache();
       expect((await getPublic(`${publicApiUrl}/media/${fontKey}`)).status).toBe(200);
+    });
+
+    it("makes a delivered tale's font private when the project's site key is revoked, and public again when one is issued", async () => {
+      const { zone, group, tale } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      await publish('tale-groups', group.id);
+      await publish('tales', tale.id);
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts')).rows[0].storage_key as string;
+      const url = `${publicApiUrl}/media/${fontKey}`;
+      expect((await getPublic(url)).status).toBe(200);
+      // The revoke clears this process's font cache (story 8.6): no stale 200.
+      const revoked = await fetch(`${base}/projects/${zone.projectId}/site-key`, { method: 'DELETE' });
+      expect(revoked.status).toBe(204);
+      expect((await getPublic(url)).status).toBe(404);
+      const issued = await fetch(`${base}/projects/${zone.projectId}/site-key`, { method: 'POST' });
+      expect(issued.status).toBe(201);
+      // Issuing clears the cache too: the 404 just kept is not served for its 30 s.
+      expect((await getPublic(url)).status).toBe(200);
     });
 
     it('keeps a font private when only a hidden element or an unplaced group uses it', async () => {

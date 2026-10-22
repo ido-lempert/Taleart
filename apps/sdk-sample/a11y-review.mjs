@@ -1878,13 +1878,125 @@ try {
     await context.close();
   }
 
-  // 15. Existing tales become documents (Tale Studio 7.11, epic R16): this SDK on the documents the
-  //     real migration wrote, as the Delivery API serves them (fixtures/r16-migration.json, which api's
-  //     tests check against the server). The pixel comparison with the SDK build from before the
-  //     rework is gone with the zone keys that build needed (UX rework story 8.7).
+  // 15. Existing tales become documents (Tale Studio 7.11, epic R16): every tale from before
+  //     documents looks exactly as it did. "Before" is a committed baseline PNG per case
+  //     (fixtures/r16-baseline; the SDK build from before the rework could only be placed with a zone
+  //     key, removed in UX rework story 8.7). "After" is this SDK on the documents the real migration
+  //     wrote, as the Delivery API serves them (fixtures/r16-migration.json, which api's tests check
+  //     against the server), screenshotted with the viewer's controls hidden and compared pixel by
+  //     pixel: an image (phone and desktop), a video's first frame, a GIF, a studio text over the
+  //     media, a tale with no media (the placeholder) and media backgrounds.
   {
+    // The baselines (fixtures/r16-baseline): each case as the release before 7.11 (489b892) drew it,
+    // except image at 1280x800, drawn by this SDK since the wide-screen viewer (f752d74, a requested
+    // change). They were captured at 4768734, with the Chromium baseline.json names.
+    const baselineDir = resolve(import.meta.dirname, 'fixtures/r16-baseline');
+    const baseline = JSON.parse(readFileSync(resolve(baselineDir, 'baseline.json'), 'utf8'));
     const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, 'fixtures/r16-migration.json'), 'utf8'));
     const withApi = (value) => JSON.parse(JSON.stringify(value).replaceAll('{API}', API));
+    // A picture with edges, so a shift or a scale shows; a one-frame GIF; the review's WebM.
+    const picture =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="160" viewBox="0 0 90 160">' +
+      '<rect width="90" height="160" fill="#f97316"/><rect x="22.5" y="40" width="45" height="80" fill="#1d4ed8"/></svg>';
+    const backdrop =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90" viewBox="0 0 160 90">' +
+      '<rect width="160" height="90" fill="#16a34a"/><circle cx="80" cy="45" r="30" fill="#fde047"/></svg>';
+    const gif = Buffer.from('R0lGODlhAgACAPAAAP8AAAAA/yH5BAAAAAAALAAAAAACAAIAAAICjAsAOw==', 'base64');
+    const cases = [
+      ['image', { width: 390, height: 844 }],
+      ['image', { width: 1280, height: 800 }],
+      ['video', { width: 390, height: 844 }],
+      ['gif', { width: 390, height: 844 }],
+      ['overlay', { width: 390, height: 844 }],
+      ['empty', { width: 390, height: 844 }],
+      ['background-image', { width: 390, height: 844 }],
+      ['background-video', { width: 390, height: 844 }],
+    ];
+    // Counts the pixels that differ (by more than 2 in any channel) between two PNG screenshots.
+    const differing = (page, a, b) =>
+      page.evaluate(
+        async ([a, b]) => {
+          const load = async (base64) => {
+            const img = new Image();
+            img.src = `data:image/png;base64,${base64}`;
+            await img.decode();
+            const canvas = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            return ctx.getImageData(0, 0, img.width, img.height).data;
+          };
+          const [x, y] = await Promise.all([load(a), load(b)]);
+          if (x.length !== y.length) return Infinity;
+          let count = 0;
+          for (let i = 0; i < x.length; i += 4) {
+            if (Math.max(...[0, 1, 2].map((c) => Math.abs(x[i + c] - y[i + c]))) > 2) count++;
+          }
+          return count;
+        },
+        [a.toString('base64'), b.toString('base64')],
+      );
+    // The viewer on one tale, drawn by this SDK, its controls hidden.
+    async function viewerShot(name, viewport, tale) {
+      const z = zone({
+        frames: [{ id: 'f1', type: 'bar', settings: {} }],
+        taleGroups: [{ id: 'gl', name: 'Legacy', cover: null, tales: [{ id: `t-${name}`, title: 'Legacy', ...tale }] }],
+      });
+      const context = await browser.newContext({
+        viewport,
+        reducedMotion: name.endsWith('video') ? 'reduce' : 'no-preference',
+      });
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (err) => errors.push(String(err)));
+      await page.route(deliveryZoneUrl, deliverZones(zonesOf(z)));
+      await page.route(`${API}/media/**`, (route) => {
+        const url = route.request().url();
+        const headers = { 'Access-Control-Allow-Origin': '*' };
+        if (url.includes('.mp4')) return route.fulfill({ body: videoBytes, contentType: 'video/webm', headers });
+        if (url.includes('.gif')) return route.fulfill({ body: gif, contentType: 'image/gif', headers });
+        // A media background: a landscape picture of other colours, contained, so its bands show.
+        if (url.includes('-bg.')) return route.fulfill({ body: backdrop, contentType: 'image/svg+xml', headers });
+        return route.fulfill({ body: picture, contentType: 'image/svg+xml', headers });
+      });
+      await page.goto(`http://localhost:${port}/?zones=${z.slug}&api=${encodeURIComponent(API)}#siteKey=${SITE_KEY}`);
+      await page.locator('taleart-view button.item').first().click();
+      await page.locator('taleart-view dialog.viewer').waitFor();
+      await page.evaluate(() => {
+        const dialog = __taOne('dialog');
+        dialog.querySelector('.top').style.visibility = 'hidden';
+        dialog.focus();
+      });
+      await page.waitForTimeout(600);
+      const png = await page.screenshot();
+      // Which SDK drew it: the release before drew a tale without a document with no canvas at all.
+      const canvas = await page.evaluate(
+        () => !!__taOne('dialog .ta-area'),
+      );
+      await context.close();
+      return { png, errors, canvas };
+    }
+    // Pinned to the Chromium the baselines were drawn with: another build antialiases differently.
+    const pinned = baseline.chromium === browser.version();
+    check(
+      'R16',
+      pinned,
+      `the R16 baselines are pinned to Chromium ${baseline.chromium} (this run: ${browser.version()}; on a mismatch, recapture them)`,
+    );
+    for (const [name, viewport] of pinned ? cases : []) {
+      const entry = fixture.tales.find((t) => t.name === name);
+      const file = `${name}-${viewport.width}.png`;
+      const before = readFileSync(resolve(baselineDir, file));
+      const after = await viewerShot(name, viewport, { media: withApi(entry.before).media, document: withApi(entry.after) });
+      const scratch = await browser.newPage();
+      const diff = await differing(scratch, before, after.png);
+      await scratch.close();
+      const where = `${name}, ${viewport.width}x${viewport.height}`;
+      check('R16', diff === 0, `a tale from before documents looks as its baseline (${where}; ${diff} pixels differ)`);
+      check('4.1.2', after.errors.length === 0, `no page errors (${where})`);
+      check('R16', after.canvas, `this SDK draws it from the migrated document (${where})`);
+      if (shotsDir) writeFileSync(resolve(shotsDir, `r16-after-${file}`), after.png);
+    }
+
     // The accessible name moved (R16): the release before named an image tale by its image's alt text
     // (the title); now the tale's media is decorative and the canvas, a group, carries the title.
     {
