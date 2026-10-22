@@ -1,7 +1,7 @@
 import { CdkDropList, type CdkDragDrop } from '@angular/cdk/drag-drop';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpEventType, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Location } from '@angular/common';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
@@ -2818,11 +2818,11 @@ describe('App', () => {
       navigate.mockRestore();
       await settle(fixture);
 
-      // Replace media: the tale drawer, at its media field; it opens over the view.
+      // Replace media: the tale drawer, at its Replace media action (story 8.12); it opens over the view.
       pickMenuItem(view(), 'More for A', 'Replace media');
       await settle(fixture);
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale');
-      expect(document.activeElement?.id).toBe('create-file');
+      expect(document.activeElement?.id).toBe('tale-replace-media');
       // Escape closes only the drawer on top; focus goes back to the card's ⋯.
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       await settle(fixture);
@@ -3391,6 +3391,34 @@ describe('App', () => {
       expect(switchState(drawer() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
       expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Status: Hidden');
       expect(switchState(groupView() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
+
+      // The footer has one way out, Done, which sends nothing and keeps the saved status (story 8.12).
+      const footer = drawer()?.querySelector('.drawer__footer') as HTMLElement;
+      expect([...footer.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Done']);
+      expect(drawer()?.textContent).not.toContain('Cancel');
+      expect(drawer()?.textContent).toContain('Changes save as you make them.');
+      buttonNamed(footer, 'Done').click();
+      await settle(fixture);
+      http.expectNone(() => true);
+      expect(drawer()).toBeNull();
+      expect(switchState(groupView() as HTMLElement, 'Show A')).toEqual(['Hidden', 'false']);
+      // Focus goes back to the card that opened the drawer, inside the group view.
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Open tale A');
+    });
+
+    it('puts the status first in the tale drawer, and focus on its switch when opened from a card', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [live] } });
+
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      const body = drawer()?.querySelector('.drawer__body') as HTMLElement;
+      const controls = [...body.querySelectorAll<HTMLElement>('button, a[href]')].map(
+        (c) => c.getAttribute('aria-label') ?? c.textContent?.trim(),
+      );
+      expect(controls).toEqual(['Show A', 'Archive', 'Edit in Tale Studio', 'Add media']);
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Show A');
+      // No title field: titles change in Tale Studio, so Done has no typed edit to lose.
+      expect(body.querySelector('input:not([type=file]), textarea')).toBeNull();
     });
 
     it('says in the drawer when showing a tale could not publish its studio draft', async () => {
@@ -3637,7 +3665,7 @@ describe('App', () => {
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
       await settle(fixture);
       expect(drawer()?.textContent).not.toMatch(/schedule/i);
-      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      buttonNamed(drawer() as HTMLElement, 'Done').click();
       await settle(fixture);
 
       // The tale's ⋯ menu schedules it; with no window there is nothing to remove.
@@ -4035,7 +4063,7 @@ describe('App', () => {
       expect(root.querySelector('.canvas')).not.toBeNull();
     });
 
-    it('opens a tale, uploads a PNG and shows it on the card', async () => {
+    it('opens a tale and replaces its media at once with Add media, showing progress, then the card', async () => {
       const withTale = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } };
       const { fixture, root } = await open('/zones/z1', withTale);
       expect(root.querySelector('.tale-card__media')).toBeNull();
@@ -4046,56 +4074,89 @@ describe('App', () => {
       expect(drawer()?.textContent).toContain('No media yet');
       const input = drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null;
       expect(input?.accept).toBe('image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm');
+      // The button is the control: it opens the hidden picker.
+      expect(input?.hidden).toBe(true);
+      const opened = vi.spyOn(input as HTMLInputElement, 'click').mockImplementation(() => undefined);
+      buttonNamed(drawer() as HTMLElement, 'Add media').click();
+      expect(opened).toHaveBeenCalled();
       pick(input, png);
-      buttonNamed(drawer() as HTMLElement, 'Upload').click();
       await settle(fixture);
 
       const req = http.expectOne(`${API_BASE}/tales/t1/media`);
       expect(req.request.method).toBe('PUT');
       expect(req.request.headers.get('Content-Type')).toBe('image/png');
       expect(req.request.body).toBe(png);
+      expect(req.request.reportProgress).toBe(true);
+      req.event({ type: HttpEventType.UploadProgress, loaded: 2, total: 4 });
+      await settle(fixture);
+      expect(drawer()?.querySelector('progress')?.value).toBe(50);
+      expect(drawer()?.textContent).toContain('Uploading… 50%');
+      // Done waits for the upload.
+      expect(buttonNamed(drawer()?.querySelector('.drawer__footer') as HTMLElement, 'Done').disabled).toBe(true);
       req.flush({ ...taleA, media: pngMedia });
       await settle(fixture);
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } });
       await settle(fixture);
 
-      expect(drawer()).toBeNull();
+      // The drawer stays open on the new media, says so, and the card shows it.
+      expect(drawer()?.querySelector('progress')).toBeNull();
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Media replaced.');
+      expect(drawer()?.querySelector('img.media-preview__media')?.getAttribute('src')).toBe(
+        `${MEDIA_ORIGIN}/api/v1/tales/t1/media?v=1`,
+      );
+      expect(buttonNamed(drawer() as HTMLElement, 'Replace media')).toBeTruthy();
       expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(
         `${MEDIA_ORIGIN}/api/v1/tales/t1/media?v=1`,
       );
+      buttonNamed(drawer()?.querySelector('.drawer__footer') as HTMLElement, 'Done').click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
     });
 
-    it("shows the API's unsupported message for a PDF and keeps the previous media", async () => {
+    it('refuses a PDF or a file over the limit before sending it, and keeps the previous media', async () => {
       const withMedia = { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } };
       const { fixture, root } = await open('/zones/z1', withMedia);
 
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
       await settle(fixture);
       expect(drawer()?.querySelector('img.media-preview__media')).not.toBeNull();
-      pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, pdf);
-      buttonNamed(drawer() as HTMLElement, 'Upload').click();
+      const input = () => drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null;
+      pick(input(), pdf);
       await settle(fixture);
-      const req = http.expectOne(`${API_BASE}/tales/t1/media`);
-      expect(req.request.headers.get('Content-Type')).toBe('application/pdf');
-      req.flush(
-        { error: { code: 'unsupported_media_type', message: 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video' } },
-        { status: 415, statusText: 'Unsupported Media Type' },
-      );
-      await settle(fixture);
-
+      http.expectNone(`${API_BASE}/tales/t1/media`);
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Upload a JPEG, PNG, WebP or GIF image');
+
+      const big = new File([new Uint8Array(1)], 'huge.png', { type: 'image/png' });
+      Object.defineProperty(big, 'size', { value: 10 * 1024 * 1024 + 1 });
+      pick(input(), big);
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/tales/t1/media`);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The file is larger than 10 MB');
+      expect(buttonNamed(drawer() as HTMLElement, 'Replace media').getAttribute('aria-describedby')).toContain('create-error');
       expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t1/media`);
     });
 
-    it('asks for a file when Upload is pressed without one', async () => {
-      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [taleA] }] } });
+    it("shows the API's message when it refuses the media, and keeps the previous media", async () => {
+      const withMedia = { ...oneZone, groups: { z1: [{ ...group, tales: [{ ...taleA, media: pngMedia }] }] } };
+      const { fixture, root } = await open('/zones/z1', withMedia);
 
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
       await settle(fixture);
-      buttonNamed(drawer() as HTMLElement, 'Upload').click();
+      pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, png);
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tales/t1/media`)
+        .flush(
+          { error: { code: 'unsupported_media_type', message: 'The file is not a valid image/png file' } },
+          { status: 415, statusText: 'Unsupported Media Type' },
+        );
       await settle(fixture);
 
-      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Choose an image or video');
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('The file is not a valid image/png file');
+      expect(drawer()?.querySelector('progress')).toBeNull();
+      expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('');
+      expect(buttonNamed(drawer() as HTMLElement, 'Replace media').disabled).toBe(false);
+      expect(root.querySelector('.tale-card__media')?.getAttribute('src')).toBe(`${MEDIA_ORIGIN}/api/v1/tales/t1/media`);
     });
 
     it('uploads the optional file after adding a tale', async () => {
@@ -4103,8 +4164,12 @@ describe('App', () => {
 
       (root.querySelector('#group-view-add-tale') as HTMLButtonElement).click();
       await settle(fixture);
+      // Creating keeps its own primary action, Add, and Cancel (story 8.12 changes only the edit drawer).
+      const footer = drawer()?.querySelector('.drawer__footer') as HTMLElement;
+      expect([...footer.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Cancel', 'Add']);
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'A');
       pick(drawer()?.querySelector<HTMLInputElement>('input[type=file]') ?? null, png);
+      http.expectNone(`${API_BASE}/tales/t1/media`);
       buttonNamed(drawer() as HTMLElement, 'Add').click();
       await settle(fixture);
 
@@ -4145,6 +4210,10 @@ describe('App', () => {
       expect(drawer()?.querySelector('h2')?.textContent).toContain('Tale');
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('Unsupported');
       expect(root.querySelectorAll('[aria-label="Tales in Summer"] li')).toHaveLength(1);
+      // It is now the tale's edit drawer: retry with Add media, leave with Done.
+      expect(buttonNamed(drawer() as HTMLElement, 'Add media').disabled).toBe(false);
+      const footer = drawer()?.querySelector('.drawer__footer') as HTMLElement;
+      expect([...footer.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Done']);
     });
   });
 

@@ -18,7 +18,9 @@ import {
   MAX_ZONE_SLUG_LENGTH,
   MEDIA_CONTENT_TYPES,
   ZONE_TEMPLATES,
+  isMediaContentType,
   isSwitchable,
+  maxMediaBytes,
   SHOWN_STATUS_LABELS,
   switchStatus,
   taleShownStatus,
@@ -341,11 +343,6 @@ export class CreateDrawer implements OnInit {
     return request.kind === 'taleMedia' ? this.store.tale(request.taleId) : undefined;
   });
 
-  protected readonly fileLabel = computed(() => {
-    if (this.request().kind === 'tale') return 'Image or video (optional)';
-    return this.tale()?.media ? 'Replace image or video' : 'Image or video';
-  });
-
   protected readonly submitLabel = computed(() => {
     switch (this.request().kind) {
       case 'display':
@@ -353,7 +350,7 @@ export class CreateDrawer implements OnInit {
       case 'tale':
         return 'Add';
       case 'taleMedia':
-        return 'Upload';
+        return 'Done';
       case 'cover':
         return 'Save cover';
       case 'invite':
@@ -553,6 +550,45 @@ export class CreateDrawer implements OnInit {
     if (tale) this.statusAnnouncement.set(`Status: ${statusLabel(tale.status, 'tale')}`);
   }
 
+  /** The share of a media replacement sent so far, 0 to 100; null when none is in flight. */
+  protected readonly mediaProgress = signal<number | null>(null);
+  private readonly mediaInput = viewChild<ElementRef<HTMLInputElement>>('mediaInput');
+
+  /** Replace media (or Add media) opens the file picker; the picked file uploads at once. */
+  protected chooseMedia(): void {
+    this.mediaInput()?.nativeElement.click();
+  }
+
+  /** Checks the picked file and uploads it as the drawer's tale's media at once (epic UX rework R12). */
+  protected async replaceMedia(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // The same file picked again after a refusal must fire `change` again.
+    input.value = '';
+    const tale = this.tale();
+    if (!file || !tale || this.saving()) return;
+    this.error.set('');
+    this.statusAnnouncement.set('');
+    const problem = !isMediaContentType(file.type)
+      ? 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video.'
+      : file.size > maxMediaBytes(file.type)
+        ? `The file is larger than ${maxMediaBytes(file.type) / (1024 * 1024)} MB. Pick a smaller one.`
+        : '';
+    if (problem) {
+      this.error.set(problem);
+      return;
+    }
+    this.saving.set(true);
+    this.mediaProgress.set(0);
+    const message = await this.store.uploadTaleMedia(tale.id, file, (sent) =>
+      this.mediaProgress.set(Math.round(sent * 100)),
+    );
+    this.saving.set(false);
+    this.mediaProgress.set(null);
+    this.error.set(message);
+    if (!message) this.statusAnnouncement.set('Media replaced.');
+  }
+
   protected pickFile(event: Event): void {
     this.file = (event.target as HTMLInputElement).files?.[0] ?? null;
     this.error.set('');
@@ -712,9 +748,8 @@ export class CreateDrawer implements OnInit {
         return;
       }
       case 'taleMedia':
-        message = this.file
-          ? await this.store.uploadTaleMedia(request.taleId, this.file)
-          : 'Choose an image or video to upload.';
+        // Everything in the tale drawer saves as it changes; Done (or Enter) only closes it.
+        message = '';
         break;
       case 'cover':
         // A repeated refusal must show again, so the old message goes first.
