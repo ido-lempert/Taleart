@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { TransactionalDb } from './db';
-import { SiteKeyNotFoundError } from './errors';
+import { SiteKeyExistsError, SiteKeyNotFoundError } from './errors';
 import {
   issueSiteKey,
   migrateSiteKeys,
@@ -58,6 +58,21 @@ describe('site keys', () => {
     expect(statements[4]).toBe('COMMIT');
     const b = await issueSiteKey(db, { projectId, createdBy: 'u1' });
     expect(a.key).not.toBe(b.key);
+  });
+
+  it('a conditional issue (ifNone) checks under the lock and never rotates an active key (story 8.13)', async () => {
+    const active = fakeDb({ 'SELECT 1 FROM site_keys': { rows: [{}] }, 'INSERT INTO site_keys': { rows: [{ createdAt }] } });
+    await expect(issueSiteKey(active, { projectId, createdBy: 'u1', ifNone: true })).rejects.toBeInstanceOf(SiteKeyExistsError);
+    const statements = sql(active);
+    expect(statements[1]).toContain('pg_advisory_xact_lock');
+    expect(statements[2]).toBe('SELECT 1 FROM site_keys WHERE project_id = $1 AND revoked_at IS NULL');
+    expect(statements.some((s) => s.startsWith('UPDATE site_keys') || s.includes('INSERT INTO site_keys'))).toBe(false);
+    expect(statements.at(-1)).toBe('ROLLBACK');
+
+    const none = fakeDb({ 'SELECT 1 FROM site_keys': { rows: [] }, 'INSERT INTO site_keys': { rows: [{ createdAt }] } });
+    const issued = await issueSiteKey(none, { projectId, createdBy: 'u1', ifNone: true });
+    expect(issued.key).toMatch(/^tas_/);
+    expect(sql(none).at(-1)).toBe('COMMIT');
   });
 
   it('revokes by setting revoked_at, and refuses a project without an active key', async () => {

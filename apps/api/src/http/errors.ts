@@ -40,6 +40,7 @@ import {
   InvitationInvalidError,
   PasskeyFailedError,
   SetupClosedError,
+  SiteKeyExistsError,
   SiteKeyNotFoundError,
 } from '@taleart/server-access';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError } from '@taleart/server-targeting';
@@ -109,6 +110,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof SetupClosedError ||
     err instanceof EmailTakenError ||
     err instanceof TagExistsError ||
+    err instanceof SiteKeyExistsError ||
     err instanceof DisplayExistsError ||
     err instanceof DisplayConcurrentChangeError ||
     err instanceof SlugTakenError ||

@@ -97,9 +97,24 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 export type ZoneField = 'name' | 'slug' | 'template' | 'project' | null;
 
 /** A refused zone change: the message to show, and the field it is about, so only that field is marked. */
+/**
+ * A tale's title from its media file's name: without the extension, with underscores and hyphens
+ * read as spaces, at most 100 characters; "Tale" when nothing is left.
+ */
+export function taleTitleFromFile(name: string): string {
+  const title = name
+    .replace(/\.[^.]*$/, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [...title].slice(0, 100).join('').trim() || 'Tale';
+}
+
 export interface ZoneChangeResult {
   message: string;
   field: ZoneField;
+  /** The zone created or changed; absent when refused. */
+  zoneId?: string;
 }
 
 // The field a refusal of a zone change is about: from its code, or a message naming the field.
@@ -136,6 +151,8 @@ export class DashboardStore {
   private readonly readingProjectGroups = new Set<string>();
   /** The id of the tale group created last, by either create (epic UX rework R14); null before one. */
   readonly createdTaleGroupId = signal<string | null>(null);
+  /** '' or why setup's first project was not created, shown once on the zones page's "Create your first project". */
+  readonly firstProjectRefusal = signal('');
   /** Each project's tags by name, keyed by project id. */
   readonly tags = signal<Record<string, Tag[]>>({});
   /** True once the first refresh finished, successfully or not. */
@@ -431,6 +448,7 @@ export class DashboardStore {
     try {
       const project = await firstValueFrom(this.http.post<Project>(`${API_BASE}/projects`, { name }));
       this.selectProject(project.id);
+      this.firstProjectRefusal.set('');
     } catch (err) {
       return apiErrorMessage(err, 'Project was not saved.');
     }
@@ -452,9 +470,10 @@ export class DashboardStore {
 
   /** Creates a zone; an empty slug lets the API make one from the name, unique in the project (epic UX rework R1). */
   async createZone(name: string, projectId: string, slug = '', template?: ZoneTemplateKey): Promise<ZoneChangeResult> {
+    let created: Zone;
     try {
       // A template sets the zone's display in the same request (epic UX rework R5).
-      await firstValueFrom(
+      created = await firstValueFrom(
         this.http.post<Zone>(`${API_BASE}/zones`, { name, projectId, ...(slug && { slug }), ...(template && { template }) }),
       );
     } catch (err) {
@@ -470,7 +489,7 @@ export class DashboardStore {
       };
     }
     await this.refresh();
-    return { message: '', field: null };
+    return { message: '', field: null, zoneId: created.id };
   }
 
   /** Renames a zone or changes its slug (epic UX rework R1); a page names the zone by its slug. */
@@ -927,6 +946,55 @@ export class DashboardStore {
       return `The tale was added, but its media was not saved. ${message}`;
     }
     return '';
+  }
+
+  /**
+   * Adds one tale per file to a tale group, in the files' order, each titled after its file name and
+   * with the file as its media, sent with its checked `type` (epic UX rework R13: a new group gets
+   * its tales in the same step). New tales start Shown (R6). Stops at the first refusal, or when
+   * `signal` aborts; a tale whose media was not saved is hidden, so it never shows empty. Reads the
+   * lists again once. `progress` is told the 1-based number of the file being added.
+   */
+  async addTalesFromFiles(
+    taleGroupId: string,
+    files: readonly { file: File; type: string }[],
+    options: { progress?: (n: number) => void; signal?: AbortSignal } = {},
+  ): Promise<{ added: number; message: string }> {
+    const { progress, signal } = options;
+    let added = 0;
+    let message = '';
+    for (const [i, { file, type }] of files.entries()) {
+      if (signal?.aborted) {
+        message = 'Stopped.';
+        break;
+      }
+      progress?.(i + 1);
+      const title = taleTitleFromFile(file.name);
+      let tale: Tale;
+      try {
+        tale = await firstValueFrom(this.http.post<Tale>(`${API_BASE}/tale-groups/${taleGroupId}/tales`, { title }));
+      } catch (err) {
+        message = apiErrorMessage(err, `The tale "${title}" was not saved.`);
+        break;
+      }
+      const refused = await this.putMedia(tale.id, file, { type, signal });
+      if (refused !== '') {
+        // Hidden, so a tale without its media never shows; removing it is left to the user.
+        try {
+          await firstValueFrom(this.http.put<Tale>(`${API_BASE}/tales/${tale.id}/status`, { status: 'paused' }));
+        } catch {
+          // A tale without media is not delivered anyway (AD-15).
+        }
+        message =
+          refused === null
+            ? `Stopped. The tale "${title}" was added hidden, without its media.`
+            : `The tale "${title}" was added hidden, without its media. ${refused}`;
+        break;
+      }
+      added++;
+    }
+    await this.refresh();
+    return { added, message };
   }
 
   /**

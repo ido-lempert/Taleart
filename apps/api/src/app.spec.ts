@@ -556,6 +556,21 @@ describe('Management API v1: projects and zones', () => {
       return zone;
     }
 
+    it('answers the install URLs to a signed-in user only (epic UX rework R13)', async () => {
+      const res = await fetch(`${base}/install`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        apiUrl: publicApiUrl,
+        sdkUrl: `${publicApiUrl}/sdk/v1/taleart.js`,
+        // These tests run without a built SDK: nothing to pin.
+        sdkPinnedUrl: null,
+        sdkIntegrity: null,
+        testPageUrl: `${publicApiUrl}/sdk/v1/test-page`,
+      });
+      const anonymous = await fetch(`${base}/install`, { headers: { Cookie: 'none=1' } });
+      expect(anonymous.status).toBe(401);
+    });
+
     it('lists the registered frame types, including bar and banner', async () => {
       const res = await fetch(`${base}/frame-types`);
       expect(res.status).toBe(200);
@@ -4439,6 +4454,32 @@ describe('Management API v1: projects and zones', () => {
           if (!found) throw new Error(`No zone ${zoneId}`);
           return found.visibility;
         }
+
+        it('a conditional issue answers 409 site_key_exists and leaves the active key working (story 8.13)', async () => {
+          const project = await createProject();
+          const first = await post(siteKeyPath(project.id), { ifNone: true });
+          expect(first.status).toBe(201);
+          const key: Issued = await first.json();
+
+          const again = await post(siteKeyPath(project.id), { ifNone: true });
+          expect(again.status).toBe(409);
+          expect((await again.json()).error.code).toBe('site_key_exists');
+          expect(await (await send('GET', siteKeyPath(project.id))).json()).toEqual({ prefix: key.prefix, createdAt: key.createdAt });
+
+          // Two first issues at once: one key, one refusal, never a rotation.
+          const other = await createProject();
+          const both = await Promise.all([
+            post(siteKeyPath(other.id), { ifNone: true }),
+            post(siteKeyPath(other.id), { ifNone: true }),
+          ]);
+          expect(both.map((r) => r.status).sort()).toEqual([201, 409]);
+          const { rows } = await pool.query('SELECT count(*)::int AS n FROM site_keys WHERE project_id = $1', [other.id]);
+          expect(rows[0].n).toBe(1);
+
+          // The unconditional form still rotates; a bad ifNone is refused.
+          expect((await post(siteKeyPath(project.id), { ifNone: false })).status).toBe(201);
+          expect((await post(siteKeyPath(project.id), { ifNone: 'yes' })).status).toBe(400);
+        });
 
         it('issues a site key shown once, stores only its hash, and reports its prefix and date', async () => {
           const project = await createProject();

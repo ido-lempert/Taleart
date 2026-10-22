@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { API_BASE, DashboardStore } from './dashboard.store';
+import { API_BASE, DashboardStore, taleTitleFromFile } from './dashboard.store';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve));
 
@@ -143,5 +143,16 @@ describe('DashboardStore', () => {
     http.expectOne(`${API_BASE}/tales/t1`).flush(null, { status: 500, statusText: 'Error' });
     expect(await failed).toBeNull();
     expect(store.apiDown()).toBe(false);
+  });
+});
+
+describe('taleTitleFromFile (story 8.13)', () => {
+  it('reads a tale title from a media file name', () => {
+    expect(taleTitleFromFile('beach_day.png')).toBe('beach day');
+    expect(taleTitleFromFile('summer--sale  promo.final.mp4')).toBe('summer sale promo.final');
+    expect(taleTitleFromFile('.png')).toBe('Tale');
+    expect(taleTitleFromFile('___.gif')).toBe('Tale');
+    expect(taleTitleFromFile('noextension')).toBe('noextension');
+    expect([...taleTitleFromFile(`${'é'.repeat(150)}.png`)]).toHaveLength(100);
   });
 });

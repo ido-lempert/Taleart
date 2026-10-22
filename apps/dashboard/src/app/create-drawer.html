@@ -205,6 +205,32 @@
             />
             <p class="field__hint">A group holds up to {{ maxTales }} tales.</p>
           </div>
+          <div class="field">
+            <label class="field__label" for="create-group-files">Images or videos (optional)</label>
+            <input
+              id="create-group-files"
+              class="input input--file"
+              type="file"
+              name="files"
+              multiple
+              [accept]="acceptedTypes"
+              [disabled]="groupCreated()"
+              (change)="pickFiles($event)"
+              aria-describedby="create-group-files-hint"
+            />
+            <p class="field__hint" id="create-group-files-hint">
+              Each file becomes a tale, shown when the group is On. JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM
+              up to 100 MB.
+            </p>
+          </div>
+          <div class="group-files-progress">
+            <p class="muted" role="status">{{ progress() }}</p>
+            @if (progress()) {
+              <button type="button" class="btn btn--secondary btn--sm" id="create-group-stop" (click)="stopAdding()">
+                Stop adding tales
+              </button>
+            }
+          </div>
           @if (groupZonePicker()) {
             <div class="field">
               <label class="field__label" for="create-group-zone">Zone</label>
