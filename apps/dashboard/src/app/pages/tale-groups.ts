@@ -160,6 +160,14 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
     .group-item:first-child {
       border-top: 0;
     }
+    .group-row__link {
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .group-row__link:hover {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
   `,
   template: `
     <div class="page">
@@ -203,7 +211,14 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                         (toggled)="switchGroup(group, $event)"
                         (picked)="picked(group, $event)"
                       >
-                        <h3 class="group-row__name" groupRowName [id]="'project-group-' + group.id">{{ group.name }}</h3>
+                        <h3 class="group-row__name" groupRowName [id]="'project-group-' + group.id">
+                          <!-- Opens the group view in the first zone it is in (R11); a group in no zone has none yet. -->
+                          @if (group.zoneIds[0]; as zoneId) {
+                            <a class="group-row__link" [routerLink]="['/zones', zoneId]" [queryParams]="{ group: group.id }">{{ group.name }}</a>
+                          } @else {
+                            {{ group.name }}
+                          }
+                        </h3>
                         <p class="group-row__zones muted" groupRowExtra>
                           @if (zonesOf(group); as zones) {
                             @if (zones.length > 0) {
