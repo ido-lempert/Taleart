@@ -85,6 +85,27 @@ describe('checkTaleDocument: the element-type registry (story 7.8)', () => {
     );
   });
 
+  it('names a type the server does not take in a draft problem', () => {
+    const value = doc([badge()]);
+    expect(draftProblem(refused(value), value)).toBe("Layer 1 is a type this server doesn't take.");
+    // Other refusals at /type keep their words.
+    setTestElementTypesEnabled(true);
+    const swipe = { label: 'Up', color: '#FFFFFF', background: '#000000B3' };
+    const box = { x: 0.2, y: 0.87, w: 0.6, h: 0.09, rotation: 0 };
+    const two = doc([badge({}, { type: 'swipe-up', props: swipe, box }), badge({}, { id: id(2), type: 'swipe-up', props: swipe, box })]);
+    expect(draftProblem(refused(two), two)).toBe('"Up" has a setting that is not valid.');
+  });
+
+  it('delivers a stored test type only while the switch is on, the cache cleared on each switch', () => {
+    const stored = doc([badge()]);
+    setTestElementTypesEnabled(true);
+    expect(deliverableTaleDocument(stored, 'tale-1:7')?.elements).toHaveLength(1);
+    setTestElementTypesEnabled(false);
+    expect(deliverableTaleDocument(stored, 'tale-1:7')).toBeNull();
+    setTestElementTypesEnabled(true);
+    expect(deliverableTaleDocument(stored, 'tale-1:7')?.elements).toHaveLength(1);
+  });
+
   it('refuses it again once the switch is off', () => {
     setTestElementTypesEnabled(true);
     checkTaleDocument(doc([badge()]));

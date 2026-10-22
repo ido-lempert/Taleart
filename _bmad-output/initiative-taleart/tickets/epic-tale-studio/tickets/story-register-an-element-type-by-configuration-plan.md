@@ -85,6 +85,19 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-22 — Coordinator review
+- **Verdict:** no production leak; existing types unchanged. 9 findings, all patched; `autopilot/foundation` a60da61 (8.10) merged first.
+  1. `[patch]` Inspector chain: an explicit `isMedia(el)` branch for the media inspector, the text inspector only for `text`, and any other type a neutral inspector ("This layer's type can't be edited here…") with Delete. Test with a stored test badge and both switches off.
+  2. `[patch]` `described()` refuses a fields descriptor its schema does not fit: schema and prop keywords outside the allowlists (`FIELDS_SCHEMA_KEYWORDS`, `FIELDS_PROP_KEYWORDS`), a control on a prop of another type, select options outside the enum (or none), a colour field whose pattern is not `^#[0-9a-fA-F]{6}$`. Descriptors may add `check(props)`, run after the schema (the studio side of `PROPS_RULES`). README lists the keywords. Tests.
+  3. `[patch]` `TALE_TEST_ELEMENT_TYPES=on` only with NODE_ENV `development` or `test` (otherwise, unset included, the API stops at start); `configureTestElementTypes` wired in `main.ts` before the database; both in `.env.example`. Tests, plus the built API refusing to start without NODE_ENV.
+  4. `[patch]` Switching the server's test types clears the delivery cache; `draftProblem` says "Layer N is a type this server doesn't take." for an unregistered type (other `/type` refusals keep their words); the README explains the server's whole-document fallback versus the SDK's per-element skip. Tests.
+  5. `[patch]` Fields inspector errors follow the element id and props: an undo or redo that changes a prop clears that prop's error. Test.
+  6. `[patch]` A11y: each field's error line is a persistent polite live region (no `role=alert`, no second notice); `aria-describedby` names hint and error; the colour picker has `aria-invalid`/`aria-describedby`, the hex field `aria-required`; an optional select offers "None". Tests.
+  7. `[patch]` Generator checks moved to `scripts/tale-document-registry.mjs`: schema file name in `element-types/`, non-empty label, `required` within `properties`, every schema (test ones too) compiled with Ajv (unknown keywords refused). Generator unit tests (`registry-generator.spec.mjs`); `scripts/**` ignored by the dependency check.
+  8. `[patch]` README: the `TaleElementOf` alias, the key list in `tale-document.spec.ts`, `elementName` naming.
+  9. `[patch]` Tests: gating with `ngDevMode = false` (token false, no test types, kind name "Layer") and the localStorage path; the swipe-up hint shows before the video hint, as before 7.8 (`hintOrder`).
+- Verification after the fixes: `run-many -t lint test build` on the 12 projects passes (contract 367, server-tales 274, web-sdk 385, dashboard 545, api 559 tests); `web-sdk:size` 23.51 KB gz; `types-check` passes; `sdk-sample:a11y` no violations; `a11y-review` 215 of 217 (known: landscape full height, landscape contrast); `perf` cold p75 1,271 ms; dashboard initial 493.74 KB; Playwright 16 of 16 (API with NODE_ENV=development).
+
 ## Verification
 
 **Commands:**
