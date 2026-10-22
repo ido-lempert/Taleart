@@ -19,7 +19,7 @@ import {
   type ZoneTemplateKey,
 } from '@taleart/contract/core';
 import type { TaleStatusResult } from '@taleart/contract/tale-document';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, type Subscription } from 'rxjs';
 
 // The Management API, on the dashboard's own origin: the dev server proxies
 // /api to the API (proxy.conf.json), so the session cookie is same-origin.
@@ -32,6 +32,14 @@ export const API_ORIGIN = '';
 export const SELECTED_PROJECT_KEY = 'taleart.selectedProjectId';
 
 /** Which create drawer is open, and for what. */
+/** How a tale media upload reports and stops: `progress` gets the share sent (null when unknown). */
+export interface MediaUploadOptions {
+  progress?: (sent: number | null) => void;
+  signal?: AbortSignal;
+  /** The content type to declare, when the browser gave the file none. */
+  type?: string;
+}
+
 export type DrawerRequest =
   | { kind: 'project' }
   | { kind: 'invite'; projectId: string }
@@ -912,7 +920,7 @@ export class DashboardStore {
     } catch (err) {
       return apiErrorMessage(err, 'Tale was not saved. Try again.');
     }
-    const message = file ? await this.putMedia(tale.id, file) : '';
+    const message = (file && (await this.putMedia(tale.id, file))) || '';
     await this.refresh();
     if (message) {
       this.drawer.set({ kind: 'taleMedia', taleId: tale.id });
@@ -921,36 +929,49 @@ export class DashboardStore {
     return '';
   }
 
-  /** Uploads or replaces a tale's image, GIF or video; `progress` gets the share sent so far, 0 to 1. */
-  async uploadTaleMedia(taleId: string, file: File, progress?: (sent: number) => void): Promise<string> {
-    const message = await this.putMedia(taleId, file, progress);
-    if (!message) await this.refresh();
+  /**
+   * Uploads or replaces a tale's image, GIF or video, then reads the lists again. Resolves to ''
+   * when saved, the API's message when refused, and null when `options.signal` aborted it first.
+   */
+  async uploadTaleMedia(taleId: string, file: File, options: MediaUploadOptions = {}): Promise<string | null> {
+    const message = await this.putMedia(taleId, file, options);
+    if (message === '') await this.refresh();
     return message;
   }
 
-  // Sends the file's bytes with its own type; the API checks type and size.
-  private async putMedia(taleId: string, file: File, progress?: (sent: number) => void): Promise<string> {
-    try {
-      await new Promise<void>((resolve, reject) =>
-        this.http
-          .put<Tale>(`${API_BASE}/tales/${taleId}/media`, file, {
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
-            observe: 'events',
-            reportProgress: !!progress,
-          })
-          .subscribe({
-            next: (event) => {
-              if (event.type === HttpEventType.UploadProgress && event.total) progress?.(event.loaded / event.total);
-            },
-            error: reject,
-            complete: resolve,
-          }),
-      );
-    } catch (err) {
-      return apiErrorMessage(err, 'Media was not saved. Try again.');
-    }
-    this.mediaVersions.update((versions) => ({ ...versions, [taleId]: (versions[taleId] ?? 0) + 1 }));
-    return '';
+  // Sends the file's bytes with its type (`options.type`, else the file's); the API checks type and
+  // size. Aborting `options.signal` unsubscribes, which aborts the request, and resolves to null.
+  private putMedia(taleId: string, file: File, options: MediaUploadOptions = {}): Promise<string | null> {
+    const { progress, signal } = options;
+    return new Promise((resolve) => {
+      if (signal?.aborted) return resolve(null);
+      // Called only after `subscription` is set: from the signal, listened to once it is.
+      const abort = () => {
+        subscription.unsubscribe();
+        resolve(null);
+      };
+      const done = (message: string) => {
+        signal?.removeEventListener('abort', abort);
+        resolve(message);
+      };
+      const subscription: Subscription = this.http
+        .put<Tale>(`${API_BASE}/tales/${taleId}/media`, file, {
+          headers: { 'Content-Type': options.type || file.type || 'application/octet-stream' },
+          observe: 'events',
+          reportProgress: !!progress,
+        })
+        .subscribe({
+          next: (event) => {
+            if (event.type === HttpEventType.UploadProgress) progress?.(event.total ? event.loaded / event.total : null);
+          },
+          error: (err) => done(apiErrorMessage(err, 'Media was not saved. Try again.')),
+          complete: () => {
+            this.mediaVersions.update((versions) => ({ ...versions, [taleId]: (versions[taleId] ?? 0) + 1 }));
+            done('');
+          },
+        });
+      signal?.addEventListener('abort', abort, { once: true });
+    });
   }
 
   /**

@@ -32,7 +32,7 @@ deferred: []
 
 **Always:**
 - Status changes and media replacement save as they happen; a line says so ("Changes save as you make them."); Done only closes.
-- Done, Escape and the close button are disabled while a save or upload is in flight (the drawer's `busy`).
+- Done, Escape and the close button wait only for a status save (the drawer's `busy`); during a media upload they close the drawer and cancel the upload (review fix: the drawer says so under the progress bar, which has its own Cancel upload).
 - Replace media from the group view's ⋯ opens the drawer with focus on the Replace media button; from a card, focus goes to the first control (the switch).
 - Client-side check before upload: type in `MEDIA_CONTENT_TYPES`, images ≤ 10 MB, videos ≤ 100 MB; the API's message shows for anything it refuses.
 - Initial dashboard bundle under 500 kB.
@@ -46,7 +46,7 @@ deferred: []
 | Hide then Done | Shown tale, press switch, Done | `PUT /tales/{id}/status` paused at once, "Status: Hidden" announced; Done closes; card stays Hidden | Refusal: alert in drawer, switch unchanged |
 | Replace media | pick a PNG | PUT media at once, progress shown, "Media replaced." announced, preview and card update | API refusal: alert, previous media kept |
 | Wrong type / too large | pick a PDF or an 11 MB PNG | message, no request | — |
-| Upload in flight | Done / Escape | do nothing until it ends | — |
+| Upload in flight | Done / Escape / × / Cancel upload | the request is aborted, the media kept; Cancel upload announces "Upload cancelled." | — |
 | New tale | Add tale | Cancel / Add as before; a refused file switches to the edit drawer with the message | — |
 
 </intent-contract>
@@ -96,3 +96,16 @@ deferred: []
 
 **Manual checks:**
 - Playwright (`shots-8.12/`): the verify steps on the sample page, axe clean on the drawer, 390 px.
+
+## Review fixes (2026-10-22)
+
+Merged `autopilot/foundation` 3578b7c (8.14) first; the base initial bundle was then 500.11 kB, over the budget.
+
+- **Cancellable uploads:** `DashboardStore.uploadTaleMedia(taleId, file, { progress, signal, type })` resolves to '' (saved), the API's message, or null when the `AbortSignal` aborted it; aborting unsubscribes, which aborts the XHR, and nothing is read again. The drawer shows **Cancel upload** beside the bar (until 100 %), announces "Upload cancelled.", and aborts on destroy. Decision: **closing cancels** (Done, ×, Escape, Edit in Tale Studio); the upload no longer sets `saving`, so they stay available, and a line under the bar says "Closing the drawer cancels the upload."
+- **Focus:** Replace media, Archive/Restore and Edit schedule use `aria-disabled` with guards instead of `disabled` (the switch already did), so the control that started an action keeps focus. When the control leaves (Cancel upload at the end of an upload, Archive turning into Restore), focus goes to Replace media or the first status control (`afterNextRender`, only when focus was lost, never after the drawer closed). `drawer.ts` leaves out anything under `hidden` (the file input), `input[type=hidden]` and disabled textareas from its focus list and first-control choice.
+- **New tale refused file:** after the switch to the edit drawer, focus goes to `#tale-replace-media`.
+- **Announcements:** "Uploading…" once at the start (the percentage is in the label, not live); at 100 % the label says "Saving…" until the lists are read again; no total gives an indeterminate bar and "Uploading…".
+- **Picks:** a successful pick clears the studio-draft warning; a pick during a status save says "Wait until the change is saved, then pick the file again."; a file with no type is typed by its extension (jpg, jpeg, png, webp, gif, mp4, webm) and sent with that type; the API still checks the bytes.
+- **Bundle:** `CreateDrawer` moved off the initial bundle with `@defer (when store.drawer(); prefetch on idle)` in `app.html` (it loads when the browser is idle or with the first drawer). Initial 392.27 kB (from 500.11 kB after the merge). Budget unchanged.
+- **Tests:** progress, "Uploading…" once, "Saving…" at 100 %, busy Replace media keeps focus and opens no second picker; Cancel upload aborts (`req.cancelled`), keeps media and focuses Replace media; Done and Escape during an upload close and abort; indeterminate progress; Tab/Shift+Tab during an upload (hidden input never in the list); same file twice after a refusal; network failure fallback; extension typing; pick during a status save; warning cleared; Archive keeps focus on refusal and focus moves to Restore when done; new-tale refusal focuses Replace media. Dashboard 591.
+- **Verification:** `run-many` lint/test/build of the 12 projects with `--parallel=2`: all pass except one API test, `auth > creates the admin, signs them in and stores only the token hash` (`expected 605649 to be 604800`): the local Postgres clock is about 14 minutes behind, unrelated. `web-sdk:size`, `types-check` pass. Browser run (`shots-8.12/`): all checks pass, including a throttled upload cancelled with Cancel upload (focus kept on Replace media, media kept) and axe while uploading.
