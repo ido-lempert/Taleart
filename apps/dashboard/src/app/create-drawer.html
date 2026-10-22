@@ -482,9 +482,11 @@
                 [attr.aria-describedby]="error() ? 'schedule-hint create-error' : 'schedule-hint'"
               />
             </div>
-            <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="removeSchedule()">
-              Remove schedule
-            </button>
+            @if (hasWindow()) {
+              <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="removeSchedule()">
+                Remove schedule
+              </button>
+            }
           } @else {
             <p class="muted">This item no longer exists.</p>
           }
@@ -533,14 +535,16 @@
             @if (tale.status === 'blocked-by-group') {
               <p class="field__hint">This tale is shown, but its tale group is off, so it does not show on the site.</p>
             }
-            <div class="schedule-summary">
-              <p class="muted">
-                <span class="visually-hidden">Schedule: </span>{{ describeWindow(tale) || 'No schedule' }}
-              </p>
-              <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="openTaleSchedule(tale)">
-                Schedule…
-              </button>
-            </div>
+            @if (windowChip(tale); as chip) {
+              <div class="schedule-summary">
+                <p class="window-chip" [title]="describeWindow(tale)">
+                  <span class="visually-hidden">Schedule: </span>{{ chip }}
+                </p>
+                <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="openTaleSchedule(tale)">
+                  Edit schedule…
+                </button>
+              </div>
+            }
             @if (statusWarning()) {
               <p class="field__error" role="alert">{{ statusWarning() }}</p>
             }
