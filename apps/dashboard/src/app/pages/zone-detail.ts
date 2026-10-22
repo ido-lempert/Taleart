@@ -12,6 +12,7 @@ import {
   linkedSignal,
   signal,
 } from '@angular/core';
+import { Location } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   findTemplate,
@@ -49,6 +50,8 @@ import { SiteKeyCard } from './site-key-card';
 
 /** The query parameter naming the group whose view is open (epic UX rework R11). */
 const GROUP_PARAM = 'group';
+/** The history state key marking an entry this page pushed to open a group's view. */
+const GROUP_STATE = 'taleartGroupView';
 
 /** Which way a move button moves its item. */
 type Direction = 'earlier' | 'later';
@@ -282,6 +285,7 @@ export class ZoneDetailPage {
   protected readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly location = inject(Location);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   /** Bound from the `:zoneId` route parameter. */
@@ -346,11 +350,12 @@ export class ZoneDetailPage {
         });
       }
     });
-    // A `?group=` naming no group of this zone (removed from it, a stale link) is dropped, in place.
+    // A `?group=` naming no group of this zone (removed from it, a stale link), or on a zone that
+    // does not exist, is dropped, in place.
     effect(() => {
       const id = this.group();
-      if (id === undefined || !this.store.loaded() || !this.zone()) return;
-      if (!this.groups().some((group) => group.id === id)) {
+      if (id === undefined || !this.store.loaded() || this.store.apiDown()) return;
+      if (!this.zone() || !this.groups().some((group) => group.id === id)) {
         this.openGroupId.set(null);
         void this.router.navigate([], {
           relativeTo: this.route,
@@ -408,13 +413,13 @@ export class ZoneDetailPage {
   });
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
 
-  /** The other zones a group is placed in, for its "Also in: …" line (AD-14). */
-  protected otherZones(group: TaleGroup): Zone[] {
-    return group.zoneIds.flatMap((id) => {
+  /** The other zones the open group is placed in, for its "Also in: …" line (AD-14). */
+  protected readonly openOtherZones = computed<Zone[]>(() =>
+    (this.openedGroup()?.zoneIds ?? []).flatMap((id) => {
       const zone = id === this.zoneId() ? undefined : this.store.zone(id);
       return zone ? [zone] : [];
-    });
-  }
+    }),
+  );
 
   /**
    * Selects a tab and puts it in the URL: a history entry, so back and forward step through the tabs
@@ -493,8 +498,11 @@ export class ZoneDetailPage {
           group.tales.every((tale) => taleShownStatus(tale.storedStatus) !== 'shown'),
       );
       if (allHidden && !this.host.nativeElement.querySelector(offSwitch)) {
-        this.selectTab(step.tab);
-        this.openGroup(allHidden, '.group-view__list [role=switch][aria-checked=false]');
+        // One navigation: the tab and the group together.
+        this.selectedTab.set(step.tab);
+        this.openGroup(allHidden, '.group-view__list [role=switch][aria-checked=false]', {
+          [ZONE_TAB_PARAM]: step.tab === 'groups' ? null : step.tab,
+        });
         return;
       }
       this.selectTab(step.tab, (root) =>
@@ -614,27 +622,51 @@ export class ZoneDetailPage {
     const id = this.openGroupId();
     return id ? (this.groups().find((group) => group.id === id) ?? null) : null;
   });
-  /** A selector of the control the view focuses when it opens; its heading when null. */
-  protected readonly groupViewFocus = signal<string | null>(null);
+  /**
+   * The control the view focuses when it opens (a selector), for the group it was asked for; its
+   * heading otherwise, so a later open (another group, back and forward) never reuses it.
+   */
+  private readonly focusRequest = signal<{ groupId: string; selector: string } | null>(null);
+  protected readonly groupViewFocus = computed(() => {
+    const request = this.focusRequest();
+    return request && request.groupId === this.openedGroup()?.id ? request.selector : null;
+  });
 
   protected isOpen(groupId: string): boolean {
     return this.openedGroup()?.id === groupId;
   }
 
-  /** Opens a group's view (its name's button, a row click): a history entry, so Back closes it. */
-  protected openGroup(group: TaleGroup, focus: string | null = null): void {
-    this.groupViewFocus.set(focus);
+  /**
+   * Opens a group's view (its name's button, a row click): a history entry marked as ours, so
+   * closing it goes back in history, as Back does. `params` go in the same navigation.
+   */
+  protected openGroup(group: TaleGroup, focus: string | null = null, params: Record<string, string | null> = {}): void {
+    this.focusRequest.set(focus ? { groupId: group.id, selector: focus } : null);
+    this.announcement.set('');
     this.openGroupId.set(group.id);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { [GROUP_PARAM]: group.id },
+      queryParams: { ...params, [GROUP_PARAM]: group.id },
       queryParamsHandling: 'merge',
+      state: { [GROUP_STATE]: group.id },
     });
   }
 
-  /** Closes the group view; the drawer puts focus back on the group's name. */
+  /**
+   * Closes the group view, which then puts focus back on the group's name. When this page opened
+   * it (a history entry of ours), it goes back, so Back does not lead to the same page again; a
+   * deep link or a reload drops `?group=` in place.
+   */
   protected closeGroup(): void {
+    const id = this.openGroupId();
     this.openGroupId.set(null);
+    this.focusRequest.set(null);
+    this.announcement.set('');
+    const state = this.location.getState() as Record<string, unknown> | null;
+    if (id && state?.[GROUP_STATE] === id && this.group() === id) {
+      this.location.back();
+      return;
+    }
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { [GROUP_PARAM]: null },
@@ -643,15 +675,27 @@ export class ZoneDetailPage {
     });
   }
 
+  /** Where the open group's row is, so focus can go to the row after it once it is gone. */
+  private readonly openIndex = computed(() => {
+    const id = this.openedGroup()?.id;
+    return id ? this.groups().findIndex((group) => group.id === id) : -1;
+  });
+
   /**
    * Where focus goes when the group view closes: the group's name in its row, found at that moment
    * (also after a deep link, which no button opened). Without the row (the group left the zone),
-   * the drawer falls back to the page.
+   * the name of the row now in its place or the one before, else the list's heading.
    */
   protected readonly groupViewReturn = computed(() => {
     const id = this.openedGroup()?.id;
-    return (): HTMLElement | null =>
-      id ? this.host.nativeElement.querySelector<HTMLElement>(`[id="group-name-${id}"]`) : null;
+    const index = this.openIndex();
+    return (): HTMLElement | null => {
+      const root = this.host.nativeElement;
+      const own = id ? root.querySelector<HTMLElement>(`[id="group-name-${id}"]`) : null;
+      if (own) return own;
+      const names = [...root.querySelectorAll<HTMLElement>('#zone-panel-groups .group-row__open')];
+      return names[index] ?? names[index - 1] ?? root.querySelector<HTMLElement>('#groups-title');
+    };
   });
 
   /**
@@ -707,7 +751,15 @@ export class ZoneDetailPage {
     const message = await this.saving(group.id, group.id, () => this.store.setTaleGroupStatus(group.id, 'archived'));
     if (message) return;
     this.undo.set({ id: group.id, name: group.name, before });
+    // Archived from its view: the view closes and focus goes to Undo, which is on the page.
+    const fromView = this.openedGroup()?.id === group.id;
+    if (fromView) this.closeGroup();
     this.announce(`${group.name} archived. Undo is above the list.`);
+    if (fromView) {
+      afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('#undo-archive')?.focus(), {
+        injector: this.injector,
+      });
+    }
   }
 
   /** Restores the group archived last: back to Off, then On again when it was On. */

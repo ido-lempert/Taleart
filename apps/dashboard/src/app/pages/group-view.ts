@@ -1,13 +1,16 @@
 import { CdkDrag, CdkDragHandle, CdkDropList, moveItemInArray, type CdkDragDrop } from '@angular/cdk/drag-drop';
+import { CdkScrollable } from '@angular/cdk/scrolling';
 import {
   afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
+  Directive,
   ElementRef,
   inject,
   Injector,
   input,
+  OnDestroy,
   output,
   signal,
   ViewEncapsulation,
@@ -53,8 +56,36 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
 }
 
 /**
+ * A tale card's video: loads nothing (`preload="none"`) and plays only while on screen, paused
+ * again when it leaves; without IntersectionObserver it stays still.
+ */
+@Directive({ selector: 'video[appPlayWhenVisible]' })
+export class PlayWhenVisible implements OnDestroy {
+  private readonly video = inject<ElementRef<HTMLVideoElement>>(ElementRef).nativeElement;
+  private observer: IntersectionObserver | null = null;
+
+  constructor() {
+    afterNextRender(() => {
+      const Observer = this.video.ownerDocument.defaultView?.IntersectionObserver;
+      if (!Observer) return;
+      this.observer = new Observer((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) void this.video.play().catch(() => undefined);
+          else this.video.pause();
+        }
+      });
+      this.observer.observe(this.video);
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.observer?.disconnect();
+  }
+}
+
+/**
  * The group view (epic UX rework R11): one tale group of a zone, opened from its row. A wide modal
- * drawer on desktop and a whole page on phones (≤ 640 px), labelled by the group's name. Its head
+ * drawer on desktop and a whole page on phones (narrower than 640 px, the dashboard's phone breakpoint), labelled by the group's name. Its head
  * has the group's On/Off switch, indicator (R7), ⋯ menu (the row's), counts, schedule chip, tags and
  * the other zones it is in; its body the tale cards and "Add tale". Each card has a Shown/Hidden
  * switch that saves at once (one action, announced), the indicator dot, and a ⋯ menu: Edit in Tale
@@ -64,6 +95,11 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
  * The zone page owns the group's own status and menu (as on the row) and the live region's text;
  * this view announces through `announce`, rendered in its own live region, since a screen reader
  * may not read one outside a modal dialog. Loaded with the zone page only.
+ *
+ * While open it is modal for real: its element moves out of the page, beside the shell (as a
+ * portal would), the shell becomes `inert`, and the page stops scrolling under it. The shell's own
+ * drawers (tale, schedule, rename…) render beside the shell too, so they open above the view and
+ * stay usable. On close it lifts that, then puts focus back (`returnFocus`).
  */
 @Component({
   selector: 'app-group-view',
@@ -78,7 +114,9 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
     CdkDropList,
     CdkDrag,
     CdkDragHandle,
+    CdkScrollable,
     DuplicateTale,
+    PlayWhenVisible,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './group-view.html',
@@ -86,7 +124,7 @@ export function shownLabel(stored: ContentStatus, kind: StatusKind): string {
   // It sizes the drawer it is in; its rules all start at app-group-view.
   encapsulation: ViewEncapsulation.None,
 })
-export class GroupView {
+export class GroupView implements OnDestroy {
   protected readonly store = inject(DashboardStore);
   private readonly router = inject(Router);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -118,6 +156,49 @@ export class GroupView {
   readonly menuPicked = output<MenuPick>();
   /** A message for the live region. */
   readonly announce = output<string>();
+
+  /** What it made inert, and the root's overflow before, to restore on close. */
+  private inerted: HTMLElement[] = [];
+  private rootOverflow: string | null = null;
+
+  constructor() {
+    afterNextRender(() => {
+      const host = this.host.nativeElement;
+      const document = host.ownerDocument;
+      const shell = document.querySelector<HTMLElement>('.shell');
+      if (!shell) return;
+      // Moving a node drops the focus inside it (the drawer may have focused its heading first).
+      const active = document.activeElement as HTMLElement | null;
+      shell.after(host);
+      if (active && host.contains(active)) active.focus();
+      this.inerted = [shell, document.querySelector<HTMLElement>('.skip-link')].filter(
+        (el): el is HTMLElement => !!el && !el.hasAttribute('inert'),
+      );
+      for (const el of this.inerted) el.setAttribute('inert', '');
+      this.rootOverflow = document.documentElement.style.overflow;
+      document.documentElement.style.overflow = 'hidden';
+    });
+  }
+
+  ngOnDestroy(): void {
+    const host = this.host.nativeElement;
+    const document = host.ownerDocument;
+    // Moved out of the page, it is not removed with it (leaving the page with the view open, such
+    // as for Tale Studio): remove it here. Angular's own removal of it is then a no-op.
+    if (this.inerted.length > 0 || this.rootOverflow !== null) host.remove();
+    for (const el of this.inerted) el.removeAttribute('inert');
+    if (this.rootOverflow !== null) document.documentElement.style.overflow = this.rootOverflow;
+    // After the page has updated (the row may be gone or moved), and only when focus was lost
+    // with the view: a drawer still open above, or Undo after an archive, keeps it.
+    const returnFocus = this.returnFocus();
+    queueMicrotask(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected) return;
+      const target = typeof returnFocus === 'function' ? returnFocus() : returnFocus;
+      if (target?.isConnected) target.focus();
+      else document.getElementById('main')?.focus();
+    });
+  }
 
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected readonly needsBadge = needsBadge;
@@ -201,12 +282,13 @@ export class GroupView {
       next.delete(tale.id);
       return next;
     });
+    // Each message names its tale, as the view shows many.
     if (result.message) {
-      this.error.set(result.message);
+      this.error.set(`${tale.title}: ${result.message}`);
       return;
     }
     // The warning is announced once, by the view's alert.
-    if (result.warning) this.error.set(result.warning);
+    if (result.warning) this.error.set(`${tale.title}: ${result.warning}`);
     const read = result.tale?.status ?? status;
     const saved = this.group().tales.find((t) => t.id === tale.id);
     this.announce.emit(

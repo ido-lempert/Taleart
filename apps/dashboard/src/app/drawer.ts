@@ -77,6 +77,11 @@ export class Drawer implements OnDestroy {
    * heading, or by default the first control of its body.
    */
   readonly initialFocus = input<string | null>(null);
+  /**
+   * Whether the drawer puts focus back (`returnFocus`, else the page) when it is removed; false
+   * when its owner does it, such as the group view, which first lifts the page's inertness.
+   */
+  readonly restoreFocus = input(true);
   readonly closed = output<void>();
 
   protected readonly titleId = `drawer-title-${nextId++}`;
@@ -101,6 +106,7 @@ export class Drawer implements OnDestroy {
   ngOnDestroy(): void {
     const at = openDrawers.indexOf(this);
     if (at >= 0) openDrawers.splice(at, 1);
+    if (!this.restoreFocus()) return;
     const returnFocus = this.returnFocus();
     const target = typeof returnFocus === 'function' ? returnFocus() : returnFocus;
     if (target?.isConnected) target.focus();
@@ -127,11 +133,13 @@ export class Drawer implements OnDestroy {
     if (items.length === 0) return;
     const first = items[0];
     const last = items[items.length - 1];
-    const active = this.panel().nativeElement.ownerDocument.activeElement;
-    if (event.shiftKey && active === first) {
+    const active = this.panel().nativeElement.ownerDocument.activeElement as HTMLElement | null;
+    // Focus on something Tab does not reach (the heading, focused on open) wraps like an end.
+    const outside = !active || !items.includes(active);
+    if (event.shiftKey && (active === first || outside)) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && active === last) {
+    } else if (!event.shiftKey && (active === last || outside)) {
       event.preventDefault();
       first.focus();
     }

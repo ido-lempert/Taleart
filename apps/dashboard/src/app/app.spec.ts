@@ -3,6 +3,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Location } from '@angular/common';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
 import { App, API_BASE, API_ORIGIN } from './app';
 import { API_RETRY_TIMING, type ApiRetryTiming } from './api-reconnect';
@@ -256,6 +257,8 @@ describe('App', () => {
   ): Promise<{ fixture: ComponentFixture<App>; root: HTMLElement }> {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
+    // As the app's first navigation does: Back and Forward (popstate) navigate.
+    TestBed.inject(Router).setUpLocationChangeListener();
     await navigate(fixture, url);
     await flushRefresh(fixture, data);
     await settle(fixture);
@@ -1369,8 +1372,13 @@ describe('App', () => {
         false,
       );
       expect(groupView()).toBeNull();
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
       stepLink(root, 'Turn a tale group On with a shown tale').click();
       await settle(fixture);
+      // One navigation sets the tab and the group together.
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(TestBed.inject(Router).url).toBe('/zones/z1?group=g1');
+      navigate.mockRestore();
       expect(selected(root)).toEqual(['Tale groups']);
       // Its group view opens (epic UX rework R11), at the first Hidden tale's switch.
       expect(root.querySelector('#group-name-g1')?.getAttribute('aria-expanded')).toBe('true');
@@ -1378,6 +1386,13 @@ describe('App', () => {
       expect(document.activeElement?.getAttribute('role')).toBe('switch');
       expect(document.activeElement?.getAttribute('aria-label')).toBe('Show A');
       expect(root.querySelector('#group-name-g2')?.getAttribute('aria-expanded')).toBe('false');
+      // Opened again by hand, it focuses its heading: the step's focus is not kept.
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      for (let i = 0; i < 20 && TestBed.inject(Router).url !== '/zones/z1'; i++) await settle(fixture);
+      (root.querySelector('#group-name-g1') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(document.activeElement?.classList).toContain('drawer__title');
     });
 
     it('ticks each step as the zone is set up', async () => {
@@ -2601,6 +2616,7 @@ describe('App', () => {
       await settle(fixture);
       expect(groupView()).toBeNull();
       expect(document.activeElement).toBe(nameButton(root, 'Summer'));
+      for (let i = 0; i < 20 && url() !== '/zones/z1'; i++) await settle(fixture);
       expect(url()).toBe('/zones/z1');
       expect(name.getAttribute('aria-expanded')).toBe('false');
     });
@@ -2615,6 +2631,85 @@ describe('App', () => {
       await settle(fixture);
       expect(document.activeElement).toBe(focusables[0]);
       expect(focusables[0].getAttribute('aria-label')).toBe('Close');
+    });
+
+    it('wraps Shift+Tab from the heading it opens on to the last control', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const view = groupView() as HTMLElement;
+      const heading = view.querySelector<HTMLElement>('.drawer__title') as HTMLElement;
+      expect(document.activeElement).toBe(heading);
+      const focusables = [...view.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+      heading.dispatchEvent(event);
+      await settle(fixture);
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(focusables.at(-1));
+    });
+
+    it('makes the page behind it inert and stops it scrolling, and keeps drawers opened from it usable', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const shell = document.querySelector('.shell') as HTMLElement;
+      expect(shell.hasAttribute('inert')).toBe(true);
+      expect(document.querySelector('.skip-link')?.hasAttribute('inert')).toBe(true);
+      expect(document.documentElement.style.overflow).toBe('hidden');
+      // The view itself is out of the inert shell, beside it.
+      expect(shell.contains(groupView())).toBe(false);
+      expect(groupView()?.closest('[inert]')).toBeNull();
+      pickMenuItem(groupView() as HTMLElement, 'More for A', 'Schedule');
+      await settle(fixture);
+      expect(drawer()?.closest('[inert]')).toBeNull();
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
+
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(shell.hasAttribute('inert')).toBe(false);
+      expect(document.documentElement.style.overflow).toBe('');
+    });
+
+    it('leaves nothing behind when the page is left with the view open', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      expect(groupView()).not.toBeNull();
+      await TestBed.inject(Router).navigateByUrl('/zones');
+      await settle(fixture);
+      expect(document.querySelector('app-group-view')).toBeNull();
+      expect(document.querySelector('.shell')?.hasAttribute('inert')).toBe(false);
+      expect(document.documentElement.style.overflow).toBe('');
+    });
+
+    it('goes back in history when it closes after opening from the page, so Back does not reopen it', async () => {
+      const { fixture, root } = await open('/zones/z1', data, false);
+      const loc = TestBed.inject(Location);
+      const back = vi.spyOn(loc, 'back');
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+      nameButton(root, 'Summer').click();
+      await settle(fixture);
+      expect(url()).toBe('/zones/z1?group=g1');
+      // The entry is marked as the page's own.
+      expect((loc.getState() as Record<string, unknown>)['taleartGroupView']).toBe('g1');
+
+      navigate.mockClear();
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      // Location.back(): the popstate brings the router back to the entry before, with no
+      // navigation of its own (which would leave that entry behind).
+      expect(back).toHaveBeenCalledTimes(1);
+      expect(navigate).not.toHaveBeenCalled();
+      for (let i = 0; i < 20 && url() !== '/zones/z1'; i++) await settle(fixture);
+      expect(url()).toBe('/zones/z1');
+      expect(groupView()).toBeNull();
+      expect(document.activeElement).toBe(nameButton(root, 'Summer'));
+
+      // A deep link has no entry of ours to go back to: it closes in place.
+      await TestBed.inject(Router).navigateByUrl('/zones/z1?group=g2');
+      await settle(fixture);
+      (groupView()?.querySelector('.drawer__close') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(back).toHaveBeenCalledTimes(1);
+      expect(url()).toBe('/zones/z1');
+      back.mockRestore();
+      navigate.mockRestore();
     });
 
     it('opens from a deep link, and closing it focuses the group name it belongs to', async () => {
@@ -2632,6 +2727,12 @@ describe('App', () => {
       await open('/zones/z1?group=nope', data, false);
       expect(groupView()).toBeNull();
       expect(url()).toBe('/zones/z1');
+    });
+
+    it('drops ?group= on a zone that does not exist', async () => {
+      const { root } = await open('/zones/nope?group=g1', data, false);
+      expect(root.textContent).toContain('Zone not found');
+      expect(url()).toBe('/zones/nope');
     });
 
     it('closes with the browser Back, as a page does', async () => {
@@ -2694,7 +2795,8 @@ describe('App', () => {
         .expectOne(`${API_BASE}/tales/t1/status`)
         .flush({ error: { code: 'invalid_status_transition', message: 'A cannot be hidden' } }, { status: 409, statusText: 'Conflict' });
       await settle(fixture);
-      expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('A cannot be hidden');
+      // Named by its tale, as the view shows many.
+      expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('A: A cannot be hidden');
       expect(cardOf('A').querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('true');
     });
 
@@ -2802,15 +2904,99 @@ describe('App', () => {
       expect(groupView()?.querySelector('[role=switch][aria-label="Summer on site"]')?.getAttribute('aria-checked')).toBe('false');
       expect(announced(root)).toBe('Summer is now off. Not visible: group is off');
 
-      // Removed from this zone elsewhere: the view closes and the URL drops it.
+      // Removed from this zone elsewhere: the view closes and the URL drops it; focus goes to the
+      // row now in its place.
       void TestBed.inject(DashboardStore).refresh();
       await flushRefresh(fixture, { ...data, groups: { z1: [winter] } });
       await settle(fixture);
       expect(groupView()).toBeNull();
       expect(url()).toBe('/zones/z1');
+      expect(document.activeElement).toBe(nameButton(root, 'Winter'));
     });
 
-    it('is a wide drawer on desktop and the whole page on phones (≤ 640 px)', async () => {
+    it('archives the group from its view: the view closes and focus goes to Undo', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(groupView() as HTMLElement, 'More for Summer', 'Archive');
+      await settle(fixture);
+      const archived = { ...summer, status: 'archived', storedStatus: 'archived' };
+      http.expectOne(`${API_BASE}/tale-groups/g1/status`).flush(archived);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [archived, winter] } });
+      await settle(fixture);
+      for (let i = 0; i < 20 && url() !== '/zones/z1'; i++) await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(document.activeElement?.id).toBe('undo-archive');
+      expect(announced(root)).toBe('Summer archived. Undo is above the list.');
+    });
+
+    it('closes Duplicate on Escape and leaves the view open; a second Escape closes the view', async () => {
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(groupView() as HTMLElement, 'More for A', 'Duplicate');
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Duplicate tale');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(groupView()).not.toBeNull();
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for A');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(document.activeElement).toBe(nameButton(root, 'Summer'));
+    });
+
+    it("closes an open indicator tip on Escape without closing the view", async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const dot = cardOf('A').querySelector<HTMLButtonElement>('app-visibility button') as HTMLButtonElement;
+      const tipOpen = () => !!dot.closest('app-visibility')?.classList.contains('visibility--open');
+      dot.click();
+      await settle(fixture);
+      expect(tipOpen()).toBe(true);
+      dot.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await settle(fixture);
+      expect(tipOpen()).toBe(false);
+      expect(groupView()).not.toBeNull();
+      // With no tip open, Escape closes the view.
+      dot.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+    });
+
+    it('rolls back a refused tale reorder in the view and says why', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const names = () => [...(groupView()?.querySelectorAll('.tale-card__name') ?? [])].map((n) => n.textContent);
+      (cardOf('A').querySelector('[aria-label="Move A later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(names()).toEqual(['B', 'A', 'C', 'D']);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1/tales/order`)
+        .flush({ error: { code: 'order_mismatch', message: 'The order changed elsewhere' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      expect(names()).toEqual(['A', 'B', 'C', 'D']);
+      expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('The order changed elsewhere');
+    });
+
+    it('keeps a pending tale order through a refresh, then reads the zone again once it is saved', async () => {
+      const { fixture } = await open('/zones/z1', data);
+      const names = () => [...(groupView()?.querySelectorAll('.tale-card__name') ?? [])].map((n) => n.textContent);
+      (cardOf('A').querySelector('[aria-label="Move A later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const order = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
+      // A refresh that read the old order while the write was pending does not undo the move.
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, data);
+      await settle(fixture);
+      expect(names()).toEqual(['B', 'A', 'C', 'D']);
+      const moved = [four[1], four[0], four[2], four[3]].map((tale, position) => ({ ...tale, position }));
+      order.flush(moved);
+      await settle(fixture);
+      // The zone is read again now that its order is settled.
+      await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: moved }, winter] } });
+      await settle(fixture);
+      expect(names()).toEqual(['B', 'A', 'C', 'D']);
+    });
+
+    it("is a wide drawer on desktop and the whole page on phones (below 640 px, the dashboard's phone breakpoint)", async () => {
       // jsdom does no layout: this checks the rules the view applies, which the browser run
       // screenshots at 390x844.
       await open('/zones/z1', data);

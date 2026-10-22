@@ -269,8 +269,11 @@ export class VisibilityIndicator {
   protected pressing = false;
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Escape closes an open tip and nothing else: a drawer the tip is in stays open.
   private readonly onKeydown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape') this.hide();
+    if (event.key !== 'Escape' || !this.open()) return;
+    event.stopPropagation();
+    this.hide();
   };
   private readonly onPointerdown = (event: Event) => {
     if (!this.host.nativeElement.contains(event.target as Node)) this.hide();

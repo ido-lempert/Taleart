@@ -3,6 +3,12 @@
  * rule starts at app-group-view, and it loads with the zone page only.
  */
 
+/* No box of its own: only its fixed drawers show, so it adds no gap where it sits. */
+app-group-view,
+app-group-view > app-drawer {
+  display: contents;
+}
+
 /* Wide, and under the other drawers, so one opened from it (the tale drawer, a schedule) shows above. */
 app-group-view .drawer-host--wide > .drawer-backdrop {
   z-index: 38;

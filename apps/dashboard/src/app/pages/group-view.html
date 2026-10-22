@@ -12,7 +12,7 @@
   [wide]="true"
   [panelId]="panelId()"
   [initialFocus]="initialFocus() ?? 'title'"
-  [returnFocus]="returnFocus()"
+  [restoreFocus]="false"
   (closed)="closed.emit()"
 >
   <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</p>
@@ -62,7 +62,7 @@
       </p>
     }
   </div>
-  <div class="drawer__body group-view__body">
+  <div class="drawer__body group-view__body" cdkScrollable>
     @if (groupError() || error(); as message) {
       <div class="banner banner--inline" role="alert">
         <app-icon name="alert" />
@@ -97,17 +97,19 @@
           <li class="tale-card" [attr.data-tone]="tone(tale.id)" cdkDrag cdkDragPreviewContainer="parent">
             @if (tale.media; as media) {
               @if (media.kind === 'video') {
+                <!-- Loads and plays only while on screen: a group can hold 100 tales. -->
                 <video
                   class="tale-card__media"
+                  appPlayWhenVisible
                   [src]="store.mediaSrc(tale)"
                   [muted]="true"
-                  autoplay
                   loop
                   playsinline
+                  preload="none"
                   aria-hidden="true"
                 ></video>
               } @else {
-                <img class="tale-card__media" [src]="store.mediaSrc(tale)" alt="" />
+                <img class="tale-card__media" [src]="store.mediaSrc(tale)" alt="" loading="lazy" />
               }
             }
             <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>

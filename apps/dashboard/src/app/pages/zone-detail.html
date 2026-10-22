@@ -14,7 +14,7 @@
       [group]="open"
       [zoneId]="zoneId()"
       [panelId]="'group-view-' + open.id"
-      [otherZones]="otherZones(open)"
+      [otherZones]="openOtherZones()"
       [menuItems]="groupMenus().get(open.id) ?? []"
       [groupSaving]="statusSaving().has(open.id)"
       [groupError]="statusErrors()[open.id] ?? ''"
@@ -118,7 +118,7 @@
       >
         <section class="card section zone-section" aria-labelledby="groups-title">
           <div class="section__header">
-            <h3 class="section__title" id="groups-title">Tale groups</h3>
+            <h3 class="section__title" id="groups-title" tabindex="-1">Tale groups</h3>
           </div>
           @if (orderError()) {
             <div class="banner banner--inline" role="alert">
