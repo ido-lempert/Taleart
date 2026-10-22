@@ -224,9 +224,13 @@ describe('App', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  // The zone page's Site key card (epic UX rework R3) reads its project's site key on its own.
+  // The zone page's Install tab (epic UX rework R3, R13) reads its project's site key and the
+  // install URLs on its own.
   function flushSiteKeys(): void {
     for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/site-key'))) req.flush(null);
+    for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/install'))) {
+      req.flush({ apiUrl: 'http://api.test', sdkUrl: 'http://api.test/sdk/v1/taleart.js', testPageUrl: 'http://api.test/sdk/v1/test-page' });
+    }
   }
 
   // A project's tale group list is read only where a page needs it (epic UX rework R14), by the
@@ -579,7 +583,7 @@ describe('App', () => {
       expect(root.querySelector('[aria-label=Zones]')?.textContent).toContain('Checkout');
     });
 
-    it('creates a zone from the drawer, closes it and shows the new card', async () => {
+    it("creates a zone from the drawer, closes it and opens the new zone's page", async () => {
       const { fixture, root } = await open('/zones', { projects: [acme] });
 
       buttonNamed(root, 'New zone').click();
@@ -593,9 +597,14 @@ describe('App', () => {
         zone,
         oneZone,
       );
+      flushSiteKeys();
+      await settle(fixture);
 
       expect(drawer()).toBeNull();
-      expect(root.querySelector('[aria-label=Zones]')?.textContent).toContain('Home bar');
+      // The new zone's page is the next step (story 8.13: the first run in 15 actions).
+      expect(TestBed.inject(Router).url).toBe(`/zones/${zone.id}`);
+      expect(root.querySelector('#zone-title')?.textContent).toContain(zone.name);
+      expect(document.activeElement?.id).toBe('zone-title');
     });
 
     it('keeps the zone drawer open with the API message when a zone is refused', async () => {
@@ -1084,6 +1093,91 @@ describe('App', () => {
         li.querySelector('.tale-card__title')?.textContent?.trim(),
       );
       expect(cards).toEqual(['A', 'B']);
+    });
+
+    describe('a new tale group with its tales from files (story 8.13: the first run in 15 actions)', () => {
+      const beach = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'beach_day.png', { type: 'image/png' });
+      const pool = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'Pool.webp', { type: 'image/webp' });
+      const withTales = { ...oneZone, groups: { z1: [{ ...group, tales: [taleA, taleB] }] } };
+
+      function pickAll(input: HTMLInputElement | null, files: File[]): void {
+        if (!input) throw new Error('No file input');
+        Object.defineProperty(input, 'files', { value: files, configurable: true });
+        input.dispatchEvent(new Event('change'));
+      }
+
+      async function createSummer(files: File[]) {
+        const { fixture, root } = await open('/zones/z1', oneZone);
+        buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
+        await settle(fixture);
+        const input = drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null;
+        expect(input?.multiple).toBe(true);
+        expect(input?.getAttribute('aria-describedby')).toBe('create-group-files-hint');
+        type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
+        pickAll(input, files);
+        buttonNamed(drawer() as HTMLElement, 'Create').click();
+        await answerCreate(fixture, `${API_BASE}/zones/z1/tale-groups`, { name: 'Summer' }, { ...group, tales: [] }, {
+          ...oneZone,
+          groups: { z1: [{ ...group, tales: [] }] },
+        });
+        return { fixture, root };
+      }
+
+      async function answerTale(fixture: ComponentFixture<unknown>, title: string, id: string, file: File, refused = false) {
+        const post = http.expectOne(`${API_BASE}/tale-groups/g1/tales`);
+        expect(post.request.body).toEqual({ title });
+        post.flush({ ...taleA, id, title });
+        await settle(fixture);
+        const put = http.expectOne(`${API_BASE}/tales/${id}/media`);
+        expect(put.request.method).toBe('PUT');
+        expect(put.request.body).toBe(file);
+        if (refused) {
+          put.flush({ error: { code: 'media_too_large', message: 'The file is over 10 MB' } }, { status: 413, statusText: 'Too Large' });
+        } else {
+          put.flush({ ...taleA, id, title, media: pngMedia });
+        }
+        await settle(fixture);
+      }
+
+      it('adds one tale per file, in order, titled after the file, and closes', async () => {
+        const { fixture, root } = await createSummer([beach, pool]);
+        expect(drawer()?.querySelector('[role=status]')?.textContent).toContain('Adding tale 1 of 2');
+        await answerTale(fixture, 'beach day', 't1', beach);
+        await answerTale(fixture, 'Pool', 't2', pool);
+        await flushRefresh(fixture, withTales);
+        await settle(fixture);
+        expect(drawer()).toBeNull();
+        expect(root.querySelector('[aria-label="Tale groups in Home bar"]')?.textContent).toContain('Summer');
+      });
+
+      it('keeps the drawer with only Done when a tale is refused, since the group exists', async () => {
+        const { fixture } = await createSummer([beach, pool]);
+        await answerTale(fixture, 'beach day', 't1', beach, true);
+        await flushRefresh(fixture, withTales);
+        await settle(fixture);
+        const alert = drawer()?.querySelector('[role=alert]')?.textContent ?? '';
+        expect(alert).toContain('The tale group was created, but not all of its tales.');
+        expect(alert).toContain('The tale "beach day" was added without its media. The file is over 10 MB');
+        const buttons = [...(drawer()?.querySelectorAll('.drawer__footer button') ?? [])].map((b) => b.textContent?.trim());
+        expect(buttons).toEqual(['Done']);
+        // No second group, and no tale for the second file.
+        drawer()?.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+        await settle(fixture);
+        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
+        http.expectNone(`${API_BASE}/tale-groups/g1/tales`);
+      });
+
+      it('refuses more files than a group holds, before creating anything', async () => {
+        const { fixture, root } = await open('/zones/z1', oneZone);
+        buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
+        await settle(fixture);
+        type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
+        pickAll(drawer()?.querySelector<HTMLInputElement>('#create-group-files') ?? null, Array.from({ length: 101 }, () => beach));
+        buttonNamed(drawer() as HTMLElement, 'Create').click();
+        await settle(fixture);
+        http.expectNone(`${API_BASE}/zones/z1/tale-groups`);
+        expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('holds up to 100 tales. Choose fewer files.');
+      });
     });
 
     it('shows the API message in the tale group drawer when a group is refused', async () => {
@@ -5523,6 +5617,9 @@ describe('App', () => {
 
       type(root.querySelector<HTMLInputElement>('#setup-name'), 'Ada Admin');
       type(root.querySelector<HTMLInputElement>('#setup-email'), 'ada@example.com');
+      // The first project is named "My project" unless the admin types another name.
+      expect(root.querySelector<HTMLInputElement>('#setup-project')?.value).toBe('My project');
+      type(root.querySelector<HTMLInputElement>('#setup-project'), '  Acme shop ');
       buttonNamed(root, 'Create passkey').click();
       const options = http.expectOne(`${API_BASE}/auth/setup/options`);
       expect(options.request.body).toEqual({ name: 'Ada Admin', email: 'ada@example.com' });
@@ -5533,11 +5630,35 @@ describe('App', () => {
       expect(verify.request.body).toEqual({ id: 'cred-1', type: 'public-key' });
       verify.flush({ user: admin }, { status: 201, statusText: 'Created' });
       await signedInTick(fixture);
+      // Then the first project, so the first run goes straight to a zone.
+      const created = http.expectOne((r) => r.method === 'POST' && r.url === `${API_BASE}/projects`);
+      expect(created.request.body).toEqual({ name: 'Acme shop' });
+      created.flush({ id: 'p1', name: 'Acme shop' }, { status: 201, statusText: 'Created' });
+      await signedInTick(fixture);
       await flushRefresh(fixture, oneZone);
 
       expect(router.url).toBe('/zones');
       expect(root.querySelector('h1')?.textContent).toContain('Zones');
       expect(root.querySelector('.user-menu')?.textContent).toContain('Ada Admin');
+    });
+
+    it('lands on Zones even when the first project is refused, with its "Create your first project"', async () => {
+      const { fixture, root } = await visit('/setup', setupState);
+      type(root.querySelector<HTMLInputElement>('#setup-name'), 'Ada Admin');
+      type(root.querySelector<HTMLInputElement>('#setup-email'), 'ada@example.com');
+      type(root.querySelector<HTMLInputElement>('#setup-project'), '   ');
+      buttonNamed(root, 'Create passkey').click();
+      http.expectOne(`${API_BASE}/auth/setup/options`).flush(creationOptions);
+      await tick();
+      http.expectOne(`${API_BASE}/auth/setup/verify`).flush({ user: admin }, { status: 201, statusText: 'Created' });
+      await signedInTick(fixture);
+      const created = http.expectOne((r) => r.method === 'POST' && r.url === `${API_BASE}/projects`);
+      // A blank name falls back to "My project".
+      expect(created.request.body).toEqual({ name: 'My project' });
+      created.flush({ error: { code: 'forbidden', message: 'No' } }, { status: 403, statusText: 'Forbidden' });
+      await signedInTick(fixture);
+      await flushRefresh(fixture, oneZone);
+      expect(TestBed.inject(Router).url).toBe('/zones');
     });
 
     it("shows the API's message in the setup card", async () => {

@@ -4,8 +4,25 @@
   "projectType": "application",
   "sourceRoot": "apps/dashboard-e2e/src",
   "implicitDependencies": [
-    "dashboard"
+    "dashboard",
+    "api"
   ],
-  "// targets": "to see all targets run: nx show project dashboard-e2e --web",
-  "targets": {}
+  "// targets": "e2e starts its own API (built) and dashboard; set E2E_DATABASE_URL to a _test database. See playwright.config.mts.",
+  "targets": {
+    "e2e": {
+      "cache": false,
+      "dependsOn": [
+        {
+          "projects": [
+            "api"
+          ],
+          "target": "build"
+        }
+      ],
+      "options": {
+        "cwd": "apps/dashboard-e2e",
+        "command": "playwright test"
+      }
+    }
+  }
 }

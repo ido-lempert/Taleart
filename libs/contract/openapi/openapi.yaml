@@ -1111,6 +1111,23 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /install:
+    get:
+      operationId: getInstallInfo
+      summary: Where a host page loads the Web SDK and where the test page is (epic UX rework R13).
+      description: >-
+        The API's public origin (`PUBLIC_API_URL`), the URL of the Web SDK bundle the API serves
+        (`<apiUrl>/sdk/v1/taleart.js`, an ES module) and the URL of the TaleArt-served test page
+        (`<apiUrl>/sdk/v1/test-page`), for the zone page's Install tab. Any signed-in user.
+      responses:
+        '200':
+          description: The install URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallInfo'
+        default:
+          $ref: '#/components/responses/Error'
   /frame-types:
     get:
       operationId: listFrameTypes
@@ -2998,6 +3015,21 @@ components:
           description: Every tale id of the group, once each, in the new order.
           items:
             type: string
+    InstallInfo:
+      type: object
+      required: [apiUrl, sdkUrl, testPageUrl]
+      properties:
+        apiUrl:
+          type: string
+          description: The API's public origin, the value of `api-url` on a host page.
+        sdkUrl:
+          type: string
+          description: The Web SDK bundle (an ES module) for a host page's script tag.
+        testPageUrl:
+          type: string
+          description: >-
+            The test page. It takes the zone's slug as `?zone=<slug>` and a site key in the URL
+            fragment, `#siteKey=<key>`, or pasted on the page.
     SiteKeyInfo:
       type: object
       required: [prefix, createdAt]

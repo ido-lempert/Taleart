@@ -8,6 +8,14 @@ import { SiteKeyCard } from './site-key-card';
 const url = `${API_BASE}/projects/p1/site-key`;
 const info = { prefix: 'tas_abcdef', createdAt: '2026-10-22T10:00:00.000Z' };
 const issued = { key: 'tas_abcdefSECRETSECRETSECRETSECRETSECRETSECRET', prefix: 'tas_abcdef', createdAt: '2026-10-22T11:00:00.000Z' };
+const install = {
+  apiUrl: 'https://api.example.com',
+  sdkUrl: 'https://api.example.com/sdk/v1/taleart.js',
+  testPageUrl: 'https://api.example.com/sdk/v1/test-page',
+};
+const placeholderSnippet =
+  '<script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>\n' +
+  '<taleart-view api-url="https://api.example.com" site-key="YOUR_SITE_KEY" zone="home-top"></taleart-view>';
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   await fixture.whenStable();
@@ -15,7 +23,7 @@ async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   fixture.detectChanges();
 }
 
-describe('SiteKeyCard (epic UX rework R3, story 8.6)', () => {
+describe('SiteKeyCard: the Install tab (epic UX rework R3, R13; stories 8.6, 8.13)', () => {
   let http: HttpTestingController;
   let fixture: ComponentFixture<SiteKeyCard>;
   let refresh: ReturnType<typeof vi.fn<() => Promise<void>>>;
@@ -33,6 +41,7 @@ describe('SiteKeyCard (epic UX rework R3, story 8.6)', () => {
     fixture.detectChanges();
     await settle(fixture);
     http.expectOne(url).flush(current);
+    http.expectOne(`${API_BASE}/install`).flush(install);
     await settle(fixture);
   }
 
@@ -58,7 +67,8 @@ describe('SiteKeyCard (epic UX rework R3, story 8.6)', () => {
 
   it("shows the snippet with this zone's slug, and Issue for an admin when the project has no site key", async () => {
     await open(null);
-    expect(text()).toContain('<taleart-view site-key="…" zone="home-top">');
+    expect(root().querySelector('#install-snippet')?.textContent).toBe(placeholderSnippet);
+    expect(text()).toContain('Replace YOUR_SITE_KEY with your project');
     expect(text()).toContain('No site key yet. Issue one');
     expect(button('site-key-issue')).not.toBeNull();
     expect(button('site-key-rotate')).toBeNull();
@@ -67,26 +77,29 @@ describe('SiteKeyCard (epic UX rework R3, story 8.6)', () => {
   it('shows only the prefix and date, with no actions, to a content manager', async () => {
     await open(info, false);
     expect(text()).toContain('tas_abcdef…');
-    expect(root().querySelector('button')).toBeNull();
+    expect(root().querySelector('#site-key-issue, #site-key-rotate, #site-key-revoke')).toBeNull();
+    // The snippet and the test page are for everyone.
+    expect(root().querySelector('#snippet-copy')).not.toBeNull();
   });
 
-  it('issues a key, shows it once with a Copy button, and reads the dashboard again', async () => {
+  it('issues a key at once, shows it once with a Copy button, and reads the dashboard again', async () => {
     await open(null);
+    // Issuing opens every zone of the project to anyone who reads the key in the page's HTML: said
+    // on the tab, before the one click that issues it.
+    const exposure = root().querySelector('#site-key-exposure-tab')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(exposure).toContain('anyone who sees it can read every zone of this project that has a display and visible content');
+    expect(exposure).toContain('slugs are often guessable (such as "home")');
     button('site-key-issue')?.click();
     await settle(fixture);
     expect(dialog()?.getAttribute('aria-modal')).toBe('true');
-    // Issuing opens every zone of the project to anyone who reads the key in the page's HTML.
-    expect(dialog()?.querySelector('#site-key-exposure')?.textContent?.replace(/\s+/g, ' ')).toContain(
-      'anyone who sees it can read every zone of this project that has a display and visible content',
-    );
-    expect(dialog()?.querySelector('#site-key-exposure')?.textContent).toContain('slugs are often guessable (such as "home")');
-    await submit();
+    expect(dialog()?.textContent).toContain('Issuing a site key…');
     const req = http.expectOne(url);
     expect(req.request.method).toBe('POST');
     req.flush(issued);
     await settle(fixture);
     const input = dialog()?.querySelector('#site-key-value') as HTMLInputElement;
     expect(input.value).toBe(issued.key);
+    expect(root().querySelector('#site-key-exposure-tab')).toBeNull();
     expect(input.readOnly).toBe(true);
     expect(dialog()?.textContent).toContain('Shown only now');
     expect(refresh).toHaveBeenCalledTimes(1);
@@ -131,5 +144,110 @@ describe('SiteKeyCard (epic UX rework R3, story 8.6)', () => {
     expect(text()).toContain('No site key yet');
     expect(root().querySelector('[role="status"]')?.textContent).toContain('Site key revoked.');
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SiteKeyCard: snippet, copy and test page (story 8.13)', () => {
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<SiteKeyCard>;
+  let writeText: ReturnType<typeof vi.fn<(text: string) => Promise<void>>>;
+  const root = () => fixture.nativeElement as HTMLElement;
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+  const statuses = () => [...root().querySelectorAll('[role="status"]')].map((s) => s.textContent?.trim());
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [SiteKeyCard],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
+    vi.spyOn(TestBed.inject(DashboardStore), 'refresh').mockImplementation(async () => undefined);
+    writeText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    fixture = TestBed.createComponent(SiteKeyCard);
+    fixture.componentRef.setInput('projectId', 'p1');
+    fixture.componentRef.setInput('zoneSlug', 'home-top');
+    fixture.componentRef.setInput('admin', true);
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    await settle(fixture);
+    http.expectOne(url).flush(null);
+  });
+
+  afterEach(() => {
+    http.verify();
+    document.body.replaceChildren();
+  });
+
+  it('copies the snippet and announces it, and says so when copying fails', async () => {
+    http.expectOne(`${API_BASE}/install`).flush(install);
+    await settle(fixture);
+    const copy = root().querySelector<HTMLButtonElement>('#snippet-copy');
+    copy?.click();
+    await settle(fixture);
+    expect(writeText).toHaveBeenCalledWith(placeholderSnippet);
+    expect(statuses()).toContain('Snippet copied');
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    copy?.click();
+    await settle(fixture);
+    expect(statuses()).toContain('Could not copy. Select the snippet and copy it.');
+  });
+
+  it('links the test page with the zone and no key, in a new tab without a referrer', async () => {
+    http.expectOne(`${API_BASE}/install`).flush(install);
+    await settle(fixture);
+    const link = root().querySelector<HTMLAnchorElement>('#test-page-link');
+    expect(link?.getAttribute('href')).toBe('https://api.example.com/sdk/v1/test-page?zone=home-top');
+    expect(link?.target).toBe('_blank');
+    expect(link?.rel).toBe('noopener noreferrer');
+    expect(link?.textContent).toContain('(opens in a new tab)');
+  });
+
+  it("puts the key just issued in the drawer's snippet and test page link (fragment only), and nowhere after Done", async () => {
+    http.expectOne(`${API_BASE}/install`).flush(install);
+    await settle(fixture);
+    root().querySelector<HTMLButtonElement>('#site-key-issue')?.click();
+    await settle(fixture);
+    http.expectOne((r) => r.url === url && r.method === 'POST').flush(issued);
+    await settle(fixture);
+    const snippet = dialog()?.querySelector('#issued-snippet')?.textContent ?? '';
+    expect(snippet).toBe(placeholderSnippet.replace('YOUR_SITE_KEY', issued.key));
+    const link = dialog()?.querySelector<HTMLAnchorElement>('#issued-test-page-link');
+    expect(link?.getAttribute('href')).toBe(`https://api.example.com/sdk/v1/test-page?zone=home-top#siteKey=${issued.key}`);
+    expect(link?.rel).toBe('noopener noreferrer');
+    dialog()?.querySelector<HTMLButtonElement>('#issued-snippet-copy')?.click();
+    await settle(fixture);
+    expect(writeText).toHaveBeenLastCalledWith(snippet);
+    expect(dialog()?.textContent).toContain('Snippet with the key copied');
+    // The tab's own snippet keeps the placeholder.
+    expect(root().querySelector('#install-snippet')?.textContent).toBe(placeholderSnippet);
+    [...(dialog()?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'Done')?.click();
+    await settle(fixture);
+    expect(document.body.innerHTML).not.toContain(issued.key);
+  });
+
+  it('shows a refused issue in the drawer, with the warning and Issue key to try again', async () => {
+    http.expectOne(`${API_BASE}/install`).flush(install);
+    await settle(fixture);
+    root().querySelector<HTMLButtonElement>('#site-key-issue')?.click();
+    await settle(fixture);
+    http
+      .expectOne((r) => r.url === url && r.method === 'POST')
+      .flush({ error: { code: 'forbidden', message: 'Only admins can do this' } }, { status: 403, statusText: 'Forbidden' });
+    await settle(fixture);
+    expect(dialog()?.querySelector('[role="alert"]')?.textContent).toContain('Only admins can do this');
+    expect(dialog()?.querySelector('#site-key-exposure')).not.toBeNull();
+    dialog()?.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle(fixture);
+    http.expectOne((r) => r.url === url && r.method === 'POST').flush(issued);
+    await settle(fixture);
+    expect((dialog()?.querySelector('#site-key-value') as HTMLInputElement).value).toBe(issued.key);
+  });
+
+  it('says so when the install URLs cannot be read', async () => {
+    http.expectOne(`${API_BASE}/install`).flush(null, { status: 500, statusText: 'Error' });
+    await settle(fixture);
+    expect(root().querySelector('#install-snippet')).toBeNull();
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain('The snippet could not be loaded');
   });
 });

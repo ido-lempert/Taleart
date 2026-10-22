@@ -1,4 +1,4 @@
-import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, type Health } from '@taleart/contract';
+import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, SDK_BASE, type Health } from '@taleart/contract';
 import { DEFAULT_another tool_API_URL } from '@taleart/server-importer';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
@@ -20,6 +20,7 @@ import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import type { RateLimitOptions } from './http/rate-limit';
+import { defaultSdkFiles, installRouter, sdkRouter, type SdkFiles } from './http/sdk.router';
 import { siteKeyRouter } from './http/site-key.router';
 import { zonesRouter } from './http/zones.router';
 
@@ -52,6 +53,7 @@ export interface AppUrls {
 }
 
 export type { ImporterConfig } from './http/imports.router';
+export type { SdkFiles } from './http/sdk.router';
 export type { ProjectMediaOptions } from './http/project-media.router';
 
 // Builds the API. Takes its pool, frame-type registry, media storage, passkey
@@ -67,7 +69,9 @@ export function createApp(
   importer: ImporterConfig = { tokenKey: null, another toolApiUrl: DEFAULT_another tool_API_URL },
   media: ProjectMediaOptions = {},
   delivery: AppDelivery = {},
+  sdk: Partial<SdkFiles> = {},
 ): express.Express {
+  const publicApiUrl = urls.publicApiUrl ?? 'http://localhost:3333';
   const app = express();
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
   // reads its body first, with a larger limit, and the parser below then leaves that body as it is.
@@ -106,6 +110,7 @@ export function createApp(
   v1.use('/projects', siteKeyRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));
   v1.use('/projects', projectMediaRouter(pool, storage, media));
+  v1.use('/install', installRouter(publicApiUrl));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));
@@ -117,13 +122,17 @@ export function createApp(
   // The Delivery API serves SDKs with site keys only (AD-2): its own open CORS
   // and key middleware, never the session middleware.
   app.use(DELIVERY_API_BASE, deliveryRouter(pool, {
-      publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333',
+      publicApiUrl,
       frameTypes,
       rateLimit: delivery.rateLimit,
     }));
 
   // Published media is public at unguessable URLs (AD-11): no session, no site key.
   app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));
+
+  // The Web SDK bundle for host pages and the test page that renders one zone with it (epic UX
+  // rework R13): public, no session and no key.
+  app.use(SDK_BASE, sdkRouter({ ...defaultSdkFiles(__dirname), ...sdk }, publicApiUrl));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
