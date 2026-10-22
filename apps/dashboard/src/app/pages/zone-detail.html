@@ -431,12 +431,12 @@
                           <app-status-badge class="tale-card__status" [status]="tale.status" kind="tale" />
                         }
                         <span class="tale-card__title">
-                          @if (windowChip(tale); as chip) {
-                            <span class="window-chip window-chip--card" [title]="describeWindow(tale)">
+                          @if (cardChip(tale); as chip) {
+                            <span class="window-chip window-chip--card">
                               <span class="visually-hidden">Schedule: </span>{{ chip }}
                             </span>
                           }
-                          {{ tale.title }}
+                          <span class="tale-card__name">{{ tale.title }}</span>
                         </span>
                         <button
                           type="button"

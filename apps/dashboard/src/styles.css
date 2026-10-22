@@ -826,6 +826,15 @@ select {
   overflow-wrap: anywhere;
 }
 
+/* At most two lines, so a chip above it does not push it off the card; the drawer shows it whole. */
+.tale-card__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
 .tale-card__badge {
   position: absolute;
   top: var(--space-2);
@@ -924,11 +933,11 @@ select {
   }
 }
 
-/* Left of the card's ⋯ menu. */
+/* Left of the card's ⋯ menu (24px at 4px from the edge), 4px from it and from the dot. */
 .tale-card__handle {
   position: absolute;
   top: var(--space-2);
-  right: calc(var(--space-2) + 26px);
+  right: calc(var(--space-1) + 28px);
   background: rgb(0 0 0 / 55%);
   color: #fff;
 }

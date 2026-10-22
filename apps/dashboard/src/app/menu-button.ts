@@ -16,6 +16,9 @@ import { Icon } from './icon';
 
 let nextId = 0;
 
+/** Closes the one menu open on the page: opening another calls it. */
+let closeOpenMenu: (() => void) | null = null;
+
 /** The space between the menu and its button, and the viewport's edge. */
 const GAP = 4;
 
@@ -35,15 +38,18 @@ export interface MenuPick {
 }
 
 /**
- * Where the menu goes, in viewport pixels: below its button with their right edges aligned, or
- * above it when there is no room below; kept inside the viewport.
+ * Where the menu goes, in viewport pixels: below its button, aligned with the button's end edge
+ * (its right edge, or its left edge when `rtl`), or above it when there is no room below; kept
+ * inside the viewport. A menu taller than the room is placed at the top; its own scroll shows the rest.
  */
 export function menuPosition(
   anchor: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>,
   menu: { width: number; height: number },
   viewport: { width: number; height: number },
+  rtl = false,
 ): { left: number; top: number } {
-  const left = Math.max(GAP, Math.min(anchor.right - menu.width, viewport.width - menu.width - GAP));
+  const start = rtl ? anchor.left : anchor.right - menu.width;
+  const left = Math.max(GAP, Math.min(start, viewport.width - menu.width - GAP));
   const below = anchor.bottom + GAP;
   const top =
     below + menu.height <= viewport.height - GAP ? below : Math.max(GAP, anchor.top - GAP - menu.height);
@@ -55,10 +61,10 @@ export function menuPosition(
  * (`aria-haspopup`, `aria-expanded`) and is named by `label`, such as "More for Summer". Enter,
  * Space or Down open the menu on its first item, Up on its last; in the menu the arrow keys move
  * (wrapping), Home and End go to the ends, Enter or Space choose, and Escape closes it and returns
- * focus to the button. Tab and a press outside close it too. A disabled item stays reachable and
- * says why it cannot apply. The menu shows in the top layer (a manual popover), so no card or
- * scroll area clips it, and it follows its button when the page scrolls. Targets are at least
- * 24 by 24 px (WCAG 2.5.8).
+ * focus to the button. Tab, a press or click outside, focus moving away, a scroll or a resize close
+ * it too, and only one menu is open at a time. A disabled item stays reachable, is named by its
+ * label and described by why it cannot apply. The menu shows in the top layer (a manual popover),
+ * so no card or scroll area clips it. Targets are at least 24 by 24 px (WCAG 2.5.8).
  */
 @Component({
   selector: 'app-menu-button',
@@ -96,23 +102,25 @@ export function menuPosition(
       position: fixed;
       inset: auto;
       margin: 0;
-      min-width: 10rem;
-      max-width: min(18rem, calc(100vw - 16px));
+      min-inline-size: 10rem;
+      max-inline-size: min(18rem, calc(100vw - 16px));
+      max-block-size: calc(100vh - 8px);
       padding: var(--space-1);
       border: 1px solid var(--border);
       border-radius: var(--radius-control);
       background: var(--surface);
       box-shadow: var(--shadow-raised);
       color: var(--text);
-      overflow: visible;
+      overflow-y: auto;
     }
     .menu-button__item {
       display: flex;
       flex-direction: column;
       align-items: flex-start;
-      width: 100%;
-      min-height: 32px;
-      padding: var(--space-1) var(--space-3);
+      inline-size: 100%;
+      min-block-size: 32px;
+      padding-block: var(--space-1);
+      padding-inline: var(--space-3);
       border: 0;
       border-radius: var(--radius-control);
       background: none;
@@ -133,14 +141,13 @@ export function menuPosition(
     .menu-button__reason {
       font-size: var(--text-xs);
     }
-    /* A tale card's ⋯ menu, top right, above the card's open button. */
+    /* A tale card's ⋯ menu, top end corner, above the card's open button. */
     .tale-card__menu {
       position: absolute;
       z-index: 2;
       top: var(--space-2);
-      right: var(--space-2);
+      inset-inline-end: var(--space-1);
     }
-
     .tale-card__menu .menu-button__trigger {
       width: 24px;
       height: 24px;
@@ -149,14 +156,18 @@ export function menuPosition(
       background: rgb(0 0 0 / 62%);
       color: #fff;
     }
-
     .tale-card__menu .menu-button__trigger:hover,
     .tale-card__menu .menu-button__trigger[aria-expanded='true'] {
       border-color: #fff;
       color: #fff;
     }
+    /* Drawn inside the button, so it does not cover the drag handle beside it. */
+    .tale-card__menu .menu-button__trigger:focus-visible {
+      outline-width: 2px;
+      outline-offset: -2px;
+    }
   `,
-  host: { class: 'menu-button' },
+  host: { class: 'menu-button', '(focusout)': 'focusOut($event)' },
   template: `
     <button
       #trigger
@@ -182,6 +193,7 @@ export function menuPosition(
         [id]="menuId"
         [attr.aria-labelledby]="triggerId"
         (keydown)="menuKey($event)"
+        (toggle)="popoverToggled($event)"
       >
         @for (item of items(); track item.id; let i = $index) {
           <button
@@ -195,7 +207,10 @@ export function menuPosition(
           >
             <span>{{ item.label }}</span>
             @if (item.disabledReason) {
-              <span class="menu-button__reason" [id]="menuId + '-reason-' + i">{{ item.disabledReason }}</span>
+              <!-- Out of the item's name, which is its label; read once, as its description. -->
+              <span class="menu-button__reason" aria-hidden="true" [id]="menuId + '-reason-' + i">{{
+                item.disabledReason
+              }}</span>
             }
           </button>
         }
@@ -220,11 +235,16 @@ export class MenuButton {
   protected readonly triggerId = `${this.menuId}-button`;
   protected readonly open = signal(false);
 
-  private readonly onPointerdown = (event: Event) => {
+  // A press or a click (a keyboard or assistive technology click has no press) outside closes it.
+  private readonly onOutside = (event: Event) => {
     if (!this.host.nativeElement.contains(event.target as Node)) this.close(false);
   };
-  // Follows the button when the page scrolls or resizes.
-  private readonly onScroll = () => this.place();
+  // The menu does not follow its button: a scroll (other than the menu's own) or a resize closes it.
+  private readonly onScroll = (event: Event) => {
+    if (!this.menu()?.nativeElement.contains(event.target as Node)) this.close(false);
+  };
+  private readonly onResize = () => this.close(false);
+  private readonly closeQuietly = () => this.close(false);
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.close(false));
@@ -246,7 +266,7 @@ export class MenuButton {
   protected menuKey(event: KeyboardEvent): void {
     const items = this.menuItems();
     const at = items.indexOf(this.document.activeElement as HTMLElement);
-    const focus = (index: number) => items[(index + items.length) % items.length]?.focus();
+    const focus = (index: number) => items[(index + items.length) % items.length]?.focus({ preventScroll: true });
     switch (event.key) {
       case 'ArrowDown':
         focus(at + 1);
@@ -275,35 +295,60 @@ export class MenuButton {
     event.stopPropagation();
   }
 
+  protected focusOut(event: FocusEvent): void {
+    const next = event.relatedTarget as Node | null;
+    // Focus left for something else on the page; a press outside is handled on its own.
+    if (next && !this.host.nativeElement.contains(next)) this.close(false);
+  }
+
+  // The browser closed the popover by itself.
+  protected popoverToggled(event: Event): void {
+    if ((event as Event & { newState?: string }).newState !== 'closed') return;
+    // A late event from an earlier close does not close the menu opened since.
+    let stillOpen = false;
+    try {
+      stillOpen = (event.target as HTMLElement).matches(':popover-open');
+    } catch {
+      // No popover support: nothing closed it.
+    }
+    if (!stillOpen) this.close(false);
+  }
+
   protected choose(item: MenuItem): void {
     if (item.disabledReason) return;
     this.close(true);
     this.picked.emit({ id: item.id, opener: this.trigger().nativeElement });
   }
 
-  /** Opens the menu with focus on its first or last item. */
+  /** Opens the menu with focus on its first or last item, closing any other open menu. */
   show(focus: 'first' | 'last'): void {
     if (!this.open()) {
+      if (closeOpenMenu && closeOpenMenu !== this.closeQuietly) closeOpenMenu();
+      closeOpenMenu = this.closeQuietly;
       this.open.set(true);
       // Renders the menu now, so it can be shown and focused in this event.
       this.changes.detectChanges();
       const menu = this.menu()?.nativeElement;
       if (menu && typeof menu.showPopover === 'function') menu.showPopover();
       this.place();
-      this.document.addEventListener('pointerdown', this.onPointerdown, true);
+      this.document.addEventListener('pointerdown', this.onOutside, true);
+      this.document.addEventListener('click', this.onOutside, true);
       this.document.defaultView?.addEventListener('scroll', this.onScroll, true);
-      this.document.defaultView?.addEventListener('resize', this.onScroll);
+      this.document.defaultView?.addEventListener('resize', this.onResize);
     }
     const items = this.menuItems();
-    items[focus === 'first' ? 0 : items.length - 1]?.focus();
+    items[focus === 'first' ? 0 : items.length - 1]?.focus({ preventScroll: true });
   }
 
   /** Closes the menu; `refocus` puts focus back on its button. */
   close(refocus: boolean): void {
-    this.document.removeEventListener('pointerdown', this.onPointerdown, true);
+    this.document.removeEventListener('pointerdown', this.onOutside, true);
+    this.document.removeEventListener('click', this.onOutside, true);
     this.document.defaultView?.removeEventListener('scroll', this.onScroll, true);
-    this.document.defaultView?.removeEventListener('resize', this.onScroll);
+    this.document.defaultView?.removeEventListener('resize', this.onResize);
+    if (closeOpenMenu === this.closeQuietly) closeOpenMenu = null;
     if (!this.open()) return;
+    this.open.set(false);
     const menu = this.menu()?.nativeElement;
     if (menu && typeof menu.hidePopover === 'function') {
       try {
@@ -312,7 +357,6 @@ export class MenuButton {
         // Already closed, as when the page removed it.
       }
     }
-    this.open.set(false);
     if (refocus) this.trigger().nativeElement.focus();
   }
 
@@ -324,10 +368,13 @@ export class MenuButton {
     const menu = this.menu()?.nativeElement;
     if (!menu) return;
     const view = this.document.defaultView;
+    const trigger = this.trigger().nativeElement;
+    const rtl = view?.getComputedStyle(trigger).direction === 'rtl';
     const at = menuPosition(
-      this.trigger().nativeElement.getBoundingClientRect(),
+      trigger.getBoundingClientRect(),
       { width: menu.offsetWidth, height: menu.offsetHeight },
       { width: view?.innerWidth ?? 1024, height: view?.innerHeight ?? 768 },
+      rtl,
     );
     menu.style.left = `${at.left}px`;
     menu.style.top = `${at.top}px`;

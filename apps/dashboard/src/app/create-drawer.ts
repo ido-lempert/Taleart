@@ -35,7 +35,7 @@ import {
 import { CoverEditor } from './cover-editor';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
-import { describeWindow, localTimeZone, parseLocalInput, toLocalInput, windowChip } from './schedule';
+import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { describeSettings, initialSettings, SettingsForm, type Settings } from './settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from './status';
 
@@ -270,7 +270,6 @@ export class CreateDrawer implements OnInit {
   protected endText = '';
   protected readonly timeZone = localTimeZone();
   protected readonly describeWindow = describeWindow;
-  protected readonly windowChip = windowChip;
   /** True when the schedule drawer's item has a stored start or end, so there is a window to remove (epic UX rework R8). */
   protected readonly hasWindow = computed(() => {
     const item = this.scheduleItem();

@@ -11,7 +11,7 @@ import { CoverCapture } from './cover-capture';
 import { DashboardStore, SELECTED_PROJECT_KEY } from './dashboard.store';
 import { IMPORT_POLL_INTERVAL_MS } from './import.service';
 import { importDurationText } from './pages/import-shared';
-import { formatShort } from './schedule';
+import { describeWindow, formatShort } from './schedule';
 
 // The shape of the shipped bar schema (libs/contract/frame-types/bar.schema.json) as GET /frame-types sends it.
 const barSchema = {
@@ -2244,6 +2244,8 @@ describe('App', () => {
       expect(field('schedule-start').type).toBe('datetime-local');
       expect(field('schedule-start').value).toBe(localStart);
       expect(field('schedule-end').value).toBe('');
+      // A group with a window can have it removed.
+      expect(buttonNamed(drawer() as HTMLElement, 'Remove schedule')).toBeTruthy();
       type(field('schedule-end'), localEnd);
       buttonNamed(drawer() as HTMLElement, 'Save').click();
       await settle(fixture);
@@ -2259,6 +2261,8 @@ describe('App', () => {
       expect(groupRow(root, 'Summer').querySelector('.window-chip')?.textContent?.trim()).toBe(
         `Schedule: ${formatShort(utc(localStart))} – ${formatShort(utc(localEnd))}`,
       );
+      // Focus is back on the group's ⋯ button, which opened the drawer.
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for Summer');
     });
 
     it('refuses an end before the start in the form, without a request', async () => {
@@ -2302,8 +2306,9 @@ describe('App', () => {
       root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
       await settle(fixture);
       expect(badge(drawer() as HTMLElement)).toBe('Status: Expired');
+      // The drawer says the whole window in words, for touch and keyboard.
       expect(drawer()?.querySelector('.schedule-summary .window-chip')?.textContent?.trim()).toBe(
-        `Schedule: Ends ${formatShort(utc(localStart))}`,
+        `Schedule: Until ${new Date(utc(localStart)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
       );
       buttonNamed(drawer() as HTMLElement, 'Edit schedule…').click();
       await settle(fixture);
@@ -2348,13 +2353,22 @@ describe('App', () => {
       expect(document.activeElement?.getAttribute('aria-label')).toBe('More for A');
     });
 
-    it('shows a tale card its window chip', async () => {
-      const startsTale = { ...taleA, status: 'scheduled', startsAt: utc(localStart) };
-      const { root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [startsTale, taleB] }] } });
+    it('shows a tale card one bound of its window, and the tale drawer the whole window', async () => {
+      const startsTale = { ...taleA, status: 'scheduled', startsAt: utc(localStart), endsAt: utc(localEnd) };
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [startsTale, taleB] }] } });
 
       const cards = [...groupRow(root, 'Summer').querySelectorAll('.tale-card')];
-      expect(cards[0].querySelector('.window-chip')?.textContent?.trim()).toBe(`Schedule: Starts ${formatShort(utc(localStart))}`);
+      const chip = cards[0].querySelector('.window-chip');
+      expect(chip?.textContent?.trim()).toBe(`Schedule: Starts ${formatShort(utc(localStart))}`);
+      // Nothing only on hover.
+      expect(chip?.hasAttribute('title')).toBe(false);
+      expect(cards[0].querySelector('.tale-card__name')?.textContent).toBe('A');
       expect(cards[1].querySelector('.window-chip')).toBeNull();
+      root.querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('.schedule-summary .window-chip')?.textContent?.trim()).toBe(
+        `Schedule: ${describeWindow(startsTale)}`,
+      );
     });
 
     it('updates the indicator right after a start is set and after it is removed', async () => {
