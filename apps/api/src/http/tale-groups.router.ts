@@ -32,7 +32,6 @@ import {
   setTaleGroupStatus,
   taleGroupExists,
   TaleGroupNotFoundError,
-  type StoredTaleGroup,
 } from '@taleart/server-tales';
 import { copyTaleGroupTags, setTaleGroupTags, tagsForTaleGroups } from '@taleart/server-targeting';
 import { zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
@@ -46,7 +45,7 @@ import { requiredName, requiredSchedule, requiredSettableStatus, requiredString,
  * Tale groups with their tags. The tales module stores groups and the
  * targeting module their tags; the API composes the two (AD-1).
  */
-export async function withTags<G extends StoredTaleGroup>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
+export async function withTags<G extends { id: string }>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
   const tags = await tagsForTaleGroups(pool, groups.map((g) => g.id));
   return groups.map((group) => ({ ...group, tags: tags.get(group.id) ?? [] }));
 }
