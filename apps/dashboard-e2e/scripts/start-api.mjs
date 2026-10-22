@@ -1,38 +1,44 @@
 // Starts the built API (dist/apps/api) for the dashboard end-to-end tests, on a fresh database.
 //
-// E2E_DATABASE_URL names the database. Its name must end in `_test`: it is dropped and created again
-// first, so the run starts on an empty install (the first admin's setup). Media go to a new
-// temporary folder. Playwright starts this as a web server (see playwright.config.mts).
+// E2E_DATABASE_URL names the database (see e2e-database.mjs for what it must be): it is dropped and
+// created again first, so the run starts on an empty install (the first admin's setup). The API runs
+// as a child with only the settings below, never the caller's (WEB_SDK_FILE, IMPORT_TOKEN_KEY,
+// TRUST_PROXY…). Media go to a new temporary folder. Playwright starts this as a web server (see
+// playwright.config.mts).
+import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import pg from 'pg';
+import { e2eDatabase } from './e2e-database.mjs';
 
 const root = resolve(import.meta.dirname, '../../..');
-const url = process.env.E2E_DATABASE_URL ?? '';
-let name = '';
+let database;
 try {
-  name = decodeURIComponent(new URL(url).pathname.slice(1));
-} catch {
-  // Said below.
-}
-if (!/^[a-z0-9_]+_test$/.test(name)) {
-  console.error('E2E_DATABASE_URL must name a database whose name ends in _test (it is dropped and created again).');
+  database = e2eDatabase(process.env);
+} catch (err) {
+  console.error(err.message);
   process.exit(1);
 }
 
-const admin = new URL(url);
-admin.pathname = '/postgres';
-const client = new pg.Client({ connectionString: admin.href });
-await client.connect();
+const admin = new pg.Client({ ...database.config, database: 'postgres' });
+await admin.connect();
 try {
-  await client.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
-  await client.query(`CREATE DATABASE "${name}"`);
+  await admin.query(`DROP DATABASE IF EXISTS "${database.name}" WITH (FORCE)`);
+  await admin.query(`CREATE DATABASE "${database.name}"`);
 } finally {
-  await client.end();
+  await admin.end();
 }
 
-process.env.DATABASE_URL = url;
-process.env.MEDIA_DIR = mkdtempSync(join(tmpdir(), 'taleart-e2e-media-'));
-await import(pathToFileURL(join(root, 'dist/apps/api/main.js')).href);
+const env = {
+  PATH: process.env.PATH ?? '',
+  DATABASE_URL: database.url,
+  PORT: process.env.PORT ?? '',
+  PUBLIC_API_URL: process.env.PUBLIC_API_URL ?? '',
+  RP_ORIGIN: process.env.RP_ORIGIN ?? '',
+  RP_ID: process.env.RP_ID ?? '',
+  MEDIA_DIR: mkdtempSync(join(tmpdir(), 'taleart-e2e-media-')),
+};
+const child = spawn(process.execPath, [join(root, 'dist/apps/api/main.js')], { cwd: root, env, stdio: 'inherit' });
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
+child.on('exit', (code) => process.exit(code ?? 0));

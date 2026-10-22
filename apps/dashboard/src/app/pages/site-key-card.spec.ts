@@ -95,6 +95,8 @@ describe('SiteKeyCard: the Install tab (epic UX rework R3, R13; stories 8.6, 8.1
     expect(dialog()?.textContent).toContain('Issuing a site key…');
     const req = http.expectOne(url);
     expect(req.request.method).toBe('POST');
+    // Issue never rotates: only when no key is active.
+    expect(req.request.body).toEqual({ ifNone: true });
     req.flush(issued);
     await settle(fixture);
     const input = dialog()?.querySelector('#site-key-value') as HTMLInputElement;
@@ -120,7 +122,54 @@ describe('SiteKeyCard: the Install tab (epic UX rework R3, R13; stories 8.6, 8.1
     await settle(fixture);
     expect(dialog()?.textContent).toContain('This affects every zone of this project');
     await submit();
-    http.expectOne((r) => r.url === url && r.method === 'POST').flush({ ...issued, prefix: 'tas_zzzzzz' });
+    const rotate = http.expectOne((r) => r.url === url && r.method === 'POST');
+    expect(rotate.request.body).toEqual({});
+    rotate.flush({ ...issued, prefix: 'tas_zzzzzz' });
+    await settle(fixture);
+    expect((dialog()?.querySelector('#site-key-value') as HTMLInputElement).value).toBe(issued.key);
+  });
+
+  it('offers Retry, never Issue, when the site key cannot be read', async () => {
+    fixture = TestBed.createComponent(SiteKeyCard);
+    fixture.componentRef.setInput('projectId', 'p1');
+    fixture.componentRef.setInput('zoneSlug', 'home-top');
+    fixture.componentRef.setInput('admin', true);
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    await settle(fixture);
+    http.expectOne(url).flush(null, { status: 500, statusText: 'Error' });
+    http.expectOne(`${API_BASE}/install`).flush(install);
+    await settle(fixture);
+    expect(button('site-key-issue')).toBeNull();
+    expect(button('site-key-rotate')).toBeNull();
+    expect(root().querySelector('[role="alert"]')?.textContent).toContain('The site key could not be read.');
+    button('site-key-retry')?.click();
+    await settle(fixture);
+    http.expectOne(url).flush(info);
+    await settle(fixture);
+    expect(button('site-key-retry')).toBeNull();
+    expect(button('site-key-rotate')).not.toBeNull();
+  });
+
+  it('turns Issue into the rotate confirmation when a key was issued meanwhile (409)', async () => {
+    await open(null);
+    button('site-key-issue')?.click();
+    await settle(fixture);
+    http
+      .expectOne((r) => r.url === url && r.method === 'POST')
+      .flush({ error: { code: 'site_key_exists', message: 'This project already has a site key.' } }, { status: 409, statusText: 'Conflict' });
+    await settle(fixture);
+    http.expectOne((r) => r.url === url && r.method === 'GET').flush(info);
+    await settle(fixture);
+    expect(dialog()?.querySelector('h2')?.textContent).toContain('Rotate site key');
+    expect(dialog()?.querySelector('#site-key-found')?.textContent).toContain('already has a site key');
+    expect(dialog()?.textContent).toContain('This affects every zone of this project');
+    expect(dialog()?.querySelector('#site-key-value')).toBeNull();
+    expect(refresh).not.toHaveBeenCalled();
+    await submit();
+    const rotate = http.expectOne((r) => r.url === url && r.method === 'POST');
+    expect(rotate.request.body).toEqual({});
+    rotate.flush(issued);
     await settle(fixture);
     expect((dialog()?.querySelector('#site-key-value') as HTMLInputElement).value).toBe(issued.key);
   });

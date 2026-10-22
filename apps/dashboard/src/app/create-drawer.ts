@@ -59,6 +59,20 @@ const MEDIA_EXTENSIONS: Record<string, string> = {
  * tale's media upload, a tale group's tags, adding a tale group to a zone,
  * removing it from one or copying it to one, or an invitation link. The API's message shows inside it.
  */
+/**
+ * A picked media file's type (from its extension when the system gave none; the API checks the
+ * bytes) and what is wrong with it, if anything: not an accepted type, or over its size limit.
+ */
+export function checkMediaFile(file: File): { type: string; problem: string } {
+  const type = file.type || MEDIA_EXTENSIONS[file.name.split('.').pop()?.toLowerCase() ?? ''] || '';
+  const problem = !isMediaContentType(type)
+    ? 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video.'
+    : file.size > maxMediaBytes(type)
+      ? `The file is larger than ${maxMediaBytes(type) / (1024 * 1024)} MB. Pick a smaller one.`
+      : '';
+  return { type, problem };
+}
+
 @Component({
   selector: 'app-create-drawer',
   imports: [FormsModule, RouterLink, Drawer, StatusBadge, ShowSwitch, SettingsForm, CoverEditor],
@@ -127,8 +141,10 @@ export class CreateDrawer implements OnInit {
   protected file: File | null = null;
   /** The images and videos picked in a new tale group drawer: one tale each (epic UX rework R13). */
   protected files: File[] = [];
-  /** '' or which file a new tale group drawer is adding, announced while it saves. */
+  /** '' or which file a new tale group drawer is adding, shown and announced while it saves. */
   protected readonly progress = signal('');
+  /** Stops a new tale group drawer's tales after the file being added. */
+  private addAbort: AbortController | null = null;
   /** True once a new tale group was created but not all of its tales: only Done is left. */
   protected readonly groupCreated = signal(false);
   protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
@@ -639,13 +655,7 @@ export class CreateDrawer implements OnInit {
     }
     this.error.set('');
     this.statusWarning.set('');
-    // Some systems give a file no type; its extension names it then, and the API checks the bytes.
-    const type = file.type || MEDIA_EXTENSIONS[file.name.split('.').pop()?.toLowerCase() ?? ''] || '';
-    const problem = !isMediaContentType(type)
-      ? 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video.'
-      : file.size > maxMediaBytes(type)
-        ? `The file is larger than ${maxMediaBytes(type) / (1024 * 1024)} MB. Pick a smaller one.`
-        : '';
+    const { type, problem } = checkMediaFile(file);
     if (problem) {
       this.statusAnnouncement.set('');
       this.error.set(problem);
@@ -687,6 +697,11 @@ export class CreateDrawer implements OnInit {
   protected pickFile(event: Event): void {
     this.file = (event.target as HTMLInputElement).files?.[0] ?? null;
     this.error.set('');
+  }
+
+  /** Stops adding a new group's tales after the file being uploaded (its upload is cancelled). */
+  protected stopAdding(): void {
+    this.addAbort?.abort();
   }
 
   protected pickFiles(event: Event): void {
@@ -787,22 +802,32 @@ export class CreateDrawer implements OnInit {
           message = `A tale group holds up to ${MAX_TALES_PER_GROUP} tales. Choose fewer files.`;
           break;
         }
+        // Every file is checked before anything is created.
+        const checked = this.files.map((file) => ({ file, ...checkMediaFile(file) }));
+        const refused = checked.find((c) => c.problem);
+        if (refused) {
+          message = `"${refused.file.name}": ${refused.problem}`;
+          break;
+        }
         const zoneId = request.projectId ? this.groupZoneId() : request.zoneId;
         message =
           request.projectId && !zoneId
             ? await this.store.createProjectTaleGroup(request.projectId, this.text)
             : await this.store.createTaleGroup(zoneId, this.text);
         const groupId = this.store.createdTaleGroupId();
-        if (!message && groupId && this.files.length) {
-          const count = this.files.length;
-          const refused = await this.store.addTalesFromFiles(groupId, this.files, (n) =>
-            this.progress.set(`Adding tale ${n} of ${count}…`),
-          );
+        if (!message && groupId && checked.length) {
+          const count = checked.length;
+          const abort = (this.addAbort = new AbortController());
+          const result = await this.store.addTalesFromFiles(groupId, checked, {
+            signal: abort.signal,
+            progress: (n) => this.progress.set(`Adding tale ${n} of ${count}…`),
+          });
+          this.addAbort = null;
           this.progress.set('');
-          if (refused) {
+          if (result.message) {
             // The group exists: submitting again would make another one, so only Done is left.
             this.groupCreated.set(true);
-            message = `The tale group was created, but not all of its tales. ${refused} Add the rest from the group.`;
+            message = `The tale group was created with ${result.added} of ${count} tales. ${result.message} Add the rest from the group.`;
           }
         }
         break;

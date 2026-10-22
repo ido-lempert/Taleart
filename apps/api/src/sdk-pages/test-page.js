@@ -6,33 +6,55 @@
 //   history at once.
 // - The key is never stored (no storage, no cookie) and never sent anywhere but by the SDK, in the
 //   Authorization header of its Delivery API request. Text goes on the page with textContent only.
+// - The API is where this script is served from, two levels up (`<api>/sdk/v1/test-page.js`), so an
+//   API behind a path prefix works too.
 
 // A zone slug (ZONE_SLUG_PATTERN and MAX_ZONE_SLUG_LENGTH in the contract).
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAX_SLUG = 64;
 const KEY_PARAM = 'siteKey';
 
-const params = new URLSearchParams(location.search);
-const zone = params.get('zone') ?? '';
-const fragment = new URLSearchParams(location.hash.slice(1));
-const fragmentKey = (fragment.get(KEY_PARAM) ?? '').trim();
-if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+/** The API's base URL from this script's URL: `<api>/sdk/v1/test-page.js` gives `<api>`, without a trailing slash. */
+export function apiBaseUrl(scriptUrl) {
+  const base = new URL('../../', scriptUrl);
+  base.search = '';
+  base.hash = '';
+  return base.href.replace(/\/+$/, '');
+}
 
-const status = document.getElementById('status');
-const form = document.getElementById('key-form');
-const input = document.getElementById('site-key');
-const host = document.getElementById('zone-host');
+/** The zone slug in a query string, or '' when it is missing or not a slug. */
+export function zoneFromSearch(search) {
+  const zone = new URLSearchParams(search).get('zone') ?? '';
+  return zone.length <= MAX_SLUG && SLUG.test(zone) ? zone : '';
+}
 
-if (zone.length > MAX_SLUG || !SLUG.test(zone)) {
-  document.getElementById('no-zone').hidden = false;
-} else {
-  document.getElementById('zone-slug').textContent = zone;
-  document.getElementById('zone-line').hidden = false;
+/** The site key in a URL fragment (`#siteKey=…`), trimmed; '' when there is none. */
+export function keyFromHash(hash) {
+  return (new URLSearchParams(hash.replace(/^#/, '')).get(KEY_PARAM) ?? '').trim();
+}
+
+/** Builds the page in `doc`: reads the zone and the key, drops the fragment, places the element. */
+export function start(doc, loc, hist, scriptUrl) {
+  const zone = zoneFromSearch(loc.search);
+  const fragmentKey = keyFromHash(loc.hash);
+  if (loc.hash) hist.replaceState(null, '', loc.pathname + loc.search);
+
+  const status = doc.getElementById('status');
+  const form = doc.getElementById('key-form');
+  const input = doc.getElementById('site-key');
+  const host = doc.getElementById('zone-host');
+
+  if (!zone) {
+    doc.getElementById('no-zone').hidden = false;
+    return;
+  }
+  doc.getElementById('zone-slug').textContent = zone;
+  doc.getElementById('zone-line').hidden = false;
   form.hidden = false;
 
-  const view = document.createElement('taleart-view');
-  // The Delivery API answers on this page's own origin: this page is served by the TaleArt API.
-  view.setAttribute('api-url', location.origin);
+  const view = doc.createElement('taleart-view');
+  // The Delivery API answers on the API this page is served by.
+  view.setAttribute('api-url', apiBaseUrl(scriptUrl));
   view.setAttribute('zone', zone);
   host.append(view);
 
@@ -59,4 +81,9 @@ if (zone.length > MAX_SLUG || !SLUG.test(zone)) {
     input.value = '';
     show(key, 'you pasted');
   });
+}
+
+// On the test page itself (it has the zone host); a test imports the functions alone.
+if (typeof document !== 'undefined' && document.getElementById('zone-host')) {
+  start(document, location, history, import.meta.url);
 }

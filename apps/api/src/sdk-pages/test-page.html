@@ -25,7 +25,15 @@
       <form id="key-form" class="key-form" autocomplete="off" hidden>
         <label for="site-key">Site key</label>
         <div class="key-row">
-          <input id="site-key" name="siteKey" type="password" spellcheck="false" aria-describedby="key-hint" />
+          <input
+            id="site-key"
+            name="siteKey"
+            type="text"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            aria-describedby="key-hint"
+          />
           <button type="submit">Show zone</button>
         </div>
         <p id="key-hint" class="hint">Paste your project's site key (it starts with tas_).</p>

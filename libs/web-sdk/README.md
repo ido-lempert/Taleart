@@ -25,7 +25,13 @@ The zone page's Install tab in the dashboard gives this snippet for its zone, wi
 - **Where the SDK comes from.** The TaleArt API serves this package's ES build at `<api-url>/sdk/v1/taleart.js`: the
   API build copies `dist/libs/web-sdk/index.js` next to its `main.js` (`WEB_SDK_FILE` names another file). The `v1`
   follows the Delivery API's version: the bundle there always reads `/delivery/v1`. A deploy replaces it at the same
-  URL; it is cached for five minutes. A site may also host the file itself, or install the npm package.
+  URL; it is cached for five minutes, and a running API serves a rebuilt file at once. A site may also host the file
+  itself, or install the npm package.
+- **Pinning it.** The same build is also served at a URL pinned to its content, `<api-url>/sdk/v1/taleart.<hash>.js`,
+  cached for a year. `GET /api/v1/install` gives it (`sdkPinnedUrl`) with its Subresource Integrity value
+  (`sdkIntegrity`), for a page that wants the browser to refuse any other file:
+  `<script type="module" src="…/taleart.<hash>.js" integrity="sha384-…" crossorigin="anonymous">`. A pinned URL is gone
+  with the next build, so a page that pins it updates it on each release.
 - **The test page.** `<api-url>/sdk/v1/test-page?zone=<slug>` renders one zone with this SDK. It reads the site key
   from the URL fragment (`#siteKey=…`, which a browser never sends to a server) and removes it from the address bar,
   or from a field on the page. It stores the key nowhere and sends it only in the SDK's `Authorization` header to the

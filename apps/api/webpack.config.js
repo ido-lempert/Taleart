@@ -21,7 +21,7 @@ module.exports = {
         { input: '../../libs/contract/frame-types', glob: '*.json', output: 'frame-types' },
         // The test page (epic UX rework R13), and the Web SDK bundle it and host pages load
         // (web-sdk is an implicit dependency, so its build runs first).
-        { input: './src/sdk-pages', glob: '*', output: 'sdk-pages' },
+        { input: './src/sdk-pages', glob: 'test-page.{html,js,css}', output: 'sdk-pages' },
         { input: '../../dist/libs/web-sdk', glob: 'index.js', output: 'web-sdk' },
       ],
       optimization: false,
