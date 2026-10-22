@@ -7,7 +7,7 @@ the zone's slug.
 ## Placing a zone
 
 ```html
-<script type="module" src="https://your-cdn.example/taleart/index.js"></script>
+<script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>
 <taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-top"></taleart-view>
 <taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-promo"></taleart-view>
 ```
@@ -18,6 +18,19 @@ request. An unknown slug, or a revoked or rotated site key, renders nothing and 
 Rotating the site key affects every zone of the project: update every page that uses it. The key is
 not a secret once it is in a page's HTML: anyone who sees it can read every zone of the project that has a display and
 visible content, by its slug.
+
+The zone page's Install tab in the dashboard gives this snippet for its zone, with the API URL filled in, and an
+"Open test page" link.
+
+- **Where the SDK comes from.** The TaleArt API serves this package's ES build at `<api-url>/sdk/v1/taleart.js`: the
+  API build copies `dist/libs/web-sdk/index.js` next to its `main.js` (`WEB_SDK_FILE` names another file). The `v1`
+  follows the Delivery API's version: the bundle there always reads `/delivery/v1`. A deploy replaces it at the same
+  URL; it is cached for five minutes. A site may also host the file itself, or install the npm package.
+- **The test page.** `<api-url>/sdk/v1/test-page?zone=<slug>` renders one zone with this SDK. It reads the site key
+  from the URL fragment (`#siteKey=…`, which a browser never sends to a server) and removes it from the address bar,
+  or from a field on the page. It stores the key nowhere and sends it only in the SDK's `Authorization` header to the
+  Delivery API. It is served with a strict Content Security Policy (scripts from the API only), `noindex` and no
+  referrer.
 
 An element renders only with both a site key and a slug. Zone keys and the `stage` attribute of
 earlier builds are gone.

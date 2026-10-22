@@ -556,6 +556,18 @@ describe('Management API v1: projects and zones', () => {
       return zone;
     }
 
+    it('answers the install URLs to a signed-in user only (epic UX rework R13)', async () => {
+      const res = await fetch(`${base}/install`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        apiUrl: publicApiUrl,
+        sdkUrl: `${publicApiUrl}/sdk/v1/taleart.js`,
+        testPageUrl: `${publicApiUrl}/sdk/v1/test-page`,
+      });
+      const anonymous = await fetch(`${base}/install`, { headers: { Cookie: 'none=1' } });
+      expect(anonymous.status).toBe(401);
+    });
+
     it('lists the registered frame types, including bar and banner', async () => {
       const res = await fetch(`${base}/frame-types`);
       expect(res.status).toBe(200);

@@ -1,9 +1,10 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
-import { isErrorBody, type IssuedSiteKey, type SiteKeyInfo } from '@taleart/contract/core';
+import { isErrorBody, type InstallInfo, type IssuedSiteKey, type SiteKeyInfo } from '@taleart/contract/core';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
+import { installSnippet, SITE_KEY_PLACEHOLDER, testPageLink } from '../install-snippet';
 
 /** What the drawer is about to do. */
 export type SiteKeyAction = 'issue' | 'rotate' | 'revoke';
@@ -21,10 +22,13 @@ function refusal(err: unknown, fallback: string): string {
 }
 
 /**
- * The project's site key on the zone page (epic UX rework R3), until the Install tab (story 13):
- * its prefix and date for everyone with access, and Issue, Rotate and Revoke for admins in a drawer.
- * A new key is shown once there. Rotating and revoking affect every zone of the project, which the
- * drawer says. Each change reads the dashboard again, since it changes whether zones are installed.
+ * The zone page's Install tab (epic UX rework R3, R13): the project's site key (its prefix and date
+ * for everyone with access; Issue, Rotate and Revoke for admins in a drawer), the copy-ready snippet
+ * with the API URL and this zone's slug, and "Open test page", a TaleArt-served page that renders
+ * the zone with the Web SDK. A new key is shown once, in the drawer, where the snippet and the test
+ * page link carry it; anywhere else the snippet says {@link SITE_KEY_PLACEHOLDER} and the test page
+ * asks for the key. Rotating and revoking affect every zone of the project, which the drawer says.
+ * Each change reads the dashboard again, since it changes whether zones are installed.
  */
 @Component({
   selector: 'app-site-key-card',
@@ -32,14 +36,9 @@ function refusal(err: unknown, fallback: string): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     :host {
-      display: block;
-    }
-    .site-key__snippet {
-      overflow-wrap: anywhere;
-    }
-    /* Muted text on the code's sunken background is under 4.5:1. */
-    .site-key__snippet code {
-      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
     }
     .key-info {
       display: flex;
@@ -51,9 +50,30 @@ function refusal(err: unknown, fallback: string): string {
     .key-info dd {
       margin: 0;
     }
-    .key-actions {
+    .key-actions,
+    .snippet-actions {
       display: flex;
       flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .snippet {
+      margin: 0;
+      padding: var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-control);
+      background: var(--surface-sunken);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: var(--text-sm);
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      /* Muted text on the sunken background is under 4.5:1. */
+      color: var(--text);
+    }
+    .drawer-snippet {
+      display: flex;
+      flex-direction: column;
       gap: var(--space-2);
     }
   `,
@@ -71,17 +91,14 @@ function refusal(err: unknown, fallback: string): string {
                 Revoke
               </button>
             } @else {
-              <button type="button" class="btn btn--secondary btn--sm" id="site-key-issue" (click)="open('issue', $event)">
+              <button type="button" class="btn btn--primary btn--sm" id="site-key-issue" (click)="open('issue', $event)">
                 Issue site key
               </button>
             }
           </div>
         }
       </div>
-      <p class="muted site-key__snippet">
-        One key for every zone of this project. Place this zone with
-        <code class="key-prefix">&lt;taleart-view site-key="…" zone="{{ zoneSlug() }}"&gt;</code>.
-      </p>
+      <p class="muted">One key for every zone of this project. Your pages send it with a zone's slug.</p>
       @if (info(); as key) {
         <dl class="key-info">
           <div>
@@ -96,13 +113,53 @@ function refusal(err: unknown, fallback: string): string {
       } @else if (loaded()) {
         <p class="muted">
           @if (admin()) {
-            No site key yet. Issue one so SDKs on your pages can read this project's zones.
+            No site key yet. Issue one so SDKs on your pages can read this project's zones. It is shown once, when
+            you issue it.
           } @else {
             No site key yet. Ask an admin to issue one so SDKs on your pages can read this project's zones.
           }
         </p>
+        @if (admin()) {
+          <!-- Said before issuing, since Issue issues at once (the first run in 15 actions, story 8.13). -->
+          <p id="site-key-exposure-tab">
+            <strong>It opens every zone of this project.</strong> The key sits in your pages' HTML, so anyone who sees
+            it can read every zone of this project that has a display and visible content, by its slug, and slugs are
+            often guessable (such as "home").
+          </p>
+        }
       }
       <p class="visually-hidden" role="status">{{ announcement() }}</p>
+    </section>
+
+    <section class="card section zone-section" aria-labelledby="snippet-title">
+      <div class="section__header">
+        <h3 class="section__title" id="snippet-title">Snippet</h3>
+      </div>
+      @if (install(); as urls) {
+        <p class="muted" id="snippet-hint">
+          Paste it into your page's HTML where the zone should show. Replace {{ placeholder }} with your project's site
+          key: TaleArt shows a key only once, when it is issued. If you no longer have it, rotate the key.
+        </p>
+        <pre class="snippet" id="install-snippet" aria-describedby="snippet-hint"><code>{{ snippet(urls, null) }}</code></pre>
+        <div class="snippet-actions">
+          <button type="button" class="btn btn--secondary btn--sm" id="snippet-copy" (click)="copySnippet(urls, null)">
+            Copy snippet
+          </button>
+          <a
+            class="btn btn--secondary btn--sm"
+            id="test-page-link"
+            target="_blank"
+            rel="noopener noreferrer"
+            [href]="testPage(urls, null)"
+          >
+            Open test page<span class="visually-hidden"> (opens in a new tab)</span>
+          </a>
+        </div>
+        <p class="muted">The test page asks for the site key and shows this zone as your page will.</p>
+      } @else if (installFailed()) {
+        <p class="form-error" role="alert">The snippet could not be loaded. Reload the page to try again.</p>
+      }
+      <p class="visually-hidden" role="status">{{ snippetStatus() }}</p>
     </section>
 
     @if (action(); as current) {
@@ -127,8 +184,30 @@ function refusal(err: unknown, fallback: string): string {
                 </p>
               </div>
               <div class="invite-actions">
-                <button type="button" class="btn btn--primary" (click)="copy(key)">Copy key</button>
+                <button type="button" class="btn btn--secondary" (click)="copy(key)">Copy key</button>
               </div>
+              @if (install(); as urls) {
+                <div class="drawer-snippet">
+                  <p class="field__label" id="issued-snippet-label">Snippet for this zone, with the key</p>
+                  <pre class="snippet" id="issued-snippet" aria-labelledby="issued-snippet-label"><code>{{
+                    snippet(urls, key.key)
+                  }}</code></pre>
+                  <div class="invite-actions">
+                    <button type="button" class="btn btn--secondary" id="issued-snippet-copy" (click)="copySnippet(urls, key.key)">
+                      Copy snippet
+                    </button>
+                    <a
+                      class="btn btn--primary"
+                      id="issued-test-page-link"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      [href]="testPage(urls, key.key)"
+                    >
+                      Open test page<span class="visually-hidden"> (opens in a new tab)</span>
+                    </a>
+                  </div>
+                </div>
+              }
               <p class="muted" role="status">{{ copyStatus() }}</p>
             } @else {
               @switch (current) {
@@ -147,6 +226,9 @@ function refusal(err: unknown, fallback: string): string {
                   </p>
                 }
                 @default {
+                  @if (saving()) {
+                    <p>Issuing a site key…</p>
+                  }
                   <p>
                     SDKs on your pages send this key, with a zone's slug, to read that zone's content. It is shown
                     once, when you issue it.
@@ -184,25 +266,54 @@ export class SiteKeyCard {
 
   /** The zone's project, whose site key this is. */
   readonly projectId = input.required<string>();
-  /** The zone's slug, shown in the snippet. */
+  /** The zone's slug, in the snippet and the test page link. */
   readonly zoneSlug = input.required<string>();
   /** Admins issue, rotate and revoke; everyone else only sees the prefix and date. */
   readonly admin = input(false);
 
+  protected readonly placeholder = SITE_KEY_PLACEHOLDER;
   protected readonly info = signal<SiteKeyInfo | null>(null);
   protected readonly loaded = signal(false);
+  /** Where the SDK and the test page are (`GET /install`); null until read. */
+  protected readonly install = signal<InstallInfo | null>(null);
+  protected readonly installFailed = signal(false);
   protected readonly action = signal<SiteKeyAction | null>(null);
   protected readonly issued = signal<IssuedSiteKey | null>(null);
   protected readonly saving = signal(false);
   protected readonly error = signal('');
   protected readonly copyStatus = signal('');
+  protected readonly snippetStatus = signal('');
   protected readonly announcement = signal('');
   protected returnFocus: HTMLElement | null = null;
   // Bumped per read, so an older answer for another project writes nothing.
   private reads = 0;
 
+  /** The snippet and test page link for this zone, with a key or the placeholder. */
+  protected readonly snippet = (urls: InstallInfo, key: string | null) => installSnippet(urls, this.slug(), key);
+  protected readonly testPage = (urls: InstallInfo, key: string | null) => testPageLink(urls, this.slug(), key);
+
+  // A zone read from an older answer may lack its slug: the snippet then names an empty zone.
+  private slug(): string {
+    return this.zoneSlug() ?? '';
+  }
+
   constructor() {
     effect(() => void this.read(this.projectId()));
+    void this.readInstall();
+  }
+
+  private async readInstall(): Promise<void> {
+    try {
+      const info = await firstValueFrom(this.http.get<InstallInfo | null>(`${API_BASE}/install`));
+      // Only a whole answer: a snippet with a missing URL would not work on any page.
+      if (info && [info.apiUrl, info.sdkUrl, info.testPageUrl].every((url) => typeof url === 'string' && url)) {
+        this.install.set(info);
+        return;
+      }
+    } catch {
+      // Said below.
+    }
+    this.installFailed.set(true);
   }
 
   private async read(projectId: string): Promise<void> {
@@ -229,12 +340,18 @@ export class SiteKeyCard {
     return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  /**
+   * Opens the drawer. Rotate and revoke wait for their confirmation there. Issue (no key is active,
+   * so nothing stops working) issues at once, after the tab said what the key opens; the drawer then
+   * shows the key, or the refusal with "Issue key" to try again.
+   */
   protected open(action: SiteKeyAction, event: Event): void {
     this.returnFocus = event.currentTarget as HTMLElement;
     this.issued.set(null);
     this.error.set('');
     this.copyStatus.set('');
     this.action.set(action);
+    if (action === 'issue') void this.submit();
   }
 
   protected close(): void {
@@ -260,8 +377,21 @@ export class SiteKeyCard {
     }
   }
 
-  protected async submit(event: Event): Promise<void> {
-    event.preventDefault();
+  /** Copies the snippet; in the drawer (with the key) the drawer's status says so, else the tab's. */
+  protected async copySnippet(urls: InstallInfo, key: string | null): Promise<void> {
+    const say = key ? this.copyStatus : this.snippetStatus;
+    // Cleared first, so copying twice announces again.
+    say.set('');
+    try {
+      await navigator.clipboard.writeText(installSnippet(urls, this.slug(), key));
+      say.set(key ? 'Snippet with the key copied' : 'Snippet copied');
+    } catch {
+      say.set('Could not copy. Select the snippet and copy it.');
+    }
+  }
+
+  protected async submit(event?: Event): Promise<void> {
+    event?.preventDefault();
     const action = this.action();
     // Once the key is shown, Enter must not issue another one.
     if (!action || this.saving() || this.issued()) return;

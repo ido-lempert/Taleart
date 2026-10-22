@@ -601,6 +601,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where a host page loads the Web SDK and where the test page is (epic UX rework R13).
+         * @description The API's public origin (`PUBLIC_API_URL`), the URL of the Web SDK bundle the API serves (`<apiUrl>/sdk/v1/taleart.js`, an ES module) and the URL of the TaleArt-served test page (`<apiUrl>/sdk/v1/test-page`), for the zone page's Install tab. Any signed-in user.
+         */
+        get: operations["getInstallInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/frame-types": {
         parameters: {
             query?: never;
@@ -1469,6 +1489,14 @@ export interface components {
         OrderTalesRequest: {
             /** @description Every tale id of the group, once each, in the new order. */
             taleIds: string[];
+        };
+        InstallInfo: {
+            /** @description The API's public origin, the value of `api-url` on a host page. */
+            apiUrl: string;
+            /** @description The Web SDK bundle (an ES module) for a host page's script tag. */
+            sdkUrl: string;
+            /** @description The test page. It takes the zone's slug as `?zone=<slug>` and a site key in the URL fragment, `#siteKey=<key>`, or pasted on the page. */
+            testPageUrl: string;
         };
         SiteKeyInfo: {
             /** @description The start of the site key, `tas_` and the next 6 characters, to recognise it. */
@@ -3369,6 +3397,27 @@ export interface operations {
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getInstallInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The install URLs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallInfo"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };

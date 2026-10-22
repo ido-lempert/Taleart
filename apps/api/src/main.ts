@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
+import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, SDK_BUNDLE_PATH } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
 import {
   DEFAULT_STORYLY_API_URL,
@@ -126,7 +126,11 @@ async function start(): Promise<void> {
       `Delivery API limited to ${rateLimit.burst} requests at once and ${rateLimit.perSecond} per second per address`
     : 'Delivery API rate limit off',
   );
-  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit });
+  // The Web SDK bundle host pages load from <PUBLIC_API_URL>/sdk/v1/taleart.js (epic UX rework R13):
+  // the build copies dist/libs/web-sdk/index.js next to main.js; WEB_SDK_FILE names another file.
+  const sdk = process.env['WEB_SDK_FILE'] ? { bundleFile: resolve(process.env['WEB_SDK_FILE']) } : {};
+  log('info', `Web SDK at ${publicApiUrl}${SDK_BUNDLE_PATH}`);
+  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit }, sdk);
   if (trustProxy !== undefined) {
     app.set('trust proxy', trustProxy);
     log('info', `Trusting X-Forwarded-For from ${JSON.stringify(trustProxy)}`);
