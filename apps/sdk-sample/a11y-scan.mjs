@@ -7,7 +7,7 @@
 // opening the viewer from a slide, and, in a context that prefers reduced motion, no autoplay (3:1, no dots).
 // Then two zones with two bars, each with its own shape and its own named items, and an unknown key
 // that renders nothing and logs one error.
-// Then playbooks (R8): a zone whose display is each MVP playbook's preset renders it.
+// Then templates (epic UX rework R5): a zone created from each template with a display renders its preset.
 // Then one site key with zones named by slug (epic UX rework R3): two zones, an unknown slug, and a
 // theme override for one slug only.
 // Then a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
@@ -432,10 +432,10 @@ try {
   violations += await scan(placed2, 'two zones and an unknown key', axe);
   await twoZones.close();
 
-  // Playbooks (R8): a zone shaped as the API leaves it after each MVP playbook is applied: its
-  // display is the playbook's preset (libs/contract/src/lib/playbooks.ts).
-  const PLAYBOOK_ZONES = {
-    'home-stories-bar': {
+  // Templates (epic UX rework R5): a zone shaped as the API creates it from each template with a
+  // display: its display is the template's preset (libs/contract/src/lib/templates.ts).
+  const TEMPLATE_ZONES = {
+    'stories-bar': {
       frame: {
         id: 'p1',
         type: 'bar',
@@ -450,15 +450,15 @@ try {
       },
     },
   };
-  for (const [playbookKey, { frame }] of Object.entries(PLAYBOOK_ZONES)) {
-    const playbookContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-    const played = await playbookContext.newPage();
+  for (const [templateKey, { frame }] of Object.entries(TEMPLATE_ZONES)) {
+    const templateContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const played = await templateContext.newPage();
     const playedErrors = [];
     played.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') playedErrors.push(msg.text());
     });
     played.on('pageerror', (err) => playedErrors.push(String(err)));
-    await serve(played, { tak_scan: { ...ZONE, slug: playbookKey, frame } });
+    await serve(played, { tak_scan: { ...ZONE, slug: templateKey, frame } });
     await played.goto(pageUrl(port, ['tak_scan']));
     const view = 'taleart-view';
     await played.locator(`${view} ${frame.type === 'bar' ? '.bar' : 'section.banner'}`).waitFor();
@@ -481,7 +481,7 @@ try {
     if (frame.type === 'bar') {
       check(
         look.bars === 1 && look.banners === 0 && look.shape === 'circle' && look.align === 'start' && look.gap === '12px',
-        'a zone from "Home page stories bar" shows its preset bar: circle, start, gap 12',
+        'a zone from "Stories bar" shows its preset bar: circle, start, gap 12',
       );
       check(look.titles !== 'hidden' && look.titlesShown === 3, 'the preset bar shows each group’s title');
     } else {
@@ -490,9 +490,9 @@ try {
         'a zone from "Promo banner" shows its preset banner: 3:1 with dots',
       );
     }
-    check(playedErrors.length === 0, `no console errors or warnings for the ${playbookKey} zone${playedErrors.length ? `: ${playedErrors.join('; ')}` : ''}`);
-    violations += await scan(played, `${playbookKey} playbook zone`, axe);
-    await playbookContext.close();
+    check(playedErrors.length === 0, `no console errors or warnings for the ${templateKey} zone${playedErrors.length ? `: ${playedErrors.join('; ')}` : ''}`);
+    violations += await scan(played, `${templateKey} template zone`, axe);
+    await templateContext.close();
   }
 
   // The project's theme (R9), as the dashboard saves it: every frame and the viewer follow.

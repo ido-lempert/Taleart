@@ -8,13 +8,10 @@ import {
   InvalidFrameSettingsError,
   InvalidThemeError,
   InvalidZoneError,
-  PlaybookAlreadyAppliedError,
-  PlaybookConcurrentChangeError,
-  PlaybookKeyRequiredError,
   ProjectNotFoundError,
   SlugTakenError,
   UnknownFrameTypeError,
-  UnknownPlaybookError,
+  UnknownTemplateError,
   ZoneNotFoundError,
 } from '@taleart/server-zones';
 import {
@@ -116,8 +113,6 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof DisplayExistsError ||
     err instanceof DisplayConcurrentChangeError ||
     err instanceof SlugTakenError ||
-    err instanceof PlaybookAlreadyAppliedError ||
-    err instanceof PlaybookConcurrentChangeError ||
     err instanceof InvalidStatusTransitionError ||
     err instanceof StaleRevisionError ||
     err instanceof NothingToPublishError ||
@@ -137,8 +132,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof InvalidThemeError ||
     err instanceof InvalidZoneError ||
     err instanceof EmptyDisplayChangeError ||
-    err instanceof PlaybookKeyRequiredError ||
-    err instanceof UnknownPlaybookError ||
+    err instanceof UnknownTemplateError ||
     err instanceof InvalidTagNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||

@@ -26,7 +26,7 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
-import { DEFAULT_THEME, PLAYBOOKS, VISIBILITY_REASON_CODES, type ImportReport, type Playbook } from '@taleart/contract';
+import { DEFAULT_THEME, VISIBILITY_REASON_CODES, type ImportReport } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import {
   clearDeliveryCache,
@@ -45,7 +45,13 @@ import {
   sweepUnusedProjectMediaFiles,
 } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
-import { applyPlaybook, foldStagesIntoZones, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
+import {
+  createZoneFromTemplate,
+  foldStagesIntoZones,
+  InvalidFrameSettingsError,
+  loadFrameTypeRegistry,
+  type FrameTypeRegistry,
+} from '@taleart/server-zones';
 import type { Pool, PoolClient } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig, type ProjectMediaOptions } from './app';
@@ -268,7 +274,7 @@ describe('Management API v1: projects and zones', () => {
     name: string;
     slug: string;
     projectId: string;
-    playbookKey: string | null;
+    createdFromTemplate: string | null;
     frame: { id: string; type: string; settings: unknown } | null;
   }> {
     const project = await createProject();
@@ -333,7 +339,7 @@ describe('Management API v1: projects and zones', () => {
       name: 'Home page bar',
       slug: 'home-page-bar',
       projectId: project.id,
-      playbookKey: null,
+      createdFromTemplate: null,
       frame: null,
       visibility: NEW_ZONE_VISIBILITY,
     });
@@ -418,7 +424,7 @@ describe('Management API v1: projects and zones', () => {
         name: 'Home page bar',
         slug: 'home-page-bar',
         projectId: project.id,
-        playbookKey: null,
+        createdFromTemplate: null,
         frame: null,
         visibility: NEW_ZONE_VISIBILITY,
       },
@@ -810,7 +816,7 @@ describe('Management API v1: projects and zones', () => {
 
         await migrate(pool);
 
-        const zones: { id: string; name: string; slug: string; playbookKey: string | null; frame: { id: string; type: string } | null }[] =
+        const zones: { id: string; name: string; slug: string; createdFromTemplate: string | null; frame: { id: string; type: string } | null }[] =
           await (await fetch(`${base}/zones`)).json();
         expect(zones.map((z) => [z.name, z.slug, z.frame?.id ?? null, z.frame?.type ?? null])).toEqual([
           ['Top bar', 'top-bar', top.id, 'bar'],
@@ -820,9 +826,9 @@ describe('Management API v1: projects and zones', () => {
           ['Shop – Banner 1', 'shop-banner-1', shopBanner, 'banner'],
           ['Empty', 'empty', null, null],
         ]);
-        // The original zones keep their ids; the new ones keep the playbook note.
+        // The original zones keep their ids; the new ones keep the template note, renamed from the playbook key (R5).
         expect([zones[0].id, zones[3].id, zones[5].id]).toEqual([home.id, shop.id, empty.id]);
-        expect(zones.slice(0, 3).map((z) => z.playbookKey)).toEqual(['home-stories-bar', 'home-stories-bar', 'home-stories-bar']);
+        expect(zones.slice(0, 3).map((z) => z.createdFromTemplate)).toEqual(['stories-bar', 'stories-bar', 'stories-bar']);
         // Every zone of a staged or framed zone lists the same tale groups in the same order (AD-14).
         for (const zone of zones.slice(0, 3)) expect(await groupIds(zone.id)).toEqual(homeGroups);
         for (const zone of zones.slice(3, 5)) expect(await groupIds(zone.id)).toEqual(shopGroups);
@@ -1099,191 +1105,159 @@ describe('Management API v1: projects and zones', () => {
     });
   });
 
-  describe('playbooks', () => {
-    const unknownId = '00000000-0000-4000-8000-000000000000';
+  describe('zone templates (epic UX rework R5)', () => {
     const barSettings = { shape: 'circle', size: 'medium', showTitles: true, alignment: 'start', gap: 12 };
     const bannerSettings = { aspectRatio: '3:1', autoplay: true, intervalSeconds: 5, showDots: true, loop: true };
-
-    function apply(zoneId: string, body: unknown): Promise<Response> {
-      return fetch(`${base}/zones/${zoneId}/playbook`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    }
 
     async function frameCount(zoneId: string): Promise<number> {
       return (await pool.query('SELECT 1 FROM frames WHERE zone_id = $1', [zoneId])).rowCount ?? 0;
     }
 
-    async function zoneListed(zoneId: string): Promise<{ playbookKey: string | null }> {
-      const zones: { id: string; playbookKey: string | null }[] = await (await fetch(`${base}/zones`)).json();
-      const zone = zones.find((z) => z.id === zoneId);
-      if (!zone) throw new Error('zone not listed');
-      return zone;
+    async function zoneCount(): Promise<number> {
+      return Number((await pool.query('SELECT count(*) AS n FROM zones')).rows[0].n);
     }
 
-    it('lists zones with no playbook as null', async () => {
+    it('lists a zone created without a template with no note', async () => {
       const zone = await createZone();
-      expect(zone.playbookKey).toBeNull();
+      expect(zone.createdFromTemplate).toBeNull();
       expect(await (await fetch(`${base}/zones`)).json()).toEqual([zone]);
     });
 
-    it('applies "Home page stories bar": a bar display with the preset settings, and the key on the zone', async () => {
-      const zone = await createZone();
-      const res = await apply(zone.id, { key: 'home-stories-bar' });
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body).toEqual({
-        applied: true,
-        // Its frame is the zone's display; it still has no key and nothing placed (R7).
-        zone: {
-          ...zone,
-          playbookKey: 'home-stories-bar',
-          frame: { id: expect.any(String), zoneId: zone.id, projectId: zone.projectId, type: 'bar', settings: barSettings },
-          visibility: notVisible(why('zone-not-installed', 'zone'), why('no-tale-groups', 'zone')),
-        },
+    it('creates a zone from "Stories bar": a bar display with the preset settings, and the note', async () => {
+      const project = await createProject();
+      const res = await post('/zones', { name: 'Home', projectId: project.id, template: 'stories-bar' });
+      expect(res.status).toBe(201);
+      const zone = await res.json();
+      expect(zone).toEqual({
+        id: expect.any(String),
+        name: 'Home',
+        slug: 'home',
+        projectId: project.id,
+        createdFromTemplate: 'stories-bar',
+        // Its display is set; it still has no key and nothing placed (R7).
+        frame: { id: expect.any(String), zoneId: zone.id, projectId: project.id, type: 'bar', settings: barSettings },
+        visibility: notVisible(why('zone-not-installed', 'zone'), why('no-tale-groups', 'zone')),
       });
-      expect(await (await fetch(`${base}/zones`)).json()).toEqual([body.zone]);
+      expect(await (await fetch(`${base}/zones`)).json()).toEqual([zone]);
     });
 
-    it('applies "Promo banner" to another zone, and the Delivery API returns its display', async () => {
-      const first = await createZone();
-      await apply(first.id, { key: 'home-stories-bar' });
-      const zone = await createZone();
-      const body = await (await apply(zone.id, { key: 'promo-banner' })).json();
-      expect([body.zone.frame.type, body.zone.frame.settings]).toEqual(['banner', bannerSettings]);
-      expect((await zoneListed(first.id)).playbookKey).toBe('home-stories-bar');
+    it('creates a zone from "Promo banner", and the Delivery API returns its display', async () => {
+      const project = await createProject();
+      const zone = await (await post('/zones', { name: 'Promo', projectId: project.id, template: 'promo-banner' })).json();
+      expect([zone.createdFromTemplate, zone.frame.type, zone.frame.settings]).toEqual(['promo-banner', 'banner', bannerSettings]);
       const { key } = await (await postKey(zone.id)).json();
       const delivered = await (
         await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } })
       ).json();
-      expect(delivered.frame).toEqual({ id: body.zone.frame.id, type: 'banner', settings: bannerSettings });
+      expect(delivered.frame).toEqual({ id: zone.frame.id, type: 'banner', settings: bannerSettings });
     });
 
-    it('refuses a zone that already has a display, creating nothing and recording no key', async () => {
-      const zone = await createZone();
-      await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: { gap: 20 } });
-      const res = await apply(zone.id, { key: 'promo-banner' });
-      expect(res.status).toBe(409);
-      expect((await res.json()).error.code).toBe('display_exists');
-      expect(await frameCount(zone.id)).toBe(1);
-      expect((await zoneListed(zone.id)).playbookKey).toBeNull();
-    });
-
-    it('creates nothing when the same playbook is applied again', async () => {
-      const zone = await createZone();
-      const first = await (await apply(zone.id, { key: 'home-stories-bar' })).json();
-      const again = await apply(zone.id, { key: 'home-stories-bar' });
-      expect(again.status).toBe(200);
-      expect(await again.json()).toEqual({ applied: false, zone: first.zone });
-      expect(await frameCount(zone.id)).toBe(1);
-    });
-
-    it('applies once when the same playbook is applied twice at the same time', async () => {
-      const zone = await createZone();
-      const results = await Promise.all([apply(zone.id, { key: 'promo-banner' }), apply(zone.id, { key: 'promo-banner' })]);
-      expect(results.map((r) => r.status)).toEqual([200, 200]);
-      const bodies = await Promise.all(results.map((r) => r.json()));
-      expect(bodies.map((b) => b.applied).sort()).toEqual([false, true]);
-      expect(await frameCount(zone.id)).toBe(1);
-    });
-
-    it('never fails with 500 when an apply races a display set by hand', async () => {
-      for (let round = 0; round < 8; round++) {
-        const zone = await createZone();
-        const [applied, manual] = await Promise.all([
-          apply(zone.id, { key: 'promo-banner' }),
-          post(`/zones/${zone.id}/frame`, { type: 'bar' }),
-        ]);
-        // Exactly one of them gives the zone its display; the other is refused with display_exists.
-        expect([
-          [200, 409],
-          [409, 201],
-        ]).toContainEqual([applied.status, manual.status]);
-        const refused = applied.status === 409 ? applied : manual;
-        expect((await refused.json()).error.code).toBe('display_exists');
-        expect(await frameCount(zone.id)).toBe(1);
-        expect((await zoneListed(zone.id)).playbookKey).toBe(applied.status === 200 ? 'promo-banner' : null);
-      }
-    });
-
-    it('applies a playbook from another registry through the zones module', async () => {
-      const zone = await createZone();
-      const custom: Playbook = { key: 'wide', label: 'Wide', goal: 'Test', frame: { ...PLAYBOOKS[1].frame } };
-      const registry = loadFrameTypeRegistry(frameTypesDir);
-      const result = await applyPlaybook(pool, registry, { zoneId: zone.id, key: 'wide' }, [custom]);
-      expect(result.applied).toBe(true);
-      expect(result.zone.playbookKey).toBe('wide');
-      expect(result.zone.frame?.type).toBe('banner');
-    });
-
-    it('refuses another playbook on a zone that has one, writing nothing', async () => {
-      const zone = await createZone();
-      await apply(zone.id, { key: 'home-stories-bar' });
-      const res = await apply(zone.id, { key: 'promo-banner' });
-      expect(res.status).toBe(409);
-      expect(await res.json()).toEqual({ error: { code: 'playbook_already_applied', message: expect.any(String) } });
-      expect(await frameCount(zone.id)).toBe(1);
-      expect((await zoneListed(zone.id)).playbookKey).toBe('home-stories-bar');
-    });
-
-    it('refuses a missing or unknown key with 400', async () => {
-      const zone = await createZone();
-      for (const body of [{}, { key: '' }, { key: 3 }]) {
-        const res = await apply(zone.id, body);
-        expect(res.status).toBe(400);
-        expect((await res.json()).error.code).toBe('validation_failed');
-      }
-      const res = await apply(zone.id, { key: 'nope' });
-      expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: { code: 'unknown_playbook', message: expect.any(String) } });
+    it('creates a zone from "Blank" with the note and no display', async () => {
+      const project = await createProject();
+      const res = await post('/zones', { name: 'Later', projectId: project.id, template: 'blank' });
+      expect(res.status).toBe(201);
+      const zone = await res.json();
+      expect([zone.createdFromTemplate, zone.frame]).toEqual(['blank', null]);
+      expect(zone.visibility.reasons.map((r: { code: string }) => r.code)).toContain('zone-no-display');
       expect(await frameCount(zone.id)).toBe(0);
     });
 
-    it('answers zone_not_found for an unknown zone', async () => {
-      for (const zoneId of [unknownId, 'nope']) {
-        const res = await apply(zoneId, { key: 'promo-banner' });
-        expect(res.status).toBe(404);
-        expect((await res.json()).error.code).toBe('zone_not_found');
+    it('leaves the display the zone own: editing it does not touch the note, and nothing links them', async () => {
+      const project = await createProject();
+      const zone = await (await post('/zones', { name: 'Home', projectId: project.id, template: 'stories-bar' })).json();
+      const edited = await fetch(`${base}/zones/${zone.id}/frame`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'banner' }),
+      });
+      expect(edited.status).toBe(200);
+      const [listed] = await (await fetch(`${base}/zones`)).json();
+      expect([listed.createdFromTemplate, listed.frame.type, listed.frame.id]).toEqual(['stories-bar', 'banner', zone.frame.id]);
+    });
+
+    it('refuses a template not in the registry with 400 unknown_template, creating nothing', async () => {
+      const project = await createProject();
+      for (const template of ['nope', 'home-stories-bar', '', 3, null]) {
+        const res = await post('/zones', { name: 'Home', projectId: project.id, template });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: { code: 'unknown_template', message: expect.any(String) } });
+      }
+      expect(await zoneCount()).toBe(0);
+    });
+
+    it('creates nothing when the slug is taken, even with a template', async () => {
+      const project = await createProject();
+      await post('/zones', { name: 'Home', projectId: project.id, slug: 'home' });
+      const res = await post('/zones', { name: 'Home', projectId: project.id, slug: 'home', template: 'promo-banner' });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error.code).toBe('slug_taken');
+      expect(await zoneCount()).toBe(1);
+      expect(Number((await pool.query('SELECT count(*) AS n FROM frames')).rows[0].n)).toBe(0);
+    });
+
+    it('makes the slug unique on the template path too, each zone with its own display', async () => {
+      const project = await createProject();
+      const created = await Promise.all(
+        [0, 1, 2].map(() => post('/zones', { name: 'Home', projectId: project.id, template: 'stories-bar' })),
+      );
+      expect(created.map((r) => r.status)).toEqual([201, 201, 201]);
+      const zones = await Promise.all(created.map((r) => r.json()));
+      expect(zones.map((z) => z.slug).sort()).toEqual(['home', 'home-2', 'home-3']);
+      for (const zone of zones) {
+        expect([zone.createdFromTemplate, zone.frame.type, zone.frame.settings]).toEqual(['stories-bar', 'bar', barSettings]);
+        expect(await frameCount(zone.id)).toBe(1);
       }
     });
 
-    it('refuses with 403 on a zone in a project the caller cannot access', async () => {
-      const zone = await createZone();
+    it('rolls the zone back when the frame-type registry refuses the preset', async () => {
+      // A registry that refuses every bar refuses the Stories bar preset after the zone row is written.
+      const project = await createProject();
+      const strict = loadFrameTypeRegistry(frameTypesDir);
+      const validate = strict.validate.bind(strict);
+      strict.validate = (type: string, settings: unknown) => {
+        if (type === 'bar') throw new InvalidFrameSettingsError('gap is not allowed');
+        return validate(type, settings);
+      };
+      await expect(
+        createZoneFromTemplate(pool, strict, { name: 'Home', projectId: project.id, template: 'stories-bar' }),
+      ).rejects.toBeInstanceOf(InvalidFrameSettingsError);
+      expect(await zoneCount()).toBe(0);
+    });
+
+    it('refuses with 403 in a project the caller cannot access, creating nothing', async () => {
+      const project = await createProject();
       const own = await createProject('Own');
       const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
       await addProjectMember(pool, own.id, user.id);
       sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
-      const res = await apply(zone.id, { key: 'promo-banner' });
+      const res = await post('/zones', { name: 'Home', projectId: project.id, template: 'promo-banner' });
       expect(res.status).toBe(403);
-      expect((await res.json()).error.code).toBe('forbidden');
+      expect(await zoneCount()).toBe(0);
+    });
+
+    it('has no apply-playbook route any more', async () => {
+      const zone = await createZone();
+      const res = await fetch(`${base}/zones/${zone.id}/playbook`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'promo-banner' }),
+      });
+      expect(res.status).toBe(404);
       expect(await frameCount(zone.id)).toBe(0);
     });
 
-    it('lets a content manager of the project apply a playbook and edit its display', async () => {
+    it('renames the stored playbook note "home-stories-bar" to "stories-bar", and keeps notes when the migration runs again', async () => {
       const zone = await createZone();
-      const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
-      await addProjectMember(pool, zone.projectId, user.id);
-      sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
-      const body = await (await apply(zone.id, { key: 'home-stories-bar' })).json();
-      expect(body.applied).toBe(true);
-      const settings = { ...barSettings, shape: 'rounded-square', gap: 20 };
-      const edited = await fetch(`${base}/zones/${zone.id}/frame`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings }),
-      });
-      expect(edited.status).toBe(200);
-      expect((await edited.json()).settings).toEqual(settings);
-    });
-
-    it('keeps the applied key when the migration runs again', async () => {
-      const zone = await createZone();
-      await apply(zone.id, { key: 'promo-banner' });
+      const project = await createProject();
+      const banner = await (await post('/zones', { name: 'Promo', projectId: project.id, template: 'promo-banner' })).json();
+      await pool.query("UPDATE zones SET playbook_key = 'home-stories-bar' WHERE id = $1", [zone.id]);
       await restart();
       await restart();
-      expect((await zoneListed(zone.id)).playbookKey).toBe('promo-banner');
+      const zones: { id: string; createdFromTemplate: string | null }[] = await (await fetch(`${base}/zones`)).json();
+      expect(zones.map((z) => [z.id, z.createdFromTemplate])).toEqual([
+        [zone.id, 'stories-bar'],
+        [banner.id, 'promo-banner'],
+      ]);
     });
   });
 

@@ -3,7 +3,6 @@ import {
   isZoneSlug,
   uniqueZoneSlug,
   zoneSlugFromName,
-  type AppliedPlaybook,
   type Zone,
 } from '@taleart/contract';
 import { projectExists, type Db, type ProjectScope } from '@taleart/server-access';
@@ -11,16 +10,14 @@ import { projectExists, type Db, type ProjectScope } from '@taleart/server-acces
 /** A zone as this module stores it: its visibility (epic UX rework R7) is composed in by the API. */
 export type StoredZone = Omit<Zone, 'visibility'>;
 
-/** The outcome of applying a playbook, with the zone as stored. */
-export type StoredAppliedPlaybook = Omit<AppliedPlaybook, 'zone'> & { zone: StoredZone };
-
 /**
- * The columns of a zone as the API returns it: its slug, the applied playbook's key (R8) and its
+ * The columns of a zone as the API returns it: its slug, the template it was created from (a
+ * note, epic UX rework R5, stored in `playbook_key`) and its
  * display, the zone's one frame or null (AD-17). Reads the table as `zones`, so it also serves
  * `INSERT … RETURNING` and `UPDATE … RETURNING`.
  */
 export const ZONE_COLUMNS = `zones.id, zones.name, zones.slug, zones.project_id AS "projectId",
-  zones.playbook_key AS "playbookKey",
+  zones.playbook_key AS "createdFromTemplate",
   (SELECT json_build_object('id', f.id, 'zoneId', f.zone_id, 'projectId', f.project_id, 'type', f.type, 'settings', f.settings)
    FROM frames f WHERE f.zone_id = zones.id ORDER BY f.created_at, f.id LIMIT 1) AS frame`;
 
@@ -85,11 +82,12 @@ export async function listZones(db: Db, scope: ProjectScope = 'all'): Promise<St
 /**
  * Creates a zone in a project, without a display. A given slug must be a slug ({@link InvalidZoneError})
  * and free in the project ({@link SlugTakenError}). Without one, the slug is made from the name and
- * made unique in the project with `-2`, `-3`, … (epic UX rework R1).
+ * made unique in the project with `-2`, `-3`, … (epic UX rework R1). `createdFromTemplate` is
+ * recorded as given: `createZoneFromTemplate` checks it and sets the template's display.
  */
 export async function createZone(
   db: Db,
-  input: { name: string; projectId: string; slug?: unknown },
+  input: { name: string; projectId: string; slug?: unknown; createdFromTemplate?: string },
 ): Promise<StoredZone> {
   const given = input.slug === undefined ? null : checkedSlug(input.slug);
   if (!(await projectExists(db, input.projectId))) {
@@ -100,8 +98,9 @@ export async function createZone(
   for (let attempt = 1; ; attempt++) {
     const slug = given ?? (await freeSlug(db, input.projectId, zoneSlugFromName(input.name)));
     const { rows } = await db.query<StoredZone>(
-      `INSERT INTO zones (name, project_id, slug) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING ${ZONE_COLUMNS}`,
-      [input.name, input.projectId, slug],
+      `INSERT INTO zones (name, project_id, slug, playbook_key) VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING RETURNING ${ZONE_COLUMNS}`,
+      [input.name, input.projectId, slug, input.createdFromTemplate ?? null],
     );
     if (rows[0]) return rows[0];
     if (given !== null || attempt >= 5) throw new SlugTakenError(slug);
