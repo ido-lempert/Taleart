@@ -164,7 +164,7 @@ describe('checkTaleDocument: images and video (story 7.5)', () => {
     expect(err).toMatchObject({
       code: 'invalid_tale_document',
       pointer: '/elements/1/a11y/label',
-      message: '"Image 2" needs alt text, or must be marked decorative, before the tale is published.',
+      message: '"Image 2" needs alt text, or must be marked decorative, before the tale can be updated.',
     });
     // Blank alt text is none; a hidden element is not delivered, so it does not block.
     expect(refusal(doc([media(1, 'video', VIDEO, { a11y: { label: '  ' } })]), checkPublishableDocument)).toBe(

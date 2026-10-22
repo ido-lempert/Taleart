@@ -1992,7 +1992,7 @@ describe('App', () => {
       await settle(fixture);
       await flushRefresh(fixture, { ...oneZone, groups: { z1: [live] } });
       await settle(fixture);
-      const warning = "Tale is shown; its studio draft has problems and wasn't published.";
+      const warning = "Tale is shown; its studio draft has problems and wasn't put on the site.";
       // Announced once, by its alert, not again by the status announcement.
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain(warning);
       expect(drawer()?.querySelector('[aria-live=polite]')?.textContent).toBe('Status: Shown');

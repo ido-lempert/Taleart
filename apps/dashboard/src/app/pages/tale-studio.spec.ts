@@ -1211,14 +1211,36 @@ describe('TaleStudioPage', () => {
       );
     });
 
-    describe('draft and publish (user decision 2026-10-22)', () => {
-      const publishState = () => root.querySelector('#studio-publish-state')?.textContent?.trim();
-      const publishButton = () => root.querySelector('#studio-publish') as HTMLButtonElement;
+    describe('Update tale and the status line (user decision 2026-10-22, epic UX rework R15)', () => {
+      const publishState = () => root.querySelector('#studio-update-state')?.textContent?.trim();
+      const publishButton = () => root.querySelector('#studio-update') as HTMLButtonElement;
       const discardButton = () => root.querySelector('#studio-discard') as HTMLButtonElement;
+      const VISIBLE = { visible: true, reasons: [] };
+      const GROUP_OFF = { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] };
+      const NOT_UPDATED = { visible: false, reasons: [{ code: 'not-updated-yet', subject: 'tale' }] };
+      // The tale as the store lists it, with its visibility (story 8.2).
+      const seeTale = (visibility: unknown, changes: Record<string, unknown> = {}) =>
+        TestBed.inject(DashboardStore).taleGroups.set({
+          z1: [{ ...group, tales: [{ ...tale, visibility, ...changes }] } as unknown as ZoneTaleGroup],
+        });
+      let refresh: ReturnType<typeof vi.fn>;
 
-      it('says a published, unchanged tale is what visitors see, with nothing to publish or discard', async () => {
+      beforeEach(() => {
+        seeTale(VISIBLE);
+        refresh = vi.spyOn(TestBed.inject(DashboardStore), 'refresh').mockResolvedValue() as never;
+      });
+
+      it('labels its buttons Update tale and Discard changes', async () => {
         await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
-        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(publishButton().textContent?.trim()).toBe('Update tale');
+        expect(discardButton().textContent?.trim()).toBe('Discard changes');
+        expect(publishButton().getAttribute('aria-describedby')).toBe('studio-update-state');
+      });
+
+      it('says "Visible on site · up to date" with nothing to update or discard', async () => {
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        expect(publishState()).toBe('Visible on site · up to date');
+        expect(root.querySelector('.studio-update__dot.is-visible')).not.toBeNull();
         expect(publishButton().getAttribute('aria-disabled')).toBe('true');
         expect(discardButton().getAttribute('aria-disabled')).toBe('true');
         publishButton().click();
@@ -1226,19 +1248,46 @@ describe('TaleStudioPage', () => {
         http.expectNone(`${url}/publish`);
       });
 
-      it('says a tale with nothing published is a draft visitors cannot see, or live with its media only', async () => {
-        const store = TestBed.inject(DashboardStore);
-        store.taleGroups.set({ z1: [{ ...group, tales: [{ ...tale, status: 'draft' }] } as unknown as ZoneTaleGroup] });
+      it('says "Not visible: not updated yet" with the changes for a tale with nothing on the site', async () => {
+        seeTale(NOT_UPDATED);
         await open({ document: three, revision: 1, published: { document: null, revision: 0 } });
-        expect(publishState()).toContain('Draft — not visible to visitors');
+        expect(publishState()).toBe('Not visible: not updated yet · 3 changes not updated yet');
+        expect(root.querySelector('.studio-update__dot:not(.is-visible)')).not.toBeNull();
         expect(publishButton().hasAttribute('aria-disabled')).toBe(false);
         expect(discardButton().getAttribute('aria-disabled')).toBe('true');
-        store.taleGroups.set({ z1: [group] });
+        // A shown tale from media, before documents: visitors see its media.
+        seeTale(VISIBLE);
         fixture.detectChanges();
-        expect(publishState()).toBe("Live — visitors see the tale's media; studio changes aren't published yet.");
+        expect(publishState()).toBe('Visible on site · changes not updated yet');
       });
 
-      it('has nothing to publish while no draft is stored and nothing changed', async () => {
+      it('says "Not visible: group is off" in a group that is off, with the changes not updated yet', async () => {
+        seeTale(GROUP_OFF, { status: 'blocked-by-group' });
+        await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
+        expect(publishState()).toBe('Not visible: group is off');
+        key(canvasEl(1), 'ArrowDown');
+        await settle(fixture);
+        expect(publishState()).toBe('Not visible: group is off · 1 change not updated yet');
+        key(canvasEl(2), 'ArrowDown');
+        await settle(fixture);
+        expect(publishState()).toBe('Not visible: group is off · 2 changes not updated yet');
+        publishButton().click();
+        await settle(fixture);
+        const save = http.expectOne(url);
+        const draft = (save.request.body as { document: TaleDocument }).document;
+        save.flush({ document: draft, revision: 4, published: { document: three, revision: 2 } });
+        await settle(fixture);
+        http
+          .expectOne(`${url}/publish`)
+          .flush({ document: draft, revision: 4, published: { document: draft, revision: 3 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(refresh).toHaveBeenCalled();
+        expect(publishState()).toBe('Not visible: group is off');
+        expect(live()).toBe('Tale updated. Not visible: group is off.');
+      });
+
+      it('has nothing to update while no draft is stored and nothing changed', async () => {
         await open({ document: null, revision: 0, published: { document: null, revision: 0 } });
         expect(publishButton().getAttribute('aria-disabled')).toBe('true');
         publishButton().click();
@@ -1249,11 +1298,12 @@ describe('TaleStudioPage', () => {
         expect(publishButton().hasAttribute('aria-disabled')).toBe(false);
       });
 
-      it('publishes changes once they are saved, with both revisions, and then reads published', async () => {
+      it('updates the tale once its changes are saved, with both revisions, then reads the indicator again', async () => {
         await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
         key(canvasEl(1), 'ArrowDown');
         await settle(fixture);
-        expect(publishState()).toBe('Unpublished changes — visitors see the published version until you publish them.');
+        expect(publishState()).toBe('Visible on site · changes not updated yet');
+        expect(refresh).not.toHaveBeenCalled();
         publishButton().click();
         await settle(fixture);
         const save = http.expectOne(url);
@@ -1279,15 +1329,99 @@ describe('TaleStudioPage', () => {
         publish.flush({ document: draft, revision: 4, published: { document: reordered, revision: 3 } });
         await settle(fixture);
         await settle(fixture);
-        expect(publishState()).toBe('Published — visitors see this version.');
-        expect(live()).toBe('Changes published. Visitors now see this version.');
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(publishState()).toBe('Visible on site · up to date');
+        expect(live()).toBe('Tale updated. Visitors now see this version.');
         expect(publishButton().getAttribute('aria-disabled')).toBe('true');
+      });
+
+      it('drops "not updated yet" once the tale is updated, and says what the indicator reads after', async () => {
+        seeTale(NOT_UPDATED);
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        // The store, read again, says the group is off (it was turned off meanwhile).
+        refresh.mockImplementation(async () => seeTale({ visible: false, reasons: [...GROUP_OFF.reasons] }));
+        publishButton().click();
+        await settle(fixture);
+        http
+          .expectOne(`${url}/publish`)
+          .flush({ document: three, revision: 3, published: { document: three, revision: 1 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(publishState()).toBe('Not visible: group is off');
+        expect(live()).toBe('Tale updated. Not visible: group is off.');
+      });
+
+      it('shows "Visible on site" once something is on the site, before the store is read again', async () => {
+        seeTale(NOT_UPDATED);
+        await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
+        publishButton().click();
+        await settle(fixture);
+        http
+          .expectOne(`${url}/publish`)
+          .flush({ document: three, revision: 3, published: { document: three, revision: 1 } });
+        await settle(fixture);
+        await settle(fixture);
+        expect(publishState()).toBe('Visible on site · up to date');
+      });
+
+      it('never says "Publish": not in its text, labels, tooltips or announcements', async () => {
+        const image = {
+          ...OWN_MEDIA,
+          id: '00000000-0000-4000-8000-0000000000ee',
+          a11y: {},
+          box: { x: 0.2, y: 0.2, w: 0.3, h: 0.3, rotation: 0 },
+          props: { mediaKey: 'tales/0c.png', fit: 'contain' },
+        } as unknown as TaleDocument['elements'][number];
+        seeTale(NOT_UPDATED);
+        await open({ document: { ...three, elements: [...three.elements, image] }, revision: 3 });
+        const said: string[] = [];
+        const scan = () => {
+          said.push(root.textContent ?? '');
+          for (const el of [root, ...root.querySelectorAll('*')]) {
+            for (const attr of [...el.attributes]) {
+              if (!attr.name.startsWith('_ng') && !attr.name.startsWith('ng-')) said.push(`${attr.name}=${attr.value}`);
+            }
+          }
+        };
+        scan();
+        // The inspector of a selected image without alt text, and of a text.
+        canvasEl(1).click();
+        await settle(fixture);
+        scan();
+        (root.querySelector('#studio-el-00000000-0000-4000-8000-0000000000ee') as HTMLElement).click();
+        await settle(fixture);
+        scan();
+        buttonNamed(root, 'Add text').click();
+        await settle(fixture);
+        scan();
+        // The line with changes, a status, and an update refused by the server.
+        seeTale(GROUP_OFF);
+        fixture.detectChanges();
+        scan();
+        publishButton().click();
+        await settle(fixture);
+        http.expectOne(url).flush({ document: three, revision: 4 });
+        await settle(fixture);
+        http.expectOne(`${url}/publish`).flush(
+          {
+            error: {
+              code: 'invalid_tale_document',
+              message: 'bad',
+              pointer: '/elements/0/a11y/label',
+            },
+          },
+          { status: 400, statusText: 'Bad Request' },
+        );
+        await settle(fixture);
+        scan();
+        const found = said.filter((text) => /publish/i.test(text));
+        expect(found).toEqual([]);
       });
 
       const stale = { error: { code: 'stale_revision', message: 'stale' } };
       const conflict = { status: 409, statusText: 'Conflict' };
 
-      it('offers reload or keep-as-copy when publishing finds a newer draft elsewhere', async () => {
+      it('offers reload or keep-as-copy when updating finds a newer draft elsewhere', async () => {
         await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
         publishButton().click();
         await settle(fixture);
@@ -1302,7 +1436,7 @@ describe('TaleStudioPage', () => {
         expect(buttonNamed(root, 'Keep my version as a new tale')).toBeTruthy();
       });
 
-      it('publishes again with the fresh published revision when only that moved (published elsewhere)', async () => {
+      it('updates again with the fresh site revision when only that moved (shown from the zone page)', async () => {
         await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
         key(canvasEl(1), 'ArrowDown');
         await settle(fixture);
@@ -1325,10 +1459,10 @@ describe('TaleStudioPage', () => {
         await settle(fixture);
         await settle(fixture);
         expect(alertText()).toBe('');
-        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(publishState()).toBe('Visible on site · up to date');
       });
 
-      it('keeps edits made while publishing, saving them after it on the same draft revision', async () => {
+      it('keeps edits made while updating, saving them after it on the same draft revision', async () => {
         await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
         publishButton().click();
         await settle(fixture);
@@ -1341,19 +1475,21 @@ describe('TaleStudioPage', () => {
         publish.flush({ document: three, revision: 3, published: { document: three, revision: 1 } });
         await settle(fixture);
         expect(status()).toBe('Unsaved changes');
-        expect(publishState()).toBe('Unpublished changes — visitors see the published version until you publish them.');
+        expect(publishState()).toBe('Visible on site · changes not updated yet');
         const after = await saveNow(4);
         expect(after.revision).toBe(3);
       });
 
-      it('refreshes what is published when the page comes back into view', async () => {
+      it('reads the site version and the indicator again when the page comes back into view', async () => {
         await open({ document: three, revision: 3, published: { document: null, revision: 0 } });
         window.dispatchEvent(new Event('focus'));
         http
           .expectOne(url)
           .flush(draftRead({ document: three, revision: 3, published: { document: three, revision: 1 } }));
         await settle(fixture);
-        expect(publishState()).toBe('Published — visitors see this version.');
+        expect(publishState()).toBe('Visible on site · up to date');
+        // The indicator is read again too, such as after the tale was shown or hidden elsewhere.
+        expect(refresh).toHaveBeenCalledTimes(1);
         document.dispatchEvent(new Event('visibilitychange'));
         http
           .expectOne(url)
@@ -1361,13 +1497,13 @@ describe('TaleStudioPage', () => {
         await settle(fixture);
       });
 
-      it('discards the draft after asking, back to the published version, and undo brings the draft back', async () => {
+      it('discards the changes after asking, back to the version on the site, and undo brings them back', async () => {
         const published = { ...three, canvas: { background: { type: 'color', color: '#ffffff' } } } as TaleDocument;
         await open({ document: three, revision: 5, published: { document: published, revision: 2 } });
         discardButton().click();
         await settle(fixture);
         expect(window.confirm).toHaveBeenCalledWith(
-          'Discard the draft and go back to the published version? You can undo this until you leave Tale Studio.',
+          'Discard your changes and go back to the version on the site? You can undo this until you leave Tale Studio.',
         );
         http.expectNone(`${url}/discard`);
 
@@ -1378,15 +1514,15 @@ describe('TaleStudioPage', () => {
         // Editing is held while the draft is discarded.
         key(canvasEl(1), 'ArrowDown');
         await settle(fixture);
-        expect(live()).toBe('Wait until the draft is discarded.');
+        expect(live()).toBe('Wait until the changes are discarded.');
         expect(docNow()).toBe(JSON.stringify(three));
         expect(discard.request.body).toEqual({ revision: 5, publishedRevision: 2 });
         discard.flush({ document: published, revision: 6, published: { document: published, revision: 2 } });
         await settle(fixture);
         await settle(fixture);
         expect(docNow()).toBe(JSON.stringify(published));
-        expect(publishState()).toBe('Published — visitors see this version.');
-        expect(live()).toBe('Draft discarded: the published version is back. Press Ctrl+Z to undo.');
+        expect(publishState()).toBe('Visible on site · up to date');
+        expect(live()).toBe('Changes discarded: the version on the site is back. Press Ctrl+Z to undo.');
         expect(status()).toBe('All changes saved');
 
         undoButton().click();

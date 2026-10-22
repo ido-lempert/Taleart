@@ -1261,7 +1261,7 @@ select {
   color: var(--danger-text);
   font-weight: 600;
 }
-.studio-publish {
+.studio-update {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1271,16 +1271,31 @@ select {
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
 }
-.studio-publish.is-unpublished {
+.studio-update.is-pending {
   border-color: var(--ember);
 }
-.studio-publish__state {
+.studio-update__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   flex: 1;
   min-width: 200px;
   margin: 0;
   font-size: var(--text-sm);
 }
-.studio-publish .btn[aria-disabled='true'] {
+/* The indicator's dot (epic UX rework R7): filled when visible on site, hollow when not. */
+.studio-update__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #b54708;
+  border-radius: 50%;
+}
+.studio-update__dot.is-visible {
+  border-color: #067647;
+  background: #067647;
+}
+.studio-update .btn[aria-disabled='true'] {
   opacity: 0.55;
   cursor: not-allowed;
 }
