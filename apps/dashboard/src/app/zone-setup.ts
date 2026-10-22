@@ -35,8 +35,9 @@ function without(zone: Pick<Zone, 'visibility'>, ...codes: VisibilityReasonCode[
  * The setup checklist of a zone (epic UX rework R9), from the reasons the zone is not visible
  * (R7), which the Delivery API's rule computes: a display, an installed site key, and a tale group
  * that is On with a shown tale, delivered in this zone. All three done is exactly "visible".
+ * `admin` words the install step for someone who can issue the key.
  */
-export function zoneSetupSteps(zone: Pick<Zone, 'visibility' | 'frame'>): ZoneSetupStep[] {
+export function zoneSetupSteps(zone: Pick<Zone, 'visibility' | 'frame'>, admin = true): ZoneSetupStep[] {
   return [
     {
       id: 'display',
@@ -44,7 +45,13 @@ export function zoneSetupSteps(zone: Pick<Zone, 'visibility' | 'frame'>): ZoneSe
       done: !!zone.frame,
       tab: 'display',
     },
-    { id: 'install', label: 'Install (issue a site key)', done: without(zone, 'zone-not-installed'), tab: 'install' },
+    {
+      id: 'install',
+      // Only admins issue site keys (AD-9); a content manager asks one.
+      label: admin ? 'Install (issue a site key)' : 'Ask an admin to issue a site key',
+      done: without(zone, 'zone-not-installed'),
+      tab: 'install',
+    },
     {
       id: 'group',
       label: 'Turn a tale group On with a shown tale',

@@ -93,3 +93,15 @@ deferred: []
 
 **Manual checks:**
 - Playwright (`shots-8.9/`): every check passed, including axe on each tab and no horizontal scroll at 390 px.
+
+## Review fixes (2026-10-22)
+
+- **Best-effort mark.** `markZonesFirstVisible` runs in its own transaction with `SET LOCAL lock_timeout = '1s'`, locks the unmarked rows in sorted id order (`ORDER BY id FOR UPDATE`), then updates. The router catches any failure, logs a JSON warning and answers the zones anyway (`firstVisibleAt` null for the unmarked); the next read marks them.
+- **What `firstVisibleAt` means.** The first time the API read the zone as visible, which is a dashboard read (zone list, create, rename). It is not when a visitor first saw the zone and is not an analytics timestamp.
+- **History.** Arrow, Home and End moves replace the history entry; clicks and step links push one. A `?tab=` naming the default or no tab is dropped from the URL in place.
+- **Panels** have `tabindex="-1"` (a focus target for step links only, not a tab stop).
+- **Content managers** see "Ask an admin to issue a site key"; its link focuses the Site key heading (`tabindex="-1"`).
+- **Group step.** It focuses an Off group's switch, else the first group's name (`h4`, `tabindex="-1"`), else "New tale group". While open with groups, it shows the first group's own first reason, such as "Summer sale: starts 1 Dec 2026, 09:00"; the zone's reasons are left to their own steps.
+- **New group from the top bar** while Display or Install shows: the page opens Tale groups.
+- **Announcements.** "Step done: …" when a step gets done, and "This zone is now visible on your site" when the checklist goes away. Each step's link is described by its "Done"/"To do" state; summary pills carry hidden "Display: " and "Install: " prefixes.
+- **Tests.** API: a mark blocked past its lock timeout still answers 200 with `firstVisibleAt` null and logs, and a later read marks; the rename path marks an unmarked visible zone. Dashboard: replaceUrl for keys and not for clicks, normalised `?tab=`, panel tabindex, prefixes, describedby, the content manager step, the group hint and focus, Tale groups after a new group, and the announcements.

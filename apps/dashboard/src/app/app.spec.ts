@@ -1068,7 +1068,7 @@ describe('App', () => {
       expect(header.querySelector('.zone-slug')?.textContent).toContain('z1');
       expect(header.querySelector('app-visibility')?.textContent).toContain('Not visible');
       const summary = [...header.querySelectorAll('[aria-label="Zone summary"] li')].map((li) => li.textContent?.trim());
-      expect(summary).toEqual(['Bar', '1 tale group', 'Installed']);
+      expect(summary).toEqual(['Display: Bar', '1 tale group', 'Install: Installed']);
       expect(header.textContent).toContain('Created from template: Stories bar');
       expect(buttonNamed(header, 'Edit name and slug')).toBeTruthy();
     });
@@ -1076,7 +1076,7 @@ describe('App', () => {
     it('says "No display", the plural count and "Not installed" for a new zone', async () => {
       const { root } = await open('/zones/z1', { projects: [acme], zones: [newZone] });
       const summary = [...root.querySelectorAll('[aria-label="Zone summary"] li')].map((li) => li.textContent?.trim());
-      expect(summary).toEqual(['No display', '0 tale groups', 'Not installed']);
+      expect(summary).toEqual(['Display: No display', '0 tale groups', 'Install: Not installed']);
     });
 
     it('opens a new zone on Tale groups, with the tab pattern and the other panels hidden', async () => {
@@ -1122,7 +1122,106 @@ describe('App', () => {
       expect(selected(first.root)).toEqual(['Display']);
       expect(shownPanels(first.root)).toEqual(['zone-panel-display']);
       await navigate(first.fixture, '/zones/z1?tab=nope');
+      await settle(first.fixture);
       expect(selected(first.root)).toEqual(['Tale groups']);
+      // An unknown or default tab is dropped from the URL in place.
+      expect(url()).toBe('/zones/z1');
+      await navigate(first.fixture, '/zones/z1?tab=groups');
+      await settle(first.fixture);
+      expect(url()).toBe('/zones/z1');
+    });
+
+    it('replaces the history entry for arrow keys, and pushes one for a click', async () => {
+      const { fixture, root } = await open('/zones/z1', { projects: [acme], zones: [newZone] });
+      const router = TestBed.inject(Router);
+      const go = vi.spyOn(router, 'navigate');
+      tab(root, 'Tale groups').focus();
+      await key(fixture, tab(root, 'Tale groups'), 'ArrowRight');
+      expect(go).toHaveBeenLastCalledWith([], expect.objectContaining({ replaceUrl: true }));
+      tab(root, 'Install').click();
+      await settle(fixture);
+      expect(go).toHaveBeenLastCalledWith([], expect.objectContaining({ replaceUrl: false }));
+      expect(url()).toBe('/zones/z1?tab=install');
+      go.mockRestore();
+    });
+
+    it('names its tabs, steps and summary for screen readers', async () => {
+      const { root } = await open('/zones/z1', { projects: [acme], zones: [newZone] });
+      for (const p of root.querySelectorAll('[role=tabpanel]')) expect(p.getAttribute('tabindex')).toBe('-1');
+      const display = root.querySelector('[data-summary=display]');
+      expect(display?.querySelector('.visually-hidden')?.textContent).toBe('Display: ');
+      expect(root.querySelector('[data-summary=install] .visually-hidden')?.textContent).toBe('Install: ');
+      const link = stepLink(root, 'Choose a display');
+      const state = root.querySelector(`#${link.getAttribute('aria-describedby')}`);
+      expect(state?.textContent?.trim()).toBe('To do');
+    });
+
+    it('tells a content manager to ask an admin, and focuses the Site key heading', async () => {
+      const manager = { id: 'u2', name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' };
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones/z1', { setupRequired: false, user: manager });
+      await flushRefresh(fixture, { projects: [acme], zones: [newZone] });
+      const root = fixture.nativeElement as HTMLElement;
+      expect(steps(root)[1]).toEqual(['Ask an admin to issue a site key', 'To do']);
+      stepLink(root, 'Ask an admin to issue a site key').click();
+      await settle(fixture);
+      expect(selected(root)).toEqual(['Install']);
+      expect(document.activeElement?.id).toBe('site-key-title');
+    });
+
+    it('says why the group step is open when every group is On, and focuses the first group', async () => {
+      const at = '2026-12-01T09:00:00.000Z';
+      const scheduled = {
+        ...group,
+        status: 'scheduled',
+        startsAt: at,
+        visibility: { visible: false, reasons: [{ code: 'starts-at', subject: 'group', at }, reason('zone-not-installed')] },
+        tales: [taleA],
+      };
+      const { fixture, root } = await open('/zones/z1', {
+        projects: [acme],
+        zones: [{ ...newZone, visibility: notVisible('zone-not-installed', 'no-visible-groups') }],
+        displays: { z1: frameBar },
+        groups: { z1: [scheduled] },
+      });
+      const hint = root.querySelector('[data-step=group] .zone-setup__hint')?.textContent?.trim() ?? '';
+      expect(hint).toMatch(/^Summer: starts /);
+      expect(hint).not.toContain('not installed');
+      stepLink(root, 'Turn a tale group On with a shown tale').click();
+      await settle(fixture);
+      expect(document.activeElement?.id).toBe('group-name-g1');
+    });
+
+    it('opens Tale groups when a group is created while another tab shows', async () => {
+      const { fixture, root } = await open('/zones/z1?tab=display', { projects: [acme], zones: [newZone] });
+      expect(selected(root)).toEqual(['Display']);
+      // The top bar's "New tale group" creates it; the store reads everything again.
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, { projects: [acme], zones: [newZone], groups: { z1: [offGroup] } });
+      await settle(fixture);
+      expect(selected(root)).toEqual(['Tale groups']);
+      expect(url()).toBe('/zones/z1');
+    });
+
+    it('announces steps as they get done and when the zone becomes visible', async () => {
+      const { fixture, root } = await open('/zones/z1', { projects: [acme], zones: [newZone] });
+      const live = () => root.querySelector('app-zone-detail-page [aria-live=polite]')?.textContent?.trim();
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, {
+        projects: [acme],
+        zones: [{ ...newZone, visibility: notVisible('zone-not-installed', 'no-tale-groups') }],
+        displays: { z1: frameBar },
+      });
+      expect(live()).toBe('Step done: Choose a display');
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, {
+        projects: [acme],
+        zones: [{ ...newZone, visibility: { visible: true, reasons: [] }, firstVisibleAt: '2026-10-22T10:00:00.000Z' }],
+        displays: { z1: frameBar },
+        groups: { z1: [{ ...group, tales: [taleA] }] },
+      });
+      expect(live()).toBe('This zone is now visible on your site');
     });
 
     it('moves between tabs with the arrow keys, Home and End, selecting as focus moves', async () => {

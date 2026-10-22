@@ -8582,6 +8582,45 @@ describe('Management API v1: projects and zones', () => {
       expect((await res.json()).firstVisibleAt).toBe(reads[0].firstVisibleAt);
     });
 
+    it('marks an unmarked visible zone when it is renamed', async () => {
+      const { zoneId, groupId } = await almostVisible();
+      await publish('tale-groups', groupId);
+      expect(await stored(zoneId)).toBeNull();
+      const res = await fetch(`${base}/zones/${zoneId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Renamed' }),
+      });
+      expect(res.status).toBe(200);
+      const renamed: ListedZone = await res.json();
+      expect(renamed.visibility.visible).toBe(true);
+      expect(renamed.firstVisibleAt).toMatch(ISO);
+      expect((await stored(zoneId))?.toISOString()).toBe(renamed.firstVisibleAt);
+    });
+
+    it('still lists the zones when marking fails, and marks the zone on a later read', async () => {
+      const { zoneId, groupId } = await almostVisible();
+      await publish('tale-groups', groupId);
+      // Another transaction holds the zone's row past the mark's lock timeout.
+      const holder = await pool.connect();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT id FROM zones WHERE id = $1 FOR UPDATE', [zoneId]);
+        const res = await fetch(`${base}/zones`);
+        expect(res.status).toBe(200);
+        const zone = ((await res.json()) as ListedZone[]).find((z) => z.id === zoneId);
+        expect(zone?.visibility.visible).toBe(true);
+        expect(zone?.firstVisibleAt).toBeNull();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not record zones as first visible'));
+      } finally {
+        await holder.query('ROLLBACK');
+        holder.release();
+        warn.mockRestore();
+      }
+      expect((await listedZone(zoneId)).firstVisibleAt).toMatch(ISO);
+    });
+
     it('keeps the column when the migrations run again', async () => {
       const { zoneId, groupId } = await almostVisible();
       await publish('tale-groups', groupId);
