@@ -54,8 +54,9 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** R9, R10, FR-002, FR-003, FR-009
 - **Prevents:** SDK credentials reaching content writes, and web and native clients using different data paths.
-- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts delivery keys only (a project's **site key** or a legacy **zone key**, AD-9), reads published content, and writes events. Its zone response lists the tale groups placed in the zone, in that zone's placement order (AD-14), and carries the links to their published media, which are public and need no key (AD-11). No client reads the database or a module directly.
-- **Amended 2026-10-23 (owner decision D6):** a request names its zone by **site key plus zone slug** (`zone="home-top"` on the page). One site key serves every zone of its project, and the response describes one zone with its one display (AD-17). An unknown slug is refused like a refused key. A **legacy zone key** keeps working with no slug: with a stage key it resolves to the zone migrated from that stage; without one it returns every display migrated from that zone, in the old frame order `[ASSUMPTION]` (owner to confirm before UX rework story 8.7). A legacy request gets the response shape the pre-rework SDK reads, so SDK builds from before the rework keep rendering. The Delivery filter and the dashboard's visibility indicator call one function (AD-6).
+- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts delivery keys only (a project's **site key**, AD-9), reads published content, and writes events. Its zone response lists the tale groups placed in the zone, in that zone's placement order (AD-14), and carries the links to their published media, which are public and need no key (AD-11). No client reads the database or a module directly.
+- **Amended 2026-10-23 (owner decision D6):** a request names its zone by **site key plus zone slug** (`zone="home-top"` on the page). One site key serves every zone of its project, and the response describes one zone with its one display (AD-17). An unknown slug is refused like a refused key.
+- **Amended 2026-10-22 (owner decision, UX rework story 8.7):** no host page used the legacy zone keys, the `stage` attribute or the pre-rework SDK build, so they are removed. A Delivery request needs the site key and the zone slug; every refusal (missing or unknown key, missing or unknown slug) is the same 401. The Delivery filter and the dashboard's visibility indicator call one function (AD-6).
 
 ### AD-3 — Contract first `[ADOPTED]`
 
@@ -106,8 +107,9 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** FR-002, FR-003, NFR-003
 - **Prevents:** credentials stored in plain text, and one credential type working on both surfaces.
-- **Rule:** Dashboard users sign in with passkeys (WebAuthn) only; there are no passwords. The first user on an empty install becomes the admin; every later user joins through a one-time invitation an admin creates for a project. After sign-in, sessions are server-side behind an http-only cookie. Zone keys are random secrets, shown once and stored hashed. Rotating issues a new key and revokes the old one.
+- **Rule:** Dashboard users sign in with passkeys (WebAuthn) only; there are no passwords. The first user on an empty install becomes the admin; every later user joins through a one-time invitation an admin creates for a project. After sign-in, sessions are server-side behind an http-only cookie. Delivery keys are random secrets, shown once and stored hashed. Rotating issues a new key and revokes the old one.
 - **Amended 2026-10-23 (D6):** a project has at most one active **site key**, a random secret with its own prefix, shown once, stored hashed, rotated and revoked under the same rules, owned by the `access` module. New zones get no zone key; existing zone keys stay valid, rotatable and revocable (AD-2). NFR-003's credential list reads: sessions, site keys and legacy zone keys.
+- **Amended 2026-10-22 (owner decision, UX rework story 8.7):** site keys only. Zone keys are removed and their table dropped; a zone is installed while its project has an active site key. NFR-003's credential list reads: sessions and site keys.
 
 ### AD-10 — Events `[ADOPTED]`
 

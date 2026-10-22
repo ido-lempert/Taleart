@@ -91,7 +91,7 @@ export function readTheme(raw: unknown): Theme {
 
 /**
  * A theme override from the host page's SDK configuration (R9), named by
- * `source` in warnings (such as `the theme of zone "tak_…"`): the fields that
+ * `source` in warnings (such as `the theme of zone "home-top"`): the fields that
  * pass the theme's rules, copied before they are checked and frozen, so later
  * changes to `raw` (or a Proxy's or iterator's other answers) never leak in.
  * Each invalid or unknown field is ignored with one console warning naming it;
