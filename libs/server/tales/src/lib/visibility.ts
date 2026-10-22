@@ -1,141 +1,108 @@
 // "Visible on site" or "Not visible because…" (epic UX rework R7) for zones, placements and
-// tales. The reasons come from the clauses the Delivery filter is made of (./delivery-rule) and
-// the zone setup the Delivery API checks (`zoneSetups`), combined by the contract's functions.
-import {
-  taleContentReasons,
-  visibilityInZones,
-  zoneSetupReasons,
-  zoneVisibility,
-  type Visibility,
-  type VisibilityReason,
-  type ZoneSetup,
-} from '@taleart/contract';
-import { zoneIdsWithActiveKey, type Db } from '@taleart/server-access';
-import { zoneIdsWithFrames } from '@taleart/server-zones';
-import { deliveredGroup, groupReasonsSql, readReasons, taleReasonsSql } from './delivery-rule';
+// tales, read from the clauses the Delivery filter is made of (./delivery-rule), all at one time
+// `now` bound as a parameter.
+import { taleContentReasons, visibilityOf, type Visibility, type VisibilityReason } from '@taleart/contract';
+import type { Db } from '@taleart/server-access';
+import { groupReasonsSql, readReasons, taleReasonsSql, zoneReasonsSql } from './delivery-rule';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const unique = (ids: readonly string[]): string[] => [...new Set(ids.filter((id) => UUID.test(id)))];
 
 /**
- * Each zone's setup reasons (R7): no display (no frame, until stories 5 and 6) and not installed
- * (no active zone key). The Delivery API delivers nothing in a zone with any of them; the
- * Management API adds them to what is placed there.
+ * Each group's reasons at `now`: in the zone `zoneId` when given (a placement: its own and that
+ * zone's setup), else for any zone it is placed in.
  */
-export async function zoneSetups(db: Db, zoneIds: readonly string[]): Promise<Map<string, VisibilityReason[]>> {
-  const setups = await readZoneSetups(db, zoneIds);
-  return new Map([...setups].map(([id, setup]) => [id, zoneSetupReasons(setup)]));
-}
-
-// Whether each zone has a display and is installed.
-async function readZoneSetups(db: Db, zoneIds: readonly string[]): Promise<Map<string, ZoneSetup>> {
-  const ids = unique(zoneIds);
-  if (ids.length === 0) return new Map();
-  const withDisplay = await zoneIdsWithFrames(db, ids);
-  const installed = await zoneIdsWithActiveKey(db, ids);
-  return new Map(ids.map((id) => [id, { hasDisplay: withDisplay.has(id), installed: installed.has(id) }]));
-}
-
-interface GroupReasons {
-  reasons: VisibilityReason[];
-  zoneIds: string[];
-}
-
-// Each group's own reasons now and the zones it is placed in.
-async function readGroupReasons(db: Db, groupIds: readonly string[]): Promise<Map<string, GroupReasons>> {
+export async function groupReasons(
+  db: Db,
+  groupIds: readonly string[],
+  now: Date,
+  zoneId?: string,
+): Promise<Map<string, VisibilityReason[]>> {
   const ids = unique(groupIds);
   if (ids.length === 0) return new Map();
-  const { rows } = await db.query<{ id: string; reasons: unknown; zoneIds: string[] }>(
-    `SELECT g.id, ${groupReasonsSql('g', 'now()')} AS reasons,
-       ARRAY(SELECT z.zone_id FROM zone_tale_groups z WHERE z.tale_group_id = g.id ORDER BY z.created_at, z.zone_id)
-         AS "zoneIds"
+  const zone = zoneId !== undefined && UUID.test(zoneId) ? zoneId : undefined;
+  const { rows } = await db.query<{ id: string; reasons: unknown }>(
+    `SELECT g.id, ${groupReasonsSql('g', '$2::timestamptz', zone === undefined ? undefined : '$3::uuid')} AS reasons
      FROM tale_groups g WHERE g.id = ANY($1::uuid[])`,
-    [ids],
+    zone === undefined ? [ids, now] : [ids, now, zone],
   );
-  return new Map(rows.map((row) => [row.id, { reasons: readReasons(row.reasons), zoneIds: row.zoneIds }]));
+  return new Map(rows.map((row) => [row.id, readReasons(row.reasons)]));
 }
 
-// The zones whose setup counts for content: the one zone read, or every zone it is placed in.
-function zonesOf(group: GroupReasons, zoneId: string | undefined): string[] {
-  return zoneId === undefined ? group.zoneIds : [zoneId];
+// Each tale's own reasons at `now` and its group, for the tales `taleIds` or every tale of `groupIds`.
+async function taleOwnReasons(
+  db: Db,
+  of: { taleIds: readonly string[] } | { groupIds: readonly string[] },
+  now: Date,
+): Promise<{ id: string; taleGroupId: string; reasons: VisibilityReason[] }[]> {
+  const ids = unique('taleIds' in of ? of.taleIds : of.groupIds);
+  if (ids.length === 0) return [];
+  const column = 'taleIds' in of ? 't.id' : 't.tale_group_id';
+  const { rows } = await db.query<{ id: string; taleGroupId: string; reasons: unknown }>(
+    `SELECT t.id, t.tale_group_id AS "taleGroupId", ${taleReasonsSql('t', '$2::timestamptz')} AS reasons
+     FROM tales t WHERE ${column} = ANY($1::uuid[])`,
+    [ids, now],
+  );
+  return rows.map((row) => ({ ...row, reasons: readReasons(row.reasons) }));
 }
 
-/**
- * Each group's visibility now (R7): in the zone `zoneId` when given (a placement), else in any
- * zone it is placed in.
- */
+/** Each group's visibility at `now`: in the zone `zoneId` when given (a placement), else in any zone. */
 export async function groupVisibilities(
   db: Db,
   groupIds: readonly string[],
+  now: Date,
   zoneId?: string,
 ): Promise<Map<string, Visibility>> {
-  const groups = await readGroupReasons(db, groupIds);
-  const setups = await zoneSetups(db, [...groups.values()].flatMap((g) => zonesOf(g, zoneId)));
-  return new Map(
-    [...groups].map(([id, group]) => [
-      id,
-      visibilityInZones(
-        group.reasons,
-        zonesOf(group, zoneId).map((z) => setups.get(z) ?? []),
-      ),
-    ]),
-  );
+  const reasons = await groupReasons(db, groupIds, now, zoneId);
+  return new Map([...reasons].map(([id, r]) => [id, visibilityOf(r)]));
 }
 
 /**
- * Each tale's visibility now (R7): its own reasons, its group's, and the setup of the zone
- * `zoneId` when given, else of every zone its group is placed in.
+ * The visibility of groups and all their tales at `now`, from two reads (R7): in the zone `zoneId`
+ * when given, else in any zone.
  */
-export async function taleVisibilities(
+export async function groupsAndTalesVisibility(
   db: Db,
-  taleIds: readonly string[],
+  groupIds: readonly string[],
+  now: Date,
   zoneId?: string,
-): Promise<Map<string, Visibility>> {
-  const ids = unique(taleIds);
-  if (ids.length === 0) return new Map();
-  const { rows } = await db.query<{ id: string; taleGroupId: string; reasons: unknown }>(
-    `SELECT t.id, t.tale_group_id AS "taleGroupId", ${taleReasonsSql('t', 'now()')} AS reasons
-     FROM tales t WHERE t.id = ANY($1::uuid[])`,
-    [ids],
-  );
-  const groups = await readGroupReasons(
+): Promise<{ groups: Map<string, Visibility>; tales: Map<string, Visibility> }> {
+  const groups = await groupReasons(db, groupIds, now, zoneId);
+  const tales = await taleOwnReasons(db, { groupIds }, now);
+  return {
+    groups: new Map([...groups].map(([id, r]) => [id, visibilityOf(r)])),
+    tales: new Map(
+      tales.map((t) => [t.id, visibilityOf(taleContentReasons(t.reasons, groups.get(t.taleGroupId) ?? []))]),
+    ),
+  };
+}
+
+/** Each tale's visibility at `now`: its own reasons and its group's, in any zone its group is placed in. */
+export async function taleVisibilities(db: Db, taleIds: readonly string[], now: Date): Promise<Map<string, Visibility>> {
+  const tales = await taleOwnReasons(db, { taleIds }, now);
+  const groups = await groupReasons(
     db,
-    rows.map((row) => row.taleGroupId),
+    tales.map((t) => t.taleGroupId),
+    now,
   );
-  const setups = await zoneSetups(db, [...groups.values()].flatMap((g) => zonesOf(g, zoneId)));
   return new Map(
-    rows.map((row) => {
-      const group = groups.get(row.taleGroupId) ?? { reasons: [], zoneIds: [] };
-      return [
-        row.id,
-        visibilityInZones(
-          taleContentReasons(readReasons(row.reasons), group.reasons),
-          zonesOf(group, zoneId).map((z) => setups.get(z) ?? []),
-        ),
-      ];
-    }),
+    tales.map((t) => [t.id, visibilityOf(taleContentReasons(t.reasons, groups.get(t.taleGroupId) ?? []))]),
   );
 }
 
 /**
- * Each zone's visibility now (R7): its setup reasons, and `no-shown-tales` when no group placed
- * in it is delivered.
+ * Each zone's visibility at `now` (R7): its setup, and whether a group placed in it is delivered
+ * there (`no-tale-groups`, `no-visible-groups`).
  */
-export async function zoneVisibilities(db: Db, zoneIds: readonly string[]): Promise<Map<string, Visibility>> {
+export async function zoneVisibilities(db: Db, zoneIds: readonly string[], now: Date = new Date()): Promise<Map<string, Visibility>> {
   const ids = unique(zoneIds);
   if (ids.length === 0) return new Map();
-  const setups = await readZoneSetups(db, ids);
-  const { rows } = await db.query<{ zoneId: string }>(
-    `SELECT DISTINCT z.zone_id AS "zoneId" FROM zone_tale_groups z
-     JOIN tale_groups g ON g.id = z.tale_group_id
-     WHERE z.zone_id = ANY($1::uuid[]) AND ${deliveredGroup('g', 'now()')}`,
-    [ids],
+  const { rows } = await db.query<{ id: string; reasons: unknown }>(
+    `SELECT z.id, ${zoneReasonsSql('z.id', '$2::timestamptz')} AS reasons FROM unnest($1::uuid[]) AS z(id)`,
+    [ids, now],
   );
-  const delivering = new Set(rows.map((row) => row.zoneId));
-  return new Map(
-    [...setups].map(([id, setup]) => [id, zoneVisibility(setup, delivering.has(id))]),
-  );
+  return new Map(rows.map((row) => [row.id, visibilityOf(readReasons(row.reasons))]));
 }
 
 /** Content with its visibility; a missing one (content removed meanwhile) reads as not in any zone. */
@@ -145,6 +112,6 @@ export function withVisibility<T extends { id: string }>(
 ): (T & { visibility: Visibility })[] {
   return items.map((item) => ({
     ...item,
-    visibility: visibilities.get(item.id) ?? visibilityInZones([], []),
+    visibility: visibilities.get(item.id) ?? visibilityOf([{ code: 'not-in-any-zone', subject: 'group' }]),
   }));
 }

@@ -33,6 +33,7 @@ export {
   zoneKeyInfo,
   zoneForKey,
   zoneIdsWithActiveKey,
+  zoneInstalledSql,
   type KeyZone,
 } from './lib/zoneKeys';
 export {

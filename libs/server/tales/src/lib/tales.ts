@@ -48,8 +48,8 @@ import {
   type KeyedDeliveryDocument,
   TaleDocumentTooLargeError,
 } from './tale-document';
-import { deliveredGroup, deliveredTale } from './delivery-rule';
-import { groupVisibilities, taleVisibilities, withVisibility } from './visibility';
+import { deliveredGroup, deliveredPlacement, deliveredTale } from './delivery-rule';
+import { groupsAndTalesVisibility, groupVisibilities, taleVisibilities, withVisibility } from './visibility';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -362,6 +362,7 @@ async function withTales<T extends GroupRow>(
   db: Db,
   groups: T[],
   zoneId?: string,
+  now: Date = new Date(),
 ): Promise<(Omit<T, keyof GroupRow> & StoredTaleGroup)[]> {
   if (groups.length === 0) return [];
   const ids = groups.map((g) => g.id);
@@ -370,30 +371,30 @@ async function withTales<T extends GroupRow>(
     [ids],
   );
   const zoneIds = await zoneIdsOf(db, ids);
-  const groupsVisible = await groupVisibilities(db, ids, zoneId);
-  const talesVisible = await taleVisibilities(
-    db,
-    tales.rows.map((tale) => tale.id),
-    zoneId,
-  );
-  return withVisibility(groups, groupsVisible).map(({ visibility, ...group }) => ({
+  const visible = await groupsAndTalesVisibility(db, ids, now, zoneId);
+  return withVisibility(groups, visible.groups).map(({ visibility, ...group }) => ({
     ...toGroup(group as unknown as T),
     visibility,
     zoneIds: zoneIds.get(group.id) ?? [],
     tales: withVisibility(
       tales.rows.filter((tale) => tale.taleGroupId === group.id).map(toTale),
-      talesVisible,
+      visible.tales,
     ),
   })) as (Omit<T, keyof GroupRow> & StoredTaleGroup)[];
 }
 
 // Tales with their visibility in any zone their group is placed in (R7).
-async function visibleTales<T extends { id: string }>(db: Db, tales: T[]): Promise<(T & Pick<Tale, 'visibility'>)[]> {
+async function visibleTales<T extends { id: string }>(
+  db: Db,
+  tales: T[],
+  now: Date = new Date(),
+): Promise<(T & Pick<Tale, 'visibility'>)[]> {
   return withVisibility(
     tales,
     await taleVisibilities(
       db,
       tales.map((tale) => tale.id),
+      now,
     ),
   );
 }
@@ -415,6 +416,7 @@ export async function listProjectTaleGroups(db: Db, projectId: string): Promise<
   const visible = await groupVisibilities(
     db,
     rows.map((g) => g.id),
+    new Date(),
   );
   // The project's list carries no cover; the zone lists and a group's own reads do.
   return withVisibility(rows, visible).map(({ taleCount, visibility, ...row }) => {
@@ -454,7 +456,7 @@ export async function createTaleGroup(
       [input.zoneId, group.id, projectId],
     );
     if (withGroup) await withGroup(tx, { taleGroupId: group.id, projectId });
-    const [visibility] = (await groupVisibilities(tx, [group.id], input.zoneId)).values();
+    const [visibility] = (await groupVisibilities(tx, [group.id], new Date(), input.zoneId)).values();
     return { ...toGroup(group), visibility, position: placed.rows[0].position, zoneIds: [input.zoneId], tales: [] };
   });
 }
@@ -1376,7 +1378,7 @@ export async function listDeliveryTaleGroups(
        tale_groups.cover_content_type AS "coverContentType", tale_groups.cover_animated AS "coverAnimated"
      FROM zone_tale_groups
      JOIN tale_groups ON tale_groups.id = zone_tale_groups.tale_group_id
-     WHERE zone_tale_groups.zone_id = $1 AND ${deliveredGroup('tale_groups', '$2')}
+     WHERE zone_tale_groups.zone_id = $1 AND ${deliveredPlacement('tale_groups', 'zone_tale_groups.zone_id', '$2')}
      ORDER BY zone_tale_groups.position, tale_groups.id`,
     [zoneId, now],
   );
