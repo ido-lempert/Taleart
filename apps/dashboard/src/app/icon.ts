@@ -19,6 +19,9 @@ export type IconName =
   | 'text'
   | 'image'
   | 'video'
+  | 'shape'
+  | 'emoji'
+  | 'sticker'
   | 'eye'
   | 'eye-off'
   | 'lock'
@@ -111,6 +114,18 @@ export type IconName =
         @case ('video') {
           <rect x="3" y="5" width="13" height="14" rx="2" />
           <path d="M16 10l5-3v10l-5-3" />
+        }
+        @case ('shape') {
+          <rect x="3" y="3" width="10" height="10" rx="2" />
+          <circle cx="16" cy="16" r="5" />
+        }
+        @case ('emoji') {
+          <circle cx="12" cy="12" r="9" />
+          <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
+        }
+        @case ('sticker') {
+          <path d="M15 3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h9l6-6V6a3 3 0 0 0-3-3z" />
+          <path d="M15 21v-4a2 2 0 0 1 2-2h4" />
         }
         @case ('eye') {
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

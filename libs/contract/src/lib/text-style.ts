@@ -4,6 +4,13 @@
 // the same rules for validators; a contract test keeps the two in step.
 import type { components } from '../generated/api';
 import { isFontId, projectFontAlias } from './project-fonts';
+import {
+  elementBounds,
+  resolveShapeStyle,
+  TALE_CANVAS_ASPECT,
+  type CanvasRect,
+  type TaleElementBox,
+} from './tale-document';
 import { contrastRatio, isFontFamily, TEXT_CONTRAST_MIN } from './theme';
 
 type Props = components['schemas']['TextElementProps'];
@@ -332,4 +339,54 @@ export function textContrast(style: TextStyle, backdrop: TextBackdrop): TextCont
   const ratio = contrastRatio(compositeColor(style.color, behind), behind);
   const minimum = isLargeText(style) ? LARGE_TEXT_CONTRAST_MIN : TEXT_CONTRAST_MIN;
   return { kind: ratio < minimum ? 'low' : 'ok', ratio, minimum, against };
+}
+
+// True when the rectangles share some area.
+const overlaps = (a: CanvasRect, b: CanvasRect) =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/**
+ * What lies behind the text at `index` of a document's elements, for its contrast check (R6,
+ * R12): the visible elements below it in the z-order whose area meets the text's, from the top
+ * down. An unrotated rectangle shape whose fill covers the whole text (inside its rounded corners
+ * and stroke) is the backdrop: opaque, it is the colour behind the text; translucent, it is drawn
+ * over the canvas. Any other element below the text (media, an emoji, an ellipse, a line, a
+ * rectangle that covers it only in part, or anything under a translucent rectangle) makes the
+ * backdrop unknowable, as the tale's media does. Texts below are not looked at.
+ */
+export function textBackdropAt(
+  elements: readonly { type: string; hidden?: boolean; box: TaleElementBox; props: unknown }[],
+  index: number,
+  base: TextBackdrop,
+): TextBackdrop {
+  const text = elements[index];
+  if (!text) return base;
+  const at = elementBounds(text.box);
+  const toWidth = TALE_CANVAS_ASPECT.height / TALE_CANVAS_ASPECT.width;
+  // A translucent rectangle met on the way down, drawn over the canvas.
+  let tint: string | null = null;
+  for (let i = index - 1; i >= 0; i--) {
+    const e = elements[i];
+    if (e.hidden === true || e.type === 'text' || !overlaps(at, elementBounds(e.box))) continue;
+    const look = e.type === 'shape' ? resolveShapeStyle(e.props) : null;
+    if (look && look.fill === null && look.strokeWidth === 0) continue;
+    const inset = look ? Math.max(look.radius, look.strokeWidth) : 0;
+    const box = e.box;
+    const covers =
+      tint === null &&
+      look?.shape === 'rectangle' &&
+      box.rotation === 0 &&
+      at.x >= box.x + inset * toWidth &&
+      at.x + at.w <= box.x + box.w - inset * toWidth &&
+      at.y >= box.y + inset &&
+      at.y + at.h <= box.y + box.h - inset;
+    if (!covers || !look?.fill) return { ...base, overMedia: true };
+    const [r, g, b, a] = rgba(look.fill);
+    const alpha = Math.round(a * look.opacity * 255);
+    const fill = `${hex([r, g, b])}${alpha.toString(16).padStart(2, '0')}`;
+    if (alpha === 255) return { canvasColor: fill.slice(0, 7), overMedia: false };
+    tint = fill;
+  }
+  if (tint === null || base.overMedia) return base;
+  return { canvasColor: compositeColor(tint, compositeColor(base.canvasColor, STAGE_COLOR)), overMedia: false };
 }

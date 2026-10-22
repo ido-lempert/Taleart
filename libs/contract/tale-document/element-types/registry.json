@@ -2,6 +2,9 @@
   "types": [
     { "key": "text", "label": "Text", "schema": "text.schema.json" },
     { "key": "image", "label": "Image", "schema": "image.schema.json" },
-    { "key": "video", "label": "Video", "schema": "video.schema.json" }
+    { "key": "video", "label": "Video", "schema": "video.schema.json" },
+    { "key": "shape", "label": "Shape", "schema": "shape.schema.json" },
+    { "key": "emoji", "label": "Emoji", "schema": "emoji.schema.json" },
+    { "key": "sticker", "label": "Sticker", "schema": "sticker.schema.json" }
   ]
 }

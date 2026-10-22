@@ -1625,17 +1625,20 @@ export interface components {
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry, such as `text`, `image` or `video`. */
+            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji` or `sticker`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
-            /** @description The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's or video's `mediaKey` is replaced by `url`, its public URL (AD-11). */
+            /** @description The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's, video's or image sticker's `mediaKey` is replaced by `url`, its public URL (AD-11). */
             props: Record<string, never>;
         };
         TaleDocument: components["schemas"]["v1.schema"];
         TextElementProps: components["schemas"]["text.schema"];
         ImageElementProps: components["schemas"]["image.schema"];
         VideoElementProps: components["schemas"]["video.schema"];
+        ShapeElementProps: components["schemas"]["shape.schema"];
+        EmojiElementProps: components["schemas"]["emoji.schema"];
+        StickerElementProps: components["schemas"]["sticker.schema"];
         /** @description An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
         MediaBackground: {
             /** @constant */
@@ -2256,6 +2259,41 @@ export interface components {
             opacity?: number;
             /** @description True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one. */
             taleMedia?: boolean;
+        };
+        /**
+         * ShapeElementProps
+         * @description The props of a shape element (epic Tale Studio R6): a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text (AD-16). Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.
+         */
+        "shape.schema": {
+            /** @enum {string} */
+            shape: "rectangle" | "ellipse" | "line";
+            /** @description The fill colour as #RRGGBB or #RRGGBBAA; no fill when left out. */
+            fill?: string;
+            /** @description The stroke colour as #RRGGBB or #RRGGBBAA; no stroke when left out. */
+            stroke?: string;
+            /** @description The stroke width as a fraction of the canvas height; 0 when left out. */
+            strokeWidth?: number;
+            /** @description A rectangle's corner radius as a fraction of the canvas height; 0 when left out. */
+            radius?: number;
+            /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
+            opacity?: number;
+        } & (unknown & unknown);
+        /**
+         * EmojiElementProps
+         * @description The props of an emoji sticker (epic Tale Studio R6): one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.
+         */
+        "emoji.schema": {
+            emoji: string;
+        };
+        /**
+         * StickerElementProps
+         * @description The props of an image sticker (epic Tale Studio R6): a PNG, WebP or GIF of the tale's project, by its storage key (AD-11), never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).
+         */
+        "sticker.schema": {
+            /** @description The storage key of a PNG, WebP or GIF image of the tale's project, as the server made it. */
+            mediaKey: string;
+            /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
+            opacity?: number;
         };
     };
     responses: {
@@ -4343,3 +4381,4 @@ export const textSchemaDirectionValues: ReadonlyArray<FlattenedDeepRequired<comp
 export const textSchemaBackgroundValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["background"]> = ["none", "box", "highlight"];
 export const imageSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["image.schema"]["fit"]> = ["cover", "contain"];
 export const videoSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["video.schema"]["fit"]> = ["cover", "contain"];
+export const shapeSchemaShapeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["shape.schema"]["shape"]> = ["rectangle", "ellipse", "line"];
