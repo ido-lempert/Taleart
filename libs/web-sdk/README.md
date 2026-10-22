@@ -192,6 +192,25 @@ project font with a second zone, its bar display, group and tale. The media file
 to a temporary folder that is removed with them. A run killed outright (SIGKILL) leaves those rows, whose media keys
 then name files that no longer exist.
 
+## Tale Studio preview (workspace only)
+
+`@taleart/web-sdk/preview` (`src/preview.ts`) is the entry point the dashboard's Tale Studio imports to preview a tale
+exactly as visitors see it (AD-16, epic Tale Studio R10). It is not part of the published bundle: `index.js` does not
+include it, so the host page's bundle and its public types are unchanged. It exports:
+
+- `TalePreview`: the SDK's own `TaleViewer` and document renderer embedded in a host element's Shadow DOM: shown in
+  place (not modal, never taking focus), always laid out as on a phone (no wide-screen deck), with the viewer's chrome,
+  playing the tale for its duration. `show(tale)` takes the changed tale at once (redrawn in place while the clock
+  allows it), `replay()`, `togglePause()`, `setTheme(theme)`, `setSafeArea(on)` and `destroy()`.
+- `previewDocument(draft, mediaUrl)`: the studio's draft as the Delivery API would deliver it (hidden layers and
+  editor fields left out, media keys as URLs).
+- `PREVIEW_SIZES`: 375 × 667, 390 × 844 (default) and 430 × 932.
+
+Links in the preview render with the visitor's look but without `href` or target (`role="link"`,
+`aria-disabled="true"`), and clicks on them are cancelled: a draft's destination never becomes a live link in the
+dashboard. `nx run sdk-sample:preview-parity` compares the preview with the sample page's viewer pixel by pixel at
+390 × 844.
+
 ## Building
 
 Run `nx build web-sdk` to build the library, and `nx run web-sdk:size` to check the 50 KB gzip budget.

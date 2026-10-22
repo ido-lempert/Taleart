@@ -172,6 +172,8 @@ export interface DocumentRenderOptions {
   background?: boolean;
   /** The visitor prefers reduced motion: media does not move by itself (R12). */
   reducedMotion?: boolean;
+  /** Links render inert, without a destination: the Tale Studio preview, which shows a draft (AD-16). */
+  inertLinks?: boolean;
 }
 
 // The canvas's media background (R2): the image filling the canvas with its fit, over its band
@@ -210,6 +212,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   canvas.className = 'ta-canvas';
   const color = canvasColor(doc);
   const context: RenderContext = { reducedMotion: options.reducedMotion === true };
+  if (options.inertLinks) context.inertLinks = true;
   const media = backgroundMedia(doc, context.reducedMotion);
   // A media background paints its band colour with it, over the tale's media too.
   if ((options.background || media) && color) canvas.style.backgroundColor = color;

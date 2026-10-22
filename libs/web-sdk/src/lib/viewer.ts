@@ -10,7 +10,7 @@ import {
 import { prefersReducedMotion, stillCover } from './bar';
 import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
-import { canvasColor, DOCUMENT_STYLES, renderTaleDocument } from './document/renderer';
+import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOptions } from './document/renderer';
 
 /** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
 export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
@@ -61,9 +61,10 @@ function isWide(): boolean {
  * set on its own, never through the `font` shorthand, so a value the browser
  * refuses cannot drop the size and line height. TaleArt's default accent is
  * white, 21:1 on black.
- * Controls are 44 px targets.
+ * Controls are 44 px targets. These are the viewer's styles on a phone-sized screen; the wide-screen
+ * deck ({@link VIEWER_WIDE_STYLES}) and the document's styles come with them in {@link VIEWER_STYLES}.
  */
-export const VIEWER_STYLES = `
+export const VIEWER_BASE_STYLES = `
 .viewer {
   position: fixed;
   inset: 0;
@@ -174,6 +175,10 @@ span.media { background: #1f2937; }
   .fill { forced-color-adjust: none; background: CanvasText; }
 }
 .side, .nav, .chip { display: none; }
+`;
+
+/** The viewer on a wide screen: the card in the middle, the deck beside it, arrows and group chips. */
+const VIEWER_WIDE_STYLES = `
 @media ${WIDE_QUERY} {
   .viewer {
     --card-w: min(calc(88vh * 9 / 16), 36vw);
@@ -246,7 +251,10 @@ span.media { background: #1f2937; }
   .chip svg, .nav svg { flex: none; width: 20px; height: 20px; fill: currentColor; }
   .viewer[data-rtl] .chip svg, .viewer[data-rtl] .nav svg { transform: scaleX(-1); }
 }
-${DOCUMENT_STYLES}`;
+`;
+
+/** The full-screen viewer's styles, with the tale document's. */
+export const VIEWER_STYLES = `${VIEWER_BASE_STYLES}${VIEWER_WIDE_STYLES}${DOCUMENT_STYLES}`;
 
 const ICONS = {
   pause: 'M6 5h4v14H6zM14 5h4v14h-4z',
@@ -315,9 +323,9 @@ export interface TaleViewerOptions {
  * host page the tap zones, arrow keys and swipes mirror: the next tale is to the left.
  */
 export class TaleViewer {
-  private readonly groups: readonly DeliveryTaleGroup[];
-  private dialog: HTMLDialogElement | null = null;
-  private parts!: {
+  protected groups: readonly DeliveryTaleGroup[];
+  protected dialog: HTMLDialogElement | null = null;
+  protected parts!: {
     frame: HTMLElement;
     segments: HTMLElement;
     name: HTMLElement;
@@ -331,11 +339,11 @@ export class TaleViewer {
   // On a wide screen, the group's other tales beside the card, by their index in the group.
   private sides = new Map<number, HTMLElement>();
   private entering = false; // the next show() is the one that opens the viewer
-  private group = 0;
-  private tale = 0;
+  protected group = 0;
+  protected tale = 0;
   private media: HTMLElement | null = null;
-  private layer: HTMLElement | null = null; // the current tale's document, over its media
-  private video: HTMLVideoElement | null = null;
+  protected layer: HTMLElement | null = null; // the current tale's document, over its media
+  protected video: HTMLVideoElement | null = null;
   // The clock is a document's video (R5): the tale ends at 15 s at most, and when it stalls.
   private capped = false;
   private watchdog: ReturnType<typeof setTimeout> | undefined;
@@ -344,8 +352,8 @@ export class TaleViewer {
   private paused = false; // by the visitor (Space or the button)
   private held = false; // while a pointer is down on the stage
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private timed = false; // the current tale runs on the timer, not a video
-  private duration = IMAGE_DURATION_MS; // the current tale's time on the timer
+  protected timed = false; // the current tale runs on the timer, not a video
+  protected duration = IMAGE_DURATION_MS; // the current tale's time on the timer
   private remaining = 0;
   private startedAt = 0;
   // The press in progress: its pointer, and whether a second pointer joined it (a pinch, not a gesture).
@@ -356,7 +364,7 @@ export class TaleViewer {
   private suppressLink = false;
   // Focus is on a link of the tale (R7): the tale waits, so it does not move on under the visitor.
   private linkFocused = false;
-  private opened = false;
+  protected opened = false;
   private reduced = false;
   private rtl = false; // the host page lays out right to left: tap zones, arrows and swipes mirror
   private statusTimer: ReturnType<typeof setTimeout> | undefined;
@@ -364,6 +372,8 @@ export class TaleViewer {
   private readonly onResize = () => {
     if (this.opened) this.layoutDeck('none', this.group, this.tale);
   };
+  /** How every tale's document renders, beyond what the viewer sets itself. */
+  protected renderOptions: Pick<DocumentRenderOptions, 'inertLinks'> = {};
 
   constructor(
     private readonly root: ShadowRoot | HTMLElement,
@@ -397,11 +407,9 @@ export class TaleViewer {
     this.opened = true;
     this.syncPauseButton();
     this.parts.pause.hidden = false;
-    if (typeof dialog.showModal === 'function') dialog.showModal();
-    else dialog.setAttribute('open', '');
+    this.present(dialog);
     this.rtl = isRtl(dialog);
     dialog.toggleAttribute('data-rtl', this.rtl);
-    dialog.focus();
     addEventListener('blur', this.onBlur);
     addEventListener('resize', this.onResize);
     this.entering = true;
@@ -426,6 +434,18 @@ export class TaleViewer {
     if (typeof dialog.close === 'function' && dialog.open) dialog.close();
     else dialog.removeAttribute('open');
     this.options.onClose?.(groupId);
+  }
+
+  /** Shows the dialog: modal, over the page, with focus in it. */
+  protected present(dialog: HTMLDialogElement): void {
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+    dialog.focus();
+  }
+
+  /** True on a wide screen, where the tale shows as a card with the deck beside it. */
+  protected wide(): boolean {
+    return isWide();
   }
 
   next(): void {
@@ -703,14 +723,14 @@ export class TaleViewer {
   }
 
   // Shows tale `tale` of group `group`, rebuilding the group's parts when it changes.
-  private show(group: number, tale: number, newGroup = group !== this.group): void {
+  protected show(group: number, tale: number, newGroup = group !== this.group): void {
     if (!this.dialog || !this.opened) return;
     this.stop();
     const g = this.groups[group];
     const [fromGroup, fromTale] = [this.group, this.tale];
     this.group = group;
     this.tale = tale;
-    const { segments, name, stage, status } = this.parts;
+    const { segments, name, status } = this.parts;
     if (newGroup || segments.childElementCount !== g.tales.length) {
       this.dialog.setAttribute('aria-label', g.name);
       name.textContent = g.name;
@@ -732,7 +752,27 @@ export class TaleViewer {
     clearTimeout(this.statusTimer);
     this.statusTimer = setTimeout(() => (status.textContent = text), 0);
 
-    const current = g.tales[tale];
+    this.renderContent(g.tales[tale], tale);
+    let motion: DeckMotion = 'none';
+    if (this.entering) motion = 'open';
+    else if (group !== fromGroup) motion = 'group';
+    else if (tale !== fromTale) motion = 'step';
+    this.entering = false;
+    this.layoutDeck(motion, fromGroup, fromTale);
+    this.options.onGroupShown?.(g.id);
+    if (this.reduced) {
+      // Reduced motion: every tale starts paused; only a video can be played, from the button.
+      this.paused = true;
+      this.syncPauseButton();
+      this.parts.pause.hidden = !this.video;
+    }
+    if (this.video) this.applyPause();
+    else this.startTimed();
+  }
+
+  // Draws tale `current` (number `tale` of its group) in the stage: its media and its document.
+  protected renderContent(current: DeliveryTale, tale: number): void {
+    const { stage } = this.parts;
     // Every tale is a document (R16). The tale's own media, while it is the bottom element and
     // fills the canvas, is drawn full-bleed in the stage behind the canvas, as tale media always
     // was, and keeps its rules: a video runs the tale for its whole length, with sound where the
@@ -764,6 +804,7 @@ export class TaleViewer {
         background: !this.media,
         label: current.title || `Tale ${tale + 1}`,
         reducedMotion: this.reduced,
+        ...this.renderOptions,
       });
       this.parts.top.before(this.layer);
       // Its video element (R5) runs the tale: it plays, pauses and ends with it. Next to the tale's
@@ -775,21 +816,6 @@ export class TaleViewer {
         this.alongside.push(docVideo);
       }
     }
-    let motion: DeckMotion = 'none';
-    if (this.entering) motion = 'open';
-    else if (group !== fromGroup) motion = 'group';
-    else if (tale !== fromTale) motion = 'step';
-    this.entering = false;
-    this.layoutDeck(motion, fromGroup, fromTale);
-    this.options.onGroupShown?.(g.id);
-    if (this.reduced) {
-      // Reduced motion: every tale starts paused; only a video can be played, from the button.
-      this.paused = true;
-      this.syncPauseButton();
-      this.parts.pause.hidden = !this.video;
-    }
-    if (this.video) this.applyPause();
-    else this.startTimed();
   }
 
   // On a wide screen, lays out the deck around the card: the group's other tales as side cards, in
@@ -799,7 +825,7 @@ export class TaleViewer {
   private layoutDeck(motion: DeckMotion, fromGroup: number, fromTale: number): void {
     if (!this.dialog) return;
     this.syncChips();
-    if (!isWide()) {
+    if (!this.wide()) {
       this.clearSides();
       return;
     }
@@ -1111,7 +1137,7 @@ export class TaleViewer {
   }
 
   // Stops whatever the current tale runs, and removes its media.
-  private stop(): void {
+  protected stop(): void {
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
     this.timed = false;
@@ -1121,6 +1147,11 @@ export class TaleViewer {
     this.disarmWatchdog();
     for (const video of this.alongside) video.pause();
     this.alongside = [];
+    this.clearContent();
+  }
+
+  // Removes the current tale's media and document; focus on a link of it goes to the dialog.
+  protected clearContent(): void {
     this.media?.remove();
     this.media = null;
     // Focus on a link of the removed tale goes to the dialog, not to the page behind it.
