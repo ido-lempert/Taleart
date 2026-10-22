@@ -1,6 +1,8 @@
 import Ajv2020 from 'ajv/dist/2020';
 import {
+  assertEmojiCheckSupported,
   documentMediaRefs,
+  elementName,
   emojiFontSize,
   isEmojiGlyph,
   isMediaElement,
@@ -99,6 +101,83 @@ describe('isEmojiGlyph', () => {
 
   it.each(['', 'abc', '😀😀', '<b>', '😀‮', '#', ' 😀', 42, null])('refuses %j', (value) => {
     expect(isEmojiGlyph(value)).toBe(false);
+  });
+
+  it(`refuses more than ${MAX_EMOJI_LENGTH} code units, even a valid-looking start`, () => {
+    expect(isEmojiGlyph('😀'.repeat(MAX_EMOJI_LENGTH))).toBe(false);
+    expect(isEmojiGlyph(`👍🏽${'‍'.repeat(MAX_EMOJI_LENGTH)}`)).toBe(false);
+  });
+
+  describe('on a runtime without the RegExp v flag', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    });
+
+    async function withoutVFlag() {
+      const Native = RegExp;
+      vi.stubGlobal(
+        'RegExp',
+        new Proxy(Native, {
+          construct(target, args: [string, string?]) {
+            if (args[1]?.includes('v')) throw new SyntaxError('Invalid flags supplied to RegExp constructor');
+            return new target(...args);
+          },
+        }),
+      );
+      vi.resetModules();
+      return import('./tale-document');
+    }
+
+    it('fails closed with a clear error, never a looser check', async () => {
+      const contract = await withoutVFlag();
+      expect(() => contract.assertEmojiCheckSupported()).toThrow(contract.EmojiCheckUnsupportedError);
+      expect(() => contract.assertEmojiCheckSupported()).toThrow(/Node\.js 22 or later/);
+      expect(() => contract.isEmojiGlyph('😀')).toThrow(contract.EmojiCheckUnsupportedError);
+    });
+
+    it('refuses an over-long value before the pattern runs', async () => {
+      const contract = await withoutVFlag();
+      expect(contract.isEmojiGlyph('😀'.repeat(MAX_EMOJI_LENGTH))).toBe(false);
+      expect(contract.isEmojiGlyph('')).toBe(false);
+    });
+  });
+
+  it('is supported on this runtime', () => {
+    expect(() => assertEmojiCheckSupported()).not.toThrow();
+  });
+});
+
+describe('elementName', () => {
+  it('names every element as the studio and refusals do', () => {
+    const elements = [
+      element('text', { text: '  Big   sale ' }),
+      element('text', { text: '' }),
+      element('shape', { shape: 'rectangle' }),
+      element('shape', { shape: 'ellipse' }),
+      element('shape', { shape: 'rectangle' }),
+      element('shape', { shape: 'line' }, { a11y: { label: 'Divider' } }),
+      element('emoji', { emoji: '🎉' }, { a11y: { label: 'party popper' } }),
+      element('emoji', { emoji: '😀' }),
+      element('sticker', { mediaKey: STICKER }),
+      element('image', { mediaKey: STICKER, fit: 'cover' }, { a11y: { label: 'A cat' } }),
+      element('shape', { shape: 'constructor' }),
+      element('poll', {}),
+    ];
+    expect(elements.map((_, i) => elementName(elements, i))).toEqual([
+      'Big sale',
+      'Empty text',
+      'Rectangle 1',
+      'Ellipse 1',
+      'Rectangle 2',
+      'Divider',
+      '🎉 party popper',
+      '😀',
+      'Sticker 1',
+      'A cat',
+      'Shape 1',
+      'Layer 12',
+    ]);
   });
 });
 

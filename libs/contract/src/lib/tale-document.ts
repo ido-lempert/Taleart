@@ -507,6 +507,58 @@ export function resolveShapeStyle(props: unknown): ShapeStyle | null {
   };
 }
 
+/** The names people read for each shape. */
+export const SHAPE_NAMES: Readonly<Record<ShapeKind, string>> = {
+  rectangle: 'Rectangle',
+  ellipse: 'Ellipse',
+  line: 'Line',
+};
+
+// The first 40 characters of a text or label on one line, or ''.
+function shortName(value: unknown): string {
+  const characters = [...(typeof value === 'string' ? value : '').trim().replace(/\s+/g, ' ')];
+  return characters.length > 40 ? `${characters.slice(0, 40).join('')}…` : characters.join('');
+}
+
+/**
+ * How Tale Studio's layers list, and the server's refusals, name the element at `index` of a
+ * document's elements of any trust: a text's first 40 characters on one line ("Empty text"); an
+ * image's, video's or image sticker's alt text, else its kind and place ("Image 2",
+ * {@link mediaElementName}); an emoji with its name ("🎉 party popper"), or alone; a shape's label,
+ * else its shape and place among the shapes of that kind ("Rectangle 1"); another type its place
+ * ("Layer 3").
+ */
+export function elementName(
+  elements: readonly { type: string; a11y?: { label?: string }; props?: unknown }[],
+  index: number,
+): string {
+  const element = elements[index];
+  const props = (element?.props ?? {}) as { text?: unknown; emoji?: unknown; shape?: unknown };
+  switch (element?.type) {
+    case 'text':
+      return shortName(props.text) || 'Empty text';
+    case 'emoji': {
+      const emoji = typeof props.emoji === 'string' ? props.emoji : '';
+      const label = shortName(element.a11y?.label);
+      return label ? `${emoji} ${label}`.trim() : emoji || 'Emoji';
+    }
+    case 'shape': {
+      const label = shortName(element.a11y?.label);
+      if (label) return label;
+      const shape = props.shape;
+      const n = elements
+        .slice(0, index + 1)
+        .filter((e) => e.type === 'shape' && (e.props as { shape?: unknown } | undefined)?.shape === shape).length;
+      const known = typeof shape === 'string' && Object.prototype.hasOwnProperty.call(SHAPE_NAMES, shape);
+      return `${known ? SHAPE_NAMES[shape as ShapeKind] : 'Shape'} ${n}`;
+    }
+    default:
+      return element && isMediaElement({ type: element.type })
+        ? mediaElementName(elements, index)
+        : `Layer ${index + 1}`;
+  }
+}
+
 /** The props of a new shape: white; a rectangle slightly rounded, a line a thin stroke. */
 export function newShapeProps(shape: ShapeKind): ShapeElementProps {
   if (shape === 'line') return { shape, stroke: '#FFFFFF', strokeWidth: 0.006 };
@@ -550,24 +602,44 @@ export const MAX_EMOJI_LENGTH = 64;
 
 let emojiPattern: RegExp | null = null;
 
+/** Thrown where the runtime lacks the RegExp `v` flag, which emoji checks need (Node.js 22 or later). */
+export class EmojiCheckUnsupportedError extends Error {
+  constructor() {
+    super(
+      'Checking emoji needs the RegExp v flag (\\p{RGI_Emoji}): run on Node.js 22 or later. ' +
+        'Emoji are never checked by a looser rule.',
+    );
+    this.name = 'EmojiCheckUnsupportedError';
+  }
+}
+
 // One RGI emoji (Unicode's recommended set: single emoji, keycaps, flags, modifier, tag and ZWJ
-// sequences). The `v` flag's `\p{RGI_Emoji}` states it exactly; a runtime without the flag uses an
-// approximation of the same shapes.
+// sequences), as the `v` flag's `\p{RGI_Emoji}` states it. Which sequences it holds follows the
+// runtime's Unicode (ICU) version. There is no looser fallback: without the flag it throws.
 function emojiRegExp(): RegExp {
   if (emojiPattern) return emojiPattern;
   try {
     emojiPattern = new RegExp('^\\p{RGI_Emoji}$', 'v');
   } catch {
-    const part = '\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier}|[\\u{E0020}-\\u{E007F}])*';
-    emojiPattern = new RegExp(
-      `^(?:\\p{Regional_Indicator}{2}|[#*0-9]\\uFE0F?\\u20E3|${part}(?:\\u200D${part})*)$`,
-      'u',
-    );
+    throw new EmojiCheckUnsupportedError();
   }
   return emojiPattern;
 }
 
-/** True when `value` is exactly one emoji (an RGI emoji; R6, R14): what an `emoji` element holds. */
+/**
+ * Throws {@link EmojiCheckUnsupportedError} on a runtime that cannot check emoji (no RegExp `v`
+ * flag). Servers call it at start-up, so they fail closed rather than check emoji loosely.
+ */
+export function assertEmojiCheckSupported(): void {
+  emojiRegExp();
+}
+
+/**
+ * True when `value` is exactly one emoji (an RGI emoji; R6, R14): what an `emoji` element holds.
+ * A string over {@link MAX_EMOJI_LENGTH} code units is refused before the pattern runs. Throws
+ * {@link EmojiCheckUnsupportedError} on a runtime without the RegExp `v` flag.
+ */
 export function isEmojiGlyph(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= MAX_EMOJI_LENGTH && emojiRegExp().test(value);
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_EMOJI_LENGTH) return false;
+  return emojiRegExp().test(value);
 }

@@ -8,7 +8,7 @@ import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { layerName } from './tale-layers';
-import { EMOJI_GROUPS, emojiName, searchEmoji } from './tale-shapes';
+import { EMOJI_COLUMNS, EMOJI_GROUPS, emojiGridMove, emojiLayout, emojiName, searchEmoji } from './tale-shapes';
 import { shapeView, TaleStudioPage } from './tale-studio';
 
 // Tale Studio story 7.6 (epic Tale Studio R6, R12, R13): shapes, emoji and image stickers.
@@ -57,6 +57,43 @@ describe('the emoji catalog', () => {
       expect(choice.name.trim()).toBe(choice.name);
       expect(choice.name.length).toBeGreaterThan(1);
     }
+  });
+
+  it('holds 129 emoji', () => {
+    expect(EMOJI_GROUPS.flatMap((g) => g.emoji)).toHaveLength(129);
+  });
+
+  it('moves through the grids by visual column, across groups, clamped to short rows', () => {
+    // Groups of 10, 3 and 9: rows [0-7] [8 9] | [10 11 12] | [13-20] [21].
+    const layout = emojiLayout([10, 3, 9]);
+    expect(layout).toEqual([
+      [
+        [0, 1, 2, 3, 4, 5, 6, 7],
+        [8, 9],
+      ],
+      [[10, 11, 12]],
+      [[13, 14, 15, 16, 17, 18, 19, 20], [21]],
+    ]);
+    const move = (index: number, key: string, ctrl = false) => emojiGridMove(layout, index, key, ctrl);
+    expect(move(5, 'ArrowDown')).toBe(9);
+    expect(move(9, 'ArrowDown')).toBe(11);
+    expect(move(12, 'ArrowDown')).toBe(15);
+    expect(move(20, 'ArrowDown')).toBe(21);
+    expect(move(21, 'ArrowDown')).toBe(21);
+    expect(move(15, 'ArrowUp')).toBe(12);
+    expect(move(10, 'ArrowUp')).toBe(8);
+    expect(move(8, 'ArrowUp')).toBe(0);
+    expect(move(3, 'ArrowUp')).toBe(3);
+    expect(move(7, 'ArrowRight')).toBe(8);
+    expect(move(21, 'ArrowRight')).toBe(21);
+    expect(move(10, 'ArrowLeft')).toBe(9);
+    expect(move(0, 'ArrowLeft')).toBe(0);
+    expect(move(11, 'Home')).toBe(10);
+    expect(move(11, 'End')).toBe(12);
+    expect(move(11, 'Home', true)).toBe(0);
+    expect(move(11, 'End', true)).toBe(21);
+    expect(move(11, 'a')).toBeNull();
+    expect(move(99, 'ArrowDown')).toBeNull();
   });
 
   it('searches by every word of the name', () => {
@@ -268,6 +305,52 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     expect(root.querySelector(`#shape-radius-${locked.id}`)).toBeNull();
   });
 
+  it('lays the picker out as one WAI-ARIA grid per group, and announces search results, clearing too', async () => {
+    await open();
+    q<HTMLButtonElement>('#studio-add-emoji').click();
+    await settle(fixture);
+    const grids = [...root.querySelectorAll<HTMLElement>('[role=grid]')];
+    expect(grids.map((g) => root.querySelector(`#${g.getAttribute('aria-labelledby')}`)?.textContent)).toEqual(
+      EMOJI_GROUPS.map((g) => g.name),
+    );
+    expect(grids.every((g) => g.getAttribute('aria-describedby') === 'emoji-hint')).toBe(true);
+    expect(q<HTMLElement>('#emoji-hint').textContent).toContain('arrow keys');
+    const firstRow = grids[0].querySelector('[role=row]') as HTMLElement;
+    expect(firstRow.querySelectorAll('[role=gridcell]')).toHaveLength(EMOJI_COLUMNS);
+    expect(grids[0].querySelectorAll('[role=gridcell] > button.emoji-choice')).toHaveLength(
+      EMOJI_GROUPS[0].emoji.length,
+    );
+    expect(root.querySelectorAll('.emoji-choice[tabindex="0"]')).toHaveLength(1);
+    const status = () => root.querySelector('[role=dialog] [role=status]')?.textContent?.trim();
+    expect(status()).toBe('');
+    const search = q<HTMLInputElement>('#emoji-search');
+    search.value = 'heart';
+    search.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    expect(status()).toBe(`${searchEmoji('heart').length} emoji found`);
+    search.value = 'zzz';
+    search.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    expect(status()).toBe('No emoji found');
+    search.value = '';
+    search.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    expect(status()).toBe('Search cleared: all 129 emoji shown');
+    // Down from the last row of a group goes to the next group's first row, keeping the column.
+    const smileys = EMOJI_GROUPS[0].emoji.length;
+    const lastRowStart = Math.floor((smileys - 1) / EMOJI_COLUMNS) * EMOJI_COLUMNS;
+    const from = q<HTMLButtonElement>(`#emoji-choice-${lastRowStart + 1}`);
+    from.focus();
+    from.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    await settle(fixture);
+    expect(globalThis.document.activeElement?.id).toBe(`emoji-choice-${smileys + 1}`);
+    globalThis.document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    await settle(fixture);
+    expect(globalThis.document.activeElement?.id).toBe(`emoji-choice-${lastRowStart + 1}`);
+    q<HTMLButtonElement>('[role=dialog] .drawer__header button').click();
+    await settle(fixture);
+  });
+
   it('adds an emoji from the keyboard-operable picker, named by its Unicode name, and edits the name', async () => {
     await open();
     q<HTMLButtonElement>('#studio-add-emoji').click();
@@ -394,8 +477,22 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     await open({ ...empty, elements: [rect, text] }, 1);
     const textRow = () => root.querySelectorAll('.layer__state')[0]?.textContent ?? '';
     expect(textRow()).toContain('Low contrast');
-    // Without the rectangle the white text is on black: enough contrast.
-    await open({ ...empty, elements: [text] }, 1);
+    // Hiding the rectangle leaves the white text on black: the turn of its verdict is said once.
+    q<HTMLButtonElement>(`#layer-hide-${rect.id}`).click();
+    await settle(fixture);
     expect(textRow()).not.toContain('Low contrast');
+    expect(live()).toMatch(/"Sale" has enough contrast now\.$/);
+    expect(live()?.match(/contrast/g)).toHaveLength(1);
+    q<HTMLButtonElement>(`#layer-hide-${rect.id}`).click();
+    await settle(fixture);
+    expect(live()).toMatch(/"Sale" now has low contrast\.$/);
+    // Moving the rectangle off the text turns it too; a change that leaves it as it was says nothing of it.
+    q<HTMLButtonElement>(`#studio-el-${rect.id}`).click();
+    await settle(fixture);
+    await set('#studio-y', '0');
+    expect(live()).toContain('"Sale" has enough contrast now.');
+    await set('#studio-x', '0');
+    expect(live()).not.toContain('contrast');
+    await saveNow(2);
   });
 });

@@ -146,11 +146,20 @@ describe('checkTaleDocument: shapes, emoji and stickers (story 7.6)', () => {
     expect(deliverableTaleDocument(value)).toBeNull();
   });
 
-  it('names a sticker in a draft problem', () => {
-    const value = doc([element(1, 'sticker', { mediaKey: STICKER })]);
-    expect(draftProblem(new InvalidTaleDocumentError('/elements/0/props/opacity', 'x'), value)).toBe(
-      '"Sticker 1" has a setting that is not valid.',
-    );
+  it('names a sticker, a shape and an emoji in a draft problem as Tale Studio does', () => {
+    const value = doc([
+      element(1, 'sticker', { mediaKey: STICKER }),
+      element(2, 'shape', { shape: 'rectangle' }),
+      element(3, 'shape', { shape: 'rectangle' }),
+      element(4, 'emoji', { emoji: '🎉' }, { a11y: { label: 'party popper' } }),
+      element(5, 'shape', { shape: 'line' }, { a11y: { label: 'Divider' } }),
+    ]);
+    const problem = (i: number) =>
+      draftProblem(new InvalidTaleDocumentError(`/elements/${i}/props/opacity`, 'x'), value);
+    expect(problem(0)).toBe('"Sticker 1" has a setting that is not valid.');
+    expect(problem(2)).toBe('"Rectangle 2" has a setting that is not valid.');
+    expect(problem(3)).toBe('"🎉 party popper" has a setting that is not valid.');
+    expect(problem(4)).toBe('"Divider" has a setting that is not valid.');
   });
 
   it('delivers shapes, emoji and stickers without the editor-only fields', () => {

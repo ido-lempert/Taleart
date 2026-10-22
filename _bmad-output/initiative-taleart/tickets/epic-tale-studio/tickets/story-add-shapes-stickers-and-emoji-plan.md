@@ -3,13 +3,13 @@ title: 'Add shapes, stickers and emoji'
 type: 'feature'
 ticket: '6'
 created: '2026-10-22'
-status: 'in-review'
+status: 'built'
 baseline_revision: '489b892'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
+review: 'thorough'
+review_source: 'pinned'
 lenses_ran: []
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -82,23 +82,37 @@ deferred: []
 
 ## Implementation Notes
 
-- Contract: `shape.schema.json` (`shape`, `fill`, `stroke`, `strokeWidth` ≤ 0.05, `radius` rectangle only, `opacity`; a line needs `stroke` and `strokeWidth > 0` and takes no `fill`), `emoji.schema.json` (`emoji`, 1–64 units), `sticker.schema.json` (`mediaKey` `png|gif|webp`, `opacity`), registered; OpenAPI refs. `tale-document.ts`: the three element types (`MediaElement` now includes `sticker`), `MEDIA_ELEMENT_TYPES` and `isMediaElement` used by `documentMediaRefs`, `resolveDocumentMedia`, `missingAltText` and `mediaElementName` ("Sticker n"), so 7.5's membership, locks, `tale_media` rows, deletion guard, public route and delivery URLs cover stickers unchanged; `resolveShapeStyle`, `newShapeProps`, `SHAPE_KINDS`, new boxes, `EMOJI_FONT_STACK`, `emojiFontSize` (cqh, from the shorter side on the 9:16 canvas), `isEmojiGlyph` (`\p{RGI_Emoji}` with the `v` flag, an approximation without it). `text-style.ts`: `textBackdropAt`. No new entry point, no version change.
+- Contract: `shape.schema.json` (`shape`, `fill`, `stroke`, `strokeWidth` ≤ 0.05, `radius` rectangle only, `opacity`; a line needs `stroke` and `strokeWidth > 0` and takes no `fill`), `emoji.schema.json` (`emoji`, 1–64 units), `sticker.schema.json` (`mediaKey` `png|gif|webp`, `opacity`), registered; OpenAPI refs. `tale-document.ts`: the three element types (`MediaElement` now includes `sticker`), `MEDIA_ELEMENT_TYPES` and `isMediaElement` used by `documentMediaRefs`, `resolveDocumentMedia`, `missingAltText` and `mediaElementName` ("Sticker n"), so 7.5's membership, locks, `tale_media` rows, deletion guard, public route and delivery URLs cover stickers unchanged; `resolveShapeStyle`, `newShapeProps`, `SHAPE_KINDS`, new boxes, `EMOJI_FONT_STACK`, `emojiFontSize` (cqh, from the shorter side on the 9:16 canvas), `isEmojiGlyph` (`\p{RGI_Emoji}` with the `v` flag; after the review it fails closed without the flag, see the Review Triage Log). `text-style.ts`: `textBackdropAt`. No new entry point, no version change.
 - Server: `PROPS_RULES.emoji` refuses anything but one RGI emoji at `/props/emoji`; `draftProblem` names stickers. No change to `tales.ts` or migrations.
 - SDK: `document/shapes.ts` (`renderShape`, `renderEmoji`), `renderSticker` in `media.ts`, registered in `ELEMENT_RENDERERS`; CSS `.ta-shape`, `.ta-stroke`, `.ta-emoji`. Bundle 19.17 KB gzipped (18.46 before).
-- Dashboard: `pages/tale-shapes.ts` (emoji catalog of 120 emoji with CLDR names, keyboard picker with search and roving tabindex, shape and emoji inspectors, `ElementChange`); studio: Add rectangle/ellipse/line/emoji/sticker, canvas drawing as the SDK draws, `restyleElement` (props set to `undefined` are removed), sticker picker (PNG/WebP/GIF only) and inspector (no fit or radius), per-text contrast backdrop, `kindName` names shapes by kind; layer names and icons. Initial bundle 492.14 KB.
+- Dashboard: `pages/tale-shapes.ts` (emoji catalog of 129 emoji with CLDR names, keyboard picker with search and roving tabindex, shape and emoji inspectors, `ElementChange`); studio: Add rectangle/ellipse/line/emoji/sticker, canvas drawing as the SDK draws, `restyleElement` (props set to `undefined` are removed), sticker picker (PNG/WebP/GIF only) and inspector (no fit or radius), per-text contrast backdrop, `kindName` names shapes by kind; layer names and icons. Initial bundle 492.14 KB.
 - sdk-sample: `a11y-review` section 14 (shapes, emoji, stickers, accessibility tree order), `a11y-scan` tale with a decorative shape and a named emoji.
 - Verification (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 243, server-tales 220, web-sdk 326, dashboard 362, api 463 tests); `web-sdk:size` 19.17 KB; `web-sdk:types-check` passes (after a cast in `renderSticker` it first flagged); `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 172 checks; `sdk-sample:perf` cold p75 1,266 ms, p75 first tale frame 72 ms.
 - Not verified by hand: a signed-in browser walk of the studio, and a real screen reader.
+- Verification after the review fixes (2026-10-22, `--skip-nx-cache`): `run-many -t lint test build` on the 12 projects passes (contract 248, server-tales 220, web-sdk 327, dashboard 365, api 463 tests); `web-sdk:size` 19.16 KB gzipped; `web-sdk:types-check` passes; `sdk-sample:a11y` no violations; `sdk-sample:a11y-review` all 173 checks; `sdk-sample:perf` cold p75 1,269 ms, p75 first tale frame 67 ms. Dashboard initial bundle 492.14 KB.
 
 ## Plan Change Log
 
 ## Review Triage Log
 
+### 2026-10-22 — Coordinator review
+- **Verdicts:** 8 findings, all patched; none deferred. `autopilot/foundation` was merged first (already up to date at `489b892`).
+- **Findings:**
+  1. `[patch]` [High] SDK: a decorative emoji is hidden (`aria-hidden="true"`) through the shapes' `name()` helper, even with a label; a named one is an image with its name; one with neither stays text. Tests: `shapes.spec.ts`; `a11y-review` section 14 has a decorative emoji (hidden, absent from the accessibility tree).
+  2. `[patch]` Picker Up and Down move by visual column inside each group's 8-column rows, and between groups keep the column, clamped to the last emoji of a short row (`emojiGridMove`, `emojiLayout`). Home and End go to the row's ends, with Ctrl to the first and last emoji. Tests: unit table and a DOM test across the first two groups.
+  3. `[patch]` Picker semantics: one WAI-ARIA `grid` per group, labelled by its heading and described by the usage hint, `row`/`gridcell` roles with row and column indexes, roving tabindex across all grids; the status region announces the result count, "No emoji found" and, when the search is cleared, "Search cleared: all 129 emoji shown". Test.
+  4. `[patch]` `elementName` in the contract names every element as the layers list does ("Rectangle 1", "🎉 party popper", "Sticker 1", "Empty text"); the dashboard's `layerName` and the server's `draftProblem` use it. Tests: contract and server.
+  5. `[patch]` Emoji validation has no looser fallback: without the RegExp `v` flag `isEmojiGlyph` throws `EmojiCheckUnsupportedError`, and the API calls `assertEmojiCheckSupported()` at start-up, so it does not start (Node.js 22 or later, recorded in the README and AD-15). A value over 64 code units is refused before the pattern runs. Tests: over-long values; a runtime without the flag (stubbed) fails closed and still refuses over-long values first. **Note:** which emoji the server accepts follows the runtime's Unicode (ICU) version: an emoji newer than the server's Node.js is refused until Node.js is updated.
+  6. `[patch]` AD-15 lists `emoji` as its own MVP type beside the image `sticker`, with the `v` flag requirement; epic R6 is reworded the same way; the decision is in the architecture memlog.
+  7. `[patch]` Contrast: a change that turns a text's verdict (moving, reordering, hiding or restyling another layer, or the canvas colour) is announced once with the change ("\"Sale\" now has low contrast." / "\"Sale\" has enough contrast now."); a text's own restyle keeps saying its own. Test: hide, show and move a rectangle under a text.
+  8. `[patch]` The plan's emoji count is 129 (was "120" and "about 100"), and a test pins it.
+- Verification after the review fixes: see Implementation Notes.
+
 ## Design Notes
 
 Assumptions (none blocks; each recorded for review):
 - Three registry types rather than one `sticker` type with two kinds: each keeps a flat schema with `additionalProperties: false`, and an image sticker reuses the media helpers by type.
-- The emoji picker offers a curated catalog (about 100 common emoji with their Unicode CLDR names), not all of Unicode; the server accepts any single RGI emoji, so a later picker can grow without a contract change.
+- The emoji picker offers a curated catalog (129 common emoji with their Unicode CLDR names), not all of Unicode; the server accepts any single RGI emoji, so a later picker can grow without a contract change.
 - An emoji needs no label to publish (R12 lists images, video, image stickers and image buttons); without one, screen readers read the glyph's own name.
 - Stroke width and corner radius are fractions of the canvas height, like media radius; the line is drawn across the middle of its box and turns with the box's rotation.
 - An image sticker has no fit or corner radius (always `contain`); like images it starts without alt text and is flagged until it gets alt text or the decorative mark.
