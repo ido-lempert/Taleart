@@ -7190,6 +7190,58 @@ describe('Management API v1: projects and zones', () => {
       expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['From media']]]]);
     });
 
+    it('does not show the media alone of a shown tale with only a studio draft while its media is out of step', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
+      await publish('tale-groups', g.id);
+      const drafted = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Drafted' })).json();
+      const saved = await fetch(`${base}/tales/${drafted.id}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document: textDocument('Drafted'), revision: 0 }),
+      });
+      expect(saved.status).toBe(200);
+      const fromMedia = await (await post(`/tale-groups/${g.id}/tales`, { title: 'From media' })).json();
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const previous = process.env['TALE_MEDIA_MIGRATION'];
+      process.env['TALE_MEDIA_MIGRATION'] = 'off';
+      try {
+        await migrate(pool);
+        // Media written while the media documents are off: both tales are out of step.
+        for (const id of [drafted.id, fromMedia.id]) {
+          const res = await fetch(`${base}/tales/${id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+          expect(res.status).toBe(200);
+        }
+        // The drafted tale waits for its draft to be published; the tale of media alone shows it.
+        expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['From media']]]]);
+
+        // A tale from before the step, in the same state, shows its media composed in, as it did.
+        await asLegacy(drafted.id);
+        expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['Drafted', 'From media']]]]);
+      } finally {
+        if (previous === undefined) delete process.env['TALE_MEDIA_MIGRATION'];
+        else process.env['TALE_MEDIA_MIGRATION'] = previous;
+        await migrate(pool);
+      }
+    });
+
+    it('still delivers a tale from before the step with its media in step and only a studio draft', async () => {
+      const zone = await createZone();
+      const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Old' })).json();
+      await publish('tale-groups', g.id);
+      const t = await (await post(`/tale-groups/${g.id}/tales`, { title: 'Seen' })).json();
+      const res = await fetch(`${base}/tales/${t.id}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png });
+      expect(res.status).toBe(200);
+      // As markTaleMediaSeen leaves it: in step, a draft, nothing published.
+      await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [t.id]);
+      await asLegacy(t.id);
+      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const [body] = await deliveries([key]);
+      const tales = JSON.parse(body).taleGroups[0].tales as { title: string; document: { elements: { props: { taleMedia?: boolean } }[] } }[];
+      expect(tales.map((tale) => tale.title)).toEqual(['Seen']);
+      expect(tales[0].document.elements[0].props.taleMedia).toBe(true);
+    });
+
     it('delivers a copy of a group from before the step as the source: its title-only tales keep the placeholder', async () => {
       const zone = await createZone();
       const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Old' })).json();

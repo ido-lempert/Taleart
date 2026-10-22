@@ -342,13 +342,17 @@ export async function migrateShownStatus(
     let published = 0;
     for (const row of rows) {
       if (!row.unpublished || row.draft === null) continue;
-      // In a savepoint: an unexpected error keeps the tale's status change and skips only its
-      // publish; the media step that follows then gives it its media document, as any live tale.
+      // In a savepoint: a database error on this tale (such as a constraint or a data error) keeps
+      // its status change and skips only its publish. It then has no published document and, being
+      // from before the step, is delivered by the legacy rule (hasPublishedDocument): its media
+      // composed in, or the placeholder; the media step that follows may give it a published media
+      // document. Any other error, such as a lost connection, fails the step.
       await client.query('SAVEPOINT shown_status_publish');
       try {
         if ((await publishDraftGoingLive(client, row.id, row.draft)) === null) published++;
         await client.query('RELEASE SAVEPOINT shown_status_publish');
       } catch (err) {
+        if (!isRowError(err)) throw err;
         await client.query('ROLLBACK TO SAVEPOINT shown_status_publish');
         log('warn', `Tale ${row.id}: made live, but its draft could not be published (${String(err)})`);
       }
@@ -356,9 +360,18 @@ export async function migrateShownStatus(
     await client.query('COMMIT');
     return { applied: true, madeLive: rows.length, published };
   } catch (err) {
-    await client.query('ROLLBACK');
+    // The step's own error is the one to report, not a failed rollback on a broken connection.
+    await client.query('ROLLBACK').catch(() => undefined);
     throw err;
   }
+}
+
+// True for an error PostgreSQL raised about one statement on a working connection (it has a
+// SQLSTATE code), outside the connection (08) and operator-intervention (57) classes: what one
+// tale's data can cause, after which the savepoint rolls back and the step goes on.
+function isRowError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^(08|57)/.test(code);
 }
 
 // The API's log line format, for a migration run without a logger.

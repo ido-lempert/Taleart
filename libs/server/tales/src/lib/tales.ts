@@ -80,8 +80,10 @@ export const SHOWN_STATUS_STEP = 'shown-status';
 // True for a tale, alias `t`, that has something published to deliver (AD-6 amended, AD-15): a
 // published document, or, as before the UX rework:
 // - media whose documents are not in step yet, which the Delivery API composes (R16) until the
-//   media migration writes the published document;
-// - no published document, created before the shown-status step: such a tale showed its media
+//   media migration writes the published document; not for a tale with only a studio draft, whose
+//   media alone was never what its person saw (media replaced while TALE_MEDIA_MIGRATION is off, or
+//   a skipped merge): it waits for the draft to be published, as any tale "not updated yet";
+// - created before the shown-status step (with no published document): such a tale showed its media
 //   (composed by the Delivery API, also when its documents are in step but only a studio draft
 //   exists) or the legacy placeholder, so it keeps showing it. A tale created since then is
 //   delivered only once it has a published document, so a new tale with nothing published
@@ -90,10 +92,10 @@ export const SHOWN_STATUS_STEP = 'shown-status';
 export function hasPublishedDocument(t: string): string {
   return (
     `(${t}.document IS NOT NULL ` +
-    `OR (${t}.media_key IS NOT NULL AND ${t}.document_media_key IS DISTINCT FROM ${t}.media_key) ` +
-    `OR (${t}.document IS NULL ` +
+    `OR (${t}.media_key IS NOT NULL AND ${t}.document_media_key IS DISTINCT FROM ${t}.media_key ` +
+    `AND (${t}.document IS NOT NULL OR ${t}.draft_document IS NULL)) ` +
     // Until the step has run, every tale is from before it.
-    `AND ${t}.created_at < COALESCE((SELECT applied_at FROM tales_migrations WHERE step = '${SHOWN_STATUS_STEP}'), ` +
+    `OR (${t}.created_at < COALESCE((SELECT applied_at FROM tales_migrations WHERE step = '${SHOWN_STATUS_STEP}'), ` +
     `'infinity'::timestamptz)))`
   );
 }
