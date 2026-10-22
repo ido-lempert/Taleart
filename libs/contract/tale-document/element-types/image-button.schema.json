@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ImageButtonElementProps",
+  "description": "The props of a custom image button (epic Tale Studio R7): an image of the tale's project, by its storage key (AD-11), never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination (R7, R12, R14).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mediaKey"],
+  "properties": {
+    "mediaKey": {
+      "description": "The storage key of an image (PNG, JPEG, GIF or WebP) of the tale's project, as the server made it.",
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp)$"
+    },
+    "href": {
+      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^[hH][tT][tT][pP][sS]?://"
+    },
+    "newTab": {
+      "description": "Opens the destination in a new tab, with `noopener`; the same tab when left out.",
+      "type": "boolean"
+    },
+    "radius": {
+      "description": "The corner radius as a fraction of the canvas height; 0 when left out.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.5
+    }
+  }
+}

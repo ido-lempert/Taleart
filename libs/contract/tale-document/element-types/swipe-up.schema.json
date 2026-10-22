@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SwipeUpElementProps",
+  "description": "The props of a swipe-up link (epic Tale Studio R7): a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["label", "color", "background"],
+  "properties": {
+    "label": {
+      "description": "The text of the link: plain text on one line, its accessible name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "href": {
+      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^[hH][tT][tT][pP][sS]?://"
+    },
+    "newTab": {
+      "description": "Opens the destination in a new tab, with `noopener`; the same tab when left out.",
+      "type": "boolean"
+    },
+    "color": {
+      "description": "The label and arrow colour as #RRGGBB or #RRGGBBAA.",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    "background": {
+      "description": "The colour of the pill behind the label as #RRGGBB or #RRGGBBAA (#RRGGBB00 for none).",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    }
+  }
+}

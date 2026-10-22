@@ -17,7 +17,10 @@ export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
 
 /** A document's video that makes no progress for this long while it should play ends its tale. */
 export const VIDEO_STALL_MS = 5000;
-/** Horizontal travel that makes a pointer gesture a swipe between groups. */
+/**
+ * Travel that makes a pointer gesture a swipe: horizontally between groups, and upwards to open
+ * the tale's swipe-up link (epic Tale Studio R7).
+ */
 export const SWIPE_MIN_PX = 50;
 /** A press at least this long is a hold (pause), not a tap (step). */
 export const HOLD_MIN_MS = 250;
@@ -184,6 +187,7 @@ span.media { background: #1f2937; }
   .frame { z-index: 2; background: #000; }
   .side { display: block; z-index: 1; background: #111827; cursor: pointer; filter: ${SIDE_FILTER}; }
   .side:hover { filter: brightness(0.6); }
+  .side .ta-cta { pointer-events: none; }
   .nav { display: grid; position: absolute; top: calc(50% - 22px); z-index: 3; }
   .nav.prev { inset-inline-start: calc(50% - var(--card-w) / 2 - 56px); }
   .nav.next { inset-inline-start: calc(50% + var(--card-w) / 2 + 12px); }
@@ -338,6 +342,8 @@ export class TaleViewer {
   private startedAt = 0;
   private press: { x: number; y: number; at: number } | null = null;
   private suppressClick = false;
+  // The click a swipe up may also produce on the swipe-up link, which the swipe already opened.
+  private suppressLink = false;
   private opened = false;
   private reduced = false;
   private rtl = false; // the host page lays out right to left: tap zones, arrows and swipes mirror
@@ -500,6 +506,22 @@ export class TaleViewer {
     pause.addEventListener('click', () => this.togglePause());
     close.addEventListener('click', () => this.close());
     stage.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+    // A swipe up may start on the swipe-up link itself, which lies over the stage (R7).
+    dialog.addEventListener('pointerdown', (e) => {
+      if (e.button === 0 && (e.target as Element | null)?.closest?.('.ta-swipe')) {
+        this.press = { x: e.clientX, y: e.clientY, at: Date.now() };
+      }
+    });
+    dialog.addEventListener(
+      'click',
+      (e) => {
+        if (this.suppressLink && (e.target as Element | null)?.closest?.('.ta-cta')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      true,
+    );
     stage.addEventListener('lostpointercapture', () => this.onPointerCancel());
     dialog.addEventListener('pointerup', (e) => this.onPointerUp(e));
     dialog.addEventListener('pointercancel', () => this.onPointerCancel());
@@ -594,6 +616,14 @@ export class TaleViewer {
     this.held = false;
     const dx = e.clientX - press.x;
     const dy = e.clientY - press.y;
+    // A swipe up opens the tale's swipe-up link, when it has one (R7); otherwise it is a tap or a hold, as before.
+    if (-dy >= SWIPE_MIN_PX && -dy > Math.abs(dx) && this.openSwipeUp()) {
+      this.suppressNextClick();
+      this.suppressLink = true;
+      setTimeout(() => (this.suppressLink = false), 0);
+      this.applyPause();
+      return;
+    }
     if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
       this.suppressNextClick();
       // A swipe toward the start of the line (left, or right in right-to-left) shows the next group.
@@ -606,6 +636,15 @@ export class TaleViewer {
     }
     if (Date.now() - press.at >= HOLD_MIN_MS) this.suppressNextClick();
     this.applyPause();
+  }
+
+  // Opens the current tale's swipe-up link as a click on it would (same tab, or a new tab without
+  // an opener); false when the tale has none.
+  private openSwipeUp(): boolean {
+    const link = this.layer?.querySelector<HTMLAnchorElement>('a.ta-swipe');
+    if (!link) return false;
+    link.click();
+    return true;
   }
 
   // Swallows only the click this release may produce: it comes in the same task, if at all.
@@ -809,6 +848,8 @@ export class TaleViewer {
         side.appendChild(img);
       }
     }
+    // A side card's links are pictures only: the card is the one target, and focus never reaches them.
+    for (const link of side.querySelectorAll('a')) link.tabIndex = -1;
     for (const video of side.querySelectorAll('video')) {
       video.autoplay = false;
       video.muted = true;
