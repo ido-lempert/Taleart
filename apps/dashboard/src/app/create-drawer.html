@@ -521,7 +521,18 @@
           @if (tale(); as tale) {
             <p class="tale-drawer__title">{{ tale.title }}</p>
             <div class="status-actions">
-              <app-status-badge [status]="tale.status" />
+              @if (isSwitchable(tale.storedStatus)) {
+                <app-show-switch
+                  [on]="tale.storedStatus === 'live'"
+                  [label]="'Show ' + tale.title"
+                  [stateText]="taleShownLabel(tale.storedStatus)"
+                  [disabled]="saving()"
+                  (toggled)="switchTale(tale, $event)"
+                />
+              }
+              @if (needsBadge(tale.status)) {
+                <app-status-badge [status]="tale.status" kind="tale" />
+              }
               @for (action of statusActions(tale.storedStatus); track action.status) {
                 <button
                   type="button"
@@ -534,7 +545,7 @@
               }
             </div>
             @if (tale.status === 'blocked-by-group') {
-              <p class="field__hint">This tale is live, but its tale group is paused, so it does not show.</p>
+              <p class="field__hint">This tale is shown, but its tale group is off, so it does not show on the site.</p>
             }
             <div class="schedule-summary">
               <p class="muted">

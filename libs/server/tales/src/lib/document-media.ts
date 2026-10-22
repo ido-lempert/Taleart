@@ -17,7 +17,7 @@ import {
   type ProjectMedia,
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
-import { deliveredGroup, inTransaction, liveNow, type TransactionalDb } from './tales';
+import { deliveredGroup, deliveredTale, inTransaction, type TransactionalDb } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -352,7 +352,7 @@ export async function findPublishedDocumentMedia(
      JOIN tales t ON t.id = tm.tale_id
      JOIN tale_groups g ON g.id = t.tale_group_id
      WHERE tm.storage_key = $1 AND tm.document = 'published' AND tm.delivered
-       AND ${liveNow('t', '$2')} AND ${deliveredGroup('g', '$2')}
+       AND ${deliveredTale('t', '$2')} AND ${deliveredGroup('g', '$2')}
      LIMIT 1`,
     [key, now],
   );

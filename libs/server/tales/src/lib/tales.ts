@@ -13,6 +13,7 @@ import {
   projectFontIds,
   readContentStatus,
   readTaleStatus,
+  NEW_TALE_STATUS,
   taleGroupCoverUrl,
   taleMediaUrl,
   type ContentStatus,
@@ -73,13 +74,41 @@ export function liveNow(t: string, param: string): string {
   );
 }
 
+/** The tales migration step after which new tales start live (AD-6 amended 2026-10-23); see migration.ts. */
+export const SHOWN_STATUS_STEP = 'shown-status';
+
+// True for a tale, alias `t`, that has something published to deliver (AD-6 amended, AD-15): a
+// published document, or, as before the UX rework:
+// - media whose documents are not in step yet, which the Delivery API composes (R16) until the
+//   media migration writes the published document;
+// - no media and no published document, created before the shown-status step: such a tale showed
+//   the legacy placeholder, so it keeps showing it. A tale created since then is delivered only
+//   once it has a published document, so a new tale with nothing published ("not updated yet") is not.
+// Null checks only: no document is read.
+export function hasPublishedDocument(t: string): string {
+  return (
+    `(${t}.document IS NOT NULL ` +
+    `OR (${t}.media_key IS NOT NULL AND ${t}.document_media_key IS DISTINCT FROM ${t}.media_key) ` +
+    `OR (${t}.media_key IS NULL ` +
+    // Until the step has run, every tale is from before it.
+    `AND ${t}.created_at < COALESCE((SELECT applied_at FROM tales_migrations WHERE step = '${SHOWN_STATUS_STEP}'), ` +
+    `'infinity'::timestamptz)))`
+  );
+}
+
+// A tale the Delivery API delivers at $n, for the tales alias `t`, given that its group is
+// delivered: live in its window, with something published (AD-6, AD-15).
+export function deliveredTale(t: string, param: string): string {
+  return `${liveNow(t, param)} AND ${hasPublishedDocument(t)}`;
+}
+
 // A group the Delivery API delivers at $n, for the tale_groups alias `g`: live
-// in its window, with a live tale in its window, and placed in a zone (AD-6,
+// in its window, with a delivered tale, and placed in a zone (AD-6,
 // AD-14). The one rule for the Delivery list and the public cover and font lookups.
 export function deliveredGroup(g: string, param: string): string {
   return (
     `${liveNow(g, param)} ` +
-    `AND EXISTS (SELECT 1 FROM tales dt WHERE dt.tale_group_id = ${g}.id AND ${liveNow('dt', param)}) ` +
+    `AND EXISTS (SELECT 1 FROM tales dt WHERE dt.tale_group_id = ${g}.id AND ${deliveredTale('dt', param)}) ` +
     `AND EXISTS (SELECT 1 FROM zone_tale_groups dz WHERE dz.tale_group_id = ${g}.id)`
   );
 }
@@ -865,25 +894,10 @@ export async function setTaleStatus(
     let draftNotPublished = false;
     let reason = '';
     if (from !== 'live' && status === 'live' && unpublished && draft !== null && draft !== undefined) {
-      try {
-        checkPublishableDocument(draft);
-        if (usesMedia(draft)) {
-          const owner = await tx.query<{ projectId: string }>(
-            'SELECT project_id AS "projectId" FROM tales WHERE id = $1',
-            [taleId],
-          );
-          await checkDocumentMedia(tx, owner.rows[0].projectId, draft);
-        }
-        await tx.query(
-          `UPDATE tales SET document = draft_document, document_revision = document_revision + 1 WHERE id = $1`,
-          [taleId],
-        );
-        await recordTaleFonts(tx, taleId, 'published', draft, true);
-        await recordTaleMedia(tx, taleId, 'published', draft, true);
-      } catch (err) {
-        if (!(err instanceof InvalidTaleDocumentError || err instanceof TaleDocumentTooLargeError)) throw err;
+      const problem = await publishDraftGoingLive(tx, taleId, draft);
+      if (problem !== null) {
         draftNotPublished = true;
-        reason = draftProblem(err, draft);
+        reason = problem;
       }
     }
     const { rows } =
@@ -897,6 +911,33 @@ export async function setTaleStatus(
       ? { ...toTale(rows[0]), draftNotPublished: true, draftNotPublishedReason: reason }
       : toTale(rows[0]);
   });
+}
+
+/**
+ * Publishes the draft of a tale going live with nothing published yet (AD-15), in the caller's
+ * transaction, after checking it again; the tale row must be locked. Returns null once published,
+ * or why the draft was not (it no longer passes), in which case nothing is written.
+ */
+export async function publishDraftGoingLive(tx: Db, taleId: string, draft: unknown): Promise<string | null> {
+  try {
+    checkPublishableDocument(draft);
+    if (usesMedia(draft)) {
+      const owner = await tx.query<{ projectId: string }>('SELECT project_id AS "projectId" FROM tales WHERE id = $1', [
+        taleId,
+      ]);
+      await checkDocumentMedia(tx, owner.rows[0].projectId, draft);
+    }
+    await tx.query(
+      `UPDATE tales SET document = draft_document, document_revision = document_revision + 1 WHERE id = $1`,
+      [taleId],
+    );
+    await recordTaleFonts(tx, taleId, 'published', draft, true);
+    await recordTaleMedia(tx, taleId, 'published', draft, true);
+    return null;
+  } catch (err) {
+    if (!(err instanceof InvalidTaleDocumentError || err instanceof TaleDocumentTooLargeError)) throw err;
+    return draftProblem(err, draft);
+  }
 }
 
 /**
@@ -1003,10 +1044,12 @@ export async function createTale(
     const { count, next } = stats.rows[0];
     if (count >= MAX_TALES_PER_GROUP) throw new TaleGroupFullError(input.taleGroupId);
 
+    // New tales are Shown (AD-6 amended 2026-10-23): a group turned On shows them, once they
+    // have a published document (uploading their media writes it, AD-15).
     const { rows } = await tx.query<TaleRow>(
-      `INSERT INTO tales (tale_group_id, project_id, title, position) VALUES ($1, $2, $3, $4)
+      `INSERT INTO tales (tale_group_id, project_id, title, position, status) VALUES ($1, $2, $3, $4, $5)
        RETURNING ${TALE_COLUMNS}`,
-      [input.taleGroupId, projectId, input.title, next],
+      [input.taleGroupId, projectId, input.title, next, NEW_TALE_STATUS],
     );
     if (withTale) await withTale(tx, { taleId: rows[0].id, projectId });
     return toTale(rows[0]);
@@ -1360,7 +1403,7 @@ export async function listDeliveryTaleGroups(
     `SELECT id, tale_group_id AS "taleGroupId", title, media_key AS key, media_content_type AS "contentType",
        project_id AS "projectId", document, document_revision AS revision, document_media_key AS "inStep",
        octet_length(document::text) AS "documentBytes"
-     FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND ${liveNow('tales', '$2')} ORDER BY position, id`,
+     FROM tales WHERE tale_group_id = ANY($1::uuid[]) AND ${deliveredTale('tales', '$2')} ORDER BY position, id`,
     [groups.rows.map((g) => g.id), now],
   );
   // Checked in full once per tale and revision (every save raises it), then kept. Every tale is
@@ -1445,7 +1488,7 @@ export async function findPublishedMedia(
   const { rows } = await db.query<{ contentType: string | null }>(
     `(SELECT tales.media_content_type AS "contentType" FROM tales
       JOIN tale_groups ON tale_groups.id = tales.tale_group_id
-      WHERE tales.media_key = $1 AND ${liveNow('tales', '$2')} AND ${liveNow('tale_groups', '$2')}
+      WHERE tales.media_key = $1 AND ${deliveredTale('tales', '$2')} AND ${liveNow('tale_groups', '$2')}
       LIMIT 1)
      UNION ALL
      (SELECT g.cover_content_type FROM tale_groups g

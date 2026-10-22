@@ -64,7 +64,7 @@ import { StatusBadge } from '../status';
                     <div class="group-row__name">
                       <h3 [id]="'project-group-' + group.id">{{ group.name }}</h3>
                       <p class="muted">
-                        <app-status-badge [status]="group.status" />
+                        <app-status-badge [status]="group.status" kind="group" />
                         <span class="visually-hidden">Tales: </span>{{ group.taleCount }} / {{ maxTales }}
                       </p>
                       <p class="group-row__zones muted">

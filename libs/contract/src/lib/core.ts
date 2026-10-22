@@ -448,9 +448,10 @@ export function readContentStatus(
 
 /**
  * A tale's status as read (AD-6): `blocked-by-group` while the tale is live
- * and its group is paused, else {@link readContentStatus} of the tale's
- * stored key and its own window. The group's window does not change the
- * tale's status; the Delivery API checks both windows.
+ * and its group is Off (`draft` or `paused`, amended 2026-10-23), else
+ * {@link readContentStatus} of the tale's stored key and its own window. The
+ * group's window does not change the tale's status; the Delivery API checks
+ * both windows.
  */
 export function readTaleStatus(
   stored: ContentStatus,
@@ -458,9 +459,63 @@ export function readTaleStatus(
   window: ScheduleWindow = OPEN_WINDOW,
   now: Date = new Date(),
 ): ContentStatus {
-  if (stored === 'live' && groupStatus === 'paused') return 'blocked-by-group';
+  if (stored === 'live' && (groupStatus === 'draft' || groupStatus === 'paused')) return 'blocked-by-group';
   return readContentStatus(stored, window, now);
 }
+
+/**
+ * How the dashboard shows a tale group's stored status (AD-6, amended
+ * 2026-10-23, owner decisions D2 and D3): `on` for `live`, `archived` for
+ * `archived`, else `off` (`draft`, `paused` and any key a process set).
+ * Display names only: nothing stores them.
+ */
+export type GroupShownStatus = 'on' | 'off' | 'archived';
+
+/** How the dashboard shows a tale's stored status: `shown` for `live`, `archived`, else `hidden`. */
+export type TaleShownStatus = 'shown' | 'hidden' | 'archived';
+
+/** The words for each shown status, defined once. */
+export const SHOWN_STATUS_LABELS: Readonly<Record<GroupShownStatus | TaleShownStatus, string>> = {
+  on: 'On',
+  off: 'Off',
+  shown: 'Shown',
+  hidden: 'Hidden',
+  archived: 'Archived',
+};
+
+/** A tale group's shown status from its stored key: On (`live`), Off (`draft`, `paused`), Archived. */
+export function groupShownStatus(stored: ContentStatus): GroupShownStatus {
+  return stored === 'live' ? 'on' : stored === 'archived' ? 'archived' : 'off';
+}
+
+/** A tale's shown status from its stored key: Shown (`live`), Hidden (`draft`, `paused`), Archived. */
+export function taleShownStatus(stored: ContentStatus): TaleShownStatus {
+  return stored === 'live' ? 'shown' : stored === 'archived' ? 'archived' : 'hidden';
+}
+
+/**
+ * The stored key the On/Off (group) or Shown/Hidden (tale) switch sets (AD-6):
+ * `live` to turn on or show, `paused` to turn off or hide; null when content
+ * stored as `stored` is already there (a `draft` is already Off and Hidden) or
+ * the switch does not apply (archived, or a key a process set, such as
+ * `processing`).
+ */
+export function switchStatus(stored: ContentStatus, on: boolean): SettableStatus | null {
+  if (!isSwitchable(stored)) return null;
+  if (on) return stored === 'live' ? null : 'live';
+  return stored === 'live' ? 'paused' : null;
+}
+
+/** True when the On/Off or Shown/Hidden switch applies to content stored as `stored`: `draft`, `live` or `paused`. */
+export function isSwitchable(stored: ContentStatus): boolean {
+  return stored === 'draft' || stored === 'live' || stored === 'paused';
+}
+
+/** The stored key of a new tale (AD-6 amended): `live`, so a group turned On shows it. New groups start `draft`. */
+export const NEW_TALE_STATUS: ContentStatus = 'live';
+
+/** The stored key of a new tale group (AD-6 amended): `draft`, which shows as Off. */
+export const NEW_TALE_GROUP_STATUS: ContentStatus = 'draft';
 
 /** Named error codes, so callers don't repeat string literals. */
 export const ErrorCodes = {

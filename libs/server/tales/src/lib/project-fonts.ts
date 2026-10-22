@@ -18,7 +18,7 @@ import {
   type SystemFontStack,
 } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
-import { deliveredGroup, inTransaction, liveNow, type TransactionalDb } from './tales';
+import { deliveredGroup, deliveredTale, inTransaction, type TransactionalDb } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -349,7 +349,7 @@ export async function findPublishedFont(
      JOIN tale_fonts tf ON tf.font_id = f.id AND tf.document = 'published' AND tf.delivered
      JOIN tales t ON t.id = tf.tale_id
      JOIN tale_groups g ON g.id = t.tale_group_id
-     WHERE f.storage_key = $1 AND ${liveNow('t', '$2')} AND ${deliveredGroup('g', '$2')}
+     WHERE f.storage_key = $1 AND ${deliveredTale('t', '$2')} AND ${deliveredGroup('g', '$2')}
      LIMIT 1`,
     [key, now],
   );

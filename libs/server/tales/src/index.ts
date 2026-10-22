@@ -8,7 +8,7 @@ import { clearPublicMediaCache } from './lib/document-media';
 import { clearPublicFontCache } from './lib/project-fonts';
 import * as tales from './lib/tales';
 
-export { migrateTales } from './lib/migration';
+export { migrateTales, migrateShownStatus } from './lib/migration';
 export {
   listTaleGroups,
   getTaleGroup,
@@ -36,6 +36,7 @@ export {
   orderTalesWhen,
   listDeliveryTaleGroups,
   findPublishedMedia,
+  SHOWN_STATUS_STEP,
   OrderMismatchError,
   InvalidStatusTransitionError,
   InvalidScheduleError,

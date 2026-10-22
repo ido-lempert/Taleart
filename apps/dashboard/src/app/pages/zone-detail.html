@@ -242,7 +242,9 @@
                   <div class="group__name">
                     <div class="group__title">
                       <h4 [id]="'group-name-' + group.id">{{ group.name }}</h4>
-                      <app-status-badge [status]="group.status" />
+                      @if (needsBadge(group.status)) {
+                        <app-status-badge [status]="group.status" kind="group" />
+                      }
                       @if (group.tags.length > 0) {
                         <ul class="pill-list" [attr.aria-label]="'Tags of ' + group.name">
                           @for (tag of group.tags; track tag.id) {
@@ -269,12 +271,19 @@
                     }
                   </div>
                   <div class="group__actions">
+                    @if (isSwitchable(group.storedStatus)) {
+                      <app-show-switch
+                        [on]="group.storedStatus === 'live'"
+                        [label]="'Turn on ' + group.name"
+                        [stateText]="shownLabel(group.storedStatus, 'group')"
+                        [disabled]="statusSaving().has(group.id)"
+                        (toggled)="switchGroup(group, $event)"
+                      />
+                    }
                     @for (action of statusActions(group.storedStatus); track action.status) {
                       <button
                         type="button"
-                        class="btn btn--sm"
-                        [class.btn--primary]="action.status === 'live'"
-                        [class.btn--secondary]="action.status !== 'live'"
+                        class="btn btn--secondary btn--sm"
                         [attr.aria-describedby]="'group-name-' + group.id"
                         [disabled]="statusSaving().has(group.id)"
                         (click)="changeStatus(group, action.status)"
@@ -401,8 +410,18 @@
                           }
                         }
                         <span class="tale-card__badge" aria-hidden="true">{{ tale.position + 1 }}</span>
-                        @if (tale.status !== 'live') {
-                          <app-status-badge class="tale-card__status" [status]="tale.status" />
+                        @if (isSwitchable(tale.storedStatus)) {
+                          <app-show-switch
+                            class="tale-card__switch"
+                            [on]="tale.storedStatus === 'live'"
+                            [label]="'Show ' + tale.title"
+                            [stateText]="shownLabel(tale.storedStatus, 'tale')"
+                            [disabled]="statusSaving().has(tale.id)"
+                            (toggled)="switchTale(group, tale, $event)"
+                          />
+                        }
+                        @if (needsBadge(tale.status)) {
+                          <app-status-badge class="tale-card__status" [status]="tale.status" kind="tale" />
                         }
                         <span class="tale-card__title">{{ tale.title }}</span>
                         <button

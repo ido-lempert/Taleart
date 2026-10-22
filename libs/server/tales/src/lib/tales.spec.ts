@@ -337,7 +337,8 @@ describe('tales', () => {
     ]);
     const tale = await createTale(db, { taleGroupId: groupId, title: 'T' });
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
-    expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2]);
+    // New tales are stored live (Shown, AD-6 amended).
+    expect(insert?.[1]).toEqual([groupId, projectId, 'T', 2, 'live']);
     expect(tale).toEqual({ id: 't1', ...NO_WINDOW, media: null });
   });
 
