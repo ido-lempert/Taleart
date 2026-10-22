@@ -491,7 +491,7 @@
                   <button
                     type="button"
                     class="btn btn--secondary btn--sm"
-                    [disabled]="saving()"
+                    [attr.aria-disabled]="saving() || null"
                     (click)="changeTaleStatus(tale.id, action.status)"
                   >
                     {{ action.label }}
@@ -507,7 +507,7 @@
             @if (describeWindow(tale); as window) {
               <div class="schedule-summary">
                 <p class="window-chip"><span class="visually-hidden">Schedule: </span>{{ window }}</p>
-                <button type="button" class="btn btn--secondary btn--sm" [disabled]="saving()" (click)="openTaleSchedule(tale)">
+                <button type="button" class="btn btn--secondary btn--sm" [attr.aria-disabled]="saving() || !!upload() || null" (click)="openTaleSchedule(tale)">
                   Edit schedule…
                 </button>
               </div>
@@ -559,16 +559,35 @@
                 type="button"
                 id="tale-replace-media"
                 class="btn btn--secondary btn--sm"
-                [disabled]="saving()"
+                [attr.aria-disabled]="saving() || !!upload() || null"
                 [attr.aria-describedby]="error() ? 'create-file-hint create-error' : 'create-file-hint'"
                 (click)="chooseMedia()"
               >
                 {{ tale.media ? 'Replace media' : 'Add media' }}
               </button>
               <p class="field__hint" id="create-file-hint">JPEG, PNG, WebP or GIF up to 10 MB, or MP4 or WebM up to 100 MB. It replaces the media at once.</p>
-              @if (mediaProgress() !== null) {
-                <label class="field__hint" for="tale-media-progress">Uploading… {{ mediaProgress() }}%</label>
-                <progress id="tale-media-progress" max="100" [value]="mediaProgress()"></progress>
+              @if (upload(); as upload) {
+                <!-- "Uploading…" is announced once by the live region; the bar's text is not live. -->
+                <label class="field__hint" for="tale-media-progress">
+                  @if (upload.percent === 100) {
+                    Saving…
+                  } @else if (upload.percent === null) {
+                    Uploading…
+                  } @else {
+                    Uploading… {{ upload.percent }}%
+                  }
+                </label>
+                <div class="tale-drawer__progress">
+                  @if (upload.percent === null) {
+                    <progress id="tale-media-progress"></progress>
+                  } @else {
+                    <progress id="tale-media-progress" max="100" [value]="upload.percent"></progress>
+                  }
+                  @if (upload.percent !== 100) {
+                    <button type="button" class="btn btn--ghost btn--sm" (click)="cancelUpload()">Cancel upload</button>
+                  }
+                </div>
+                <p class="field__hint">Closing the drawer cancels the upload.</p>
               }
             </section>
           } @else {
