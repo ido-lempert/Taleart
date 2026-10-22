@@ -31,6 +31,12 @@ describe('zone templates', () => {
     }
   });
 
+  it('finds a template in a given registry', () => {
+    const custom = [{ key: 'blank', label: 'Empty', description: 'x', frame: null }] as const;
+    expect(findTemplate('blank', custom)?.label).toBe('Empty');
+    expect(findTemplate('stories-bar', custom)).toBeUndefined();
+  });
+
   it('finds a template by its exact key only', () => {
     expect(findTemplate('promo-banner')?.label).toBe('Promo banner');
     for (const key of ['nope', 'home-stories-bar', 'Promo-Banner', ' blank', '', 3, null, undefined]) {

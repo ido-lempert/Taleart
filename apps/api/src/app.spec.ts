@@ -1185,6 +1185,20 @@ describe('Management API v1: projects and zones', () => {
       expect(Number((await pool.query('SELECT count(*) AS n FROM frames')).rows[0].n)).toBe(0);
     });
 
+    it('makes the slug unique on the template path too, each zone with its own display', async () => {
+      const project = await createProject();
+      const created = await Promise.all(
+        [0, 1, 2].map(() => post('/zones', { name: 'Home', projectId: project.id, template: 'stories-bar' })),
+      );
+      expect(created.map((r) => r.status)).toEqual([201, 201, 201]);
+      const zones = await Promise.all(created.map((r) => r.json()));
+      expect(zones.map((z) => z.slug).sort()).toEqual(['home', 'home-2', 'home-3']);
+      for (const zone of zones) {
+        expect([zone.createdFromTemplate, zone.frame.type, zone.frame.settings]).toEqual(['stories-bar', 'bar', barSettings]);
+        expect(await frameCount(zone.id)).toBe(1);
+      }
+    });
+
     it('rolls the zone back when the frame-type registry refuses the preset', async () => {
       // A registry that refuses every bar refuses the Stories bar preset after the zone row is written.
       const project = await createProject();

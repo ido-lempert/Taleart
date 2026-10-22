@@ -211,6 +211,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
   - **Templates** replace playbooks: registry data in `libs/contract` ("Stories bar", "Promo banner", "Blank"), applied once when a zone is created. The zone keeps only a "created from template" note (today's `playbook_key`); there is no apply action afterwards.
   - **Migration** (forward-only, `zones` module, with copies of placements through the `tales` public interface): the original zone keeps its id and becomes its first stage's zone (oldest first), or keeps its first frame when it has no stages; every further stage, and every frame no stage shows or beyond the first, becomes a new zone with that frame as its display, named from the stage (slug = stage key) or "<zone name> – <frame type> <n>". Each new zone records its original zone id and stage key, which the legacy zone key resolution uses (AD-2). A zone with no frame stays one zone with no display.
   - Internal and API names keep `frame` for the display row; the UI says Display and Template.
+  - **Built 2026-10-22 (UX rework story 8.8):** the playbook rule is superseded by UX rework R5 (templates): `POST /zones` takes `template` and sets the display in the same transaction; `Zone.createdFromTemplate` is the note; the apply-playbook endpoint is gone.
 
 ## Consistency Conventions
 

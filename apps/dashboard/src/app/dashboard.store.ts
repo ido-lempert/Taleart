@@ -78,17 +78,22 @@ function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
 }
 
+/** The control a refusal of a zone change is about; null when it names none. */
+export type ZoneField = 'name' | 'slug' | 'template' | 'project' | null;
+
 /** A refused zone change: the message to show, and the field it is about, so only that field is marked. */
 export interface ZoneChangeResult {
   message: string;
-  field: 'name' | 'slug' | null;
+  field: ZoneField;
 }
 
-// The field a refusal of a zone's name or slug is about: a taken slug, or a message naming the field.
-function zoneErrorField(err: unknown): 'name' | 'slug' | null {
+// The field a refusal of a zone change is about: from its code, or a message naming the field.
+function zoneErrorField(err: unknown): ZoneField {
   if (!(err instanceof HttpErrorResponse) || !isErrorBody(err.error)) return null;
   const { code, message } = err.error.error;
   if (code === 'slug_taken' || /^slug\b/.test(message)) return 'slug';
+  if (code === 'unknown_template' || /^template\b/.test(message)) return 'template';
+  if (code === 'project_not_found' || code === 'forbidden' || /^projectId\b/.test(message)) return 'project';
   return /^name\b/.test(message) ? 'name' : null;
 }
 
@@ -416,7 +421,13 @@ export class DashboardStore {
       );
     } catch (err) {
       return {
-        message: apiErrorMessage(err, 'Zone was not saved. Choose a project and enter a name.'),
+        // With one project there is no picker to point at.
+        message: apiErrorMessage(
+          err,
+          this.projects().length === 1
+            ? 'Zone was not saved. Enter a name.'
+            : 'Zone was not saved. Choose a project and enter a name.',
+        ),
         field: zoneErrorField(err),
       };
     }

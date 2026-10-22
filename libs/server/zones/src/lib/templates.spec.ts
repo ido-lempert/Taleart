@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { ZONE_TEMPLATES, type ZoneTemplate } from '@taleart/contract';
 import type { TransactionalDb } from '@taleart/server-access';
 import { InvalidFrameSettingsError, loadFrameTypeRegistry } from './frame-types';
-import { createZoneFromTemplate, UnknownTemplateError } from './templates';
+import { createZoneFromTemplate, createZoneFromTemplateIn, UnknownTemplateError } from './templates';
 
 const zoneId = '00000000-0000-4000-8000-000000000001';
 const projectId = '00000000-0000-4000-8000-000000000002';
@@ -79,13 +79,32 @@ describe('createZoneFromTemplate', () => {
     }
   });
 
+  it('picks the made slug again when another zone took it meanwhile, then sets the display', async () => {
+    const fake = fakeDb();
+    const query = fake.db.query as unknown as ReturnType<typeof vi.fn>;
+    const answer = query.getMockImplementation() as (text: string, values?: unknown[]) => Promise<unknown>;
+    let inserts = 0;
+    // The first insert meets a slug taken after it was picked (ON CONFLICT DO NOTHING writes no row).
+    query.mockImplementation(async (text: string, values: unknown[] = []) => {
+      if (/^INSERT INTO zones/.test(text.trim()) && inserts++ === 0) return { rows: [] };
+      if (/^SELECT slug FROM zones/.test(text.trim())) return { rows: inserts > 0 ? [{ slug: 'home' }] : [] };
+      return answer(text, values);
+    });
+    const zone = await createZoneFromTemplate(fake.db, registry, { name: 'Home', projectId, template: 'promo-banner' });
+    expect(inserts).toBe(2);
+    expect(zone.slug).toBe('home-2');
+    expect(zone.frame?.type).toBe('banner');
+    expect(fake.sql.filter((s) => s === 'INSERT INTO frames')).toHaveLength(1);
+    expect(fake.sql.at(-1)).toBe('COMMIT');
+  });
+
   it('rolls the zone back when the display is refused', async () => {
     const broken: ZoneTemplate[] = [
       { key: 'stories-bar', label: 'Broken', description: 'x', frame: { type: 'bar', settings: { gap: -5 } as never } },
     ];
     const fake = fakeDb();
     await expect(
-      createZoneFromTemplate(fake.db, registry, { name: 'Home', projectId, template: 'stories-bar' }, broken),
+      createZoneFromTemplateIn(fake.db, registry, { name: 'Home', projectId, template: 'stories-bar' }, broken),
     ).rejects.toBeInstanceOf(InvalidFrameSettingsError);
     expect(fake.sql).toContain('INSERT INTO zones');
     expect(fake.sql.at(-1)).toBe('ROLLBACK');

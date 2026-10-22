@@ -33,7 +33,7 @@ import {
   type ZoneTemplateKey,
 } from '@taleart/contract/core';
 import { CoverEditor } from './cover-editor';
-import { DashboardStore, type DrawerRequest } from './dashboard.store';
+import { DashboardStore, type DrawerRequest, type ZoneField } from './dashboard.store';
 import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { initialSettings, SettingsForm, type Settings } from './settings-form';
@@ -68,8 +68,19 @@ export class CreateDrawer implements OnInit {
   /** The slug typed in a new zone drawer; empty lets the API make one from the name (epic UX rework R1). */
   protected slug = '';
   protected readonly maxSlug = MAX_ZONE_SLUG_LENGTH;
-  /** True when the drawer's error is about the slug, so only the slug field is marked invalid. */
-  protected readonly slugError = signal(false);
+  /** The control the drawer's error is about (slug, template, project), so only that one is marked; null marks the name. */
+  protected readonly errorField = signal<ZoneField>(null);
+  /** True when the error is about the name: it names the name, or no other control. */
+  protected readonly nameError = computed(() => !!this.error() && (this.errorField() === null || this.errorField() === 'name'));
+  /** True when the error is about `field`. */
+  protected fieldError(field: Exclude<ZoneField, null>): boolean {
+    return !!this.error() && this.errorField() === field;
+  }
+
+  /** The project a new zone goes into: the only one when there is one (the picker is hidden then), else the picked one. */
+  protected targetProjectId(): string {
+    return this.onlyProject()?.id ?? this.projectId;
+  }
 
   /** The zone a "Name and slug" drawer edits. */
   protected readonly editedZone = computed(() => {
@@ -82,7 +93,8 @@ export class CreateDrawer implements OnInit {
     const base = zoneSlugFromName(this.text);
     if (!base) return '';
     // Made unique against the picked project's zones, as the API does.
-    const taken = new Set(this.store.zones().filter((z) => z.projectId === this.projectId).map((z) => z.slug));
+    const projectId = this.targetProjectId();
+    const taken = new Set(this.store.zones().filter((z) => z.projectId === projectId).map((z) => z.slug));
     return uniqueZoneSlug(base, (slug) => taken.has(slug));
   }
   protected frameType = '';
@@ -648,13 +660,15 @@ export class CreateDrawer implements OnInit {
         // A name with no Latin letter or digit (a Hebrew name, say) gives no slug: one is required then.
         if (!slug && this.text.trim() && !this.generatedSlug()) {
           message = 'This name gives no slug. Enter a slug: lowercase letters, digits and hyphens.';
-          this.slugError.set(true);
+          this.errorField.set('slug');
           break;
         }
-        const result = await this.store.createZone(this.text, this.projectId, slug, this.templateKey());
+        // Read now, not when the drawer opened: the projects may have loaded or changed since.
+        const projectId = this.targetProjectId();
+        const result = await this.store.createZone(this.text, projectId, slug, this.templateKey());
         message = result.message;
-        this.slugError.set(result.field === 'slug');
-        if (!message) this.store.selectProject(this.projectId);
+        this.errorField.set(result.field);
+        if (!message) this.store.selectProject(projectId);
         break;
       }
       case 'display':
@@ -705,7 +719,7 @@ export class CreateDrawer implements OnInit {
           ? await this.store.updateZone(zone.id, change)
           : { message: '', field: null };
         message = result.message;
-        this.slugError.set(result.field === 'slug');
+        this.errorField.set(result.field);
         break;
       }
       case 'placeTaleGroup':

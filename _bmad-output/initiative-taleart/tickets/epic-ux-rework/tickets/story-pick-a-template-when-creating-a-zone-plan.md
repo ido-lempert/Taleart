@@ -94,6 +94,15 @@ deferred: []
 - Initial bundle 492.46 kB (was about 494 kB): the apply drawer and its preview went, the radio group came in. The drawer stays in the eager shell, as before.
 - Playwright (`shots-8.8/`): a zone from each template (bar with the preset settings, banner 3:1, Blank with no display), each with its note; the sample page with `?keys=` shows the circle bar and the 3:1 banner; one project shows no picker, a second project brings it back; at 390 px the drawer has no horizontal scroll.
 
+## Review fixes (2026-10-22)
+
+- **Project read at submit.** The drawer reads the target project when Create is pressed (`onlyProject()?.id ?? projectId`), so projects that load or drop to one after it opened are used, and the slug preview follows the same project. Specs: projects arriving after open, two projects becoming one.
+- **Errors on their control.** A refusal now names its control (`ZoneField`: name, slug, template, project): `unknown_template` marks the template fieldset (`aria-describedby` gains `create-error`), `project_not_found`, `forbidden` or a `projectId` message marks the project picker (`aria-invalid`, `aria-describedby`). With one project the fallback message says "Zone was not saved. Enter a name." Specs for each.
+- **One transaction helper.** `@taleart/server-access` exports its `inTransaction` (one line); the zones module's copy is gone.
+- **One lookup.** The contract's `findTemplate(key, templates?)` takes a registry; the zones module uses it. The other-registry seam is `createZoneFromTemplateIn`, not exported from the module.
+- **Slug clash on the template path.** A unit spec retries the made slug and then sets the display once; an API spec creates three "Home" zones from a template at once: `home`, `home-2`, `home-3`, each with its display.
+- **Docs.** AD-17 and epic-web-zones R8 note that UX rework R5 (templates) supersedes playbooks.
+
 ## Plan Change Log
 
 ## Review Triage Log
