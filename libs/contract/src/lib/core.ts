@@ -186,6 +186,9 @@ export function siteKeyPrefix(key: string): string {
 /** The Delivery API's query parameter that names a zone by its slug, sent with a site key. */
 export const DELIVERY_ZONE_PARAM = 'zone';
 
+/** The most characters a tale group's name holds, after trimming (counted as code points). */
+export const MAX_TALE_GROUP_NAME_LENGTH = 100;
+
 /** The most characters a tag name holds, after trimming. */
 export const MAX_TAG_NAME_LENGTH = 40;
 

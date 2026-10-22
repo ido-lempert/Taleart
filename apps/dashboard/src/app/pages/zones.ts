@@ -1,11 +1,17 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import type { Zone } from '@taleart/contract/core';
 import { AuthStore } from '../auth';
 import { DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { VisibilityIndicator } from '../visibility';
+import { zoneInstalled } from '../zone-setup';
 
-/** The selected project's zones as cards. */
+/**
+ * The selected project's zones as cards (epic UX rework R14): each with its name, indicator (R7),
+ * slug, and a summary like the zone page header's: display type, group count, and Installed or Not
+ * installed (an active site key, R3), the last left out while the zone's visibility is unknown.
+ */
 @Component({
   selector: 'app-zones-page',
   imports: [RouterLink, Icon, VisibilityIndicator],
@@ -51,17 +57,24 @@ import { VisibilityIndicator } from '../visibility';
     .zone-card app-visibility {
       z-index: 1;
     }
-    .zone-card .pill,
     .zone-card__slug {
       align-self: flex-start;
       overflow-wrap: anywhere;
     }
-    .zone-card__meta {
+    .zone-card__summary {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: var(--space-2);
-      margin-top: auto;
-      color: var(--text-muted);
+      margin: auto 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .zone-card__summary .pill {
+      overflow-wrap: anywhere;
+    }
+    .pill--muted {
+      color: var(--text-secondary);
     }
   `,
   template: `
@@ -121,15 +134,17 @@ import { VisibilityIndicator } from '../visibility';
                   <a class="zone-card__name" [routerLink]="['/zones', zone.id]">{{ zone.name }}</a>
                   <app-visibility [visibility]="zone.visibility" viewing="zone" />
                   <span class="zone-card__slug"><span class="visually-hidden">Slug </span><code class="key-prefix">{{ zone.slug }}</code></span>
-                  @if (zone.frame; as display) {
-                    <span class="pill"><span class="visually-hidden">Display: </span>{{ store.frameTypeLabel(display.type) }}</span>
-                  } @else {
-                    <span class="muted">No display yet</span>
-                  }
-                  <span class="zone-card__meta">
-                    <app-icon name="tales" />
-                    {{ groupCountLabel(zone.id) }}
-                  </span>
+                  <ul class="zone-card__summary" [attr.aria-label]="'Summary of ' + zone.name">
+                    <li class="pill" data-summary="display" [class.pill--muted]="!zone.frame">
+                      <span class="visually-hidden">Display: </span>{{ zone.frame ? store.frameTypeLabel(zone.frame.type) : 'No display yet' }}
+                    </li>
+                    <li class="pill" data-summary="groups">{{ groupCountLabel(zone.id) }}</li>
+                    @if (installed(zone); as state) {
+                      <li class="pill" data-summary="install" [class.pill--muted]="state === 'Not installed'">
+                        <span class="visually-hidden">Install: </span>{{ state }}
+                      </li>
+                    }
+                  </ul>
                 </div>
               </li>
             }
@@ -142,6 +157,12 @@ import { VisibilityIndicator } from '../visibility';
 export class ZonesPage {
   protected readonly store = inject(DashboardStore);
   protected readonly auth = inject(AuthStore);
+
+  /** "Installed" or "Not installed", as the zone page header says it; '' while unknown. */
+  protected installed(zone: Zone): string {
+    const installed = zoneInstalled(zone);
+    return installed === null ? '' : installed ? 'Installed' : 'Not installed';
+  }
 
   protected groupCountLabel(zoneId: string): string {
     const count = this.store.taleGroupsOf(zoneId).length;
