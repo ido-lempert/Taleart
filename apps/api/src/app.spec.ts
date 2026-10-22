@@ -6793,7 +6793,7 @@ describe('Management API v1: projects and zones', () => {
       it('saves, validates and delivers it once configured, with no document version change', async () => {
         setTestElementTypesEnabled(true);
         const { zone, group, tale } = await setup();
-        await postKey(zone.id);
+        await installZone(zone.id);
         const refused = async (props: Record<string, unknown>, pointer: string) => {
           const res = await save(tale.id, doc([badge(props)]), 0);
           expect(res.status).toBe(400);

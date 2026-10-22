@@ -3,7 +3,7 @@ title: 'Register an element type by configuration (hook for interactive componen
 type: 'feature'
 ticket: '8'
 created: '2026-10-22'
-status: 'in-progress'
+status: 'built'
 baseline_revision: '761f612'
 route: 'full'
 route_source: 'auto'
@@ -62,17 +62,24 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] contract: registry entry, schema, generator split, helpers, README; tests.
-- [ ] server-tales + api: registry-driven validators with the switch; unit and HTTP tests.
-- [ ] web-sdk: typed renderer table; registry and skip tests.
-- [ ] dashboard: descriptors, fields inspector, Add menu and inspector from descriptors; tests.
-- [ ] Playwright walk (ports 3395/4295/4395), screenshots `shots-7.8/`.
+- [x] contract: registry entry, schema, generator split, helpers, README; tests.
+- [x] server-tales + api: registry-driven validators with the switch; unit and HTTP tests.
+- [x] web-sdk: typed renderer table; registry and skip tests.
+- [x] dashboard: descriptors, fields inspector, Add menu and inspector from descriptors; tests.
+- [x] Playwright walk (ports 3395/4295/4395), screenshots `shots-7.8/`.
 
 **Acceptance Criteria:**
 - Given the test type enabled, it appears in the Add menu, its inspector edits it, saving validates it and an invalid value is refused; on the sample page the tale shows without it and the console has one warning.
 - Given the full verification, every project lints, tests and builds; SDK ≤ 50 KB gz; a11y and perf pass (known failures); dashboard initial < 500 KB.
 
 ## Implementation Notes
+
+- Registry: `registry.json` entries may carry `testOnly: true`; the generator now also checks each entry (known fields, key pattern, unique key, closed props schema) and writes `TALE_TEST_ELEMENT_TYPES` beside the unchanged `TALE_ELEMENT_TYPE_REGISTRY`. Contract helpers: `elementTypeRegistry`, `elementTypeEntry`, `propSchema`, `propValueProblem` (type, enum, min/maxLength in code points, pattern, minimum/maximum, integer; tested to agree with Ajv on the test badge). README `libs/contract/README.md` documents adding a type.
+- Server: validators compiled from `elementTypeRegistry({ testTypes })`, cached per switch; `setTestElementTypesEnabled` is set by the API from `TALE_TEST_ELEMENT_TYPES` (`apps/api/src/element-types-config.ts`: on/off, any other value or `on` with NODE_ENV=production stops the API).
+- SDK: renderer table typed `{ [K in TaleElementType]: ElementRenderer }`; the skip with one warning per type per page was already there (7.1) and is now tested with the test badge. Size 23.51 KB gz.
+- Studio: `tale-element-types.ts` holds one descriptor per registry key (Add entries with id, label, icon, row, project need, limit hint; inspector kind); the Add menu, limit hints, kind names and inspector choice come from it; a registered key without a descriptor throws. New types use `{ kind: 'configured' }` + `create` + `{ fields }`, edited by `tale-fields-inspector.ts`. Test descriptors are built in a function reached only behind `ngDevMode`; the production browser bundle holds no `test-badge` (checked in dist). The dev switch is `localStorage['taleart.testElementTypes'] = 'on'`.
+- Built-in types' own add flows and inspectors are unchanged; the swipe-up/video limit hints now render in registry order (video first) when both are reached.
+- Verification (on autopilot/foundation 8c5c105 merged): run-many lint test build, 12 projects, pass (contract 352, server-tales 276, web-sdk 385, dashboard 516, api 555); web-sdk:size 23.51 KB; types-check pass; a11y 0 violations; a11y-review 215/217 (known: landscape contrast, landscape full height); perf cold p75 1,270 ms. Dashboard initial 493.67 KB. Playwright 16/16 (shots-7.8).
 
 ## Plan Change Log
 
