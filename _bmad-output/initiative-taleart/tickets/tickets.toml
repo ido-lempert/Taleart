@@ -14,7 +14,7 @@ slug = "epic-another tool-importer"
 title = "another tool importer"
 description = "A another tool account's groups, stories and zones import through the live API with a per-entity count report; later entries add components and user lists (another tool audiences)."
 covers = ["R1", "R2"]
-after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (no gate on the whole epic)" }, { epic = 3, needs = "status and schedule fields on tales and tale groups (story 11 only)" }, { epic = 4, needs = "interactive components (story 13 only)" }, { epic = 5, needs = "user lists (story 12 only)" }]
+after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (no gate on the whole epic)" }, { epic = 3, needs = "status and schedule fields on tales and tale groups (story 11 only)" }, { epic = 4, needs = "interactive components (story 13 only)" }, { epic = 5, needs = "user lists (story 12 only)" }, { epic = 8, needs = "the On/Off status model and tale defaults (8.1) for story 11 only" }]
 
 [[epic]]
 id = 3
@@ -25,12 +25,20 @@ covers = ["R6", "R9", "R11"]
 after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (no gate on the whole epic)" }]
 
 [[epic]]
+id = 8
+slug = "epic-ux-rework"
+title = "UX rework: a zone is a spot, one switch makes content visible"
+description = "A zone is one spot with one display placed by site key and slug, a tale group's On switch shows its tales with per-tale hide, every zone, group and tale says whether it is visible and why not, and the zone page guides a first run; old zone keys and stages keep working. Runs before Tale Studio 7.7 onward (owner decisions D1 to D7, 2026-10-23)."
+covers = ["R9", "R11", "R6", "R13", "R3"]
+after = [{ epic = 3, needs = "the built zone, frame, stage, playbook, status and schedule behaviour (3.3 to 3.10) that this epic reworks" }]
+
+[[epic]]
 id = 7
 slug = "epic-tale-studio"
 title = "Tale Studio"
 description = "Content managers compose a tale in Tale Studio from text, media, shapes, stickers and calls to action on a 9:16 canvas; the tale is a document of live elements that the Web SDK renders, and every existing tale is migrated to a document."
 covers = ["R13", "R2", "R10"]
-after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (media upload 1.12, dashboard shell 1.14)" }, { epic = 3, needs = "the viewer (3.2), the project theme (3.8) and the tale group cover (3.14), per story" }, { epic = 2, needs = "the difference report and re-import (2.6, 2.7) for story 13 only" }]
+after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (media upload 1.12, dashboard shell 1.14)" }, { epic = 3, needs = "the viewer (3.2), the project theme (3.8) and the tale group cover (3.14), per story" }, { epic = 2, needs = "the difference report and re-import (2.6, 2.7) for story 13 only" }, { epic = 8, needs = "the UX rework's status model (8.1), Update tale wording (8.4), SDK zone and key changes (8.7) and accessibility review (8.17), per story: 7.7 onward runs after them" }]
 
 [[epic]]
 id = 4

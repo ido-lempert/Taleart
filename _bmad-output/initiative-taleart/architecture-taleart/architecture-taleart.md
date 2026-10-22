@@ -4,11 +4,12 @@ type: architecture-spine
 purpose: build-substrate
 altitude: initiative
 paradigm: 'modular monolith with ports-and-adapters edges'
-scope: 'TaleArt initiative: the API, dashboard, Web SDK and the contract native SDKs will use; keeps its seven epics coherent'
+scope: 'TaleArt initiative: the API, dashboard, Web SDK and the contract native SDKs will use; keeps its eight epics coherent'
 status: final
 created: '2026-10-20'
-updated: '2026-10-21'
+updated: '2026-10-23'
 binds: [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, NFR-006, NFR-007]
+amended: '2026-10-23: UX rework (owner decisions D1 to D7): AD-2, AD-5, AD-6, AD-9, AD-14, AD-15 amended; AD-17 added; stages and playbooks superseded'
 sources:
   - _bmad-output/initiative-taleart/initiative-taleart.md
   - _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md
@@ -53,7 +54,8 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 
 - **Binds:** R9, R10, FR-002, FR-003, FR-009
 - **Prevents:** SDK credentials reaching content writes, and web and native clients using different data paths.
-- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts zone keys only, reads published content, and writes events. Its zone response lists the tale groups placed in the zone, in that zone's placement order (AD-14), and carries the links to their published media, which are public and need no key (AD-11). No client reads the database or a module directly.
+- **Rule:** The Management API (`/api/v1`) serves the dashboard, accepts sessions only, and reads and writes. The Delivery API (`/delivery/v1`) serves every SDK, web and native, accepts delivery keys only (a project's **site key** or a legacy **zone key**, AD-9), reads published content, and writes events. Its zone response lists the tale groups placed in the zone, in that zone's placement order (AD-14), and carries the links to their published media, which are public and need no key (AD-11). No client reads the database or a module directly.
+- **Amended 2026-10-23 (owner decision D6):** a request names its zone by **site key plus zone slug** (`zone="home-top"` on the page). One site key serves every zone of its project, and the response describes one zone with its one display (AD-17). An unknown slug is refused like a refused key. A **legacy zone key** keeps working with no slug: with a stage key it resolves to the zone migrated from that stage; without one it returns every display migrated from that zone, in the old frame order `[ASSUMPTION]` (owner to confirm before UX rework story 8.7). A legacy request gets the response shape the pre-rework SDK reads, so SDK builds from before the rework keep rendering. The Delivery filter and the dashboard's visibility indicator call one function (AD-6).
 
 ### AD-3 — Contract first `[ADOPTED]`
 
@@ -72,12 +74,21 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 - **Binds:** R10, R11, FR-006, FR-007
 - **Prevents:** a migration per frame type, and web and native renderers disagreeing on settings.
 - **Rule:** A frame row stores `type` (a registry key) and `settings` (JSONB). Each type has a JSON Schema in `libs/contract`, and the API validates `settings` against it on write. A new type is a registry entry, a schema and a renderer, with no migration. Clients skip frame types they don't know instead of failing.
+- **Amended 2026-10-23 (D1):** a zone has at most one frame, called its **display** in the UI (AD-17); the frame row and its id stay, so events keep `frame_id` (AD-10).
 
 ### AD-6 — Status keys `[ADOPTED]`
 
 - **Binds:** tales, tale groups, importer
 - **Prevents:** modules storing different representations of the same status.
 - **Rule:** The status keys and their HTTP codes are `draft` 204 `[ASSUMPTION]`, `live` 200, `scheduled` 202, `processing` 102, `invalid-media` 422, `paused` 403, `blocked-by-group` 423, `expired` 410, `quota-reached` 429, `archived` 404, defined once in `libs/contract`. New tale groups and tales start `draft`; rows that existed before `draft` was added migrate to `live`. The key a person or process sets is stored. `scheduled` and `expired` are never stored: they are computed when content is read, from the stored `live` key and the start and end times, so no job moves them. The Delivery API returns only `live` content whose schedule window, and its group's, contains the current time.
+- **Amended 2026-10-23 (owner decisions D2, D3): shown status over stored keys.** The stored keys and their HTTP codes do not change. The dashboard shows them through one mapping in `libs/contract`:
+  - **Tale group:** **On** = `live`; **Off** = `draft` or `paused`; Archived = `archived`, offered only from the ⋯ menu. New groups start `draft` (Off). Turning a group Off stores `paused`.
+  - **Tale:** **Shown** = `live`; **Hidden** = `draft` or `paused`; Archived = `archived`. New tales are stored `live`, so a group that is On shows all its tales by default and each tale is hidden one by one. Hiding stores `paused`. A duplicated tale's default is Hidden `[ASSUMPTION]` (owner to confirm before Tale Studio story 7.12).
+  - `blocked-by-group` applies to every tale of a group that is `draft` or `paused`, not only `paused`.
+  - `processing` and `invalid-media` stay stored keys shown as warnings; `scheduled` and `expired` stay computed.
+  - A tale is delivered only when it also has a published document (AD-15); edits stay private until "Update tale".
+  - **Visibility indicator:** one function in the `tales` module, with its reason codes in `libs/contract`, decides whether a zone, a placement of a group in a zone, and a tale are visible now, and lists why not (group off, tale hidden, group blocked, archived, no shown tales, not in any zone, starts at, ended at, zone has no display, zone not installed, media processing, media problem, not updated yet). The Delivery filter uses the same function, so the dashboard and the site cannot disagree.
+  - **Migration:** tales stored `draft` in groups that were never `live` become `live`; `draft` tales in live groups stay `draft` (Hidden), so no visitor sees a change.
 
 ### AD-7 — Identity and import links
 
@@ -96,6 +107,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 - **Binds:** FR-002, FR-003, NFR-003
 - **Prevents:** credentials stored in plain text, and one credential type working on both surfaces.
 - **Rule:** Dashboard users sign in with passkeys (WebAuthn) only; there are no passwords. The first user on an empty install becomes the admin; every later user joins through a one-time invitation an admin creates for a project. After sign-in, sessions are server-side behind an http-only cookie. Zone keys are random secrets, shown once and stored hashed. Rotating issues a new key and revokes the old one.
+- **Amended 2026-10-23 (D6):** a project has at most one active **site key**, a random secret with its own prefix, shown once, stored hashed, rotated and revoked under the same rules, owned by the `access` module. New zones get no zone key; existing zone keys stay valid, rotatable and revocable (AD-2). NFR-003's credential list reads: sessions, site keys and legacy zone keys.
 
 ### AD-10 — Events `[ADOPTED]`
 
@@ -126,6 +138,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
 - **Binds:** R3, R8, R9, FR-010, AD-2, AD-4, AD-11
 - **Prevents:** duplicating a tale group to show it in a second zone, edits that reach only one of the copies, and a zone's order that moves another zone's order.
 - **Rule:** A tale group, with its tales, tags, cover and media, belongs to a project. A zone shows an ordered list of placements (`zone_tale_groups`: zone, tale group, position, project), owned by the `tales` module; zones reach them only through its public interface. The same group can be placed in several zones of its project; an edit to the group shows in every zone, and each zone keeps its own order. Removing a group from a zone deletes only that placement; a group placed in no zone still exists in the project. A zone's groups, in the dashboard and the Delivery API, are read through its placements. **Copy to zone** creates an independent tale group, with copies of its tales and tag links and the same media storage keys (files are not duplicated), placed in a zone of the same project or of another project the user can access; the caller must be authorized for both projects (AD-4). In another project, tags are matched by name and created when missing. A storage key referenced by several tales is public while any published tale references it, and its file is deleted only when no tale or cover references it `[ASSUMPTION]` (AD-11). Migration: every existing tale group, from foundation stories 1.3, 1.4 and 1.5 and web-zones story 3.1, becomes a project group with one placement in its current zone, keeping its position.
+- **Amended 2026-10-23 (D1):** a zone is one spot (AD-17), so placements are per spot: two spots on one page show different groups by having their own placements, not by needing a second key. When stages and extra frames become zones (AD-17 migration), each new zone gets a copy of the original zone's placements in the same order; afterwards each zone's list changes on its own. The dashboard's group status is shown per placement, since "not in any zone" and the zone's display and install state are part of it (AD-6).
 
 ### AD-15 — Tale document model
 
@@ -150,7 +163,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
   - **Fonts:** a text element's font is a system stack key from the font registry in `libs/contract`, the project theme font, a font-family name that passes the theme's font-list rules (`isFontFamily`) and that the host loads, or the id of a **project font**, each with a fallback system stack. A project font is a row in `project_fonts` (project, family, weight, style, fallback stack, storage key, licence confirmation), owned by the `tales` module. Its file is WOFF2 only, checked by magic bytes, and at most 500 KB. It is media under AD-11: public, served as `font/woff2` with CORS that allows any origin, while a published tale's document references it.
   - **Draft and published** (user decision, 2026-10-22): each tale keeps two documents of this shape, each with its own revision.
     - The **draft** is what Tale Studio edits and autosaves. Every save raises the draft revision, and a save based on an older one is refused with 409, so undo, redo, autosave and the conflict flow all work on the draft and never change what visitors see.
-    - The **published** document is what the Delivery API serves. "Publish changes" copies the draft to it in one compare-and-set on both revisions (409 when either is stale), raising the published revision. "Discard draft" resets the draft to the published document the same way.
+    - The **published** document is what the Delivery API serves. "Update tale" (named "Publish changes" until 2026-10-23, owner decision D4; "Publish" now means only visibility) copies the draft to it in one compare-and-set on both revisions (409 when either is stale), raising the published revision. "Discard changes" (formerly "Discard draft") resets the draft to the published document the same way.
     - Setting a tale `live` (AD-6) while nothing of it is published yet, from any status, also publishes its draft in the same transaction, after checking it again; a tale that already has a published document keeps it on resume. A draft that no longer passes is not published: the tale still goes live, and the answer flags it for the dashboard to say so.
     - Publishing a tale with no draft is refused (409 `nothing_to_publish`), so publishing never empties the published document.
     - A tale whose document existed before drafts gets it as both, at the same revision. Keeping a refused version as a new tale stores it as that tale's draft, with nothing published.
@@ -186,6 +199,18 @@ Clients never import `libs/server`. Modules never import `apps/*`.
     - It fetches each font's public URL as bytes and registers it with `new FontFace(alias, bytes)` and `document.fonts.add`, under an internal alias such as `taleart-<fontId>`. It never builds CSS text such as `@font-face` or `url()`.
     - Text renders in the fallback stack until the face is ready, then swaps. A face that fails or takes over 3 s keeps the fallback.
     - System stacks, the theme font and font-family names are applied as validated `font-family` values through CSSOM, and the host page loads named fonts.
+
+### AD-17 — A zone is a spot with one display; stages removed; templates
+
+- **Binds:** R9, R11, FR-005, FR-006, FR-008, FR-009, AD-2, AD-5, AD-14
+- **Supersedes:** the stage and playbook parts of the Structural Seed (2026-10-20) and web-zones R7 (stage) and R8 (playbook) as built behaviour.
+- **Prevents:** three nouns for one idea (zone, frame, stage), a zone that is really a content channel with the real estate hidden in a stage, and presets that stay attached to a zone after they were used.
+- **Rule** (owner decisions D1 and D7, 2026-10-23; UX review `ux-review-2026-10-23/ux-report.md` §3):
+  - A **zone** is one spot in an app or site where tales appear. It has a name, a **slug** (lowercase letters, digits and hyphens, unique in its project; the page's `zone="…"`), at most one frame, its **display** (AD-5), and its own placements (AD-14). A zone without a display delivers nothing.
+  - **Stages** are removed from the model, the Management API, the Delivery API and the SDK's documented surface; the `stage` attribute stays only as a legacy alias (AD-2).
+  - **Templates** replace playbooks: registry data in `libs/contract` ("Stories bar", "Promo banner", "Blank"), applied once when a zone is created. The zone keeps only a "created from template" note (today's `playbook_key`); there is no apply action afterwards.
+  - **Migration** (forward-only, `zones` module, with copies of placements through the `tales` public interface): the original zone keeps its id and becomes its first stage's zone (oldest first), or keeps its first frame when it has no stages; every further stage, and every frame no stage shows or beyond the first, becomes a new zone with that frame as its display, named from the stage (slug = stage key) or "<zone name> – <frame type> <n>". Each new zone records its original zone id and stage key, which the legacy zone key resolution uses (AD-2). A zone with no frame stays one zone with no display.
+  - Internal and API names keep `frame` for the display row; the UI says Display and Template.
 
 ## Consistency Conventions
 
@@ -233,8 +258,8 @@ flowchart LR
   end
   another tool[another tool External API]
   dash -->|session| api
-  sdk -->|zone key| api
-  nat -->|zone key| api
+  sdk -->|site key or legacy zone key| api
+  nat -->|site key| api
   api --> db
   api --> media
   api -->|import jobs| another tool
@@ -246,9 +271,9 @@ Environments: local (Docker Compose), staging (deployed from CI on merge to `mai
 erDiagram
   PROJECT ||--o{ APP : has
   PROJECT ||--o{ ZONE : has
-  ZONE ||--o{ FRAME : shows
-  ZONE ||--o{ STAGE : renders-in
-  STAGE }o--|| FRAME : shows
+  ZONE ||--o| FRAME : "display (AD-17)"
+  PROJECT ||--o| SITE_KEY : "delivers with"
+  ZONE ||--o{ ZONE_KEY : "legacy key"
   PROJECT ||--o{ TALE_GROUP : owns
   ZONE ||--o{ ZONE_TALE_GROUP : places
   TALE_GROUP ||--o{ ZONE_TALE_GROUP : placed-in
@@ -266,7 +291,7 @@ erDiagram
   PROJECT ||--o{ EVENT : records
 ```
 
-A tale group belongs to its project, not to a zone. `ZONE_TALE_GROUP` (table `zone_tale_groups`: zone, tale group, position, project) places a group in a zone; a zone shows its placed groups in its own order, and the same group can be placed in several zones of its project (AD-14). Every frame in a zone shows all of the published tale groups placed in the zone; a frame does not pick groups. A zone has several stages, each showing one of its frames. A playbook is not a table: it is registry data in `libs/contract`, like the frame-type registry, and the zone records the key of the playbook applied to it. The theme is set per project (validated by a theme schema in `libs/contract`); the Web SDK configuration may override it per zone. A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. A tale's document (AD-15) is a JSONB column on the tale, not a table; interactive components are element types placed in it, and their responses live in the `interactive` module. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
+A tale group belongs to its project, not to a zone. `ZONE_TALE_GROUP` (table `zone_tale_groups`: zone, tale group, position, project) places a group in a zone; a zone shows its placed groups in its own order, and the same group can be placed in several zones of its project (AD-14). A zone is one spot with at most one frame, its display, which shows all of the published tale groups placed in the zone (AD-17). Stages were removed on 2026-10-23: each stage became its own zone. A template (formerly playbook) is registry data in `libs/contract`, applied once when a zone is created; the zone keeps only a "created from template" note. A project has one site key; zones migrated from before the rework keep their legacy zone keys (AD-2, AD-9). The theme is set per project (validated by a theme schema in `libs/contract`); the Web SDK configuration may override it per zone. A user list holds external user IDs (no separate member entity). User attributes are passed by the SDK at runtime, not stored as an entity. A tale's document (AD-15) is a JSONB column on the tale, not a table; interactive components are element types placed in it, and their responses live in the `interactive` module. CAMPAIGN and JOURNEY are post-MVP. PRODUCT_SET comes later, after product feeds exist.
 
 ```text
 apps/
@@ -274,11 +299,11 @@ apps/
   dashboard/      # Angular, Management API client
   docs/           # published docs, including metric definitions
 libs/
-  contract/       # OpenAPI 3.1, generated types, frame and theme schemas, playbook registry, tale document schema and element-type and font registries, event names, status map
+  contract/       # OpenAPI 3.1, generated types, frame and theme schemas, template registry (formerly playbooks), shown-status mapping and visibility reasons, tale document schema and element-type and font registries, event names, status map
   server/
-    access/       # projects, users, sessions, zone keys
-    zones/        # zones, frames, stages, applied playbook key, journeys (post-MVP); registries live in contract
-    tales/        # tale groups (owned by the project), zone placements of tale groups (zone, group, position), tales and their tale documents (AD-15), schedules, status, copy to zone
+    access/       # projects, users, sessions, site keys, legacy zone keys
+    zones/        # zones (slug, one display frame, created-from-template note, legacy stage mapping), journeys (post-MVP); registries live in contract
+    tales/        # tale groups (owned by the project), zone placements of tale groups (zone, group, position), tales and their tale documents (AD-15), schedules, status, visibility function (AD-6), copy to zone
     interactive/  # interactive components and responses
     targeting/    # tags, segments, user lists, user attributes, external user IDs
     campaigns/    # campaigns and their schedules (post-MVP)
@@ -308,12 +333,12 @@ libs/
 | R3 foundation entities | `access`, `zones`, `tales` (product sets moved out of the foundation to `product-sets`, later) | AD-1, AD-4, AD-14 |
 | R4 interactive components | `libs/server/interactive`, `libs/web-sdk`; each component is an element type in the tale document | AD-3, AD-10, AD-15 |
 | R5, R12 targeting | `libs/server/targeting`, rules evaluated in `libs/web-sdk` | AD-2, AD-4, AD-13 |
-| R6 scheduling | `libs/server/tales`, computed when read | AD-6 |
+| R6 scheduling and visibility | `libs/server/tales`, computed when read; one visibility function for Delivery and the dashboard | AD-6 |
 | R7 analytics | `libs/server/analytics` | AD-10, AD-13 |
 | R8 project tag | every module | AD-4 |
-| R9 Web zones | `libs/web-sdk`, Delivery API, public media URLs | AD-2, AD-3, AD-11 |
+| R9 Web zones | `libs/web-sdk`, Delivery API (site key plus zone slug, legacy zone keys), public media URLs | AD-2, AD-3, AD-9, AD-11, AD-17 |
 | R10 native-ready, extensible | `libs/contract`, frame registry | AD-3, AD-5 |
-| R11 stage and playbook | `libs/server/zones`, playbook registry in `libs/contract` | AD-5 |
+| R11 zone placement and templates (stages and playbooks until 2026-10-23) | `libs/server/zones`, template registry in `libs/contract` | AD-5, AD-17 |
 | R13 Tale Studio | `apps/dashboard` (Tale Studio), `libs/server/tales` (tale document, project fonts), `libs/contract` (document schema, element-type and font registries), `libs/web-sdk` (document renderer) | AD-11, AD-15, AD-16 |
 | NFR-006, NFR-007 | all clients and APIs | Quality Targets |
 

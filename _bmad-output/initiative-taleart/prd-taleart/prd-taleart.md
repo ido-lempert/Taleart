@@ -2,7 +2,7 @@
 title: TaleArt PRD
 status: final
 created: 2026-10-20
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # TaleArt — Product Requirements
@@ -37,16 +37,16 @@ Organizations with several teams and project budgets also cannot see usage per p
 
 - **FR-001** An administrator creates a project. Every zone and tale belongs to exactly one project.
 - **FR-002** A content manager signs in to the dashboard and sees only the zones of their project.
-- **FR-003** An administrator issues a zone key, which is shown once. The key can be rotated and revoked. A revoked key is refused.
+- **FR-003** An administrator issues a site key for a project, which is shown once. The key can be rotated and revoked. A revoked key is refused. Zone keys issued before 2026-10-23 keep working and can still be rotated and revoked (owner decision D6, 2026-10-23).
 - **FR-004** Every tale, tale group, zone and product set carries its project identifier from creation. An item cannot be created without one.
 
-### Zones and frames
+### Zones and displays
 
-- **FR-005** A content manager creates a zone in a project. A zone is a location in an app or site that shows one or more frames.
-- **FR-006** A content manager assigns a frame type to a zone. The MVP frame types are bar and banner (confirmed by the user).
+- **FR-005** A content manager creates a zone in a project. A zone is one spot in an app or site where tales appear, with one display (owner decision D1, 2026-10-23; until then a zone could show several frames).
+- **FR-006** A content manager sets a zone's display: a frame type and its settings, changeable at any time. The MVP frame types are bar and banner (confirmed by the user). The UI calls the frame the zone's "display".
 - **FR-007** A new frame type is added by configuration, appears in the frame picker, and saves without a schema change.
-- **FR-008** A zone can hold a stage and a playbook. A playbook is a preset set of frames for a goal. Stage and playbook belong to the web zones work. A playbook is not a journey: a journey is a multi-step sequence that shows different content over time or by behaviour, and is post-MVP. "Journey" is used only as a common noun, never branded, pending legal review.
-- **FR-009** The Web SDK renders a zone's frames on a host page, using the zone key.
+- **FR-008** A content manager picks a template when creating a zone. A template is a preset display for a goal, applied once (owner decision D7, 2026-10-23; it replaces the playbook, and stages are removed: each stage became its own zone, D1). Templates belong to the web zones work. A template is not a journey: a journey is a multi-step sequence that shows different content over time or by behaviour, and is post-MVP. "Journey" is used only as a common noun, never branded, pending legal review.
+- **FR-009** The Web SDK renders a zone's display on a host page, using the project's site key and the zone's name (`zone="home-top"`). Pages that use a zone key, with or without a stage, keep working (owner decision D6, 2026-10-23).
 
 ### Tales and tale groups
 
@@ -106,7 +106,7 @@ Product sets (formerly "collections") depend on product feeds and come after the
 
 - **NFR-001** The project is licensed under Apache-2.0, including the SDKs and the API.
 - **NFR-002** The platform is self-hostable, with no dependency on a hosted service of TaleArt's own.
-- **NFR-003** Zone keys and user sessions are the only credentials the platform issues. Credentials are not stored in plain text.
+- **NFR-003** Site keys, zone keys (legacy, from before 2026-10-23) and user sessions are the only credentials the platform issues. Credentials are not stored in plain text.
 - **NFR-004** another tool brand names do not appear in product code, UI or docs. Names follow the approved terminology map.
 - **NFR-005** another tool screenshots and copied another tool documentation text are not committed to the repository.
 - **NFR-006** Performance targets (page load, render time, import throughput) are deferred to architecture, which sets them as numbers.
@@ -128,7 +128,8 @@ Deferred to architecture (owner: the user; revisit when `bmad-architecture` star
 
 ## Decided inputs
 
-- Status scheme for tales and tale groups: the HTTP-based scheme in the research report, §11.3 (approved).
+- Status scheme for tales and tale groups: the HTTP-based scheme in the research report, §11.3 (approved). The dashboard shows it as On / Off for a tale group and Shown / Hidden for a tale (draft and paused both read Off or Hidden; archive is in the ⋯ menu); turning a group On shows its tales by default and each tale can be hidden; every zone, group and tale says whether it is visible on the site and why not (owner decisions D2, D3, 2026-10-23; architecture AD-6).
+- Terms (owner decisions, 2026-10-23, UX review): **zone** = one spot where tales appear; **display** = how a zone looks (bar or banner; "frame" internally); **template** = a preset picked when creating a zone (formerly playbook); **stage** is retired. Tale Studio's "Update tale" copies edits to the site; "Publish" and "On" mean only visibility (D4).
 - Entity names: the approved terminology map (approved).
 - Rating is in the MVP (approved in the split review and the foundation epic). Collections, now product sets, are no longer in the foundation: they depend on product feeds and come later (user, 2026-10-20; supersedes the earlier "collections in the MVP" decision).
 - Targeting and campaign names (tag, segment, user list, user attributes, external user ID, journey, campaign, schedule, product set): approved by the user on 2026-10-20 (`research-another tool-competitive-teardown/naming-targeting-and-campaigns.md`).

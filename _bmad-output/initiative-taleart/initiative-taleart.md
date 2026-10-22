@@ -71,9 +71,9 @@ A team that runs another tool content can import its account into TaleArt, serve
     **Then** it consumes the same dashboard-defined data without a schema migration
     Verify: a test adds a new widget type to the registry and renders it without changing the schema.
 
-11. **Stage and playbook for zones** (R11)
-    The web zones epic holds stage and playbook, so a zone's rendering context and its preset frames are stored.
-    Verify: a zone with a stage and a playbook renders on the Web SDK.
+11. **Zone placement and templates** (R11)
+    The web zones epic held stage and playbook; since the owner decisions of 2026-10-23 (D1, D7) a zone is itself the spot on a page, with one display, and templates preset a zone's display when it is created. The UX rework epic (`epic-ux-rework`) migrates stages into zones and playbooks into templates.
+    Verify: a zone created from a template renders on the Web SDK by its name, and a pre-rework page that names a stage still renders.
 
 12. **User list, segment, user attributes and external user ID** (R12)
     The targeting epic holds user lists, segments, user attributes and the external user ID, so viewers are matched to groups.
@@ -106,7 +106,7 @@ A team that runs another tool content can import its account into TaleArt, serve
 
 ## Boundaries
 
-- **In:** Web MVP, the importer, the MVP entities, Tale Studio (R13), the seven interactive components, tag and user list targeting, scheduling, per-widget analytics, the project tag.
+- **In:** Web MVP, the importer, the MVP entities, Tale Studio (R13), the UX rework of zones and statuses (2026-10-23), the seven interactive components, tag and user list targeting, scheduling, per-widget analytics, the project tag.
 - **Out (post-MVP):** native iOS and Android SDKs; usage metering, storage metering and audit export for internal chargeback; Canvas, Swipe Card and Video Feed widgets; conversion attribution; campaigns; journeys; AI personalization; retail media; pricing and hosted commercial offers.
 
 ## References
@@ -115,7 +115,8 @@ A team that runs another tool content can import its account into TaleArt, serve
 - brief — _bmad-output/initiative-taleart/brief-taleart/brief-taleart.md, sections MVP scope, Goals, Risks, Open decisions
 - research — _bmad-output/initiative-taleart/research-another tool-competitive-teardown/research-another tool-competitive-teardown.md, sections 3 to 11
 - prd — _bmad-output/initiative-taleart/prd-taleart/prd-taleart.md
-- architecture — _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, AD-1 to AD-16
+- architecture — _bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md, AD-1 to AD-17
+- ux review — _bmad-output/initiative-taleart/ux-review-2026-10-23/ux-report.md
 
 ## Notes
 
@@ -127,4 +128,5 @@ A team that runs another tool content can import its account into TaleArt, serve
 - Open question: names (terminology map) and license need decisions and counsel review before publication.
 - Decision (2026-10-20): targeting and campaign names approved by the user: tag (on tale groups; UI "Targeting tags"), segment, user list, user attributes, external user ID, journey (common noun, never branded; counsel sign-off pending, fallback "Sequence"), playbook, campaign with a schedule, product set (replaces collection). "Audience" is only a dashboard heading. Source: research-another tool-competitive-teardown/naming-targeting-and-campaigns.md.
 - Decision (2026-10-21): Tale Studio is in the MVP (R13). Tales are structured documents of live elements that the SDK renders, with another tool's story editor as the reference. The epic is `epic-tale-studio`, built after web zones and before interactive components, whose components become element types in the tale document (architecture AD-15, AD-16) (user).
+- Decision (2026-10-23, owner, UX review D1 to D7): a zone is one spot with one display, stages fold into zones, playbooks become templates picked at zone creation (D1, D7); a group that is On shows its tales by default with per-tale hide, and Studio edits stay private until "Update tale" (D2, D4); the UI shows draft and paused as Off, with Archive in the ⋯ menu and stored statuses unchanged (D3); tale groups are a list with status on the zone page (D5); the SDK uses one site key per project plus a zone name, and old zone keys keep working (D6). The new epic `epic-ux-rework` carries the change and runs before Tale Studio 7.7 onward; R11 is rewritten above.
 - Decision (2026-10-21, user): Tale Studio details are settled. Fonts are system stacks plus a font-family name the host loads or a WOFF2 font uploaded to the project, loaded by the SDK only when a tale uses it. Contrast is a warning only. another tool's `studio_image` is not imported and its layers are listed as a difference. The starting limits are accepted and tuned by story 7.14. The CTA move, the tracer and the build order are autopilot defaults the user may change.
