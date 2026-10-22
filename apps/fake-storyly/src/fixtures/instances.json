@@ -70,5 +70,16 @@
         "platform": "web"
       }
     ]
+  },
+  "1006": {
+    "data": [
+      {
+        "id": 2501,
+        "app_id": 1006,
+        "title": "Link wall",
+        "token": "fake-instance-token-2501",
+        "platform": "web"
+      }
+    ]
   }
 }

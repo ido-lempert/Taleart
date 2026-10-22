@@ -309,5 +309,25 @@
         "ts_updated": "2026-09-01 10:00:00"
       }
     ]
+  },
+  "2501": {
+    "data": [
+      {
+        "id": 3501,
+        "app_id": 1006,
+        "instance_id": 2501,
+        "account_id": 501,
+        "title": "Calls to action",
+        "status": 1,
+        "sort_order": 0,
+        "pinned": false,
+        "segments": [],
+        "settings": {},
+        "ts_start": null,
+        "ts_end": null,
+        "ts_created": "2026-09-01 10:00:00",
+        "ts_updated": "2026-09-01 10:00:00"
+      }
+    ]
   }
 }
