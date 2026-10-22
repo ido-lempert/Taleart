@@ -6725,7 +6725,7 @@ describe('Management API v1: projects and zones', () => {
 
       it('refuses to publish a link without a destination, then delivers each link with its href and image URL', async () => {
         const { zone, group, tale } = await setup();
-        await postKey(zone.id);
+        await installZone(zone.id);
         const image = await uploaded(zone.projectId);
         const elements = [
           item(1, 'button', button('https://example.com/shop')),
