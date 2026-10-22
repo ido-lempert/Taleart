@@ -83,31 +83,40 @@ export function localTimeZone(): string {
 
 /**
  * A time in a few characters, in the browser's locale and time zone, for a schedule chip: the day
- * and month ("1 Dec"), the year only when it is not this year, and the time only when it is not
- * midnight ("1 Dec 09:00").
+ * and month, the year only when it is not this year, and always the time, written as the
+ * indicator writes it (`timeStyle: 'short'`), such as "1 Dec, 09:00" (en-GB) or "Dec 1, 9:00 AM"
+ * (en-US). The time always shows, so an end at midnight does not read as if that day were included.
  */
 export function formatShort(iso: string, now: Date = new Date()): string {
   const date = new Date(iso);
   const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
   if (date.getFullYear() !== now.getFullYear()) options.year = 'numeric';
-  if (date.getHours() !== 0 || date.getMinutes() !== 0) {
-    options.hour = '2-digit';
-    options.minute = '2-digit';
-  }
-  return date.toLocaleString(undefined, options);
+  return `${date.toLocaleDateString(undefined, options)}, ${date.toLocaleTimeString(undefined, { timeStyle: 'short' })}`;
 }
 
+/** How much a schedule chip says: the whole window (a group row), or one bound (a tale card). */
+export type WindowChipForm = 'full' | 'short';
+
 /**
- * A window on a schedule chip, such as "Starts 1 Dec 09:00", "Ends 3 Nov" or
- * "1 Dec 09:00 – 3 Nov"; '' for no window, which shows no chip (epic UX rework R8).
+ * A window on a schedule chip (epic UX rework R8); '' for no window, which shows no chip. A bound
+ * in the past says so: "Started …", "Ended …". In full: "Starts 1 Dec, 09:00", "Ends 3 Nov, 00:00",
+ * or "1 Dec, 09:00 – 3 Jan 2027, 00:00" while both bounds are ahead; once the start has passed, the
+ * end ("Ends …" or "Ended …"). In short, for a tale card: one bound, the start while it is ahead,
+ * else the end, else the start that has passed.
  */
 export function windowChip(
   window: { startsAt: string | null; endsAt: string | null },
   now: Date = new Date(),
+  form: WindowChipForm = 'full',
 ): string {
   const { startsAt, endsAt } = window;
-  if (startsAt && endsAt) return `${formatShort(startsAt, now)} – ${formatShort(endsAt, now)}`;
-  if (startsAt) return `Starts ${formatShort(startsAt, now)}`;
+  const ahead = (iso: string) => Date.parse(iso) > now.getTime();
+  if (endsAt && !ahead(endsAt)) return `Ended ${formatShort(endsAt, now)}`;
+  if (startsAt && ahead(startsAt)) {
+    if (endsAt && form === 'full') return `${formatShort(startsAt, now)} – ${formatShort(endsAt, now)}`;
+    return `Starts ${formatShort(startsAt, now)}`;
+  }
   if (endsAt) return `Ends ${formatShort(endsAt, now)}`;
+  if (startsAt) return `Started ${formatShort(startsAt, now)}`;
   return '';
 }

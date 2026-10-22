@@ -295,6 +295,10 @@ export class ZoneDetailPage {
   protected readonly isSwitchable = isSwitchable;
   protected readonly describeWindow = describeWindow;
   protected readonly windowChip = windowChip;
+  /** A tale card's chip: one bound, short; the tale drawer shows the whole window. */
+  protected cardChip(tale: Tale): string {
+    return windowChip(tale, new Date(), 'short');
+  }
 
   /** The ⋯ menu of a group row; story 10 moves the row's other actions into it (epic UX rework R8, R10). */
   protected readonly groupMenu: readonly MenuItem[] = [{ id: 'schedule', label: 'Schedule' }];

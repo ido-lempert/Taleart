@@ -85,3 +85,20 @@ deferred: []
 **Commands:**
 - `node_modules/.bin/nx run-many -t lint test build -p api dashboard contract server-access server-zones server-tales server-storage server-targeting server-importer web-sdk sdk-sample fake-another tool`: all pass (dashboard 429 tests).
 - `web-sdk:size`, `web-sdk:types-check`: pass. Dashboard initial total: 494.20 kB.
+
+## Review fixes (2026-10-22)
+
+- **Chip times.** A chip always shows the time, so an end at midnight reads "Ends 3 Nov, 00:00" and the day it names is not included. The time is written as the indicator writes it (`timeStyle: 'short'`): "1 Dec, 09:00" in en-GB, "Dec 1, 9:00 AM" in en-US. A bound in the past says "Started …" or "Ended …". Once the start has passed, the row shows the end. A range across a year names the year of each bound that is not this year.
+- **Tale card.** The card shows one bound, short: the start while it is ahead, else the end. The title is clamped to two lines. The tale drawer shows the whole window as visible text, so nothing is hover-only. The card's ⋯ sits 4px from the edge, with 4px gaps between the dot, the handle and ⋯. Its focus ring is drawn inside the button.
+- **Menu.**
+  - A disabled item's reason is `aria-hidden`, so the item is named by its label alone and the reason is read once, as its description.
+  - Only one menu is open at a time.
+  - The menu closes when focus moves outside it, on a click outside even without a press, on the popover's `toggle` to closed, on a scroll (other than the menu's own) and on a resize. It no longer follows its button.
+  - Items take focus with `preventScroll`.
+  - The menu uses logical properties and aligns to the button's end edge in right-to-left pages. Its height is capped, with its own scroll.
+- **Tests.**
+  - Menu: Enter and Space are left to the button, one menu at a time, a click outside without a press, focus moving out, scroll and resize, the popover's toggle, removal while open, the item's name alone, and the right-to-left position.
+  - Chips: a midnight end, past windows, a range across a year, the short form, en-GB and en-US.
+  - App: focus back on the group's ⋯ after its schedule drawer closes, Remove schedule offered for a group with a window, and the card's short chip with the drawer's whole window.
+- **Deferred to the epic's refactor sweep (review item 10):** dedupe the top-layer popover, positioning and outside-close code that `VisibilityIndicator` and `MenuButton` both carry.
+- Servers for the browser check: the own API on 3388, and the dashboard on 4288 with `--excludeTaskDependencies`, so no second API starts. `DATABASE_URL` points at the own `_test` database for both.

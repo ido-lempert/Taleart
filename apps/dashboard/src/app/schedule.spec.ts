@@ -1,48 +1,77 @@
-import { describeWindow, formatShort, fromLocalInput, parseLocalInput, toLocalInput, windowChip } from './schedule';
+import { describeWindow, formatLocal, formatShort, fromLocalInput, parseLocalInput, toLocalInput, windowChip } from './schedule';
 
 describe('schedule chips (epic UX rework R8)', () => {
   const now = new Date(2026, 9, 22, 12, 0);
   const local = (...parts: [number, number, number, number, number]) => new Date(...parts).toISOString();
-  const short = (iso: string, options: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString(undefined, options);
-  const dayTime: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
-  const day: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
 
-  it('says when a window starts, with the time unless it is midnight', () => {
-    const start = local(2026, 11, 1, 9, 0);
-    expect(windowChip({ startsAt: start, endsAt: null }, now)).toBe(`Starts ${short(start, dayTime)}`);
-    expect(formatShort(start, now)).toBe(short(start, dayTime));
-    const midnight = local(2026, 11, 1, 0, 0);
-    expect(formatShort(midnight, now)).toBe(short(midnight, day));
-  });
-
-  it('says when a window ends, and both ends of a window with a dash', () => {
-    const start = local(2026, 11, 1, 9, 0);
-    const end = local(2026, 10, 3, 0, 0);
-    expect(windowChip({ startsAt: null, endsAt: end }, now)).toBe(`Ends ${short(end, day)}`);
-    expect(windowChip({ startsAt: start, endsAt: end }, now)).toBe(`${short(start, dayTime)} – ${short(end, day)}`);
-  });
-
-  it('names the year only when it is not this year, and says nothing without a window', () => {
-    const next = local(2027, 0, 5, 0, 0);
-    expect(formatShort(next, now)).toBe(short(next, { ...day, year: 'numeric' }));
-    expect(formatShort(next, now)).toContain('2027');
-    expect(windowChip({ startsAt: null, endsAt: null }, now)).toBe('');
-  });
-
-  it('reads like "Starts 1 Dec 09:00" and "Ends 3 Nov" in British English', () => {
-    const start = local(2026, 11, 1, 9, 0);
-    const toLocale = Date.prototype.toLocaleString;
-    const spy = vi
-      .spyOn(Date.prototype, 'toLocaleString')
-      .mockImplementation(function (this: Date, _locales?: Intl.LocalesArgument, options?: Intl.DateTimeFormatOptions) {
-        return toLocale.call(this, 'en-GB', options);
-      });
+  // Runs `check` with the browser's locale set to `locale`.
+  function inLocale(locale: string, check: () => void): void {
+    const toDate = Date.prototype.toLocaleDateString;
+    const toTime = Date.prototype.toLocaleTimeString;
+    const toString = Date.prototype.toLocaleString;
+    const spies = [
+      vi.spyOn(Date.prototype, 'toLocaleDateString').mockImplementation(function (this: Date, _l, options) {
+        return toDate.call(this, locale, options);
+      }),
+      vi.spyOn(Date.prototype, 'toLocaleTimeString').mockImplementation(function (this: Date, _l, options) {
+        return toTime.call(this, locale, options);
+      }),
+      vi.spyOn(Date.prototype, 'toLocaleString').mockImplementation(function (this: Date, _l, options) {
+        return toString.call(this, locale, options);
+      }),
+    ];
     try {
-      expect(windowChip({ startsAt: start, endsAt: null }, now)).toBe('Starts 1 Dec, 09:00');
-      expect(windowChip({ startsAt: null, endsAt: local(2026, 10, 3, 0, 0) }, now)).toBe('Ends 3 Nov');
+      check();
     } finally {
-      spy.mockRestore();
+      spies.forEach((spy) => spy.mockRestore());
     }
+  }
+
+  it('reads "Starts 1 Dec, 09:00" in British English, with the time written as the indicator writes it', () => {
+    inLocale('en-GB', () => {
+      const start = local(2026, 11, 1, 9, 0);
+      expect(windowChip({ startsAt: start, endsAt: null }, now)).toBe('Starts 1 Dec, 09:00');
+      expect(formatLocal(start)).toBe('1 Dec 2026, 09:00');
+    });
+    inLocale('en-US', () => {
+      const start = local(2026, 11, 1, 9, 0);
+      expect(windowChip({ startsAt: start, endsAt: null }, now)).toBe('Starts Dec 1, 9:00 AM');
+      expect(formatLocal(start)).toBe('Dec 1, 2026, 9:00 AM');
+    });
+  });
+
+  it('shows the time of an end at midnight, so the day before is the last one shown', () => {
+    inLocale('en-GB', () => {
+      expect(windowChip({ startsAt: null, endsAt: local(2026, 10, 3, 0, 0) }, now)).toBe('Ends 3 Nov, 00:00');
+    });
+  });
+
+  it('shows both ends of a window ahead with a dash, naming the year of a bound in another year', () => {
+    inLocale('en-GB', () => {
+      const window = { startsAt: local(2026, 11, 28, 9, 0), endsAt: local(2027, 0, 2, 0, 0) };
+      expect(windowChip(window, now)).toBe('28 Dec, 09:00 – 2 Jan 2027, 00:00');
+      // A tale card shows one bound: the start while it is ahead.
+      expect(windowChip(window, now, 'short')).toBe('Starts 28 Dec, 09:00');
+    });
+  });
+
+  it('says "Started" and "Ended" for bounds in the past', () => {
+    inLocale('en-GB', () => {
+      const past = local(2026, 9, 1, 9, 0);
+      const ahead = local(2026, 10, 3, 18, 30);
+      expect(windowChip({ startsAt: past, endsAt: null }, now)).toBe('Started 1 Oct, 09:00');
+      expect(windowChip({ startsAt: null, endsAt: past }, now)).toBe('Ended 1 Oct, 09:00');
+      expect(windowChip({ startsAt: local(2026, 8, 1, 9, 0), endsAt: past }, now)).toBe('Ended 1 Oct, 09:00');
+      // Started already: what matters is when it ends.
+      expect(windowChip({ startsAt: past, endsAt: ahead }, now)).toBe('Ends 3 Nov, 18:30');
+      expect(windowChip({ startsAt: past, endsAt: ahead }, now, 'short')).toBe('Ends 3 Nov, 18:30');
+      expect(windowChip({ startsAt: null, endsAt: local(2025, 11, 31, 9, 0) }, now)).toBe('Ended 31 Dec 2025, 09:00');
+    });
+  });
+
+  it('says nothing without a window', () => {
+    expect(windowChip({ startsAt: null, endsAt: null }, now)).toBe('');
+    expect(formatShort(local(2027, 0, 5, 0, 0), now)).toContain('2027');
   });
 });
 

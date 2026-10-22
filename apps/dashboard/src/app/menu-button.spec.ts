@@ -6,11 +6,15 @@ import { MenuButton, menuPosition, type MenuItem, type MenuPick } from './menu-b
   imports: [MenuButton],
   template: `
     <button type="button" id="before">Before</button>
-    <app-menu-button label="More for Summer" [items]="items()" (picked)="picks.push($event)" />
+    @if (shown()) {
+      <app-menu-button label="More for Summer" [items]="items()" (picked)="picks.push($event)" />
+    }
     <button type="button" id="after">After</button>
+    <app-menu-button id="winter" label="More for Winter" [items]="items()" />
   `,
 })
 class Host {
+  readonly shown = signal(true);
   readonly items = signal<readonly MenuItem[]>([
     { id: 'schedule', label: 'Schedule' },
     { id: 'place', label: 'Show in another zone', disabledReason: 'Already in every zone' },
@@ -139,11 +143,99 @@ describe('MenuButton (WAI-ARIA menu button)', () => {
     expect(disabled.getAttribute('aria-disabled')).toBe('true');
     const reason = document.getElementById(disabled.getAttribute('aria-describedby') ?? '');
     expect(reason?.textContent).toBe('Already in every zone');
+    // Its name is its label alone: the reason is out of the name and read once, as the description.
+    expect(reason?.getAttribute('aria-hidden')).toBe('true');
+    const name = [...disabled.childNodes]
+      .filter((node) => node.nodeType !== Node.COMMENT_NODE)
+      .filter((node) => !(node instanceof Element && node.getAttribute('aria-hidden') === 'true'))
+      .map((node) => node.textContent)
+      .join('')
+      .trim();
+    expect(name).toBe('Show in another zone');
     expect(items()[0].hasAttribute('aria-disabled')).toBe(false);
     disabled.click();
     fixture.detectChanges();
     expect(fixture.componentInstance.picks).toEqual([]);
     expect(menu()).not.toBeNull();
+  });
+
+  it('leaves Enter and Space to the button, whose click opens the menu on its first item', () => {
+    const { fixture, trigger, focused, key } = render();
+    for (const name of ['Enter', ' ']) {
+      expect(key(trigger, name).defaultPrevented).toBe(false);
+      // The browser turns Enter and Space on a button into a click.
+      trigger.click();
+      fixture.detectChanges();
+      expect(focused()).toBe('Schedule');
+      key(document.activeElement as Element, 'Escape');
+    }
+  });
+
+  it('keeps one menu open at a time', () => {
+    const { fixture, root, trigger, menu } = render();
+    trigger.click();
+    root.querySelector<HTMLButtonElement>('#winter .menu-button__trigger')?.click();
+    fixture.detectChanges();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(root.querySelectorAll('[role=menu]')).toHaveLength(1);
+    expect(menu()?.getAttribute('aria-labelledby')).toContain('button');
+    expect(document.activeElement?.closest('#winter')).not.toBeNull();
+  });
+
+  it('closes on a click outside without a press, as a keyboard or screen reader click', () => {
+    const { fixture, root, trigger, menu } = render();
+    trigger.click();
+    root.querySelector<HTMLButtonElement>('#after')?.click();
+    fixture.detectChanges();
+    expect(menu()).toBeNull();
+  });
+
+  it('closes when focus moves outside it', () => {
+    const { fixture, root, trigger, menu } = render();
+    trigger.click();
+    root.querySelector<HTMLButtonElement>('#after')?.focus();
+    fixture.detectChanges();
+    expect(menu()).toBeNull();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('closes on a scroll of the page but not of the menu itself, and on a resize', () => {
+    const { fixture, trigger, menu } = render();
+    trigger.click();
+    menu()?.dispatchEvent(new Event('scroll'));
+    fixture.detectChanges();
+    expect(menu()).not.toBeNull();
+    document.dispatchEvent(new Event('scroll'));
+    fixture.detectChanges();
+    expect(menu()).toBeNull();
+    trigger.click();
+    window.dispatchEvent(new Event('resize'));
+    fixture.detectChanges();
+    expect(menu()).toBeNull();
+  });
+
+  it('closes when the browser closes its popover', () => {
+    const { fixture, trigger, menu } = render();
+    trigger.click();
+    const toggle = Object.assign(new Event('toggle'), { newState: 'closed' });
+    menu()?.dispatchEvent(toggle);
+    fixture.detectChanges();
+    expect(menu()).toBeNull();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('stops listening when it is removed while open', () => {
+    const { fixture, root, trigger } = render();
+    trigger.click();
+    const removed = vi.spyOn(document, 'removeEventListener');
+    fixture.componentInstance.shown.set(false);
+    fixture.detectChanges();
+    expect(removed.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['pointerdown', 'click']));
+    removed.mockRestore();
+    // A later menu still opens, as the removed one no longer counts as open.
+    root.querySelector<HTMLButtonElement>('#winter .menu-button__trigger')?.click();
+    fixture.detectChanges();
+    expect(root.querySelectorAll('[role=menu]')).toHaveLength(1);
   });
 });
 
@@ -157,5 +249,10 @@ describe('menuPosition', () => {
 
   it('goes above when there is no room below, and stays inside the viewport', () => {
     expect(menuPosition({ left: 8, right: 40, top: 800, bottom: 832 }, menu, viewport)).toEqual({ left: 4, top: 696 });
+  });
+
+  it('aligns with the button left edge in a right-to-left page', () => {
+    expect(menuPosition({ left: 20, right: 52, top: 100, bottom: 132 }, menu, viewport, true)).toEqual({ left: 20, top: 136 });
+    expect(menuPosition({ left: 300, right: 332, top: 100, bottom: 132 }, menu, viewport, true)).toEqual({ left: 226, top: 136 });
   });
 });
