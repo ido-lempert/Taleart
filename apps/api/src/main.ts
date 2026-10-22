@@ -9,11 +9,16 @@ import {
   type ImportWorker,
 } from '@taleart/server-importer';
 import { LocalDiskStorage } from '@taleart/server-storage';
-import { continueTaleMediaMigration, DEFAULT_PROJECT_MEDIA_LIMITS } from '@taleart/server-tales';
+import {
+  continueTaleMediaMigration,
+  DEFAULT_PROJECT_MEDIA_LIMITS,
+  setTestElementTypesEnabled,
+} from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
+import { testElementTypesFromEnv } from './element-types-config';
 import { deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
@@ -35,6 +40,11 @@ async function start(): Promise<void> {
   // Behind reverse proxies, TRUST_PROXY makes the limit count the visitor's address rather than the
   // proxy's. Set exactly the proxies in front of the API: their number, or their addresses and ranges.
   const trustProxy = trustProxyFromEnv(process.env['TRUST_PROXY']);
+  // The element-type registry's test-only types (Tale Studio R8): accepted only with
+  // TALE_TEST_ELEMENT_TYPES=on, which is refused in production.
+  const testElementTypes = testElementTypesFromEnv(process.env);
+  setTestElementTypesEnabled(testElementTypes);
+  if (testElementTypes) log('warn', 'Accepting test-only element types (TALE_TEST_ELEMENT_TYPES=on): not for production');
   const pool = createPool();
   await migrate(pool);
   // The build copies libs/contract/frame-types next to main.js. Read at every
