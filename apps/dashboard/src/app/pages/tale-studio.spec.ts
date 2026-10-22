@@ -167,6 +167,139 @@ describe('TaleStudioPage', () => {
     expect(root.querySelector('a.back-link')?.getAttribute('href')).toBe('/zones/z1');
   });
 
+  describe('back link and keyboard help (story 8.15)', () => {
+    it("names the tale's group in the back link", async () => {
+      await open({ document: null, revision: 0 });
+      const back = root.querySelector('a.back-link');
+      expect(back?.textContent?.trim()).toBe('Back to Summer');
+      expect(back?.getAttribute('href')).toBe('/zones/z1');
+    });
+
+    it('says only "Back", to the zones list, while the group is not known', async () => {
+      TestBed.inject(DashboardStore).taleGroups.set({});
+      fixture = TestBed.createComponent(TaleStudioPage);
+      fixture.componentRef.setInput('taleId', 't1');
+      fixture.detectChanges();
+      http.expectOne(url).flush(draftRead({ document: null, revision: 0 }));
+      await settle(fixture);
+      root = fixture.nativeElement as HTMLElement;
+      const back = root.querySelector('a.back-link');
+      expect(back?.textContent?.trim()).toBe('Back');
+      expect(back?.getAttribute('href')).toBe('/zones');
+    });
+
+    const helpButton = () => root.querySelector<HTMLButtonElement>('#studio-help-button') as HTMLButtonElement;
+    const helpPanel = () => root.querySelector<HTMLElement>('#studio-keys') as HTMLElement;
+
+    it('keeps the keyboard help closed in a "?" popover that still describes the canvas', async () => {
+      await open({ document: null, revision: 0 });
+      expect(helpButton().textContent?.trim()).toBe('? Keyboard shortcuts');
+      expect(helpButton().querySelector('[aria-hidden=true]')?.textContent).toBe('?');
+      expect(helpButton().getAttribute('aria-controls')).toBe('studio-keys');
+      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
+      expect(helpPanel().hidden).toBe(true);
+      // The shortcut list is the one the studio had, still naming the canvas's keys.
+      expect(helpPanel().textContent).toContain('Select a layer to move it with the arrow keys');
+      expect(helpPanel().textContent).toContain('Changes save automatically.');
+      expect(root.querySelector('#studio-canvas')?.getAttribute('aria-describedby')).toBe('studio-keys');
+    });
+
+    it('opens and closes with the button, and Escape closes it and returns focus to the button', async () => {
+      await open({ document: null, revision: 0 });
+      helpButton().focus();
+      helpButton().click();
+      fixture.detectChanges();
+      expect(helpButton().getAttribute('aria-expanded')).toBe('true');
+      expect(helpPanel().hidden).toBe(false);
+      // Opening leaves focus on the button.
+      expect(document.activeElement).toBe(helpButton());
+
+      helpButton().click();
+      fixture.detectChanges();
+      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
+      expect(helpPanel().hidden).toBe(true);
+
+      helpButton().click();
+      fixture.detectChanges();
+      helpPanel().focus();
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      helpPanel().dispatchEvent(escape);
+      fixture.detectChanges();
+      expect(escape.defaultPrevented).toBe(true);
+      expect(helpPanel().hidden).toBe(true);
+      expect(document.activeElement).toBe(helpButton());
+
+      // Escape on the button closes it too; on a closed popover it does nothing.
+      helpButton().click();
+      fixture.detectChanges();
+      key(helpButton(), 'Escape');
+      fixture.detectChanges();
+      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
+      const again = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      helpButton().dispatchEvent(again);
+      expect(again.defaultPrevented).toBe(false);
+    });
+
+    it('goes back to the zone it was opened from, when that zone lists the tale', async () => {
+      const store = TestBed.inject(DashboardStore);
+      store.taleGroups.set({ z1: [group], z2: [group] });
+      fixture = TestBed.createComponent(TaleStudioPage);
+      fixture.componentRef.setInput('taleId', 't1');
+      fixture.componentRef.setInput('zone', 'z2');
+      fixture.detectChanges();
+      http.expectOne(url).flush(draftRead({ document: null, revision: 0 }));
+      http.expectOne(`${API_BASE}/projects/p1/theme`).flush({ projectId: 'p1', theme: {}, resolved: DEFAULT_THEME });
+      http.expectOne(`${API_BASE}/projects/p1/fonts`).flush([]);
+      await settle(fixture);
+      root = fixture.nativeElement as HTMLElement;
+      const back = () => root.querySelector('a.back-link');
+      expect(back()?.textContent?.trim()).toBe('Back to Summer');
+      expect(back()?.getAttribute('href')).toBe('/zones/z2');
+
+      // A zone that does not list the tale falls back to the first one that does.
+      fixture.componentRef.setInput('zone', 'z9');
+      fixture.detectChanges();
+      expect(back()?.getAttribute('href')).toBe('/zones/z1');
+    });
+
+    it('closes when focus leaves it, and stays open while focus moves inside it', async () => {
+      await open({ document: null, revision: 0 });
+      helpButton().focus();
+      helpButton().click();
+      fixture.detectChanges();
+      helpPanel().focus();
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(false);
+      root.querySelector<HTMLButtonElement>('#studio-undo')?.focus();
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(true);
+      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('closes when a layer menu opens', async () => {
+      await open({ document: existing, revision: 1 });
+      helpButton().click();
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(false);
+      root.querySelector<HTMLButtonElement>(`#layer-more-${existing.elements[0].id}`)?.click();
+      await settle(fixture);
+      expect(root.querySelector('[role=menu]')).not.toBeNull();
+      expect(helpPanel().hidden).toBe(true);
+    });
+
+    it('closes when a press lands outside it', async () => {
+      await open({ document: null, revision: 0 });
+      helpButton().click();
+      fixture.detectChanges();
+      helpPanel().dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(false);
+      root.querySelector('.page-header')?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(true);
+    });
+  });
+
   it("shows the tale's media as its bottom layer, and lets a video be added beside a media video (R16)", async () => {
     const video = { ...OWN_MEDIA, type: 'video', props: { ...OWN_MEDIA.props, mediaKey: 'tales/0b.mp4' } };
     await open({
@@ -1123,7 +1256,7 @@ describe('TaleStudioPage', () => {
       keep.flush({ ...tale, id: 't2', title: 'Beach (copy)', position: 1, status: 'draft', storedStatus: 'draft' });
       await settle(fixture);
       expect(refresh).toHaveBeenCalled();
-      expect(navigate).toHaveBeenCalledWith(['/tales', 't2', 'studio']);
+      expect(navigate).toHaveBeenCalledWith(['/tales', 't2', 'studio'], { queryParams: { zone: undefined } });
       // The route's tale is the copy now: the studio opens it, and no save ever went to the original.
       http
         .expectOne(`${API_BASE}/tales/t2/document`)

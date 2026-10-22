@@ -5,6 +5,7 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
 import { App, API_BASE, API_ORIGIN } from './app';
+import { API_RETRY_TIMING, type ApiRetryTiming } from './api-reconnect';
 import { appRoutes } from './app.routes';
 import { PasskeyClient, unauthorizedInterceptor } from './auth';
 import { CoverCapture } from './cover-capture';
@@ -142,15 +143,19 @@ const passkeys = {
 
 describe('App', () => {
   let http: HttpTestingController;
+  let retryTiming: ApiRetryTiming;
 
   beforeEach(async () => {
     localStorage.clear();
     passkeys.supported.mockReturnValue(true);
+    // The banner's retries wait for the test to ask; tests of them retry at once.
+    retryTiming = { delaysMs: [3_600_000], tryTimeoutMs: 3_600_000, announceMs: 3_600_000 };
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
         provideHttpClient(withInterceptors([unauthorizedInterceptor])),
         provideHttpClientTesting(),
+        { provide: API_RETRY_TIMING, useFactory: () => retryTiming },
         { provide: PasskeyClient, useValue: passkeys },
         { provide: CoverCapture, useValue: capture },
         provideRouter(appRoutes, withComponentInputBinding()),
@@ -264,9 +269,162 @@ describe('App', () => {
       await settle(fixture);
 
       const root = fixture.nativeElement as HTMLElement;
-      expect(root.querySelector('.banner')?.textContent).toContain('Could not reach the API');
+      expect(root.querySelector('.banner')?.textContent?.trim()).toBe("We can't reach TaleArt. Retrying…");
       expect(root.querySelector('nav[aria-label=Main]')).not.toBeNull();
     });
+
+    // The retry timing itself is covered in api-reconnect.spec.ts; here each retry runs at once.
+    // Runs the reconnect's effect and its 0 ms timer, without whenStable() (which would wait for requests).
+    async function retryTick(): Promise<void> {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve));
+      await new Promise((resolve) => setTimeout(resolve));
+    }
+
+    it('says the API is unreachable politely, retries, and clears the banner when the API answers', async () => {
+      retryTiming.delaysMs = [0];
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones');
+      const root = fixture.nativeElement as HTMLElement;
+      const focused = document.activeElement;
+      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      await settle(fixture);
+
+      const region = root.querySelector('.api-status');
+      expect(region?.getAttribute('role')).toBe('status');
+      expect(region?.querySelector('.banner')?.textContent?.trim()).toBe("We can't reach TaleArt. Retrying…");
+      expect(root.querySelector('[role=alert]')).toBeNull();
+      expect(root.textContent).not.toContain('3333');
+      expect(document.activeElement).toBe(focused);
+
+      // The retry fails too: the banner stays and another retry follows, one at a time.
+      await retryTick();
+      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      await settle(fixture);
+      expect(root.querySelector('.banner')).not.toBeNull();
+
+      await retryTick();
+      await flushRefresh(fixture, oneZone);
+      await settle(fixture);
+      expect(root.querySelector('.banner')).toBeNull();
+      expect(root.querySelector('.api-status')?.textContent?.trim()).toBe('Connected to TaleArt again.');
+      expect(root.textContent).toContain('Home bar');
+      // No retry runs once the API answers.
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/projects`);
+    });
+
+    it('retries at once when the browser comes back online', async () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones');
+      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      await settle(fixture);
+
+      window.dispatchEvent(new Event('online'));
+      await flushRefresh(fixture, oneZone);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.banner')).toBeNull();
+    });
+
+    it('reads the auth state again when the API was down from the start, and loads the data once', async () => {
+      retryTiming.delaysMs = [0];
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      const navigation = TestBed.inject(Router).navigateByUrl('/zones');
+      await new Promise((resolve) => setTimeout(resolve));
+      http.expectOne(`${API_BASE}/auth/state`).error(new ProgressEvent('error'));
+      await navigation;
+      await new Promise((resolve) => setTimeout(resolve));
+      const root = fixture.nativeElement as HTMLElement;
+      fixture.detectChanges();
+      expect(root.querySelector('.banner')).not.toBeNull();
+
+      await retryTick();
+      http.expectOne(`${API_BASE}/auth/state`).flush(signedIn);
+      await settle(fixture);
+      // flushRefresh expects exactly one request per step: the sign-in effect and the retry share one load.
+      await flushRefresh(fixture, oneZone);
+      expect(root.querySelector('.banner')).toBeNull();
+      expect(root.textContent).toContain('Home bar');
+    });
+
+    it('opens sign-in when the API comes back and nobody is signed in', async () => {
+      retryTiming.delaysMs = [0];
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      const navigation = TestBed.inject(Router).navigateByUrl('/zones');
+      await new Promise((resolve) => setTimeout(resolve));
+      http.expectOne(`${API_BASE}/auth/state`).error(new ProgressEvent('error'));
+      await navigation;
+      await retryTick();
+      http.expectOne(`${API_BASE}/auth/state`).flush({ setupRequired: false, user: null });
+      await settle(fixture);
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fzones');
+      expect((fixture.nativeElement as HTMLElement).querySelector('.banner')).toBeNull();
+    });
+
+    it('goes to sign-in, with no banner and no announcement, when a retry is answered 401', async () => {
+      retryTiming.delaysMs = [0];
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones');
+      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      await settle(fixture);
+
+      await retryTick();
+      http
+        .expectOne(`${API_BASE}/projects`)
+        .flush({ error: { code: 'unauthenticated', message: 'Sign in to continue' } }, { status: 401, statusText: 'Unauthorized' });
+      await settle(fixture);
+      await settle(fixture);
+
+      const root = fixture.nativeElement as HTMLElement;
+      expect(TestBed.inject(Router).url).toBe('/sign-in?returnUrl=%2Fzones');
+      expect(root.querySelector('.banner')).toBeNull();
+      expect(root.textContent).not.toContain('Connected to TaleArt again.');
+      http.expectNone(`${API_BASE}/projects`);
+    });
+
+    it('announces nothing when the user signs out while the API is down', async () => {
+      const fixture = TestBed.createComponent(App);
+      fixture.detectChanges();
+      await navigate(fixture, '/zones');
+      http.expectOne(`${API_BASE}/projects`).error(new ProgressEvent('error'));
+      await settle(fixture);
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('.banner')).not.toBeNull();
+
+      buttonNamed(root, 'Sign out').click();
+      await new Promise((resolve) => setTimeout(resolve));
+      http.expectOne(`${API_BASE}/auth/sign-out`).flush(null);
+      await settle(fixture);
+      expect(TestBed.inject(Router).url).toBe('/sign-in');
+      expect(root.querySelector('.banner')).toBeNull();
+      expect(root.textContent).not.toContain('Connected to TaleArt again.');
+    });
+
+    // Report §6 #15: frames were named "Frame 1 · Bar"; a zone now has one display (story 8.5).
+    for (const url of ['/zones', '/zones/z1', '/tale-groups', '/projects']) {
+      it(`names no frame on ${url}: neither in its text nor in its labels`, async () => {
+        const second = { id: 'z3', name: 'Product page', projectId: 'p1' };
+        const { root } = await open(url, {
+          projects: [acme],
+          zones: [zone, second],
+          displays: { z1: frameBar, z3: { ...frameBar, id: 'f3', zoneId: 'z3', type: 'banner' } },
+          groups: { z1: [{ ...group, tales: [taleA, taleB] }] },
+          projectGroups: { p1: [{ ...group, zoneIds: ['z1'], taleCount: 2 }] },
+        });
+        const labels = [...root.querySelectorAll('*')].flatMap((el) =>
+          ['title', 'aria-label', 'placeholder'].map((name) => el.getAttribute(name) ?? ''),
+        );
+        for (const text of [root.textContent ?? '', ...labels]) {
+          expect(text).not.toMatch(/\bframes?\b/i);
+          expect(text).not.toMatch(/·\s*(Bar|Banner)\b/);
+        }
+      });
+    }
 
     for (const url of ['/zones', '/zones/z1', '/projects']) {
       it(`shows only the banner, not an empty or not-found state, on ${url} when the API is down`, async () => {
@@ -277,7 +435,7 @@ describe('App', () => {
         await settle(fixture);
 
         const root = fixture.nativeElement as HTMLElement;
-        expect(root.querySelector('.banner')?.textContent).toContain('Could not reach the API');
+        expect(root.querySelector('.banner')?.textContent).toContain("We can't reach TaleArt");
         expect(root.textContent).not.toContain('Create your first project');
         expect(root.textContent).not.toContain('Zone not found');
         expect(root.querySelector('.empty')).toBeNull();
@@ -1401,18 +1559,29 @@ describe('App', () => {
 
     it('says where else a group shows, with links to those zones', async () => {
       const winter = { id: 'g2', zoneIds: ['z1'], projectId: 'p1', name: 'Winter', position: 1, tags: [], tales: [] };
-      const { root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared, winter], z3: [{ ...shared, position: 0 }] } });
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [shared, winter], z3: [{ ...shared, position: 0 }] } });
 
       const alsoIn = groupRow(root, 'Summer').querySelector('.group__zones');
       expect(alsoIn?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Also in: Product page');
       expect(alsoIn?.querySelector('a')?.getAttribute('href')).toBe('/zones/z3');
       expect(groupRow(root, 'Winter').querySelector('.group__zones')).toBeNull();
-      // Summer is in every zone of its project, so it offers no "Add to zone…".
-      expect(() => buttonNamed(groupRow(root, 'Summer'), 'Add to zone…')).toThrow();
-      expect(groupRow(root, 'Summer').querySelector('.group__actions')?.textContent).toContain('In every zone');
+      // Summer is in every zone of its project: "Add to zone…" stays, disabled, with its reason (report §6 #13).
+      const full = buttonNamed(groupRow(root, 'Summer'), 'Add to zone…');
+      expect(full.getAttribute('aria-disabled')).toBe('true');
+      const reasonIds = full.getAttribute('aria-describedby')?.split(' ') ?? [];
+      expect(reasonIds[0]).toBe('group-name-g1');
+      // The reason is its description, and shows under it on hover and focus (not a title only).
+      const reason = root.querySelector(`#${reasonIds[1]}`);
+      expect(reason?.textContent).toBe('Already in every zone');
+      expect(reason?.className).toBe('disabled-reason__tip');
+      expect(reason?.parentElement?.contains(full)).toBe(true);
+      full.click();
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(groupRow(root, 'Summer').querySelector('.group__actions .muted')).toBeNull();
       const add = buttonNamed(groupRow(root, 'Winter'), 'Add to zone…');
       expect(add.getAttribute('aria-describedby')).toBe('group-name-g2');
-      expect(groupRow(root, 'Winter').querySelector('.group__actions')?.textContent).not.toContain('In every zone');
+      expect(add.hasAttribute('aria-disabled')).toBe(false);
       expect(buttonNamed(groupRow(root, 'Summer'), 'Remove from this zone')).toBeTruthy();
       expect(buttonNamed(groupRow(root, 'Summer'), 'Rename')).toBeTruthy();
     });
@@ -1573,7 +1742,12 @@ describe('App', () => {
       expect(rows[0].textContent).toContain('Not in any zone');
       expect(rows[1].querySelector('.group-row__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar, Product page');
       expect([...rows[1].querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/zones/z1', '/zones/z3']);
-      expect(rows[1].textContent).toContain('In every zone');
+      const full = buttonNamed(rows[1], 'Add to zone…');
+      expect(full.getAttribute('aria-disabled')).toBe('true');
+      const [nameId, reasonId] = full.getAttribute('aria-describedby')?.split(' ') ?? [];
+      expect(root.querySelector(`#${nameId}`)?.textContent).toContain('Summer');
+      expect(root.querySelector(`#${reasonId}`)?.textContent).toBe('Already in every zone');
+      expect(root.querySelector(`#${reasonId}`)?.className).toBe('disabled-reason__tip');
       expect(root.textContent).not.toContain('Elsewhere');
 
       buttonNamed(rows[0], 'Add to zone…').click();
@@ -2710,10 +2884,11 @@ describe('App', () => {
       await settle(fixture);
       const links = [...(drawer()?.querySelectorAll('a') ?? [])];
       const link = links.find((a) => a.textContent?.trim() === 'Edit in Tale Studio');
-      expect(link?.getAttribute('href')).toBe('/tales/t1/studio');
+      // It carries the zone page it was opened on, where the studio's back link returns.
+      expect(link?.getAttribute('href')).toBe('/tales/t1/studio?zone=z1');
       link?.click();
       await settle(fixture);
-      expect(TestBed.inject(Router).url).toBe('/tales/t1/studio');
+      expect(TestBed.inject(Router).url).toBe('/tales/t1/studio?zone=z1');
       expect(drawer()).toBeNull();
       http
         .expectOne(`${API_BASE}/tales/t1/document`)
@@ -4131,12 +4306,12 @@ describe('App', () => {
       expect(root.querySelector('#import-token')).toBeNull();
 
       await answerPoll(fixture, job('queued', { sourceAppName: null }));
-      expect(root.querySelector('[role=status]')?.textContent).toContain('Queued');
+      expect(root.querySelector('main [role=status]')?.textContent).toContain('Queued');
       expect(root.textContent).toContain('Waiting to start.');
       expect(root.querySelector('[aria-label=Progress]')).toBeNull();
 
       await answerPoll(fixture, job('running', { progress: progress([3, 1], [3, 0], [0, 0]) }));
-      expect(root.querySelector('[role=status]')?.textContent).toContain('Running');
+      expect(root.querySelector('main [role=status]')?.textContent).toContain('Running');
       expect(root.textContent).toContain('From the app Demo shop');
       expect(root.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-20T12:00:01.000Z');
       expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 1 written', 'Tale groups: 3 read / 0 written', 'Tales: 0 read / 0 written']);
@@ -4148,7 +4323,7 @@ describe('App', () => {
         fixture,
         job('done', { report, progress: progress([3, 3], [6, 6], [15, 14]), finishedAt: '2026-10-20T12:00:09.000Z' }),
       );
-      expect(root.querySelector('[role=status]')?.textContent).toContain('Done');
+      expect(root.querySelector('main [role=status]')?.textContent).toContain('Done');
       expect(root.querySelector('[aria-label=Progress]')).toBeNull();
       expect(rows(root, 'Report')).toEqual([
         'Zones: 3 source / 3 imported',
@@ -4168,7 +4343,7 @@ describe('App', () => {
     it('keeps following a running import after a reload of its page', async () => {
       const { fixture, root } = await open('/projects/p1/import/j1', oneZone);
       await answerPoll(fixture, job('running', { progress: progress([3, 2], [4, 3], [8, 6]) }));
-      expect(root.querySelector('[role=status]')?.textContent).toContain('Running');
+      expect(root.querySelector('main [role=status]')?.textContent).toContain('Running');
       expect(rows(root, 'Progress')).toEqual(['Zones: 3 read / 2 written', 'Tale groups: 4 read / 3 written', 'Tales: 8 read / 6 written']);
 
       // A failed read while it runs shows the message and tries again at the next poll.
@@ -4519,7 +4694,7 @@ describe('App', () => {
           finishedAt: '2026-10-20T12:00:03.000Z',
         }),
       );
-      expect(root.querySelector('[role=status]')?.textContent).toContain('Failed');
+      expect(root.querySelector('main [role=status]')?.textContent).toContain('Failed');
       expect(root.querySelector('[role=alert]')?.textContent).toContain('Storyly answered 500 when listing stories');
       expect(rows(root, 'Progress')[0]).toBe('Zones: 3 read / 1 written');
       expect(root.textContent).not.toContain('See zones');

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, DOCUMENT, effect, inject,
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRouteSnapshot, NavigationEnd, NavigationStart, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
+import { ApiReconnect } from './api-reconnect';
 import { AuthStore } from './auth';
 import { CreateDrawer } from './create-drawer';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
@@ -31,6 +32,8 @@ export class App {
   protected readonly auth = inject(AuthStore);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
+  /** Retries while the API-down banner shows, and says when the API answers again. */
+  protected readonly reconnect = inject(ApiReconnect);
 
   private readonly route = toSignal(
     this.router.events.pipe(
@@ -76,7 +79,8 @@ export class App {
 
     // Data loads once someone is signed in; signing out clears it (AuthStore resets the store).
     effect(() => {
-      if (this.auth.user()) untracked(() => void this.store.refresh());
+      const user = this.auth.user();
+      if (user) untracked(() => void this.store.loadFor(user));
     });
   }
 

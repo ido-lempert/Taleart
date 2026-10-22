@@ -308,7 +308,18 @@
                         Add to zone…
                       </button>
                     } @else {
-                      <span class="muted">In every zone</span>
+                      <!-- Kept in place, disabled, with its reason shown on hover and focus (report §6 #13). -->
+                      <span class="disabled-reason">
+                        <button
+                          type="button"
+                          class="btn btn--secondary btn--sm"
+                          aria-disabled="true"
+                          [attr.aria-describedby]="'group-name-' + group.id + ' every-zone-' + group.id"
+                        >
+                          Add to zone…
+                        </button>
+                        <span class="disabled-reason__tip" [id]="'every-zone-' + group.id">Already in every zone</span>
+                      </span>
                     }
                     <button
                       type="button"

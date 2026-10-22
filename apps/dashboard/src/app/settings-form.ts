@@ -195,7 +195,7 @@ export function fieldAccepts(field: SettingsField, value: unknown): boolean {
         }
       }
     } @empty {
-      <p class="muted">This frame type has no settings yet.</p>
+      <p class="muted">This display has no settings yet.</p>
     }
   `,
 })
