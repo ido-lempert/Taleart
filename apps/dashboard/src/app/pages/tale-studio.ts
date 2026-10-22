@@ -84,6 +84,7 @@ import {
 } from '@taleart/contract/tale-document';
 import {
   DEFAULT_TEXT_STYLE,
+  isSmallTarget,
   linkLabelStyle,
   resolveTextStyle,
   TEXT_BOX_PADDING_EM,
@@ -1180,6 +1181,9 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             @if (row.missingLink) {
                               <span class="layer__warning"><app-icon name="alert" /> Needs a web address</span>
                             }
+                            @if (row.smallTarget) {
+                              <span class="layer__warning"><app-icon name="alert" /> Small target</span>
+                            }
                             @if (row.longVideo) {
                               <span class="layer__warning"><app-icon name="alert" /> Longer than 15 s</span>
                             }
@@ -1767,6 +1771,8 @@ export class TaleStudioPage implements OnChanges {
         missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
         // So does a button, image button or swipe-up link without a web address (R7).
         missingLink: isLinkElement(el) && !el.hidden && needsLinkUrl(el),
+        // A button or image button under 24 px on the smallest phone is hard to tap (WCAG 2.5.8): a warning.
+        smallTarget: (el.type === 'button' || el.type === 'image-button') && isSmallTarget(el.box),
         // A video over 15 s plays only its first 15 s (R5); the tale's own media video plays in full (R16).
         longVideo:
           el.type === 'video' &&

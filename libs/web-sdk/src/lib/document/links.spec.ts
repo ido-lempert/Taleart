@@ -82,6 +82,11 @@ describe('renderButton', () => {
   it('opens a new tab with noopener when asked', () => {
     const a = renderButton(button({ newTab: true })) as HTMLAnchorElement;
     expect(a.target).toBe('_blank');
+    // The name says so, in a visually hidden note after the label.
+    expect(a.textContent).toBe('Shop now (opens in a new tab)');
+    expect(a.querySelector('.ta-sr')?.textContent).toBe(' (opens in a new tab)');
+    expect(renderSwipeUp(swipeUp({ newTab: true }))?.textContent).toBe('See more (opens in a new tab)');
+    expect(renderButton(button())?.querySelector('.ta-sr')).toBeNull();
     expect(a.rel.split(' ')).toEqual(expect.arrayContaining(['noopener', 'noreferrer']));
   });
 
@@ -122,7 +127,8 @@ describe('renderImageButton', () => {
   it('is a link holding its image, named by its alt text', () => {
     const a = renderImageButton(imageButton({ newTab: true }), { reducedMotion: false }) as HTMLAnchorElement;
     expect(a.tagName).toBe('A');
-    expect(a.getAttribute('aria-label')).toBe('Shop the look');
+    // A new tab is said in the name (WCAG 3.2.5 advisory).
+    expect(a.getAttribute('aria-label')).toBe('Shop the look (opens in a new tab)');
     expect(a.target).toBe('_blank');
     expect(a.rel).toBe('noopener noreferrer');
     const img = a.querySelector('img') as HTMLImageElement;

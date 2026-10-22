@@ -423,3 +423,17 @@ export function linkLabelStyle(element: { type: string; box: { h: number }; prop
   }
   return null;
 }
+
+/** The smallest target WCAG 2.2 2.5.8 (target size, minimum) accepts, in CSS pixels. */
+export const MIN_TARGET_PX = 24;
+
+/**
+ * True when a link's box is smaller than {@link MIN_TARGET_PX} on either side on the reference
+ * canvas ({@link CONTRAST_CANVAS_HEIGHT_PX} high, 9:16): on the smallest supported phone it is hard
+ * to hit (R7, R13). Tale Studio warns; saving is allowed.
+ */
+export function isSmallTarget(box: { w: number; h: number }): boolean {
+  const height = CONTRAST_CANVAS_HEIGHT_PX;
+  const width = (height * TALE_CANVAS_ASPECT.width) / TALE_CANVAS_ASPECT.height;
+  return box.w * width < MIN_TARGET_PX || box.h * height < MIN_TARGET_PX;
+}

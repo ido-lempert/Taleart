@@ -1971,9 +1971,9 @@ try {
     );
     check(
       'R7',
-      links.find((l) => l.name === 'Read more')?.target === '_blank' &&
+      links.find((l) => l.name === 'Read more (opens in a new tab)')?.target === '_blank' &&
         links.filter((l) => l.target === '_blank').length === 1,
-      'only the new-tab link opens a new tab',
+      'only the new-tab link opens a new tab, and its name says so',
     );
     check(
       '2.5.8',
@@ -1981,7 +1981,7 @@ try {
       `every link is at least 24 by 24 px (${links.map((l) => `${Math.round(l.w)}x${Math.round(l.h)}`).join(', ')})`,
     );
     const tree = await dialogOf(page).locator('.ta-canvas').ariaSnapshot();
-    const order = ['link "Shop now"', 'link "Read more"', 'link "Shop the look"', 'link "See more"'].map((name) =>
+    const order = ['link "Shop now"', 'link "Read more (opens in a new tab)"', 'link "Shop the look"', 'link "See more"'].map((name) =>
       tree.indexOf(name),
     );
     check(
@@ -1994,7 +1994,7 @@ try {
     const reached = stops.filter((s) => s.tag === 'a');
     check(
       '2.1.1',
-      reached.map((s) => s.name).join('|') === 'Shop now|Read more|Shop the look|See more',
+      reached.map((s) => s.name).join('|') === 'Shop now|Read more (opens in a new tab)|Shop the look|See more',
       `Tab reaches every link in reading order (${reached.map((s) => s.name).join(', ')})`,
     );
     check('2.4.7', reached.length > 0 && reached.every((s) => s.ringed), 'a focused link shows a focus ring');

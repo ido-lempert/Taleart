@@ -1,5 +1,5 @@
 import type { DeliveryTaleDocument, DeliveryTaleElement, DeliveryTaleGroup } from '@taleart/contract';
-import { SWIPE_MIN_PX, TaleViewer } from './viewer';
+import { SWIPE_MIN_PX, SWIPE_UP_MAX_MS, TaleViewer } from './viewer';
 
 // Tale Studio story 7.7: the viewer opens a tale's swipe-up link on a swipe up (R7), and keeps its
 // own gestures: tap to step, swipe sideways between groups, hold to pause.
@@ -29,8 +29,10 @@ let opened: string[];
 const dialog = () => host.querySelector('dialog') as HTMLDialogElement;
 const position = () => `${dialog().querySelectorAll('.segment.done').length + 1}`;
 const q = (selector: string) => dialog().querySelector(selector) as HTMLElement;
-function pointer(type: string, x: number, y: number, target: Element = q('.stage')): void {
-  target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+function pointer(type: string, x: number, y: number, target: Element = q('.stage'), pointerId = 1): void {
+  target.dispatchEvent(
+    new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, pointerId }),
+  );
 }
 
 describe('TaleViewer: the swipe-up link (R7)', () => {
@@ -93,8 +95,10 @@ describe('TaleViewer: the swipe-up link (R7)', () => {
     swipe.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(true);
     expect(opened).toHaveLength(1);
-    // A later click on it is the visitor's own: it is not swallowed.
-    vi.advanceTimersByTime(1);
+    // A later click on it, after a new press, is the visitor's own: it is not swallowed.
+    vi.advanceTimersByTime(1000);
+    pointer('pointerdown', 200, 700, swipe);
+    pointer('pointerup', 200, 700, swipe);
     const later = new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 });
     swipe.dispatchEvent(later);
     expect(later.defaultPrevented).toBe(false);
@@ -135,5 +139,56 @@ describe('TaleViewer: the swipe-up link (R7)', () => {
     expect(enter.defaultPrevented).toBe(false);
     expect(position()).toBe('1');
     expect(dialog().hasAttribute('data-paused')).toBe(false);
+  });
+  it('opens it only on a flick: not after a hold that drifts up, nor on a slow drag', () => {
+    pointer('pointerdown', 200, 500);
+    vi.advanceTimersByTime(SWIPE_UP_MAX_MS + 100);
+    pointer('pointerup', 200, 250);
+    pointer('pointerdown', 200, 500);
+    vi.advanceTimersByTime(SWIPE_UP_MAX_MS);
+    pointer('pointermove', 200, 400);
+    pointer('pointerup', 200, 300);
+    expect(opened).toEqual([]);
+  });
+
+  it('needs a swipe of at least 8% of the stage height on a tall stage', () => {
+    vi.spyOn(q('.stage'), 'getBoundingClientRect').mockReturnValue({ height: 1000, width: 560 } as DOMRect);
+    pointer('pointerdown', 200, 500);
+    pointer('pointerup', 200, 430);
+    expect(opened).toEqual([]);
+    pointer('pointerdown', 200, 500);
+    pointer('pointerup', 200, 410);
+    expect(opened).toHaveLength(1);
+  });
+
+  it('ignores other pointers: a second finger makes the press a pinch, not a swipe', () => {
+    pointer('pointerdown', 200, 500, q('.stage'), 1);
+    pointer('pointerdown', 250, 500, q('.stage'), 2);
+    pointer('pointerup', 250, 300, q('.stage'), 2);
+    pointer('pointerup', 200, 300, q('.stage'), 1);
+    expect(opened).toEqual([]);
+    expect(position()).toBe('1');
+    // A release of a pointer that never pressed is ignored too.
+    pointer('pointerup', 200, 300, q('.stage'), 7);
+    expect(opened).toEqual([]);
+  });
+
+  it('waits while a link has focus, and resumes when focus leaves it', () => {
+    const a = q('a.ta-button') as HTMLAnchorElement;
+    a.focus();
+    expect(dialog().hasAttribute('data-paused')).toBe(true);
+    vi.advanceTimersByTime(20_000);
+    expect(position()).toBe('1');
+    dialog().focus();
+    expect(dialog().hasAttribute('data-paused')).toBe(false);
+    vi.advanceTimersByTime(20_000);
+    expect(position()).not.toBe('1');
+  });
+
+  it('moves focus to the dialog when the tale holding the focused link goes', () => {
+    (q('a.ta-button') as HTMLAnchorElement).focus();
+    viewer.next();
+    expect(position()).toBe('2');
+    expect(document.activeElement).toBe(dialog());
   });
 });
