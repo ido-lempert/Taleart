@@ -446,20 +446,64 @@ describe('TaleartElement', () => {
     expect(empty?.hasAttribute('data-placeholder')).toBe(true);
   });
 
-  it('covers with the first tale that has media when the first tale has none', async () => {
+  // The default cover (R16): the first tale's lowest media element, else its canvas colour.
+  const textTale = (id: string, color: string) => ({
+    id,
+    title: 'Words',
+    media: null,
+    document: { version: 1, canvas: { background: { type: 'color', color } }, elements: [] },
+  });
+  const mediaTale = (id: string, elements: unknown[], background?: unknown) => ({
+    id,
+    title: 'Pic',
+    media: null,
+    document: { version: 1, canvas: { background: background ?? { type: 'color', color: '#000000' } }, elements },
+  });
+  const mediaElement = (type: string, url: string) => ({
+    id: `00000000-0000-4000-8000-0000000000${type === 'image' ? 'a1' : 'b2'}`,
+    type,
+    box: { x: 0.1, y: 0.1, w: 0.5, h: 0.5, rotation: 0 },
+    a11y: {},
+    props: { url, fit: 'cover' },
+  });
+
+  it("covers with the first tale's colour, and its title, when the first tale has no media", async () => {
     const group = {
       id: 'gd',
       name: 'Later',
-      tales: [
-        { id: 't3', title: 'None', media: null },
-        { id: 't4', title: 'Pic', media: { kind: 'image' as const, contentType: 'image/png' as const, url: `${API}/media/tales/d.png` } },
-      ],
+      cover: null,
+      tales: [textTale('t3', '#1f3a5f'), mediaTale('t4', [mediaElement('image', `${API}/media/tales/d.png`)])],
     };
     fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: [group] }));
     const el = await mount();
-    const cover = items(el)[0].querySelector('.cover');
-    expect(cover).toBeInstanceOf(HTMLImageElement);
-    expect((cover as HTMLImageElement).src).toBe(`${API}/media/tales/d.png`);
+    const cover = items(el)[0].querySelector('.cover') as HTMLElement;
+    expect(cover.tagName).toBe('SPAN');
+    expect(cover.hasAttribute('data-placeholder')).toBe(true);
+    expect(cover.style.backgroundColor).toBe('rgb(31, 58, 95)');
+    expect(items(el)[0].querySelector('.title')?.textContent).toBe('Later');
+  });
+
+  it("covers with the first tale's lowest media element: its background, else its first image or video", async () => {
+    const lowest = mediaTale('t5', [
+      mediaElement('video', `${API}/media/tales/v.mp4`),
+      mediaElement('image', `${API}/media/tales/i.png`),
+    ]);
+    const background = mediaTale('t6', [mediaElement('image', `${API}/media/tales/i.png`)], {
+      type: 'media',
+      url: `${API}/media/media/bg.png`,
+      fit: 'cover',
+      color: '#000000',
+    });
+    const groups = [
+      { id: 'ge', name: 'Video', cover: null, tales: [lowest] },
+      { id: 'gf', name: 'Background', cover: null, tales: [background] },
+    ];
+    fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: groups }));
+    const el = await mount();
+    const [video, image] = items(el).map((item) => item.querySelector('.cover'));
+    expect(video).toBeInstanceOf(HTMLVideoElement);
+    expect((video as HTMLVideoElement).src).toBe(`${API}/media/tales/v.mp4#t=0.001`);
+    expect((image as HTMLImageElement).src).toBe(`${API}/media/media/bg.png`);
   });
 
   it.each([

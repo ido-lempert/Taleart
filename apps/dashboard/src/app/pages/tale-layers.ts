@@ -97,7 +97,8 @@ export function duplicateElement(element: TaleElement, id: string): TaleElement 
       y: shifted(box.y, box.h, DUPLICATE_OFFSET),
     },
     a11y: { ...element.a11y },
-    props: { ...element.props },
+    // A copy of the tale's own media (R16) is an ordinary element: a tale has one media.
+    props: Object.fromEntries(Object.entries(element.props).filter(([key]) => key !== 'taleMedia')),
   } as TaleElement;
 }
 

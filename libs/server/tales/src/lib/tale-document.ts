@@ -4,6 +4,7 @@ import {
   ErrorCodes,
   hasDisallowedCharacter,
   isFontFamily,
+  isTaleMediaElement,
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
@@ -186,6 +187,7 @@ export function checkTaleDocument(value: unknown): TaleDocument {
   const doc = value as TaleDocument;
   const ids = new Set<string>();
   let videos = 0;
+  let taleMedia = 0;
   const elements = doc.elements.map((original, i) => {
     const at = `/elements/${i}`;
     const element = normalized(original);
@@ -210,7 +212,11 @@ export function checkTaleDocument(value: unknown): TaleDocument {
     const id = element.id.toLowerCase();
     if (ids.has(id)) throw new InvalidTaleDocumentError(`${at}/id`, 'is the id of another element');
     ids.add(id);
-    if (element.type === 'video' && ++videos > MAX_VIDEO_ELEMENTS) {
+    // The tale's own media (R16) is exempt from the video limit, as tale media always was; there is one at most.
+    if (isTaleMediaElement(element) && ++taleMedia > 1) {
+      throw new InvalidTaleDocumentError(`${at}/props/taleMedia`, 'is set on another element: a tale has one media');
+    }
+    if (element.type === 'video' && !isTaleMediaElement(element) && ++videos > MAX_VIDEO_ELEMENTS) {
       throw new InvalidTaleDocumentError(`${at}/type`, `is a video: a tale holds at most ${MAX_VIDEO_ELEMENTS}`);
     }
     return element;

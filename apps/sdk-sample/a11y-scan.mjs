@@ -12,13 +12,15 @@
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 // The deeper accessibility review (keyboard walk, zoom, forced colours, RTL…) is a11y-review.mjs.
 import { chromium } from 'playwright';
-import { axeViolations, freePort, loadAxe, startSample } from './a11y-shared.mjs';
+import { axeViolations, freePort, loadAxe, mediaTale, startSample } from './a11y-shared.mjs';
 
 const API = 'http://taleart-api.test';
 
 // A grey 9:16 SVG, served for every media URL.
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="160"><rect width="90" height="160" fill="#6b7280"/></svg>';
-const image = (id, title) => ({ id, title, media: { kind: 'image', contentType: 'image/svg+xml', url: `${API}/media/tales/${id}.svg` } });
+// Each tale as the Delivery API sends it since Tale Studio R16: its media is its document's media element.
+const media = (id) => ({ kind: 'image', contentType: 'image/svg+xml', url: `${API}/media/tales/${id}.svg` });
+const image = (id, title, document) => mediaTale(id, title, media(id), document);
 // TaleArt's default theme, as the Delivery API sends it for a project with none (DEFAULT_THEME):
 // the host page's title colour and font, the frame's radius, a transparent background.
 const DEFAULT_THEME = {
@@ -49,31 +51,28 @@ const ZONE = {
       cover: { kind: 'image', contentType: 'image/svg+xml', animated: false, url: `${API}/media/covers/ga.svg` },
       tales: [
         image('a1', 'Beach day'),
-        {
-          ...image('a2', 'Sunset'),
-          // A tale document (AD-15): a text element in the upper third, and right-to-left text with emoji below.
-          document: {
-            version: 1,
-            // A canvas colour (Tale Studio story 2): it fills the stage behind the tale's media.
-            canvas: { background: { type: 'color', color: '#1f3a5f' } },
-            elements: [
-              {
-                id: '00000000-0000-4000-8000-000000000001',
-                type: 'text',
-                box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
-                a11y: {},
-                props: { text: '<b>Hello</b>' },
-              },
-              {
-                id: '00000000-0000-4000-8000-000000000002',
-                type: 'text',
-                box: { x: 0.1, y: 0.62, w: 0.8, h: 0.1, rotation: 0 },
-                a11y: {},
-                props: { text: 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦' },
-              },
-            ],
-          },
-        },
+        // A tale document (AD-15): a text element in the upper third, and right-to-left text with emoji below.
+        image('a2', 'Sunset', {
+          version: 1,
+          // A canvas colour (Tale Studio story 2): it fills the stage behind the tale's media.
+          canvas: { background: { type: 'color', color: '#1f3a5f' } },
+          elements: [
+            {
+              id: '00000000-0000-4000-8000-000000000001',
+              type: 'text',
+              box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+              a11y: {},
+              props: { text: '<b>Hello</b>' },
+            },
+            {
+              id: '00000000-0000-4000-8000-000000000002',
+              type: 'text',
+              box: { x: 0.1, y: 0.62, w: 0.8, h: 0.1, rotation: 0 },
+              a11y: {},
+              props: { text: 'שלום \u2067עולם\u2069 👩‍👩‍👧‍👦' },
+            },
+          ],
+        }),
       ],
     },
     { id: 'gb', name: 'New arrivals', cover: null, tales: [image('b1', 'Jackets')] },
@@ -177,7 +176,7 @@ try {
       markup: p.querySelector(':not(.ta-line, .ta-glyphs)') !== null,
       upperThird: box.top >= canvas.top && box.bottom <= canvas.top + canvas.height / 3,
       ratio: canvas.width / canvas.height,
-      // The media is framed as for a tale without a document: full-bleed in the stage.
+      // The tale's media (its document's media element, R16) is framed as always: full-bleed in the stage.
       over: root.querySelector('dialog .stage > img.media') !== null && !root.querySelector('dialog .ta-canvas img'),
       background: getComputedStyle(root.querySelector('dialog .stage')).backgroundColor,
     };

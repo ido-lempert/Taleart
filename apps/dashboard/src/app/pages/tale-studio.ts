@@ -23,6 +23,10 @@ import {
   hasAltText,
   hasVideoElement,
   isOutsideSafeArea,
+  isStageTaleMedia,
+  isTaleMediaElement,
+  limitedVideoCount,
+  MAX_VIDEO_ELEMENTS,
   MAX_TALE_DURATION_MS,
   MAX_TALE_VIDEO_MS,
   MAX_TALE_ELEMENTS,
@@ -462,20 +466,6 @@ export function newTextProps(text: string): TextElementProps {
               aria-describedby="studio-keys"
               [style.background-color]="d.canvas.background.color"
             >
-              @if (tale(); as t) {
-                @if (t.media?.kind === 'video') {
-                  <video
-                    class="canvas__media"
-                    [src]="store.mediaSrc(t)"
-                    muted
-                    playsinline
-                    preload="metadata"
-                    aria-hidden="true"
-                  ></video>
-                } @else if (t.media) {
-                  <img class="canvas__media" [src]="store.mediaSrc(t)" alt="" />
-                }
-              }
               @if (d.canvas.background.type === 'media') {
                 <!-- The background image (R2), over its band colour, as the Web SDK paints it. -->
                 <img
@@ -662,14 +652,14 @@ export function newTextProps(text: string): TextElementProps {
                   class="btn btn--secondary"
                   id="studio-add-video"
                   [disabled]="d.elements.length >= maxElements || !projectId()"
-                  [attr.aria-disabled]="hasVideo() ? 'true' : null"
-                  [attr.aria-describedby]="hasVideo() ? 'studio-video-hint' : null"
+                  [attr.aria-disabled]="videoLimitReached() ? 'true' : null"
+                  [attr.aria-describedby]="videoLimitReached() ? 'studio-video-hint' : null"
                   (click)="openPicker('add', 'video')"
                 >
                   <app-icon name="video" /> Add video
                 </button>
               </div>
-              @if (hasVideo()) {
+              @if (videoLimitReached()) {
                 <p class="field__hint" id="studio-video-hint">
                   A tale holds one video, and plays for its length. Delete it to add another.
                 </p>
@@ -901,7 +891,11 @@ export function newTextProps(text: string): TextElementProps {
                   @if (el.type !== 'text') {
                     <app-tale-media-style
                       [element]="el"
-                      [videoSeconds]="el.type === 'video' ? (videoSeconds().get(el.props.mediaKey) ?? null) : null"
+                      [videoSeconds]="
+                        el.type === 'video' && !isStageTaleMedia(el, d.elements.indexOf(el))
+                          ? (videoSeconds().get(el.props.mediaKey) ?? null)
+                          : null
+                      "
                       [locked]="el.locked"
                       [lockedHint]="lockedHint"
                       (changed)="restyleMedia(el.id, $event)"
@@ -1152,6 +1146,7 @@ export class TaleStudioPage implements OnChanges {
   private keyToggled = false;
 
   protected readonly maxElements = MAX_TALE_ELEMENTS;
+  protected readonly isStageTaleMedia = isStageTaleMedia;
   protected readonly maxText = MAX_TEXT_LENGTH;
   protected readonly safeArea = TALE_SAFE_AREA;
   private readonly apple = isApple();
@@ -1184,6 +1179,8 @@ export class TaleStudioPage implements OnChanges {
   protected readonly picker = signal<OpenPicker | null>(null);
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
   protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
+  /** True when the tale holds its one video; the tale's own media video (R16) does not count, as before documents. */
+  protected readonly videoLimitReached = computed(() => limitedVideoCount(this.doc()) >= MAX_VIDEO_ELEMENTS);
   /** The tale's duration in seconds, as the duration field shows it: 7 when the document sets none. */
   protected readonly durationSeconds = computed(() => (this.doc()?.durationMs ?? DEFAULT_TALE_DURATION_MS) / 1000);
 
@@ -1202,7 +1199,9 @@ export class TaleStudioPage implements OnChanges {
   /** What lies behind texts, for their contrast checks (R12): the canvas colour, and whether media covers it. */
   protected readonly backdrop = computed<TextBackdrop>(() => ({
     canvasColor: this.doc()?.canvas.background.color ?? '#000000',
-    overMedia: !!this.tale()?.media || this.doc()?.canvas.background.type === 'media',
+    overMedia:
+      !!this.doc()?.elements.some((e) => isTaleMediaElement(e) && !e.hidden) ||
+      this.doc()?.canvas.background.type === 'media',
   }));
   // Each text's canvas look, kept per props object, so unchanged texts keep their view.
   private readonly views = new WeakMap<object, { themeFont: string | null; view: TextView }>();
@@ -1213,15 +1212,19 @@ export class TaleStudioPage implements OnChanges {
   /** The layers list: top of the z-order first, each with its name and whether it reaches outside the safe area. */
   protected readonly layerRows = computed(() =>
     (this.doc()?.elements ?? [])
-      .map((el) => ({
+      .map((el, i) => ({
         el,
         name: layerName(el, this.doc()?.elements ?? [el]),
-        outside: isOutsideSafeArea(el.box),
+        // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design.
+        outside: !isStageTaleMedia(el, i) && isOutsideSafeArea(el.box),
         lowContrast: el.type === 'text' && textContrast(resolveTextStyle(el.props), this.backdrop()).kind === 'low',
         // An image or video without alt text or the decorative mark keeps the tale from being published (R12).
         missingAlt: el.type !== 'text' && !el.hidden && !hasAltText(el),
-        // A video over 15 s plays only its first 15 s (R5).
-        longVideo: el.type === 'video' && (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
+        // A video over 15 s plays only its first 15 s (R5); the tale's own media video plays in full (R16).
+        longVideo:
+          el.type === 'video' &&
+          !isStageTaleMedia(el, i) &&
+          (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
       .reverse(),
   );
@@ -2376,7 +2379,7 @@ export class TaleStudioPage implements OnChanges {
    */
   protected openPicker(purpose: OpenPicker['purpose'], kind: MediaKind, elementId: string | null = null): void {
     if (this.isHeld()) return;
-    if (purpose === 'add' && kind === 'video' && this.hasVideo()) {
+    if (purpose === 'add' && kind === 'video' && this.videoLimitReached()) {
       this.say('A tale holds one video. Delete it to add another.');
       return;
     }

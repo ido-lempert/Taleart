@@ -27,7 +27,13 @@ import {
 } from '@taleart/server-importer';
 import { DEFAULT_THEME, PLAYBOOKS, type ImportReport, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
-import { clearDeliveryCache, clearPublicFontCache, sweepUnusedProjectMediaFiles } from '@taleart/server-tales';
+import {
+  clearDeliveryCache,
+  clearPublicFontCache,
+  continueTaleMediaMigration,
+  migrateTaleMediaDocuments,
+  sweepUnusedProjectMediaFiles,
+} from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
 import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
@@ -124,6 +130,32 @@ const fakeVerifier: PasskeyVerifier = {
 
 // The public origin Delivery media URLs start with (PUBLIC_API_URL).
 const publicApiUrl = 'https://api.example.com';
+
+// What the Delivery API sends for a tale with neither media nor a document (Tale Studio R16).
+const NO_MEDIA_DOCUMENT = {
+  version: 1,
+  canvas: { background: { type: 'color', color: '#1f2937' } },
+  durationMs: 5000,
+  elements: [],
+};
+
+// A delivered document of only the tale's media (R16): its `taleMedia` element, full canvas, 5 s.
+function mediaDocument(kind: 'image' | 'video', url: unknown, id: unknown = expect.any(String)) {
+  return {
+    version: 1,
+    canvas: { background: { type: 'color', color: '#000000' } },
+    durationMs: 5000,
+    elements: [
+      {
+        id,
+        type: kind,
+        box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+        a11y: { decorative: true },
+        props: { url, fit: 'contain', taleMedia: true },
+      },
+    ],
+  };
+}
 
 // The session cookie the content tests send; set before each test.
 let sessionCookie = '';
@@ -1639,7 +1671,12 @@ describe('Management API v1: projects and zones', () => {
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       // C has no live tale, so only A is delivered.
       expect((await delivered.json()).taleGroups).toEqual([
-        { id: a.id, name: 'A', cover: null, tales: [{ id: tale.id, title: 'Beach', media: null, document: null }] },
+        {
+          id: a.id,
+          name: 'A',
+          cover: null,
+          tales: [{ id: tale.id, title: 'Beach', media: null, document: NO_MEDIA_DOCUMENT }],
+        },
       ]);
     });
 
@@ -4053,9 +4090,10 @@ describe('Management API v1: projects and zones', () => {
                 id: a1.id,
                 title: 'A1',
                 media: { kind: 'image', contentType: 'image/png', url: expect.stringMatching(mediaUrl) },
-                document: null,
+                // Every tale is delivered as a document (R16): its media is its document's `taleMedia` element.
+                document: mediaDocument('image', expect.stringMatching(mediaUrl)),
               },
-              { id: a2.id, title: 'A2', media: null, document: null },
+              { id: a2.id, title: 'A2', media: null, document: NO_MEDIA_DOCUMENT },
             ],
           },
           {
@@ -4067,11 +4105,13 @@ describe('Management API v1: projects and zones', () => {
                 id: b1.id,
                 title: 'B1',
                 media: { kind: 'video', contentType: 'video/mp4', url: expect.stringMatching(mediaUrl) },
-                document: null,
+                document: mediaDocument('video', expect.stringMatching(mediaUrl)),
               },
             ],
           },
         ]);
+        const [a1Media] = body.taleGroups[0].tales;
+        expect(a1Media.document.elements[0].props.url).toBe(a1Media.media.url);
         // No project id or Management API media path in the Delivery response (AD-13).
         expect(text).not.toContain(zone.projectId);
         expect(text).not.toContain('/api/v1');
@@ -4105,19 +4145,22 @@ describe('Management API v1: projects and zones', () => {
             element(hidden, 'Secret', { hidden: true, locked: false }),
           ],
         };
+        // The media upload made the tale's draft and published documents (R16): revision 1 each.
         const saved = await fetch(`${base}/tales/${tale.id}/document`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ document, revision: 0 }),
+          body: JSON.stringify({ document, revision: 1 }),
         });
         expect(saved.status).toBe(200);
         const { key } = await issue(zone.id);
         // Saved as the draft only: visitors see nothing of it until it is published.
-        expect((await (await deliver(key)).json()).taleGroups[0].tales[0].document).toBeNull();
+        expect((await (await deliver(key)).json()).taleGroups[0].tales[0].document).toEqual(
+          mediaDocument('image', expect.stringMatching(mediaUrl)),
+        );
         const published = await fetch(`${base}/tales/${tale.id}/document/publish`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ revision: 1, publishedRevision: 0 }),
+          body: JSON.stringify({ revision: 2, publishedRevision: 1 }),
         });
         expect(published.status).toBe(200);
         const text = await (await deliver(key)).text();
@@ -4133,7 +4176,7 @@ describe('Management API v1: projects and zones', () => {
         // A stored document that no longer validates is not delivered: the tale shows its media only.
         await pool.query(`UPDATE tales SET document = '{"version": 9}'::jsonb WHERE id = $1`, [tale.id]);
         const media = (await (await deliver(key)).json()).taleGroups[0].tales[0];
-        expect(media.document).toBeNull();
+        expect(media.document).toEqual(mediaDocument('image', media.media.url, tale.id));
         expect(media.media.url).toMatch(mediaUrl);
       });
 
@@ -4160,17 +4203,18 @@ describe('Management API v1: projects and zones', () => {
               revision,
             }),
           });
+        // Revision 1 of each is the media upload's (R16).
         expect(
-          (await put([element(1, false, false), element(2, false, false), element(3, false, false)], 0)).status,
+          (await put([element(1, false, false), element(2, false, false), element(3, false, false)], 1)).status,
         ).toBe(200);
         // Reordered (2 to the front), 1 hidden, 3 locked: saved as the next revision.
         expect(
-          (await put([element(3, false, true), element(1, true, false), element(2, false, false)], 1)).status,
+          (await put([element(3, false, true), element(1, true, false), element(2, false, false)], 2)).status,
         ).toBe(200);
         const publish = await fetch(`${base}/tales/${tale.id}/document/publish`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ revision: 2, publishedRevision: 0 }),
+          body: JSON.stringify({ revision: 3, publishedRevision: 1 }),
         });
         expect(publish.status).toBe(200);
         const { key } = await issue(zone.id);
@@ -4179,7 +4223,7 @@ describe('Management API v1: projects and zones', () => {
         expect(delivered.elements.map((e: { id: string }) => e.id)).toEqual([id(3), id(2)]);
         expect(delivered.elements[0]).not.toHaveProperty('locked');
         // A colour that is not hex is refused, naming its pointer.
-        const bad = await put([], 2, 'red; background:url(x)');
+        const bad = await put([], 3, 'red; background:url(x)');
         expect(bad.status).toBe(400);
         expect((await bad.json()).error.pointer).toBe('/canvas/background/color');
       });
@@ -4213,19 +4257,20 @@ describe('Management API v1: projects and zones', () => {
         const deliveredText = async () =>
           (await (await deliver(key)).json()).taleGroups[0].tales[0].document?.elements[0]?.props.text ?? null;
 
-        expect((await call('', 'PUT', { document: document('Live'), revision: 0 })).status).toBe(200);
-        expect((await call('/publish', 'POST', { revision: 1, publishedRevision: 0 })).status).toBe(200);
+        // Revision 1 of each is the media upload's (R16).
+        expect((await call('', 'PUT', { document: document('Live'), revision: 1 })).status).toBe(200);
+        expect((await call('/publish', 'POST', { revision: 2, publishedRevision: 1 })).status).toBe(200);
         expect(await deliveredText()).toBe('Live');
         // Autosaves of a live tale: the visitor still sees the published version.
-        for (let revision = 1; revision <= 3; revision++) {
-          expect((await call('', 'PUT', { document: document(`Draft ${revision}`), revision })).status).toBe(200);
+        for (let revision = 2; revision <= 4; revision++) {
+          expect((await call('', 'PUT', { document: document(`Draft ${revision - 1}`), revision })).status).toBe(200);
           expect(await deliveredText()).toBe('Live');
         }
         // Discarding the draft does not change it either; publishing does.
-        expect((await call('/publish', 'POST', { revision: 4, publishedRevision: 1 })).status).toBe(200);
+        expect((await call('/publish', 'POST', { revision: 5, publishedRevision: 2 })).status).toBe(200);
         expect(await deliveredText()).toBe('Draft 3');
-        expect((await call('', 'PUT', { document: document('Oops'), revision: 4 })).status).toBe(200);
-        expect((await call('/discard', 'POST', { revision: 5, publishedRevision: 2 })).status).toBe(200);
+        expect((await call('', 'PUT', { document: document('Oops'), revision: 5 })).status).toBe(200);
+        expect((await call('/discard', 'POST', { revision: 6, publishedRevision: 3 })).status).toBe(200);
         expect(await deliveredText()).toBe('Draft 3');
       });
 
@@ -5535,7 +5580,7 @@ describe('Management API v1: projects and zones', () => {
       // The tale's own media is media of its project too.
       expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
       const { media_key: taleKey } = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [tale.id])).rows[0];
-      expect((await save(tale.id, doc([element(1, 'image', taleKey)]), 0)).status).toBe(200);
+      expect((await save(tale.id, doc([element(1, 'image', taleKey)]), 1)).status).toBe(200);
     });
 
     it('lets a draft lack alt text, refuses to publish it naming the element, goes live unpublished', async () => {
@@ -5626,7 +5671,7 @@ describe('Management API v1: projects and zones', () => {
       const { tale } = await setup();
       expect((await putTaleMedia(tale.id, 'image/gif', gif)).status).toBe(200);
       const { media_key: oldKey } = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [tale.id])).rows[0];
-      expect((await save(tale.id, doc([element(1, 'image', oldKey)]), 0)).status).toBe(200);
+      expect((await save(tale.id, doc([element(1, 'image', oldKey)]), 1)).status).toBe(200);
       expect((await putTaleMedia(tale.id, 'image/png', png)).status).toBe(200);
       expect(existsSync(join(mediaDir, oldKey))).toBe(true);
     });
@@ -5852,6 +5897,301 @@ describe('Management API v1: projects and zones', () => {
       utimesSync(join(mediaDir, 'media', 'orphan.png'), old, old);
       expect(await sweepUnusedProjectMediaFiles(pool, new LocalDiskStorage(mediaDir))).toBe(1);
       expect(storedUploads()).toEqual([kept.slice('media/'.length)]);
+    });
+  });
+
+  describe('existing tales become documents (epic Tale Studio R16, story 7.11)', () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom-tiny-mp4')]);
+    const TEXT_ID = '00000000-0000-4000-8000-0000000000e1';
+    const text = (value: string) => ({
+      id: TEXT_ID,
+      type: 'text',
+      box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: { text: value },
+    });
+    const overlay = (value: string, extra: Record<string, unknown> = {}) => ({
+      version: 1,
+      canvas: { background: { type: 'color', color: '#112233' } },
+      elements: [text(value)],
+      ...extra,
+    });
+
+    interface Row {
+      document: { durationMs?: number; elements: Record<string, unknown>[] } | null;
+      draft: { durationMs?: number; elements: Record<string, unknown>[] } | null;
+      revision: number;
+      draftRevision: number;
+      inStep: string | null;
+      key: string | null;
+    }
+    async function row(taleId: string): Promise<Row> {
+      const { rows } = await pool.query(
+        `SELECT document, draft_document AS draft, document_revision AS revision, draft_revision AS "draftRevision",
+           document_media_key AS "inStep", media_key AS key FROM tales WHERE id = $1`,
+        [taleId],
+      );
+      return rows[0];
+    }
+
+    async function zoneWithGroup() {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      await publish('tale-groups', group.id);
+      return { zone, group };
+    }
+
+    // A tale as it was before this story: its media in `media_key` (a real file), no document unless
+    // given, and never in step. `status` is stored as given.
+    async function legacyTale(
+      groupId: string,
+      title: string,
+      options: { kind?: 'image' | 'video'; status?: string; document?: unknown; key?: string } = {},
+    ): Promise<{ id: string; key: string }> {
+      const tale = await (await post(`/tale-groups/${groupId}/tales`, { title })).json();
+      const kind = options.kind ?? 'image';
+      const key = options.key ?? `tales/${randomUUID()}.${kind === 'image' ? 'png' : 'mp4'}`;
+      await new LocalDiskStorage(mediaDir).put(key, kind === 'image' ? png : mp4);
+      const doc = options.document === undefined ? null : JSON.stringify(options.document);
+      await pool.query(
+        `UPDATE tales SET media_key = $2, media_content_type = $3, status = $4, document = $5::jsonb,
+           draft_document = $5::jsonb, document_revision = CASE WHEN $5::jsonb IS NULL THEN 0 ELSE 3 END,
+           draft_revision = CASE WHEN $5::jsonb IS NULL THEN 0 ELSE 3 END, document_media_key = NULL
+         WHERE id = $1`,
+        [tale.id, key, kind === 'image' ? 'image/png' : 'video/mp4', options.status ?? 'live', doc],
+      );
+      await pool.query('DELETE FROM tale_media WHERE tale_id = $1', [tale.id]);
+      return { id: tale.id, key };
+    }
+
+    async function delivered(zoneId: string) {
+      const { key } = await (await post(`/zones/${zoneId}/key`, {})).json();
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      expect(res.status).toBe(200);
+      return (await res.json()).taleGroups as {
+        id: string;
+        tales: { id: string; title: string; document: { elements: { id: string }[] } & Record<string, unknown> }[];
+      }[];
+    }
+
+    // Element ids aside (a composed document names its media element after the tale), what visitors get.
+    const looks = (groups: Awaited<ReturnType<typeof delivered>>) =>
+      JSON.parse(JSON.stringify(groups).replace(/"id":"[0-9a-f-]{36}"/g, '"id":"…"'));
+
+    function save(taleId: string, document: unknown, revision: number): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document, revision }),
+      });
+    }
+
+    const ownElement = (kind: string, mediaKey: string) => ({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      type: kind,
+      box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: { decorative: true },
+      props: { mediaKey, fit: 'contain', taleMedia: true },
+    });
+
+    it('migrates every legacy tale at start, renders it as before, and changes nothing on a second run', async () => {
+      const { zone, group } = await zoneWithGroup();
+      const image = await legacyTale(group.id, 'Image');
+      const video = await legacyTale(group.id, 'Video', { kind: 'video' });
+      const studio = await legacyTale(group.id, 'Studio', { document: overlay('Over the media') });
+      const timed = await legacyTale(group.id, 'Timed', { document: overlay('Nine seconds', { durationMs: 9000 }) });
+      const draft = await legacyTale(group.id, 'Draft', { status: 'draft' });
+      // Before the migration the Delivery API already composes each tale's media in: nothing waits on it.
+      const before = await delivered(zone.id);
+      expect(before[0].tales.map((t) => t.title)).toEqual(['Image', 'Video', 'Studio', 'Timed']);
+
+      await migrate(pool);
+
+      // A tale with no document: its media as the only element of both documents, 5 s, revision 1.
+      const imageRow = await row(image.id);
+      expect(imageRow.document).toEqual({
+        version: 1,
+        canvas: { background: { type: 'color', color: '#000000' } },
+        durationMs: 5000,
+        elements: [ownElement('image', image.key)],
+      });
+      expect(imageRow.draft).toEqual(imageRow.document);
+      expect([imageRow.revision, imageRow.draftRevision, imageRow.inStep]).toEqual([1, 1, image.key]);
+      expect((await row(video.id)).document?.elements[0]).toEqual(ownElement('video', video.key));
+      // A studio document over the media: the media goes in at the bottom, legacy timing unless one was set.
+      const studioRow = await row(studio.id);
+      expect(studioRow.document).toEqual({
+        ...overlay('Over the media'),
+        durationMs: 5000,
+        elements: [ownElement('image', studio.key), text('Over the media')],
+      });
+      expect(studioRow.draft).toEqual(studioRow.document);
+      expect([studioRow.revision, studioRow.draftRevision]).toEqual([4, 4]);
+      expect((await row(timed.id)).document?.durationMs).toBe(9000);
+      // A draft tale gets a draft only: going live publishes it (7.3).
+      const draftRow = await row(draft.id);
+      expect(draftRow.document).toBeNull();
+      expect(draftRow.draft?.elements).toEqual([ownElement('image', draft.key)]);
+      // The references are recorded: published ones delivered, so the public route serves them (AD-11).
+      const refs = await pool.query(
+        `SELECT tale_id, document, delivered, content_type FROM tale_media WHERE tale_id = ANY($1::uuid[])
+         ORDER BY tale_id, document`,
+        [[image.id, draft.id]],
+      );
+      expect(refs.rows).toEqual(
+        expect.arrayContaining([
+          { tale_id: image.id, document: 'draft', delivered: false, content_type: 'image/png' },
+          { tale_id: image.id, document: 'published', delivered: true, content_type: 'image/png' },
+          { tale_id: draft.id, document: 'draft', delivered: false, content_type: 'image/png' },
+        ]),
+      );
+      expect(refs.rows).toHaveLength(3);
+
+      // Visitors get the same: same media, fit, timing and order, before and after.
+      const after = await delivered(zone.id);
+      expect(looks(after)).toEqual(looks(before));
+      const imageTale = after[0].tales[0];
+      expect(imageTale.document).toEqual({
+        version: 1,
+        canvas: { background: { type: 'color', color: '#000000' } },
+        durationMs: 5000,
+        elements: [
+          {
+            id: expect.any(String),
+            type: 'image',
+            box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+            a11y: { decorative: true },
+            props: { url: `${publicApiUrl}/media/${image.key}`, fit: 'contain', taleMedia: true },
+          },
+        ],
+      });
+      expect((await globalThis.fetch(`${origin}/media/${image.key}`)).status).toBe(200);
+
+      // Idempotent: a second start changes nothing, and an element a person removed stays removed.
+      expect((await save(image.id, overlay('No media now'), 1)).status).toBe(200);
+      const once = await pool.query(
+        'SELECT id, document, draft_document, document_revision, draft_revision FROM tales',
+      );
+      await migrate(pool);
+      expect(
+        (await pool.query('SELECT id, document, draft_document, document_revision, draft_revision FROM tales')).rows,
+      ).toEqual(once.rows);
+      expect((await row(image.id)).draft?.elements.map((e) => e['id'])).toEqual([TEXT_ID]);
+    });
+
+    it('migrates in batches within its start-up budget and finishes in the background, skipping held rows', async () => {
+      const { group } = await zoneWithGroup();
+      // Many legacy tales, written straight to the table (a group's tale limit is the API's).
+      const many = 1200;
+      await pool.query(
+        `INSERT INTO tales (tale_group_id, project_id, title, position, status, media_key, media_content_type)
+         SELECT $1, project_id, 'T' || n, n, 'live', 'tales/' || gen_random_uuid() || '.png', 'image/png'
+         FROM tale_groups, generate_series(1, $2) AS n WHERE tale_groups.id = $1`,
+        [group.id, many],
+      );
+      const outOfStep = async () =>
+        (
+          await pool.query<{ n: number }>(
+            'SELECT count(*)::int AS n FROM tales WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key',
+          )
+        ).rows[0].n;
+      // A start-up run out of budget stops after a batch: those tales are done, the rest wait.
+      const client = await pool.connect();
+      try {
+        expect(await migrateTaleMediaDocuments(client, { batchSize: 500, budgetMs: 0 })).toEqual({
+          merged: 500,
+          skipped: 0,
+          done: false,
+        });
+      } finally {
+        client.release();
+      }
+      expect(await outOfStep()).toBe(many - 500);
+
+      // A save in flight holds one tale: the background run skips it, and a later run takes it.
+      const held = (await pool.query('SELECT id FROM tales WHERE document_media_key IS NULL ORDER BY id LIMIT 1'))
+        .rows[0].id as string;
+      const saving = await pool.connect();
+      try {
+        await saving.query('BEGIN');
+        await saving.query('SELECT 1 FROM tales WHERE id = $1 FOR UPDATE', [held]);
+        const result = await continueTaleMediaMigration(pool, { batchSize: 500, passes: 1 });
+        expect(result.done).toBe(false);
+        expect(await outOfStep()).toBe(1);
+        await saving.query('COMMIT');
+      } finally {
+        saving.release();
+      }
+      expect(await continueTaleMediaMigration(pool, { passes: 1 })).toEqual({ merged: 1, skipped: 0, done: true });
+      expect(await outOfStep()).toBe(0);
+      const published = await pool.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM tale_media WHERE document = 'published' AND delivered",
+      );
+      expect(published.rows[0].n).toBe(many);
+    });
+
+    it('leaves out of step, and composed on delivery, what a document cannot take', async () => {
+      const { zone, group } = await zoneWithGroup();
+      const full = overlay('x', {
+        elements: Array.from({ length: 60 }, (_, i) => ({
+          ...text(`T${i}`),
+          id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        })),
+      });
+      const crowded = await legacyTale(group.id, 'Crowded', { document: full });
+      const odd = await legacyTale(group.id, 'Odd', { key: 'uploads/Legacy.PNG' });
+      await migrate(pool);
+      expect((await row(crowded.id)).inStep).toBeNull();
+      expect((await row(crowded.id)).document?.elements).toHaveLength(60);
+      expect((await row(odd.id)).document).toBeNull();
+      const [g] = await delivered(zone.id);
+      // Delivered with the media composed in, at the bottom: visitors still see it.
+      expect(g.tales[0].document.elements).toHaveLength(61);
+      expect(g.tales[0].document.elements[0]).toMatchObject({ id: crowded.id, props: { taleMedia: true } });
+      expect(g.tales[1].document.elements[0]).toMatchObject({
+        type: 'image',
+        props: { url: `${publicApiUrl}/media/uploads/Legacy.PNG`, taleMedia: true },
+      });
+    });
+
+    it('refuses an editor whose draft the migration changed (409), so no save is lost', async () => {
+      const { group } = await zoneWithGroup();
+      const studio = await legacyTale(group.id, 'Studio', { document: overlay('Before') });
+      await migrate(pool);
+      // The editor had revision 3 open; the migration made it 4.
+      const stale = await save(studio.id, overlay('My edit'), 3);
+      expect(stale.status).toBe(409);
+      expect((await row(studio.id)).draft?.elements).toHaveLength(2);
+      expect((await save(studio.id, overlay('My edit'), 4)).status).toBe(200);
+    });
+
+    it('gives an uploaded tale a draft document, publishes it on going live, and keeps it in step on replace', async () => {
+      const { zone, group } = await zoneWithGroup();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'New' })).json();
+      const put = (contentType: string, body: Buffer) =>
+        fetch(`${base}/tales/${tale.id}/media`, { method: 'PUT', headers: { 'Content-Type': contentType }, body });
+      expect((await put('image/png', png)).status).toBe(200);
+      const first = await row(tale.id);
+      expect(first.draft?.elements).toEqual([ownElement('image', first.key as string)]);
+      expect(first.document).toBeNull();
+      expect(first.inStep).toBe(first.key);
+      // A person adds text over it, then the tale goes live: the draft is published (7.3).
+      const withText = { ...first.draft, elements: [...(first.draft?.elements ?? []), text('Hello')] };
+      expect((await save(tale.id, withText, 1)).status).toBe(200);
+      await publish('tales', tale.id);
+      const [g] = await delivered(zone.id);
+      expect(g.tales[0].document.elements.map((e) => (e as { type?: string }).type)).toEqual(['image', 'text']);
+      // Replacing the media changes the media element of both documents, keeping the text.
+      expect((await put('video/mp4', mp4)).status).toBe(200);
+      const replaced = await row(tale.id);
+      expect(replaced.document?.elements[0]).toMatchObject({ type: 'video', props: { mediaKey: replaced.key } });
+      expect(replaced.draft?.elements.map((e) => e['type'])).toEqual(['video', 'text']);
+      expect(existsSync(join(mediaDir, first.key as string))).toBe(false);
     });
   });
 
@@ -7721,6 +8061,92 @@ describe('Management API v1: projects and zones', () => {
         expect(await storage.get(media.media_key)).toEqual(png);
         expect(await storage.get(copyKey)).toBeNull();
         expect((await pool.query('SELECT 1 FROM import_media WHERE tale_id = $1', [tale.id])).rowCount).toBe(0);
+      });
+
+      it('imports tales as documents of their media; a re-import replaces it only where no person edited it (R16)', async () => {
+        const project = await createProject();
+        startWorker();
+        await importOnce(project.id);
+        const stories = fake.control.data.stories['3001'].data;
+        const titles = [String(stories[0]['title']), String(stories[1]['title']), String(stories[2]['title'])];
+        const tales = await projectTales(project.id);
+        const byTitle = (title: string) => tales.find((t) => t.title === title) as ListedTale;
+        const read = async (taleId: string) =>
+          (
+            await pool.query(
+              `SELECT media_key AS key, document_media_key AS "inStep", draft_document AS draft, document,
+                 draft_revision AS revision FROM tales WHERE id = $1`,
+              [taleId],
+            )
+          ).rows[0] as {
+            key: string;
+            inStep: string;
+            draft: { elements: { id: string; type: string; props: Record<string, unknown> }[] };
+            document: unknown;
+            revision: number;
+          };
+        // Every imported tale has a draft document of its media, in step; imported tales are drafts.
+        for (const tale of tales) {
+          const stored = await read(tale.id);
+          expect(stored.inStep).toBe(stored.key);
+          expect(stored.draft.elements).toEqual([
+            expect.objectContaining({
+              type: 'image',
+              props: { mediaKey: stored.key, fit: 'contain', taleMedia: true },
+            }),
+          ]);
+          expect(stored.document).toBeNull();
+        }
+
+        const [untouched, removed, picked] = titles.map((t) => byTitle(t).id);
+        // A person removes the media element of one tale and picks other media for another.
+        const removedDraft = await read(removed);
+        const text = {
+          id: '00000000-0000-4000-8000-0000000000e2',
+          type: 'text',
+          box: { x: 0.1, y: 0.2, w: 0.8, h: 0.1, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { text: 'Mine' },
+        };
+        const save = (taleId: string, document: unknown, revision: number) =>
+          fetch(`${base}/tales/${taleId}/document`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ document, revision }),
+          });
+        expect((await save(removed, { ...removedDraft.draft, elements: [text] }, removedDraft.revision)).status).toBe(
+          200,
+        );
+        const pickedDraft = await read(picked);
+        const otherKey = (await read(untouched)).key;
+        const pickedDocument = {
+          ...pickedDraft.draft,
+          elements: [
+            { ...pickedDraft.draft.elements[0], props: { ...pickedDraft.draft.elements[0].props, mediaKey: otherKey } },
+          ],
+        };
+        expect((await save(picked, pickedDocument, pickedDraft.revision)).status).toBe(200);
+
+        // The source now points each of the three at other media.
+        const urls = stories.slice(0, 3).map((s) => s['media']);
+        stories[0]['media'] = urls[1];
+        stories[1]['media'] = urls[2];
+        stories[2]['media'] = urls[0];
+        const again = await importOnce(project.id);
+        expect(again['status']).toBe('done');
+
+        const after = await Promise.all([untouched, removed, picked].map(read));
+        // Each tale's media was the import's, so it is replaced, and the tale is in step.
+        after.forEach((stored, i) => {
+          expect(stored.key).not.toBe([otherKey, removedDraft.key, pickedDraft.key][i]);
+          expect(stored.inStep).toBe(stored.key);
+        });
+        // The untouched tale's media element follows; the person's edits stay as they were.
+        expect(after[0].draft.elements[0].props['mediaKey']).toBe(after[0].key);
+        expect(after[1].draft.elements).toEqual([text]);
+        expect(after[2].draft.elements[0].props['mediaKey']).toBe(otherKey);
       });
 
       it('sweeps old imported files nothing references, and keeps everything else', async () => {

@@ -293,13 +293,24 @@ describe('TaleViewer with a document video (epic Tale Studio R5)', () => {
     expect(pause.mock.contexts).toContain(docVideo);
   });
 
-  it("keeps a tale video as the clock, the document's video looping along", () => {
+  // The tale's own media (R16): the bottom `taleMedia` element with the full-canvas box.
+  function own(
+    type: 'image' | 'video',
+    url: string,
+    box = { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+  ): DeliveryTaleElement {
+    return {
+      id: '00000000-0000-4000-8000-0000000000ff',
+      type,
+      box,
+      a11y: { decorative: true },
+      props: { url, fit: 'contain', taleMedia: true } as never,
+    };
+  }
+
+  it("keeps the tale's own video as the clock, the document's video looping along", () => {
     open(false, [
-      tale('t1', doc([element(1, 'video', { url: MP4, fit: 'cover' })]), {
-        kind: 'video',
-        contentType: 'video/mp4',
-        url: `${API}/media/tales/t.mp4`,
-      }),
+      tale('t1', doc([own('video', `${API}/media/tales/t.mp4`), element(1, 'video', { url: MP4, fit: 'cover' })])),
       tale('t2', null),
     ]);
     const docVideo = dialog().querySelector('.ta-canvas video') as HTMLVideoElement;
@@ -308,5 +319,42 @@ describe('TaleViewer with a document video (epic Tale Studio R5)', () => {
     expect(position()).toBe('1');
     (dialog().querySelector('.stage > video.media') as HTMLVideoElement).dispatchEvent(new Event('ended'));
     expect(position()).toBe('2');
+  });
+
+  it("plays the tale's own video as tale media always played: in the stage, with sound, past 15 s, through stalls", () => {
+    open(false, [tale('t1', doc([own('video', `${API}/media/tales/t.mp4`)], { durationMs: 5000 })), tale('t2', null)]);
+    const video = dialog().querySelector('.stage > video.media') as HTMLVideoElement;
+    expect(dialog().querySelector('.ta-canvas video')).toBeNull();
+    expect(video.muted).toBe(false);
+    expect(video.style.objectFit).toBe('contain');
+    expect(video.getAttribute('aria-hidden')).toBe('true');
+    for (let t = 1; t <= 20; t++) {
+      setTime(video, t);
+      vi.advanceTimersByTime(1000);
+    }
+    // No 15 s cap; and 6 s without progress does not end it either.
+    vi.advanceTimersByTime(6000);
+    expect(position()).toBe('1');
+    video.dispatchEvent(new Event('ended'));
+    expect(position()).toBe('2');
+  });
+
+  it("draws the tale's own media in the canvas, as any element, once a person moved it", () => {
+    const moved = own('video', `${API}/media/tales/t.mp4`, { x: 0.1, y: 0.1, w: 0.8, h: 0.8, rotation: 0 });
+    open(false, [tale('t1', doc([moved])), tale('t2', null)]);
+    expect(dialog().querySelector('.stage > .media')).toBeNull();
+    const video = dialog().querySelector('.ta-canvas video') as HTMLVideoElement;
+    expect(video.muted).toBe(true);
+    setTime(video, 15);
+    expect(position()).toBe('2');
+  });
+
+  it("draws the tale's own GIF still under reduced motion (R12), its label from the element", () => {
+    const gif = { ...own('image', `${API}/media/tales/t.gif`), a11y: { label: 'Dancing cat' } };
+    open(true, [tale('t1', doc([gif]))]);
+    const still = dialog().querySelector('.stage > canvas.media') as HTMLCanvasElement;
+    expect(still).not.toBeNull();
+    expect(still.getAttribute('aria-label')).toBe('Dancing cat');
+    expect(still.hasAttribute('aria-hidden')).toBe(false);
   });
 });

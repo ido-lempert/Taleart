@@ -3,11 +3,35 @@ import { HOLD_MIN_MS, IMAGE_DURATION_MS, TaleViewer, VIEWER_STYLES } from './vie
 
 const API = 'https://api.example.com';
 
+// A tale as the Delivery API sends it since R16: its media is the `taleMedia` element of its
+// document (full canvas, contain, decorative, 5 s), with `media` kept for older SDKs.
+function own(id: string, kind: 'image' | 'video', url: string): DeliveryTale {
+  const contentType = kind === 'image' ? ('image/png' as const) : ('video/mp4' as const);
+  return {
+    id,
+    title: `Tale ${id}`,
+    media: { kind, contentType, url },
+    document: {
+      version: 1,
+      canvas: { background: { type: 'color', color: '#000000' } },
+      durationMs: 5000,
+      elements: [
+        {
+          id: `00000000-0000-4000-8000-${id.padStart(12, '0')}`,
+          type: kind,
+          box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+          a11y: { decorative: true },
+          props: { url, fit: 'contain', taleMedia: true } as never,
+        },
+      ],
+    },
+  };
+}
 function image(id: string): DeliveryTale {
-  return { id, title: `Tale ${id}`, media: { kind: 'image', contentType: 'image/png', url: `${API}/media/tales/${id}.png` } };
+  return own(id, 'image', `${API}/media/tales/${id}.png`);
 }
 function video(id: string): DeliveryTale {
-  return { id, title: `Tale ${id}`, media: { kind: 'video', contentType: 'video/mp4', url: `${API}/media/tales/${id}.mp4` } };
+  return own(id, 'video', `${API}/media/tales/${id}.mp4`);
 }
 
 const groups: DeliveryTaleGroup[] = [
@@ -82,7 +106,10 @@ describe('TaleViewer', () => {
     expect(document.activeElement).toBe(d);
     expect(d?.querySelectorAll('.segment')).toHaveLength(2);
     expect(mediaSrc()).toBe(`${API}/media/tales/b1.png`);
-    expect(q<HTMLImageElement>('.media').alt).toBe('Tale b1');
+    // The tale's own media is decorative (R16); the canvas carries the tale's name, as the media's alt text did.
+    expect(q<HTMLImageElement>('.media').alt).toBe('');
+    expect(q('.media').getAttribute('aria-hidden')).toBe('true');
+    expect(q('.ta-canvas').getAttribute('aria-label')).toBe('Tale b1');
     expect(position()).toBe('B, tale 1 of 2');
     expect(shown).toEqual(['gb']);
     for (const name of ['Pause', 'Close', 'Previous tale', 'Next tale']) {
@@ -137,7 +164,10 @@ describe('TaleViewer', () => {
   it('closes after the last tale of the last group and reports that group', () => {
     viewer.open('gc');
     key('ArrowRight');
-    expect(q('.media').getAttribute('aria-label')).toBe('Tale 2');
+    // A tale sent without a document (a server before R16) shows the legacy placeholder, named.
+    expect(q('.media')).toBeNull();
+    expect(q('.ta-canvas').getAttribute('aria-label')).toBe('Tale 2');
+    expect(q<HTMLElement>('.ta-canvas').style.backgroundColor).toBe('rgb(31, 41, 55)');
     vi.advanceTimersByTime(IMAGE_DURATION_MS);
     expect(dialog()?.hasAttribute('open')).toBe(false);
     expect(viewer.isOpen).toBe(false);
@@ -424,7 +454,9 @@ describe('TaleViewer', () => {
       viewer.open('gv');
       expect(vid().getAttribute('src')).toBe(`${API}/media/tales/v1.mp4`);
       expect(vid().playsInline).toBe(true);
-      expect(vid().getAttribute('aria-label')).toBe('Tale v1');
+      expect(vid().getAttribute('aria-hidden')).toBe('true');
+      expect(vid().muted).toBe(false);
+      expect(q('.ta-canvas').getAttribute('aria-label')).toBe('Tale v1');
       expect(playMock).toHaveBeenCalledTimes(1);
       vi.advanceTimersByTime(IMAGE_DURATION_MS * 3);
       expect(position()).toBe('V, tale 1 of 2');

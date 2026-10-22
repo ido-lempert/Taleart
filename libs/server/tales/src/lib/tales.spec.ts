@@ -425,7 +425,7 @@ describe('keep a document as a new tale', () => {
     const tale = await copyTaleWithDocument(db, taleId, document);
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
     expect(insert?.[0]).toMatch(/title \|\| ' \(copy\)'/);
-    expect(insert?.[0]).toMatch(/media_key, media_content_type, \$3::jsonb, 1/);
+    expect(insert?.[0]).toMatch(/media_key, media_content_type, document_media_key,\s+\$3::jsonb, 1/);
     expect(insert?.[0]).toMatch(/draft_document, draft_revision\)/);
     expect((insert?.[0] as string).split('RETURNING')[0]).not.toMatch(/status|starts_at/);
     expect(insert?.[1]).toEqual([taleId, 3, JSON.stringify(document)]);
@@ -489,7 +489,11 @@ describe('tale media', () => {
   it('stores only the key and type and returns the previous key', async () => {
     const { db, query } = fakeDb([{ rows: [{ ...row, mediaContentType: 'image/gif', previousKey: 'tales/old.png' }] }]);
     const result = await setTaleMedia(db, taleId, { key: 'tales/new.gif', contentType: 'image/gif' });
-    expect(query.mock.calls[0][1]).toEqual([taleId, 'tales/new.gif', 'image/gif']);
+    // In one transaction with bringing the documents in step (R16).
+    expect(query.mock.calls[0][0]).toBe('BEGIN');
+    expect(query.mock.calls[1][1]).toEqual([taleId, 'tales/new.gif', 'image/gif']);
+    expect(query.mock.calls[2][0]).toMatch(/document_media_key AS "inStep"[\s\S]*FOR UPDATE/);
+    expect(query.mock.calls.at(-1)?.[0]).toBe('COMMIT');
     expect(result).toEqual({
       previousKey: 'tales/old.png',
       tale: { ...row, ...NO_WINDOW, media: { kind: 'image', contentType: 'image/gif', url: `/api/v1/tales/${taleId}/media` } },
@@ -497,10 +501,12 @@ describe('tale media', () => {
   });
 
   it('sets media only on a tale without media, never replacing what another writer stored', async () => {
-    const { db, query } = fakeDb([{ rows: [], rowCount: 1 }, { rows: [], rowCount: 0 }, { rows: [{}] }]);
+    const { db, query } = fakeDb([{ rows: [], rowCount: 1 }, { rows: [] }, { rows: [], rowCount: 0 }, { rows: [{}] }]);
     expect(await setTaleMediaIfNone(db, taleId, { key: 'tales/a.png', contentType: 'image/png' })).toBe(true);
     expect(query.mock.calls[0][0]).toMatch(/WHERE id = \$1 AND media_key IS NULL/);
     expect(query.mock.calls[0][1]).toEqual([taleId, 'tales/a.png', 'image/png']);
+    // Then its documents are brought in step (R16), in the caller's transaction.
+    expect(query.mock.calls[1][0]).toMatch(/document_media_key AS "inStep"[\s\S]*FOR UPDATE/);
     expect(await setTaleMediaIfNone(db, taleId, { key: 'tales/b.png', contentType: 'image/png' })).toBe(false);
   });
 
@@ -633,8 +639,10 @@ describe('delivery', () => {
             key: 'tales/x.png',
             contentType: 'image/png',
             document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] },
+            // In step (R16): a person removed the media element, and it stays removed.
+            inStep: 'tales/x.png',
           },
-          { id: t2, taleGroupId: groupId, title: 'Two', key: null, contentType: null, document: null },
+          { id: t2, taleGroupId: groupId, title: 'Two', key: null, contentType: null, document: null, inStep: null },
         ],
       },
     ]);
@@ -648,12 +656,25 @@ describe('delivery', () => {
             id: t1,
             title: 'One',
             media: { key: 'tales/x.png', contentType: 'image/png' },
-            // The delivered document (AD-15); a tale without one shows its media only.
+            // The delivered document (AD-15).
             document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] },
             fonts: [],
             mediaKeys: new Set(),
           },
-          { id: t2, title: 'Two', media: null, document: null, fonts: [], mediaKeys: new Set() },
+          // Every tale is delivered with a document (R16): with neither media nor one, the legacy placeholder.
+          {
+            id: t2,
+            title: 'Two',
+            media: null,
+            document: {
+              version: 1,
+              canvas: { background: { type: 'color', color: '#1f2937' } },
+              durationMs: 5000,
+              elements: [],
+            },
+            fonts: [],
+            mediaKeys: new Set(),
+          },
         ],
       },
       // B has no live tale, so it is left out.
@@ -667,6 +688,70 @@ describe('delivery', () => {
       /tale_groups\.starts_at IS NULL OR tale_groups\.starts_at <= \$2\) AND \(tale_groups\.ends_at IS NULL OR tale_groups\.ends_at > \$2\)/,
     );
     expect(statements()[1]).toMatch(/tales\.starts_at IS NULL OR tales\.starts_at <= \$2\) AND \(tales\.ends_at IS NULL OR tales\.ends_at > \$2\)/);
+  });
+
+  it("composes the tale's media into the document of a tale out of step (R16), and lets its key be resolved", async () => {
+    const text = {
+      id: '00000000-0000-4000-8000-0000000000aa',
+      type: 'text',
+      box: { x: 0.1, y: 0.1, w: 0.8, h: 0.1, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: {},
+      props: { text: 'Hi' },
+    };
+    const overlay = { version: 1, canvas: { background: { type: 'color', color: '#112233' } }, elements: [text] };
+    const { db } = fakeDb([
+      { rows: [{ id: groupId, name: 'A' }] },
+      {
+        rows: [
+          // Before the migration: a document over the media, never in step.
+          {
+            id: t1,
+            taleGroupId: groupId,
+            title: 'One',
+            key: 'tales/x.mp4',
+            contentType: 'video/mp4',
+            document: overlay,
+            inStep: null,
+            revision: 99,
+          },
+          // Media and no document: a document of only its media.
+          {
+            id: t2,
+            taleGroupId: groupId,
+            title: 'Two',
+            key: 'tales/y.png',
+            contentType: 'image/png',
+            document: null,
+            inStep: null,
+          },
+        ],
+      },
+    ]);
+    const [group] = await listDeliveryTaleGroups(db, zoneId);
+    const own = (id: string, type: string, mediaKey: string) => ({
+      id,
+      type,
+      box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+      a11y: { decorative: true },
+      props: { mediaKey, fit: 'contain', taleMedia: true },
+    });
+    // Delivered without the editor-only fields (AD-15).
+    const deliveredText = Object.fromEntries(Object.entries(text).filter(([k]) => k !== 'hidden' && k !== 'locked'));
+    expect(group.tales[0].document).toEqual({
+      ...overlay,
+      durationMs: 5000,
+      elements: [own(t1, 'video', 'tales/x.mp4'), deliveredText],
+    });
+    expect(group.tales[0].mediaKeys).toEqual(new Set(['tales/x.mp4']));
+    expect(group.tales[1].document).toEqual({
+      version: 1,
+      canvas: { background: { type: 'color', color: '#000000' } },
+      durationMs: 5000,
+      elements: [own(t2, 'image', 'tales/y.png')],
+    });
+    expect(group.tales[1].mediaKeys).toEqual(new Set(['tales/y.png']));
   });
 
   it('answers an empty list for a zone without groups, and does not query for a non-UUID zone', async () => {
@@ -758,7 +843,7 @@ describe('copy to zone', () => {
     const insertTales = query.mock.calls.find((c) => /INSERT INTO tales/.test(c[0] as string));
     // ...and each tale's document (AD-15).
     expect(insertTales?.[0]).toMatch(
-      /media_key, media_content_type, status, starts_at, ends_at, document,\s+draft_document FROM tales/,
+      /media_key, media_content_type, status, starts_at, ends_at, document,\s+draft_document, document_media_key FROM tales/,
     );
     expect(insertTales?.[1]).toEqual([groupId.toUpperCase(), copyId, otherProject]);
     expect(statements().some((s) => /FROM tales WHERE tale_group_id = \$1 FOR SHARE/.test(s))).toBe(true);

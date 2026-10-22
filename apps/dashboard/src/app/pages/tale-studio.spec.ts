@@ -30,6 +30,17 @@ const tale = {
   media: { kind: 'image', contentType: 'image/png', url: '/api/v1/tales/t1/media' },
 };
 const group = { id: 'g1', name: 'Summer', projectId: 'p1', tales: [tale] } as unknown as ZoneTaleGroup;
+// The tale's own media (R16): a full-canvas, decorative image marked `taleMedia`.
+const OWN_MEDIA = {
+  id: '00000000-0000-4000-8000-0000000000ff',
+  type: 'image',
+  box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 },
+  hidden: false,
+  locked: false,
+  a11y: { decorative: true },
+  props: { mediaKey: 'tales/0a.png', fit: 'contain', taleMedia: true },
+} as unknown as TaleDocument['elements'][number];
+
 const existing: TaleDocument = {
   version: 1,
   canvas: { background: { type: 'color', color: '#000000' } },
@@ -141,14 +152,26 @@ describe('TaleStudioPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows a tale without a document on an empty 9:16 canvas with its media as the background', async () => {
+  it('shows a tale without a document on an empty 9:16 canvas: its media lives in its document (R16)', async () => {
     await open({ document: null, revision: 0 });
     const canvas = root.querySelector('.canvas') as HTMLElement;
     expect(canvas.getAttribute('aria-label')).toBe('Canvas, 9:16');
-    expect(canvas.querySelector('img')?.getAttribute('src')).toBe('/api/v1/tales/t1/media');
-    expect(canvas.querySelector('img')?.getAttribute('alt')).toBe('');
+    expect(canvas.querySelector('img, video')).toBeNull();
     expect(elements()).toHaveLength(0);
     expect(root.querySelector('a.back-link')?.getAttribute('href')).toBe('/zones/z1');
+  });
+
+  it("shows the tale's media as its bottom layer, and lets a video be added beside a media video (R16)", async () => {
+    const video = { ...OWN_MEDIA, type: 'video', props: { ...OWN_MEDIA.props, mediaKey: 'tales/0b.mp4' } };
+    await open({
+      document: { ...existing, elements: [video as unknown as TaleDocument['elements'][number]] },
+      revision: 1,
+    });
+    expect(elements()).toHaveLength(1);
+    expect(root.querySelector('.canvas video')?.getAttribute('src')).toContain('tales%2F0b.mp4');
+    expect(root.querySelector('#studio-add-video')?.hasAttribute('aria-disabled')).toBe(false);
+    // Full-bleed by design: no safe-area warning on its row.
+    expect(root.querySelector(`#layer-state-${OWN_MEDIA.id}`)?.textContent ?? '').not.toContain('Outside safe area');
   });
 
   it('shows saved text as literal text, placed from its box', async () => {
@@ -1751,14 +1774,18 @@ describe('TaleStudioPage', () => {
     });
 
     it('warns about low contrast, and says when it cannot check over media, never blocking a save', async () => {
-      await openSelected();
+      // Over the tale's media (R16), here above the text in the list so the text stays the first layer.
+      const element = { ...existing.elements[0], props: { text: 'Hi' } };
+      await open({ document: { ...existing, elements: [element, OWN_MEDIA] } as TaleDocument, revision: 1 });
+      canvasText().click();
+      await settle(fixture);
       expect(contrast()).toContain("can't be checked over media");
       await set('ts-background', 'box');
       expect(contrast()).toContain('Contrast 21.0:1');
       await set('ts-bg-hex', '#ffff00');
       // Rounded down (1.07 reads 1.0), so a ratio just under its minimum never reads as the minimum.
       expect(contrast()).toMatch(/^Low contrast: 1\.0:1 against its box/);
-      expect(root.querySelector('.layer__state')?.textContent).toContain('Low contrast');
+      expect(root.querySelector(`#layer-state-${existing.elements[0].id}`)?.textContent).toContain('Low contrast');
       // The contrast line is not live; the change that turned the warning on says so.
       expect(root.querySelector('#ts-contrast')?.hasAttribute('role')).toBe(false);
       expect(live()).toBe('Background colour set to #ffff00 Low contrast: see the warning under the text style.');

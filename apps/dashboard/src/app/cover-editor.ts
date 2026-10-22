@@ -69,7 +69,7 @@ interface MadeCover {
           @if (group.cover; as cover) {
             {{ cover.animated ? 'Animated cover' : 'Still cover' }}
           } @else {
-            First tale's image (default)
+            First tale's media, or its background colour (default)
           }
         </p>
         @if (group.cover) {
@@ -230,8 +230,14 @@ export class CoverEditor {
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   protected readonly group = computed(() => this.store.taleGroup(this.taleGroupId()));
-  /** The tale whose media is the default cover: the first tale with media. */
-  protected readonly defaultTale = computed(() => this.group()?.tales.find((t) => t.media));
+  /**
+   * The tale whose media is the default cover (Tale Studio R16): the first tale, when it has media;
+   * the bar then shows its lowest media element, which a tale's media is unless a person moved it.
+   */
+  protected readonly defaultTale = computed(() => {
+    const first = this.group()?.tales[0];
+    return first?.media ? first : undefined;
+  });
   /** The group's tales whose media is a video: the sources of a frame or a clip. */
   protected readonly videoTales = computed(() => this.group()?.tales.filter((t) => t.media?.kind === 'video') ?? []);
   protected readonly source = signal<CoverSource>('upload');
