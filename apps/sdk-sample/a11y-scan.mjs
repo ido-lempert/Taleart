@@ -13,7 +13,8 @@
 // Then a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
 // the bar, the banner, the seen ring and the viewer; then the zones' SDK theme override wins over it.
 // Then a composed tale (Tale Studio story 7.10): read in visual order by a screen reader and by Tab,
-// every node named or hidden, a right-to-left page reading each row from the right, a GIF still
+// every node named or hidden, rows in the tale's direction (a Hebrew tale from the right, an English
+// one from the left even on a right-to-left page), a GIF still
 // under reduced motion. A11Y_SHOTS, when set, is a folder for a screenshot of it.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 // The deeper accessibility review (keyboard walk, zoom, forced colours, RTL…) is a11y-review.mjs.
@@ -727,7 +728,29 @@ try {
     taleGroups: [{ id: 'gk', name: 'Autumn', cover: null, tales: [composedTale] }],
   };
   const VISUAL_ORDER = ['Autumn', 'Falling leaf', 'A red coat', 'New season', 'Shop now', 'See more'];
-  const RTL_ORDER = ['Falling leaf', 'Autumn', 'New season', 'A red coat', 'Shop now', 'See more'];
+  // The same tale in Hebrew: its rows read from the right (the tale's direction, from its texts).
+  const RTL_ORDER = ['Falling leaf', 'סתיו', 'עונה חדשה', 'A red coat', 'Shop now', 'See more'];
+  const hebrewZone = {
+    ...composedZone,
+    taleGroups: [
+      {
+        id: 'gk',
+        name: 'Autumn',
+        cover: null,
+        tales: [
+          {
+            ...composedTale,
+            document: {
+              ...composedTale.document,
+              elements: composedTale.document.elements.map((e) =>
+                e.type !== 'text' ? e : { ...e, props: { ...e.props, text: e.props.text === 'Autumn' ? 'סתיו' : 'עונה חדשה' } },
+              ),
+            },
+          },
+        ],
+      },
+    ],
+  };
   // What a screen reader meets in the open tale's canvas, in order: the accessible names of the
   // accessibility tree (Playwright's ARIA snapshot), hidden nodes left out.
   const readOut = async (host) => {
@@ -739,13 +762,13 @@ try {
       .map((m) => (m[1] || m[2] || '').replace(/^"|"$/g, '').trim())
       .filter((name) => name !== '' && !name.startsWith('/'));
   };
-  const openComposed = async (contextOptions, rightToLeft = false) => {
+  const openComposed = async (contextOptions, rightToLeft = false, zone = composedZone) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...contextOptions });
     const view = await context.newPage();
     const errors = [];
     view.on('pageerror', (err) => errors.push(String(err)));
     view.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
-    await serve(view, { composed: composedZone });
+    await serve(view, { composed: zone });
     await view.goto(pageUrl(port, ['composed']));
     const host = view.locator('taleart-view');
     await host.locator('button.item').first().waitFor();
@@ -785,13 +808,22 @@ try {
   check(composed.errors.length === 0, `no console errors with the composed tale${composed.errors.length ? `: ${composed.errors.join('; ')}` : ''}`);
   await composed.context.close();
 
-  const rtl = await openComposed({}, true);
+  // The reading direction is the tale's, never the page's (AD-15 amended).
+  const rtlPage = await openComposed({}, true);
+  const onRtlPage = await readOut(rtlPage.host);
+  check(
+    JSON.stringify(onRtlPage) === JSON.stringify(VISUAL_ORDER),
+    `on a right-to-left page an English tale still reads left to right (${onRtlPage.join(' / ')})`,
+  );
+  violations += await scan(rtlPage.view, 'composed tale, right-to-left page', axe);
+  await rtlPage.context.close();
+  const rtl = await openComposed({}, false, hebrewZone);
   const rtlRead = await readOut(rtl.host);
   check(
     JSON.stringify(rtlRead) === JSON.stringify(RTL_ORDER),
-    `on a right-to-left page each row of the tale reads from the right (${rtlRead.join(' / ')})`,
+    `a Hebrew tale reads each row from the right (${rtlRead.join(' / ')})`,
   );
-  violations += await scan(rtl.view, 'composed tale, right to left', axe);
+  violations += await scan(rtl.view, 'Hebrew composed tale', axe);
   await rtl.context.close();
 
   const stillTale = await openComposed({ reducedMotion: 'reduce' });

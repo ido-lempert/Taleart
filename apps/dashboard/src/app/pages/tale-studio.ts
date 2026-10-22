@@ -40,7 +40,9 @@ import {
   isLinkElement,
   isMediaElement,
   isSwipeUpBox,
+  isOffCanvas,
   isOutsideSafeArea,
+  readingOrder,
   isTaleMediaElement,
   stageTaleMedia,
   limitedVideoCount,
@@ -104,7 +106,14 @@ import { projectMediaSrc } from '../project-media.service';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
 import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
-import { backdropKey, hasLabel, TaleBackdropSampler } from './tale-backdrop';
+import {
+  BackdropReads,
+  backdropKey,
+  hasLabel,
+  TaleBackdropSampler,
+  type BackdropResults,
+  type WantedRead,
+} from './tale-backdrop';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
 import { changeCount, sameDocument, siteVersion, TaleHistory } from './tale-history';
@@ -562,7 +571,8 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
       box-shadow: 0 0 0 1px #5c3b00;
       font-size: 12px;
       line-height: 1;
-      pointer-events: none;
+      /* Takes the pointer, so its tooltip shows; a press on it still selects and drags the element. */
+      cursor: help;
     }
     .guides,
     .snap-line {
@@ -828,6 +838,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                      own media drawn full-bleed (R16) it lies above that media, bands included, as before. -->
                 <img
                   class="canvas__media"
+                  crossorigin="anonymous"
                   [src]="mediaSrc(d.canvas.background.mediaKey)"
                   alt=""
                   [style.object-fit]="d.canvas.background.fit"
@@ -895,6 +906,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     @if (el.type === 'video') {
                       <video
                         class="el__media"
+                        crossorigin="anonymous"
                         [src]="mediaSrc(el.props.mediaKey)"
                         [muted]="true"
                         muted
@@ -909,6 +921,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     } @else if (el.type === 'image') {
                       <img
                         class="el__media"
+                        crossorigin="anonymous"
                         [src]="mediaSrc(el.props.mediaKey)"
                         alt=""
                         draggable="false"
@@ -920,6 +933,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       <!-- An image sticker shows the whole image (R6). -->
                       <img
                         class="el__media"
+                        crossorigin="anonymous"
                         [src]="mediaSrc(el.props.mediaKey)"
                         alt=""
                         draggable="false"
@@ -930,6 +944,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       <!-- An image button shows its whole image (R7). -->
                       <img
                         class="el__media"
+                        crossorigin="anonymous"
                         [src]="mediaSrc(el.props.mediaKey)"
                         alt=""
                         draggable="false"
@@ -992,7 +1007,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     }
                     @if (lowContrast().has(el.id)) {
                       <!-- The layer's state (aria-describedby) says it; this marks it on the canvas (R12). -->
-                      <span class="el__warn" aria-hidden="true" title="Low contrast"><app-icon name="alert" /></span>
+                      <span class="el__warn" aria-hidden="true" title="Low contrast: the text may be hard to read"><app-icon name="alert" /></span>
                     }
                   </button>
                 } @else {
@@ -1044,7 +1059,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     ></span>
                     @if (lowContrast().has(el.id)) {
                       <!-- The layer's state (aria-describedby) says it; this marks it on the canvas (R12). -->
-                      <span class="el__warn" aria-hidden="true" title="Low contrast"><app-icon name="alert" /></span>
+                      <span class="el__warn" aria-hidden="true" title="Low contrast: the text may be hard to read"><app-icon name="alert" /></span>
                     }
                   </button>
                 }
@@ -1131,6 +1146,12 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             <app-icon [name]="row.el.type" />
                             <span class="visually-hidden">{{ kind(row.el) }}: </span>
                             <span class="layer__name">{{ row.name }}</span>
+                            @if (row.order) {
+                              <!-- Where screen readers and Tab meet it on the sample page (AD-15, R12). -->
+                              <span class="layer__order" title="Reading order"
+                                ><span class="visually-hidden">, read </span>#{{ row.order }}</span
+                              >
+                            }
                           </span>
                           <span class="layer__state" [id]="'layer-state-' + row.el.id">
                             @if (row.el.hidden) {
@@ -1763,11 +1784,17 @@ export class TaleStudioPage implements OnChanges {
    * The colours read behind each label over media (R12, story 7.10), by what lies behind it
    * (`backdropKey`); null when they cannot be read. A label whose key is missing is being read.
    */
-  private readonly samples = signal<ReadonlyMap<string, readonly string[] | null>>(new Map());
+  private readonly samples = signal<BackdropResults>(new Map());
   private readonly sampler = inject(TaleBackdropSampler);
-  // True while labels are being read; a change meanwhile reads again once the run ends.
-  private sampling = false;
-  private sampleAgain = false;
+  private readonly reads = new BackdropReads(
+    (doc, index) => {
+      const projectId = untracked(this.projectId);
+      return projectId ? this.sampler.sample(doc, index, (k) => projectMediaSrc(projectId, k)) : Promise.resolve(null);
+    },
+    (results) => this.samples.set(results),
+  );
+  // The next look at which labels need reading, after a change.
+  private readsTimer: ReturnType<typeof setTimeout> | undefined;
   /** What lies behind the selected text: the canvas, or a shape or media below it (R6, R12). */
   protected readonly selectedBackdrop = computed<TextBackdrop>(() => this.backdropOf(this.selectedId() ?? ''));
   // Each text's canvas look, kept per props object, so unchanged texts keep their view.
@@ -1789,6 +1816,7 @@ export class TaleStudioPage implements OnChanges {
     (this.doc()?.elements ?? [])
       .map((el, i) => ({
         el,
+        order: this.readingIndex().get(el.id) ?? null,
         name: layerName(el, this.doc()?.elements ?? [el]),
         // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design, as the
         // swipe-up link sits in the bottom safe area (R7).
@@ -1809,6 +1837,17 @@ export class TaleStudioPage implements OnChanges {
       }))
       .reverse(),
   );
+  /**
+   * Each element's place in the order screen readers and Tab meet the tale (AD-15, R12): the
+   * contract's `readingOrder` of what the SDK names (hidden layers and decorative ones, links
+   * excepted, are not met).
+   */
+  protected readonly readingIndex = computed(() => {
+    const met = (this.doc()?.elements ?? []).filter(
+      (e) => !e.hidden && (e.a11y?.decorative !== true || isLinkElement(e)),
+    );
+    return new Map(readingOrder(met).map((e, i) => [e.id, i + 1]));
+  });
   /** The ids of the labels with low contrast, marked on the canvas as in their layer rows (R12). */
   protected readonly lowContrast = computed(
     () => new Set(this.layerRows().filter((row) => row.lowContrast && !row.el.hidden).map((row) => row.el.id)),
@@ -1957,9 +1996,14 @@ export class TaleStudioPage implements OnChanges {
     effect(() => {
       this.doc();
       this.projectId();
-      untracked(() => setTimeout(() => void this.sampleLabels()));
+      untracked(() => {
+        clearTimeout(this.readsTimer);
+        this.readsTimer = setTimeout(() => this.requestReads());
+      });
     });
     inject(DestroyRef).onDestroy(() => {
+      clearTimeout(this.readsTimer);
+      this.reads.destroy();
       this.autosave.dispose();
       this.stopTicker();
     });
@@ -2466,39 +2510,24 @@ export class TaleStudioPage implements OnChanges {
    */
   private labelBackdrop(doc: TaleDocument, index: number, base: TextBackdrop): TextBackdrop {
     const backdrop = textBackdropAt(doc.elements, index, base);
+    const label = doc.elements[index];
+    // Wholly off the canvas, no one sees it: nothing to judge.
+    if (label && isOffCanvas(label.box)) return { ...backdrop, offCanvas: true };
     return backdrop.overMedia ? { ...backdrop, samples: this.samples().get(backdropKey(doc, index)) } : backdrop;
   }
 
-  /** Reads the colours behind each label over media that has not been read for what lies behind it now. */
-  private async sampleLabels(): Promise<void> {
-    if (this.sampling) {
-      this.sampleAgain = true;
-      return;
-    }
-    this.sampling = true;
-    try {
-      do {
-        this.sampleAgain = false;
-        const doc = this.doc();
-        const projectId = this.projectId();
-        if (!doc || !projectId) return;
-        const base = this.backdrop();
-        const known = this.samples();
-        const next = new Map<string, readonly string[] | null>();
-        for (const [index, element] of doc.elements.entries()) {
-          if (element.hidden || !hasLabel(element)) continue;
-          if (!textBackdropAt(doc.elements, index, base).overMedia) continue;
-          const key = backdropKey(doc, index);
-          if (next.has(key)) continue;
-          next.set(key, known.has(key) ? (known.get(key) ?? null) : await this.sampler.sample(doc, index, (k) => projectMediaSrc(projectId, k)));
-        }
-        // Only what the document shows now is kept.
-        const same = next.size === known.size && [...next].every(([k, v]) => known.get(k) === v);
-        if (!same) this.samples.set(next);
-      } while (this.sampleAgain);
-    } finally {
-      this.sampling = false;
-    }
+  /** Asks for the colours behind each label over media, for what lies behind it now (see `BackdropReads`). */
+  private requestReads(): void {
+    const doc = this.doc();
+    if (!doc || !this.projectId()) return;
+    const base = this.backdrop();
+    const wanted: WantedRead[] = [];
+    doc.elements.forEach((element, index) => {
+      if (element.hidden || !hasLabel(element) || isOffCanvas(element.box)) return;
+      if (!textBackdropAt(doc.elements, index, base).overMedia) return;
+      wanted.push({ key: backdropKey(doc, index), index });
+    });
+    this.reads.update(doc, wanted);
   }
 
   /** How the canvas draws a shape, kept per props object. */

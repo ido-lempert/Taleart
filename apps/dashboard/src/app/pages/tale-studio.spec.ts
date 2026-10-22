@@ -597,7 +597,8 @@ describe('TaleStudioPage', () => {
     it('lists every layer top first, with its type and a name from its text', async () => {
       await open({ document: three, revision: 1 });
       expect(rowNames()).toEqual(['C', 'B', 'A']);
-      expect(rows()[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Text: C');
+      // Its type, its name, and its place in the reading order (story 7.10).
+      expect(rows()[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('Text: C, read #1');
       expect(rows()[0].querySelector('svg')).not.toBeNull();
       const grid = root.querySelector('[role=grid]') as HTMLElement;
       expect(grid.getAttribute('aria-labelledby')).toBe('layers-title');

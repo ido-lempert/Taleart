@@ -11,8 +11,11 @@ import {
   MAX_TALE_ELEMENTS,
   MAX_TEXT_LENGTH,
   NEW_TEXT_BOX,
+  firstStrongDirection,
   readingOrder,
-  READING_ROW_TOLERANCE,
+  READING_ROW_MAX_HEIGHT,
+  sameReadingRow,
+  taleReadingDirection,
   elementBounds,
   isOutsideSafeArea,
   safeAreaBounds,
@@ -137,43 +140,112 @@ describe('tale document helpers', () => {
   });
 
   describe('readingOrder (AD-15, R12)', () => {
-    const el = (id: string, x: number, y: number, w = 0.2, h = 0.05, rotation = 0, type = 'text') => ({
+    const el = (id: string, x: number, y: number, w = 0.2, h = 0.05, rotation = 0, type = 'shape') => ({
       id,
       type,
       box: { x, y, w, h, rotation },
+      props: {},
+    });
+    const text = (id: string, x: number, y: number, value: string, direction?: string) => ({
+      id,
+      type: 'text',
+      box: { x, y, w: 0.3, h: 0.05, rotation: 0 },
+      props: { text: value, ...(direction && { direction }) },
     });
     const ids = (list: { id: string }[]) => list.map((e) => e.id);
 
     it('reads a row placed a few pixels off as one row, left to right', () => {
-      // The button on the right sits 1 % higher than the image on the left: still one row.
+      // The right one sits 1 % higher than the left one: their boxes overlap, so one row.
       const order = readingOrder([el('title', 0.1, 0.1), el('right', 0.6, 0.39), el('left', 0.1, 0.4)]);
       expect(ids(order)).toEqual(['title', 'left', 'right']);
-      expect(READING_ROW_TOLERANCE).toBe(0.02);
     });
 
-    it('starts a new row past the tolerance, anchored on the row top so rows do not chain', () => {
-      const order = readingOrder([el('c', 0.0, 0.43), el('b', 0.3, 0.415), el('a', 0.6, 0.4)]);
-      // a (0.40) starts the row; b (0.415) joins it; c (0.43) is 3 % below a: its own row.
+    it('puts centre-aligned elements of different heights in one row', () => {
+      // A tall image (0.3 to 0.7) and a short text centred beside it (0.48 to 0.52).
+      const order = readingOrder([el('text', 0.6, 0.48, 0.3, 0.04), el('image', 0.05, 0.3, 0.4, 0.4)]);
+      expect(ids(order)).toEqual(['image', 'text']);
+      expect(sameReadingRow({ y: 0.3, h: 0.4 }, { y: 0.48, h: 0.04 })).toBe(true);
+    });
+
+    it('rows by overlap, not by a fixed distance: 1.5 % apart without overlap is two rows, 3 % apart overlapping is one', () => {
+      // Thin lines whose tops are 1.5 % apart do not overlap: two rows, read top first.
+      expect(ids(readingOrder([el('lower', 0.0, 0.415, 0.3, 0.01), el('upper', 0.6, 0.4, 0.3, 0.01)]))).toEqual([
+        'upper',
+        'lower',
+      ]);
+      // Taller boxes whose tops are 3 % apart overlap by more than half: one row, left first.
+      expect(ids(readingOrder([el('right', 0.6, 0.4, 0.3, 0.1), el('left', 0.0, 0.43, 0.3, 0.1)]))).toEqual([
+        'left',
+        'right',
+      ]);
+      expect(sameReadingRow({ y: 0.4, h: 0.01 }, { y: 0.415, h: 0.01 })).toBe(false);
+    });
+
+    it('reads a backdrop taller than half the canvas as a row of its own, at its top', () => {
+      expect(READING_ROW_MAX_HEIGHT).toBe(0.5);
+      const order = readingOrder([
+        el('backdrop', 0, 0, 1, 1),
+        el('low', 0.1, 0.7),
+        el('right', 0.6, 0.2),
+        el('left', 0.1, 0.2),
+      ]);
+      expect(ids(order)).toEqual(['backdrop', 'left', 'right', 'low']);
+    });
+
+    it('anchors a row on its first element, so rows do not chain down the canvas', () => {
+      // b overlaps a; c overlaps b but not a: c starts its own row.
+      const order = readingOrder([el('c', 0.0, 0.47, 0.2, 0.1), el('b', 0.3, 0.43, 0.2, 0.1), el('a', 0.6, 0.4, 0.2, 0.1)]);
       expect(ids(order)).toEqual(['b', 'a', 'c']);
     });
 
-    it('reads a row right to left on a right-to-left page, by right edges', () => {
-      const order = readingOrder([el('left', 0.05, 0.4, 0.3), el('right', 0.6, 0.4, 0.3), el('wide', 0.2, 0.41, 0.7)], 'rtl');
+    it('reads a row of a right-to-left tale from the right, by right edges', () => {
+      const order = readingOrder(
+        [text('t', 0.6, 0.1, 'שלום'), el('left', 0.05, 0.4, 0.3), el('right', 0.6, 0.4, 0.3), el('wide', 0.2, 0.41, 0.7)],
+      );
       // Right edges: right 0.9, wide 0.9 (tie: z-order, lower first), left 0.35.
-      expect(ids(order)).toEqual(['right', 'wide', 'left']);
-      expect(ids(readingOrder([el('top', 0.5, 0.1), el('low', 0.1, 0.8)], 'rtl'))).toEqual(['top', 'low']);
+      expect(ids(order)).toEqual(['t', 'right', 'wide', 'left']);
     });
 
-    it('keeps the z-order, bottom first, for elements at the same place', () => {
+    it("takes the direction from the tale's texts, never the page: majority, then the first text", () => {
+      const row = [el('a', 0.05, 0.6), el('b', 0.6, 0.6)];
+      // An English tale reads left to right, whatever page shows it.
+      expect(taleReadingDirection([text('t', 0.1, 0.1, 'Summer sale'), ...row])).toBe('ltr');
+      expect(ids(readingOrder([text('t', 0.1, 0.1, 'Summer sale'), ...row]))).toEqual(['t', 'a', 'b']);
+      // A Hebrew tale, English words inside it included, reads right to left.
+      const hebrew = [text('t', 0.1, 0.1, 'מבצע: 50% off'), text('u', 0.1, 0.2, 'קיץ'), ...row];
+      expect(taleReadingDirection(hebrew)).toBe('rtl');
+      expect(ids(readingOrder(hebrew))).toEqual(['t', 'u', 'b', 'a']);
+      // A set direction wins over the first strong character.
+      expect(taleReadingDirection([text('t', 0.1, 0.1, 'Sale 50%', 'rtl')])).toBe('rtl');
+      // A tie: the first text (top, then left) decides; hidden texts do not count.
+      expect(taleReadingDirection([text('t', 0.1, 0.5, 'Sale'), text('u', 0.5, 0.1, 'מבצע')])).toBe('rtl');
+      expect(taleReadingDirection([{ ...text('t', 0.1, 0.1, 'מבצע'), hidden: true }, text('u', 0.1, 0.5, 'Sale')])).toBe(
+        'ltr',
+      );
+      // No letters, or no texts: left to right (AD-15).
+      expect(taleReadingDirection([text('t', 0.1, 0.1, '50% 🎉')])).toBe('ltr');
+      expect(taleReadingDirection(row)).toBe('ltr');
+      expect(firstStrongDirection('123 שלום')).toBe('rtl');
+      expect(firstStrongDirection('مرحبا')).toBe('rtl');
+      expect(firstStrongDirection('«Hi»')).toBe('ltr');
+      expect(firstStrongDirection('')).toBeNull();
+    });
+
+    it('keeps the z-order, bottom first, for elements at the same place, and reads a row by left edge, then top', () => {
       expect(ids(readingOrder([el('under', 0.2, 0.2), el('over', 0.2, 0.2)]))).toEqual(['under', 'over']);
       expect(ids(readingOrder([el('under', 0.2, 0.2), el('over', 0.2, 0.2)], 'rtl'))).toEqual(['under', 'over']);
+      // Two texts stacked beside a tall image: the image's row holds both, the upper first.
+      const order = readingOrder([el('second', 0.6, 0.5, 0.3, 0.05), el('first', 0.6, 0.3, 0.3, 0.05), el('image', 0.05, 0.3, 0.4, 0.4)]);
+      expect(ids(order)).toEqual(['image', 'first', 'second']);
     });
 
     it('places a rotated box by where it shows, and the swipe-up link at the bottom whatever its box', () => {
       // A wide box turned 90 degrees shows much higher than its stored top (0.5): from about 0.38.
       const turned = el('turned', 0.3, 0.5, 0.5, 0.05, 90);
-      const order = readingOrder([el('flat', 0.1, 0.45), turned]);
-      expect(ids(order)).toEqual(['turned', 'flat']);
+      // Above it, a short element is a row of its own.
+      expect(ids(readingOrder([el('flat', 0.1, 0.32), turned]))).toEqual(['flat', 'turned']);
+      // Beside it, its upright bounds (from x 0.51) put it left of an element at 0.7.
+      expect(ids(readingOrder([el('flat', 0.7, 0.45), turned]))).toEqual(['turned', 'flat']);
       const swipe = el('swipe', 0.2, 0.0, 0.6, 0.09, 0, 'swipe-up');
       expect(ids(readingOrder([swipe, el('text', 0.1, 0.5), el('button', 0.3, 0.8, 0.4, 0.06, 0, 'button')]))).toEqual([
         'text',
