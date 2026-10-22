@@ -127,6 +127,9 @@
         }
       </section>
 
+      <!-- Temporary, until the Install tab (epic UX rework story 13). -->
+      <app-site-key-card [projectId]="zone.projectId" [zoneSlug]="zone.slug" [admin]="auth.isAdmin()" />
+
       <section class="card section zone-section" aria-labelledby="key-title">
         <div class="section__header">
           <h3 class="section__title" id="key-title">Zone key</h3>

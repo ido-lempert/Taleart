@@ -22,6 +22,8 @@ export {
   zoneExists,
   zoneProjectId,
   zoneHasDisplaySql,
+  zoneIdBySlug,
+  zoneProjectIdSql,
   ZoneNotFoundError,
   DisplayNotFoundError,
   DisplayExistsError,

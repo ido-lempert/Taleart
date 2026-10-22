@@ -1,14 +1,24 @@
 # web-sdk
 
 The TaleArt Web SDK: a `<taleart-view>` custom element that renders a zone's display (a bar or a banner) and opens its
-tale groups in a full-screen viewer, reading published content from the Delivery API with the zone's key.
+tale groups in a full-screen viewer, reading published content from the Delivery API with the project's site key and
+the zone's slug.
 
 ## Placing a zone
 
 ```html
 <script type="module" src="https://your-cdn.example/taleart/index.js"></script>
-<taleart-view api-url="https://api.example.com" zone-key="tak_…"></taleart-view>
+<taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-top"></taleart-view>
+<taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-promo"></taleart-view>
 ```
+
+A project has one site key (`tas_…`), issued in the dashboard; every zone of the project is placed with it and its
+slug, so several elements on a page share one key. Elements that ask for the same zone at the same time share one
+request. An unknown slug, or a revoked or rotated site key, renders nothing and logs one console error per element.
+Rotating the site key affects every zone of the project: update every page that uses it.
+
+A legacy zone key still works on its own: `<taleart-view api-url="…" zone-key="tak_…">`. When an element has both,
+the site key and slug win.
 
 Loading the SDK registers `<taleart-view>`. The ES build exports the API below; the UMD build puts the same exports on
 `window.TaleartWebSdk`.
@@ -16,7 +26,9 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | Attribute / property | Meaning |
 | --- | --- |
 | `api-url` / `apiUrl` | The TaleArt API origin. |
-| `zone-key` / `zoneKey` | The zone key (`tak_…`) issued in the dashboard. |
+| `site-key` / `siteKey` | The project's site key (`tas_…`) issued in the dashboard. |
+| `zone` / `zone` | The zone's slug, such as `home-top`, shown on the zone page. |
+| `zone-key` / `zoneKey` | A legacy zone key (`tak_…`), used when no site key is set. |
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
 
 ## Theme
@@ -25,22 +37,26 @@ The project's theme, set in the dashboard, styles the zone's display and the vie
 for a zone, or for one element. There is no theme per frame. Each field resolves, in order, from:
 
 1. the element's `theme` property or attribute,
-2. the zone's `configureZone(zoneKey, { theme })` option,
+2. the zone's `configureZone(zone, { theme })` option, where `zone` is the zone's slug (or, for an element placed with
+   a legacy zone key, that key),
 3. the project's theme,
 4. TaleArt's default.
 
 ```js
 import { configureZone } from 'https://your-cdn.example/taleart/index.js';
 
-// Every <taleart-view> with this zone key, the bar and the banner alike.
-configureZone('tak_…', { theme: { ringStyle: 'solid', ringColors: ['#0055ff'] } });
+// Every <taleart-view> with zone="home-top"; other zones keep the project's theme.
+configureZone('home-top', { theme: { ringStyle: 'solid', ringColors: ['#0055ff'] } });
+
+// Every <taleart-view> with this legacy zone key.
+configureZone('tak_…', { theme: { cornerRadius: 0 } });
 
 // One element only.
 document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 ```
 
 ```html
-<taleart-view api-url="…" zone-key="tak_…" theme='{"fontFamily": "Georgia, serif"}'></taleart-view>
+<taleart-view api-url="…" site-key="tas_…" zone="home-top" theme='{"fontFamily": "Georgia, serif"}'></taleart-view>
 ```
 
 | Field | Values |
@@ -62,12 +78,12 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 - The value is copied, checked and kept when set: assign the property again, or call `configureZone` again, to change
   it. Reading `el.theme` returns a copy of that element's own override fields that passed (not the zone's or the
   project's). Rendered elements restyle at once, with no new request.
-- `el.theme = null`, removing the attribute (or setting it empty), `configureZone(key)` or `configureZone(key, {})`
+- `el.theme = null`, removing the attribute (or setting it empty), `configureZone(zone)` or `configureZone(zone, {})`
   removes an override. A `theme` attribute of `null` or of JSON that is not an object warns once and sets none.
 - A `theme` property set by script before the SDK defines `<taleart-view>` is applied when the element upgrades and wins
   over a `theme` attribute already present then, which is left unread and logs nothing; later attribute changes apply
   as usual.
-- Warnings about a zone's theme name the zone by the first 8 characters of its key only.
+- Warnings about a zone's theme name the zone by its slug, or by the first 8 characters of a zone key only.
 - With an override, colour contrast is the host page's responsibility: keep titles at 4.5:1 and rings at 3:1 against the
   background (WCAG 2.2 AA).
 

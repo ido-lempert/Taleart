@@ -46,8 +46,14 @@ const consumer = `import {
 const options: ZoneOptions = { theme: { ringStyle: 'solid', ringColors: ['#000000'], cornerRadius: null } };
 configureZone('zone-key', options);
 configureZone('zone-key', null);
+configureZone('home-top', { theme: { accentColor: '#000000' } });
 defineTaleartElement(TALEART_ELEMENT_TAG);
 const element = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
+element.siteKey = 'tas_…';
+element.zone = 'home-top';
+const slug: string = element.zone;
+const siteKey: string = element.siteKey;
+export { slug, siteKey };
 element.theme = { accentColor: '#ffffff' };
 const ringWidth: number | undefined = element.theme.ringWidth;
 export { ringWidth };

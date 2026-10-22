@@ -65,6 +65,10 @@ export type PasskeyRequestOptions = Schemas['PasskeyRequestOptions'];
 export type PasskeyResponse = Schemas['PasskeyResponse'];
 export type ZoneKeyInfo = Schemas['ZoneKeyInfo'];
 export type IssuedZoneKey = Schemas['IssuedZoneKey'];
+/** A project's active site key as the dashboard shows it (AD-9 amended): prefix and date, never the key. */
+export type SiteKeyInfo = Schemas['SiteKeyInfo'];
+/** A newly issued site key, the only time the key itself is shown. */
+export type IssuedSiteKey = Schemas['IssuedSiteKey'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
 export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
@@ -181,6 +185,17 @@ export const ZONE_KEY_PREFIX_CHARS = 6;
 export function zoneKeyPrefix(key: string): string {
   return key.slice(0, ZONE_KEY_PREFIX.length + ZONE_KEY_PREFIX_CHARS);
 }
+
+/** Every site key starts with this (AD-9 amended, epic UX rework R3). */
+export const SITE_KEY_PREFIX = 'tas_';
+
+/** The display prefix of a site key: `tas_` and the next 6 characters. */
+export function siteKeyPrefix(key: string): string {
+  return key.slice(0, SITE_KEY_PREFIX.length + ZONE_KEY_PREFIX_CHARS);
+}
+
+/** The Delivery API's query parameter that names a zone by its slug, sent with a site key. */
+export const DELIVERY_ZONE_PARAM = 'zone';
 
 /** The most characters a tag name holds, after trimming. */
 export const MAX_TAG_NAME_LENGTH = 40;
@@ -560,6 +575,8 @@ export const ErrorCodes = {
   tagNotFound: 'tag_not_found',
   zoneKeyNotFound: 'zone_key_not_found',
   invalidZoneKey: 'invalid_zone_key',
+  siteKeyNotFound: 'site_key_not_found',
+  invalidSiteKey: 'invalid_site_key',
   another toolTokenInvalid: 'another tool_token_invalid',
   another toolUnavailable: 'another tool_unavailable',
   importerNotConfigured: 'importer_not_configured',

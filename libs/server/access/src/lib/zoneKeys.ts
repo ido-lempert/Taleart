@@ -106,8 +106,8 @@ export async function zoneForKey(db: Db, key: string | undefined): Promise<KeyZo
 }
 
 /**
- * The zones among `zoneIds` that have an active key: installed, until the site key of epic UX
- * rework story 6 (R7 "zone not installed").
+ * The zones among `zoneIds` that have an active legacy zone key. Installed also counts the project's
+ * site key: see {@link zoneInstalledSql}.
  */
 export async function zoneIdsWithActiveKey(db: Db, zoneIds: readonly string[]): Promise<Set<string>> {
   const ids = zoneIds.filter((id) => UUID.test(id));
@@ -120,10 +120,14 @@ export async function zoneIdsWithActiveKey(db: Db, zoneIds: readonly string[]): 
 }
 
 /**
- * SQL that is true when the zone whose id is the expression `zoneId` is installed: it has an
- * active key (until the site key of epic UX rework story 6). The access module owns `zone_keys`;
- * other modules build their visibility and Delivery rules with this (R7).
+ * SQL that is true when the zone whose id is the expression `zoneId`, in the project whose id is the
+ * expression `projectId`, is installed (epic UX rework R7 "zone not installed"): its project has an
+ * active site key, or the zone has an active legacy zone key. The access module owns `site_keys` and
+ * `zone_keys`; other modules build their visibility and Delivery rules with this.
  */
-export function zoneInstalledSql(zoneId: string): string {
-  return `EXISTS (SELECT 1 FROM zone_keys zk WHERE zk.zone_id = ${zoneId} AND zk.revoked_at IS NULL)`;
+export function zoneInstalledSql(zoneId: string, projectId: string): string {
+  return (
+    `(EXISTS (SELECT 1 FROM site_keys isk WHERE isk.project_id = ${projectId} AND isk.revoked_at IS NULL) ` +
+    `OR EXISTS (SELECT 1 FROM zone_keys izk WHERE izk.zone_id = ${zoneId} AND izk.revoked_at IS NULL))`
+  );
 }

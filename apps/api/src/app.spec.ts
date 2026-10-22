@@ -283,7 +283,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, zone_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -4303,6 +4303,232 @@ describe('Management API v1: projects and zones', () => {
       function getPublic(url: string, headers: Record<string, string> = {}): Promise<Response> {
         return globalThis.fetch(`${origin}${new URL(url).pathname}`, { headers });
       }
+
+      describe('site keys: a zone placed by site key and slug (epic UX rework R3, story 8.6)', () => {
+        type Issued = { key: string; prefix: string; createdAt: string };
+
+        function siteKeyPath(projectId: string): string {
+          return `/projects/${projectId}/site-key`;
+        }
+
+        async function issueSite(projectId: string): Promise<Issued> {
+          const res = await send('POST', siteKeyPath(projectId));
+          expect(res.status).toBe(201);
+          return res.json();
+        }
+
+        function deliverSlug(key: string | undefined, slug: string | string[] | undefined): Promise<Response> {
+          const headers: Record<string, string> = {};
+          if (key !== undefined) headers['Authorization'] = `Bearer ${key}`;
+          const query =
+            slug === undefined ? ''
+            : Array.isArray(slug) ? `?${slug.map((s) => `zone=${encodeURIComponent(s)}`).join('&')}`
+            : `?zone=${encodeURIComponent(slug)}`;
+          return globalThis.fetch(`${origin}/delivery/v1/zone${query}`, { headers });
+        }
+
+        // A refusal on the site key path: 401 with exactly this body, whatever was wrong.
+        const REFUSED = { error: { code: 'invalid_site_key', message: 'A valid site key and zone are required' } };
+
+        async function expectRefused(res: Response): Promise<void> {
+          expect(res.status).toBe(401);
+          expect(res.headers.get('access-control-allow-origin')).toBe('*');
+          expect(res.headers.get('www-authenticate')).toBe('Bearer');
+          expect(await res.json()).toEqual(REFUSED);
+        }
+
+        // A zone of `projectId` with a display and one live group with one tale from media.
+        async function placedZone(
+          projectId: string,
+          name: string,
+          type: 'bar' | 'banner' = 'bar',
+        ): Promise<{ id: string; slug: string; groupId: string; taleId: string }> {
+          const zone = await (await post('/zones', { name, projectId })).json();
+          expect((await post(`/zones/${zone.id}/frame`, { type })).status).toBe(201);
+          const group = await addGroup(zone.id, `${name} group`);
+          const tale = await addTale(group.id, `${name} tale`, ['image/png', png]);
+          return { id: zone.id, slug: zone.slug, groupId: group.id, taleId: tale.id };
+        }
+
+        async function zoneVisibility(zoneId: string): Promise<{ visible: boolean; reasons: { code: string }[] }> {
+          const zones: { id: string; visibility: { visible: boolean; reasons: { code: string }[] } }[] = await (
+            await send('GET', '/zones')
+          ).json();
+          const found = zones.find((z) => z.id === zoneId);
+          if (!found) throw new Error(`No zone ${zoneId}`);
+          return found.visibility;
+        }
+
+        it('issues a site key shown once, stores only its hash, and reports its prefix and date', async () => {
+          const project = await createProject();
+          const none = await send('GET', siteKeyPath(project.id));
+          expect(none.status).toBe(200);
+          expect(await none.json()).toBeNull();
+
+          const issued = await issueSite(project.id);
+          expect(issued.key).toMatch(/^tas_[A-Za-z0-9_-]{43}$/);
+          expect(issued.prefix).toBe(issued.key.slice(0, 10));
+
+          const info = await send('GET', siteKeyPath(project.id));
+          const text = await info.text();
+          expect(JSON.parse(text)).toEqual({ prefix: issued.prefix, createdAt: issued.createdAt });
+          expect(text).not.toContain(issued.key);
+
+          const { rows } = await pool.query('SELECT * FROM site_keys');
+          expect(rows).toHaveLength(1);
+          expect(rows[0].key_hash).toBe(createHash('sha256').update(issued.key).digest('hex'));
+          expect(rows[0].prefix).toBe(issued.prefix);
+          expect(rows[0].project_id).toBe(project.id);
+          expect(JSON.stringify(rows)).not.toContain(issued.key);
+        });
+
+        it('rotates: the new key works, the old one is refused, and one key stays active', async () => {
+          const project = await createProject();
+          const zone = await placedZone(project.id, 'Home top');
+          const first = await issueSite(project.id);
+          expect((await deliverSlug(first.key, zone.slug)).status).toBe(200);
+
+          const second = await issueSite(project.id);
+          expect(second.key).not.toBe(first.key);
+          await expectRefused(await deliverSlug(first.key, zone.slug));
+          expect((await deliverSlug(second.key, zone.slug)).status).toBe(200);
+          const { rows } = await pool.query('SELECT count(*)::int AS n FROM site_keys WHERE revoked_at IS NULL');
+          expect(rows[0].n).toBe(1);
+        });
+
+        it('keeps one active site key per project when issues race', async () => {
+          const project = await createProject();
+          const results = await Promise.all(Array.from({ length: 6 }, () => send('POST', siteKeyPath(project.id))));
+          expect(results.map((r) => r.status)).toEqual(Array(6).fill(201));
+          const keys: Issued[] = await Promise.all(results.map((r) => r.json()));
+          const { rows } = await pool.query('SELECT key_hash FROM site_keys WHERE project_id = $1 AND revoked_at IS NULL', [
+            project.id,
+          ]);
+          expect(rows).toHaveLength(1);
+          const zone = await placedZone(project.id, 'Race');
+          const working = [];
+          for (const issued of keys) if ((await deliverSlug(issued.key, zone.slug)).status === 200) working.push(issued);
+          expect(working).toHaveLength(1);
+          expect(rows[0].key_hash).toBe(createHash('sha256').update(working[0].key).digest('hex'));
+        });
+
+        it('revokes: the key is refused at once, and a second revoke answers site_key_not_found', async () => {
+          const project = await createProject();
+          const zone = await placedZone(project.id, 'Home top');
+          const { key } = await issueSite(project.id);
+          expect((await send('DELETE', siteKeyPath(project.id))).status).toBe(204);
+          await expectRefused(await deliverSlug(key, zone.slug));
+          expect(await (await send('GET', siteKeyPath(project.id))).json()).toBeNull();
+          const again = await send('DELETE', siteKeyPath(project.id));
+          expect(again.status).toBe(404);
+          expect((await again.json()).error.code).toBe('site_key_not_found');
+        });
+
+        it('answers 404 project_not_found for an unknown project, and 403 to a content manager issuing or revoking', async () => {
+          for (const method of ['GET', 'POST', 'DELETE']) {
+            const res = await send(method, siteKeyPath(unknownId));
+            expect(res.status).toBe(404);
+            expect((await res.json()).error.code).toBe('project_not_found');
+          }
+          const project = await createProject();
+          const other = await createProject('Globex');
+          const issued = await issueSite(project.id);
+          await signInAsContentManager(project.id);
+          const info = await send('GET', siteKeyPath(project.id));
+          expect(info.status).toBe(200);
+          expect((await info.json()).prefix).toBe(issued.prefix);
+          for (const method of ['POST', 'DELETE']) {
+            const res = await send(method, siteKeyPath(project.id));
+            expect(res.status).toBe(403);
+            expect((await res.json()).error.code).toBe('forbidden');
+          }
+          // Another project's key is not even readable.
+          expect((await send('GET', siteKeyPath(other.id))).status).toBe(403);
+          const { rows } = await pool.query('SELECT count(*)::int AS n FROM site_keys WHERE revoked_at IS NULL');
+          expect(rows[0].n).toBe(1);
+        });
+
+        it("serves each zone of the project by its slug with that zone's own display and groups, as a zone key does", async () => {
+          const project = await createProject();
+          const top = await placedZone(project.id, 'Home top', 'bar');
+          const promo = await placedZone(project.id, 'Home promo', 'banner');
+          const { key } = await issueSite(project.id);
+
+          const topRes = await deliverSlug(key, top.slug);
+          expect(topRes.status).toBe(200);
+          expect(topRes.headers.get('cache-control')).toBe('private, no-cache');
+          const topBody = await topRes.json();
+          expect(topBody).toMatchObject({ id: top.id, slug: top.slug, frame: { type: 'bar' } });
+          expect(topBody.taleGroups.map((g: { id: string }) => g.id)).toEqual([top.groupId]);
+
+          const promoBody = await (await deliverSlug(key, promo.slug)).json();
+          expect(promoBody).toMatchObject({ id: promo.id, slug: promo.slug, frame: { type: 'banner' } });
+          expect(promoBody.taleGroups.map((g: { id: string }) => g.id)).toEqual([promo.groupId]);
+
+          // The same body a legacy zone key gets for the zone.
+          const zoneKey = (await (await send('POST', `/zones/${top.id}/key`)).json()).key;
+          expect(await (await deliver(zoneKey)).json()).toEqual(topBody);
+        });
+
+        it('refuses an unknown slug exactly like a refused key, and a slug of another project too', async () => {
+          const project = await createProject();
+          const zone = await placedZone(project.id, 'Home top');
+          const otherProject = await createProject('Globex');
+          const otherZone = await placedZone(otherProject.id, 'Globex only');
+          const { key } = await issueSite(project.id);
+          const otherKey = (await issueSite(otherProject.id)).key;
+          const zoneKey = (await send('POST', `/zones/${zone.id}/key`).then((r) => r.json())).key;
+
+          await expectRefused(await deliverSlug(key, 'nope'));
+          await expectRefused(await deliverSlug(key, otherZone.slug));
+          await expectRefused(await deliverSlug(key, ''));
+          await expectRefused(await deliverSlug(key, [zone.slug, zone.slug]));
+          await expectRefused(await deliverSlug(key, 'Home Top'));
+          await expectRefused(await deliverSlug(undefined, zone.slug));
+          await expectRefused(await deliverSlug(`tas_${randomBytes(32).toString('base64url')}`, zone.slug));
+          await expectRefused(await deliverSlug(key.toUpperCase(), zone.slug));
+          // A zone key is no site key, even for its own zone's slug.
+          await expectRefused(await deliverSlug(zoneKey, zone.slug));
+          // Each key reads its own project only.
+          expect((await deliverSlug(otherKey, otherZone.slug)).status).toBe(200);
+          await expectRefused(await deliverSlug(otherKey, zone.slug));
+
+          // Without a slug, the legacy zone key path answers as before.
+          expect((await deliver(zoneKey)).status).toBe(200);
+          expect(await expectInvalidKey(await deliver(key))).toBe('A valid zone key is required');
+        });
+
+        it('counts a zone as installed while its project has a site key, with the same rule for public media', async () => {
+          const project = await createProject();
+          const zone = await placedZone(project.id, 'Home top');
+          const other = await createProject('Globex');
+          const otherZone = await placedZone(other.id, 'Globex top');
+          const reasons = async (id: string) => (await zoneVisibility(id)).reasons.map((r) => r.code);
+          expect(await reasons(zone.id)).toEqual(['zone-not-installed']);
+
+          const { key } = await issueSite(project.id);
+          expect(await zoneVisibility(zone.id)).toEqual(VISIBLE);
+          // Isolation: another project's zone is not installed by this key.
+          expect(await reasons(otherZone.id)).toEqual(['zone-not-installed']);
+          const delivered = await (await deliverSlug(key, zone.slug)).json();
+          const mediaUrl = delivered.taleGroups[0].tales[0].media.url;
+          expect((await getPublic(mediaUrl)).status).toBe(200);
+
+          // The tale and its group read visible too, by the same rule.
+          const groups = await (await send('GET', `/zones/${zone.id}/tale-groups`)).json();
+          expect(groups[0].visibility).toEqual(VISIBLE);
+          expect(groups[0].tales[0].visibility).toEqual(VISIBLE);
+
+          expect((await send('DELETE', siteKeyPath(project.id))).status).toBe(204);
+          expect(await reasons(zone.id)).toEqual(['zone-not-installed']);
+          expect((await getPublic(mediaUrl)).status).toBe(404);
+
+          // A legacy zone key still installs its own zone alone.
+          await send('POST', `/zones/${zone.id}/key`);
+          expect(await zoneVisibility(zone.id)).toEqual(VISIBLE);
+          expect((await getPublic(mediaUrl)).status).toBe(200);
+        });
+      });
 
       it('serves the tale groups and tales in dashboard order with absolute public media URLs', async () => {
         const zone = await createZone();
@@ -11601,7 +11827,7 @@ describe('Management API v1: projects and zones', () => {
       jar = {};
       // Auth tests start from an empty install.
       await pool.query(
-        'TRUNCATE import_records, import_media, import_links, import_jobs, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
+        'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, zone_keys, invitations, project_members, auth_challenges, sessions, passkeys, users',
       );
     });
 
