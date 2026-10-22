@@ -181,6 +181,24 @@ describe('project fonts', () => {
     expect(query).toHaveBeenCalledTimes(3);
   });
 
+  it('keeps nothing read across a clear, so a lookup racing a revoke cannot fill the cache again', async () => {
+    const now = new Date('2026-10-22T10:00:00Z');
+    let calls = 0;
+    // The clear (a site key revoke) lands while the lookup waits for the database.
+    const db = {
+      query: async () => {
+        calls++;
+        if (calls === 1) clearPublicFontCache();
+        return { rows: [{}] };
+      },
+    } as never;
+    expect(await findPublishedFont(db, 'fonts/race.woff2', now)).not.toBeNull();
+    await findPublishedFont(db, 'fonts/race.woff2', now);
+    expect(calls).toBe(2);
+    await findPublishedFont(db, 'fonts/race.woff2', now);
+    expect(calls).toBe(2);
+  });
+
   it('sweeps old font files that no font names, and keeps young or named ones', async () => {
     const now = Date.now();
     const old = new Date(now - FONT_SWEEP_MIN_AGE_MS - 1);

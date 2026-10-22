@@ -20,6 +20,8 @@ import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import { zoneKeysRouter } from './http/zone-keys.router';
+import type { RateLimitOptions } from './http/rate-limit';
+import { siteKeyRouter } from './http/site-key.router';
 import { zonesRouter } from './http/zones.router';
 
 /** Management API base path (AD-2, versioned per the spine conventions). */
@@ -36,6 +38,12 @@ export interface AppAuth {
   secureCookies?: boolean;
   /** The dashboard's origin (RP_ORIGIN), where invitation links point. Defaults to http://localhost:4200. */
   dashboardOrigin?: string;
+}
+
+/** How the Delivery API is limited. */
+export interface AppDelivery {
+  /** The per-address request limit of `/delivery/v1`; the default when left out, off when null. */
+  rateLimit?: RateLimitOptions | null;
 }
 
 /** Where the API is reached from outside. */
@@ -59,6 +67,7 @@ export function createApp(
   urls: AppUrls = {},
   importer: ImporterConfig = { tokenKey: null, storylyApiUrl: DEFAULT_STORYLY_API_URL },
   media: ProjectMediaOptions = {},
+  delivery: AppDelivery = {},
 ): express.Express {
   const app = express();
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
@@ -95,6 +104,7 @@ export function createApp(
   v1.use('/projects', projectTaleGroupsRouter(pool));
   v1.use('/projects', importsRouter(pool, importer));
   v1.use('/projects', projectThemeRouter(pool));
+  v1.use('/projects', siteKeyRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));
   v1.use('/projects', projectMediaRouter(pool, storage, media));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
@@ -108,7 +118,11 @@ export function createApp(
 
   // The Delivery API serves SDKs with zone keys only (AD-2): its own open CORS
   // and key middleware, never the session middleware.
-  app.use(DELIVERY_API_BASE, deliveryRouter(pool, { publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333', frameTypes }));
+  app.use(DELIVERY_API_BASE, deliveryRouter(pool, {
+      publicApiUrl: urls.publicApiUrl ?? 'http://localhost:3333',
+      frameTypes,
+      rateLimit: delivery.rateLimit,
+    }));
 
   // Published media is public at unguessable URLs (AD-11): no session, no zone key.
   app.use(PUBLIC_MEDIA_BASE, publicMediaRouter(pool, storage));

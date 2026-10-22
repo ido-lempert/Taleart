@@ -49,3 +49,13 @@ export class ZoneKeyNotFoundError extends Error {
     this.name = 'ZoneKeyNotFoundError';
   }
 }
+
+/** Thrown when a project has no active site key to revoke. */
+export class SiteKeyNotFoundError extends Error {
+  readonly code = ErrorCodes.siteKeyNotFound;
+
+  constructor() {
+    super('This project has no active site key');
+    this.name = 'SiteKeyNotFoundError';
+  }
+}

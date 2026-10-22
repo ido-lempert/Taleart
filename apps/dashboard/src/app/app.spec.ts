@@ -161,7 +161,15 @@ describe('App', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  // The zone page's Site key card (epic UX rework R3) reads its project's site key on its own.
+  function flushSiteKeys(): void {
+    for (const req of http.match((r) => r.method === 'GET' && r.url.endsWith('/site-key'))) req.flush(null);
+  }
+
+  afterEach(() => {
+    flushSiteKeys();
+    http.verify();
+  });
 
   // Answers one full refresh: projects, zones (each with its slug and display), frame types, each zone's tale
   // groups, each project's tags and tale groups, then each zone's key info.
@@ -190,6 +198,8 @@ describe('App', () => {
     }
     await settle(fixture);
     for (const z of zones) http.expectOne(`${API_BASE}/zones/${z.id}/key`).flush(data.keys?.[z.id] ?? null);
+    await settle(fixture);
+    flushSiteKeys();
     await settle(fixture);
   }
 

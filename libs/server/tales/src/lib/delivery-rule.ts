@@ -6,7 +6,7 @@
 // the clause lists below, so the indicator and the site cannot disagree.
 import type { VisibilityReason, VisibilityReasonCode, VisibilitySubject } from '@taleart/contract';
 import { zoneInstalledSql } from '@taleart/server-access';
-import { zoneHasDisplaySql } from '@taleart/server-zones';
+import { zoneHasDisplaySql, zoneProjectIdSql } from '@taleart/server-zones';
 
 /** The tales migration step after which new tales start live (AD-6 amended 2026-10-23); see migration.ts. */
 export const SHOWN_STATUS_STEP = 'shown-status';
@@ -70,11 +70,12 @@ export const TALE_REASON_CLAUSES: readonly ReasonClause[] = [
 
 /**
  * What a zone needs before the site shows anything in it (R7), on a zone id expression: a display
- * (a frame, until stories 5 and 6) and an installed key (an active zone key, until story 6).
+ * (its frame, AD-17) and an installed key (an active site key of its project, or an active legacy
+ * zone key of the zone; epic UX rework R3).
  */
 export const ZONE_SETUP_CLAUSES: readonly ReasonClause[] = [
   { code: 'zone-no-display', subject: 'zone', when: (z) => `NOT ${zoneHasDisplaySql(z)}` },
-  { code: 'zone-not-installed', subject: 'zone', when: (z) => `NOT ${zoneInstalledSql(z)}` },
+  { code: 'zone-not-installed', subject: 'zone', when: (z) => `NOT ${zoneInstalledSql(z, zoneProjectIdSql(z))}` },
 ];
 
 /**

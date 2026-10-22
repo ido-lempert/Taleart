@@ -310,6 +310,76 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /projects/{projectId}/site-key:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSiteKey
+      summary: Whether the project has an active site key, with its prefix and issue date.
+      description: >-
+        Answers `null` when the project has no active site key. Never returns
+        the key or its hash. Anyone who can access the project may read it. An
+        unknown project answers 404 `project_not_found`.
+      responses:
+        '200':
+          description: The active site key's info, or null.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SiteKeyInfo'
+                  - type: 'null'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: issueSiteKey
+      summary: Issue the project's site key, or rotate it (admins only).
+      description: >-
+        A project has at most one active site key (AD-9 amended, epic UX rework
+        R3), which places every zone of the project on a page with the zone's
+        slug. When the project already has an active site key, that key is
+        revoked in the same transaction (rotation), which affects every zone of
+        the project. `key` appears only in this response; only its SHA-256 hash
+        is stored, and the response is sent with `Cache-Control: no-store`. A
+        content manager gets 403 `forbidden`; an unknown project 404
+        `project_not_found`.
+      responses:
+        '201':
+          description: The new site key, shown only once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedSiteKey'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: revokeSiteKey
+      summary: Revoke the project's active site key (admins only).
+      description: >-
+        The key stops working on the Delivery API at once, for every zone of
+        the project. A project without an active site key answers 404
+        `site_key_not_found`.
+      responses:
+        '204':
+          description: The site key is revoked.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /projects/{projectId}/tale-groups:
     parameters:
       - name: projectId
@@ -1216,11 +1286,22 @@ paths:
         description: Delivery API (AD-2), for SDKs. Accepts zone keys only.
     get:
       operationId: getDeliveryZone
-      summary: The zone of the zone key, with its display and tale groups (Delivery API).
+      summary: A zone, named by site key and slug or by a legacy zone key, with its display and tale groups (Delivery API).
       description: >-
-        Served under `/delivery/v1`. Accepts only a zone key in
-        `Authorization: Bearer <key>`, never a session. A missing, unknown or
-        revoked key answers 401 `invalid_zone_key`. CORS is open to any origin,
+        Served under `/delivery/v1`. Accepts only a delivery key in
+        `Authorization: Bearer <key>`, never a session. With the `zone` query
+        parameter, the key is the project's site key (`tas_...`) and the
+        response is the project's zone with that slug (epic UX rework R3);
+        every refusal on that path (a missing, unknown or revoked site key,
+        any other key, a missing slug, or a slug no zone of the key's project
+        has) answers the same 401 `invalid_site_key` body, so a caller cannot
+        tell an unknown slug from a refused key. Without `zone`, the key is a
+        legacy zone key (`tak_...`) and a missing, unknown or revoked key
+        answers 401 `invalid_zone_key`. A 401 is sent with
+        `Cache-Control: no-store`. Every Delivery API request counts against
+        a per-address token bucket (by default 600 at once, 20 per second);
+        over it the API answers 429 `rate_limited` with `Retry-After`.
+        CORS is open to any origin,
         without credentials. Tale groups and their tales come in dashboard
         order; only `live` groups and tales whose start and end times, and
         their group's, contain the current time are listed (AD-6); each
@@ -1229,7 +1310,17 @@ paths:
         ETag, so a browser revalidates it on every load (304 while
         unchanged) and sees a change at once (NFR-006).
       security:
+        - siteKey: []
         - zoneKey: []
+      parameters:
+        - name: zone
+          in: query
+          required: false
+          description: >-
+            The zone's slug (lowercase letters, digits and hyphens), sent with
+            the project's site key, as a host page names it in `zone="..."`.
+          schema:
+            type: string
       responses:
         '200':
           description: The zone, its display, and its tale groups by position.
@@ -1240,6 +1331,8 @@ paths:
         '304':
           description: The client's copy, named by `If-None-Match`, is still current.
         '401':
+          $ref: '#/components/responses/Error'
+        '429':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -2303,6 +2396,13 @@ components:
         session every route except `/health` and `/auth/*` answers 401 `unauthenticated`.
         A signed-in user who cannot access the project of a resource gets 403
         `forbidden`; a resource that does not exist still answers 404.
+    siteKey:
+      type: http
+      scheme: bearer
+      description: >-
+        The project's site key (`tas_...`) issued in the dashboard (AD-9
+        amended), sent as `Authorization: Bearer <key>` with the zone's slug
+        in the `zone` query parameter. Only the Delivery API accepts it.
     zoneKey:
       type: http
       scheme: bearer
@@ -2923,6 +3023,28 @@ components:
         prefix:
           type: string
           description: The start of the key, `tak_` and the next 6 characters, to recognise it.
+        createdAt:
+          type: string
+          format: date-time
+    SiteKeyInfo:
+      type: object
+      required: [prefix, createdAt]
+      properties:
+        prefix:
+          type: string
+          description: The start of the site key, `tas_` and the next 6 characters, to recognise it.
+        createdAt:
+          type: string
+          format: date-time
+    IssuedSiteKey:
+      type: object
+      required: [key, prefix, createdAt]
+      properties:
+        key:
+          type: string
+          description: The secret site key, `tas_` and 32 random bytes in base64url. Shown only once.
+        prefix:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -4035,6 +4157,9 @@ components:
         - tag_not_found
         - zone_key_not_found
         - invalid_zone_key
+        - site_key_not_found
+        - invalid_site_key
+        - rate_limited
         - storyly_token_invalid
         - storyly_unavailable
         - importer_not_configured
