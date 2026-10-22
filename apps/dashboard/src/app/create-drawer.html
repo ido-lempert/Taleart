@@ -256,60 +256,6 @@
             </p>
           }
         }
-        @case ('zoneKey') {
-          @if (issuedKey(); as issued) {
-            <div class="field">
-              <label class="field__label" for="zone-key">Zone key</label>
-              <input
-                id="zone-key"
-                class="input input--mono"
-                name="zoneKey"
-                readonly
-                spellcheck="false"
-                [value]="issued.key"
-                aria-describedby="zone-key-hint"
-                (focus)="selectAll($event)"
-              />
-              <p class="field__hint" id="zone-key-hint">
-                Shown only now. Copy it into your SDK setup; TaleArt keeps only a hash and cannot show it again.
-              </p>
-            </div>
-            <div class="invite-actions">
-              <button type="button" class="btn btn--primary" (click)="copyKey(issued)">Copy key</button>
-            </div>
-            <p class="muted" role="status">{{ copyStatus() }}</p>
-          } @else {
-            @switch (zoneKeyRequest()?.action) {
-              @case ('rotate') {
-                <p>
-                  A new key replaces
-                  @if (activeKey(); as key) {
-                    <code class="key-prefix">{{ key.prefix }}…</code>.
-                  } @else {
-                    the current key.
-                  }
-                  The current key stops working at once, so update every page that uses it.
-                </p>
-              }
-              @case ('revoke') {
-                <p>
-                  Revoke
-                  @if (activeKey(); as key) {
-                    <code class="key-prefix">{{ key.prefix }}…</code>?
-                  } @else {
-                    the current key?
-                  }
-                  It stops working at once and this zone serves no content to SDKs until you issue a new key.
-                </p>
-              }
-              @default {
-                <p>
-                  SDKs on your pages send this key to read the zone's content. It is shown once, when you issue it.
-                </p>
-              }
-            }
-          }
-        }
         @case ('tags') {
           @if (tagGroup(); as group) {
             <fieldset class="tag-options">
