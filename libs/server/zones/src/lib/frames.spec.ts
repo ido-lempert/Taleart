@@ -330,7 +330,7 @@ describe('display', () => {
   });
 
   it('finds a zone by id, and null for an unknown or malformed id', async () => {
-    const zone = { id: zoneId, name: 'Bar', slug: 'bar', projectId, playbookKey: null, frame: null };
+    const zone = { id: zoneId, name: 'Bar', slug: 'bar', projectId, createdFromTemplate: null, frame: null };
     expect(await findZone({ query: vi.fn().mockResolvedValue({ rows: [zone] }) } as unknown as Db, zoneId)).toEqual(zone);
     expect(await findZone({ query: vi.fn().mockResolvedValue({ rows: [] }) } as unknown as Db, zoneId)).toBeNull();
     const query = vi.fn();

@@ -1095,56 +1095,91 @@ select {
   font-size: var(--text-sm);
 }
 
-/* ---------- Playbooks ---------- */
-/* A playbook's goal sits under its radio, lined up with the label. */
-.playbook-goal {
-  margin: calc(-1 * var(--space-1)) 0 var(--space-2) calc(18px + var(--space-2));
-}
-
-.playbook-preview {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border-radius: var(--radius-control);
-  background: var(--surface-sunken);
-}
-
-.playbook-preview__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.playbook-preview__item {
+/* ---------- Zone templates (New zone drawer) ---------- */
+.template-options {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  font-size: var(--text-md);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
 }
 
-.playbook-preview__frame {
+.template-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+}
+
+.template-option:has(input:checked) {
+  border-color: var(--ember-strong);
+  background: var(--surface-sunken);
+}
+
+.template-option__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 24px;
+  cursor: pointer;
+}
+
+.template-option__choice input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--ember-strong);
+}
+
+.template-option__label {
   font-weight: 600;
 }
 
-.playbook-preview__settings {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-2) var(--space-4);
-  margin: 0;
+.template-option__desc {
+  margin: 0 0 0 calc(18px + 56px + 2 * var(--space-3));
 }
 
-.playbook-preview__settings dt {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
+/* A small sketch of the display: circles for a bar, a wide block for a banner, a dashed box for none. */
+.template-sketch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 56px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
 }
 
-.playbook-preview__settings dd {
-  margin: 0;
-  overflow-wrap: anywhere;
+.template-sketch[data-kind='blank'] {
+  border-style: dashed;
+}
+
+.template-sketch i {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.template-sketch[data-kind='banner'] i {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+
+@media (max-width: 639.98px) {
+  .template-option__desc {
+    margin-left: 0;
+  }
 }
 
 /* ---------- Responsive ---------- */

@@ -17,8 +17,7 @@ import {
   MAX_TALES_PER_GROUP,
   MAX_ZONE_SLUG_LENGTH,
   MEDIA_CONTENT_TYPES,
-  PLAYBOOKS,
-  findPlaybook,
+  ZONE_TEMPLATES,
   isSwitchable,
   SHOWN_STATUS_LABELS,
   switchStatus,
@@ -31,12 +30,13 @@ import {
   type SetScheduleRequest,
   type SettableStatus,
   type Tale,
+  type ZoneTemplateKey,
 } from '@taleart/contract/core';
 import { CoverEditor } from './cover-editor';
 import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
-import { describeSettings, initialSettings, SettingsForm, type Settings } from './settings-form';
+import { initialSettings, SettingsForm, type Settings } from './settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from './status';
 
 /**
@@ -102,55 +102,15 @@ export class CreateDrawer implements OnInit {
   /** The zone picked in an "Add to zone…" drawer. */
   protected readonly placeZoneId = signal('');
 
-  /** The playbooks an apply drawer offers (R8). */
-  protected readonly playbooks = PLAYBOOKS;
-  /** The playbook picked in an apply drawer. */
-  protected readonly playbookKey = signal(PLAYBOOKS[0]?.key ?? '');
+  /** The templates a new zone drawer offers (epic UX rework R5). */
+  protected readonly templates = ZONE_TEMPLATES;
+  /** The template picked in a new zone drawer; Stories bar first. */
+  protected readonly templateKey = signal<ZoneTemplateKey>(ZONE_TEMPLATES[0].key);
 
-  /** The zone of an apply playbook drawer. */
-  protected readonly playbookZone = computed(() => {
-    const request = this.request();
-    return request.kind === 'applyPlaybook' ? this.store.zone(request.zoneId) : undefined;
-  });
-
-  /** The picked playbook. */
-  protected readonly pickedPlaybook = computed(() => findPlaybook(this.playbookKey()));
-
-  /** What the picked playbook sets: its display with its settings as labels and values. */
-  protected readonly playbookPreview = computed(() => {
-    const frame = this.pickedPlaybook()?.frame;
-    return frame
-      ? [
-          {
-            type: this.store.frameTypeLabel(frame.type),
-            settings: describeSettings(this.store.frameType(frame.type)?.schema, frame.settings as unknown as Settings),
-          },
-        ]
-      : [];
-  });
-
-  /**
-   * Why the picked playbook cannot be applied to the zone, or '': the zone has
-   * another playbook, or already has a display (AD-17). The API refuses both.
-   */
-  protected readonly playbookConflict = computed(() => {
-    const zone = this.playbookZone();
-    const playbook = this.pickedPlaybook();
-    if (!zone || !playbook) return '';
-    if (zone.playbookKey && zone.playbookKey !== playbook.key) {
-      const applied = findPlaybook(zone.playbookKey)?.label ?? zone.playbookKey;
-      return `This zone already has the playbook ${applied}. A zone has one playbook.`;
-    }
-    if (zone.playbookKey === playbook.key) return '';
-    return zone.frame
-      ? `This zone already has a ${this.store.frameTypeLabel(zone.frame.type)} display. A playbook sets the display of a zone without one; change this zone's display type instead.`
-      : '';
-  });
-
-  /** The playbook fieldset's description: the conflict warning while shown, and the API's or the drawer's message. */
-  protected readonly playbookDescribedBy = computed(() => {
-    const ids = [this.playbookConflict() && !this.error() ? 'playbook-conflict' : '', this.error() ? 'create-error' : ''];
-    return ids.filter(Boolean).join(' ') || null;
+  /** The only project the user can access, when there is exactly one: the drawer picks it and hides the picker. */
+  protected readonly onlyProject = computed(() => {
+    const projects = this.store.projects();
+    return projects.length === 1 ? projects[0] : undefined;
   });
 
   /** The tale group an "Add to zone…", "Copy to zone…", "Rename" or "Remove from this zone" drawer is for. */
@@ -377,8 +337,6 @@ export class CreateDrawer implements OnInit {
         return 'Set display';
       case 'tale':
         return 'Add';
-      case 'applyPlaybook':
-        return 'Apply';
       case 'taleMedia':
         return 'Upload';
       case 'cover':
@@ -467,8 +425,6 @@ export class CreateDrawer implements OnInit {
         return 'Remove from this zone';
       case 'schedule':
         return 'Schedule';
-      case 'applyPlaybook':
-        return 'Apply playbook';
       case 'zoneKey':
         if (this.issuedKey()) return 'Zone key';
         return this.zoneKeyRequest()?.action === 'rotate'
@@ -485,8 +441,7 @@ export class CreateDrawer implements OnInit {
     if (
       request.kind === 'display' ||
       request.kind === 'displaySettings' ||
-      request.kind === 'taleGroup' ||
-      request.kind === 'applyPlaybook'
+      request.kind === 'taleGroup'
     ) {
       const zone = this.store.zone(request.zoneId);
       return zone ? `In zone ${zone.name}` : '';
@@ -510,6 +465,11 @@ export class CreateDrawer implements OnInit {
     if (request.kind === 'invite') {
       return `To project ${this.store.projectName(request.projectId)}`;
     }
+    if (request.kind === 'zone') {
+      // With one project there is no picker, so the line names where the zone goes.
+      const only = this.onlyProject();
+      return only ? `In project ${only.name}` : '';
+    }
     if (request.kind === 'zoneKey') {
       const zone = this.keyZone();
       return zone ? `For zone ${zone.name}` : '';
@@ -531,7 +491,7 @@ export class CreateDrawer implements OnInit {
   });
 
   ngOnInit(): void {
-    this.projectId = this.store.selectedProjectId();
+    this.projectId = this.onlyProject()?.id ?? this.store.selectedProjectId();
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
@@ -540,8 +500,6 @@ export class CreateDrawer implements OnInit {
       this.text = edited.name;
       this.slug = edited.slug;
     }
-    const applied = this.playbookZone()?.playbookKey;
-    if (applied && findPlaybook(applied)) this.playbookKey.set(applied);
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
     const frame = this.settingsFrame();
     if (frame) this.settings.set(initialSettings(this.settingsSchema(), frame.settings));
@@ -693,7 +651,7 @@ export class CreateDrawer implements OnInit {
           this.slugError.set(true);
           break;
         }
-        const result = await this.store.createZone(this.text, this.projectId, slug);
+        const result = await this.store.createZone(this.text, this.projectId, slug, this.templateKey());
         message = result.message;
         this.slugError.set(result.field === 'slug');
         if (!message) this.store.selectProject(this.projectId);
@@ -750,17 +708,6 @@ export class CreateDrawer implements OnInit {
         this.slugError.set(result.field === 'slug');
         break;
       }
-      case 'applyPlaybook':
-        // A conflict the dashboard can see is refused here, without a request; the API refuses it too.
-        message = !this.pickedPlaybook()
-          ? 'Choose a playbook.'
-          : this.playbookConflict() || (await this.store.applyPlaybook(request.zoneId, this.playbookKey()));
-        if (!message) {
-          // The Apply playbook button that opened the drawer is gone once the zone has a playbook,
-          // so focus returns to the Playbook section's heading instead.
-          this.returnTo = this.document.getElementById('playbook-title');
-        }
-        break;
       case 'placeTaleGroup':
         message = this.placeZoneId()
           ? await this.store.placeTaleGroup(this.placeZoneId(), request.taleGroupId)
