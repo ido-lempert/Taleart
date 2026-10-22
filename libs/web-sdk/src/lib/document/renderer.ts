@@ -2,13 +2,12 @@ import {
   isLinkElement,
   readingOrder,
   SWIPE_UP_BOX,
-  type ReadingDirection,
   type DeliveryTaleDocument,
   type DeliveryTaleElement,
   type TaleElementType,
 } from '@taleart/contract';
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
-import { mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
+import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
 import { renderEmoji, renderShape } from './shapes';
 import { renderText } from './text';
 
@@ -176,8 +175,6 @@ export interface DocumentRenderOptions {
   reducedMotion?: boolean;
   /** Links render inert, without a destination: the Tale Studio preview, which shows a draft (AD-16). */
   inertLinks?: boolean;
-  /** The host page's direction: a row of elements is read right to left on a right-to-left page (R12). */
-  direction?: ReadingDirection;
 }
 
 // The canvas's media background (R2): the image filling the canvas with its fit, over its band
@@ -187,7 +184,7 @@ function backgroundMedia(doc: DeliveryTaleDocument, reducedMotion: boolean): HTM
   const url = background?.type === 'media' ? mediaUrl(background.url) : null;
   if (!url) return null;
   let node: HTMLElement;
-  if (reducedMotion && /\.(gif|webp|png)$/i.test(new URL(url).pathname)) node = stillImage(url);
+  if (reducedMotion && MAY_ANIMATE.test(new URL(url).pathname)) node = stillImage(url);
   else {
     const img = document.createElement('img');
     img.alt = '';
@@ -205,8 +202,8 @@ function backgroundMedia(doc: DeliveryTaleDocument, reducedMotion: boolean): HTM
 /**
  * Renders a delivered tale document (AD-16) as an area holding its 9:16 canvas: each element of a
  * known type absolutely placed from its box, stacked in the document's z-order, and in DOM order
- * by the contract's `readingOrder` (visual: top to bottom, then left to right, or right to left
- * on a right-to-left page), which is what screen readers and Tab follow (R12). Every node is
+ * by the contract's `readingOrder` (visual: top to bottom, then along each row in the tale's own
+ * direction, from its texts, never the host page's), which is what screen readers and Tab follow (R12). Every node is
  * named (its text, alt text or label) or hidden from assistive technology.
  * Content is set as text nodes and styles through CSSOM only. An unknown element type is skipped
  * with one console warning per type.
@@ -234,7 +231,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   const layer = new Map(elements.map((element, i) => [element, i + 1]));
   // One swipe-up link per tale (R7): the server refuses a second; one that comes anyway is skipped.
   let swipeUp = false;
-  for (const element of readingOrder(elements, options.direction)) {
+  for (const element of readingOrder(elements)) {
     if (element.type === 'swipe-up') {
       if (swipeUp) continue;
       swipeUp = true;

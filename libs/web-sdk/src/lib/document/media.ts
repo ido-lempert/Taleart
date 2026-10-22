@@ -8,8 +8,8 @@ export interface RenderContext {
   inertLinks?: boolean;
 }
 
-// Images that may move: a GIF, an animated WebP or an APNG. Under reduced motion they are drawn once.
-const MAY_ANIMATE = /\.(gif|webp|png)$/i;
+/** Images that may move: a GIF, an animated WebP, an APNG or an animated AVIF. Under reduced motion they are drawn once. */
+export const MAY_ANIMATE = /\.(gif|webp|png|avif)$/i;
 
 /** The URL when it is an absolute http(s) URL, as the Delivery API builds them; else null (AD-16). */
 export function mediaUrl(value: unknown): string | null {

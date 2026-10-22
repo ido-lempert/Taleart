@@ -67,16 +67,15 @@ describe('reading order of a composed tale (R12, AD-15)', () => {
     expect(z).toEqual(['1', '5', '6', '3', '4', '2', '7']);
   });
 
-  it('reads a row right to left on a right-to-left page', () => {
-    const area = renderTaleDocument(composed(), { direction: 'rtl' });
-    expect(announced(area).filter(Boolean)).toEqual([
-      'Falling leaf',
-      'Autumn edit',
-      'New season',
-      'A red coat',
-      'Shop now',
-      'See more',
-    ]);
+  it('reads each row of a Hebrew tale from the right', () => {
+    const hebrew = composed();
+    for (const e of hebrew.elements) {
+      if (e.type !== 'text') continue;
+      const props = e.props as { text: string };
+      props.text = props.text === 'Autumn edit' ? 'סתיו' : 'עונה חדשה';
+    }
+    const area = renderTaleDocument(hebrew);
+    expect(announced(area).filter(Boolean)).toEqual(['Falling leaf', 'סתיו', 'עונה חדשה', 'A red coat', 'Shop now', 'See more']);
   });
 
   it('focuses the links in reading order', () => {
@@ -92,7 +91,8 @@ describe('reading order of a composed tale (R12, AD-15)', () => {
     expect(links.every((a) => a.tabIndex === 0)).toBe(true);
   });
 
-  it('orders by the host direction in the viewer', () => {
+  // The tale's direction, never the host page's (AD-15 amended, story 7.10 review).
+  it('reads an English tale left to right on a right-to-left page, and a Hebrew one right to left', () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const real = window.getComputedStyle.bind(window);
@@ -111,13 +111,22 @@ describe('reading order of a composed tale (R12, AD-15)', () => {
           media: null,
           document: doc([el('text', 0.05, 0.4, { text: 'Left' }), el('text', 0.6, 0.4, { text: 'Right' })]),
         },
+        {
+          id: 'h',
+          title: 'H',
+          media: null,
+          document: doc([el('text', 0.05, 0.4, { text: 'שמאל' }), el('text', 0.6, 0.4, { text: 'ימין' })]),
+        },
       ],
     };
     const viewer = new TaleViewer(host, [group]);
     try {
       viewer.open('g');
-      const texts = [...host.querySelectorAll('dialog .ta-canvas .ta-text')].map((p) => p.textContent);
-      expect(texts).toEqual(['Right', 'Left']);
+      const texts = () => [...host.querySelectorAll('dialog .ta-canvas .ta-text')].map((p) => p.textContent);
+      expect(host.querySelector('dialog')?.hasAttribute('data-rtl')).toBe(true);
+      expect(texts()).toEqual(['Left', 'Right']);
+      host.querySelector('dialog')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      expect(texts()).toEqual(['ימין', 'שמאל']);
     } finally {
       viewer.close();
       spy.mockRestore();
@@ -183,11 +192,13 @@ describe('reduced motion (R12)', () => {
         el('image', 0.1, 0.1, { url: `${CDN}/a.gif` }, { label: 'Dancing' }),
         el('sticker', 0.1, 0.3, { url: `${CDN}/b.webp` }, { label: 'Waving' }),
         el('image', 0.1, 0.5, { url: `${CDN}/c.jpg` }, { label: 'Photo' }),
+        el('image', 0.6, 0.5, { url: `${CDN}/e.avif` }, { label: 'Spinning' }),
         el('video', 0.1, 0.7, { url: `${CDN}/d.mp4` }, { label: 'Clip' }),
       ]),
       { reducedMotion: true },
     );
-    const [gif, sticker, photo, video] = [...area.querySelectorAll<HTMLElement>('.ta-canvas > .ta-el')];
+    const [gif, sticker, photo, avif, video] = [...area.querySelectorAll<HTMLElement>('.ta-canvas > .ta-el')];
+    expect(avif.tagName).toBe('CANVAS');
     expect(gif.tagName).toBe('CANVAS');
     expect(gif.getAttribute('role')).toBe('img');
     expect(gif.getAttribute('aria-label')).toBe('Dancing');

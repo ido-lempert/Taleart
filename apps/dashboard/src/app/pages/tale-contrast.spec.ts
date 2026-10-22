@@ -7,16 +7,7 @@ import type { TaleDocument, TaleElement } from '@taleart/contract/tale-document'
 import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
-import {
-  backdropKey,
-  canvasColor,
-  layersBehind,
-  MAX_SAMPLES,
-  pixelArea,
-  pixelColors,
-  SAMPLE_CANVAS,
-  TaleBackdropSampler,
-} from './tale-backdrop';
+import { backdropKey, layersBehind, TaleBackdropSampler } from './tale-backdrop';
 import { TaleStudioPage } from './tale-studio';
 
 // Tale Studio story 7.10 (epic Tale Studio R12): contrast warnings on the element and its layer row,
@@ -65,16 +56,17 @@ async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
 }
 
 describe('what lies behind a label (story 7.10)', () => {
-  it('paints the visible layers below the label that meet it, bottom first, never texts', () => {
+  it('paints the visible layers below the label that meet it, bottom first, and texts only by their solid box', () => {
     const under = photo();
     const rect = element('shape', box(0, 0.3, 1, 0.4), { shape: 'rectangle', fill: '#ff000080' });
     const away = element('shape', box(0, 0.8, 1, 0.1), { shape: 'rectangle', fill: '#000000' });
     const hidden = element('emoji', box(0.1, 0.4, 0.1, 0.05), { emoji: '🎉' }, { hidden: true });
     const textBelow = element('text', box(0.1, 0.4), { text: 'Under' });
+    const boxBelow = element('text', box(0.1, 0.4), { text: 'Boxed', background: 'box', backgroundColor: '#ffffff' });
     const label = element('text', box(0.1, 0.4), { text: 'Over' });
     const above = element('shape', box(0, 0, 1, 1), { shape: 'rectangle', fill: '#00ff00' });
-    const elements = [under, rect, away, hidden, textBelow, label, above];
-    expect(layersBehind(elements, 5).map((e) => e.id)).toEqual([under.id, rect.id]);
+    const elements = [under, rect, away, hidden, textBelow, boxBelow, label, above];
+    expect(layersBehind(elements, 6).map((e) => e.id)).toEqual([under.id, rect.id, boxBelow.id]);
     expect(layersBehind(elements, 0)).toEqual([]);
   });
 
@@ -92,20 +84,6 @@ describe('what lies behind a label (story 7.10)', () => {
     expect(backdropKey(doc([under, label], '#000000'), 1)).not.toBe(key);
   });
 
-  it('reads the pixel area of a label, clipped to the canvas, on a grid of at most MAX_SAMPLES pixels', () => {
-    expect(SAMPLE_CANVAS).toEqual({ width: 180, height: 320 });
-    expect(pixelArea({ x: 0.1, y: 0.4, w: 0.8, h: 0.1 })).toEqual({ x: 18, y: 128, w: 144, h: 32 });
-    expect(pixelArea({ x: -0.2, y: 0.95, w: 0.4, h: 0.2 })).toEqual({ x: 0, y: 304, w: 36, h: 16 });
-    expect(pixelArea({ x: 1.1, y: 0, w: 0.1, h: 0.1 })).toBeNull();
-    const data = new Uint8ClampedArray(4 * 4 * 4);
-    data.set([255, 0, 128, 255], 0);
-    expect(pixelColors(data, 4, 4)).toHaveLength(16);
-    expect(pixelColors(data, 4, 4)[0]).toBe('#ff0080');
-    const big = new Uint8ClampedArray(180 * 320 * 4);
-    expect(pixelColors(big, 180, 320).length).toBeLessThanOrEqual(MAX_SAMPLES);
-    expect(canvasColor('#ff000080')).toBe('rgba(255, 0, 0, 0.5019607843137255)');
-  });
-
   it('cannot read where there is no offscreen canvas, and says so without throwing', async () => {
     const sampler = new TaleBackdropSampler();
     await expect(sampler.sample(doc([photo(), element('text', box(0.1, 0.4), { text: 'x' })]), 1, (k) => k)).resolves.toBeNull();
@@ -117,7 +95,7 @@ describe('Tale Studio contrast warnings (R12, story 7.10)', () => {
   let fixture: ComponentFixture<TaleStudioPage>;
   let root: HTMLElement;
   // The colours the stand-in sampler reads behind every label, or a read that never ends.
-  let behind: string[] | null | 'pending';
+  let behind: string[][] | null | 'pending';
   const sampled: number[] = [];
   let finish: (value: null) => void = () => undefined;
 
@@ -205,6 +183,19 @@ describe('Tale Studio contrast warnings (R12, story 7.10)', () => {
     expect(root.querySelector('[aria-invalid=true]')).toBeNull();
   });
 
+  it('shows each layer\'s place in the reading order, leaving out hidden and decorative layers', async () => {
+    const backdrop = element('shape', box(0, 0, 1, 1), { shape: 'rectangle', fill: '#000000' }, { a11y: { decorative: true } });
+    const right = element('text', box(0.55, 0.4, 0.4, 0.08), { text: 'Right' });
+    const left = element('text', box(0.05, 0.41, 0.4, 0.08), { text: 'Left' });
+    const title = element('text', box(0.1, 0.1), { text: 'Title' });
+    const hidden = element('text', box(0.1, 0.05), { text: 'Hidden' }, { hidden: true });
+    await open(doc([backdrop, right, left, title, hidden], '#000000'));
+    const order = (id: string) => root.querySelector(`#layer-${id} .layer__order`)?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
+    expect([title, left, right].map((e) => order(e.id))).toEqual([', read #1', ', read #2', ', read #3']);
+    expect(order(backdrop.id)).toBeNull();
+    expect(order(hidden.id)).toBeNull();
+  });
+
   it('marks a button label on the canvas too', async () => {
     const button = element('button', box(0.2, 0.6, 0.6, 0.08), {
       label: 'Shop',
@@ -220,18 +211,19 @@ describe('Tale Studio contrast warnings (R12, story 7.10)', () => {
   it('judges a text over a photo against the colours read behind it', async () => {
     const under = photo();
     const text = element('text', box(0.1, 0.4), { text: 'Sale', color: '#ffffff', size: 0.03 });
-    behind = ['#f5f5f5', '#ffffff', '#eeeeee'];
+    behind = [['#f5f5f5', '#ffffff', '#eeeeee']];
     await open(doc([under, text], '#000000'));
     expect(sampled).toEqual([1]);
     expect(badge(text.id)).not.toBeNull();
     expect(row(text.id)).toContain('Low contrast');
     q<HTMLButtonElement>(`#studio-el-${text.id}`).click();
     await settle(fixture);
-    expect(contrast()).toMatch(/^Low contrast: 1\.\d:1 against the media behind it/);
+    // An estimate from the picture, never a claim of conformance.
+    expect(contrast()).toMatch(/^Low contrast: about 1\.\d:1 against the media behind it, so the text may be hard to read\./);
+    expect(contrast()).not.toContain('WCAG');
     // A dark colour on the bright photo is enough; the photo is not read again for a colour change.
     await set('#ts-color-hex', '#111111');
-    expect(contrast()).toMatch(/against the media behind it\.$/);
-    expect(contrast()).toMatch(/^Contrast/);
+    expect(contrast()).toMatch(/^Contrast about \d+\.\d:1 against the media behind it \(an estimate from the picture\)\.$/);
     expect(badge(text.id)).toBeNull();
     expect(sampled).toEqual([1]);
   });
@@ -239,15 +231,15 @@ describe('Tale Studio contrast warnings (R12, story 7.10)', () => {
   it('reads again when the label moves, and stops warning when an opaque box covers what lies behind', async () => {
     const under = photo();
     const text = element('text', box(0.1, 0.4), { text: 'Sale', color: '#ffffff', size: 0.03 });
-    behind = ['#ffffff'];
+    behind = [['#ffffff']];
     await open(doc([under, text], '#000000'));
     q<HTMLButtonElement>(`#studio-el-${text.id}`).click();
     await settle(fixture);
-    behind = ['#000000'];
+    behind = [['#000000']];
     await set('#studio-y', '20');
     expect(sampled).toEqual([1, 1]);
     expect(badge(text.id)).toBeNull();
-    behind = ['#ffffff'];
+    behind = [['#ffffff']];
     await set('#studio-y', '30');
     expect(badge(text.id)).not.toBeNull();
     await set('#ts-background', 'box');

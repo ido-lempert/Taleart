@@ -11,7 +11,7 @@ risk: 'medium'
 review: ''
 review_source: ''
 lenses_ran: []
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-tale-studio/epic-tale-studio.md'
@@ -96,6 +96,26 @@ deferred: []
 ## Plan Change Log
 
 ## Review Triage Log
+
+- Pass 1 (coordinator review, 2026-10-23), all items patched:
+  - MUST 1: `BackdropReads` (in `tale-backdrop.ts`) reads up to 3 at once, deduplicated by key, and publishes each result as it arrives. The studio's effect timer and the reads stop on destroy.
+  - MUST 2: a failed read is published as null, then retried after 1, 4 and 15 s, then stops until what lies behind the label changes.
+  - MUST 3: the frame cache is an LRU of 20 `ImageBitmap`s, closed on eviction. A video loads metadata only, seeks to its first frame, is decoded, and its source is released (`removeAttribute('src')` and `load()`). Loads stop on the 8 s timeout.
+  - MUST 6 (owner decision): the reading direction is the tale's, from its texts: majority, ties to the first text, LTR when none (`taleReadingDirection`). AD-15 and epic R12 are amended. The viewer no longer passes the host direction.
+  - SHOULD 4: the label is read in 8 horizontal strips; each strip's 10th percentile is taken and the worst strip is reported. Points lie inside the rotated box. UI copy over media says "about X:1 … may be hard to read … an estimate", with no WCAG claim.
+  - SHOULD 5: row membership is by vertical overlap anchored on the row's first element. Elements taller than half the canvas are rows of their own: without this, a full-canvas backdrop took every element into its row. The layers list shows each layer's reading index.
+  - NICE 7: a picture with zero natural size gives "unknown".
+  - NICE 8: a lower text's solid box is painted. A per-line highlight is not, since line positions are known only to layout.
+  - NICE 9: opacity and radius are clamped as in the SDK. An image button is opaque and a sticker has no radius. A label off the canvas is not judged. The badge takes the pointer, so its tooltip shows.
+  - NICE 10: the studio's media elements have `crossorigin="anonymous"`.
+  - NICE 11: the e2e spec uses the `e2eDatabase` guard and truncates users and projects at the end, so first-run passes in either order. `hashSessionToken` is not importable because `dashboard-e2e` has no tags, so the module-boundary rule forbids server libs. The hash is written locally with a note.
+  - NICE 12: an AVIF is drawn still under reduced motion.
+  - NICE 15 (tests):
+    - Pure geometry functions (`fitRect`, `mediaLook`, `labelSamplePoints`, `stripColors`) have unit tests.
+    - Sampler seams test the taint, failure and retry, off-canvas, LRU and single-flight cases.
+    - `loadFrame` tests cover the video frame and release, the timeout, a zero-size SVG and CORS.
+    - `BackdropReads` tests cover concurrency, rapid edits, stale results, backoff, success after a retry, and destroy.
+    - An e2e case uses a half-white, half-black image, a rotated label whose bounds reach white but whose box does not, and a white video frame.
 
 ## Design Notes
 

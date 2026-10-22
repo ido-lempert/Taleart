@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import pg from 'pg';
+import { e2eDatabase } from '../scripts/e2e-database.mjs';
 import { axeViolations } from './axe';
 
 /**
@@ -13,8 +14,13 @@ import { axeViolations } from './axe';
  * the photo's pixels, and light grey text on white warns on the element and its layer row until
  * the colour darkens (R12).
  *
- * It signs in with a session written to the database (the first-run test owns the passkey setup),
- * so it runs whatever runs before it.
+ * A second tale checks the sampling itself: a picture whose top half is white and bottom half
+ * black (a white text on each half; a rotated white label whose upright bounds reach into a white
+ * corner its turned box does not touch), and a white video's first frame under a white text.
+ *
+ * It signs in with a session written to the database (the first-run test owns the
+ * passkey setup), and at the end empties the users and projects again, so the first-run test finds
+ * an empty install whichever runs first.
  */
 
 const shots = process.env['E2E_SCREENSHOTS'];
@@ -24,9 +30,13 @@ async function shot(page: Page, name: string): Promise<void> {
   if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: true });
 }
 
-// An admin with a session, written as the API's integration tests write them; the session cookie.
+// The e2e database, guarded as the API's start script guards it (it must end in _e2e_test).
+const databaseUrl = (): string => e2eDatabase(process.env).url;
+
+// An admin with a session, the token stored only as its SHA-256 hash, as the access module's
+// `hashSessionToken` stores it (this project may not import server modules); the session token.
 async function signIn(): Promise<string> {
-  const client = new pg.Client({ connectionString: process.env['E2E_DATABASE_URL'] });
+  const client = new pg.Client({ connectionString: databaseUrl() });
   await client.connect();
   try {
     const { rows } = await client.query<{ id: string }>(
@@ -39,6 +49,17 @@ async function signIn(): Promise<string> {
       [rows[0].id, createHash('sha256').update(token, 'utf8').digest('hex')],
     );
     return token;
+  } finally {
+    await client.end();
+  }
+}
+
+// Back to an empty install: every user and project, and all that hangs on them, goes.
+async function emptyInstall(): Promise<void> {
+  const client = new pg.Client({ connectionString: databaseUrl() });
+  await client.connect();
+  try {
+    await client.query('TRUNCATE users, projects CASCADE');
   } finally {
     await client.end();
   }
@@ -59,7 +80,9 @@ test.describe.serial('Tale Studio accessibility (story 7.10)', () => {
   let context: BrowserContext;
   let page: Page;
   let taleId = '';
+  let pixelsId = '';
   const ids = { title: '', photoText: '', image: '', button: '', emoji: '' };
+  const px = { top: '', bottom: '', turned: '', onVideo: '' };
 
   test.beforeAll(async ({ browser, baseURL }) => {
     context = await browser.newContext();
@@ -91,6 +114,48 @@ test.describe.serial('Tale Studio accessibility (story 7.10)', () => {
       }),
       'base64',
     );
+    // A picture with a white top half and a black bottom half, with a white top-left quadrant only
+    // in the variant for the rotated label; and a white video, recorded from a canvas.
+    const drawn = await page.evaluate(async () => {
+      const toBase64 = async (blob: Blob) => {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let text = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return btoa(text);
+      };
+      const halves = new OffscreenCanvas(360, 640);
+      const h = halves.getContext('2d');
+      if (!h) throw new Error('no 2d context');
+      h.fillStyle = '#000000';
+      h.fillRect(0, 0, 360, 640);
+      h.fillStyle = '#ffffff';
+      h.fillRect(0, 0, 360, 320);
+      // The bottom-right quarter of the top half is black: the rotated label's corner.
+      h.fillStyle = '#000000';
+      h.fillRect(180, 160, 180, 160);
+      const canvas = document.createElement('canvas');
+      canvas.width = 160;
+      canvas.height = 90;
+      const c = canvas.getContext('2d');
+      if (!c) throw new Error('no 2d context');
+      const recorder = new MediaRecorder(canvas.captureStream(10), { mimeType: 'video/webm' });
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      const stopped = new Promise((done) => (recorder.onstop = done));
+      recorder.start();
+      const started = performance.now();
+      while (performance.now() - started < 1200) {
+        c.fillStyle = '#ffffff';
+        c.fillRect(0, 0, 160, 90);
+        await new Promise((done) => setTimeout(done, 100));
+      }
+      recorder.stop();
+      await stopped;
+      return {
+        halves: await toBase64(await halves.convertToBlob({ type: 'image/png' })),
+        video: await toBase64(new Blob(chunks, { type: 'video/webm' })),
+      };
+    });
     const project = await api<{ id: string }>('POST', '/projects', { name: 'Studio scan' });
     const zone = await api<{ id: string }>('POST', '/zones', { name: 'Home', projectId: project.id });
     const group = await api<{ id: string }>('POST', `/zones/${zone.id}/tale-groups`, { name: 'Autumn' });
@@ -117,10 +182,43 @@ test.describe.serial('Tale Studio accessibility (story 7.10)', () => {
       },
       revision: 0,
     });
+
+    // The sampling tale. On the 180 x 320 sample canvas the picture's white is the top half, less
+    // its bottom-right quarter (x 90 and up, y 80 to 160).
+    const pixels = await api<{ id: string }>('POST', `/tale-groups/${group.id}/tales`, { title: 'Pixels' });
+    pixelsId = pixels.id;
+    const halves = await api<{ key: string }>('POST', `/projects/${project.id}/media`, Buffer.from(drawn.halves, 'base64'), 'image/png');
+    const clip = await api<{ key: string }>('POST', `/projects/${project.id}/media`, Buffer.from(drawn.video, 'base64'), 'video/webm');
+    const white = { color: '#FFFFFF', size: 0.02 };
+    const top = element('text', [0.1, 0.1, 0.8, 0.06], { text: 'On white', ...white });
+    const bottom = element('text', [0.1, 0.62, 0.8, 0.06], { text: 'On black', ...white });
+    // A thin label turned -45 degrees about (95, 185) px: its ends at about (57, 223) and (133, 147),
+    // all on black; its upright bounds (x 57 to 133, y 147 to 223) reach into the white at the
+    // top left (x < 90, y < 160), which reading the bounds would count.
+    const turned = { ...element('text', [0.229, 0.568, 0.597, 0.02], { text: 'Turned', ...white }), box: { x: 0.229, y: 0.568, w: 0.597, h: 0.02, rotation: -45 } };
+    const video = element('video', [0.05, 0.8, 0.5, 0.15], { mediaKey: clip.key, fit: 'cover' }, { label: 'White' });
+    const onVideo = element('text', [0.07, 0.84, 0.46, 0.06], { text: 'On video', ...white });
+    Object.assign(px, { top: top.id, bottom: bottom.id, turned: turned.id, onVideo: onVideo.id });
+    await api('PUT', `/tales/${pixels.id}/document`, {
+      document: {
+        version: 1,
+        canvas: { background: { type: 'color', color: '#000000' } },
+        elements: [
+          element('image', [0, 0, 1, 1], { mediaKey: halves.key, fit: 'cover' }, { label: 'Halves' }),
+          top,
+          bottom,
+          turned,
+          video,
+          onVideo,
+        ],
+      },
+      revision: 0,
+    });
   });
 
   test.afterAll(async () => {
     await context.close();
+    await emptyInstall();
   });
 
   const canvasEl = (elementId: string) => page.locator(`#studio-el-${elementId}`);
@@ -182,5 +280,20 @@ test.describe.serial('Tale Studio accessibility (story 7.10)', () => {
     await expect(row(ids.title)).not.toContainText('Low contrast');
     await expect(canvasEl(ids.title).locator('.el__warn')).toHaveCount(0);
     await shot(page, 'contrast-darkened');
+  });
+
+  test('reads the pixels behind each label: halves, a rotated label and a video frame', async () => {
+    await page.goto(`/tales/${pixelsId}/studio`);
+    await expect(canvasEl(px.top)).toBeVisible();
+    // White on the white half: low; on the black half: enough.
+    await expect(row(px.top)).toContainText('Low contrast');
+    await expect(row(px.bottom)).not.toContainText('Low contrast');
+    // The rotated label is read inside its turned box, which lies on black only.
+    await page.locator(`#layer-${px.turned}`).click();
+    await expect(page.locator('#ts-contrast')).toContainText(/Contrast about \d+\.\d:1 against the media behind it/);
+    await expect(row(px.turned)).not.toContainText('Low contrast');
+    // The video's first frame (white) lies behind the white text.
+    await expect(row(px.onVideo)).toContainText('Low contrast');
+    await shot(page, 'contrast-pixels');
   });
 });
