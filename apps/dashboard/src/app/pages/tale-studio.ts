@@ -1299,7 +1299,6 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       [type]="configured"
                       [locked]="el.locked"
                       (changed)="restyleElement(el.id, $event)"
-                      (notice)="say($event)"
                     />
                   } @else if (el.type === 'emoji') {
                     <app-tale-emoji-style
@@ -1310,7 +1309,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       (notice)="say($event)"
                       (replace)="openEmojiPicker(el.id)"
                     />
-                  } @else if (el.type !== 'text') {
+                  } @else if (isMedia(el)) {
                     <app-tale-media-style
                       [element]="el"
                       [videoSeconds]="
@@ -1340,7 +1339,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                         }
                       </p>
                     }
-                  } @else {
+                  } @else if (el.type === 'text') {
                     <app-tale-text-style
                       [elementId]="el.id"
                       [props]="el.props"
@@ -1352,6 +1351,11 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                       (changed)="restyle(el.id, $event)"
                       (notice)="say($event)"
                     />
+                  } @else {
+                    <!-- A type this studio has no descriptor for (R8): kept as it is; it can be moved or deleted. -->
+                    <p class="field__hint" id="studio-unknown-type-hint">
+                      This layer's type can't be edited here. It stays in the tale as it is; you can move or delete it.
+                    </p>
                   }
                   <div class="row">
                     <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">
@@ -1654,7 +1658,9 @@ export class TaleStudioPage implements OnChanges {
   protected readonly addRows = addMenuRows(this.elementTypes);
   /** The Add menu's limits the tale has reached, whose hints show under the menu. */
   protected readonly reachedLimits = computed(() =>
-    this.elementTypes.flatMap((t) => t.add.flatMap((a) => (a.limit?.reached(this.doc()) ? [a.limit] : []))),
+    this.elementTypes
+      .flatMap((t) => t.add.flatMap((a) => (a.limit?.reached(this.doc()) ? [a.limit] : [])))
+      .sort((a, b) => a.hintOrder - b.hintOrder),
   );
   protected readonly emojiFont = EMOJI_FONT_STACK;
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
@@ -3326,6 +3332,11 @@ export class TaleStudioPage implements OnChanges {
     this.say(`${type.label} added`);
     const first = typeof type.inspector === 'object' ? type.inspector.fields[0] : undefined;
     if (first) this.focusSoon(`field-${type.key}-${first.prop}-${element.id}`);
+  }
+
+  /** True for an image, video, image sticker or image button: the media inspector edits it. */
+  protected isMedia(element: TaleElement): element is MediaElement {
+    return isMediaElement(element);
   }
 
   /** The registered type of an element whose inspector is its descriptor's fields (R8), or null. */

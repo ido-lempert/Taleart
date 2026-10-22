@@ -220,7 +220,11 @@ let testTypes = false;
  * production (R8).
  */
 export function setTestElementTypesEnabled(on: boolean): void {
+  if (testTypes === on) return;
   testTypes = on;
+  // Delivered documents were checked under the other setting: a document holding a test type is
+  // delivered only while the switch is on (otherwise its tale falls back to no document).
+  clearDeliveryCache();
 }
 
 /** True while the registry's test-only element types are accepted on write. */
@@ -387,6 +391,10 @@ export function draftProblem(err: InvalidTaleDocumentError | TaleDocumentTooLarg
   if (err.pointer === '/durationMs') return 'Its duration is not between 3 and 15 seconds.';
   if (err.pointer.startsWith('/canvas')) return 'Its background has a setting that is not valid.';
   const index = Number(/^\/elements\/(\d+)/.exec(err.pointer)?.[1] ?? NaN);
+  // An element type the registry does not hold here (R8), such as a test-only type with the switch off.
+  if (Number.isInteger(index) && err.pointer === `/elements/${index}/type` && /not a registered element type/.test(err.message)) {
+    return `Layer ${index + 1} is a type this server doesn't take.`;
+  }
   const elements = (draft as { elements?: unknown } | null)?.elements;
   const element = Array.isArray(elements) && Number.isInteger(index) ? (elements[index] as unknown) : undefined;
   if (typeof element !== 'object' || element === null) return 'Something in it is not valid.';

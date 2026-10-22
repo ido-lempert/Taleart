@@ -24,9 +24,18 @@ it, with one console warning per type per page, and shows the rest of the tale.
      the link types hold them (`linkUrlProblem`).
    - Add `{ "key": "<key>", "label": "<Name people read>", "schema": "<key>.schema.json" }` to
      `registry.json`. The key matches `^[a-z][a-z0-9-]{0,63}$`.
-   - Add the props schema to `openapi/openapi.yaml` (`<Name>ElementProps`), the element type to the
-     `TaleElement` union in `src/lib/tale-document.ts`, and run `nx run contract:generate`.
-   - The generator refuses a duplicate key, a key the document schema refuses, or an open props schema.
+   - Add the props schema to `openapi/openapi.yaml` (`<Name>ElementProps`, a `$ref` to the schema
+     file), then in `src/lib/tale-document.ts` the props type (`Schemas['<Name>ElementProps']`) and the
+     element type through the alias `TaleElementOf<'<key>', <Name>ElementProps>`, added to the
+     `TaleElement` union. Add the key to the list in `src/lib/tale-document.spec.ts` ("register
+     exactly the element types the TypeScript union holds"), and run `nx run contract:generate`.
+   - How the layers list and the server's refusals name an element is `elementName` in
+     `tale-document.ts`: a new type falls to "Layer N" until it gets a case there (a label prop, or
+     its kind and place, as buttons and shapes have).
+   - The generator (`scripts/tale-document-registry.mjs`) refuses an entry without a key, a non-empty
+     label or a schema file name in `element-types/`; an unknown field; a key the document schema
+     refuses or one registered twice; a props schema that is not a closed object, whose `required`
+     names a prop it lacks, or that Ajv does not compile (unknown keywords included).
 2. **Server rules** (`libs/server/tales`, `tale-document.ts`). The registry's schema is checked on
    every write with nothing more to do. Rules a schema cannot state (an emoji is one emoji, a label
    holds no control characters, a per-tale limit) go in `PROPS_RULES` under the key.
@@ -34,13 +43,29 @@ it, with one console warning per type per page, and shows the rest of the tale.
    `STUDIO_TYPE_DESCRIPTORS` under the key: its Add menu entries (id, label, icon, row, and
    `{ kind: 'configured' }` for a type added from its descriptor), its inspector (`{ fields: [...] }`,
    each field a prop of its schema with a control: `text`, `number`, `color` or `select`), how a new
-   one is made (`create`: box and props), and the text the canvas shows for it (`preview`). The
-   fields inspector checks each value against the schema as it is typed (`propValueProblem`). A
-   registered type without a descriptor stops the studio, so a type cannot be half added.
+   one is made (`create`: box and props), the text the canvas shows for it (`preview`), and an
+   optional `check(props)` for a rule the schema cannot state (the studio's side of the server's
+   `PROPS_RULES` entry). The fields inspector checks each value against the schema as it is typed
+   (`propValueProblem`), then `check`. A registered type without a descriptor stops the studio, so a
+   type cannot be half added. The studio also refuses a fields descriptor its schema does not fit:
+   - the props schema may use only `$schema`, `title`, `description`, `type`, `additionalProperties`,
+     `required` and `properties`, and each prop only `title`, `description`, `type`, `enum`,
+     `minLength`, `maxLength`, `pattern`, `minimum` and `maximum` (what the inspector checks; a type
+     needing more keeps its own inspector component, as the built-in types do);
+   - `text` and `select` fields edit strings, a select's options are values of the prop's `enum`,
+     `number` fields edit integers or numbers, and a `color` field's prop has the pattern
+     `^#[0-9a-fA-F]{6}$`.
+   A type the studio has no descriptor for (such as a test type with the switch off) shows in its
+   layers and canvas and can be moved or deleted; its inspector says it can't be edited here.
 4. **SDK renderer** (`libs/web-sdk`, `src/lib/document/`). Write the renderer (DOM through text nodes
    and CSSOM only, each value checked again) and add it to `RENDERERS` in `renderer.ts`; the table
    is typed by the `TaleElement` union, so it does not compile until the type has its renderer.
    Watch the SDK budget (`nx run web-sdk:size`, 50 KB gzipped).
+
+An unknown type is handled differently by the server and the SDK. The server checks a published
+document again before delivering it: a document holding a type the server does not take (a test type
+with the switch off) fails as a whole, and its tale is delivered as if it had no document. The SDK
+skips only the element it has no renderer for and shows the rest of the tale.
 
 Tests: each layer has a registry test that fails when the type is missing from it
 (`element-types.spec.ts` in the contract, server-tales, web-sdk and the dashboard).
@@ -51,8 +76,9 @@ An entry marked `"testOnly": true` (today `test-badge`) is generated into `TALE_
 instead of `TALE_ELEMENT_TYPE_REGISTRY`, and is not in the `TaleElement` union or OpenAPI. It proves
 the path end to end and is never offered in production:
 
-- the API accepts it only with `TALE_TEST_ELEMENT_TYPES=on`, which it refuses to start with under
-  `NODE_ENV=production`;
+- the API accepts it only with `TALE_TEST_ELEMENT_TYPES=on`, which it allows only with `NODE_ENV`
+  `development` or `test` (otherwise it refuses to start; see `.env.example`); switching it clears
+  the delivery cache;
 - Tale Studio offers it only in a development build (`ngDevMode`; production builds drop the code)
   with `localStorage['taleart.testElementTypes'] = 'on'`, or where a test provides
   `STUDIO_TEST_ELEMENT_TYPES`;

@@ -35,6 +35,8 @@ export type AddAction =
 export interface AddLimit {
   hintId: string;
   hint: string;
+  /** Where its hint shows among the reached limits' hints, lowest first. */
+  hintOrder: number;
   reached(doc: { elements: readonly { type: string; props?: unknown }[] } | null | undefined): boolean;
 }
 
@@ -89,6 +91,11 @@ export interface StudioTypeDescriptor {
   create?: CreateDescriptor;
   /** For a `configured` type: the text the canvas shows in its box, as a stand-in for the SDK's look. */
   preview?(props: Record<string, unknown>): string;
+  /**
+   * For a `configured` type: a rule its schema cannot state, as the server's `PROPS_RULES` adds one,
+   * run on the props an edit would give; the reason it refuses them, or null.
+   */
+  check?(props: Readonly<Record<string, unknown>>): string | null;
 }
 
 /** A registered element type as the studio offers it: the registry entry with its descriptor. */
@@ -116,6 +123,7 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
         needsProject: true,
         limit: {
           hintId: 'studio-video-hint',
+          hintOrder: 1,
           hint: 'A tale holds one video, and plays for its length. Delete it to add another.',
           reached: (doc) => limitedVideoCount(doc as { elements: readonly { type: string }[] }) >= MAX_VIDEO_ELEMENTS,
         },
@@ -148,6 +156,7 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
       entry('studio-add-swipe-up', 'Add swipe-up link', 'swipe-up', 2, { kind: 'swipe-up' }, {
         limit: {
           hintId: 'studio-swipe-up-hint',
+          hintOrder: 0,
           hint: 'A tale holds one swipe-up link. Delete it to add another.',
           reached: (doc) => (doc?.elements.filter((e) => e.type === 'swipe-up').length ?? 0) >= MAX_SWIPE_UP_ELEMENTS,
         },
@@ -191,6 +200,75 @@ export function studioTestTypeDescriptors(): Readonly<Record<string, StudioTypeD
   };
 }
 
+/** The JSON Schema keywords a props schema edited by the fields inspector may use at its top level. */
+export const FIELDS_SCHEMA_KEYWORDS: readonly string[] = [
+  '$schema',
+  'title',
+  'description',
+  'type',
+  'additionalProperties',
+  'required',
+  'properties',
+];
+
+/** The JSON Schema keywords each prop of such a schema may use: what `propValueProblem` checks. */
+export const FIELDS_PROP_KEYWORDS: readonly string[] = [
+  'title',
+  'description',
+  'type',
+  'enum',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'minimum',
+  'maximum',
+];
+
+/** The pattern a colour field's prop has: `#RRGGBB`, what the colour picker gives. */
+export const HEX_COLOR_PATTERN = '^#[0-9a-fA-F]{6}$';
+
+const PROP_TYPES: Readonly<Record<InspectorField['control'], readonly string[]>> = {
+  text: ['string'],
+  color: ['string'],
+  select: ['string'],
+  number: ['integer', 'number'],
+};
+
+// Refuses a fields inspector its schema does not fit: a keyword the inspector does not check (the
+// server would refuse values the studio let through), a field of a prop the schema lacks or of
+// another type, a select option outside the enum, a colour field whose prop is not #RRGGBB.
+function checkFieldsInspector(type: ElementTypeEntry, inspector: FieldsInspector): void {
+  const fail = (why: string) => {
+    throw new Error(`Element type "${type.key}": ${why}`);
+  };
+  for (const keyword of Object.keys(type.schema)) {
+    if (!FIELDS_SCHEMA_KEYWORDS.includes(keyword)) fail(`its schema uses "${keyword}", which the fields inspector does not check`);
+  }
+  const properties = (type.schema['properties'] ?? {}) as Record<string, Record<string, unknown>>;
+  for (const [name, prop] of Object.entries(properties)) {
+    for (const keyword of Object.keys(prop)) {
+      if (!FIELDS_PROP_KEYWORDS.includes(keyword)) fail(`"${name}" uses "${keyword}", which the fields inspector does not check`);
+    }
+  }
+  for (const field of inspector.fields) {
+    const found = propSchema(type.schema, field.prop);
+    if (!found) fail(`the inspector edits "${field.prop}", which its schema lacks`);
+    const schema = (found as NonNullable<typeof found>).schema;
+    if (!PROP_TYPES[field.control].includes(schema.type ?? '')) {
+      fail(`"${field.prop}" is of type "${schema.type}", which a ${field.control} field does not edit`);
+    }
+    if (field.control === 'select') {
+      const values = schema.enum ?? [];
+      if (!field.options?.length || field.options.some((o) => !values.includes(o.value))) {
+        fail(`the options of "${field.prop}" must be values of its enum`);
+      }
+    }
+    if (field.control === 'color' && schema.pattern !== HEX_COLOR_PATTERN) {
+      fail(`"${field.prop}" is a colour field, so its pattern must be ${HEX_COLOR_PATTERN}`);
+    }
+  }
+}
+
 // The registry entry with its descriptor; throws when it has none, or a descriptor that does not fit it.
 function described(type: ElementTypeEntry, from: Readonly<Record<string, StudioTypeDescriptor>>): StudioElementType {
   const descriptor = Object.prototype.hasOwnProperty.call(from, type.key) ? from[type.key] : undefined;
@@ -198,13 +276,7 @@ function described(type: ElementTypeEntry, from: Readonly<Record<string, StudioT
   if (descriptor.add.some((a) => a.action.kind === 'configured') && !descriptor.create) {
     throw new Error(`Element type "${type.key}" is added by configuration but says nothing of how`);
   }
-  if (typeof descriptor.inspector === 'object') {
-    for (const field of descriptor.inspector.fields) {
-      if (!propSchema(type.schema, field.prop)) {
-        throw new Error(`Element type "${type.key}": the inspector edits "${field.prop}", which its schema lacks`);
-      }
-    }
-  }
+  if (typeof descriptor.inspector === 'object') checkFieldsInspector(type, descriptor.inspector);
   return { ...type, ...descriptor };
 }
 

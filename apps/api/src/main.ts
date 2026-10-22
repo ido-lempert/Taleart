@@ -18,7 +18,7 @@ import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
-import { testElementTypesFromEnv } from './element-types-config';
+import { configureTestElementTypes } from './element-types-config';
 import { deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
@@ -42,9 +42,7 @@ async function start(): Promise<void> {
   const trustProxy = trustProxyFromEnv(process.env['TRUST_PROXY']);
   // The element-type registry's test-only types (Tale Studio R8): accepted only with
   // TALE_TEST_ELEMENT_TYPES=on, which is refused in production.
-  const testElementTypes = testElementTypesFromEnv(process.env);
-  setTestElementTypesEnabled(testElementTypes);
-  if (testElementTypes) log('warn', 'Accepting test-only element types (TALE_TEST_ELEMENT_TYPES=on): not for production');
+  configureTestElementTypes(process.env, setTestElementTypesEnabled, (msg) => log('warn', msg));
   const pool = createPool();
   await migrate(pool);
   // The build copies libs/contract/frame-types next to main.js. Read at every
