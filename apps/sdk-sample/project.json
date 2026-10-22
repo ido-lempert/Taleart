@@ -59,6 +59,21 @@
         "command": "node apps/sdk-sample/a11y-review.mjs"
       }
     },
+    "preview-parity": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        {
+          "projects": [
+            "web-sdk"
+          ],
+          "target": "build"
+        }
+      ],
+      "options": {
+        "command": "node apps/sdk-sample/preview-parity.mjs"
+      }
+    },
     "perf": {
       "executor": "nx:run-commands",
       "cache": false,

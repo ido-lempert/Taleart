@@ -26,26 +26,41 @@ export function linkHref(value: unknown): string | null {
 }
 
 // An `<a>` to the element's destination (R7, AD-16): never an opener or a referrer; a new tab only
-// when the element asks for one. Null without a destination that passes the rule.
-function anchor(element: DeliveryTaleElement, className: string): HTMLAnchorElement | null {
+// when the element asks for one. Null without a destination that passes the rule. In an inert
+// context (the Tale Studio preview, which shows a draft) the link looks and focuses the same but has
+// no `href` or target: it goes nowhere, and a draft's destination never becomes a live link in the
+// dashboard.
+function anchor(element: DeliveryTaleElement, className: string, context?: RenderContext): HTMLAnchorElement | null {
   const props = element.props as { href?: unknown; newTab?: unknown };
   const href = linkHref(props.href);
   if (!href) return null;
   const a = document.createElement('a');
   a.className = `ta-el ta-cta ${className}`;
+  a.draggable = false;
+  if (context?.inertLinks) {
+    // Still a focusable link, so focus and the keyboard behave as for a visitor (the tale waits
+    // while a link has focus); it only goes nowhere.
+    a.setAttribute('role', 'link');
+    a.tabIndex = 0;
+    return a;
+  }
   a.href = href;
   a.rel = 'noopener noreferrer';
   if (props.newTab === true) a.target = '_blank';
-  a.draggable = false;
   return a;
+}
+
+// True when the element's link opens a new tab (an inert link has no target, but says the same).
+function opensNewTab(element: DeliveryTaleElement): boolean {
+  return (element.props as { newTab?: unknown }).newTab === true;
 }
 
 /** What a link that opens a new tab adds to its accessible name (WCAG 3.2.5 advisory, G201). */
 export const NEW_TAB_NOTE = ' (opens in a new tab)';
 
 // The note, visually hidden, at the end of a link that opens a new tab, so screen readers say so.
-function newTabNote(a: HTMLAnchorElement): void {
-  if (a.target !== '_blank') return;
+function newTabNote(a: HTMLAnchorElement, element: DeliveryTaleElement): void {
+  if (!opensNewTab(element)) return;
   const note = document.createElement('span');
   note.className = 'ta-sr';
   note.textContent = NEW_TAB_NOTE;
@@ -57,12 +72,12 @@ function newTabNote(a: HTMLAnchorElement): void {
  * or outlined in it, with its corner radius, through CSSOM only (AD-16). Its label is its
  * accessible name. Null without a usable destination or label.
  */
-export function renderButton(element: DeliveryTaleElement): HTMLElement | null {
+export function renderButton(element: DeliveryTaleElement, context?: RenderContext): HTMLElement | null {
   const label = linkLabel((element.props as { label?: unknown }).label);
-  const a = label ? anchor(element, 'ta-button') : null;
+  const a = label ? anchor(element, 'ta-button', context) : null;
   if (!a) return null;
   a.textContent = label;
-  newTabNote(a);
+  newTabNote(a, element);
   const look = resolveButtonStyle(element.props);
   const style = a.style;
   style.color = look.color;
@@ -80,7 +95,7 @@ export function renderButton(element: DeliveryTaleElement): HTMLElement | null {
  * destination or image URL.
  */
 export function renderImageButton(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
-  const a = anchor(element, 'ta-image-button');
+  const a = anchor(element, 'ta-image-button', context);
   if (!a) return null;
   const { url, radius } = element.props as { url?: unknown; radius?: unknown };
   const image = renderImage(
@@ -95,8 +110,8 @@ export function renderImageButton(element: DeliveryTaleElement, context: RenderC
   image.className = 'ta-media ta-fill';
   image.setAttribute('aria-hidden', 'true');
   const label = element.a11y?.label;
-  const name = linkLabel(label) || new URL(a.href).hostname;
-  a.setAttribute('aria-label', a.target === '_blank' ? `${name}${NEW_TAB_NOTE}` : name);
+  const name = linkLabel(label) || new URL(linkHref((element.props as { href?: unknown }).href) ?? '').hostname;
+  a.setAttribute('aria-label', opensNewTab(element) ? `${name}${NEW_TAB_NOTE}` : name);
   a.appendChild(image);
   return a;
 }
@@ -106,9 +121,9 @@ export function renderImageButton(element: DeliveryTaleElement, context: RenderC
  * safe area (the renderer gives it its box). A click or Enter on it opens it, as any link; the
  * viewer also opens it on a swipe up (see `TaleViewer`). Its label is its accessible name.
  */
-export function renderSwipeUp(element: DeliveryTaleElement): HTMLElement | null {
+export function renderSwipeUp(element: DeliveryTaleElement, context?: RenderContext): HTMLElement | null {
   const label = linkLabel((element.props as { label?: unknown }).label);
-  const a = label ? anchor(element, 'ta-swipe') : null;
+  const a = label ? anchor(element, 'ta-swipe', context) : null;
   if (!a) return null;
   const look = resolveSwipeUpStyle(element.props);
   const arrow = document.createElement('span');
@@ -119,7 +134,7 @@ export function renderSwipeUp(element: DeliveryTaleElement): HTMLElement | null 
   pill.textContent = label;
   pill.style.backgroundColor = look.background;
   a.append(arrow, pill);
-  newTabNote(a);
+  newTabNote(a, element);
   a.style.color = look.color;
   a.style.fontSize = `${SWIPE_UP_FONT_SIZE * 100}cqh`;
   return a;
