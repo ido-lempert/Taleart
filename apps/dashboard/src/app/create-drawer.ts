@@ -19,7 +19,12 @@ import {
   MEDIA_CONTENT_TYPES,
   PLAYBOOKS,
   findPlaybook,
+  isSwitchable,
+  SHOWN_STATUS_LABELS,
   stageKeyFromName,
+  switchStatus,
+  taleShownStatus,
+  type ContentStatus,
   type Invitation,
   type IssuedZoneKey,
   type SetScheduleRequest,
@@ -31,7 +36,7 @@ import { DashboardStore, type DrawerRequest } from './dashboard.store';
 import { Drawer } from './drawer';
 import { describeWindow, localTimeZone, parseLocalInput, toLocalInput } from './schedule';
 import { describeSettings, initialSettings, SettingsForm, type Settings } from './settings-form';
-import { STATUS_LABELS, StatusBadge, statusActions } from './status';
+import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel } from './status';
 
 /**
  * The form for whatever the store's drawer request asks for: a create form, a
@@ -41,7 +46,7 @@ import { STATUS_LABELS, StatusBadge, statusActions } from './status';
  */
 @Component({
   selector: 'app-create-drawer',
-  imports: [FormsModule, RouterLink, Drawer, StatusBadge, SettingsForm, CoverEditor],
+  imports: [FormsModule, RouterLink, Drawer, StatusBadge, ShowSwitch, SettingsForm, CoverEditor],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './create-drawer.html',
 })
@@ -598,7 +603,21 @@ export class CreateDrawer implements OnInit {
   /** Why going live did not publish the tale's studio draft, shown under the status actions; '' for none. */
   protected readonly statusWarning = signal('');
 
-  /** Publishes, pauses, archives or restores the drawer's tale; the drawer stays open and shows its new status. */
+  protected readonly needsBadge = needsBadge;
+  protected readonly isSwitchable = isSwitchable;
+
+  /** "Shown" or "Hidden" from a tale's stored key (AD-6 amended). */
+  protected taleShownLabel(stored: ContentStatus): string {
+    return SHOWN_STATUS_LABELS[taleShownStatus(stored)];
+  }
+
+  /** Shows (stores live) or hides (stores paused) the drawer's tale, at once. */
+  protected async switchTale(tale: Tale, on: boolean): Promise<void> {
+    const status = switchStatus(tale.storedStatus, on);
+    if (status) await this.changeTaleStatus(tale.id, status);
+  }
+
+  /** Shows, hides, archives or restores the drawer's tale; the drawer stays open and shows its new status. */
   protected async changeTaleStatus(taleId: string, status: SettableStatus): Promise<void> {
     if (this.saving()) return;
     this.saving.set(true);
@@ -608,7 +627,8 @@ export class CreateDrawer implements OnInit {
     this.error.set(message);
     this.statusWarning.set(warning);
     // The saved tale's status as read, from the API's answer, not the list that may still be loading.
-    if (tale) this.statusAnnouncement.set(`Status: ${STATUS_LABELS[tale.status]}${warning ? `. ${warning}` : ''}`);
+    // The warning is announced once, by its alert.
+    if (tale) this.statusAnnouncement.set(`Status: ${statusLabel(tale.status, 'tale')}`);
   }
 
   protected pickFile(event: Event): void {

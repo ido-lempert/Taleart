@@ -1,7 +1,7 @@
 // Public interface of the access module (AD-1). It owns the `projects`,
 // `users`, `passkeys`, `sessions`, `auth_challenges`, `project_members`,
 // `invitations` and `zone_keys` tables; other modules reach them only through these exports.
-export type { Db, TransactionalDb } from './lib/db';
+export type { Db, DbConnection, TransactionalDb } from './lib/db';
 export { migrateAccess } from './lib/migration';
 export { listProjects, createProject, projectExists } from './lib/projects';
 export {

@@ -1,7 +1,8 @@
-import type { Db } from '@taleart/server-access';
+import type { DbConnection } from '@taleart/server-access';
 import { recordTaleFonts } from './project-fonts';
 import { checkTaleDocument } from './tale-document';
 import { migrateTaleMediaDocuments } from './tale-media-document';
+import { publishDraftGoingLive, SHOWN_STATUS_STEP } from './tales';
 
 /** The status keys that are stored (AD-6); the others are computed when content is read. */
 const STORED_STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'invalid-media', 'quota-reached'] as const;
@@ -10,7 +11,7 @@ const STORED_STATUSES = ['draft', 'live', 'paused', 'archived', 'processing', 'i
  * Forward-only migration for the tables the tales module owns. Runs after the
  * zones migration, because every zone placement references a zone (AD-4).
  */
-export async function migrateTales(db: Db): Promise<void> {
+export async function migrateTales(db: DbConnection): Promise<void> {
   // A tale group belongs to its project, not to a zone (AD-14). Installs made
   // before AD-14 still have zone_id and position here until the step below.
   await db.query(`
@@ -278,7 +279,104 @@ export async function migrateTales(db: Db): Promise<void> {
     `CREATE INDEX IF NOT EXISTS tales_media_out_of_step_idx ON tales (id)
      WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key`,
   );
+  // Before the media step below, so the tales it makes live get their published media document there.
+  await migrateShownStatus(db);
   await migrateTaleMediaDocuments(db);
+}
+
+/**
+ * The shown-status step (epic UX rework R6, AD-6 amended 2026-10-23), run once: a tale group shows
+ * On or Off and a tale Shown or Hidden over the same stored keys, new tales start `live`, and a
+ * group turned On shows its tales. So the `draft` tales of groups that were never live become
+ * `live`; the `draft` tales of a group that is or may have been live stay `draft` (Hidden).
+ *
+ * "Never live" is a group stored `draft`: no status change sets `draft` (publish, pause, archive
+ * and restore set `live`, `paused` and `archived`), and rows from before statuses were filled with
+ * `live`, so a `draft` group has never been `live`. No status history is stored, so a `paused`
+ * group (paused from live, or restored from archived) and an `archived` group may have been live,
+ * and their draft tales stay Hidden. A group stored `draft` is not delivered, so making its tales
+ * `live` changes nothing any visitor sees until a person turns the group On.
+ *
+ * Each tale made `live` with a draft document and no published document has its draft published,
+ * as going live always did (AD-15), unless it no longer passes; a tale with no document yet gets
+ * its published media document from the media step that follows.
+ *
+ * Done once, recorded in `tales_migrations` in the same transaction: tales stored `draft` later
+ * (kept copies) are not made live by a later start. The step's time also marks which tales with
+ * neither media nor a document were created before it, and so keep the legacy placeholder
+ * (`hasPublishedDocument`).
+ */
+export async function migrateShownStatus(
+  client: DbConnection,
+  options: { log?: (level: 'info' | 'warn', msg: string) => void } = {},
+): Promise<{ applied: boolean; madeLive: number; published: number }> {
+  const log = options.log ?? logJson;
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS tales_migrations (
+      step text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await client.query('BEGIN');
+  try {
+    const step = await client.query(
+      'INSERT INTO tales_migrations (step) VALUES ($1) ON CONFLICT (step) DO NOTHING RETURNING step',
+      [SHOWN_STATUS_STEP],
+    );
+    if (step.rows.length === 0) {
+      await client.query('COMMIT');
+      return { applied: false, madeLive: 0, published: 0 };
+    }
+    // The draft groups are share locked first, so an instance of the previous release turning one
+    // live meanwhile either went first (the group is not draft any more) or waits for this step:
+    // no tale of a group that is live by then is made live here.
+    const groups = await client.query<{ id: string }>(
+      `SELECT id FROM tale_groups WHERE status = 'draft' ORDER BY id FOR SHARE`,
+    );
+    const { rows } = await client.query<{ id: string; draft: unknown; unpublished: boolean }>(
+      `UPDATE tales SET status = 'live'
+       WHERE tale_group_id = ANY($1::uuid[]) AND status = 'draft'
+       RETURNING id, draft_document AS draft, document IS NULL AS unpublished`,
+      [groups.rows.map((g) => g.id)],
+    );
+    let published = 0;
+    for (const row of rows) {
+      if (!row.unpublished || row.draft === null) continue;
+      // In a savepoint: a database error on this tale (such as a constraint or a data error) keeps
+      // its status change and skips only its publish. It then has no published document and, being
+      // from before the step, is delivered by the legacy rule (hasPublishedDocument): its media
+      // composed in, or the placeholder; the media step that follows may give it a published media
+      // document. Any other error, such as a lost connection, fails the step.
+      await client.query('SAVEPOINT shown_status_publish');
+      try {
+        if ((await publishDraftGoingLive(client, row.id, row.draft)) === null) published++;
+        await client.query('RELEASE SAVEPOINT shown_status_publish');
+      } catch (err) {
+        if (!isRowError(err)) throw err;
+        await client.query('ROLLBACK TO SAVEPOINT shown_status_publish');
+        log('warn', `Tale ${row.id}: made live, but its draft could not be published (${String(err)})`);
+      }
+    }
+    await client.query('COMMIT');
+    return { applied: true, madeLive: rows.length, published };
+  } catch (err) {
+    // The step's own error is the one to report, not a failed rollback on a broken connection.
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  }
+}
+
+// True for an error PostgreSQL raised about one statement on a working connection (it has a
+// SQLSTATE code), outside the connection (08) and operator-intervention (57) classes: what one
+// tale's data can cause, after which the savepoint rolls back and the step goes on.
+function isRowError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) && !/^(08|57)/.test(code);
+}
+
+// The API's log line format, for a migration run without a logger.
+function logJson(level: 'info' | 'warn', msg: string): void {
+  (level === 'warn' ? console.warn : console.log)(JSON.stringify({ level, msg }));
 }
 
 // True when a stored document passes the document check, as the Delivery API requires.

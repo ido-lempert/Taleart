@@ -3,6 +3,12 @@ import type { Pool, PoolClient } from 'pg';
 /** Anything that can run a query: a pool or a checked-out client. */
 export type Db = Pick<Pool | PoolClient, 'query'>;
 
+/**
+ * One checked-out connection, for work that must stay on one session: a transaction spanning
+ * several calls, or the migrations, which run under the migration lock (a pool has no `release`).
+ */
+export type DbConnection = Pick<PoolClient, 'query' | 'release'>;
+
 /** A database that can hand out one connection for a transaction, such as a pg Pool. */
 export interface TransactionalDb extends Db {
   connect(): Promise<Db & { release(err?: Error | boolean): void }>;
