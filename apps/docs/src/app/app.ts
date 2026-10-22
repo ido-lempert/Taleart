@@ -1,13 +1,14 @@
-import { Component } from '@angular/core';
-import { RouterModule } from '@angular/router';
-import { NxWelcome } from './nx-welcome';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { DOCS_PAGES } from './app.routes';
 
 @Component({
-  imports: [NxWelcome, RouterModule],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive],
   selector: 'docs-root',
   templateUrl: './app.html',
   styleUrl: './app.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App {
-  protected title = 'docs';
+  protected readonly pages = DOCS_PAGES;
 }
