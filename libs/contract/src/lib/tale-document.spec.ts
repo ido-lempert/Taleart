@@ -37,7 +37,7 @@ describe('tale document schemas', () => {
   });
 
   it('register exactly the element types the TypeScript union holds', () => {
-    const keys: TaleElementType[] = ['text', 'image', 'video'];
+    const keys: TaleElementType[] = ['text', 'image', 'video', 'shape', 'emoji', 'sticker'];
     expect(TALE_ELEMENT_TYPE_REGISTRY.map((type) => type.key)).toEqual(keys);
   });
 

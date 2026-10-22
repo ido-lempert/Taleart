@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ShapeElementProps",
+  "description": "The props of a shape element (epic Tale Studio R6): a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text (AD-16). Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["shape"],
+  "properties": {
+    "shape": {
+      "type": "string",
+      "enum": ["rectangle", "ellipse", "line"]
+    },
+    "fill": {
+      "description": "The fill colour as #RRGGBB or #RRGGBBAA; no fill when left out.",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    "stroke": {
+      "description": "The stroke colour as #RRGGBB or #RRGGBBAA; no stroke when left out.",
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    "strokeWidth": {
+      "description": "The stroke width as a fraction of the canvas height; 0 when left out.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.05
+    },
+    "radius": {
+      "description": "A rectangle's corner radius as a fraction of the canvas height; 0 when left out.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.5
+    },
+    "opacity": {
+      "description": "From 0 (transparent) to 1 (opaque); 1 when left out.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "shape": { "const": "ellipse" } }, "required": ["shape"] },
+      "then": { "not": { "required": ["radius"] } }
+    },
+    {
+      "if": { "properties": { "shape": { "const": "line" } }, "required": ["shape"] },
+      "then": {
+        "required": ["stroke", "strokeWidth"],
+        "properties": { "strokeWidth": { "exclusiveMinimum": 0 } },
+        "allOf": [{ "not": { "required": ["fill"] } }, { "not": { "required": ["radius"] } }]
+      }
+    }
+  ]
+}

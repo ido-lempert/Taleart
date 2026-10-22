@@ -93,7 +93,10 @@ export function ratioText(ratio: number): string {
  */
 export function contrastWarning(check: TextContrast): string | null {
   if (check.kind === 'unknown') {
-    return "Contrast can't be checked over media. Give the text a solid box or highlight, or check it on the preview.";
+    return (
+      "Contrast can't be checked over media or the layers below the text. Give the text a solid box or highlight, " +
+      'or check it on the preview.'
+    );
   }
   if (check.kind === 'ok') return null;
   return (
