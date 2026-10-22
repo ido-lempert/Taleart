@@ -118,6 +118,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    // A client script may read when to try again after a 429.
+    res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
     res.removeHeader('Access-Control-Allow-Credentials');
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);

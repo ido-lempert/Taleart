@@ -150,7 +150,7 @@ function refusal(err: unknown, fallback: string): string {
                   <p id="site-key-exposure">
                     <strong>It opens every zone of this project.</strong> The key sits in your pages' HTML, so anyone
                     who sees it can read every zone of this project that has a display and visible content, by its
-                    slug.
+                    slug, and slugs are often guessable (such as "home").
                   </p>
                 }
               }
