@@ -1873,6 +1873,138 @@ try {
     await context.close();
   }
 
+  // 14b. Calls to action in a tale document (Tale Studio 7.7, epic R7, R14; AD-16): a filled and an
+  //      outline button, an image button and the swipe-up link are real links, named by their label
+  //      or alt text, reached by Tab in reading order with a visible focus ring, big enough to hit;
+  //      a new-tab link has no opener; a javascript: link that reached the SDK anyway is not drawn.
+  {
+    const el = (n, type, box, props, a11y = {}) => ({
+      id: `00000000-0000-4000-8000-00000000030${n}`,
+      type,
+      box: { rotation: 0, ...box },
+      a11y,
+      props,
+    });
+    const z = zone({
+      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      taleGroups: [
+        {
+          id: 'gl',
+          name: 'Links',
+          cover: null,
+          tales: [
+            {
+              id: 'l1',
+              title: 'Link tale',
+              media: null,
+              document: {
+                version: 1,
+                canvas: { background: { type: 'color', color: '#1f3a5f' } },
+                elements: [
+                  el(
+                    1,
+                    'button',
+                    { x: 0.2, y: 0.2, w: 0.6, h: 0.07 },
+                    { label: 'Shop now', variant: 'filled', color: '#111827', fill: '#ffffff', radius: 0.035, href: 'https://shop.example/now' },
+                  ),
+                  el(
+                    2,
+                    'button',
+                    { x: 0.2, y: 0.3, w: 0.6, h: 0.07 },
+                    { label: 'Read more', variant: 'outline', color: '#ffffff', fill: '#ffffff', href: 'https://shop.example/read', newTab: true },
+                  ),
+                  el(
+                    3,
+                    'image-button',
+                    { x: 0.35, y: 0.45, w: 0.3, h: 0.16875 },
+                    { url: `${API}/media/media/hat.png`, href: 'https://shop.example/look', radius: 0.02 },
+                    { label: 'Shop the look' },
+                  ),
+                  el(
+                    4,
+                    'button',
+                    { x: 0.2, y: 0.66, w: 0.6, h: 0.07 },
+                    { label: 'Bad link', variant: 'filled', color: '#000000', fill: '#ffffff', href: 'javascript:alert(1)' },
+                  ),
+                  el(
+                    5,
+                    'swipe-up',
+                    { x: 0.2, y: 0.87, w: 0.6, h: 0.09 },
+                    { label: 'See more', color: '#ffffff', background: '#000000b3', href: 'https://shop.example/more' },
+                  ),
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await openSample(context, { zone: z });
+    await view(page).locator('button.item').first().click();
+    await dialogOf(page).waitFor();
+    await page.waitForTimeout(400);
+    const links = await page.evaluate(() =>
+      [...__taOne('dialog').querySelectorAll('.ta-canvas a')].map((a) => {
+        const r = a.getBoundingClientRect();
+        return {
+          name: a.getAttribute('aria-label') ?? a.textContent.trim(),
+          href: a.getAttribute('href'),
+          rel: a.rel,
+          target: a.target,
+          hidden: a.closest('[aria-hidden=true]') !== null,
+          w: r.width,
+          h: r.height,
+        };
+      }),
+    );
+    check(
+      'R7',
+      links.length === 4 &&
+        links.every((l) => /^https:\/\/shop\.example\//.test(l.href) && l.rel === 'noopener noreferrer' && !l.hidden),
+      `the buttons, the image button and the swipe-up link are links without opener or referrer (${links.length})`,
+    );
+    check(
+      'R14',
+      !links.some((l) => l.name === 'Bad link' || /javascript/i.test(l.href ?? '')),
+      'a javascript: link is not drawn',
+    );
+    check(
+      'R7',
+      links.find((l) => l.name === 'Read more (opens in a new tab)')?.target === '_blank' &&
+        links.filter((l) => l.target === '_blank').length === 1,
+      'only the new-tab link opens a new tab, and its name says so',
+    );
+    check(
+      '2.5.8',
+      links.every((l) => l.w >= 24 && l.h >= 24),
+      `every link is at least 24 by 24 px (${links.map((l) => `${Math.round(l.w)}x${Math.round(l.h)}`).join(', ')})`,
+    );
+    const tree = await dialogOf(page).locator('.ta-canvas').ariaSnapshot();
+    const order = ['link "Shop now"', 'link "Read more (opens in a new tab)"', 'link "Shop the look"', 'link "See more"'].map((name) =>
+      tree.indexOf(name),
+    );
+    check(
+      '1.3.2',
+      order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])),
+      'the accessibility tree names each link by its label or alt text, in reading order',
+    );
+    // Keyboard: Tab reaches each link with a visible ring; the viewer's own keys keep working.
+    const stops = await tabWalk(page, 10);
+    const reached = stops.filter((s) => s.tag === 'a');
+    check(
+      '2.1.1',
+      reached.map((s) => s.name).join('|') === 'Shop now|Read more (opens in a new tab)|Shop the look|See more',
+      `Tab reaches every link in reading order (${reached.map((s) => s.name).join(', ')})`,
+    );
+    check('2.4.7', reached.length > 0 && reached.every((s) => s.ringed), 'a focused link shows a focus ring');
+    check('2.4.11', reached.every((s) => s.shown > 0), 'a focused link is not hidden by anything');
+    await axe(page, 'viewer on a tale with buttons, an image button and the swipe-up link');
+    await shot(page, 'links-tale');
+    check('4.1.2', page.errors.length === 0, 'no console errors on the links tale');
+    await context.close();
+  }
+
   // 15. Existing tales become documents (Tale Studio 7.11, epic R16): every tale from before
   //     documents looks exactly as it did. "Before" is the release before 7.11 (the Web SDK built
   //     from 489b892 by legacy-sdk.mjs) on what that release's server sent: the tale's media, and its

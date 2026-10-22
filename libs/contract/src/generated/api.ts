@@ -1653,11 +1653,11 @@ export interface components {
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji` or `sticker`. */
+            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button` or `swipe-up`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
-            /** @description The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's, video's or image sticker's `mediaKey` is replaced by `url`, its public URL (AD-11). */
+            /** @description The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's, video's, image sticker's or image button's `mediaKey` is replaced by `url`, its public URL (AD-11). A link's destination stays `href`. */
             props: Record<string, never>;
         };
         TaleDocument: components["schemas"]["v1.schema"];
@@ -1667,6 +1667,9 @@ export interface components {
         ShapeElementProps: components["schemas"]["shape.schema"];
         EmojiElementProps: components["schemas"]["emoji.schema"];
         StickerElementProps: components["schemas"]["sticker.schema"];
+        ButtonElementProps: components["schemas"]["button.schema"];
+        ImageButtonElementProps: components["schemas"]["image-button.schema"];
+        SwipeUpElementProps: components["schemas"]["swipe-up.schema"];
         /** @description An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
         MediaBackground: {
             /** @constant */
@@ -2326,6 +2329,59 @@ export interface components {
             mediaKey: string;
             /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
             opacity?: number;
+        };
+        /**
+         * ButtonElementProps
+         * @description The props of a button (epic Tale Studio R7): a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one (R7, R14).
+         */
+        "button.schema": {
+            /** @description The text on the button: plain text on one line, its accessible name. */
+            label: string;
+            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). Servers check it in full; clients check it again before rendering. */
+            href?: string;
+            /** @description Opens the destination in a new tab, with `noopener`; the same tab when left out. */
+            newTab?: boolean;
+            /**
+             * @description `filled` paints the button in `fill`; `outline` draws only its edge in `fill`.
+             * @enum {string}
+             */
+            variant: "filled" | "outline";
+            /** @description The label colour as #RRGGBB or #RRGGBBAA. */
+            color: string;
+            /** @description The button colour as #RRGGBB or #RRGGBBAA: its fill, or its edge for an outline button. */
+            fill: string;
+            /** @description The corner radius as a fraction of the canvas height; 0 when left out. */
+            radius?: number;
+        };
+        /**
+         * ImageButtonElementProps
+         * @description The props of a custom image button (epic Tale Studio R7): an image of the tale's project, by its storage key (AD-11), never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination (R7, R12, R14).
+         */
+        "image-button.schema": {
+            /** @description The storage key of an image (PNG, JPEG, GIF or WebP) of the tale's project, as the server made it. */
+            mediaKey: string;
+            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). */
+            href?: string;
+            /** @description Opens the destination in a new tab, with `noopener`; the same tab when left out. */
+            newTab?: boolean;
+            /** @description The corner radius as a fraction of the canvas height; 0 when left out. */
+            radius?: number;
+        };
+        /**
+         * SwipeUpElementProps
+         * @description The props of a swipe-up link (epic Tale Studio R7): a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.
+         */
+        "swipe-up.schema": {
+            /** @description The text of the link: plain text on one line, its accessible name. */
+            label: string;
+            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). */
+            href?: string;
+            /** @description Opens the destination in a new tab, with `noopener`; the same tab when left out. */
+            newTab?: boolean;
+            /** @description The label and arrow colour as #RRGGBB or #RRGGBBAA. */
+            color: string;
+            /** @description The colour of the pill behind the label as #RRGGBB or #RRGGBBAA (#RRGGBB00 for none). */
+            background: string;
         };
     };
     responses: {
@@ -4416,3 +4472,4 @@ export const textSchemaBackgroundValues: ReadonlyArray<FlattenedDeepRequired<com
 export const imageSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["image.schema"]["fit"]> = ["cover", "contain"];
 export const videoSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["video.schema"]["fit"]> = ["cover", "contain"];
 export const shapeSchemaShapeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["shape.schema"]["shape"]> = ["rectangle", "ellipse", "line"];
+export const buttonSchemaVariantValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["button.schema"]["variant"]> = ["filled", "outline"];

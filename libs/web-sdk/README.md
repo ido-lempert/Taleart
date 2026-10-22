@@ -163,6 +163,19 @@ emoji fonts (no emoji images are downloaded), announced by its label, the emoji'
 the project's media shown whole, with its alt text or hidden when decorative, and still under reduced motion. An SDK
 that predates a type skips it and shows the rest of the tale.
 
+### Buttons, image buttons and the swipe-up link
+
+Calls to action are real `<a>` links with `rel="noopener noreferrer"` (and `target="_blank"` when set to open a new
+tab), named by their label or, for an image button, its alt text. The SDK checks each destination again with the
+contract's rule (an absolute `http` or `https` URL of at most 2,048 characters, no credentials or control characters)
+and does not draw a link that fails it. The swipe-up link sits in the bottom safe area and opens on a click, on Enter
+when focused, or on a flick up anywhere on the tale. A flick is one pointer (a second finger makes the press a pinch,
+which opens nothing), released within 500 ms, travelling upwards more than sideways by at least 50 px or 8% of the
+stage's height, whichever is more; a hold that drifts up, or a slower drag, is not one. On a tale without a swipe-up
+link a vertical drag stays a tap, and the viewer's taps, sideways swipes and hold to pause are unchanged. A link that
+opens a new tab says "(opens in a new tab)" in its accessible name. While a link has keyboard focus the tale waits,
+and when the tale goes (by a key or the arrows) focus returns to the viewer.
+
 ### Measuring
 
 `nx run sdk-sample:perf` builds the API and the SDK, starts the API on `TEST_DATABASE_URL` (a database whose name

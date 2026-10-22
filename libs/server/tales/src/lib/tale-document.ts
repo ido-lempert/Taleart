@@ -5,7 +5,14 @@ import {
   hasDisallowedCharacter,
   isEmojiGlyph,
   isFontFamily,
+  isLinkElement,
   isMediaContentType,
+  isSwipeUpBox,
+  LINK_URL_MESSAGES,
+  linkUrlProblem,
+  MAX_SWIPE_UP_ELEMENTS,
+  missingLinkUrl,
+  missingLinkUrlMessage,
   isMediaElement,
   isTaleMediaElement,
   mediaKind,
@@ -64,6 +71,18 @@ export class AltTextRequiredError extends InvalidTaleDocumentError {
     super(pointer, message);
     this.message = message;
     this.name = 'AltTextRequiredError';
+  }
+}
+
+/**
+ * Thrown when a draft is published with a visible button, image button or swipe-up link that has
+ * no web address (R7); the message names the element as Tale Studio does. Drafts may hold one.
+ */
+export class LinkUrlRequiredError extends InvalidTaleDocumentError {
+  constructor(pointer: string, message: string) {
+    super(pointer, message);
+    this.message = message;
+    this.name = 'LinkUrlRequiredError';
   }
 }
 
@@ -131,6 +150,27 @@ function describe(error: ErrorObject, prefix: string): InvalidTaleDocumentError 
 // A rule a registered type adds to its schema, given the element's props and their pointer.
 type PropsRule = (props: Record<string, unknown>, pointer: string) => void;
 
+// A link's destination, when it has one (R7, R14; AD-15): an absolute http or https URL of at most
+// 2,048 characters, with a host, and without credentials, spaces or control characters.
+function checkHref(props: Record<string, unknown>, pointer: string): void {
+  if (props['href'] === undefined) return;
+  const problem = linkUrlProblem(props['href']);
+  if (problem) throw new InvalidTaleDocumentError(`${pointer}/href`, `is refused: ${LINK_URL_MESSAGES[problem]}`);
+}
+
+// A button's or swipe-up link's label: one line of text that shows (R7, R14).
+function checkLinkLabel(props: Record<string, unknown>, pointer: string): void {
+  const label = props['label'];
+  if (typeof label !== 'string') return;
+  if (hasDisallowedCharacter(label, LABEL_TEXT_RULE) || label.includes('\n')) {
+    throw new InvalidTaleDocumentError(
+      `${pointer}/label`,
+      'may not hold line feeds, control characters, lone surrogates or bidi overrides',
+    );
+  }
+  if (label.trim() === '') throw new InvalidTaleDocumentError(`${pointer}/label`, 'must hold some text');
+}
+
 const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
   text: (props, pointer) => {
     if (typeof props['text'] === 'string' && hasDisallowedCharacter(props['text'], ELEMENT_TEXT_RULE)) {
@@ -149,6 +189,16 @@ const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
   // One RGI emoji, drawn as text (R6, R14): no other text, markup or control characters.
   emoji: (props, pointer) => {
     if (!isEmojiGlyph(props['emoji'])) throw new InvalidTaleDocumentError(`${pointer}/emoji`, 'must be one emoji');
+  },
+  // Calls to action (R7): a label that shows, and a destination a link may open.
+  button: (props, pointer) => {
+    checkLinkLabel(props, pointer);
+    checkHref(props, pointer);
+  },
+  'image-button': checkHref,
+  'swipe-up': (props, pointer) => {
+    checkLinkLabel(props, pointer);
+    checkHref(props, pointer);
   },
 };
 
@@ -203,12 +253,15 @@ export function checkTaleDocument(value: unknown): TaleDocument {
   const ids = new Set<string>();
   let videos = 0;
   let taleMedia = 0;
+  let swipeUps = 0;
   const elements = doc.elements.map((original, i) => {
     const at = `/elements/${i}`;
     const element = normalized(original);
     const validate = props.get(element.type);
     if (!validate)
       throw new InvalidTaleDocumentError(`${at}/type`, `"${element.type}" is not a registered element type`);
+    // A link's destination first, so a refusal says why in words rather than as the schema's pattern.
+    if (isLinkElement(element)) checkHref(element.props as unknown as Record<string, unknown>, `${at}/props`);
     if (!validate(element.props)) {
       const [error] = validate.errors ?? [];
       throw error ? describe(error, `${at}/props`) : new InvalidTaleDocumentError(`${at}/props`, 'is invalid');
@@ -233,6 +286,18 @@ export function checkTaleDocument(value: unknown): TaleDocument {
     }
     if (element.type === 'video' && !isTaleMediaElement(element) && ++videos > MAX_VIDEO_ELEMENTS) {
       throw new InvalidTaleDocumentError(`${at}/type`, `is a video: a tale holds at most ${MAX_VIDEO_ELEMENTS}`);
+    }
+    // One swipe-up link per tale, hidden or not, pinned to the bottom safe area (R7).
+    if (element.type === 'swipe-up') {
+      if (++swipeUps > MAX_SWIPE_UP_ELEMENTS) {
+        throw new InvalidTaleDocumentError(
+          `${at}/type`,
+          `is a swipe-up link: a tale holds at most ${MAX_SWIPE_UP_ELEMENTS}`,
+        );
+      }
+      if (!isSwipeUpBox(element.box)) {
+        throw new InvalidTaleDocumentError(`${at}/box`, 'must be the swipe-up box, pinned to the bottom safe area');
+      }
     }
     return element;
   });
@@ -277,12 +342,17 @@ export function ownTaleMediaOnly(
 }
 
 /**
- * The rules a document must also pass to be published (R12): every visible image and video has alt
- * text or the decorative mark. Throws {@link AltTextRequiredError} naming the first that does not.
+ * The rules a document must also pass to be published (R7, R12): every visible image, video and
+ * image sticker has alt text or the decorative mark, and every visible image button alt text;
+ * every visible button, image button and swipe-up link has a web address. Throws
+ * {@link AltTextRequiredError} or {@link LinkUrlRequiredError} naming the first that does not.
  */
 export function checkPublishRules(doc: TaleDocument): void {
   const missing = missingAltText(doc);
   if (missing) throw new AltTextRequiredError(`/elements/${missing.index}/a11y/label`, missingAltTextMessage(missing));
+  const unlinked = missingLinkUrl(doc);
+  if (unlinked)
+    throw new LinkUrlRequiredError(`/elements/${unlinked.index}/props/href`, missingLinkUrlMessage(unlinked));
 }
 
 /**
@@ -291,7 +361,7 @@ export function checkPublishRules(doc: TaleDocument): void {
  */
 export function draftProblem(err: InvalidTaleDocumentError | TaleDocumentTooLargeError, draft: unknown): string {
   if (err instanceof TaleDocumentTooLargeError) return `The draft is larger than ${MAX_TALE_DOCUMENT_BYTES / 1024} KB.`;
-  if (err instanceof AltTextRequiredError) return err.message;
+  if (err instanceof AltTextRequiredError || err instanceof LinkUrlRequiredError) return err.message;
   if (err.pointer === '/durationMs') return 'Its duration is not between 3 and 15 seconds.';
   if (err.pointer.startsWith('/canvas')) return 'Its background has a setting that is not valid.';
   const index = Number(/^\/elements\/(\d+)/.exec(err.pointer)?.[1] ?? NaN);
@@ -299,7 +369,10 @@ export function draftProblem(err: InvalidTaleDocumentError | TaleDocumentTooLarg
   const element = Array.isArray(elements) && Number.isInteger(index) ? (elements[index] as unknown) : undefined;
   if (typeof element !== 'object' || element === null) return 'Something in it is not valid.';
   const e = element as { type?: unknown; props?: { text?: unknown }; a11y?: { label?: string } };
-  if (typeof e.type === 'string' && (isMediaElement({ type: e.type }) || e.type === 'shape' || e.type === 'emoji')) {
+  if (
+    typeof e.type === 'string' &&
+    (isMediaElement({ type: e.type }) || isLinkElement({ type: e.type }) || e.type === 'shape' || e.type === 'emoji')
+  ) {
     return `"${elementName(elements as { type: string }[], index)}" has a setting that is not valid.`;
   }
   if (e.type === 'text' && typeof e.props?.text === 'string') {
@@ -319,13 +392,15 @@ export function checkPublishableDocument(value: unknown): TaleDocument {
   return doc;
 }
 
-// The element with its label, and a text element's text, in Unicode NFC, so equal text is stored
-// equally; a project font's id in lower case, as the database spells a uuid.
+// The element with its label, a text element's text and a link's label in Unicode NFC, so equal
+// text is stored equally; a project font's id in lower case, as the database spells a uuid.
 function normalized(element: TaleDocument['elements'][number]): TaleDocument['elements'][number] {
   const label = element.a11y.label;
   const a11y = typeof label === 'string' ? { ...element.a11y, label: label.normalize('NFC') } : element.a11y;
   const text = (element.props as { text?: unknown } | null)?.text;
   let props = typeof text === 'string' ? { ...element.props, text: text.normalize('NFC') } : element.props;
+  const linkText = isLinkElement(element) ? (props as { label?: unknown }).label : undefined;
+  if (typeof linkText === 'string') props = { ...props, label: linkText.normalize('NFC') } as typeof props;
   const font = (props as { font?: { source?: unknown; fontId?: unknown } } | null)?.font;
   if (font?.source === 'project' && typeof font.fontId === 'string') {
     props = { ...props, font: { ...font, fontId: font.fontId.toLowerCase() } } as typeof props;
