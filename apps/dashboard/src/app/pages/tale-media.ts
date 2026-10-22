@@ -12,6 +12,7 @@ import {
   type ImageElementProps,
   type MediaElement,
   type MediaFit,
+  type StickerElementProps,
   type TaleElementA11y,
 } from '@taleart/contract/tale-document';
 import { Drawer } from '../drawer';
@@ -29,7 +30,14 @@ const ACCEPT: Readonly<Record<MediaKind, string>> = {
   video: 'video/mp4,video/webm',
 };
 
-const KIND_NAMES: Readonly<Record<MediaKind, string>> = { image: 'image', video: 'video' };
+const KIND_NAMES: Readonly<Record<MediaKind | 'sticker', string>> = {
+  image: 'image',
+  video: 'video',
+  sticker: 'sticker',
+};
+
+/** The file types an image sticker takes (R6): PNG, WebP and GIF, which may be transparent. */
+export const STICKER_CONTENT_TYPES: readonly string[] = ['image/png', 'image/webp', 'image/gif'];
 
 /** How the picker names a piece of media, for its button. */
 export function mediaChoiceName(media: ProjectMedia): string {
@@ -107,11 +115,15 @@ export function mediaChoiceName(media: ProjectMedia): string {
             <span class="field__hint" role="status">Uploading…</span>
           }
         </div>
-        <h3 class="field__label" id="media-list-title">The project's {{ kindName() }}s</h3>
+        <h3 class="field__label" id="media-list-title">
+          The project's {{ stickers() ? 'PNG, WebP and GIF images' : kindName() + 's' }}
+        </h3>
         @if (items() === null) {
           <p class="muted" role="status">{{ loadError() || 'Loading…' }}</p>
         } @else if (items()?.length === 0) {
-          <p class="muted">No {{ kindName() }}s in this project yet. Upload one above.</p>
+          <p class="muted">
+            No {{ stickers() ? 'PNG, WebP or GIF images' : kindName() + 's' }} in this project yet. Upload one above.
+          </p>
         } @else {
           <ul class="media-grid" aria-labelledby="media-list-title">
             @for (media of items(); track media.key) {
@@ -148,6 +160,8 @@ export class TaleMediaPicker {
   private readonly media = inject(ProjectMediaService);
   readonly projectId = input.required<string>();
   readonly kind = input.required<MediaKind>();
+  /** Picks an image sticker (R6): PNG, WebP and GIF images only. */
+  readonly stickers = input(false);
   readonly heading = input.required<string>();
   /** The key in use now, marked in the list. */
   readonly currentKey = input<string | null>(null);
@@ -157,16 +171,23 @@ export class TaleMediaPicker {
   readonly closed = output<void>();
 
   private readonly all = signal<readonly ProjectMedia[] | null>(null);
-  protected readonly items = computed(() => this.all()?.filter((m) => m.kind === this.kind()) ?? null);
+  protected readonly items = computed(
+    () =>
+      this.all()?.filter(
+        (m) => m.kind === this.kind() && (!this.stickers() || STICKER_CONTENT_TYPES.includes(m.contentType)),
+      ) ?? null,
+  );
   protected readonly uploading = signal(false);
   protected readonly error = signal('');
   protected readonly loadError = signal('');
   protected readonly kindName = computed(() => KIND_NAMES[this.kind()]);
-  protected readonly accept = computed(() => ACCEPT[this.kind()]);
+  protected readonly accept = computed(() => (this.stickers() ? STICKER_CONTENT_TYPES.join(',') : ACCEPT[this.kind()]));
   protected readonly hint = computed(() =>
     this.kind() === 'video'
       ? 'An MP4 or WebM video, at most 100 MB. It is used as it is, without converting it.'
-      : 'A JPEG, PNG, WebP or GIF image, at most 10 MB.',
+      : this.stickers()
+        ? 'A PNG, WebP or GIF image, at most 10 MB. A transparent background suits a sticker.'
+        : 'A JPEG, PNG, WebP or GIF image, at most 10 MB.',
   );
 
   constructor() {
@@ -204,7 +225,11 @@ export class TaleMediaPicker {
     }
     if (!this.accept().split(',').includes(file.type)) {
       this.error.set(
-        this.kind() === 'video' ? 'Choose an MP4 or WebM video.' : 'Choose a JPEG, PNG, WebP or GIF image.',
+        this.kind() === 'video'
+          ? 'Choose an MP4 or WebM video.'
+          : this.stickers()
+            ? 'Choose a PNG, WebP or GIF image.'
+            : 'Choose a JPEG, PNG, WebP or GIF image.',
       );
       field.value = '';
       return;
@@ -225,7 +250,7 @@ export class TaleMediaPicker {
 /** A change the media inspector asks for: one history step, with what the live region says. */
 export interface MediaChange {
   label: string;
-  props?: Partial<ImageElementProps>;
+  props?: Partial<ImageElementProps> | Partial<StickerElementProps>;
   a11y?: TaleElementA11y;
   said: string;
 }
@@ -233,8 +258,9 @@ export interface MediaChange {
 const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 
 /**
- * The inspector of a selected image or video (R5, R12): its alt text or the decorative mark, how
- * it fills its box, its corner radius and opacity, and a way to pick other media. Values are
+ * The inspector of a selected image, video or image sticker (R5, R6, R12): its alt text or the
+ * decorative mark, how it fills its box and its corner radius (not for a sticker, which shows the
+ * whole image), its opacity, and a way to pick other media. Values are
  * checked here as the server checks them; a value out of range is put back with a message.
  */
 @Component({
@@ -273,33 +299,35 @@ const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
       Decorative: it adds nothing to the tale, and screen readers skip it
     </label>
     <div class="row">
-      <div class="field">
-        <label class="field__label" [for]="'media-fit-' + element().id">Fit</label>
-        <select
-          class="input"
-          [id]="'media-fit-' + element().id"
-          [disabled]="locked()"
-          (change)="setFit($any($event.target).value)"
-        >
-          @for (fit of fits; track fit) {
-            <option [value]="fit" [selected]="fit === element().props.fit">{{ fitNames[fit] }}</option>
-          }
-        </select>
-      </div>
-      <div class="field">
-        <label class="field__label" [for]="'media-radius-' + element().id">Corner radius (%)</label>
-        <input
-          class="input"
-          type="number"
-          min="0"
-          [max]="maxRadius"
-          step="0.5"
-          [id]="'media-radius-' + element().id"
-          [readOnly]="locked()"
-          [value]="radius()"
-          (change)="setRadius($any($event.target))"
-        />
-      </div>
+      @if (element().type !== 'sticker') {
+        <div class="field">
+          <label class="field__label" [for]="'media-fit-' + element().id">Fit</label>
+          <select
+            class="input"
+            [id]="'media-fit-' + element().id"
+            [disabled]="locked()"
+            (change)="setFit($any($event.target).value)"
+          >
+            @for (fit of fits; track fit) {
+              <option [value]="fit" [selected]="fit === currentFit()">{{ fitNames[fit] }}</option>
+            }
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" [for]="'media-radius-' + element().id">Corner radius (%)</label>
+          <input
+            class="input"
+            type="number"
+            min="0"
+            [max]="maxRadius"
+            step="0.5"
+            [id]="'media-radius-' + element().id"
+            [readOnly]="locked()"
+            [value]="radius()"
+            (change)="setRadius($any($event.target))"
+          />
+        </div>
+      }
       <div class="field">
         <label class="field__label" [for]="'media-opacity-' + element().id">Opacity (%)</label>
         <input
@@ -315,7 +343,9 @@ const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
         />
       </div>
     </div>
-    <span class="field__hint">The corner radius is a share of the canvas height.</span>
+    @if (element().type !== 'sticker') {
+      <span class="field__hint">The corner radius is a share of the canvas height.</span>
+    }
     @if (videoSeconds(); as seconds) {
       @if (seconds > maxVideoSeconds) {
         <p class="field__hint layer__warning" role="status">
@@ -356,7 +386,10 @@ export class TaleMediaStyle {
   protected readonly needsAlt = computed(
     () => !this.decorative() && (this.element().a11y.label ?? '').trim() === '' && !this.element().hidden,
   );
-  protected readonly radius = computed(() => percent(this.element().props.radius ?? 0));
+  // A sticker has no fit or radius: it always shows the whole image.
+  private readonly props = computed(() => this.element().props as Partial<ImageElementProps>);
+  protected readonly currentFit = computed(() => this.props().fit ?? 'contain');
+  protected readonly radius = computed(() => percent(this.props().radius ?? 0));
   protected readonly opacity = computed(() => Math.round((this.element().props.opacity ?? 1) * 100));
 
   protected setAlt(field: HTMLTextAreaElement): void {

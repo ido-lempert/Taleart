@@ -6,6 +6,11 @@
 
 [Learn more about this workspace setup and its capabilities](https://nx.dev/getting-started/tutorials/angular-monorepo-tutorial?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
 
+## Requirements
+
+The API needs Node.js 22 or later: it checks emoji elements of tale documents with the RegExp `v` flag
+(`\p{RGI_Emoji}`) and refuses to start without it. Which emoji it accepts follows the runtime's Unicode (ICU) version.
+
 ## Run tasks
 
 To run the dev server for your app, use:

@@ -508,5 +508,166 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
         }
       }
     }
+  },
+  {
+    "key": "shape",
+    "label": "Shape",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ShapeElementProps",
+      "description": "The props of a shape element (epic Tale Studio R6): a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text (AD-16). Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shape"
+      ],
+      "properties": {
+        "shape": {
+          "type": "string",
+          "enum": [
+            "rectangle",
+            "ellipse",
+            "line"
+          ]
+        },
+        "fill": {
+          "description": "The fill colour as #RRGGBB or #RRGGBBAA; no fill when left out.",
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "stroke": {
+          "description": "The stroke colour as #RRGGBB or #RRGGBBAA; no stroke when left out.",
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "strokeWidth": {
+          "description": "The stroke width as a fraction of the canvas height; 0 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.05
+        },
+        "radius": {
+          "description": "A rectangle's corner radius as a fraction of the canvas height; 0 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        },
+        "opacity": {
+          "description": "From 0 (transparent) to 1 (opaque); 1 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "ellipse"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "radius"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "line"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "required": [
+              "stroke",
+              "strokeWidth"
+            ],
+            "properties": {
+              "strokeWidth": {
+                "exclusiveMinimum": 0
+              }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "fill"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "required": [
+                    "radius"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "key": "emoji",
+    "label": "Emoji",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "EmojiElementProps",
+      "description": "The props of an emoji sticker (epic Tale Studio R6): one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "emoji"
+      ],
+      "properties": {
+        "emoji": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    }
+  },
+  {
+    "key": "sticker",
+    "label": "Sticker",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "StickerElementProps",
+      "description": "The props of an image sticker (epic Tale Studio R6): a PNG, WebP or GIF of the tale's project, by its storage key (AD-11), never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mediaKey"
+      ],
+      "properties": {
+        "mediaKey": {
+          "description": "The storage key of a PNG, WebP or GIF image of the tale's project, as the server made it.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|gif|webp)$"
+        },
+        "opacity": {
+          "description": "From 0 (transparent) to 1 (opaque); 1 when left out.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    }
   }
 ];
