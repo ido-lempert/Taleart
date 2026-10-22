@@ -3,6 +3,12 @@ import { HOLD_MIN_MS, IMAGE_DURATION_MS, TaleViewer, VIEWER_STYLES } from './vie
 
 const API = 'https://api.example.com';
 
+// A tale as a server from before R16 sent it: its media, and no document. The viewer draws it as before.
+function legacy(id: string, kind: 'image' | 'video', url: string): DeliveryTale {
+  const contentType = kind === 'image' ? ('image/png' as const) : ('video/mp4' as const);
+  return { id, title: `Tale ${id}`, media: { kind, contentType, url }, document: null };
+}
+
 // A tale as the Delivery API sends it since R16: its media is the `taleMedia` element of its
 // document (full canvas, contain, decorative, 5 s), with `media` kept for older SDKs.
 function own(id: string, kind: 'image' | 'video', url: string): DeliveryTale {
@@ -98,6 +104,42 @@ describe('TaleViewer', () => {
     vi.restoreAllMocks();
   });
 
+  it('draws a tale sent without a document as before: its media named by its title, for 5 s (R16)', () => {
+    setup([
+      {
+        id: 'l',
+        name: 'L',
+        tales: [legacy('l1', 'image', `${API}/media/tales/l1.png`), legacy('l2', 'video', `${API}/media/tales/l2.mp4`)],
+      },
+    ]);
+    viewer.open('l');
+    expect(q<HTMLImageElement>('.stage > img.media').alt).toBe('Tale l1');
+    expect(q('.ta-area')).toBeNull();
+    vi.advanceTimersByTime(IMAGE_DURATION_MS);
+    expect(position()).toBe('L, tale 2 of 2');
+    const video = q<HTMLVideoElement>('.stage > video.media');
+    expect(video.getAttribute('aria-label')).toBe('Tale l2');
+    expect(video.muted).toBe(false);
+  });
+
+  it('paints the placeholder colour across the stage for a tale with neither media nor a document (R16)', () => {
+    const placeholder: DeliveryTale = {
+      id: 'p1',
+      title: 'Empty',
+      media: null,
+      document: {
+        version: 1,
+        canvas: { background: { type: 'color', color: '#1f2937' } },
+        durationMs: 5000,
+        elements: [],
+      },
+    };
+    setup([{ id: 'p', name: 'P', tales: [placeholder] }]);
+    viewer.open('p');
+    expect(q<HTMLElement>('.stage').style.backgroundColor).toBe('rgb(31, 41, 55)');
+    expect(q('.ta-canvas').getAttribute('aria-label')).toBe('Empty');
+  });
+
   it('opens a group as a named modal dialog at its first tale, one segment per tale, focus in the dialog', () => {
     expect(viewer.open('gb')).toBe(true);
     const d = dialog();
@@ -164,10 +206,10 @@ describe('TaleViewer', () => {
   it('closes after the last tale of the last group and reports that group', () => {
     viewer.open('gc');
     key('ArrowRight');
-    // A tale sent without a document (a server before R16) shows the legacy placeholder, named.
-    expect(q('.media')).toBeNull();
-    expect(q('.ta-canvas').getAttribute('aria-label')).toBe('Tale 2');
-    expect(q<HTMLElement>('.ta-canvas').style.backgroundColor).toBe('rgb(31, 41, 55)');
+    // A tale sent without a document (a server before R16) shows the legacy placeholder, as before.
+    expect(q('.media').getAttribute('aria-label')).toBe('Tale 2');
+    expect(q('.media').getAttribute('role')).toBe('img');
+    expect(q('.ta-area')).toBeNull();
     vi.advanceTimersByTime(IMAGE_DURATION_MS);
     expect(dialog()?.hasAttribute('open')).toBe(false);
     expect(viewer.isOpen).toBe(false);

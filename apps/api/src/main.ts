@@ -111,14 +111,14 @@ async function start(): Promise<void> {
   server.on('error', (err) => log('error', 'server error', err));
 
   // The start-up migration brings tales' media into their documents for at most 10 s (Tale Studio
-  // R16); the rest is finished here, beside requests. Delivery composes any tale not yet done.
-  continueTaleMediaMigration(pool)
-    .then(({ merged, skipped, done }) => {
-      if (merged > 0 || skipped > 0 || !done) {
-        log(done ? 'info' : 'warn', `Tale media in documents: ${merged} tale(s) merged, ${skipped} left out of step`);
-      }
-    })
-    .catch((err) => log('error', 'tale media migration failed', err));
+  // R16); the rest is finished here, beside requests, by one process at a time, retried with backoff
+  // while tales remain. Delivery composes any tale not yet done. Off with TALE_MEDIA_MIGRATION=off.
+  const continuation = new AbortController();
+  process.once('SIGTERM', () => continuation.abort());
+  process.once('SIGINT', () => continuation.abort());
+  continueTaleMediaMigration(pool, { signal: continuation.signal, log }).catch((err) =>
+    log('error', 'tale media migration failed', err),
+  );
 
   // On shutdown the API stops taking requests first, then the worker gets up
   // to SHUTDOWN_DEADLINE_MS to finish the job in progress. A job cut off by the

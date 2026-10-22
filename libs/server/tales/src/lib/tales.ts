@@ -3,6 +3,7 @@ import {
   EDITOR_ONLY_ELEMENT_FIELDS,
   ErrorCodes,
   isMediaContentType,
+  isTaleMediaElement,
   isValidWindow,
   LEGACY_PLACEHOLDER_COLOR,
   LEGACY_TALE_DURATION_MS,
@@ -33,12 +34,13 @@ import {
   lockMediaKeyForDeletion,
 } from './document-media';
 import { deliveryProjectFonts, recordTaleFonts, withoutProjectFonts, type StoredFontFile } from './project-fonts';
-import { bringTaleMediaInStep, mergeTaleMedia } from './tale-media-document';
+import { bringTaleMediaInStep, withOutOfStepMedia } from './tale-media-document';
 import {
   checkDocumentFonts,
   checkDocumentMedia,
   checkPublishableDocument,
   checkTaleDocument,
+  checkTaleMediaFlag,
   draftProblem,
   deliverableTaleDocument,
   InvalidTaleDocumentError,
@@ -1026,8 +1028,14 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
   const document = checkTaleDocument(value);
 
   return inTransaction(db, async (tx) => {
-    const groupOf = await tx.query<{ groupId: string; projectId: string }>(
-      'SELECT tale_group_id AS "groupId", project_id AS "projectId" FROM tales WHERE id = $1',
+    const groupOf = await tx.query<{
+      groupId: string;
+      projectId: string;
+      key: string | null;
+      contentType: string | null;
+    }>(
+      `SELECT tale_group_id AS "groupId", project_id AS "projectId", media_key AS key,
+         media_content_type AS "contentType" FROM tales WHERE id = $1`,
       [taleId],
     );
     const groupId = groupOf.rows[0]?.groupId;
@@ -1040,6 +1048,14 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
     // Locked after the rows, in the order every document write takes them: rows, then fonts and keys.
     await checkDocumentFonts(tx, groupOf.rows[0].projectId, document, true);
     await checkDocumentMedia(tx, groupOf.rows[0].projectId, document);
+    // The copy shares the source's media (AD-14), so only that may be its own media (R16).
+    checkTaleMediaFlag(document, groupOf.rows[0]);
+    // In step only when the kept document holds that media as its own; else the copy is out of step,
+    // and its media is composed in on delivery and merged by the next migration run (R16).
+    const sourceKey = groupOf.rows[0].key;
+    const inStep = document.elements.some(
+      (e) => isTaleMediaElement(e) && (e.props as { mediaKey?: unknown }).mediaKey === sourceKey,
+    );
 
     const stats = await tx.query<{ count: number; next: number }>(
       `SELECT count(*)::int AS count, COALESCE(MAX(position), -1) + 1 AS next
@@ -1053,11 +1069,11 @@ export async function copyTaleWithDocument(db: TransactionalDb, taleId: string, 
     const { rows } = await tx.query<TaleRow>(
       `INSERT INTO tales (tale_group_id, project_id, title, position, media_key, media_content_type,
                           document_media_key, draft_document, draft_revision)
-       SELECT tale_group_id, project_id, title || ' (copy)', $2, media_key, media_content_type, document_media_key,
-              $3::jsonb, 1
+       SELECT tale_group_id, project_id, title || ' (copy)', $2, media_key, media_content_type,
+              CASE WHEN $4 THEN media_key END, $3::jsonb, 1
        FROM tales WHERE id = $1
        RETURNING ${TALE_COLUMNS}`,
-      [taleId, next, JSON.stringify(document)],
+      [taleId, next, JSON.stringify(document), inStep],
     );
     if (rows.length === 0) throw new TaleNotFoundError(taleId);
     await recordTaleFonts(tx, rows[0].id, 'draft', document, false);
@@ -1264,9 +1280,9 @@ export function deliveredWithTaleMedia(
   contentType: string | null,
   inStep: string | null,
 ): KeyedDeliveryDocument {
-  if (key !== null && isMediaContentType(contentType) && (stored === null || inStep !== key)) {
-    const media = { key, kind: mediaKind(contentType) };
-    const merged = mergeTaleMedia(stored, media, { id: taleId, legacyTiming: inStep === null });
+  const media = key !== null && isMediaContentType(contentType) ? { key, kind: mediaKind(contentType) } : null;
+  const merged = withOutOfStepMedia(taleId, stored, media, inStep);
+  if (merged !== null && merged !== stored) {
     // Delivered without the editor-only fields (AD-15), as every other element.
     const elements = merged.elements.map((element) => {
       const delivered: Record<string, unknown> = { ...(element as object) };

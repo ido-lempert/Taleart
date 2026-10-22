@@ -467,20 +467,49 @@ describe('TaleartElement', () => {
     props: { url, fit: 'cover' },
   });
 
-  it("covers with the first tale's colour, and its title, when the first tale has no media", async () => {
-    const group = {
+  it("covers with the first tale that has media, as before; with none, the first tale's colour and the title", async () => {
+    const later = {
       id: 'gd',
       name: 'Later',
       cover: null,
       tales: [textTale('t3', '#1f3a5f'), mediaTale('t4', [mediaElement('image', `${API}/media/tales/d.png`)])],
     };
+    const words = {
+      id: 'gw',
+      name: 'Words',
+      cover: null,
+      tales: [textTale('t5', '#1f3a5f'), textTale('t6', '#ffffff')],
+    };
+    const old = {
+      id: 'go',
+      name: 'Old',
+      cover: null,
+      tales: [
+        {
+          id: 't7',
+          title: 'Old',
+          media: { kind: 'image', contentType: 'image/png', url: `${API}/media/tales/o.png` },
+          document: null,
+        },
+      ],
+    };
+    fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: [later, words, old] }));
+    const el = await mount();
+    const [picture, colour, legacy] = items(el).map((item) => item.querySelector('.cover') as HTMLElement);
+    expect((picture as HTMLImageElement).src).toBe(`${API}/media/tales/d.png`);
+    expect(colour.tagName).toBe('SPAN');
+    expect(colour.hasAttribute('data-placeholder')).toBe(true);
+    expect(colour.style.backgroundColor).toBe('rgb(31, 58, 95)');
+    expect(items(el)[1].querySelector('.title')?.textContent).toBe('Words');
+    expect((legacy as HTMLImageElement).src).toBe(`${API}/media/tales/o.png`);
+  });
+
+  it('counts an image sticker as media for the cover', async () => {
+    const sticker = { ...mediaElement('image', `${API}/media/media/s.png`), type: 'sticker' };
+    const group = { id: 'gs', name: 'Sticker', cover: null, tales: [mediaTale('t8', [sticker])] };
     fetchMock.mockImplementation(async () => respond(200, { ...zone, taleGroups: [group] }));
     const el = await mount();
-    const cover = items(el)[0].querySelector('.cover') as HTMLElement;
-    expect(cover.tagName).toBe('SPAN');
-    expect(cover.hasAttribute('data-placeholder')).toBe(true);
-    expect(cover.style.backgroundColor).toBe('rgb(31, 58, 95)');
-    expect(items(el)[0].querySelector('.title')?.textContent).toBe('Later');
+    expect((items(el)[0].querySelector('.cover') as HTMLImageElement).src).toBe(`${API}/media/media/s.png`);
   });
 
   it("covers with the first tale's lowest media element: its background, else its first image or video", async () => {

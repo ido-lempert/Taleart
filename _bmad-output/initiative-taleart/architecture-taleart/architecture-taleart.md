@@ -176,7 +176,7 @@ Clients never import `libs/server`. Modules never import `apps/*`.
   - **Styles:** set through CSSOM properties from validated values, never `setAttribute('style', …)`, so the SDK works under a strict host CSP.
   - **Native elements:**
     - Images are `<img alt>`.
-    - Videos are `<video muted playsinline>`.
+    - Videos are `<video muted playsinline>`. One exception (Tale Studio story 7.11, R16): the tale's own media (`taleMedia`), while it is the bottom element filling the canvas on a colour background, is drawn full-bleed in the stage with the playback rules tale media had before documents: a video plays with sound where the browser allows it, for its whole length, with no 15 s cap or stall rule (epic Boundaries: those rules must not change). A tale sent without a document is drawn as before.
     - Links are `<a>` elements with `rel="noopener noreferrer"`, and the SDK checks again that the scheme is `http` or `https`.
     - Buttons and links are focusable, with accessible names.
   - **Renderer modules:** one renderer module per element type, keyed by the element-type registry under `libs/web-sdk/src/lib/document/`. An unknown type renders nothing.

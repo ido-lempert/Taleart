@@ -5,8 +5,10 @@ import {
   hasDisallowedCharacter,
   isEmojiGlyph,
   isFontFamily,
+  isMediaContentType,
   isMediaElement,
   isTaleMediaElement,
+  mediaKind,
   LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_TALE_DOCUMENT_BYTES,
@@ -29,6 +31,7 @@ import type { Db } from '@taleart/server-access';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020';
 import { clearPublicMediaCache, lockMediaKeys, projectMediaKeys, recordTaleMedia, usesMedia } from './document-media';
 import { clearPublicFontCache, knownProjectFontIds, recordTaleFonts } from './project-fonts';
+import { documentTaleMedia, taleMediaDocumentsEnabled, withOutOfStepMedia } from './tale-media-document';
 import { inTransaction, TaleNotFoundError, type TransactionalDb } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -228,6 +231,28 @@ export function checkTaleDocument(value: unknown): TaleDocument {
     return element;
   });
   return { ...doc, elements };
+}
+
+/**
+ * Refuses `taleMedia` (R16) on an element that is not the tale's own media: its key must be the
+ * tale's media key and its type the kind of the tale's media. The server marks the element; a
+ * client keeps the mark only on it. Throws {@link InvalidTaleDocumentError}.
+ */
+export function checkTaleMediaFlag(doc: TaleDocument, media: { key: string | null; contentType: string | null }): void {
+  doc.elements.forEach((element, i) => {
+    if (!isTaleMediaElement(element)) return;
+    const own =
+      media.key !== null &&
+      (element.props as { mediaKey?: unknown }).mediaKey === media.key &&
+      isMediaContentType(media.contentType) &&
+      mediaKind(media.contentType) === element.type;
+    if (!own) {
+      throw new InvalidTaleDocumentError(
+        `/elements/${i}/props/taleMedia`,
+        "is set on media that is not the tale's own",
+      );
+    }
+  });
 }
 
 /**
@@ -437,9 +462,26 @@ function toState(row: StateRow): TaleDocumentRevision {
  */
 export async function getTaleDocument(db: Db, taleId: string): Promise<TaleDocumentRevision> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
-  const { rows } = await db.query<StateRow>(`SELECT ${STATE_COLUMNS} FROM tales WHERE id = $1`, [taleId]);
+  const { rows } = await db.query<StateRow & { key: string | null; contentType: string | null; inStep: string | null }>(
+    `SELECT ${STATE_COLUMNS}, media_key AS key, media_content_type AS "contentType", document_media_key AS "inStep"
+     FROM tales WHERE id = $1`,
+    [taleId],
+  );
   if (rows.length === 0) throw new TaleNotFoundError(taleId);
-  return toState(rows[0]);
+  const { key, contentType, inStep, ...row } = rows[0];
+  // A tale out of step shows its media as visitors see it (R16), so the studio's canvas, preview and
+  // contrast checks match; saving it writes it. Not while the documents are not to hold it.
+  const media = taleMediaDocumentsEnabled() ? documentTaleMedia(key ?? null, contentType ?? null) : null;
+  if (media === null || inStep === key) return toState(row);
+  return toState({
+    ...row,
+    document: withOutOfStepMedia(taleId, row.document, media, inStep ?? null) as TaleDocument | null,
+    // Nothing published stays nothing published: going live publishes the draft (7.3).
+    publishedDocument:
+      row.publishedDocument === null
+        ? null
+        : (withOutOfStepMedia(taleId, row.publishedDocument, media, inStep ?? null) as TaleDocument),
+  });
 }
 
 // Refuses a request based on revisions that are no longer current, or answers 404.
@@ -475,6 +517,13 @@ export async function saveTaleDocument(
     const projectId = usesFonts || hasMedia ? await projectOfTale(tx, taleId, true) : null;
     if (usesFonts && projectId) await checkDocumentFonts(tx, projectId, document, true);
     if (hasMedia && projectId) await checkDocumentMedia(tx, projectId, document);
+    if (document.elements.some(isTaleMediaElement)) {
+      const own = await tx.query<{ key: string | null; contentType: string | null }>(
+        'SELECT media_key AS key, media_content_type AS "contentType" FROM tales WHERE id = $1',
+        [taleId],
+      );
+      if (own.rows.length > 0) checkTaleMediaFlag(document, own.rows[0]);
+    }
     const { rows } = await tx.query<StateRow>(
       `UPDATE tales SET draft_document = $2::jsonb, draft_revision = draft_revision + 1
        WHERE id = $1 AND draft_revision = $3

@@ -30,6 +30,13 @@
       "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
       "executor": "nx:noop"
     },
+    "tale-media-rollback": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "node apps/api/scripts/tale-media-rollback.mjs"
+      }
+    },
     "import-scale": {
       "executor": "nx:run-commands",
       "cache": false,

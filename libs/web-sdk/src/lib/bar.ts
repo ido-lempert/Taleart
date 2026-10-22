@@ -215,26 +215,39 @@ function coverElement(kind: 'image' | 'video', url: string, animated: boolean, r
   return el;
 }
 
-/**
- * A group's default cover (web zones R12, Tale Studio R16): its first tale's lowest media element,
- * the document's media background, else its first image or video element; when that tale has no
- * media, its canvas colour (null when there is none to show). A response from before documents
- * falls back to the tale's media.
- */
-export function defaultCover(
-  group: DeliveryTaleGroup,
-): { kind: 'image' | 'video'; url: string } | { color: string | null } {
-  const tale = group.tales[0];
-  const doc = tale?.document;
-  if (!doc) return tale?.media ? { kind: tale.media.kind, url: tale.media.url } : { color: null };
+// A tale's lowest media element (Tale Studio R16): its document's media background, else its first
+// image, video or image sticker; a tale sent without a document (servers before R16) has its media.
+function lowestMedia(tale: DeliveryTaleGroup['tales'][number]): { kind: 'image' | 'video'; url: string } | null {
+  const doc = tale.document;
+  if (!doc) {
+    const url = tale.media ? mediaUrl(tale.media.url) : null;
+    return tale.media && url ? { kind: tale.media.kind, url } : null;
+  }
   const background = doc.canvas?.background as { type?: unknown; url?: unknown } | undefined;
   const backgroundUrl = background?.type === 'media' ? mediaUrl(background.url) : null;
   if (backgroundUrl) return { kind: 'image', url: backgroundUrl };
   for (const element of Array.isArray(doc.elements) ? doc.elements : []) {
-    const url = element.type === 'image' || element.type === 'video' ? mediaUrl(element.props?.['url']) : null;
-    if (url) return { kind: element.type as 'image' | 'video', url };
+    if (element.type !== 'image' && element.type !== 'video' && element.type !== 'sticker') continue;
+    const url = mediaUrl(element.props?.['url']);
+    if (url) return { kind: element.type === 'video' ? 'video' : 'image', url };
   }
-  return { color: canvasColor(doc) };
+  return null;
+}
+
+/**
+ * A group's default cover (web zones R12, Tale Studio R16): the lowest media element of its first
+ * tale that has media, as before documents the first tale with media gave its picture; when no tale
+ * has media, the first tale's canvas colour (null when there is none to show).
+ */
+export function defaultCover(
+  group: DeliveryTaleGroup,
+): { kind: 'image' | 'video'; url: string } | { color: string | null } {
+  for (const tale of group.tales) {
+    const found = lowestMedia(tale);
+    if (found) return found;
+  }
+  const doc = group.tales[0]?.document;
+  return { color: doc ? canvasColor(doc) : null };
 }
 
 // The default cover as an element: the media's image, or that video's first frame (never played);
