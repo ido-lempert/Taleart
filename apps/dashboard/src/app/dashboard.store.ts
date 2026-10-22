@@ -46,7 +46,8 @@ export type DrawerRequest =
   | { kind: 'placeTaleGroup'; taleGroupId: string }
   | { kind: 'removeTaleGroup'; zoneId: string; taleGroupId: string }
   | { kind: 'copyTaleGroup'; taleGroupId: string }
-  | { kind: 'taleMedia'; taleId: string }
+  /** `focus: 'media'` (Replace media, epic UX rework R11) puts focus on the media file field. */
+  | { kind: 'taleMedia'; taleId: string; focus?: 'media' }
   | { kind: 'cover'; taleGroupId: string }
   | { kind: 'schedule'; target: ScheduleTarget; id: string };
 
@@ -123,6 +124,8 @@ export class DashboardStore {
   private readonly orderQueues = new Map<string, Promise<unknown>>();
   private readonly confirmedGroups = new Map<string, ZoneTaleGroup[]>();
   private readonly pendingOrders = new Map<string, number>();
+  /** Zones a refresh skipped while their order writes were pending: read again once those settle. */
+  private readonly staleOrders = new Set<string>();
   private readonly orderEpochs = new Map<string, number>();
   /** Bumped per tale on each upload, so a replaced file at the same URL is fetched again. */
   private readonly mediaVersions = signal<Record<string, number>>({});
@@ -332,7 +335,7 @@ export class DashboardStore {
       this.frameTypes.set(frameTypes);
       const groups = await this.loadEach<ZoneTaleGroup[]>(zones, (id) => `/zones/${id}/tale-groups`);
       if (!current()) return;
-      this.taleGroups.set(groups);
+      this.taleGroups.set(this.keepPendingOrders(groups));
       const tags = await this.loadEach<Tag[]>(projects, (id) => `/projects/${encodeURIComponent(id)}/tags`);
       if (!current()) return;
       this.tags.set(tags);
@@ -757,12 +760,31 @@ export class DashboardStore {
           return apiErrorMessage(err, 'The new order was not saved. Try again.');
         }
       } finally {
-        this.pendingOrders.set(zoneId, (this.pendingOrders.get(zoneId) ?? 1) - 1);
+        const left = (this.pendingOrders.get(zoneId) ?? 1) - 1;
+        this.pendingOrders.set(zoneId, left);
+        // A refresh skipped this zone while it waited: read it now that its order is settled.
+        if (left === 0 && this.staleOrders.delete(zoneId)) void this.refresh();
       }
     };
     const result = (this.orderQueues.get(zoneId) ?? Promise.resolve()).then(run);
     this.orderQueues.set(zoneId, result);
     return result;
+  }
+
+  /**
+   * A refresh's lists, except for a zone with order writes still pending: it keeps the order shown
+   * (which the read may predate) and is read again once those writes settle.
+   */
+  private keepPendingOrders(groups: Record<string, ZoneTaleGroup[]>): Record<string, ZoneTaleGroup[]> {
+    const shown = this.taleGroups();
+    const kept = { ...groups };
+    for (const zoneId of Object.keys(groups)) {
+      if ((this.pendingOrders.get(zoneId) ?? 0) > 0 && shown[zoneId]) {
+        kept[zoneId] = shown[zoneId];
+        this.staleOrders.add(zoneId);
+      }
+    }
+    return kept;
   }
 
   private setZoneGroups(zoneId: string, groups: ZoneTaleGroup[]): void {
