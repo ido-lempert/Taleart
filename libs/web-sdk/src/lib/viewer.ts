@@ -822,6 +822,7 @@ export class TaleViewer {
         background: !this.media,
         label: current.title || `Tale ${tale + 1}`,
         reducedMotion: this.reduced,
+        direction: this.rtl ? 'rtl' : 'ltr',
         ...this.renderOptions,
       });
       this.parts.top.before(this.layer);

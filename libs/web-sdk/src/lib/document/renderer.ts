@@ -2,6 +2,7 @@ import {
   isLinkElement,
   readingOrder,
   SWIPE_UP_BOX,
+  type ReadingDirection,
   type DeliveryTaleDocument,
   type DeliveryTaleElement,
   type TaleElementType,
@@ -126,6 +127,7 @@ export const DOCUMENT_STYLES = `
 }
 .ta-swipe-label { padding: 0.35em 1em; border-radius: 999px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 @media (forced-colors: active) { .ta-cta { border: 1px solid LinkText; } }
+@media (prefers-reduced-motion: reduce) { .ta-canvas * { animation: none !important; transition: none !important; } }
 .ta-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
 .ta-hl {
   -webkit-box-decoration-break: clone;
@@ -174,6 +176,8 @@ export interface DocumentRenderOptions {
   reducedMotion?: boolean;
   /** Links render inert, without a destination: the Tale Studio preview, which shows a draft (AD-16). */
   inertLinks?: boolean;
+  /** The host page's direction: a row of elements is read right to left on a right-to-left page (R12). */
+  direction?: ReadingDirection;
 }
 
 // The canvas's media background (R2): the image filling the canvas with its fit, over its band
@@ -201,7 +205,9 @@ function backgroundMedia(doc: DeliveryTaleDocument, reducedMotion: boolean): HTM
 /**
  * Renders a delivered tale document (AD-16) as an area holding its 9:16 canvas: each element of a
  * known type absolutely placed from its box, stacked in the document's z-order, and in DOM order
- * by reading order (top to bottom, then left to right), which is what screen readers follow.
+ * by the contract's `readingOrder` (visual: top to bottom, then left to right, or right to left
+ * on a right-to-left page), which is what screen readers and Tab follow (R12). Every node is
+ * named (its text, alt text or label) or hidden from assistive technology.
  * Content is set as text nodes and styles through CSSOM only. An unknown element type is skipped
  * with one console warning per type.
  */
@@ -228,7 +234,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   const layer = new Map(elements.map((element, i) => [element, i + 1]));
   // One swipe-up link per tale (R7): the server refuses a second; one that comes anyway is skipped.
   let swipeUp = false;
-  for (const element of readingOrder(elements)) {
+  for (const element of readingOrder(elements, options.direction)) {
     if (element.type === 'swipe-up') {
       if (swipeUp) continue;
       swipeUp = true;
@@ -254,6 +260,10 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
     style.zIndex = String(layer.get(element));
     // A link is never hidden from assistive technology: it is focusable, and named by its label or alt text.
     if (element.a11y?.decorative === true && !isLinkElement(element)) node.setAttribute('aria-hidden', 'true');
+    // A picture or video with no name yet (a draft in the preview) is hidden rather than read as an unnamed image.
+    else if (node.localName !== 'img' && node.classList.contains('ta-media') && !node.hasAttribute('aria-label')) {
+      node.setAttribute('aria-hidden', 'true');
+    }
     canvas.appendChild(node);
   }
   area.appendChild(canvas);

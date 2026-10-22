@@ -12,6 +12,7 @@ import {
   MAX_TEXT_LENGTH,
   NEW_TEXT_BOX,
   readingOrder,
+  READING_ROW_TOLERANCE,
   elementBounds,
   isOutsideSafeArea,
   safeAreaBounds,
@@ -133,6 +134,53 @@ describe('tale document helpers', () => {
       at('left2', 0.1, 0.1),
     ]);
     expect(ordered.map((e) => e.id)).toEqual(['left', 'left2', 'right', 'low']);
+  });
+
+  describe('readingOrder (AD-15, R12)', () => {
+    const el = (id: string, x: number, y: number, w = 0.2, h = 0.05, rotation = 0, type = 'text') => ({
+      id,
+      type,
+      box: { x, y, w, h, rotation },
+    });
+    const ids = (list: { id: string }[]) => list.map((e) => e.id);
+
+    it('reads a row placed a few pixels off as one row, left to right', () => {
+      // The button on the right sits 1 % higher than the image on the left: still one row.
+      const order = readingOrder([el('title', 0.1, 0.1), el('right', 0.6, 0.39), el('left', 0.1, 0.4)]);
+      expect(ids(order)).toEqual(['title', 'left', 'right']);
+      expect(READING_ROW_TOLERANCE).toBe(0.02);
+    });
+
+    it('starts a new row past the tolerance, anchored on the row top so rows do not chain', () => {
+      const order = readingOrder([el('c', 0.0, 0.43), el('b', 0.3, 0.415), el('a', 0.6, 0.4)]);
+      // a (0.40) starts the row; b (0.415) joins it; c (0.43) is 3 % below a: its own row.
+      expect(ids(order)).toEqual(['b', 'a', 'c']);
+    });
+
+    it('reads a row right to left on a right-to-left page, by right edges', () => {
+      const order = readingOrder([el('left', 0.05, 0.4, 0.3), el('right', 0.6, 0.4, 0.3), el('wide', 0.2, 0.41, 0.7)], 'rtl');
+      // Right edges: right 0.9, wide 0.9 (tie: z-order, lower first), left 0.35.
+      expect(ids(order)).toEqual(['right', 'wide', 'left']);
+      expect(ids(readingOrder([el('top', 0.5, 0.1), el('low', 0.1, 0.8)], 'rtl'))).toEqual(['top', 'low']);
+    });
+
+    it('keeps the z-order, bottom first, for elements at the same place', () => {
+      expect(ids(readingOrder([el('under', 0.2, 0.2), el('over', 0.2, 0.2)]))).toEqual(['under', 'over']);
+      expect(ids(readingOrder([el('under', 0.2, 0.2), el('over', 0.2, 0.2)], 'rtl'))).toEqual(['under', 'over']);
+    });
+
+    it('places a rotated box by where it shows, and the swipe-up link at the bottom whatever its box', () => {
+      // A wide box turned 90 degrees shows much higher than its stored top (0.5): from about 0.38.
+      const turned = el('turned', 0.3, 0.5, 0.5, 0.05, 90);
+      const order = readingOrder([el('flat', 0.1, 0.45), turned]);
+      expect(ids(order)).toEqual(['turned', 'flat']);
+      const swipe = el('swipe', 0.2, 0.0, 0.6, 0.09, 0, 'swipe-up');
+      expect(ids(readingOrder([swipe, el('text', 0.1, 0.5), el('button', 0.3, 0.8, 0.4, 0.06, 0, 'button')]))).toEqual([
+        'text',
+        'button',
+        'swipe',
+      ]);
+    });
   });
 
   it('names the safe part of the canvas from the safe-area constants', () => {
