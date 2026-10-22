@@ -5,7 +5,7 @@ import {
   zoneSlugFromName,
   type Zone,
 } from '@taleart/contract';
-import { projectExists, type Db, type ProjectScope } from '@taleart/server-access';
+import { inTransaction, projectExists, type Db, type ProjectScope, type TransactionalDb } from '@taleart/server-access';
 
 /** A zone as this module stores it: its visibility (epic UX rework R7) is composed in by the API. */
 export type StoredZone = Omit<Zone, 'visibility'>;
@@ -175,16 +175,28 @@ export async function renameZoneWhen(
 /**
  * Records that the zones `zoneIds` were read as visible on the site (epic UX rework R9): each one's
  * `first_visible_at` is set the first time and never changed or cleared afterwards, so the
- * dashboard's setup checklist stays gone for every user. Answers each zone's `firstVisibleAt`,
- * also for a zone another request marked first.
+ * dashboard's setup checklist stays gone for every user. It is the first time the API read the
+ * zone as visible (a dashboard read), not when a visitor first saw it: not an analytics timestamp.
+ * Answers each zone's `firstVisibleAt`, also for a zone another request marked first.
  */
-export async function markZonesFirstVisible(db: Db, zoneIds: readonly string[]): Promise<Map<string, string>> {
-  const ids = [...new Set(zoneIds.filter((id) => UUID.test(id)))];
+export async function markZonesFirstVisible(db: TransactionalDb, zoneIds: readonly string[]): Promise<Map<string, string>> {
+  // Sorted, so concurrent marks lock rows in the same order and cannot deadlock.
+  const ids = [...new Set(zoneIds.filter((id) => UUID.test(id)))].sort();
   if (ids.length === 0) return new Map();
-  const { rows } = await db.query<{ id: string; firstVisibleAt: string }>(
-    `UPDATE zones SET first_visible_at = COALESCE(first_visible_at, now())
-     WHERE id = ANY($1::uuid[]) RETURNING zones.id, ${FIRST_VISIBLE_AT}`,
-    [ids],
-  );
-  return new Map(rows.map((row) => [row.id, row.firstVisibleAt]));
+  return inTransaction(db, async (tx) => {
+    // A read must not wait long behind a zone row another transaction holds: give up instead.
+    await tx.query(`SET LOCAL lock_timeout = '${MARK_LOCK_TIMEOUT}'`);
+    await tx.query('SELECT id FROM zones WHERE id = ANY($1::uuid[]) AND first_visible_at IS NULL ORDER BY id FOR UPDATE', [
+      ids,
+    ]);
+    const { rows } = await tx.query<{ id: string; firstVisibleAt: string }>(
+      `UPDATE zones SET first_visible_at = COALESCE(first_visible_at, now())
+       WHERE id = ANY($1::uuid[]) RETURNING zones.id, ${FIRST_VISIBLE_AT}`,
+      [ids],
+    );
+    return new Map(rows.map((row) => [row.id, row.firstVisibleAt]));
+  });
 }
+
+// How long marking a zone first visible waits for a row lock before it gives up.
+const MARK_LOCK_TIMEOUT = '1s';

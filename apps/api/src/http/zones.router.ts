@@ -36,7 +36,16 @@ async function withZoneVisibility<Z extends Pick<Zone, 'id' | 'firstVisibleAt'>>
   const read = withVisibility(zones, await zoneVisibilities(pool, zones.map((zone) => zone.id)));
   const firstTime = read.filter((zone) => zone.visibility.visible && !zone.firstVisibleAt).map((zone) => zone.id);
   if (firstTime.length === 0) return read;
-  const marked = await markZonesFirstVisible(pool, firstTime);
+  // Best effort: the list answers even when the mark fails (a lock timeout, a lost connection);
+  // the next read marks the zone again.
+  let marked = new Map<string, string>();
+  try {
+    marked = await markZonesFirstVisible(pool, firstTime);
+  } catch (err) {
+    console.warn(
+      JSON.stringify({ level: 'warn', msg: 'Could not record zones as first visible', zoneIds: firstTime, error: String(err) }),
+    );
+  }
   return read.map((zone) => ({ ...zone, firstVisibleAt: zone.firstVisibleAt ?? marked.get(zone.id) ?? null }));
 }
 

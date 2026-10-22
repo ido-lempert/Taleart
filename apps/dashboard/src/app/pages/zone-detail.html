@@ -24,12 +24,12 @@
         </p>
         <ul class="zone-summary" aria-label="Zone summary">
           <li class="pill" data-summary="display">
-            {{ zone.frame ? store.frameTypeLabel(zone.frame.type) : 'No display' }}
+            <span class="visually-hidden">Display: </span>{{ zone.frame ? store.frameTypeLabel(zone.frame.type) : 'No display' }}
           </li>
           <li class="pill" data-summary="groups">{{ groupCount() }}</li>
           @if (installed() !== null) {
             <li class="pill" data-summary="install">
-              {{ installed() ? 'Installed' : 'Not installed' }}
+              <span class="visually-hidden">Install: </span>{{ installed() ? 'Installed' : 'Not installed' }}
             </li>
           }
         </ul>
@@ -53,8 +53,18 @@
             @for (step of setupSteps(); track step.id) {
               <li class="zone-setup__step" [class.zone-setup__step--done]="step.done" [attr.data-step]="step.id">
                 <span class="zone-setup__mark" aria-hidden="true"></span>
-                <button type="button" class="zone-setup__link" (click)="goToStep(step)">{{ step.label }}</button>
-                <span class="zone-setup__state">{{ step.done ? 'Done' : 'To do' }}</span>
+                <button
+                  type="button"
+                  class="zone-setup__link"
+                  [attr.aria-describedby]="'setup-state-' + step.id"
+                  (click)="goToStep(step)"
+                >
+                  {{ step.label }}
+                </button>
+                <span class="zone-setup__state" [id]="'setup-state-' + step.id">{{ step.done ? 'Done' : 'To do' }}</span>
+                @if (step.id === 'group' && groupStepHint(); as hint) {
+                  <span class="zone-setup__hint">{{ hint }}</span>
+                }
               </li>
             }
           </ol>
@@ -84,7 +94,7 @@
         role="tabpanel"
         id="zone-panel-groups"
         aria-labelledby="zone-tab-groups"
-        tabindex="0"
+        tabindex="-1"
         [hidden]="selectedTab() !== 'groups'"
       >
         <section class="card section zone-section" aria-labelledby="groups-title">
@@ -152,7 +162,7 @@
                     </span>
                     <div class="group__name">
                       <div class="group__title">
-                        <h4 [id]="'group-name-' + group.id">{{ group.name }}</h4>
+                        <h4 [id]="'group-name-' + group.id" tabindex="-1">{{ group.name }}</h4>
                         @if (needsBadge(group.status)) {
                           <app-status-badge [status]="group.status" kind="group" />
                         }
@@ -439,7 +449,7 @@
         role="tabpanel"
         id="zone-panel-display"
         aria-labelledby="zone-tab-display"
-        tabindex="0"
+        tabindex="-1"
         [hidden]="selectedTab() !== 'display'"
       >
         <section class="card section zone-section" aria-labelledby="display-title">
@@ -528,7 +538,7 @@
         role="tabpanel"
         id="zone-panel-install"
         aria-labelledby="zone-tab-install"
-        tabindex="0"
+        tabindex="-1"
         [hidden]="selectedTab() !== 'install'"
       >
         <!-- The project's site key (story 8.6); story 8.13 adds the snippet and the test page. -->

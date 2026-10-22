@@ -4,6 +4,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   ElementRef,
   inject,
   Injector,
@@ -34,7 +35,7 @@ import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
 import { describeWindow, windowChip } from '../schedule';
 import { describeSettings, type Settings } from '../settings-form';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
-import { visibilityLine, VisibilityIndicator } from '../visibility';
+import { visibilityLine, visibilityReasons, VisibilityIndicator } from '../visibility';
 import {
   showsSetup,
   ZONE_TAB_PARAM,
@@ -284,6 +285,14 @@ type Direction = 'earlier' | 'later';
       color: var(--text-muted);
       font-size: var(--text-sm);
     }
+    /* Under the step's link, past its mark. */
+    .zone-setup__hint {
+      flex-basis: 100%;
+      padding-inline-start: calc(20px + var(--space-3));
+      color: var(--text-secondary);
+      font-size: var(--text-sm);
+      overflow-wrap: anywhere;
+    }
     .zone-setup__count {
       margin: 0;
     }
@@ -372,7 +381,21 @@ export class ZoneDetailPage {
   /** The setup checklist's steps, each ticked from the zone's visibility (R7, R9). */
   protected readonly setupSteps = computed(() => {
     const zone = this.zone();
-    return zone ? zoneSetupSteps(zone) : [];
+    return zone ? zoneSetupSteps(zone, this.auth.isAdmin()) : [];
+  });
+  /**
+   * Why the group step is still open when the zone has groups: the first group's own first reason,
+   * such as "Summer sale: starts 1 Dec 2026, 09:00" (the zone's reasons have their own steps).
+   */
+  protected readonly groupStepHint = computed(() => {
+    if (this.setupSteps().find((step) => step.id === 'group')?.done !== false) return '';
+    for (const group of this.groups()) {
+      const reasons = (group.visibility?.reasons ?? []).filter((reason) => reason.subject !== 'zone');
+      if (reasons.length > 0) {
+        return `${group.name}: ${visibilityReasons({ visible: false, reasons }, 'group')[0]}`;
+      }
+    }
+    return '';
   });
   protected readonly setupDoneCount = computed(() => this.setupSteps().filter((step) => step.done).length);
   /** The checklist shows only until the zone is first visible, as the API records it. */
@@ -380,6 +403,45 @@ export class ZoneDetailPage {
     const zone = this.zone();
     return !!zone && showsSetup(zone);
   });
+
+  constructor() {
+    // A `?tab=` that names the default or no tab is dropped from the URL, without a history entry.
+    effect(() => {
+      const tab = this.tab();
+      if (tab !== undefined && (tab === 'groups' || zoneTab(tab) !== tab)) {
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: { [ZONE_TAB_PARAM]: null },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+      }
+    });
+    // Says when a setup step gets done and when the zone becomes visible (R9, R18), and opens Tale
+    // groups when a group is created from the top bar while another tab shows.
+    let last: { zoneId: string; done: Set<string>; shown: boolean; groups: Set<string> } | null = null;
+    effect(() => {
+      const zoneId = this.zoneId();
+      const zone = this.zone();
+      if (!this.store.loaded() || !zone) return;
+      const steps = this.setupSteps();
+      const done = new Set(steps.filter((step) => step.done).map((step) => step.id));
+      const shown = this.setupShown();
+      const groups = new Set(this.groups().map((group) => group.id));
+      const before = last?.zoneId === zoneId ? last : null;
+      last = { zoneId, done, shown, groups };
+      if (!before) return;
+      if (before.shown && !shown && zone.visibility?.visible) {
+        this.announce('This zone is now visible on your site');
+      } else if (shown) {
+        const newly = steps.filter((step) => step.done && !before.done.has(step.id));
+        if (newly.length > 0) this.announce(newly.map((step) => `Step done: ${step.label}`).join('. '));
+      }
+      if (this.selectedTab() !== 'groups' && [...groups].some((id) => !before.groups.has(id))) {
+        this.selectTab('groups');
+      }
+    });
+  }
 
   protected readonly maxTales = MAX_TALES_PER_GROUP;
   protected readonly zone = computed(() => this.store.zone(this.zoneId()));
@@ -415,11 +477,16 @@ export class ZoneDetailPage {
   }
 
   /**
-   * Selects a tab and puts it in the URL (a history entry, so back and forward step through tabs).
+   * Selects a tab and puts it in the URL: a history entry, so back and forward step through the tabs
+   * a person clicked, or in place (`replaceUrl`) for arrow keys, which pass through tabs on the way.
    * `focus` then moves focus, once the panel shows, to the tab itself ('tab') or to the element it
    * finds in the page, else to the panel.
    */
-  protected selectTab(tab: ZoneTab, focus: 'tab' | ((root: HTMLElement) => HTMLElement | null) | null = null): void {
+  protected selectTab(
+    tab: ZoneTab,
+    focus: 'tab' | ((root: HTMLElement) => HTMLElement | null) | null = null,
+    replaceUrl = false,
+  ): void {
     const changed = this.selectedTab() !== tab;
     this.selectedTab.set(tab);
     if (changed) {
@@ -427,6 +494,7 @@ export class ZoneDetailPage {
         relativeTo: this.route,
         queryParams: { [ZONE_TAB_PARAM]: tab === 'groups' ? null : tab },
         queryParamsHandling: 'merge',
+        replaceUrl,
       });
     }
     if (!focus) return;
@@ -455,7 +523,7 @@ export class ZoneDetailPage {
     const index = next[event.key];
     if (index === undefined || !(event.target as HTMLElement).matches('[role=tab]')) return;
     event.preventDefault();
-    this.selectTab(ids[index], 'tab');
+    this.selectTab(ids[index], 'tab', true);
   }
 
   /** Opens the tab where a setup step is done and focuses its control (R9). */
@@ -470,13 +538,16 @@ export class ZoneDetailPage {
     if (step.id === 'display') {
       this.selectTab(step.tab, (root) => first(root, '#display-choose', '#display-type-select'));
     } else if (step.id === 'install') {
-      this.selectTab(step.tab, (root) => first(root, '#site-key-issue', '#site-key-rotate'));
+      // A content manager has no key action: the card's heading, which says to ask an admin.
+      this.selectTab(step.tab, (root) => first(root, '#site-key-issue', '#site-key-rotate', '#site-key-title'));
     } else {
+      // An Off group's switch; with every group On, the first group's name, whose row says why it
+      // is not visible; with no group, "New tale group".
       this.selectTab(step.tab, (root) =>
         first(
           root,
           '#zone-panel-groups .group [role=switch][aria-checked=false]',
-          '#zone-panel-groups .group [role=switch]',
+          '#zone-panel-groups .group h4',
           '#zone-panel-groups .empty .btn--primary',
         ),
       );

@@ -60,7 +60,7 @@ function refusal(err: unknown, fallback: string): string {
   template: `
     <section class="card section zone-section" aria-labelledby="site-key-title">
       <div class="section__header">
-        <h3 class="section__title" id="site-key-title">Site key</h3>
+        <h3 class="section__title" id="site-key-title" tabindex="-1">Site key</h3>
         @if (admin() && loaded()) {
           <div class="key-actions">
             @if (info()) {
