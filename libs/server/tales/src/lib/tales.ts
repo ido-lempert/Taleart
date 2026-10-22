@@ -1374,17 +1374,24 @@ export async function setTaleMedia(
  * update, and brings its documents in step (R16) in the caller's transaction:
  * when the tale already holds media (another writer got there first),
  * nothing changes and the answer is false, so no one's media is ever replaced
- * and no previous key needs deleting. Run it in a transaction, as the importer
+ * and no previous key needs deleting. With `publishDraft` (an import's draft
+ * still as it made it, Tale Studio R17) a `live` tale with nothing published
+ * publishes that draft with the media. Run it in a transaction, as the importer
  * does. Throws {@link TaleNotFoundError}.
  */
-export async function setTaleMediaIfNone(db: Db, taleId: string, media: StoredTaleMedia): Promise<boolean> {
+export async function setTaleMediaIfNone(
+  db: Db,
+  taleId: string,
+  media: StoredTaleMedia,
+  options: { publishDraft?: boolean } = {},
+): Promise<boolean> {
   if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
   const { rowCount } = await db.query(
     'UPDATE tales SET media_key = $2, media_content_type = $3 WHERE id = $1 AND media_key IS NULL',
     [taleId, media.key, media.contentType],
   );
   if ((rowCount ?? 0) > 0) {
-    await bringTaleMediaInStep(db, taleId);
+    await bringTaleMediaInStep(db, taleId, options);
     return true;
   }
   if (!(await taleExists(db, taleId))) throw new TaleNotFoundError(taleId);
