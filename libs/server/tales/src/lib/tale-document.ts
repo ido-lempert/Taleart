@@ -28,7 +28,7 @@ import {
   projectFontRefs,
   TALE_DOCUMENT_VERSION,
   TALE_DOCUMENT_V1_SCHEMA,
-  TALE_ELEMENT_TYPE_REGISTRY,
+  elementTypeRegistry,
   type DeliveryTaleDocument,
   type TaleCanvas,
   type TaleDocument,
@@ -207,16 +207,42 @@ interface Validators {
   props: Map<string, ValidateFunction>;
 }
 
-let validators: Validators | null = null;
+// One set of compiled schemas without the registry's test-only types and one with them.
+const validators = new Map<boolean, Validators>();
 
-// The schemas are compiled once, on first use.
+// The deployment switch for the registry's test-only element types (epic Tale Studio R8), read by
+// the API from TALE_TEST_ELEMENT_TYPES: off unless a test or a development server turns it on.
+let testTypes = false;
+
+/**
+ * Accepts the element-type registry's test-only types on write (on), or refuses them as unknown
+ * types (off, the default). For tests and development servers only; the API never turns it on in
+ * production (R8).
+ */
+export function setTestElementTypesEnabled(on: boolean): void {
+  if (testTypes === on) return;
+  testTypes = on;
+  // Delivered documents were checked under the other setting: a document holding a test type is
+  // delivered only while the switch is on (otherwise its tale falls back to no document).
+  clearDeliveryCache();
+}
+
+/** True while the registry's test-only element types are accepted on write. */
+export function testElementTypesEnabled(): boolean {
+  return testTypes;
+}
+
+// The schemas of every registered type the server takes, compiled once, on first use: the
+// registry is the one list of types (AD-15, R8).
 function compiled(): Validators {
-  if (validators) return validators;
+  const cached = validators.get(testTypes);
+  if (cached) return cached;
   const ajv = new Ajv2020({ allErrors: false });
   const props = new Map<string, ValidateFunction>();
-  for (const { key, schema } of TALE_ELEMENT_TYPE_REGISTRY) props.set(key, ajv.compile(schema));
-  validators = { document: ajv.compile(TALE_DOCUMENT_V1_SCHEMA), props };
-  return validators;
+  for (const { key, schema } of elementTypeRegistry({ testTypes })) props.set(key, ajv.compile(schema));
+  const compiledNow = { document: ajv.compile(TALE_DOCUMENT_V1_SCHEMA), props };
+  validators.set(testTypes, compiledNow);
+  return compiledNow;
 }
 
 // Refuses a number that is not finite anywhere in the value (JSON's 1e999 parses as Infinity).
@@ -365,6 +391,10 @@ export function draftProblem(err: InvalidTaleDocumentError | TaleDocumentTooLarg
   if (err.pointer === '/durationMs') return 'Its duration is not between 3 and 15 seconds.';
   if (err.pointer.startsWith('/canvas')) return 'Its background has a setting that is not valid.';
   const index = Number(/^\/elements\/(\d+)/.exec(err.pointer)?.[1] ?? NaN);
+  // An element type the registry does not hold here (R8), such as a test-only type with the switch off.
+  if (Number.isInteger(index) && err.pointer === `/elements/${index}/type` && /not a registered element type/.test(err.message)) {
+    return `Layer ${index + 1} is a type this server doesn't take.`;
+  }
   const elements = (draft as { elements?: unknown } | null)?.elements;
   const element = Array.isArray(elements) && Number.isInteger(index) ? (elements[index] as unknown) : undefined;
   if (typeof element !== 'object' || element === null) return 'Something in it is not valid.';
