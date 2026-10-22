@@ -1,9 +1,13 @@
 import {
   installSnippet,
   SDK_BUNDLE_PATH,
-  SITE_KEY_PLACEHOLDER,
+  SDK_CACHE_SECONDS,
+  SDK_PINNED_CACHE_SECONDS,
   SDK_TEST_PAGE_PATH,
+  sdkScriptTag,
+  SITE_KEY_PLACEHOLDER,
   testPageLink,
+  zoneElement,
 } from '@taleart/contract/core';
 
 /** The API origin the docs use in examples. A real page uses the URL its zone page's Install tab shows. */
@@ -27,9 +31,16 @@ export const DOCS_SNIPPET = installSnippet(EXAMPLE_INSTALL, EXAMPLE_ZONE, null);
 
 /** Two zones of one project on one page: the script once, one element per zone, one site key. */
 export const DOCS_TWO_ZONES_SNIPPET = [
-  DOCS_SNIPPET,
-  installSnippet(EXAMPLE_INSTALL, 'home-promo', null).split('\n')[1],
+  sdkScriptTag(EXAMPLE_INSTALL),
+  zoneElement(EXAMPLE_INSTALL, EXAMPLE_ZONE, null),
+  zoneElement(EXAMPLE_INSTALL, 'home-promo', null),
 ].join('\n');
+
+/** How long browsers keep the SDK at its stable URL, in words (from the API's own constant). */
+export const SDK_CACHE_TEXT = SDK_CACHE_SECONDS === 300 ? 'five minutes' : `${SDK_CACHE_SECONDS} seconds`;
+
+/** How long browsers keep the SDK at its pinned URL, in words (from the API's own constant). */
+export const SDK_PINNED_CACHE_TEXT = SDK_PINNED_CACHE_SECONDS === 365 * 24 * 3600 ? 'a year' : `${SDK_PINNED_CACHE_SECONDS} seconds`;
 
 /** The test page link for the example zone, without a key (the page asks for one). */
 export const DOCS_TEST_PAGE = testPageLink(EXAMPLE_INSTALL, EXAMPLE_ZONE, null);
@@ -41,8 +52,13 @@ export const DOCS_TEST_PAGE_WITH_KEY = testPageLink(EXAMPLE_INSTALL, EXAMPLE_ZON
 export const DOCS_PINNED_SCRIPT =
   `<script type="module" src="${EXAMPLE_API_URL}/sdk/v1/taleart.<hash>.js" integrity="sha384-…" crossorigin="anonymous"></script>`;
 
-/** A theme override for one zone, by its slug. */
+/**
+ * A theme override for one zone, by its slug. `configureZone` is imported from exactly the URL of the
+ * page's script tag (the pinned one, when the page pins it): another URL would load a second copy of
+ * the SDK, whose settings the elements never read.
+ */
 export const DOCS_THEME_SCRIPT = [
+  sdkScriptTag(EXAMPLE_INSTALL),
   '<script type="module">',
   `  import { configureZone } from '${EXAMPLE_INSTALL.sdkUrl}';`,
   '',
@@ -58,6 +74,32 @@ export interface GlossaryTerm {
   readonly definition: string;
   readonly example: string;
 }
+
+/**
+ * The migration examples on the "Stages and zone keys" page: what the fold (story 8.5,
+ * `libs/server/zones/src/lib/fold.ts`) makes of two zones. They are the expectations of the API's fold
+ * tests in `apps/api/src/app.spec.ts` ("folds once when several API instances migrate at the same
+ * time" and "turns a zone of two stages…"), which the docs check reads: a zone made from a frame
+ * takes the original zone's new slug plus `-<type>-<n>`, `n` counting that zone's frames of the type
+ * oldest first, stage frames included.
+ */
+export const FOLD_EXAMPLES = [
+  {
+    before: '"Home" with stages Top (a bar, key top) and Hero (a banner, key hero), and a second bar no stage showed',
+    after: [
+      { name: 'Top', slug: 'top', note: 'the original zone, with the Top bar' },
+      { name: 'Hero', slug: 'hero', note: 'the banner' },
+      { name: 'Home – Bar 2', slug: 'top-bar-2', note: 'the second bar' },
+    ],
+  },
+  {
+    before: '"Shop" with a bar and a banner, and no stages',
+    after: [
+      { name: 'Shop', slug: 'shop', note: 'the original zone, with the bar' },
+      { name: 'Shop – Banner 1', slug: 'shop-banner-1', note: 'the banner' },
+    ],
+  },
+] as const;
 
 /** The product's terms, as the UX review of 2026-10-23 defines them (its glossary, section 3). */
 export const GLOSSARY: readonly GlossaryTerm[] = [
@@ -81,7 +123,6 @@ export const GLOSSARY: readonly GlossaryTerm[] = [
   },
   {
     term: 'Template',
-    was: 'playbook',
     definition:
       'A starting preset you pick when you create a zone: Stories bar, Promo banner or Blank. It sets the display once; nothing links the zone to it afterwards.',
     example: 'Stories bar',

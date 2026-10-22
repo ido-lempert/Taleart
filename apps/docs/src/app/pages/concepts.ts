@@ -7,12 +7,12 @@ import { GLOSSARY } from '../docs-content';
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h1>Concepts</h1>
+    <h1 tabindex="-1">Concepts</h1>
     <p class="lede">The words the dashboard, the Web SDK and these docs use, and what each one means.</p>
 
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="glossary-caption">
       <table id="glossary">
-        <caption class="muted">Glossary</caption>
+        <caption id="glossary-caption">Glossary</caption>
         <thead>
           <tr>
             <th scope="col">Term</th>
@@ -63,8 +63,8 @@ import { GLOSSARY } from '../docs-content';
     </ul>
 
     <p>
-      Earlier builds had stages, frames, playbooks and zone keys:
-      <a routerLink="/moving-from-stages">Stages and zone keys</a> says what became of them.
+      Earlier builds placed zones differently:
+      <a routerLink="/moving-from-stages">Stages and zone keys</a> says what changed.
     </p>
   `,
 })

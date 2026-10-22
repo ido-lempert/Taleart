@@ -1,4 +1,12 @@
-import { installSnippet, SITE_KEY_PLACEHOLDER, testPageLink } from './core';
+import {
+  installSnippet,
+  SDK_CACHE_SECONDS,
+  SDK_PINNED_CACHE_SECONDS,
+  sdkScriptTag,
+  SITE_KEY_PLACEHOLDER,
+  testPageLink,
+  zoneElement,
+} from './core';
 
 const info = {
   apiUrl: 'https://api.example.com',
@@ -14,6 +22,15 @@ describe('install snippet and test page link (epic UX rework R13)', () => {
       '<script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>\n' +
         '<taleart-view api-url="https://api.example.com" site-key="tas_abc-_123" zone="home-top"></taleart-view>',
     );
+  });
+
+  it('is the script tag and one zone element, so a page with several zones reuses the parts', () => {
+    expect(installSnippet(info, 'home-top', 'k')).toBe(`${sdkScriptTag(info)}\n${zoneElement(info, 'home-top', 'k')}`);
+  });
+
+  it('keeps the SDK five minutes at its stable URL and a year at its pinned one', () => {
+    expect(SDK_CACHE_SECONDS).toBe(5 * 60);
+    expect(SDK_PINNED_CACHE_SECONDS).toBe(365 * 24 * 60 * 60);
   });
 
   it('says the placeholder without a key', () => {

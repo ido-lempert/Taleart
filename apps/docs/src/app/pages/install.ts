@@ -8,6 +8,8 @@ import {
   DOCS_THEME_SCRIPT,
   DOCS_TWO_ZONES_SNIPPET,
   EXAMPLE_INSTALL,
+  SDK_CACHE_TEXT,
+  SDK_PINNED_CACHE_TEXT,
 } from '../docs-content';
 
 @Component({
@@ -15,7 +17,7 @@ import {
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h1>Install a zone</h1>
+    <h1 tabindex="-1">Install a zone</h1>
     <p class="lede">
       A page shows a zone with the Web SDK, the project's site key and the zone's slug. The zone page's
       <strong>Install</strong> tab gives you all three.
@@ -23,14 +25,15 @@ import {
 
     <h2 id="snippet">The snippet</h2>
     <p>The Install tab shows this snippet for its zone, with your API URL and the zone's slug filled in:</p>
-    <pre id="docs-snippet"><code>{{ snippet }}</code></pre>
+    <pre id="docs-snippet" tabindex="0" role="region" aria-label="Install snippet"><code>{{ snippet }}</code></pre>
     <p>
       Replace <code>YOUR_SITE_KEY</code> with the project's site key. Right after you issue the key, the Install tab
       shows the snippet with the key already in it, ready to copy; after that the key is never shown again.
     </p>
 
-    <div class="table-wrap">
-      <table>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="attributes-caption">
+      <table id="attributes">
+        <caption id="attributes-caption">Attributes of &lt;taleart-view&gt;</caption>
         <thead>
           <tr>
             <th scope="col">Attribute (property)</th>
@@ -66,7 +69,16 @@ import {
       </li>
       <li>
         It sits in your page's HTML, so it is not a secret: anyone who sees it can read every zone of the project that
-        has a display and visible content, by its slug.
+        has a display and visible content.
+      </li>
+      <li>
+        Slugs are not access control either: they are often easy to guess (<code>home</code>), so treat everything a
+        visible zone shows as public.
+      </li>
+      <li>
+        Put the key only in the <code>site-key</code> attribute (or the <code>siteKey</code> property), never in a
+        query string: a URL ends up in server logs and Referer headers. The SDK sends it only in the
+        <code>Authorization</code> header.
       </li>
       <li>
         <strong>Rotating</strong> it issues a new key and stops the old one at once, for every zone of the project:
@@ -76,20 +88,21 @@ import {
 
     <h2 id="several-zones">Several zones on one page</h2>
     <p>Load the script once and add one element per zone. They share the site key.</p>
-    <pre><code>{{ twoZones }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Two zones on one page"><code>{{ twoZones }}</code></pre>
 
     <h2 id="sdk-url">Where the SDK comes from</h2>
     <p>
       The TaleArt API serves the Web SDK at <code>{{ sdkUrl }}</code>, an ES module. A deploy replaces it at the same
-      URL, and browsers keep it for five minutes. Its <code>v1</code> follows the Delivery API's version.
+      URL, and browsers keep it for {{ cacheText }}. Its <code>v1</code> follows the Delivery API's version.
     </p>
     <h3 id="pinned">Pinning it with Subresource Integrity</h3>
     <p>
       The same build is also served at a URL pinned to its content, <code>/sdk/v1/taleart.&lt;hash&gt;.js</code>,
-      cached for a year. Signed in to the dashboard, <code>GET /api/v1/install</code> gives it as
-      <code>sdkPinnedUrl</code> with its integrity value, <code>sdkIntegrity</code>:
+      cached for {{ pinnedCacheText }}. To get it, open <code>&lt;api&gt;/api/v1/install</code> in a browser where you
+      are signed in to the dashboard: <code>sdkPinnedUrl</code> is the URL and <code>sdkIntegrity</code> its
+      integrity value.
     </p>
-    <pre><code>{{ pinned }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Pinned script tag"><code>{{ pinned }}</code></pre>
     <p>
       The browser then refuses any other file. A pinned URL is gone with the next build, so a page that pins it
       updates it on each release.
@@ -100,7 +113,7 @@ import {
       <em>Open test page</em> on the Install tab renders the zone on a page TaleArt serves, before you touch your
       site:
     </p>
-    <pre><code>{{ testPageWithKey }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Test page link"><code>{{ testPageWithKey }}</code></pre>
     <ul>
       <li>
         The site key travels only in the URL fragment (after <code>#</code>), which a browser never sends to a server;
@@ -113,14 +126,21 @@ import {
     <h2 id="theme">Theme for one zone</h2>
     <p>
       The project's theme styles every zone. A page can override it for one zone, by its slug, or for one element
-      with its <code>theme</code> attribute:
+      with its <code>theme</code> attribute. Import <code>configureZone</code> from exactly the URL of your script
+      tag (the pinned one, if you pin it): another URL loads a second copy of the SDK, and the elements never see
+      its settings.
     </p>
-    <pre><code>{{ themeScript }}</code></pre>
+    <pre tabindex="0" role="region" aria-label="Theme for one zone"><code>{{ themeScript }}</code></pre>
 
     <h2 id="nothing-shows">When nothing shows</h2>
     <ul>
       <li>
         An unknown slug, or a revoked or rotated site key, renders nothing and logs one console error per element.
+      </li>
+      <li>
+        The Delivery API limits how often one address may ask (by default bursts of 600, then 20 requests a second).
+        Over the limit it answers 429, and the element renders nothing and logs one console error; a reload later
+        shows the zone again.
       </li>
       <li>
         Otherwise, open the zone page: it says <em>Not visible:</em> and why, such as "zone has no display",
@@ -138,6 +158,8 @@ export class InstallPage {
   protected readonly snippet = DOCS_SNIPPET;
   protected readonly twoZones = DOCS_TWO_ZONES_SNIPPET;
   protected readonly sdkUrl = EXAMPLE_INSTALL.sdkUrl;
+  protected readonly cacheText = SDK_CACHE_TEXT;
+  protected readonly pinnedCacheText = SDK_PINNED_CACHE_TEXT;
   protected readonly pinned = DOCS_PINNED_SCRIPT;
   protected readonly testPage = DOCS_TEST_PAGE;
   protected readonly testPageWithKey = DOCS_TEST_PAGE_WITH_KEY;

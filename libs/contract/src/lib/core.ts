@@ -201,6 +201,12 @@ export const SDK_TEST_PAGE_PATH = `${SDK_BASE}/test-page`;
 /** The URL fragment parameter of the test page that holds the site key (never the query: it would reach logs). */
 export const TEST_PAGE_KEY_PARAM = 'siteKey';
 
+/** How long browsers keep the SDK at its stable URL ({@link SDK_BUNDLE_PATH}): five minutes, so a deploy reaches pages soon. */
+export const SDK_CACHE_SECONDS = 300;
+
+/** How long browsers keep the SDK at its pinned URL (`taleart.<hash>.js`): a year, since that file never changes. */
+export const SDK_PINNED_CACHE_SECONDS = 31_536_000;
+
 /** What the install snippet says in place of the site key when the key is not at hand (it is shown only once). */
 export const SITE_KEY_PLACEHOLDER = 'YOUR_SITE_KEY';
 
@@ -209,17 +215,27 @@ function htmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** The script tag that loads the Web SDK as an ES module, from `info.sdkUrl`. */
+export function sdkScriptTag(info: Pick<InstallInfo, 'sdkUrl'>): string {
+  return `<script type="module" src="${htmlAttribute(info.sdkUrl)}"></script>`;
+}
+
+/**
+ * One `<taleart-view>` that places a zone: the API URL, the site key (or {@link SITE_KEY_PLACEHOLDER})
+ * and the zone's slug, each escaped for a double-quoted attribute. A page with several zones has one
+ * script tag and one of these per zone.
+ */
+export function zoneElement(info: Pick<InstallInfo, 'apiUrl'>, zone: string, siteKey: string | null): string {
+  return `<taleart-view api-url="${htmlAttribute(info.apiUrl)}" site-key="${htmlAttribute(siteKey || SITE_KEY_PLACEHOLDER)}" zone="${htmlAttribute(zone)}"></taleart-view>`;
+}
+
 /**
  * The copy-ready HTML that places a zone on a host page (epic UX rework R13, R17): the Web SDK's
- * script tag and a `<taleart-view>` with the API URL, the site key (or {@link SITE_KEY_PLACEHOLDER})
- * and the zone's slug. Every value is escaped for a double-quoted attribute. The dashboard's Install
- * tab and the docs app both show this text, and the docs check holds the Web SDK README to it.
+ * script tag and the zone's `<taleart-view>`. The dashboard's Install tab and the docs app both show
+ * this text, and the docs check holds the Web SDK README to it.
  */
 export function installSnippet(info: Pick<InstallInfo, 'apiUrl' | 'sdkUrl'>, zone: string, siteKey: string | null): string {
-  return [
-    `<script type="module" src="${htmlAttribute(info.sdkUrl)}"></script>`,
-    `<taleart-view api-url="${htmlAttribute(info.apiUrl)}" site-key="${htmlAttribute(siteKey || SITE_KEY_PLACEHOLDER)}" zone="${htmlAttribute(zone)}"></taleart-view>`,
-  ].join('\n');
+  return [sdkScriptTag(info), zoneElement(info, zone, siteKey)].join('\n');
 }
 
 /**

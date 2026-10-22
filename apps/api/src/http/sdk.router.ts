@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { SDK_BASE, SDK_BUNDLE_PATH, SDK_TEST_PAGE_PATH, type InstallInfo } from '@taleart/contract';
+import {
+  SDK_BASE,
+  SDK_BUNDLE_PATH,
+  SDK_CACHE_SECONDS,
+  SDK_PINNED_CACHE_SECONDS,
+  SDK_TEST_PAGE_PATH,
+  type InstallInfo,
+} from '@taleart/contract';
 import { Router, type Response } from 'express';
 
 /** Where the API finds what it serves under `/sdk/v1` (epic UX rework R13). */
@@ -159,7 +166,7 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
       const file = await bundle();
       if (!file) return notFound(res);
       // A deploy replaces it at the same URL: pages pick the new one up within five minutes.
-      sendBundle(res, file, 'public, max-age=300');
+      sendBundle(res, file, `public, max-age=${SDK_CACHE_SECONDS}`);
     } catch (err) {
       next(err);
     }
@@ -172,7 +179,7 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
         const file = await bundle();
         // Only the current build: an old hash is gone with its build.
         if (!file || file.hash !== pinned[1]) return notFound(res);
-        return sendBundle(res, file, 'public, max-age=31536000, immutable');
+        return sendBundle(res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
       }
       const page = Object.prototype.hasOwnProperty.call(PAGE_FILES, req.params.name) ? pages.get(req.params.name) : undefined;
       const file = page && (await page.read());
