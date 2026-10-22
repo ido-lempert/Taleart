@@ -1,11 +1,13 @@
 import {
   ErrorCodes,
+  type AppliedPlaybook,
   type ApplyPlaybookRequest,
   type CreateFrameRequest,
   type CreateStageRequest,
   type CreateZoneRequest,
   type RenameStageRequest,
   type UpdateFrameRequest,
+  type Zone,
 } from '@taleart/contract';
 import {
   applyPlaybook,
@@ -22,18 +24,27 @@ import {
   ZoneNotFoundError,
   type FrameTypeRegistry,
 } from '@taleart/server-zones';
+import { withVisibility, zoneVisibilities } from '@taleart/server-tales';
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { accessibleScope, authorize, authorizeParam } from './authorize';
 import { HttpError } from './errors';
 import { requiredString } from './validation';
 
+/**
+ * Zones with their visibility (epic UX rework R7): the zones module stores them, the tales module
+ * knows what they deliver; the API composes the two (AD-1).
+ */
+async function withZoneVisibility<Z extends { id: string }>(pool: Pool, zones: Z[]): Promise<(Z & Pick<Zone, 'visibility'>)[]> {
+  return withVisibility(zones, await zoneVisibilities(pool, zones.map((zone) => zone.id)));
+}
+
 export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
   const router = Router();
 
   router.get('/', async (_req, res, next) => {
     try {
-      res.json(await listZones(pool, await accessibleScope(pool, res)));
+      res.json(await withZoneVisibility(pool, await listZones(pool, await accessibleScope(pool, res))));
     } catch (err) {
       next(err);
     }
@@ -46,7 +57,8 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
         projectId: requiredString(req.body, 'projectId'),
       };
       await authorize(pool, res, 'project', input.projectId);
-      res.status(201).json(await createZone(pool, input));
+      const [zone] = await withZoneVisibility(pool, [await createZone(pool, input)]);
+      res.status(201).json(zone);
     } catch (err) {
       next(err);
     }
@@ -139,7 +151,9 @@ export function zonesRouter(pool: Pool, frameTypes: FrameTypeRegistry): Router {
     try {
       // Zone first (404), then the key (400), then conflicts (409), in the zones module.
       const body = (req.body ?? {}) as Partial<Record<keyof ApplyPlaybookRequest, unknown>>;
-      res.json(await applyPlaybook(pool, frameTypes, { zoneId: req.params.zoneId, key: body.key }));
+      const applied = await applyPlaybook(pool, frameTypes, { zoneId: req.params.zoneId, key: body.key });
+      const [zone] = await withZoneVisibility(pool, [applied.zone]);
+      res.json({ ...applied, zone } satisfies AppliedPlaybook);
     } catch (err) {
       next(err);
     }

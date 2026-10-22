@@ -1,7 +1,6 @@
 import { Route } from '@angular/router';
 import { authGuard, setupGuard, signInGuard } from './auth';
 import { SignInPage } from './pages/sign-in';
-import { ZonesPage } from './pages/zones';
 
 /** Shell data per route: the top bar title and what its "New …" button creates, if anything. */
 export interface ShellData {
@@ -46,7 +45,8 @@ export const appRoutes: Route[] = [
       { path: '', pathMatch: 'full', redirectTo: 'zones' },
       {
         path: 'zones',
-        component: ZonesPage,
+        // Lazy, like every other shell page, to keep the initial bundle under its 500 kB budget.
+        loadComponent: () => import('./pages/zones').then((m) => m.ZonesPage),
         title: 'Zones · TaleArt',
         data: { heading: 'Zones', create: 'zone', createLabel: 'New zone' } satisfies ShellData,
       },

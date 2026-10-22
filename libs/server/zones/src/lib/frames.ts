@@ -1,7 +1,7 @@
-import { ErrorCodes, type Frame, type Zone } from '@taleart/contract';
+import { ErrorCodes, type Frame } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import type { FrameTypeRegistry } from './frame-types';
-import { ZONE_COLUMNS } from './zones';
+import { ZONE_COLUMNS, type StoredZone } from './zones';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -39,9 +39,9 @@ export async function zoneProjectId(db: Db, zoneId: string): Promise<string | nu
 }
 
 /** The zone with this id, or null when it does not exist. Ids that are not UUIDs never match. */
-export async function findZone(db: Db, zoneId: string): Promise<Zone | null> {
+export async function findZone(db: Db, zoneId: string): Promise<StoredZone | null> {
   if (!UUID.test(zoneId)) return null;
-  const { rows } = await db.query<Zone>(`SELECT ${ZONE_COLUMNS} FROM zones WHERE id = $1`, [zoneId]);
+  const { rows } = await db.query<StoredZone>(`SELECT ${ZONE_COLUMNS} FROM zones WHERE id = $1`, [zoneId]);
   return rows[0] ?? null;
 }
 
@@ -110,4 +110,18 @@ export async function updateFrameSettings(
   // Deleted between the read and the write.
   if (!rows[0]) throw new FrameNotFoundError(input.frameId);
   return rows[0];
+}
+
+/**
+ * The zones among `zoneIds` that have a frame: a display, until a zone holds one display (epic UX
+ * rework stories 5 and 6, R7 "zone has no display").
+ */
+export async function zoneIdsWithFrames(db: Db, zoneIds: readonly string[]): Promise<Set<string>> {
+  const ids = zoneIds.filter((id) => UUID.test(id));
+  if (ids.length === 0) return new Set();
+  const { rows } = await db.query<{ zoneId: string }>(
+    'SELECT DISTINCT zone_id AS "zoneId" FROM frames WHERE zone_id = ANY($1::uuid[])',
+    [ids],
+  );
+  return new Set(rows.map((row) => row.zoneId));
 }

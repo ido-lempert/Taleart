@@ -1,17 +1,15 @@
 import {
   ErrorCodes,
   PLAYBOOKS,
-  type AppliedPlaybook,
   type Frame,
   type Playbook,
   type Stage,
-  type Zone,
 } from '@taleart/contract';
 import type { Db, TransactionalDb } from '@taleart/server-access';
 import type { FrameTypeRegistry } from './frame-types';
 import { createFrame, ZoneNotFoundError, zoneProjectId } from './frames';
 import { createStage, StageKeyTakenError } from './stages';
-import { ZONE_COLUMNS } from './zones';
+import { ZONE_COLUMNS, type StoredAppliedPlaybook, type StoredZone } from './zones';
 
 /** Thrown when an apply request names no playbook key. */
 export class PlaybookKeyRequiredError extends Error {
@@ -93,7 +91,7 @@ export async function applyPlaybook(
   registry: FrameTypeRegistry,
   input: { zoneId: string; key: unknown },
   playbooks: readonly Playbook[] = PLAYBOOKS,
-): Promise<AppliedPlaybook> {
+): Promise<StoredAppliedPlaybook> {
   // Zone first (404), then the body (400).
   if ((await zoneProjectId(db, input.zoneId)) === null) throw new ZoneNotFoundError(input.zoneId);
   if (typeof input.key !== 'string' || !input.key) throw new PlaybookKeyRequiredError();
@@ -116,12 +114,12 @@ function applyOnce(
   registry: FrameTypeRegistry,
   zoneId: string,
   playbook: Playbook,
-): Promise<AppliedPlaybook> {
+): Promise<StoredAppliedPlaybook> {
   const input = { zoneId };
   return inTransaction(db, async (tx) => {
     // Locks the zone, so two applies to one zone run one after the other. NO KEY UPDATE leaves
     // the key-share locks of foreign key checks free, so a stage or frame created meanwhile does not wait on it.
-    const locked = await tx.query<Zone>(`SELECT ${ZONE_COLUMNS} FROM zones WHERE id = $1 FOR NO KEY UPDATE`, [
+    const locked = await tx.query<StoredZone>(`SELECT ${ZONE_COLUMNS} FROM zones WHERE id = $1 FOR NO KEY UPDATE`, [
       input.zoneId,
     ]);
     const zone = locked.rows[0];
@@ -156,7 +154,7 @@ function applyOnce(
         }),
       );
     }
-    const updated = await tx.query<Zone>(`UPDATE zones SET playbook_key = $2 WHERE id = $1 RETURNING ${ZONE_COLUMNS}`, [
+    const updated = await tx.query<StoredZone>(`UPDATE zones SET playbook_key = $2 WHERE id = $1 RETURNING ${ZONE_COLUMNS}`, [
       input.zoneId,
       playbook.key,
     ]);

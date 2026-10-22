@@ -32,6 +32,7 @@ import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
 import { describeWindow } from '../schedule';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
+import { visibilityLine, VisibilityIndicator } from '../visibility';
 
 const TONES = 6;
 
@@ -51,7 +52,7 @@ type Direction = 'earlier' | 'later';
  */
 @Component({
   selector: 'app-zone-detail-page',
-  imports: [RouterLink, Icon, StatusBadge, ShowSwitch, CdkDropList, CdkDrag, CdkDragHandle],
+  imports: [RouterLink, Icon, StatusBadge, ShowSwitch, VisibilityIndicator, CdkDropList, CdkDrag, CdkDragHandle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './zone-detail.html',
   styles: `
@@ -169,6 +170,9 @@ type Direction = 'earlier' | 'later';
     .key-info dd {
       margin: 0;
     }
+    .zone-visibility {
+      margin-top: var(--space-2);
+    }
     .key-actions {
       display: flex;
       flex-wrap: wrap;
@@ -266,8 +270,13 @@ export class ZoneDetailPage {
     const message = await this.saving(group.id, id, () => this.store.setTaleGroupStatus(id, status));
     if (message) return;
     // The status as read after the refresh: turning on a group whose start is ahead makes it scheduled (AD-6).
-    const read = this.store.taleGroup(id)?.status ?? status;
-    this.announce(`${group.name} is now ${statusLabel(read, 'group').toLowerCase()}`);
+    const saved = this.groups().find((g) => g.id === id);
+    const read = saved?.status ?? status;
+    // With what the indicator now says in this zone (R7), such as "Visible on site".
+    this.announce(
+      `${group.name} is now ${statusLabel(read, 'group').toLowerCase()}` +
+        (saved?.visibility ? `. ${visibilityLine(saved.visibility, 'group')}` : ''),
+    );
   }
 
   /** Shows (stores live) or hides (stores paused) a tale from its card, at once, then announces it. */
@@ -285,7 +294,13 @@ export class ZoneDetailPage {
     if (message) return;
     if (warning) this.statusErrors.update((errors) => ({ ...errors, [group.id]: warning }));
     // The warning is announced once, by the group's alert.
-    this.announce(`${tale.title} is now ${statusLabel(read, 'tale').toLowerCase()}`);
+    const saved = this.groups()
+      .find((g) => g.id === group.id)
+      ?.tales.find((t) => t.id === tale.id);
+    this.announce(
+      `${tale.title} is now ${statusLabel(read, 'tale').toLowerCase()}` +
+        (saved?.visibility ? `. ${visibilityLine(saved.visibility, 'tale')}` : ''),
+    );
   }
 
   // Runs one status change for `savingId`, showing the API's message under the group `groupId`.

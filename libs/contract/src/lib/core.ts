@@ -118,6 +118,7 @@ export type ErrorBody = Schemas['ErrorBody'];
 export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: ThemeSettings };
 
 export * from './playbooks';
+export * from './visibility';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;

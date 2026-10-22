@@ -26,11 +26,15 @@ import {
   startImportWorker,
   type ImportWorker,
 } from '@taleart/server-importer';
-import { DEFAULT_THEME, PLAYBOOKS, type ImportReport, type Playbook } from '@taleart/contract';
+import { DEFAULT_THEME, PLAYBOOKS, VISIBILITY_REASON_CODES, type ImportReport, type Playbook } from '@taleart/contract';
 import { LocalDiskStorage } from '@taleart/server-storage';
 import {
   clearDeliveryCache,
   clearPublicFontCache,
+  deliveredGroup,
+  deliveredTale,
+  groupReasonsSql,
+  taleReasonsSql,
   continueTaleMediaMigration,
   migrateTaleMediaDocuments,
   sweepUnusedProjectMediaFiles,
@@ -159,6 +163,19 @@ function mediaDocument(kind: 'image' | 'video', url: unknown, id: unknown = expe
   };
 }
 
+// A visibility reason and a visibility (epic UX rework R7), as the Management API returns them.
+function why(code: string, subject: 'zone' | 'group' | 'tale', at?: string) {
+  return at === undefined ? { code, subject } : { code, subject, at };
+}
+function notVisible(...reasons: ReturnType<typeof why>[]) {
+  return { visible: false, reasons };
+}
+const VISIBLE = { visible: true, reasons: [] };
+// Any visibility, where a test is about something else.
+const SOME_VISIBILITY = expect.objectContaining({ visible: expect.any(Boolean), reasons: expect.any(Array) });
+// A new zone: no display, no key, nothing placed (R7).
+const NEW_ZONE_VISIBILITY = notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone'), why('no-shown-tales', 'zone'));
+
 // The session cookie the content tests send; set before each test.
 let sessionCookie = '';
 
@@ -189,6 +206,21 @@ describe('Management API v1: projects and zones', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+  }
+
+  // Gives the zone a display (a bar frame) when it has none: a zone without a display delivers no
+  // tale group (epic UX rework R7), so a key alone would deliver nothing.
+  async function withDisplay(zoneId: string): Promise<void> {
+    const frames = await (await fetch(`${base}/zones/${zoneId}/frames`)).json();
+    if (Array.isArray(frames) && frames.length === 0) {
+      expect((await post(`/zones/${zoneId}/frames`, { type: 'bar', settings: {} })).status).toBe(201);
+    }
+  }
+
+  // Installs the zone as a host page needs it: a display, then a key (R7).
+  async function postKey(zoneId: string): Promise<Response> {
+    await withDisplay(zoneId);
+    return post(`/zones/${zoneId}/key`, {});
   }
 
   // Sets the stored status of a tale group or tale (AD-6), as the dashboard's Publish, Pause, Archive and Restore do.
@@ -275,7 +307,13 @@ describe('Management API v1: projects and zones', () => {
     const created = await post('/zones', { name: 'Home page bar', projectId: project.id });
     expect(created.status).toBe(201);
     const zone = await created.json();
-    expect(zone).toEqual({ id: expect.any(String), name: 'Home page bar', projectId: project.id, playbookKey: null });
+    expect(zone).toEqual({
+      id: expect.any(String),
+      name: 'Home page bar',
+      projectId: project.id,
+      playbookKey: null,
+      visibility: NEW_ZONE_VISIBILITY,
+    });
 
     const list = await (await fetch(`${base}/zones`)).json();
     expect(list).toEqual([zone]);
@@ -352,7 +390,7 @@ describe('Management API v1: projects and zones', () => {
     const zones = await (await fetch(`${base}/zones`)).json();
     expect(projects).toEqual([{ id: project.id, name: 'Acme' }]);
     expect(zones).toEqual([
-      { id: expect.any(String), name: 'Home page bar', projectId: project.id, playbookKey: null },
+      { id: expect.any(String), name: 'Home page bar', projectId: project.id, playbookKey: null, visibility: NEW_ZONE_VISIBILITY },
     ]);
   });
 
@@ -873,7 +911,12 @@ describe('Management API v1: projects and zones', () => {
       const body = await res.json();
       expect(body).toEqual({
         applied: true,
-        zone: { ...zone, playbookKey: 'home-stories-bar' },
+        // Its frame is the zone's display; it still has no key and nothing placed (R7).
+        zone: {
+          ...zone,
+          playbookKey: 'home-stories-bar',
+          visibility: notVisible(why('zone-not-installed', 'zone'), why('no-shown-tales', 'zone')),
+        },
         frames: [{ id: expect.any(String), zoneId: zone.id, projectId: zone.projectId, type: 'bar', settings: barSettings }],
         stages: [
           {
@@ -903,7 +946,7 @@ describe('Management API v1: projects and zones', () => {
         ['promo-banner', 'Promo banner'],
       ]);
       expect((await zoneListed(first.id)).playbookKey).toBe('home-stories-bar');
-      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const { key } = await (await postKey(zone.id)).json();
       const delivered = await (
         await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } })
       ).json();
@@ -1090,6 +1133,13 @@ describe('Management API v1: projects and zones', () => {
         zoneIds: [zone.id],
         tales: [],
         tags: [],
+        // Off, in a zone that is not set up, with no tale (R7).
+        visibility: notVisible(
+          why('group-off', 'group'),
+          why('zone-no-display', 'zone'),
+          why('zone-not-installed', 'zone'),
+          why('no-shown-tales', 'group'),
+        ),
       });
       const { rows } = await pool.query('SELECT project_id FROM tale_groups');
       expect(rows).toEqual([{ project_id: zone.projectId }]);
@@ -1132,6 +1182,13 @@ describe('Management API v1: projects and zones', () => {
         startsAt: null,
         endsAt: null,
         media: null,
+        // Nothing published yet, in a group that is Off, in a zone not set up (R7).
+        visibility: notVisible(
+          why('group-off', 'group'),
+          why('not-updated-yet', 'tale'),
+          why('zone-no-display', 'zone'),
+          why('zone-not-installed', 'zone'),
+        ),
       });
       const { rows } = await pool.query('SELECT project_id FROM tales');
       expect(rows).toEqual([{ project_id: zone.projectId }]);
@@ -1481,6 +1538,7 @@ describe('Management API v1: projects and zones', () => {
           { id: beach.id, name: 'Beach' },
           { id: summer.id, name: 'summer' },
         ],
+        visibility: SOME_VISIBILITY,
       });
       expect(await groupTags(zone.id)).toEqual({ First: ['Beach', 'summer'], Second: [] });
 
@@ -1679,7 +1737,7 @@ describe('Management API v1: projects and zones', () => {
       await publish('tale-groups', a.id, c.id);
       await publish('tales', tale.id);
       await asLegacy(tale.id);
-      const { key } = await (await post(`/zones/${z2.id}/key`, {})).json();
+      const { key } = await (await postKey(z2.id)).json();
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       // C has no live tale, so only A is delivered.
       expect((await delivered.json()).taleGroups).toEqual([
@@ -1715,11 +1773,13 @@ describe('Management API v1: projects and zones', () => {
         zoneIds: [z.id, z2.id],
         tales: [expect.objectContaining({ title: 'T', status: 'live' })],
         tags: [],
+        // On, with a tale to show, in two zones neither of which is set up yet: each zone reason once (R7).
+        visibility: notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')),
       });
       for (const zoneId of [z.id, z2.id]) {
         expect((await listed(zoneId)).find((g) => g.id === a.id)?.name).toBe('Summer sale');
       }
-      const { key } = await (await post(`/zones/${z2.id}/key`, {})).json();
+      const { key } = await (await postKey(z2.id)).json();
       const delivered = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       expect((await delivered.json()).taleGroups.map((g: { name: string }) => g.name)).toEqual(['C', 'Summer sale']);
     });
@@ -1804,10 +1864,14 @@ describe('Management API v1: projects and zones', () => {
       expect(res.status).toBe(200);
       const groups = await res.json();
       expect(groups).toEqual([
-        { id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [] },
-        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id] },
-        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id] },
-        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id] },
+        {
+          id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [],
+          // In no zone (R7); its one tale has nothing published either.
+          visibility: notVisible(why('group-off', 'group'), why('not-in-any-zone', 'group'), why('no-shown-tales', 'group')),
+        },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], visibility: SOME_VISIBILITY },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], visibility: SOME_VISIBILITY },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
@@ -2041,6 +2105,7 @@ describe('Management API v1: projects and zones', () => {
         cover: null,
         position: 1,
         zoneIds: [production.id],
+        visibility: SOME_VISIBILITY,
         tales: [
           expect.objectContaining({ title: 'One', position: 0, media: expect.objectContaining({ contentType: 'image/png' }) }),
           expect.objectContaining({ title: 'Two', position: 1, media: null }),
@@ -3063,7 +3128,7 @@ describe('Management API v1: projects and zones', () => {
       await publish('tale-groups', group.id);
       await publish('tales', tale.id);
       await asLegacy(tale.id);
-      const { key } = await (await post(`/zones/${group.zoneId}/key`, {})).json();
+      const { key } = await (await postKey(group.zoneId)).json();
       return { id: group.id, zoneId: group.zoneId, taleId: tale.id, key };
     }
 
@@ -3788,6 +3853,7 @@ describe('Management API v1: projects and zones', () => {
     }
 
     async function issue(zoneId: string): Promise<{ key: string; prefix: string; createdAt: string }> {
+      await withDisplay(zoneId);
       const res = await send('POST', `/zones/${zoneId}/key`);
       expect(res.status).toBe(201);
       return res.json();
@@ -5154,7 +5220,7 @@ describe('Management API v1: projects and zones', () => {
       // Hidden, so showing it later publishes its draft, as going live does (AD-15).
       expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
       expect((await save(tale.id, doc(elements(font.id)), 0)).status).toBe(200);
-      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const { key } = await (await postKey(zone.id)).json();
       return { zone, font, group, tale, key: key as string };
     }
 
@@ -5593,7 +5659,7 @@ describe('Management API v1: projects and zones', () => {
     }
 
     async function delivered(zoneId: string) {
-      const { key } = await (await post(`/zones/${zoneId}/key`, {})).json();
+      const { key } = await (await postKey(zoneId)).json();
       const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       expect(res.status).toBe(200);
       return (await res.json()).taleGroups as { tales: { id: string; document: Record<string, unknown> | null }[] }[];
@@ -6262,7 +6328,7 @@ describe('Management API v1: projects and zones', () => {
     }
 
     async function delivered(zoneId: string) {
-      const { key } = await (await post(`/zones/${zoneId}/key`, {})).json();
+      const { key } = await (await postKey(zoneId)).json();
       const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       expect(res.status).toBe(200);
       return (await res.json()).taleGroups as {
@@ -7009,7 +7075,7 @@ describe('Management API v1: projects and zones', () => {
       await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [ids.b5]);
       await pool.query("DELETE FROM tale_media WHERE tale_id = $1 AND document = 'published'", [ids.b5]);
       const keys: string[] = [];
-      for (const z of [zone, second]) keys.push((await (await post(`/zones/${z.id}/key`, {})).json()).key);
+      for (const z of [zone, second]) keys.push((await (await postKey(z.id)).json()).key);
       // As before the step: it has not run.
       await pool.query('DELETE FROM tales_migrations');
       return { never, ids, keys };
@@ -7162,7 +7228,7 @@ describe('Management API v1: projects and zones', () => {
       const g = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Fresh' })).json();
       await publish('tale-groups', g.id);
       await post(`/tale-groups/${g.id}/tales`, { title: 'Title only' });
-      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const { key } = await (await postKey(zone.id)).json();
       expect((await deliveries([key])).map(shape)).toEqual([[]]);
     });
 
@@ -7186,7 +7252,7 @@ describe('Management API v1: projects and zones', () => {
       // Not updated yet: the draft (now with the media) waits for the person to publish it.
       expect(await state(drafted.id)).toBeNull();
       expect(await state(fromMedia.id)).not.toBeNull();
-      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const { key } = await (await postKey(zone.id)).json();
       expect((await deliveries([key])).map(shape)).toEqual([[['Fresh', ['From media']]]]);
     });
 
@@ -7202,7 +7268,7 @@ describe('Management API v1: projects and zones', () => {
       });
       expect(saved.status).toBe(200);
       const fromMedia = await (await post(`/tale-groups/${g.id}/tales`, { title: 'From media' })).json();
-      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const { key } = await (await postKey(zone.id)).json();
       const previous = process.env['TALE_MEDIA_MIGRATION'];
       process.env['TALE_MEDIA_MIGRATION'] = 'off';
       try {
@@ -7235,7 +7301,7 @@ describe('Management API v1: projects and zones', () => {
       // As markTaleMediaSeen leaves it: in step, a draft, nothing published.
       await pool.query('UPDATE tales SET document = NULL, document_media_key = media_key WHERE id = $1', [t.id]);
       await asLegacy(t.id);
-      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const { key } = await (await postKey(zone.id)).json();
       const [body] = await deliveries([key]);
       const tales = JSON.parse(body).taleGroups[0].tales as { title: string; document: { elements: { props: { taleMedia?: boolean } }[] } }[];
       expect(tales.map((tale) => tale.title)).toEqual(['Seen']);
@@ -7252,11 +7318,419 @@ describe('Management API v1: projects and zones', () => {
       expect(copy.status).toBe(201);
       const copied = await copy.json();
       await publish('tale-groups', copied.id);
-      const { key } = await (await post(`/zones/${zone.id}/key`, {})).json();
+      const { key } = await (await postKey(zone.id)).json();
       const [body] = await deliveries([key]);
       const groups = JSON.parse(body).taleGroups as { id: string; tales: { title: string; document: unknown }[] }[];
       expect(groups.map((group) => group.tales.map((tale) => tale.title))).toEqual([['Title only'], ['Title only']]);
       expect(groups[1].tales[0].document).toEqual(groups[0].tales[0].document);
+    });
+  });
+
+  describe('"Visible on site / Not visible because…" (epic UX rework R7, story 8.2)', () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const HOUR = 60 * 60 * 1000;
+
+    interface Visibility {
+      visible: boolean;
+      reasons: { code: string; subject: string; at?: string }[];
+    }
+    interface ListedTale {
+      id: string;
+      visibility: Visibility;
+    }
+    interface ListedGroup {
+      id: string;
+      visibility: Visibility;
+      tales: ListedTale[];
+    }
+    // A zone with a display and a key, and a group that is On with two tales from media: all visible.
+    interface Fixture {
+      projectId: string;
+      zoneId: string;
+      key: string | null;
+      groupId: string;
+      taleId: string;
+      otherId: string;
+    }
+
+    function send(method: string, path: string, body?: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method,
+        headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    }
+
+    async function upload(taleId: string): Promise<void> {
+      const res = await fetch(`${base}/tales/${taleId}/media`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+        body: png,
+      });
+      expect(res.status).toBe(200);
+    }
+
+    // A tale from uploaded media: Shown, with its media document published at creation (AD-15).
+    async function taleFromMedia(groupId: string, title: string): Promise<string> {
+      const { id } = await (await post(`/tale-groups/${groupId}/tales`, { title })).json();
+      await upload(id);
+      return id;
+    }
+
+    async function fixture(): Promise<Fixture> {
+      const zone = await createZone();
+      const { key } = await (await postKey(zone.id)).json();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      await publish('tale-groups', group.id);
+      const taleId = await taleFromMedia(group.id, 'Target');
+      const otherId = await taleFromMedia(group.id, 'Other');
+      return { projectId: zone.projectId, zoneId: zone.id, key, groupId: group.id, taleId, otherId };
+    }
+
+    // What the site shows for the zone: the groups and tales its key delivers; nothing without a key.
+    async function delivered(key: string | null): Promise<{ groups: string[]; tales: string[] }> {
+      if (key === null) return { groups: [], tales: [] };
+      const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
+      expect(res.status).toBe(200);
+      const body: { taleGroups: { id: string; tales: { id: string }[] }[] } = await res.json();
+      return {
+        groups: body.taleGroups.map((g) => g.id),
+        tales: body.taleGroups.flatMap((g) => g.tales.map((t) => t.id)),
+      };
+    }
+
+    async function listed(zoneId: string): Promise<ListedGroup[]> {
+      return (await send('GET', `/zones/${zoneId}/tale-groups`)).json();
+    }
+
+    async function zoneVisibility(zoneId: string): Promise<Visibility> {
+      const zones: { id: string; visibility: Visibility }[] = await (await send('GET', '/zones')).json();
+      const zone = zones.find((z) => z.id === zoneId);
+      if (!zone) throw new Error('zone not listed');
+      return zone.visibility;
+    }
+
+    async function projectGroup(f: Fixture): Promise<{ visibility: Visibility; zoneIds: string[] }> {
+      const groups: { id: string; visibility: Visibility; zoneIds: string[] }[] = await (
+        await send('GET', `/projects/${f.projectId}/tale-groups`)
+      ).json();
+      const group = groups.find((g) => g.id === f.groupId);
+      if (!group) throw new Error('group not listed');
+      return group;
+    }
+
+    // The indicator and the Delivery API agree on every placement and tale of the zone, the zone
+    // itself, and, row by row in SQL, the Delivery filter and the reasons on every tale and group.
+    async function expectAgreement(f: Fixture): Promise<void> {
+      const site = await delivered(f.key);
+      const groups = await listed(f.zoneId);
+      for (const group of groups) {
+        expect({ group: group.id, visible: group.visibility.visible }).toEqual({
+          group: group.id,
+          visible: site.groups.includes(group.id),
+        });
+        expect(group.visibility.visible).toBe(group.visibility.reasons.length === 0);
+        for (const tale of group.tales) {
+          expect({ tale: tale.id, visible: tale.visibility.visible }).toEqual({
+            tale: tale.id,
+            visible: site.tales.includes(tale.id),
+          });
+          expect(tale.visibility.visible).toBe(tale.visibility.reasons.length === 0);
+        }
+      }
+      expect((await zoneVisibility(f.zoneId)).visible).toBe(site.groups.length > 0);
+      const tales = await pool.query<{ delivered: boolean; reasons: unknown[] }>(
+        `SELECT ${deliveredTale('t', 'now()')} AS delivered, ${taleReasonsSql('t', 'now()')} AS reasons FROM tales t`,
+      );
+      const groupRows = await pool.query<{ delivered: boolean; reasons: unknown[] }>(
+        `SELECT ${deliveredGroup('g', 'now()')} AS delivered, ${groupReasonsSql('g', 'now()')} AS reasons FROM tale_groups g`,
+      );
+      for (const row of [...tales.rows, ...groupRows.rows]) expect(row.delivered).toBe(row.reasons.length === 0);
+    }
+
+    async function taleIn(f: Fixture, taleId: string): Promise<ListedTale | undefined> {
+      return (await listed(f.zoneId)).flatMap((g) => g.tales).find((t) => t.id === taleId);
+    }
+
+    async function placement(f: Fixture): Promise<ListedGroup | undefined> {
+      return (await listed(f.zoneId)).find((g) => g.id === f.groupId);
+    }
+
+    async function schedule(kind: 'tale-groups' | 'tales', id: string, startsAt: string | null, endsAt: string | null) {
+      expect((await send('PUT', `/${kind}/${id}/schedule`, { startsAt, endsAt })).status).toBe(200);
+    }
+
+    const future = () => new Date(Date.now() + HOUR).toISOString();
+    const past = () => new Date(Date.now() - HOUR).toISOString();
+
+    interface Case {
+      name: string;
+      // What the indicator names it on: the tale (in the zone), the placement, the zone, or the project's group.
+      on: 'tale' | 'placement' | 'zone' | 'project-group';
+      reason: () => ReturnType<typeof why>;
+      // What the Delivery API leaves out while it holds.
+      omits: 'tale' | 'group' | 'everything';
+      breakIt: (f: Fixture) => Promise<void>;
+      fix: (f: Fixture) => Promise<void>;
+    }
+
+    let window = '';
+    const cases: Case[] = [
+      {
+        name: 'group off',
+        on: 'tale',
+        reason: () => why('group-off', 'group'),
+        omits: 'group',
+        breakIt: async (f) => expect((await setStatus('tale-groups', f.groupId, 'paused')).status).toBe(200),
+        fix: (f) => publish('tale-groups', f.groupId),
+      },
+      {
+        name: 'tale hidden',
+        on: 'tale',
+        reason: () => why('tale-hidden', 'tale'),
+        omits: 'tale',
+        breakIt: async (f) => expect((await setStatus('tales', f.taleId, 'paused')).status).toBe(200),
+        fix: (f) => publish('tales', f.taleId),
+      },
+      {
+        name: 'group blocked',
+        on: 'placement',
+        reason: () => why('group-blocked', 'group'),
+        omits: 'group',
+        breakIt: async (f) => {
+          await pool.query("UPDATE tale_groups SET status = 'quota-reached' WHERE id = $1", [f.groupId]);
+        },
+        fix: async (f) => {
+          await pool.query("UPDATE tale_groups SET status = 'live' WHERE id = $1", [f.groupId]);
+        },
+      },
+      {
+        name: 'tale archived',
+        on: 'tale',
+        reason: () => why('archived', 'tale'),
+        omits: 'tale',
+        breakIt: async (f) => expect((await setStatus('tales', f.taleId, 'archived')).status).toBe(200),
+        fix: async (f) => {
+          expect((await setStatus('tales', f.taleId, 'paused')).status).toBe(200);
+          await publish('tales', f.taleId);
+        },
+      },
+      {
+        name: 'group archived',
+        on: 'placement',
+        reason: () => why('archived', 'group'),
+        omits: 'group',
+        breakIt: async (f) => expect((await setStatus('tale-groups', f.groupId, 'archived')).status).toBe(200),
+        fix: async (f) => {
+          expect((await setStatus('tale-groups', f.groupId, 'paused')).status).toBe(200);
+          await publish('tale-groups', f.groupId);
+        },
+      },
+      {
+        name: 'no shown tales',
+        on: 'placement',
+        reason: () => why('no-shown-tales', 'group'),
+        omits: 'group',
+        breakIt: async (f) => {
+          for (const id of [f.taleId, f.otherId]) expect((await setStatus('tales', id, 'paused')).status).toBe(200);
+        },
+        fix: (f) => publish('tales', f.taleId, f.otherId),
+      },
+      {
+        name: 'not in any zone',
+        on: 'project-group',
+        reason: () => why('not-in-any-zone', 'group'),
+        omits: 'group',
+        breakIt: async (f) => expect((await send('DELETE', `/zones/${f.zoneId}/tale-groups/${f.groupId}`)).status).toBe(204),
+        fix: async (f) => expect((await send('PUT', `/zones/${f.zoneId}/tale-groups/${f.groupId}`)).status).toBe(201),
+      },
+      {
+        name: 'tale starts later',
+        on: 'tale',
+        reason: () => why('starts-at', 'tale', window),
+        omits: 'tale',
+        breakIt: async (f) => {
+          window = future();
+          await schedule('tales', f.taleId, window, null);
+        },
+        fix: (f) => schedule('tales', f.taleId, null, null),
+      },
+      {
+        name: 'tale ended',
+        on: 'tale',
+        reason: () => why('ended-at', 'tale', window),
+        omits: 'tale',
+        breakIt: async (f) => {
+          window = past();
+          await schedule('tales', f.taleId, null, window);
+        },
+        fix: (f) => schedule('tales', f.taleId, null, null),
+      },
+      {
+        name: 'group starts later',
+        on: 'tale',
+        reason: () => why('starts-at', 'group', window),
+        omits: 'group',
+        breakIt: async (f) => {
+          window = future();
+          await schedule('tale-groups', f.groupId, window, null);
+        },
+        fix: (f) => schedule('tale-groups', f.groupId, null, null),
+      },
+      {
+        name: 'group ended',
+        on: 'placement',
+        reason: () => why('ended-at', 'group', window),
+        omits: 'group',
+        breakIt: async (f) => {
+          window = past();
+          await schedule('tale-groups', f.groupId, null, window);
+        },
+        fix: (f) => schedule('tale-groups', f.groupId, null, null),
+      },
+      {
+        name: 'zone has no display',
+        on: 'zone',
+        reason: () => why('zone-no-display', 'zone'),
+        omits: 'everything',
+        // No route removes a frame until story 5; the fixture removes it as such a route would.
+        breakIt: async (f) => {
+          await pool.query('DELETE FROM stages WHERE zone_id = $1', [f.zoneId]);
+          await pool.query('DELETE FROM frames WHERE zone_id = $1', [f.zoneId]);
+        },
+        fix: async (f) =>
+          expect((await post(`/zones/${f.zoneId}/frames`, { type: 'banner', settings: {} })).status).toBe(201),
+      },
+      {
+        name: 'zone not installed',
+        on: 'zone',
+        reason: () => why('zone-not-installed', 'zone'),
+        omits: 'everything',
+        breakIt: async (f) => {
+          expect((await send('DELETE', `/zones/${f.zoneId}/key`)).status).toBe(204);
+          // The revoked key is refused: the site shows nothing.
+          const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, {
+            headers: { Authorization: `Bearer ${f.key}` },
+          });
+          expect(res.status).toBe(401);
+          f.key = null;
+        },
+        fix: async (f) => {
+          f.key = (await (await postKey(f.zoneId)).json()).key;
+        },
+      },
+      {
+        name: 'media still processing',
+        on: 'tale',
+        reason: () => why('media-processing', 'tale'),
+        omits: 'tale',
+        breakIt: async (f) => {
+          await pool.query("UPDATE tales SET status = 'processing' WHERE id = $1", [f.taleId]);
+        },
+        fix: async (f) => {
+          await pool.query("UPDATE tales SET status = 'live' WHERE id = $1", [f.taleId]);
+        },
+      },
+      {
+        name: 'media problem',
+        on: 'tale',
+        reason: () => why('media-problem', 'tale'),
+        omits: 'tale',
+        breakIt: async (f) => {
+          await pool.query("UPDATE tales SET status = 'invalid-media' WHERE id = $1", [f.taleId]);
+        },
+        fix: async (f) => {
+          await pool.query("UPDATE tales SET status = 'live' WHERE id = $1", [f.taleId]);
+        },
+      },
+      {
+        name: 'not updated yet',
+        on: 'tale',
+        reason: () => why('not-updated-yet', 'tale'),
+        omits: 'tale',
+        // A new Shown tale with nothing published (AD-15): media gives it a published document.
+        breakIt: async (f) => {
+          f.taleId = (await (await post(`/tale-groups/${f.groupId}/tales`, { title: 'Fresh' })).json()).id;
+        },
+        fix: (f) => upload(f.taleId),
+      },
+    ];
+
+    it('says "Visible on site" for a set-up zone, its group that is On and its tales, as the Delivery API delivers them', async () => {
+      const f = await fixture();
+      expect(await zoneVisibility(f.zoneId)).toEqual(VISIBLE);
+      const [group] = await listed(f.zoneId);
+      expect(group.visibility).toEqual(VISIBLE);
+      expect(group.tales.map((t) => t.visibility)).toEqual([VISIBLE, VISIBLE]);
+      expect(await delivered(f.key)).toEqual({ groups: [f.groupId], tales: [f.taleId, f.otherId] });
+      expect((await projectGroup(f)).visibility).toEqual(VISIBLE);
+      await expectAgreement(f);
+    });
+
+    it('covers every reason code with a fixture', () => {
+      const codes = new Set(cases.map((c) => c.reason().code));
+      expect([...codes].sort()).toEqual([...VISIBILITY_REASON_CODES].sort());
+    });
+
+    it.each(cases.map((c) => [c.name, c] as const))(
+      '%s: the indicator names it while the Delivery API leaves the content out; fixed, both show it',
+      async (_name, c) => {
+        const f = await fixture();
+        await c.breakIt(f);
+        const expected = c.reason();
+        const read =
+          c.on === 'zone'
+            ? await zoneVisibility(f.zoneId)
+            : c.on === 'placement'
+              ? (await placement(f))?.visibility
+              : c.on === 'project-group'
+                ? (await projectGroup(f)).visibility
+                : (await taleIn(f, f.taleId))?.visibility;
+        expect(read?.visible).toBe(false);
+        expect(read?.reasons[0]).toEqual(expected);
+        const site = await delivered(f.key);
+        if (c.omits === 'everything') expect(site).toEqual({ groups: [], tales: [] });
+        if (c.omits === 'group') expect(site.groups).not.toContain(f.groupId);
+        expect(site.tales).not.toContain(f.taleId);
+        // The zone's placement and its tales say it too.
+        if (c.on === 'zone') {
+          expect((await placement(f))?.visibility.reasons).toContainEqual(expected);
+          expect((await taleIn(f, f.taleId))?.visibility.reasons).toContainEqual(expected);
+        }
+        await expectAgreement(f);
+
+        await c.fix(f);
+        expect((await taleIn(f, f.taleId))?.visibility).toEqual(VISIBLE);
+        expect((await placement(f))?.visibility).toEqual(VISIBLE);
+        expect(await zoneVisibility(f.zoneId)).toEqual(VISIBLE);
+        expect((await delivered(f.key)).tales).toContain(f.taleId);
+        await expectAgreement(f);
+      },
+    );
+
+    it('reads a placement in its zone, and a group or tale in any zone it is placed in', async () => {
+      const f = await fixture();
+      const bare = await (await post('/zones', { name: 'Bare', projectId: f.projectId })).json();
+      expect((await send('PUT', `/zones/${bare.id}/tale-groups/${f.groupId}`)).status).toBe(201);
+      // In the bare zone the placement is not visible, for the bare zone's reasons...
+      const there = (await listed(bare.id)).find((g) => g.id === f.groupId);
+      expect(there?.visibility).toEqual(notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')));
+      expect(there?.tales[0].visibility.visible).toBe(false);
+      // ...while the group and its tale, read for every zone, are visible through the set-up one.
+      expect((await projectGroup(f)).visibility).toEqual(VISIBLE);
+      expect((await (await setStatus('tales', f.taleId, 'live')).json()).visibility).toEqual(VISIBLE);
+    });
+
+    it('returns the visibility on status and schedule answers', async () => {
+      const f = await fixture();
+      const hidden = await (await setStatus('tales', f.taleId, 'paused')).json();
+      expect(hidden.visibility).toEqual(notVisible(why('tale-hidden', 'tale')));
+      const off = await (await setStatus('tale-groups', f.groupId, 'paused')).json();
+      expect(off.visibility).toEqual(notVisible(why('group-off', 'group')));
+      expect(off.tales.map((t: ListedTale) => t.visibility.reasons[0].code)).toEqual(['group-off', 'group-off']);
+      const at = future();
+      const res = await send('PUT', `/tales/${f.otherId}/schedule`, { startsAt: at, endsAt: null });
+      expect((await res.json()).visibility).toEqual(notVisible(why('group-off', 'group'), why('starts-at', 'tale', at)));
     });
   });
 
@@ -8135,7 +8609,7 @@ describe('Management API v1: projects and zones', () => {
 
       const zoneId = (await pool.query('SELECT zone_id FROM zone_tale_groups WHERE tale_group_id = $1', [groupId])).rows[0]
         .zone_id as string;
-      const { key } = await (await post(`/zones/${zoneId}/key`, {})).json();
+      const { key } = await (await postKey(zoneId)).json();
       clearDeliveryCache();
       const res = await globalThis.fetch(`${origin}/delivery/v1/zone`, { headers: { Authorization: `Bearer ${key}` } });
       const delivered = ((await res.json()).taleGroups as { id: string; tales: { title: string }[] }[]).find(

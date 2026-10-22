@@ -374,6 +374,8 @@ export class DashboardStore {
         this.http.post<IssuedZoneKey>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}/key`, {}),
       );
       this.zoneKeys.update((all) => ({ ...all, [zoneId]: { prefix: key.prefix, createdAt: key.createdAt } }));
+      // A key installs the zone (epic UX rework R7): its visibility and its groups' change.
+      void this.refresh();
       return { key, message: '' };
     } catch (err) {
       return { key: null, message: apiErrorMessage(err, 'The key was not issued. Try again.') };
@@ -388,6 +390,7 @@ export class DashboardStore {
       return apiErrorMessage(err, 'The key was not revoked. Try again.');
     }
     this.zoneKeys.update((all) => ({ ...all, [zoneId]: null }));
+    await this.refresh();
     return '';
   }
 
