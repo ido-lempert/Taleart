@@ -350,7 +350,16 @@ paths:
         the project. `key` appears only in this response; only its SHA-256 hash
         is stored, and the response is sent with `Cache-Control: no-store`. A
         content manager gets 403 `forbidden`; an unknown project 404
-        `project_not_found`.
+        `project_not_found`. With `ifNone: true` (the dashboard's "Issue site
+        key") nothing is rotated: when the project already has an active site
+        key the answer is 409 `site_key_exists` and that key keeps working.
+        Without it (or `false`) the request rotates (the dashboard's "Rotate").
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueSiteKeyRequest'
       responses:
         '201':
           description: The new site key, shown only once.
@@ -361,6 +370,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1109,6 +1120,23 @@ paths:
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /install:
+    get:
+      operationId: getInstallInfo
+      summary: Where a host page loads the Web SDK and where the test page is (epic UX rework R13).
+      description: >-
+        The API's public origin (`PUBLIC_API_URL`), the URL of the Web SDK bundle the API serves
+        (`<apiUrl>/sdk/v1/taleart.js`, an ES module) and the URL of the TaleArt-served test page
+        (`<apiUrl>/sdk/v1/test-page`), for the zone page's Install tab. Any signed-in user.
+      responses:
+        '200':
+          description: The install URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallInfo'
         default:
           $ref: '#/components/responses/Error'
   /frame-types:
@@ -2998,6 +3026,33 @@ components:
           description: Every tale id of the group, once each, in the new order.
           items:
             type: string
+    InstallInfo:
+      type: object
+      required: [apiUrl, sdkUrl, sdkPinnedUrl, sdkIntegrity, testPageUrl]
+      properties:
+        apiUrl:
+          type: string
+          description: The API's public origin, the value of `api-url` on a host page.
+        sdkUrl:
+          type: string
+          description: >-
+            The Web SDK bundle (an ES module) for a host page's script tag, at a
+            stable URL: a deploy replaces it there (cached five minutes).
+        sdkPinnedUrl:
+          type: [string, 'null']
+          description: >-
+            The same bundle at a URL pinned to its content
+            (`<apiUrl>/sdk/v1/taleart.<hash>.js`, cached a year, immutable),
+            for a page that also pins it with `integrity`; it is gone with the
+            next build. Null when the API has no bundle.
+        sdkIntegrity:
+          type: [string, 'null']
+          description: The bundle's Subresource Integrity value (`sha384-…`); null when the API has no bundle.
+        testPageUrl:
+          type: string
+          description: >-
+            The test page. It takes the zone's slug as `?zone=<slug>` and a site key in the URL
+            fragment, `#siteKey=<key>`, or pasted on the page.
     SiteKeyInfo:
       type: object
       required: [prefix, createdAt]
@@ -3008,6 +3063,15 @@ components:
         createdAt:
           type: string
           format: date-time
+    IssueSiteKeyRequest:
+      type: object
+      properties:
+        ifNone:
+          type: boolean
+          description: >-
+            Issue only when the project has no active site key; otherwise 409
+            `site_key_exists` and nothing changes. Leave it out (or false) to
+            rotate.
     IssuedSiteKey:
       type: object
       required: [key, prefix, createdAt]
@@ -4142,6 +4206,7 @@ components:
         - tag_exists
         - tag_not_found
         - site_key_not_found
+        - site_key_exists
         - invalid_site_key
         - rate_limited
         - storyly_token_invalid

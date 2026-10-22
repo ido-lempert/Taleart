@@ -1,75 +1,63 @@
 import { defineConfig, devices } from '@playwright/test';
-import { nxE2EPreset } from '@nx/playwright/preset';
 import { workspaceRoot } from '@nx/devkit';
 
-// For CI, you may want to set BASE_URL to the deployed application.
-const baseURL = process.env['BASE_URL'] || 'http://localhost:4200';
-
 /**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
-// import 'dotenv/config';
-
-/**
- * See https://playwright.dev/docs/test-configuration.
+ * The dashboard's end-to-end tests (`nx run dashboard-e2e:e2e`): the first run from sign-up to a
+ * visible tale (epic UX rework, story 8.13).
  *
- * Generated as a .mts file so Node forces ESM regardless of workspace
- * `type`. Playwright routes `.mts` through its ESM loader (dynamic import,
- * bypassing the pirates CJS-compile path), and Nx's native TS strip loads
- * `.mts` directly. Playwright's configLoader auto-discovers
- * `playwright.config.mts` via its extension list
- * (.ts/.js/.mts/.mjs/.cts/.cjs).
+ * They start their own servers, never the development ones:
+ * - the built API on E2E_API_PORT (default 3413), on a fresh database named by E2E_DATABASE_URL,
+ *   which must end in `_e2e_test` and differ from TEST_DATABASE_URL and DATABASE_URL
+ *   (scripts/start-api.mjs drops and creates it; scripts/e2e-database.mjs guards it);
+ * - the dashboard on E2E_DASHBOARD_PORT (default 4313), its /api proxied to that API.
+ *
+ * E2E_SCREENSHOTS, when set, is a folder the tests save screenshots in.
  */
+const apiPort = Number(process.env['E2E_API_PORT'] || 3413);
+const dashboardPort = Number(process.env['E2E_DASHBOARD_PORT'] || 4313);
+const apiOrigin = `http://localhost:${apiPort}`;
+const dashboardOrigin = `http://localhost:${dashboardPort}`;
+
 export default defineConfig({
-  ...nxE2EPreset(import.meta.dirname, { testDir: './src' }),
-  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  testDir: './src',
+  outputDir: `${workspaceRoot}/dist/.playwright/apps/dashboard-e2e/test-output`,
+  // One install, used in order: the tests run one after another.
+  fullyParallel: false,
+  workers: 1,
+  retries: 0,
+  timeout: 120_000,
+  reporter: [['list']],
   use: {
-    baseURL,
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
+    baseURL: dashboardOrigin,
+    trace: 'retain-on-failure',
+    viewport: { width: 1280, height: 900 },
   },
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'npx nx run dashboard:serve',
-    url: 'http://localhost:4200',
-    reuseExistingServer: true,
-    cwd: workspaceRoot
-  },
-  projects: [
+  webServer: [
     {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-
-    {
-      name: "firefox",
-      use: { ...devices["Desktop Firefox"] },
-    },
-
-    {
-      name: "webkit",
-      use: { ...devices["Desktop Safari"] },
-    },
-
-    // Uncomment for mobile browsers support
-    /* {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
+      command: 'node apps/dashboard-e2e/scripts/start-api.mjs',
+      url: `${apiOrigin}/api/v1/health`,
+      cwd: workspaceRoot,
+      reuseExistingServer: false,
+      timeout: 60_000,
+      stdout: 'ignore',
+      env: {
+        E2E_DATABASE_URL: process.env['E2E_DATABASE_URL'] ?? '',
+        PORT: String(apiPort),
+        PUBLIC_API_URL: apiOrigin,
+        // Passkeys are bound to the dashboard's origin.
+        RP_ORIGIN: dashboardOrigin,
+        RP_ID: 'localhost',
+      },
     },
     {
-      name: 'Mobile Safari',
-      use: { ...devices['iPhone 12'] },
-    }, */
-
-    // Uncomment for branded browsers
-    /* {
-      name: 'Microsoft Edge',
-      use: { ...devices['Desktop Edge'], channel: 'msedge' },
+      command: 'node apps/dashboard-e2e/scripts/serve-dashboard.mjs',
+      url: dashboardOrigin,
+      cwd: workspaceRoot,
+      reuseExistingServer: false,
+      timeout: 300_000,
+      stdout: 'ignore',
+      env: { E2E_API_PORT: String(apiPort), E2E_DASHBOARD_PORT: String(dashboardPort) },
     },
-    {
-      name: 'Google Chrome',
-      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    } */
   ],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } }],
 });

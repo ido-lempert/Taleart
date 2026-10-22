@@ -63,6 +63,8 @@ export type PasskeyRequestOptions = Schemas['PasskeyRequestOptions'];
 export type PasskeyResponse = Schemas['PasskeyResponse'];
 /** A project's active site key as the dashboard shows it (AD-9 amended): prefix and date, never the key. */
 export type SiteKeyInfo = Schemas['SiteKeyInfo'];
+export type InstallInfo = Schemas['InstallInfo'];
+export type IssueSiteKeyRequest = Schemas['IssueSiteKeyRequest'];
 /** A newly issued site key, the only time the key itself is shown. */
 export type IssuedSiteKey = Schemas['IssuedSiteKey'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
@@ -182,6 +184,22 @@ export const SITE_KEY_PREFIX_CHARS = 6;
 export function siteKeyPrefix(key: string): string {
   return key.slice(0, SITE_KEY_PREFIX.length + SITE_KEY_PREFIX_CHARS);
 }
+
+/**
+ * Base path of what the API serves to host pages besides the Delivery API (epic UX rework R13): the
+ * Web SDK bundle and the test page. Its version follows the Delivery API's: the bundle at
+ * `/sdk/v1/taleart.js` always reads `/delivery/v1`.
+ */
+export const SDK_BASE = '/sdk/v1';
+
+/** The Web SDK bundle (an ES module) a host page loads: `<apiUrl>/sdk/v1/taleart.js`. */
+export const SDK_BUNDLE_PATH = `${SDK_BASE}/taleart.js`;
+
+/** The TaleArt-served test page that renders one zone: `<apiUrl>/sdk/v1/test-page?zone=<slug>#siteKey=<key>`. */
+export const SDK_TEST_PAGE_PATH = `${SDK_BASE}/test-page`;
+
+/** The URL fragment parameter of the test page that holds the site key (never the query: it would reach logs). */
+export const TEST_PAGE_KEY_PARAM = 'siteKey';
 
 /** The Delivery API's query parameter that names a zone by its slug, sent with a site key. */
 export const DELIVERY_ZONE_PARAM = 'zone';
@@ -566,6 +584,7 @@ export const ErrorCodes = {
   tagExists: 'tag_exists',
   tagNotFound: 'tag_not_found',
   siteKeyNotFound: 'site_key_not_found',
+  siteKeyExists: 'site_key_exists',
   invalidSiteKey: 'invalid_site_key',
   rateLimited: 'rate_limited',
   storylyTokenInvalid: 'storyly_token_invalid',

@@ -97,6 +97,9 @@ import { zoneInstalled } from '../zone-setup';
                 A project holds your zones, tale groups and tales. Start with
                 one for your app or site.
               </p>
+              @if (store.firstProjectRefusal(); as refusal) {
+                <p class="form-error" role="alert">Your first project was not created: {{ refusal }}</p>
+              }
               <button
                 type="button"
                 class="btn btn--primary"

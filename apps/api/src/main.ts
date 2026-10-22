@@ -1,5 +1,6 @@
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE } from '@taleart/contract';
+import { assertEmojiCheckSupported, DELIVERY_API_BASE, PUBLIC_MEDIA_BASE, SDK_BUNDLE_PATH } from '@taleart/contract';
 import { SimpleWebAuthnVerifier } from '@taleart/server-access';
 import {
   DEFAULT_STORYLY_API_URL,
@@ -16,6 +17,7 @@ import {
 } from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
+import { defaultSdkFiles, webSdkFileFromEnv } from './http/sdk.router';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
 import { configureTestElementTypes } from './element-types-config';
@@ -40,6 +42,9 @@ async function start(): Promise<void> {
   // Behind reverse proxies, TRUST_PROXY makes the limit count the visitor's address rather than the
   // proxy's. Set exactly the proxies in front of the API: their number, or their addresses and ranges.
   const trustProxy = trustProxyFromEnv(process.env['TRUST_PROXY']);
+  // The Web SDK bundle served at /sdk/v1/taleart.js: WEB_SDK_FILE, a .js file, else the one the build
+  // copied next to main.js.
+  const webSdkFile = webSdkFileFromEnv(process.env['WEB_SDK_FILE'], (p) => resolve(p)) ?? defaultSdkFiles(__dirname).bundleFile;
   // The element-type registry's test-only types (Tale Studio R8): accepted only with
   // TALE_TEST_ELEMENT_TYPES=on, which is refused in production.
   configureTestElementTypes(process.env, setTestElementTypesEnabled, (msg) => log('warn', msg));
@@ -126,7 +131,14 @@ async function start(): Promise<void> {
       `Delivery API limited to ${rateLimit.burst} requests at once and ${rateLimit.perSecond} per second per address`
     : 'Delivery API rate limit off',
   );
-  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit });
+  // The Web SDK bundle host pages load from <PUBLIC_API_URL>/sdk/v1/taleart.js (epic UX rework R13):
+  // the build copies dist/libs/web-sdk/index.js next to main.js; WEB_SDK_FILE names another file.
+  const sdk = { bundleFile: webSdkFile };
+  log(
+    'info',
+    `Web SDK at ${publicApiUrl}${SDK_BUNDLE_PATH} from ${webSdkFile}${existsSync(webSdkFile) ? '' : ' (missing: answers 404 until it is built)'}`,
+  );
+  const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit }, sdk);
   if (trustProxy !== undefined) {
     app.set('trust proxy', trustProxy);
     log('info', `Trusting X-Forwarded-For from ${JSON.stringify(trustProxy)}`);

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <title>TaleArt test page</title>
+    <link rel="stylesheet" href="test-page.css" />
+    <!-- The Web SDK, as a host page loads it; loading it registers <taleart-view>. -->
+    <script type="module" src="taleart.js"></script>
+    <script type="module" src="test-page.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>TaleArt test page</h1>
+      <p class="lead">
+        This page shows one zone with the Web SDK, as your site will. Nothing here is saved: the site key stays in
+        this tab and is sent only to the TaleArt Delivery API.
+      </p>
+      <p id="zone-line" class="zone-line" hidden>Zone <code id="zone-slug"></code></p>
+      <p id="no-zone" class="notice" hidden>
+        This page needs a zone. Open it with "Open test page" on a zone's Install tab in the TaleArt dashboard.
+      </p>
+      <form id="key-form" class="key-form" autocomplete="off" hidden>
+        <label for="site-key">Site key</label>
+        <div class="key-row">
+          <input
+            id="site-key"
+            name="siteKey"
+            type="text"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            aria-describedby="key-hint"
+          />
+          <button type="submit">Show zone</button>
+        </div>
+        <p id="key-hint" class="hint">Paste your project's site key (it starts with tas_).</p>
+      </form>
+      <p id="status" class="status" role="status"></p>
+      <section class="zone" aria-labelledby="zone-heading">
+        <h2 id="zone-heading" class="visually-hidden">Zone</h2>
+        <div id="zone-host"></div>
+      </section>
+    </main>
+  </body>
+</html>

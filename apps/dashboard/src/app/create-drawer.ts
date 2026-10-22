@@ -59,6 +59,20 @@ const MEDIA_EXTENSIONS: Record<string, string> = {
  * tale's media upload, a tale group's tags, adding a tale group to a zone,
  * removing it from one or copying it to one, or an invitation link. The API's message shows inside it.
  */
+/**
+ * A picked media file's type (from its extension when the system gave none; the API checks the
+ * bytes) and what is wrong with it, if anything: not an accepted type, or over its size limit.
+ */
+export function checkMediaFile(file: File): { type: string; problem: string } {
+  const type = file.type || MEDIA_EXTENSIONS[file.name.split('.').pop()?.toLowerCase() ?? ''] || '';
+  const problem = !isMediaContentType(type)
+    ? 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video.'
+    : file.size > maxMediaBytes(type)
+      ? `The file is larger than ${maxMediaBytes(type) / (1024 * 1024)} MB. Pick a smaller one.`
+      : '';
+  return { type, problem };
+}
+
 @Component({
   selector: 'app-create-drawer',
   imports: [FormsModule, RouterLink, Drawer, StatusBadge, ShowSwitch, SettingsForm, CoverEditor],
@@ -71,10 +85,13 @@ export class CreateDrawer implements OnInit {
   private readonly router = inject(Router);
   /** Replaces the opener as the return-focus target, when the opener goes away with the drawer's work. */
   private returnTo: HTMLElement | null = null;
+  /** The id of an element on the page navigated to that takes focus instead, looked up when the drawer goes. */
+  private returnToId: string | null = null;
   /** The zone page the drawer was opened on, so Tale Studio's back link returns there; null elsewhere. */
   protected readonly pageZoneId = /^\/zones\/([^/?#]+)/.exec(this.router.url)?.[1] ?? null;
   /** Read by the drawer when it is removed: the replacement target, else the element that opened it. */
-  protected readonly returnFocus = (): HTMLElement | null => this.returnTo ?? this.store.drawerOpener;
+  protected readonly returnFocus = (): HTMLElement | null =>
+    this.returnTo ?? (this.returnToId ? this.document.getElementById(this.returnToId) : null) ?? this.store.drawerOpener;
   readonly request = input.required<DrawerRequest>();
   /** Replace media (epic UX rework R11) opens the tale drawer with focus on its media field. */
   protected readonly focusMedia = computed(() => {
@@ -122,6 +139,14 @@ export class CreateDrawer implements OnInit {
   protected frameType = '';
   /** The image or video picked in the file input, if any. */
   protected file: File | null = null;
+  /** The images and videos picked in a new tale group drawer: one tale each (epic UX rework R13). */
+  protected files: File[] = [];
+  /** '' or which file a new tale group drawer is adding, shown and announced while it saves. */
+  protected readonly progress = signal('');
+  /** Stops a new tale group drawer's tales after the file being added. */
+  private addAbort: AbortController | null = null;
+  /** True once a new tale group was created but not all of its tales: only Done is left. */
+  protected readonly groupCreated = signal(false);
   protected readonly acceptedTypes = MEDIA_CONTENT_TYPES.join(',');
   /** The invitation an invite drawer created; its link is shown only now. */
   protected readonly invitation = signal<Invitation | null>(null);
@@ -407,7 +432,7 @@ export class CreateDrawer implements OnInit {
 
   /** True when the drawer's work is done and it shows only the result (a link) and "Done". */
   protected readonly showsResult = computed(
-    () => this.invitation() !== null || this.copied() !== null,
+    () => this.invitation() !== null || this.copied() !== null || this.groupCreated(),
   );
 
   protected readonly heading = computed(() => {
@@ -630,13 +655,7 @@ export class CreateDrawer implements OnInit {
     }
     this.error.set('');
     this.statusWarning.set('');
-    // Some systems give a file no type; its extension names it then, and the API checks the bytes.
-    const type = file.type || MEDIA_EXTENSIONS[file.name.split('.').pop()?.toLowerCase() ?? ''] || '';
-    const problem = !isMediaContentType(type)
-      ? 'Upload a JPEG, PNG, WebP or GIF image, or an MP4 or WebM video.'
-      : file.size > maxMediaBytes(type)
-        ? `The file is larger than ${maxMediaBytes(type) / (1024 * 1024)} MB. Pick a smaller one.`
-        : '';
+    const { type, problem } = checkMediaFile(file);
     if (problem) {
       this.statusAnnouncement.set('');
       this.error.set(problem);
@@ -677,6 +696,16 @@ export class CreateDrawer implements OnInit {
 
   protected pickFile(event: Event): void {
     this.file = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.error.set('');
+  }
+
+  /** Stops adding a new group's tales after the file being uploaded (its upload is cancelled). */
+  protected stopAdding(): void {
+    this.addAbort?.abort();
+  }
+
+  protected pickFiles(event: Event): void {
+    this.files = [...((event.target as HTMLInputElement).files ?? [])];
     this.error.set('');
   }
 
@@ -749,7 +778,11 @@ export class CreateDrawer implements OnInit {
         const result = await this.store.createZone(this.text, projectId, slug, this.templateKey());
         message = result.message;
         this.errorField.set(result.field);
-        if (!message) this.store.selectProject(projectId);
+        if (!message) {
+          this.store.selectProject(projectId);
+          // The new zone's page is the next step (epic UX rework R9): its checklist and tabs.
+          if (result.zoneId && (await this.router.navigate(['/zones', result.zoneId]))) this.returnToId = 'zone-title';
+        }
         break;
       }
       case 'display':
@@ -765,11 +798,38 @@ export class CreateDrawer implements OnInit {
           : 'This zone has no display.';
         break;
       case 'taleGroup': {
+        if (this.files.length > MAX_TALES_PER_GROUP) {
+          message = `A tale group holds up to ${MAX_TALES_PER_GROUP} tales. Choose fewer files.`;
+          break;
+        }
+        // Every file is checked before anything is created.
+        const checked = this.files.map((file) => ({ file, ...checkMediaFile(file) }));
+        const refused = checked.find((c) => c.problem);
+        if (refused) {
+          message = `"${refused.file.name}": ${refused.problem}`;
+          break;
+        }
         const zoneId = request.projectId ? this.groupZoneId() : request.zoneId;
         message =
           request.projectId && !zoneId
             ? await this.store.createProjectTaleGroup(request.projectId, this.text)
             : await this.store.createTaleGroup(zoneId, this.text);
+        const groupId = this.store.createdTaleGroupId();
+        if (!message && groupId && checked.length) {
+          const count = checked.length;
+          const abort = (this.addAbort = new AbortController());
+          const result = await this.store.addTalesFromFiles(groupId, checked, {
+            signal: abort.signal,
+            progress: (n) => this.progress.set(`Adding tale ${n} of ${count}…`),
+          });
+          this.addAbort = null;
+          this.progress.set('');
+          if (result.message) {
+            // The group exists: submitting again would make another one, so only Done is left.
+            this.groupCreated.set(true);
+            message = `The tale group was created with ${result.added} of ${count} tales. ${result.message} Add the rest from the group.`;
+          }
+        }
         break;
       }
       case 'tale':

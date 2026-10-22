@@ -32,10 +32,17 @@ export function siteKeyRouter(pool: Pool): Router {
   });
 
   // Issuing while a site key is active rotates it: the old key is revoked in the same transaction.
+  // `{ ifNone: true }` issues only when none is active (409 `site_key_exists` otherwise), so a first
+  // issue can never rotate a key some other admin just issued.
   router.post('/:projectId/site-key', projectAccess, requireAdmin, async (req, res, next) => {
     try {
+      const body: unknown = req.body ?? {};
+      const ifNone = typeof body === 'object' && body !== null ? (body as Record<string, unknown>)['ifNone'] : undefined;
+      if (ifNone !== undefined && typeof ifNone !== 'boolean') {
+        throw new HttpError(400, ErrorCodes.validationFailed, 'ifNone must be true or false');
+      }
       await existingProject(pool, req.params.projectId);
-      const issued = await issueSiteKey(pool, { projectId: req.params.projectId, createdBy: caller(res).id });
+      const issued = await issueSiteKey(pool, { projectId: req.params.projectId, createdBy: caller(res).id, ifNone: ifNone === true });
       // A first key installs the project's zones (epic UX rework R7): forget this process's "not public"
       // answers, so their media and fonts are served at once.
       clearPublicMediaCache();
