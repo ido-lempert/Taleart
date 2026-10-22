@@ -57,7 +57,16 @@ export default [
                             name: `@taleart/contract/${entry}`,
                             allowTypeImports: true,
                             message: "Only the lazy Tale Studio, theme and font pages import these values; anywhere else they land in the initial bundle."
-                        }))
+                        })),
+                        {
+                            name: "@taleart/web-sdk/preview",
+                            allowTypeImports: true,
+                            message: "Only the lazy Tale Studio pages import the Web SDK preview; anywhere else it lands in the initial bundle."
+                        },
+                        {
+                            name: "@taleart/web-sdk",
+                            message: "The dashboard imports only @taleart/web-sdk/preview: the SDK's main entry registers <taleart-view>."
+                        }
                     ]
                 }
             ]
@@ -79,6 +88,10 @@ export default [
                         {
                             name: "@taleart/contract",
                             message: "Import @taleart/contract/core or a narrow entry point: the root barrel pulls lazy-only code into the initial bundle."
+                        },
+                        {
+                            name: "@taleart/web-sdk",
+                            message: "The dashboard imports only @taleart/web-sdk/preview: the SDK's main entry registers <taleart-view>."
                         }
                     ]
                 }
