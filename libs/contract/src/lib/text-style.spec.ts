@@ -6,6 +6,7 @@ import {
   DEFAULT_TEXT_STYLE,
   FONT_FAMILY_PATTERN,
   isLargeText,
+  MEDIA_CONTRAST_PERCENTILE,
   readTextFont,
   resolveTextStyle,
   SYSTEM_FONT_STACK_KEYS,
@@ -254,6 +255,66 @@ describe('textContrast', () => {
     expect(textContrast(style({ background: 'highlight', backgroundColor: '#000000' }), media)).toMatchObject({
       kind: 'ok',
       against: 'highlight',
+    });
+  });
+
+  it('warns about light grey on white and clears when the colour darkens (the story check)', () => {
+    const white = { canvasColor: '#ffffff', overMedia: false };
+    const grey = textContrast(style({ color: '#cccccc', size: 0.03 }), white);
+    expect(grey).toMatchObject({ kind: 'low', against: 'canvas', minimum: 4.5 });
+    if (grey.kind !== 'unknown') expect(grey.ratio).toBeCloseTo(1.61, 2);
+    expect(textContrast(style({ color: '#595959', size: 0.03 }), white).kind).toBe('ok');
+    // #777777 on white is 4.48:1: under 4.5:1 for small text, over 3:1 for large text.
+    expect(textContrast(style({ color: '#777777', size: 0.02 }), white).kind).toBe('low');
+    expect(textContrast(style({ color: '#777777', size: 0.06 }), white).kind).toBe('ok');
+  });
+
+  it('composites a translucent text colour over what lies behind it', () => {
+    const white = { canvasColor: '#ffffff', overMedia: false };
+    // Black at a quarter strength on white reads as #bfbfbf: too light.
+    expect(textContrast(style({ color: '#00000040' }), white).kind).toBe('low');
+    expect(textContrast(style({ color: '#000000ff' }), white).kind).toBe('ok');
+  });
+
+  it('judges text over media by the colours sampled behind it', () => {
+    const over = (samples: readonly string[] | null | undefined) => ({ canvasColor: '#000000', overMedia: true, samples });
+    // A dark photo: white text passes.
+    expect(textContrast(style({}), over(['#101010', '#202020', '#000000']))).toMatchObject({
+      kind: 'ok',
+      against: 'media',
+    });
+    // A bright photo: white text fails.
+    expect(textContrast(style({}), over(['#f0f0f0', '#ffffff']))).toMatchObject({ kind: 'low', against: 'media' });
+    // Not read yet, or unreadable: unknown.
+    expect(textContrast(style({}), over(undefined))).toEqual({ kind: 'unknown', reason: 'media' });
+    expect(textContrast(style({}), over(null))).toEqual({ kind: 'unknown', reason: 'media' });
+    expect(textContrast(style({}), over([]))).toEqual({ kind: 'unknown', reason: 'media' });
+  });
+
+  it('reports the ratio most sampled pixels meet, so a few bright specks do not decide', () => {
+    expect(MEDIA_CONTRAST_PERCENTILE).toBe(0.1);
+    const dark = Array.from({ length: 95 }, () => '#000000');
+    const specks = Array.from({ length: 5 }, () => '#ffffff');
+    expect(textContrast(style({}), { canvasColor: '#000000', overMedia: true, samples: [...specks, ...dark] }).kind).toBe(
+      'ok',
+    );
+    // A bright band over a fifth of the area does decide.
+    const band = Array.from({ length: 20 }, () => '#ffffff');
+    const check = textContrast(style({}), {
+      canvasColor: '#000000',
+      overMedia: true,
+      samples: [...band, ...dark.slice(0, 80)],
+    });
+    expect(check).toMatchObject({ kind: 'low', against: 'media' });
+  });
+
+  it('draws a translucent box or highlight over each sampled colour', () => {
+    const bright = { canvasColor: '#000000', overMedia: true, samples: ['#ffffff', '#eeeeee'] };
+    expect(textContrast(style({}), bright).kind).toBe('low');
+    // A strong dark highlight over the bright photo makes white text readable.
+    expect(textContrast(style({ background: 'highlight', backgroundColor: '#000000cc' }), bright)).toMatchObject({
+      kind: 'ok',
+      against: 'media',
     });
   });
 

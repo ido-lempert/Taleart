@@ -104,6 +104,7 @@ import { projectMediaSrc } from '../project-media.service';
 import { TaleDocumentService, type TaleDocumentFailure } from '../tale-document.service';
 import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
+import { backdropKey, hasLabel, TaleBackdropSampler } from './tale-backdrop';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
 import { changeCount, sameDocument, siteVersion, TaleHistory } from './tale-history';
@@ -545,6 +546,24 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     .el.is-locked {
       cursor: default;
     }
+    /* A low-contrast label (R12): a warning badge in the element's top corner, legible on any backdrop. */
+    .el__warn {
+      position: absolute;
+      top: 2px;
+      inset-inline-end: 2px;
+      z-index: 1;
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff3c4;
+      color: #5c3b00;
+      box-shadow: 0 0 0 1px #5c3b00;
+      font-size: 12px;
+      line-height: 1;
+      pointer-events: none;
+    }
     .guides,
     .snap-line {
       position: absolute;
@@ -971,6 +990,10 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                         [textContent]="c.text"
                       ></span>
                     }
+                    @if (lowContrast().has(el.id)) {
+                      <!-- The layer's state (aria-describedby) says it; this marks it on the canvas (R12). -->
+                      <span class="el__warn" aria-hidden="true" title="Low contrast"><app-icon name="alert" /></span>
+                    }
                   </button>
                 } @else {
                   <button
@@ -1019,6 +1042,10 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                         [textContent]="el.props.text"
                       ></span
                     ></span>
+                    @if (lowContrast().has(el.id)) {
+                      <!-- The layer's state (aria-describedby) says it; this marks it on the canvas (R12). -->
+                      <span class="el__warn" aria-hidden="true" title="Low contrast"><app-icon name="alert" /></span>
+                    }
                   </button>
                 }
               }
@@ -1732,6 +1759,15 @@ export class TaleStudioPage implements OnChanges {
     // The tale's own media (R16) is an element, which `textBackdropAt` meets on its way down, once.
     overMedia: this.doc()?.canvas.background.type === 'media',
   }));
+  /**
+   * The colours read behind each label over media (R12, story 7.10), by what lies behind it
+   * (`backdropKey`); null when they cannot be read. A label whose key is missing is being read.
+   */
+  private readonly samples = signal<ReadonlyMap<string, readonly string[] | null>>(new Map());
+  private readonly sampler = inject(TaleBackdropSampler);
+  // True while labels are being read; a change meanwhile reads again once the run ends.
+  private sampling = false;
+  private sampleAgain = false;
   /** What lies behind the selected text: the canvas, or a shape or media below it (R6, R12). */
   protected readonly selectedBackdrop = computed<TextBackdrop>(() => this.backdropOf(this.selectedId() ?? ''));
   // Each text's canvas look, kept per props object, so unchanged texts keep their view.
@@ -1751,13 +1787,13 @@ export class TaleStudioPage implements OnChanges {
   /** The layers list: top of the z-order first, each with its name and whether it reaches outside the safe area. */
   protected readonly layerRows = computed(() =>
     (this.doc()?.elements ?? [])
-      .map((el, i, elements) => ({
+      .map((el, i) => ({
         el,
         name: layerName(el, this.doc()?.elements ?? [el]),
         // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design, as the
         // swipe-up link sits in the bottom safe area (R7).
         outside: el !== this.stageMedia() && el.type !== 'swipe-up' && isOutsideSafeArea(el.box),
-        lowContrast: this.isLowContrast(elements, i, this.backdrop()),
+        lowContrast: this.isLowContrast(this.doc(), i, this.backdrop()),
         // An image, video or sticker without alt text or the decorative mark, or an image button
         // without alt text, keeps the tale from being updated (R12).
         missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
@@ -1772,6 +1808,10 @@ export class TaleStudioPage implements OnChanges {
           (this.videoSeconds().get(el.props.mediaKey) ?? 0) > MAX_TALE_VIDEO_MS / 1000,
       }))
       .reverse(),
+  );
+  /** The ids of the labels with low contrast, marked on the canvas as in their layer rows (R12). */
+  protected readonly lowContrast = computed(
+    () => new Set(this.layerRows().filter((row) => row.lowContrast && !row.el.hidden).map((row) => row.el.id)),
   );
   /**
    * Back to the zone page the studio was opened from (`?zone=`) when it lists the tale, else the
@@ -1913,6 +1953,12 @@ export class TaleStudioPage implements OnChanges {
   protected readonly saveFailed = computed(() => !['saved', 'pending', 'saving'].includes(this.saveState().kind));
 
   constructor() {
+    // Labels over media are judged against the colours read behind them (R12): read again after each change.
+    effect(() => {
+      this.doc();
+      this.projectId();
+      untracked(() => setTimeout(() => void this.sampleLabels()));
+    });
     inject(DestroyRef).onDestroy(() => {
       this.autosave.dispose();
       this.stopTicker();
@@ -2409,12 +2455,50 @@ export class TaleStudioPage implements OnChanges {
 
   /** What lies behind the text with this id: the canvas, or a shape or media below it (R6, R12). */
   protected backdropOf(id: string): TextBackdrop {
-    const elements = this.doc()?.elements ?? [];
-    return textBackdropAt(
-      elements,
-      elements.findIndex((e) => e.id === id),
-      this.backdrop(),
-    );
+    const doc = this.doc();
+    const index = doc?.elements.findIndex((e) => e.id === id) ?? -1;
+    return doc ? this.labelBackdrop(doc, index, this.backdrop()) : this.backdrop();
+  }
+
+  /**
+   * What lies behind the label at `index` of `doc` (R12): the contract's colour when it can work
+   * one out, else the colours read from the layers below it (see `TaleBackdropSampler`).
+   */
+  private labelBackdrop(doc: TaleDocument, index: number, base: TextBackdrop): TextBackdrop {
+    const backdrop = textBackdropAt(doc.elements, index, base);
+    return backdrop.overMedia ? { ...backdrop, samples: this.samples().get(backdropKey(doc, index)) } : backdrop;
+  }
+
+  /** Reads the colours behind each label over media that has not been read for what lies behind it now. */
+  private async sampleLabels(): Promise<void> {
+    if (this.sampling) {
+      this.sampleAgain = true;
+      return;
+    }
+    this.sampling = true;
+    try {
+      do {
+        this.sampleAgain = false;
+        const doc = this.doc();
+        const projectId = this.projectId();
+        if (!doc || !projectId) return;
+        const base = this.backdrop();
+        const known = this.samples();
+        const next = new Map<string, readonly string[] | null>();
+        for (const [index, element] of doc.elements.entries()) {
+          if (element.hidden || !hasLabel(element)) continue;
+          if (!textBackdropAt(doc.elements, index, base).overMedia) continue;
+          const key = backdropKey(doc, index);
+          if (next.has(key)) continue;
+          next.set(key, known.has(key) ? (known.get(key) ?? null) : await this.sampler.sample(doc, index, (k) => projectMediaSrc(projectId, k)));
+        }
+        // Only what the document shows now is kept.
+        const same = next.size === known.size && [...next].every(([k, v]) => known.get(k) === v);
+        if (!same) this.samples.set(next);
+      } while (this.sampleAgain);
+    } finally {
+      this.sampling = false;
+    }
   }
 
   /** How the canvas draws a shape, kept per props object. */
@@ -2498,9 +2582,10 @@ export class TaleStudioPage implements OnChanges {
   }
 
   /** True when the label of the element at `index` (a text, a button or the swipe-up link) has low contrast (R7, R12). */
-  private isLowContrast(elements: readonly TaleElement[], index: number, base: TextBackdrop): boolean {
-    const style = labelStyleOf(elements[index]);
-    return style !== null && textContrast(style, textBackdropAt(elements, index, base)).kind === 'low';
+  private isLowContrast(doc: TaleDocument | null, index: number, base: TextBackdrop): boolean {
+    const element = doc?.elements[index];
+    const style = element ? labelStyleOf(element) : null;
+    return !!doc && style !== null && textContrast(style, this.labelBackdrop(doc, index, base)).kind === 'low';
   }
 
   /** The ids of the texts and links of `doc` with low contrast against what lies behind each (R7, R12). */
@@ -2512,7 +2597,7 @@ export class TaleStudioPage implements OnChanges {
     };
     const low = new Set<string>();
     doc.elements.forEach((e, i) => {
-      if (!e.hidden && this.isLowContrast(doc.elements, i, base)) low.add(e.id);
+      if (!e.hidden && this.isLowContrast(doc, i, base)) low.add(e.id);
     });
     return low;
   }

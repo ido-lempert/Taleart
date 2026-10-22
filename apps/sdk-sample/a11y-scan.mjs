@@ -12,6 +12,9 @@
 // theme override for one slug only.
 // Then a project theme (R9): a solid ring in one colour, corner radius 0 and a serif font reach
 // the bar, the banner, the seen ring and the viewer; then the zones' SDK theme override wins over it.
+// Then a composed tale (Tale Studio story 7.10): read in visual order by a screen reader and by Tab,
+// every node named or hidden, a right-to-left page reading each row from the right, a GIF still
+// under reduced motion. A11Y_SHOTS, when set, is a folder for a screenshot of it.
 // Run through `nx run sdk-sample:a11y`, which builds the SDK first.
 // The deeper accessibility review (keyboard walk, zoom, forced colours, RTL…) is a11y-review.mjs.
 import { chromium } from 'playwright';
@@ -674,6 +677,133 @@ try {
   check(withoutOverride.bannerRadius === '16px', "without the SDK value the project's corner radius returns");
   check(overrideErrors.length === 0, `no console errors with an override${overrideErrors.length ? `: ${overrideErrors.join('; ')}` : ''}`);
   await overrideContext.close();
+
+  // A composed tale (Tale Studio story 7.10, R12): a title and an emoji in one row, an image with
+  // alt text beside a text placed a little higher (still one row), a decorative backdrop, a button,
+  // and a swipe-up link stored at the top. A screen reader reads it, and Tab reaches its links, in
+  // visual order (AD-15); every node is named or hidden; axe finds nothing. On a right-to-left page
+  // each row reads from the right; under reduced motion its GIF is drawn still.
+  const el = (n, type, box, props, a11y = {}) => ({
+    id: `00000000-0000-4000-8000-0000000007${String(n).padStart(2, '0')}`,
+    type,
+    box: { x: box[0], y: box[1], w: box[2], h: box[3], rotation: 0 },
+    a11y,
+    props,
+  });
+  const composedTale = {
+    id: 'k1',
+    title: 'Autumn edit',
+    media: null,
+    document: {
+      version: 1,
+      durationMs: 7000,
+      canvas: { background: { type: 'color', color: '#1f3a5f' } },
+      elements: [
+        el(1, 'shape', [0, 0.3, 1, 0.4], { shape: 'rectangle', fill: '#0b1d33' }, { decorative: true }),
+        el(2, 'button', [0.25, 0.76, 0.5, 0.07], {
+          label: 'Shop now',
+          variant: 'filled',
+          color: '#111827',
+          fill: '#ffffff',
+          href: 'https://example.com/shop',
+        }),
+        el(3, 'image', [0.06, 0.41, 0.4, 0.25], { url: `${API}/media/look.gif`, fit: 'cover' }, { label: 'A red coat' }),
+        el(4, 'text', [0.52, 0.4, 0.42, 0.1], { text: 'New season', size: 0.04 }),
+        el(5, 'text', [0.08, 0.14, 0.6, 0.08], { text: 'Autumn', size: 0.05 }),
+        el(6, 'emoji', [0.78, 0.14, 0.12, 0.07], { emoji: '🍂' }, { label: 'Falling leaf' }),
+        el(7, 'swipe-up', [0.2, 0.0, 0.6, 0.09], {
+          label: 'See more',
+          color: '#ffffff',
+          background: '#000000b3',
+          href: 'https://example.com/more',
+        }),
+      ],
+    },
+  };
+  const composedZone = {
+    ...ZONE,
+    id: 'z7',
+    slug: 'composed',
+    taleGroups: [{ id: 'gk', name: 'Autumn', cover: null, tales: [composedTale] }],
+  };
+  const VISUAL_ORDER = ['Autumn', 'Falling leaf', 'A red coat', 'New season', 'Shop now', 'See more'];
+  const RTL_ORDER = ['Falling leaf', 'Autumn', 'New season', 'A red coat', 'Shop now', 'See more'];
+  // What a screen reader meets in the open tale's canvas, in order: the accessible names of the
+  // accessibility tree (Playwright's ARIA snapshot), hidden nodes left out.
+  const readOut = async (host) => {
+    const snapshot = await host.locator('dialog .ta-canvas').ariaSnapshot();
+    return snapshot
+      .split('\n')
+      .map((line) => line.match(/^\s*- (?:img|link|paragraph|text)(?: "([^"]*)")?:?\s*(.*)$/))
+      .filter(Boolean)
+      .map((m) => (m[1] || m[2] || '').replace(/^"|"$/g, '').trim())
+      .filter((name) => name !== '' && !name.startsWith('/'));
+  };
+  const openComposed = async (contextOptions, rightToLeft = false) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...contextOptions });
+    const view = await context.newPage();
+    const errors = [];
+    view.on('pageerror', (err) => errors.push(String(err)));
+    view.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
+    await serve(view, { composed: composedZone });
+    await view.goto(pageUrl(port, ['composed']));
+    const host = view.locator('taleart-view');
+    await host.locator('button.item').first().waitFor();
+    if (rightToLeft) await view.evaluate(() => (document.documentElement.dir = 'rtl'));
+    await host.locator('button.item').first().click();
+    await host.locator('dialog .ta-canvas a').first().waitFor();
+    // Paused, so nothing below races the end of the tale.
+    await view.keyboard.press(' ');
+    return { context, view, host, errors };
+  };
+
+  const composed = await openComposed({});
+  const order = await readOut(composed.host);
+  check(
+    JSON.stringify(order) === JSON.stringify(VISUAL_ORDER),
+    `a screen reader reads the composed tale's text, alt text and button in visual order (${order.join(' / ')})`,
+  );
+  const composedNames = await composed.view.evaluate(() =>
+    [...document.querySelector('taleart-view').shadowRoot.querySelectorAll('dialog .ta-canvas > .ta-el')].map((node) => ({
+      hidden: node.getAttribute('aria-hidden') === 'true',
+      name: node instanceof HTMLImageElement ? node.alt : (node.getAttribute('aria-label') ?? node.textContent.trim()),
+    })),
+  );
+  check(composedNames.length === 7 && composedNames.every((n) => n.hidden || n.name !== ''), 'every node of the composed tale is named or hidden');
+  // From the tale's first link, Tab reaches the next in visual order.
+  await composed.host.locator('dialog .ta-canvas a').first().focus();
+  const tabbed = [];
+  for (let i = 0; i < 2; i++) {
+    tabbed.push(
+      await composed.view.evaluate(() => document.querySelector('taleart-view').shadowRoot.activeElement?.textContent ?? ''),
+    );
+    await composed.view.keyboard.press('Tab');
+  }
+  check(tabbed.join() === 'Shop now,See more', `Tab reaches the tale's links in visual order (${tabbed.join(', ')})`);
+  if (process.env.A11Y_SHOTS) await composed.view.screenshot({ path: `${process.env.A11Y_SHOTS}/sample-composed-tale.png` });
+  violations += await scan(composed.view, 'composed tale', axe);
+  check(composed.errors.length === 0, `no console errors with the composed tale${composed.errors.length ? `: ${composed.errors.join('; ')}` : ''}`);
+  await composed.context.close();
+
+  const rtl = await openComposed({}, true);
+  const rtlRead = await readOut(rtl.host);
+  check(
+    JSON.stringify(rtlRead) === JSON.stringify(RTL_ORDER),
+    `on a right-to-left page each row of the tale reads from the right (${rtlRead.join(' / ')})`,
+  );
+  violations += await scan(rtl.view, 'composed tale, right to left', axe);
+  await rtl.context.close();
+
+  const stillTale = await openComposed({ reducedMotion: 'reduce' });
+  const gif = await stillTale.view.evaluate(() => {
+    const node = document
+      .querySelector('taleart-view')
+      .shadowRoot.querySelector('dialog .ta-canvas [aria-label="A red coat"]');
+    return node ? [node.tagName, node.getAttribute('role')] : null;
+  });
+  check(gif?.join() === 'CANVAS,img', 'under reduced motion the GIF is drawn still and keeps its alt text');
+  violations += await scan(stillTale.view, 'composed tale, reduced motion', axe);
+  await stillTale.context.close();
 } finally {
   await browser.close();
   server.kill();

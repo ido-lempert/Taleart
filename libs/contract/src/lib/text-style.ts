@@ -308,41 +308,65 @@ export function compositeColor(top: string, bottom: string): string {
 export interface TextBackdrop {
   /** The canvas colour (`#RRGGBB` or `#RRGGBBAA`). */
   canvasColor: string;
-  /** True when the tale's media lies under the text, so its backdrop cannot be known. */
+  /**
+   * True when media, or a layer that is no solid colour, lies under the text, so its backdrop is
+   * known only from {@link TextBackdrop.samples}.
+   */
   overMedia: boolean;
+  /**
+   * With `overMedia`: the colours behind the text, as opaque `#rrggbb`, read from the pixels of
+   * everything below it (Tale Studio paints the layers below on an offscreen canvas). Left out
+   * while not read yet; null when they cannot be read (media that failed to load, or that the
+   * browser does not let a page read). Either way the contrast is then unknown.
+   */
+  samples?: readonly string[] | null;
 }
+
+/**
+ * Over media, the share of the sampled pixels behind a text whose contrast the check reports: the
+ * ratio that 90 % of them meet (a starting value). The worst single pixel would flag nearly every
+ * photo; the mean would hide a bright band right behind the words.
+ */
+export const MEDIA_CONTRAST_PERCENTILE = 0.1;
 
 /** The viewer's stage behind a translucent canvas colour. */
 export const STAGE_COLOR = '#000000';
 
 /** A text's contrast check (R12): a warning only, never a reason to refuse a save or a publish. */
 export type TextContrast =
-  | { kind: 'ok' | 'low'; ratio: number; minimum: number; against: 'box' | 'highlight' | 'canvas' }
+  | { kind: 'ok' | 'low'; ratio: number; minimum: number; against: 'box' | 'highlight' | 'canvas' | 'media' }
   | { kind: 'unknown'; reason: 'media' };
 
 /**
  * Checks a text's colour against what lies behind it (R12, WCAG 2.2 1.4.3): 4.5:1, or 3:1 for
  * large text. The backdrop is the text's own box or highlight when its colour is opaque; else
  * the canvas colour (a translucent box or highlight drawn over it), drawn over the viewer's
- * black stage when translucent. When the tale's media is behind the text and no opaque box or
- * highlight covers it, the contrast cannot be checked here.
+ * black stage when translucent. When media lies behind the text and no opaque box or highlight
+ * covers it, the check takes the colours sampled behind it (`backdrop.samples`, a translucent box
+ * or highlight drawn over each) and reports the ratio that most of them meet
+ * ({@link MEDIA_CONTRAST_PERCENTILE}); without samples it cannot be checked.
  */
 export function textContrast(style: TextStyle, backdrop: TextBackdrop): TextContrast {
   const own = style.background !== 'none' ? style.backgroundColor : null;
-  let behind: string;
-  let against: 'box' | 'highlight' | 'canvas';
-  if (own !== null && isOpaqueColor(own)) {
-    behind = own;
-    against = style.background as 'box' | 'highlight';
-  } else {
-    if (backdrop.overMedia) return { kind: 'unknown', reason: 'media' };
-    const canvas = compositeColor(backdrop.canvasColor, STAGE_COLOR);
-    behind = own !== null ? compositeColor(own, canvas) : canvas;
-    against = own !== null ? (style.background as 'box' | 'highlight') : 'canvas';
-  }
-  const ratio = contrastRatio(compositeColor(style.color, behind), behind);
   const minimum = isLargeText(style) ? LARGE_TEXT_CONTRAST_MIN : TEXT_CONTRAST_MIN;
-  return { kind: ratio < minimum ? 'low' : 'ok', ratio, minimum, against };
+  const judge = (ratio: number, against: 'box' | 'highlight' | 'canvas' | 'media'): TextContrast => ({
+    kind: ratio < minimum ? 'low' : 'ok',
+    ratio,
+    minimum,
+    against,
+  });
+  // A colour drawn over the opaque `behind`: its ratio against it.
+  const over = (behind: string) => contrastRatio(compositeColor(style.color, behind), behind);
+  if (own !== null && isOpaqueColor(own)) return judge(over(own), style.background as 'box' | 'highlight');
+  if (backdrop.overMedia) {
+    const samples = backdrop.samples;
+    if (!samples || samples.length === 0) return { kind: 'unknown', reason: 'media' };
+    const ratios = samples.map((sample) => over(own !== null ? compositeColor(own, sample) : sample)).sort((a, b) => a - b);
+    return judge(ratios[Math.floor(ratios.length * MEDIA_CONTRAST_PERCENTILE)], 'media');
+  }
+  const canvas = compositeColor(backdrop.canvasColor, STAGE_COLOR);
+  const behind = own !== null ? compositeColor(own, canvas) : canvas;
+  return judge(over(behind), own !== null ? (style.background as 'box' | 'highlight') : 'canvas');
 }
 
 // True when the rectangles share some area.

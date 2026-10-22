@@ -316,14 +316,52 @@ export function cleanText(text: string, rule: TextRule): string {
 }
 
 /**
- * Elements in reading order (AD-15): top to bottom, then left to right, by their box; elements
- * at the same place keep their z-order. Screen readers meet them in this order.
+ * How far apart, as a fraction of the canvas height, the visual tops of two elements may be and
+ * still count as one row for {@link readingOrder}: about 11 px on the 540 px reference canvas, so a
+ * row placed by hand, a few pixels off, still reads across (a starting value).
  */
-export function readingOrder<T extends { box: { x: number; y: number } }>(elements: readonly T[]): T[] {
-  return elements
-    .map((element, index) => ({ element, index }))
-    .sort((a, b) => a.element.box.y - b.element.box.y || a.element.box.x - b.element.box.x || a.index - b.index)
-    .map(({ element }) => element);
+export const READING_ROW_TOLERANCE = 0.02;
+
+/** The direction a row is read in: left to right, or right to left on a right-to-left page. */
+export type ReadingDirection = 'ltr' | 'rtl';
+
+// Where an element shows: the swipe-up link is pinned to its box whatever it stores (R7), and a
+// rotated box shows as its upright bounds.
+function shownBounds(element: { type?: string; box: { x: number; y: number; w?: number; h?: number; rotation?: number } }) {
+  if (element.type === 'swipe-up') return SWIPE_UP_BOX;
+  const { x, y, w, h, rotation } = element.box;
+  if (typeof rotation === 'number' && rotation !== 0 && typeof w === 'number' && typeof h === 'number') {
+    return elementBounds({ x, y, w, h, rotation });
+  }
+  return { x, y, w: w ?? 0, h: h ?? 0 };
+}
+
+/**
+ * Elements in reading order (AD-15, epic Tale Studio R12), the one rule the SDK follows for screen
+ * readers and focus: visual position, top to bottom, then left to right. Positions are where the
+ * elements show (a rotated box by its upright bounds, the swipe-up link in the bottom safe area).
+ * Rows: the highest element not yet placed starts a row, which takes every element whose top is
+ * within {@link READING_ROW_TOLERANCE} of that row's top; a row is read left to right by left edge,
+ * or right to left by right edge when `direction` is `rtl` (the host page reads right to left).
+ * Ties (the same edge in a row) keep the z-order, bottom first.
+ */
+export function readingOrder<
+  T extends { type?: string; box: { x: number; y: number; w?: number; h?: number; rotation?: number } },
+>(elements: readonly T[], direction: ReadingDirection = 'ltr'): T[] {
+  const items = elements
+    .map((element, index) => ({ element, index, at: shownBounds(element) }))
+    .sort((a, b) => a.at.y - b.at.y || a.index - b.index);
+  const rows: (typeof items)[] = [];
+  for (const item of items) {
+    const row = rows[rows.length - 1];
+    if (row && item.at.y - row[0].at.y <= READING_ROW_TOLERANCE) row.push(item);
+    else rows.push([item]);
+  }
+  const across =
+    direction === 'rtl'
+      ? (a: (typeof items)[number], b: (typeof items)[number]) => b.at.x + b.at.w - (a.at.x + a.at.w)
+      : (a: (typeof items)[number], b: (typeof items)[number]) => a.at.x - b.at.x;
+  return rows.flatMap((row) => row.sort((a, b) => across(a, b) || a.index - b.index).map(({ element }) => element));
 }
 
 /** A rectangle on the canvas as fractions of its width (`x`, `w`) and height (`y`, `h`). */
