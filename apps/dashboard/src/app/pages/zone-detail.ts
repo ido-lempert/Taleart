@@ -141,30 +141,12 @@ type Direction = 'earlier' | 'later';
     .zone-template {
       white-space: nowrap;
     }
-    .key-info {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: var(--space-2) var(--space-4);
-      margin: 0;
-    }
-    .key-info dt {
-      font-weight: 600;
-    }
-    .key-info dd {
-      margin: 0;
-    }
     .zone-visibility {
       margin-top: var(--space-2);
     }
     .zone-edit {
       align-self: flex-start;
       margin-top: var(--space-2);
-    }
-    .key-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
     }
     .zone-header__title {
       display: flex;
@@ -418,8 +400,6 @@ export class ZoneDetailPage {
     return key ? (findTemplate(key)?.label ?? key) : '';
   });
   protected readonly groups = computed(() => this.store.taleGroupsOf(this.zoneId()));
-  /** The zone's active key (prefix and date only), or null. */
-  protected readonly zoneKey = computed(() => this.store.zoneKey(this.zoneId()));
 
   /** The other zones a group is placed in, for its "Also in: …" line (AD-14). */
   protected otherZones(group: TaleGroup): Zone[] {
@@ -505,11 +485,6 @@ export class ZoneDetailPage {
         ),
       );
     }
-  }
-
-  /** A key's issue date, such as "20 Oct 2026". */
-  protected issuedDate(createdAt: string): string {
-    return new Date(createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
   /** Every tag on the zone's groups, once each, by name: the filter chips. */

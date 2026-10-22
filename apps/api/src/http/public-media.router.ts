@@ -17,7 +17,7 @@ const FONT_KEY_PREFIX = 'fonts/';
  * the cover of a delivered tale group (epic web zones R12), an image or video a
  * delivered tale's published document shows (epic Tale Studio R5), or a project font
  * a delivered tale's published document uses (epic Tale Studio R18), with no session
- * and no zone key, so an `<img>` or `<video>` on any origin loads it. Any other key, including the key of replaced media or of draft,
+ * and no site key, so an `<img>` or `<video>` on any origin loads it. Any other key, including the key of replaced media or of draft,
  * paused or archived content, answers 404 `media_not_found`.
  */
 export function publicMediaRouter(pool: Pool, storage: MediaStorage): Router {

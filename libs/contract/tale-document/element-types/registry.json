@@ -5,6 +5,9 @@
     { "key": "video", "label": "Video", "schema": "video.schema.json" },
     { "key": "shape", "label": "Shape", "schema": "shape.schema.json" },
     { "key": "emoji", "label": "Emoji", "schema": "emoji.schema.json" },
-    { "key": "sticker", "label": "Sticker", "schema": "sticker.schema.json" }
+    { "key": "sticker", "label": "Sticker", "schema": "sticker.schema.json" },
+    { "key": "button", "label": "Button", "schema": "button.schema.json" },
+    { "key": "image-button", "label": "Image button", "schema": "image-button.schema.json" },
+    { "key": "swipe-up", "label": "Swipe-up link", "schema": "swipe-up.schema.json" }
   ]
 }

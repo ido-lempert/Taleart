@@ -44,8 +44,8 @@ const consumer = `import {
 } from ${JSON.stringify(join(dist, 'index.js'))};
 
 const options: ZoneOptions = { theme: { ringStyle: 'solid', ringColors: ['#000000'], cornerRadius: null } };
-configureZone('zone-key', options);
-configureZone('zone-key', null);
+configureZone('promo', options);
+configureZone('promo', null);
 configureZone('home-top', { theme: { accentColor: '#000000' } });
 defineTaleartElement(TALEART_ELEMENT_TAG);
 const element = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
@@ -54,6 +54,9 @@ element.zone = 'home-top';
 const slug: string = element.zone;
 const siteKey: string = element.siteKey;
 export { slug, siteKey };
+// Zone keys are gone (story 8.7): an element is placed only with a site key and a slug.
+// @ts-expect-error no such property
+element.zoneKey = 'old';
 element.theme = { accentColor: '#ffffff' };
 const ringWidth: number | undefined = element.theme.ringWidth;
 export { ringWidth };

@@ -22,6 +22,9 @@ export type IconName =
   | 'shape'
   | 'emoji'
   | 'sticker'
+  | 'button'
+  | 'image-button'
+  | 'swipe-up'
   | 'eye'
   | 'eye-off'
   | 'lock'
@@ -126,6 +129,18 @@ export type IconName =
         @case ('sticker') {
           <path d="M15 3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h9l6-6V6a3 3 0 0 0-3-3z" />
           <path d="M15 21v-4a2 2 0 0 1 2-2h4" />
+        }
+        @case ('button') {
+          <rect x="2" y="7" width="20" height="10" rx="5" />
+          <path d="M8 12h8" />
+        }
+        @case ('image-button') {
+          <rect x="3" y="3" width="18" height="14" rx="2" />
+          <path d="M21 13l-5-5-9 9M12 21h6M15 18l3 3-3 3" />
+        }
+        @case ('swipe-up') {
+          <path d="M7 10l5-5 5 5M12 5v10" />
+          <rect x="6" y="17" width="12" height="4" rx="2" />
         }
         @case ('eye') {
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

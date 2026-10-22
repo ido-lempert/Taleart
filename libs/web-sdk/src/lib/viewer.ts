@@ -17,8 +17,19 @@ export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
 
 /** A document's video that makes no progress for this long while it should play ends its tale. */
 export const VIDEO_STALL_MS = 5000;
-/** Horizontal travel that makes a pointer gesture a swipe between groups. */
+/**
+ * Travel that makes a pointer gesture a swipe: horizontally between groups, and upwards to open
+ * the tale's swipe-up link (epic Tale Studio R7).
+ */
 export const SWIPE_MIN_PX = 50;
+/**
+ * The swipe up that opens a tale's swipe-up link is a flick: released within this time, and
+ * travelling at least {@link SWIPE_UP_MIN_PX} or {@link SWIPE_UP_MIN_SHARE} of the stage's height,
+ * whichever is more. A hold that drifts upwards, or a slow drag, is not one.
+ */
+export const SWIPE_UP_MAX_MS = 500;
+export const SWIPE_UP_MIN_PX = SWIPE_MIN_PX;
+export const SWIPE_UP_MIN_SHARE = 0.08;
 /** A press at least this long is a hold (pause), not a tap (step). */
 export const HOLD_MIN_MS = 250;
 
@@ -184,6 +195,7 @@ span.media { background: #1f2937; }
   .frame { z-index: 2; background: #000; }
   .side { display: block; z-index: 1; background: #111827; cursor: pointer; filter: ${SIDE_FILTER}; }
   .side:hover { filter: brightness(0.6); }
+  .side .ta-cta { pointer-events: none; }
   .nav { display: grid; position: absolute; top: calc(50% - 22px); z-index: 3; }
   .nav.prev { inset-inline-start: calc(50% - var(--card-w) / 2 - 56px); }
   .nav.next { inset-inline-start: calc(50% + var(--card-w) / 2 + 12px); }
@@ -336,8 +348,14 @@ export class TaleViewer {
   private duration = IMAGE_DURATION_MS; // the current tale's time on the timer
   private remaining = 0;
   private startedAt = 0;
-  private press: { x: number; y: number; at: number } | null = null;
+  // The press in progress: its pointer, and whether a second pointer joined it (a pinch, not a gesture).
+  private press: { x: number; y: number; at: number; pointerId: number; joined: boolean } | null = null;
   private suppressClick = false;
+  // The pointer click a swipe up may also produce on the swipe-up link, which the swipe already
+  // opened; cleared by the next press, so a later click on the link is the visitor's own.
+  private suppressLink = false;
+  // Focus is on a link of the tale (R7): the tale waits, so it does not move on under the visitor.
+  private linkFocused = false;
   private opened = false;
   private reduced = false;
   private rtl = false; // the host page lays out right to left: tap zones, arrows and swipes mirror
@@ -500,9 +518,41 @@ export class TaleViewer {
     pause.addEventListener('click', () => this.togglePause());
     close.addEventListener('click', () => this.close());
     stage.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+    // A swipe up may start on the swipe-up link itself, which lies over the stage (R7). Any new
+    // press ends the suppression of a click on a link that a swipe up opened.
+    dialog.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (this.press) {
+          // A second pointer during a press (a pinch) joins it: neither is then a tap, hold or swipe.
+          if (e.pointerId !== this.press.pointerId) this.press.joined = true;
+        } else this.suppressLink = false;
+      },
+      true,
+    );
+    dialog.addEventListener('pointerdown', (e) => {
+      if (e.button === 0 && !this.press && (e.target as Element | null)?.closest?.('.ta-swipe')) {
+        this.press = { x: e.clientX, y: e.clientY, at: Date.now(), pointerId: e.pointerId, joined: false };
+      }
+    });
+    // While a link of the tale has focus the tale waits (R7), so it is not replaced under the visitor.
+    dialog.addEventListener('focusin', (e) => this.onFocusChange(e.target));
+    dialog.addEventListener('focusout', (e) => this.onFocusChange(e.relatedTarget));
+    dialog.addEventListener(
+      'click',
+      (e) => {
+        if (this.suppressLink && e.detail !== 0 && (e.target as Element | null)?.closest?.('.ta-cta')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      true,
+    );
     stage.addEventListener('lostpointercapture', () => this.onPointerCancel());
     dialog.addEventListener('pointerup', (e) => this.onPointerUp(e));
-    dialog.addEventListener('pointercancel', () => this.onPointerCancel());
+    dialog.addEventListener('pointercancel', (e) => {
+      if (!this.press || e.pointerId === this.press.pointerId) this.onPointerCancel();
+    });
     // No context menu or scrolling, except on a document's text, where a long press and a drag
     // select it (and the menu copies it) on touch screens.
     dialog.addEventListener('contextmenu', (e) => {
@@ -573,10 +623,17 @@ export class TaleViewer {
     e.stopPropagation();
   }
 
+  private onFocusChange(target: EventTarget | null): void {
+    const onLink = !!(target as Element | null)?.closest?.('.ta-cta') && !!this.layer?.contains(target as Node);
+    if (onLink === this.linkFocused) return;
+    this.linkFocused = onLink;
+    this.applyPause();
+  }
+
   private onPointerDown(e: PointerEvent): void {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || this.press) return;
     this.suppressClick = false;
-    this.press = { x: e.clientX, y: e.clientY, at: Date.now() };
+    this.press = { x: e.clientX, y: e.clientY, at: Date.now(), pointerId: e.pointerId, joined: false };
     this.held = true;
     // A release outside the window still ends the press.
     try {
@@ -589,11 +646,26 @@ export class TaleViewer {
 
   private onPointerUp(e: PointerEvent): void {
     const press = this.press;
-    if (!press) return;
+    if (!press || e.pointerId !== press.pointerId) return;
     this.press = null;
     this.held = false;
+    if (press.joined) {
+      // A pinch: no tap, hold or swipe.
+      this.suppressNextClick();
+      this.applyPause();
+      return;
+    }
     const dx = e.clientX - press.x;
     const dy = e.clientY - press.y;
+    // A flick up opens the tale's swipe-up link, when it has one (R7); otherwise it is a tap or a hold, as before.
+    const minUp = Math.max(SWIPE_UP_MIN_PX, SWIPE_UP_MIN_SHARE * this.parts.stage.getBoundingClientRect().height);
+    const flick = Date.now() - press.at < SWIPE_UP_MAX_MS;
+    if (flick && -dy >= minUp && -dy > Math.abs(dx) && this.openSwipeUp()) {
+      this.suppressNextClick();
+      this.suppressLink = true;
+      this.applyPause();
+      return;
+    }
     if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
       this.suppressNextClick();
       // A swipe toward the start of the line (left, or right in right-to-left) shows the next group.
@@ -606,6 +678,15 @@ export class TaleViewer {
     }
     if (Date.now() - press.at >= HOLD_MIN_MS) this.suppressNextClick();
     this.applyPause();
+  }
+
+  // Opens the current tale's swipe-up link as a click on it would (same tab, or a new tab without
+  // an opener); false when the tale has none.
+  private openSwipeUp(): boolean {
+    const link = this.layer?.querySelector<HTMLAnchorElement>('a.ta-swipe');
+    if (!link) return false;
+    link.click();
+    return true;
   }
 
   // Swallows only the click this release may produce: it comes in the same task, if at all.
@@ -809,6 +890,8 @@ export class TaleViewer {
         side.appendChild(img);
       }
     }
+    // A side card's links are pictures only: the card is the one target, and focus never reaches them.
+    for (const link of side.querySelectorAll('a')) link.tabIndex = -1;
     for (const video of side.querySelectorAll('video')) {
       video.autoplay = false;
       video.muted = true;
@@ -979,7 +1062,7 @@ export class TaleViewer {
   private applyPause(): void {
     const dialog = this.dialog;
     if (!dialog) return;
-    const stopped = this.paused || this.held;
+    const stopped = this.paused || this.held || this.linkFocused;
     dialog.toggleAttribute('data-paused', stopped);
     if (this.timed) {
       if (stopped && this.timer !== undefined) {
@@ -1040,7 +1123,12 @@ export class TaleViewer {
     this.alongside = [];
     this.media?.remove();
     this.media = null;
+    // Focus on a link of the removed tale goes to the dialog, not to the page behind it.
+    const focused = (this.dialog?.getRootNode() as Document | ShadowRoot | undefined)?.activeElement;
+    const hadFocus = !!this.layer && !!focused && this.layer.contains(focused);
     this.layer?.remove();
     this.layer = null;
+    this.linkFocused = false;
+    if (hadFocus) this.dialog?.focus();
   }
 }
