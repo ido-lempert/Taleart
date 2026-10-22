@@ -87,14 +87,14 @@ notes = ["Owner decision D6 (2026-10-23)."]
 [[entry]]
 id = 7
 type = "story"
-title = "Old zone keys and the stage attribute keep working"
-description = "Size M. Makes the legacy paths final and tested (epic R4): a pre-rework zone key with stage shows the zone migrated from that stage; without stage it shows every display migrated from its zone, stacked in the old order; configureZone(zoneKey) keeps its theme override; the pre-rework SDK build gets the response shape it expects. Settles the epic's open question on keys without stage first."
-verify = "The sample page's legacy-SDK check passes unchanged against the reworked API with a pre-rework key, with and without stage; the current SDK shows the same with the same key; configureZone(zoneKey) still overrides the ring colour; first content stays at or under 1.5 s p75."
+title = "Remove zone keys and the stage attribute"
+description = "Size S. Owner decision 2026-10-22: no host page uses the old zone keys, so the legacy paths go (epic R4 dropped). Removes zone keys (issue, rotate, revoke, Delivery lookup), the stage attribute and configureZone(zoneKey) from the API, the Web SDK and the dashboard, and drops the legacy-SDK check and the original-zone/stage-key records the migration kept; the site key plus zone slug (story 6) is the only way to place a zone."
+verify = "No zone-key or stage code path remains in the API, the SDK or the dashboard; the sample page renders every zone with the site key and slug; the SDK stays at or under 50 KB gzipped and first content at or under 1.5 s p75."
 covers = ["R4"]
 after = [6]
 hitl = false
-risk = "high"
-unknown = "For a pre-rework zone key with no stage attribute, keep the stacked rendering of all migrated displays (recommended), or show only the first migrated zone?"
+risk = "medium"
+notes = ["Owner decision 2026-10-22: 'No one used it, you can change and remove what you want.'"]
 
 [[entry]]
 id = 8
