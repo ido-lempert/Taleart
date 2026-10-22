@@ -23,6 +23,7 @@ import {
   SHOWN_STATUS_LABELS,
   switchStatus,
   taleShownStatus,
+  zoneSlugFromName,
   type ContentStatus,
   type Invitation,
   type IssuedZoneKey,
@@ -66,6 +67,19 @@ export class CreateDrawer implements OnInit {
   /** The slug typed in a new zone drawer; empty lets the API make one from the name (epic UX rework R1). */
   protected slug = '';
   protected readonly maxSlug = MAX_ZONE_SLUG_LENGTH;
+  /** True when the drawer's error is about the slug, so only the slug field is marked invalid. */
+  protected readonly slugError = signal(false);
+
+  /** The zone a "Name and slug" drawer edits. */
+  protected readonly editedZone = computed(() => {
+    const request = this.request();
+    return request.kind === 'editZone' ? this.store.zone(request.zoneId) : undefined;
+  });
+
+  /** The slug the API makes from the typed name when none is given; '' when the name has no Latin letter or digit. */
+  protected generatedSlug(): string {
+    return zoneSlugFromName(this.text);
+  }
   protected frameType = '';
   /** The image or video picked in the file input, if any. */
   protected file: File | null = null;
@@ -365,6 +379,7 @@ export class CreateDrawer implements OnInit {
       case 'renameTaleGroup':
       case 'schedule':
       case 'displaySettings':
+      case 'editZone':
         return 'Save';
       case 'placeTaleGroup':
         return 'Add';
@@ -432,6 +447,8 @@ export class CreateDrawer implements OnInit {
         return 'Tags';
       case 'renameTaleGroup':
         return 'Rename tale group';
+      case 'editZone':
+        return 'Name and slug';
       case 'placeTaleGroup':
         return 'Add to zone';
       case 'copyTaleGroup':
@@ -508,6 +525,11 @@ export class CreateDrawer implements OnInit {
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
+    const edited = this.editedZone();
+    if (edited) {
+      this.text = edited.name;
+      this.slug = edited.slug;
+    }
     const applied = this.playbookZone()?.playbookKey;
     if (applied && findPlaybook(applied)) this.playbookKey.set(applied);
     if (this.request().kind === 'copyTaleGroup') this.copyProjectId.set(this.copyProjects()[0]?.id ?? '');
@@ -653,10 +675,20 @@ export class CreateDrawer implements OnInit {
       case 'project':
         message = await this.store.createProject(this.text);
         break;
-      case 'zone':
-        message = await this.store.createZone(this.text, this.projectId, this.slug.trim());
+      case 'zone': {
+        const slug = this.slug.trim();
+        // A name with no Latin letter or digit (a Hebrew name, say) gives no slug: one is required then.
+        if (!slug && this.text.trim() && !this.generatedSlug()) {
+          message = 'This name gives no slug. Enter a slug: lowercase letters, digits and hyphens.';
+          this.slugError.set(true);
+          break;
+        }
+        const result = await this.store.createZone(this.text, this.projectId, slug);
+        message = result.message;
+        this.slugError.set(result.field === 'slug');
         if (!message) this.store.selectProject(this.projectId);
         break;
+      }
       case 'display':
         message = this.frameType
           ? await this.store.setDisplay(request.zoneId, this.frameType)
@@ -692,6 +724,22 @@ export class CreateDrawer implements OnInit {
       case 'renameTaleGroup':
         message = await this.store.renameTaleGroup(request.taleGroupId, this.text);
         break;
+      case 'editZone': {
+        const zone = this.editedZone();
+        const name = this.text.trim();
+        const slug = this.slug.trim();
+        if (!zone) {
+          message = 'This zone no longer exists.';
+          break;
+        }
+        const change = { ...(name !== zone.name && { name }), ...(slug !== zone.slug && { slug }) };
+        const result = Object.keys(change).length
+          ? await this.store.updateZone(zone.id, change)
+          : { message: '', field: null };
+        message = result.message;
+        this.slugError.set(result.field === 'slug');
+        break;
+      }
       case 'applyPlaybook':
         // A conflict the dashboard can see is refused here, without a request; the API refuses it too.
         message = !this.pickedPlaybook()

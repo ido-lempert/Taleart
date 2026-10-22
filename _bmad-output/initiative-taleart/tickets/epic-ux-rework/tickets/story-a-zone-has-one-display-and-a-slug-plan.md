@@ -116,7 +116,46 @@ deferred: []
   - A zone without a display has "Choose display".
   - The New zone drawer takes an optional slug. The header and the zone cards show the slug.
 - Importer: its code is unchanged. A another tool instance imports as one zone without a display, with a slug made from its name (asserted in the API importer test). `api:import-scale` passes.
-- Not done: `apps/sdk-sample/a11y-scan.mjs` and `a11y-review.mjs` still mock the old `frames`/`stages` shape and the `stages` query. They need the new shape (bar and banner as two elements) before they run again.
+- The sample page and its scripts (`a11y-scan.mjs`, `a11y-review.mjs`) use the new shape after the review fixes below.
+
+## Release note (deploy)
+
+**This release needs a stop-the-world deploy.** Stop every API instance of the release before, then start this one. Its start-up migration (`foldStagesIntoZones`) drops `stages` and makes `zones.slug` NOT NULL. Once it has run, an instance of the release before fails:
+- it reads `stages`, which is gone;
+- it inserts zones without a slug, which the database now refuses.
+
+A rolling deploy must not be used. The fold runs once, under the migration lock, in one transaction, so several instances of this release can start together.
+
+## Review fixes (2026-10-22)
+
+- **Sample page.** `apps/sdk-sample/index.html` had a second head, body, element and script, the second still reading `?stages=`. It now has one of each. `?keys=a,b` places one `<taleart-view>` per zone key, each under its own heading; `?key=` places one.
+- **Accessibility scripts.**
+  - `a11y-scan.mjs` and `a11y-review.mjs` serve the Delivery API by key with the new shape (`slug`, `frame`). The bar and the banner are two zones, two keys and two elements.
+  - The stage scenarios are replaced by "two zones, two displays": each has its own shape and its own named items, and an unknown key renders nothing and logs one error. The playbook and theme-override scenarios now use zones.
+  - The R16 comparison serves the legacy `frames` list to the build from before the rework.
+- **Names without Latin letters (Hebrew).**
+  - The fold now picks slugs in three passes:
+    1. stage keys that are valid slugs, reserved before anything else;
+    2. original zone names (`zone` when the name gives none);
+    3. zones made from frames, as `<name slug or original slug>-<type>-<n>`, and stage zones whose key is not a slug, as their name's slug or `<original slug>-<type>`.
+  - Stage keys are checked with `isZoneSlug`. `uniqueZoneSlug` cuts a base to 64 characters.
+- **Zone page.** "Edit name and slug" opens a drawer that saves through `PATCH /zones/{id}`. The New zone drawer previews the slug made from the name, and requires a slug when the name gives none. A refusal marks only the field it is about: `slug_taken`, or a message about the slug or the name.
+- **Display card.** The settings summary sits in a labelled group.
+- **OpenAPI.** `POST /zones` documents the slug, 409 `slug_taken` and 400 `project_not_found` (the API's existing answer; it was 400 before this story). `PATCH /zones/{id}/frame` documents 409 `concurrent_change`.
+- **Display changes.** `updateDisplay` writes only while the display has the type it read (`AND type = $4`). On a miss it checks once more against the new type, then refuses with 409 `concurrent_change`.
+- **Fold DDL.** `SET NOT NULL` runs only while the column is nullable. `frames_zone_id_idx` and `frames_id_zone_id_key` are dropped, since `frames_zone_id_key` covers them. `migrateZones` no longer creates `frames_zone_id_idx`. The type names in new zone names are the keys capitalised, which match the shipped registry labels (commented).
+- **Tests.**
+  - API:
+    - Hebrew names in `createZone` and the fold;
+    - stage keys that are not slugs;
+    - a zone with a single stage;
+    - two projects with one stage key, with stage keys reserved before names;
+    - a failing `copyPlacements` that rolls everything back, leaving the stages, frames, zones and nullable slug intact;
+    - three concurrent `migrate()` runs that fold once and leave only `frames_pkey` and `frames_zone_id_key`.
+  - Zones lib: the conditional display update.
+  - Contract: the slug cut, and that a Hebrew name gives no slug.
+  - Dashboard: the slug preview, a Hebrew name requiring a slug, `slug_taken` marking only the slug, and editing a zone's name and slug.
+  - Not done: a fold test starting from the real cf1bf03 migrations. It would need that release's API built beside this one. The tests rebuild its schema by hand (`legacySchema`), with the same constraints and indexes.
 
 ## Verification
 

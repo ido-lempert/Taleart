@@ -9,6 +9,13 @@
           in {{ store.projectName(zone.projectId) }} · <span class="zone-slug">Slug <code class="key-prefix">{{ zone.slug }}</code></span>
         </p>
         <app-visibility class="zone-visibility" [visibility]="zone.visibility" viewing="zone" />
+        <button
+          type="button"
+          class="btn btn--secondary btn--sm zone-edit"
+          (click)="store.openDrawer({ kind: 'editZone', zoneId: zone.id }, $event)"
+        >
+          Edit name and slug
+        </button>
       </header>
 
       <section class="card section zone-section" aria-labelledby="playbook-title">
@@ -66,14 +73,16 @@
             }
           </div>
           @if (displaySettings().length > 0) {
-            <dl class="display-settings" aria-label="Display settings">
-              @for (setting of displaySettings(); track setting.label) {
-                <div>
-                  <dt>{{ setting.label }}</dt>
-                  <dd>{{ setting.value }}</dd>
-                </div>
-              }
-            </dl>
+            <div role="group" aria-label="Display settings">
+              <dl class="display-settings">
+                @for (setting of displaySettings(); track setting.label) {
+                  <div>
+                    <dt>{{ setting.label }}</dt>
+                    <dd>{{ setting.value }}</dd>
+                  </div>
+                }
+              </dl>
+            </div>
           }
           <form class="display-type" (submit)="changeDisplayType($event)">
             <div class="field">

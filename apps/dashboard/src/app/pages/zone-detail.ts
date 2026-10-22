@@ -179,6 +179,10 @@ type Direction = 'earlier' | 'later';
     .zone-visibility {
       margin-top: var(--space-2);
     }
+    .zone-edit {
+      align-self: flex-start;
+      margin-top: var(--space-2);
+    }
     .key-actions {
       display: flex;
       flex-wrap: wrap;

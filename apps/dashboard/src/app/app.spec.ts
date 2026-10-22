@@ -329,6 +329,47 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/zones`, 'validation_failed', 'name is required');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('name is required');
+      // A name refusal marks the name, not the slug.
+      expect(drawer()?.querySelector('#create-text')?.getAttribute('aria-invalid')).toBe('true');
+      expect(drawer()?.querySelector('#create-slug')?.getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it('previews the slug made from the name, and requires one when a Hebrew name gives none', async () => {
+      const { fixture } = await open('/zones', { projects: [acme] });
+      buttonNamed(fixture.nativeElement, 'New zone').click();
+      await settle(fixture);
+      const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
+      const slug = drawer()?.querySelector<HTMLInputElement>('#create-slug') ?? null;
+      const hint = () => drawer()?.querySelector('#create-slug-hint')?.textContent?.replace(/\s+/g, ' ') ?? '';
+
+      type(name, 'Home page!');
+      await settle(fixture);
+      expect(hint()).toContain('Left empty, it is home-page.');
+
+      type(name, 'דף הבית');
+      await settle(fixture);
+      expect(hint()).toContain('This name gives none: enter one.');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      http.expectNone(`${API_BASE}/zones`);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('This name gives no slug');
+      expect(slug?.getAttribute('aria-invalid')).toBe('true');
+      expect(slug?.getAttribute('aria-describedby')).toBe('create-slug-hint create-error');
+      expect(name?.getAttribute('aria-invalid')).toBeNull();
+
+      type(slug, 'home');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/zones`);
+      expect(req.request.body).toEqual({ name: 'דף הבית', projectId: 'p1', slug: 'home' });
+      req.flush(
+        { error: { code: 'slug_taken', message: 'Another zone of this project already has the slug "home"' } },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('already has the slug "home"');
+      expect(slug?.getAttribute('aria-invalid')).toBe('true');
+      expect(name?.getAttribute('aria-invalid')).toBeNull();
     });
   });
 
@@ -386,6 +427,50 @@ describe('App', () => {
       expect(root.textContent).not.toContain('stage');
       expect([...root.querySelectorAll('button')].map((b) => b.textContent?.trim())).not.toContain('Add stage');
       expect(root.querySelector('#stages-title, #frames-title')).toBeNull();
+    });
+
+    it('renames a zone and changes its slug, marking only the slug when the API refuses it', async () => {
+      const store = TestBed.inject(DashboardStore);
+      const { fixture, root } = await open('/zones/z1', oneZone);
+      buttonNamed(root, 'Edit name and slug').click();
+      await settle(fixture);
+      expect(drawer()?.querySelector('h2')?.textContent).toContain('Name and slug');
+      const name = drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null;
+      const slug = drawer()?.querySelector<HTMLInputElement>('#create-slug') ?? null;
+      expect([name?.value, slug?.value]).toEqual(['Home bar', 'z1']);
+
+      type(name, 'דף הבית');
+      type(slug, 'Home Top');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      let req = http.expectOne(`${API_BASE}/zones/z1`);
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({ name: 'דף הבית', slug: 'Home Top' });
+      req.flush(
+        {
+          error: {
+            code: 'validation_failed',
+            message: 'slug must be lowercase letters and digits, words joined by single hyphens, at most 64 characters',
+          },
+        },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('slug must be lowercase');
+      expect(slug?.getAttribute('aria-invalid')).toBe('true');
+      expect(name?.getAttribute('aria-invalid')).toBeNull();
+
+      type(slug, 'home-top');
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      await settle(fixture);
+      req = http.expectOne(`${API_BASE}/zones/z1`);
+      expect(req.request.body).toEqual({ name: 'דף הבית', slug: 'home-top' });
+      req.flush({ ...zone, name: 'דף הבית', slug: 'home-top', frame: null });
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(store.zone('z1')?.slug).toBe('home-top');
+      expect(root.querySelector('.page-header__title')?.textContent).toContain('דף הבית');
+      expect(root.querySelector('.page-header .zone-slug')?.textContent).toContain('home-top');
     });
 
     it('sets the display picked in the drawer', async () => {

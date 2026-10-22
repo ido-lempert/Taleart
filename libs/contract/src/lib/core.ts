@@ -241,7 +241,7 @@ export function zoneSlugFromName(name: string): string {
  * within {@link MAX_ZONE_SLUG_LENGTH} characters. An empty base reads `zone`.
  */
 export function uniqueZoneSlug(base: string, taken: (slug: string) => boolean): string {
-  const root = base || 'zone';
+  const root = (base || 'zone').slice(0, MAX_ZONE_SLUG_LENGTH).replace(/-+$/, '');
   if (!taken(root)) return root;
   for (let n = 2; ; n++) {
     const suffix = `-${n}`;

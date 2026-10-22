@@ -557,8 +557,8 @@ export interface paths {
         get: operations["listZones"];
         put?: never;
         /**
-         * Create a zone in a project.
-         * @description A project the caller cannot access answers 403 `forbidden`.
+         * Create a zone in a project, without a display.
+         * @description `slug` is optional: when missing, it is made from the name (lowercase ASCII letters and digits joined by hyphens; `zone` when the name has none, as a Hebrew name has none) and made unique in the project with `-2`, `-3`. A given slug must be lowercase letters and digits, words joined by single hyphens, at most 64 characters (400 `validation_failed`), and free in the project (409 `slug_taken`). A blank name answers 400 `validation_failed`; a project that does not exist 400 `project_not_found`; a project the caller cannot access 403 `forbidden`.
          */
         post: operations["createZone"];
         delete?: never;
@@ -627,7 +627,7 @@ export interface paths {
         head?: never;
         /**
          * Change the type or the settings of a zone's display.
-         * @description A new `type` changes the display's frame type and resets its settings to that type's defaults, unless `settings` is given too. `settings` replaces the settings and is validated against the JSON Schema of the display's (new) type (AD-5): an invalid value answers 400 `invalid_frame_settings` naming the field, and nothing is stored. A body with neither answers 400 `validation_failed`. The display keeps its id, so events keep their `frame_id` (AD-10). Unknown zone: 404 `zone_not_found`; a zone without a display: 404 `display_not_found`.
+         * @description A new `type` changes the display's frame type and resets its settings to that type's defaults, unless `settings` is given too. `settings` replaces the settings and is validated against the JSON Schema of the display's (new) type (AD-5): an invalid value answers 400 `invalid_frame_settings` naming the field, and nothing is stored. A body with neither answers 400 `validation_failed`. The display keeps its id, so events keep their `frame_id` (AD-10). Unknown zone: 404 `zone_not_found`; a zone without a display: 404 `display_not_found`. When another change switches the display's type meanwhile, the change is checked again against the new type once, then refused with 409 `concurrent_change`; nothing is stored and it can be tried again.
          */
         patch: operations["updateZoneFrame"];
         trace?: never;
@@ -3187,6 +3187,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -3300,6 +3301,7 @@ export interface operations {
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

@@ -39,11 +39,12 @@ import {
   zoneDelivers,
   zoneReasonsSql,
   continueTaleMediaMigration,
+  copyZonePlacements,
   migrateTaleMediaDocuments,
   sweepUnusedProjectMediaFiles,
 } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
-import { applyPlaybook, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
+import { applyPlaybook, foldStagesIntoZones, loadFrameTypeRegistry, type FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool, PoolClient } from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { createApp, type ImporterConfig, type ProjectMediaOptions } from './app';
@@ -427,12 +428,13 @@ describe('Management API v1: projects and zones', () => {
     it('makes a slug from the name, unique in the project with a numeric suffix', async () => {
       const project = await createProject();
       const slugs: string[] = [];
-      for (const name of ['Home page', 'Home  Page!', 'Héro bänner', '***']) {
+      for (const name of ['Home page', 'Home  Page!', 'Héro bänner', '***', 'דף הבית']) {
         const res = await post('/zones', { name, projectId: project.id });
         expect(res.status).toBe(201);
         slugs.push((await res.json()).slug);
       }
-      expect(slugs).toEqual(['home-page', 'home-page-2', 'hero-banner', 'zone']);
+      // A Hebrew name has no Latin letter or digit: its slug is `zone`, made unique like any other.
+      expect(slugs).toEqual(['home-page', 'home-page-2', 'hero-banner', 'zone', 'zone-2']);
       // Another project may use the same slug.
       const other = await createProject('Other');
       expect((await (await post('/zones', { name: 'Home page', projectId: other.id })).json()).slug).toBe('home-page');
@@ -877,6 +879,177 @@ describe('Management API v1: projects and zones', () => {
         expect(zones[1].frame?.id).not.toBe(bar);
         expect(zones[1].frame?.settings).toEqual({ gap: 8 });
         expect(zones[2].id).toBe(home.id);
+      } finally {
+        await migrate(pool);
+      }
+    });
+  });
+
+  describe('stages and frames fold into zones: edge cases', () => {
+    // As in the describe above: the schema as it was before the rework.
+    async function legacySchema(): Promise<void> {
+      await pool.query('ALTER TABLE zones ALTER COLUMN slug DROP NOT NULL');
+      await pool.query('DROP INDEX frames_zone_id_key');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS frames_id_zone_id_key ON frames (id, zone_id)');
+      await pool.query('CREATE INDEX IF NOT EXISTS frames_zone_id_idx ON frames (zone_id, created_at)');
+      await pool.query(`
+        CREATE TABLE stages (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          zone_id uuid NOT NULL,
+          project_id uuid NOT NULL REFERENCES projects(id),
+          frame_id uuid NOT NULL,
+          name text NOT NULL,
+          key text NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+          FOREIGN KEY (zone_id, project_id) REFERENCES zones (id, project_id),
+          FOREIGN KEY (frame_id, zone_id) REFERENCES frames (id, zone_id) ON DELETE CASCADE,
+          CONSTRAINT stages_zone_id_key_key UNIQUE (zone_id, key)
+        )`);
+      await pool.query('UPDATE zones SET slug = NULL');
+    }
+
+    async function frameOf(zone: { id: string; projectId: string }, type: string): Promise<string> {
+      const { rows } = await pool.query<{ id: string }>(
+        'INSERT INTO frames (zone_id, project_id, type) VALUES ($1, $2, $3) RETURNING id',
+        [zone.id, zone.projectId, type],
+      );
+      return rows[0].id;
+    }
+
+    async function stageOf(zone: { id: string; projectId: string }, name: string, key: string, frameId: string): Promise<void> {
+      await pool.query('INSERT INTO stages (zone_id, project_id, frame_id, name, key) VALUES ($1, $2, $3, $4, $5)', [
+        zone.id,
+        zone.projectId,
+        frameId,
+        name,
+        key,
+      ]);
+    }
+
+    async function zonesListed(): Promise<{ id: string; name: string; slug: string; projectId: string; frame: { id: string } | null }[]> {
+      return (await fetch(`${base}/zones`)).json();
+    }
+
+    it('slugs Hebrew names from the original zone, falls back for a stage key that is not a slug, and keeps a lone stage zone', async () => {
+      const project = await createProject();
+      const zoneOf = async (name: string) => (await post('/zones', { name, projectId: project.id })).json();
+      const home = await zoneOf('דף הבית');
+      const shop = await zoneOf('חנות');
+      const lone = await zoneOf('Lone');
+      try {
+        await legacySchema();
+        await frameOf(home, 'bar');
+        await frameOf(home, 'banner');
+        const top = await frameOf(shop, 'bar');
+        const hero = await frameOf(shop, 'banner');
+        await stageOf(shop, 'למעלה', 'Bad Key', top);
+        await stageOf(shop, 'גיבור', 'also bad', hero);
+        await stageOf(lone, 'Only stage', 'only-stage', await frameOf(lone, 'bar'));
+
+        await migrate(pool);
+
+        const zones = await zonesListed();
+        expect(zones.map((z) => [z.name, z.slug])).toEqual([
+          ['דף הבית', 'zone'],
+          ['דף הבית – Banner 1', 'zone-banner-1'],
+          // Stage keys that are not slugs: the names give none either, so `zone` and the original's slug.
+          ['למעלה', 'zone-2'],
+          ['גיבור', 'zone-2-banner'],
+          ['Only stage', 'only-stage'],
+        ]);
+        expect(zones[4].id).toBe(lone.id);
+        expect(zones.every((z) => z.frame !== null)).toBe(true);
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('gives two projects the same stage key as their slug, and reserves stage keys before names', async () => {
+      const a = await createProject('A');
+      const b = await createProject('B');
+      // In A, an older zone named "Home top" would take `home-top` from its name; the stage key wins.
+      const named = await (await post('/zones', { name: 'Home top', projectId: a.id })).json();
+      const staged = await (await post('/zones', { name: 'Home', projectId: a.id })).json();
+      const other = await (await post('/zones', { name: 'Home', projectId: b.id })).json();
+      try {
+        await legacySchema();
+        await stageOf(staged, 'Top', 'home-top', await frameOf(staged, 'bar'));
+        await stageOf(other, 'Top', 'home-top', await frameOf(other, 'bar'));
+
+        await migrate(pool);
+
+        const slugOf = new Map((await zonesListed()).map((z) => [z.id, z.slug]));
+        expect([slugOf.get(named.id), slugOf.get(staged.id), slugOf.get(other.id)]).toEqual(['home-top-2', 'home-top', 'home-top']);
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('rolls everything back when copying placements fails: stages, frames and zones stay as they were', async () => {
+      const project = await createProject();
+      const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      await post(`/zones/${home.id}/tale-groups`, { name: 'Summer' });
+      try {
+        await legacySchema();
+        const top = await frameOf(home, 'bar');
+        await stageOf(home, 'Top', 'top', top);
+        await stageOf(home, 'Hero', 'hero', await frameOf(home, 'banner'));
+        const before = await pool.query('SELECT id, name, slug FROM zones ORDER BY id');
+        const frames = await pool.query('SELECT id, zone_id FROM frames ORDER BY id');
+
+        const client = await pool.connect();
+        try {
+          await expect(
+            foldStagesIntoZones(client, {
+              copyPlacements: async () => {
+                throw new Error('copy failed');
+              },
+            }),
+          ).rejects.toThrow('copy failed');
+        } finally {
+          client.release();
+        }
+
+        expect((await pool.query('SELECT id, name, slug FROM zones ORDER BY id')).rows).toEqual(before.rows);
+        expect((await pool.query('SELECT id, zone_id FROM frames ORDER BY id')).rows).toEqual(frames.rows);
+        expect((await pool.query('SELECT key FROM stages ORDER BY created_at')).rows).toEqual([{ key: 'top' }, { key: 'hero' }]);
+        const slug = await pool.query(
+          "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'zones' AND column_name = 'slug'",
+        );
+        expect(slug.rows[0].is_nullable).toBe('YES');
+
+        // The real copy then folds it.
+        const again = await pool.connect();
+        try {
+          expect(await foldStagesIntoZones(again, { copyPlacements: copyZonePlacements, log: () => undefined })).toEqual({
+            zonesCreated: 1,
+            slugsFilled: 1,
+          });
+        } finally {
+          again.release();
+        }
+      } finally {
+        await migrate(pool);
+      }
+    });
+
+    it('folds once when several API instances migrate at the same time', async () => {
+      const project = await createProject();
+      const home = await (await post('/zones', { name: 'Home', projectId: project.id })).json();
+      try {
+        await legacySchema();
+        await stageOf(home, 'Top', 'top', await frameOf(home, 'bar'));
+        await stageOf(home, 'Hero', 'hero', await frameOf(home, 'banner'));
+        await frameOf(home, 'bar');
+
+        await Promise.all([migrate(pool), migrate(pool), migrate(pool)]);
+
+        expect((await zonesListed()).map((z) => z.slug)).toEqual(['top', 'hero', 'home-bar-2']);
+        const indexes = await pool.query(
+          "SELECT indexname FROM pg_indexes WHERE tablename = 'frames' ORDER BY indexname",
+        );
+        // One display per zone; the indexes only the stages needed are gone.
+        expect(indexes.rows.map((r) => r.indexname)).toEqual(['frames_pkey', 'frames_zone_id_key']);
       } finally {
         await migrate(pool);
       }

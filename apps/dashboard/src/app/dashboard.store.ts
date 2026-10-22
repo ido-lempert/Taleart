@@ -38,6 +38,7 @@ export type DrawerRequest =
   | { kind: 'project' }
   | { kind: 'invite'; projectId: string }
   | { kind: 'zone' }
+  | { kind: 'editZone'; zoneId: string }
   | { kind: 'display'; zoneId: string }
   | { kind: 'displaySettings'; zoneId: string }
   | { kind: 'taleGroup'; zoneId: string }
@@ -76,6 +77,20 @@ export function compareTags(a: { id: string; name: string }, b: { id: string; na
 // The API's own message when it sent the standard error body, else the fallback.
 function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
+}
+
+/** A refused zone change: the message to show, and the field it is about, so only that field is marked. */
+export interface ZoneChangeResult {
+  message: string;
+  field: 'name' | 'slug' | null;
+}
+
+// The field a refusal of a zone's name or slug is about: a taken slug, or a message naming the field.
+function zoneErrorField(err: unknown): 'name' | 'slug' | null {
+  if (!(err instanceof HttpErrorResponse) || !isErrorBody(err.error)) return null;
+  const { code, message } = err.error.error;
+  if (code === 'slug_taken' || /^slug\b/.test(message)) return 'slug';
+  return /^name\b/.test(message) ? 'name' : null;
 }
 
 /** All dashboard data and every Management API call. Create calls resolve to '' or the message to show. */
@@ -393,14 +408,29 @@ export class DashboardStore {
   }
 
   /** Creates a zone; an empty slug lets the API make one from the name, unique in the project (epic UX rework R1). */
-  async createZone(name: string, projectId: string, slug = ''): Promise<string> {
+  async createZone(name: string, projectId: string, slug = ''): Promise<ZoneChangeResult> {
     try {
       await firstValueFrom(this.http.post<Zone>(`${API_BASE}/zones`, { name, projectId, ...(slug && { slug }) }));
     } catch (err) {
-      return apiErrorMessage(err, 'Zone was not saved. Choose a project and enter a name.');
+      return {
+        message: apiErrorMessage(err, 'Zone was not saved. Choose a project and enter a name.'),
+        field: zoneErrorField(err),
+      };
     }
     await this.refresh();
-    return '';
+    return { message: '', field: null };
+  }
+
+  /** Renames a zone or changes its slug (epic UX rework R1); a page names the zone by its slug. */
+  async updateZone(zoneId: string, change: { name?: string; slug?: string }): Promise<ZoneChangeResult> {
+    let saved: Zone;
+    try {
+      saved = await firstValueFrom(this.http.patch<Zone>(`${API_BASE}/zones/${encodeURIComponent(zoneId)}`, change));
+    } catch (err) {
+      return { message: apiErrorMessage(err, 'The zone was not saved. Try again.'), field: zoneErrorField(err) };
+    }
+    this.zones.update((zones) => zones.map((zone) => (zone.id === zoneId ? saved : zone)));
+    return { message: '', field: null };
   }
 
   /** Gives a zone its display: a frame of the type, with the type's default settings (AD-17). */

@@ -977,8 +977,17 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       operationId: createZone
-      summary: Create a zone in a project.
-      description: A project the caller cannot access answers 403 `forbidden`.
+      summary: Create a zone in a project, without a display.
+      description: >-
+        `slug` is optional: when missing, it is made from the name (lowercase
+        ASCII letters and digits joined by hyphens; `zone` when the name has
+        none, as a Hebrew name has none) and made unique in the project with
+        `-2`, `-3`. A given slug must be lowercase letters and digits, words
+        joined by single hyphens, at most 64 characters (400
+        `validation_failed`), and free in the project (409 `slug_taken`). A
+        blank name answers 400 `validation_failed`; a project that does not
+        exist 400 `project_not_found`; a project the caller cannot access 403
+        `forbidden`.
       requestBody:
         required: true
         content:
@@ -995,6 +1004,8 @@ paths:
         '400':
           $ref: '#/components/responses/Error'
         '403':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1104,6 +1115,9 @@ paths:
         body with neither answers 400 `validation_failed`. The display keeps
         its id, so events keep their `frame_id` (AD-10). Unknown zone: 404
         `zone_not_found`; a zone without a display: 404 `display_not_found`.
+        When another change switches the display's type meanwhile, the change
+        is checked again against the new type once, then refused with 409
+        `concurrent_change`; nothing is stored and it can be tried again.
       requestBody:
         required: true
         content:
@@ -1122,6 +1136,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'

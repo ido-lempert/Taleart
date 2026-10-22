@@ -1,6 +1,7 @@
 import type { ErrorBody, ErrorCode } from '@taleart/contract';
 import { ErrorCodes, MAX_TALE_DOCUMENT_BYTES } from '@taleart/contract';
 import {
+  DisplayConcurrentChangeError,
   DisplayExistsError,
   DisplayNotFoundError,
   EmptyDisplayChangeError,
@@ -111,6 +112,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof EmailTakenError ||
     err instanceof TagExistsError ||
     err instanceof DisplayExistsError ||
+    err instanceof DisplayConcurrentChangeError ||
     err instanceof SlugTakenError ||
     err instanceof PlaybookAlreadyAppliedError ||
     err instanceof PlaybookConcurrentChangeError ||
