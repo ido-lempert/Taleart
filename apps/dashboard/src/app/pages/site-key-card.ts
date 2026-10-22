@@ -37,6 +37,10 @@ function refusal(err: unknown, fallback: string): string {
     .site-key__snippet {
       overflow-wrap: anywhere;
     }
+    /* Muted text on the code's sunken background is under 4.5:1. */
+    .site-key__snippet code {
+      color: var(--text);
+    }
     .key-info {
       display: flex;
       flex-wrap: wrap;
@@ -56,7 +60,7 @@ function refusal(err: unknown, fallback: string): string {
   template: `
     <section class="card section zone-section" aria-labelledby="site-key-title">
       <div class="section__header">
-        <h3 class="section__title" id="site-key-title">Site key</h3>
+        <h3 class="section__title" id="site-key-title" tabindex="-1">Site key</h3>
         @if (admin() && loaded()) {
           <div class="key-actions">
             @if (info()) {
