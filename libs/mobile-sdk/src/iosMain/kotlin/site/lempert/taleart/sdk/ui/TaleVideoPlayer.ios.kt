@@ -44,7 +44,8 @@ internal actual fun platformTaleVideoPlayer(): TaleVideoPlayer = AvTaleVideoPlay
 @OptIn(ExperimentalForeignApi::class)
 private class PlayerView(val playerLayer: AVPlayerLayer) : UIView(frame = CGRectZero.readValue()) {
     init {
-        backgroundColor = UIColor.blackColor
+        // Transparent, as a `<video>`: the bands a contained video leaves show what lies behind it.
+        backgroundColor = UIColor.clearColor
         layer.addSublayer(playerLayer)
     }
 

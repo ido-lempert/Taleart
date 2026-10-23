@@ -76,6 +76,16 @@ class TaleViewerState(
     var videoRuns by mutableIntStateOf(0)
         private set
 
+    /**
+     * The current tale runs on its document's own video (R5), not the stage's: it ends at
+     * [MAX_TALE_VIDEO_MS] at most, and after [VIDEO_STALL_MS] without progress while it should play.
+     */
+    val capped: Boolean get() = !timed && view.video == null && view.documentVideo != null
+
+    // How long the document's video has made no progress while it should play, and where it was.
+    private var stallMs = 0L
+    private var lastPositionMs = -1L
+
     /** The group on screen. */
     val group: DeliveryTaleGroup get() = groups[groupIndex]
 
@@ -134,6 +144,8 @@ class TaleViewerState(
             videoAtEnd = false
             videoFraction = 0f
             videoRuns++
+            stallMs = 0
+            lastPositionMs = -1
         }
     }
 
@@ -156,10 +168,42 @@ class TaleViewerState(
     // a late call from the player of an earlier tale (or an earlier run) changes nothing.
     private fun current(show: Int, run: Int) = isOpen && !timed && show == shows && run == videoRuns
 
-    /** The video of show [show], run [run], played to [positionMs] of [durationMs]. */
+    /**
+     * The video of show [show], run [run], played to [positionMs] of [durationMs]. A document's
+     * video ([capped]) ends the tale at [MAX_TALE_VIDEO_MS], and its progress fills over at most that.
+     */
     internal fun videoProgress(show: Int, run: Int, positionMs: Long, durationMs: Long) {
-        if (!current(show, run) || durationMs <= 0) return
-        videoFraction = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+        if (!current(show, run)) return
+        if (capped) {
+            if (positionMs >= MAX_TALE_VIDEO_MS) {
+                videoEnded(show, run)
+                return
+            }
+            // Progress re-arms the stall check, as each `timeupdate` does on the web.
+            if (positionMs != lastPositionMs) {
+                lastPositionMs = positionMs
+                stallMs = 0
+            }
+        }
+        if (durationMs <= 0) return
+        val length = if (capped) minOf(durationMs, MAX_TALE_VIDEO_MS) else durationMs
+        videoFraction = (positionMs.toFloat() / length).coerceIn(0f, 1f)
+    }
+
+    /**
+     * Runs the stall check of a document's video on by [ms] while it should play (not paused, held
+     * or in the background, and never under reduced motion): after [VIDEO_STALL_MS] without
+     * progress the tale ends, as the Web SDK's watchdog.
+     */
+    internal fun stallTick(ms: Long) {
+        if (!isOpen || !capped || stopped || reducedMotion) return
+        stallMs += ms
+        if (stallMs >= VIDEO_STALL_MS) next()
+    }
+
+    /** Starts the stall check afresh: the video was just told to play (`armWatchdog`). */
+    internal fun restartStallCheck() {
+        stallMs = 0
     }
 
     /** The video of show [show] ended: the next tale, or under reduced motion it pauses there. */
@@ -187,7 +231,9 @@ class TaleViewerState(
         elapsedMs = 0
         videoFraction = 0f
         videoAtEnd = false
-        timed = view.video == null
+        timed = !view.runsOnVideo
+        stallMs = 0
+        lastPositionMs = -1
         // Reduced motion: every tale starts paused; only a video can be played, from the button.
         if (reducedMotion) paused = true
         shows++
