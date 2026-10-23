@@ -20,16 +20,17 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 
-// A full-screen dialog window over the activity, edge to edge on black: it works wherever the bar
-// sits (a ComposeView in any host layout), and Back closes it.
+// A full-screen dialog window over the activity, edge to edge: it works wherever the bar sits (a
+// ComposeView in any host layout), and Back closes it.
 @Composable
-internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, onBack: () -> Unit, content: @Composable () -> Unit) {
     // The dialog has a lifecycle of its own, which stays resumed while the app is in the background
     // (Home, or a browser a link opened): the viewer follows the host's lifecycle instead, so the
     // tale waits while the app is away.
     val host = LocalLifecycleOwner.current
+    // Back asks the viewer to close: it fades out, then leaves the composition, removing the dialog.
     Dialog(
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = onBack,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
@@ -41,7 +42,10 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
         SideEffect {
             window?.let {
                 it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                it.setBackgroundDrawableResource(android.R.color.black)
+                // Transparent, without the platform's dialog animation: the viewer draws its black
+                // backdrop and fades and grows in over the app itself (story 9.9).
+                it.setBackgroundDrawableResource(android.R.color.transparent)
+                it.setWindowAnimations(0)
                 it.setDimAmount(0f)
                 @Suppress("DEPRECATION")
                 it.statusBarColor = AndroidColor.TRANSPARENT

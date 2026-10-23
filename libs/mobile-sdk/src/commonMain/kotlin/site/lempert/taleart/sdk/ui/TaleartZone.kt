@@ -163,14 +163,35 @@ fun TaleartZone(
 private class ViewerRequest(val id: Int, val groupId: String, val groups: List<DeliveryTaleGroup>, val theme: TaleartTheme)
 
 // The viewer over the app (or in place, in tests), with the SDK's own image loader and video player.
+// It is removed once it has finished closing; Back closes it with its transition.
 @Composable
 private fun ViewerOverlay(request: ViewerRequest, seenGroups: SeenGroups, onClose: (lastGroup: String?) -> Unit) {
     val loader = LocalCoverImageLoader.current
     val player = LocalTaleVideoPlayer.current
+    val reduced = rememberPrefersReducedMotion()
+    val last = remember(request) { arrayOfNulls<String>(1) }
+    val state = remember(request) { TaleViewerState(request.groups, request.groupId, reduced, onClosed = { last[0] = it }) }
     val viewer = @Composable {
         CompositionLocalProvider(LocalCoverImageLoader provides loader, LocalTaleVideoPlayer provides player) {
-            TaleartViewer(request.groups, request.groupId, onClose = { onClose(it) }, seenGroups = seenGroups, theme = request.theme)
+            ViewerContent(
+                state,
+                Modifier,
+                seenGroups,
+                request.theme,
+                onGroupShown = {},
+                reducedMotion = rememberPrefersReducedMotion(),
+                onExited = { onClose(last[0]) },
+            )
         }
     }
-    if (LocalViewerInPlace.current) viewer() else FullScreenViewer(request.id, onDismissRequest = { onClose(null) }, content = viewer)
+    if (LocalViewerInPlace.current) {
+        viewer()
+    } else {
+        FullScreenViewer(
+            request.id,
+            onDismissRequest = { onClose(null) },
+            onBack = { if (state.isOpen) state.close() else onClose(null) },
+            content = viewer,
+        )
+    }
 }

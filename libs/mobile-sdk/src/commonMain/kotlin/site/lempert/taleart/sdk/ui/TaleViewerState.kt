@@ -20,10 +20,36 @@ import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 class TaleViewerState(
     groups: List<DeliveryTaleGroup>,
     startGroupId: String,
-    /** The person prefers reduced motion: each tale starts paused, and nothing advances by itself. */
-    val reducedMotion: Boolean = false,
+    reducedMotion: Boolean = false,
     private val onClosed: (groupId: String) -> Unit = {},
 ) {
+    private var reduced by mutableStateOf(reducedMotion)
+
+    // The person paused (the Pause button, Space), as opposed to the pause reduced motion makes.
+    private var personPaused = false
+
+    /**
+     * The person prefers reduced motion: each tale starts paused, and nothing advances by itself.
+     * The viewer follows the setting live (story 9.9): turned on, the tale pauses where it is and a
+     * timed tale's progress shows full; turned off, it goes on from where it was (or, a video that
+     * ended meanwhile, to the next tale), unless the person had paused it.
+     */
+    var reducedMotion: Boolean
+        get() = reduced
+        set(value) {
+            if (value == reduced) return
+            reduced = value
+            if (!isOpen) return
+            if (value) {
+                paused = true
+            } else if (!personPaused) {
+                if (videoAtEnd && !timed) next() else paused = false
+            }
+        }
+
+    /** Called as the group on screen changes, with the group and tale shown before: the viewer's group transition. */
+    internal var onGroupChange: ((fromGroup: Int, fromView: TaleView, toGroup: Int) -> Unit)? = null
+
     /** The groups the viewer steps through: the zone's, in order, without those that have no tales. */
     val groups: List<DeliveryTaleGroup> = groups.filter { it.tales.isNotEmpty() }
 
@@ -139,6 +165,7 @@ class TaleViewerState(
     /** Pauses or resumes, as the Pause button does. */
     fun togglePause() {
         paused = !paused
+        personPaused = paused
         // Play on a video at its end (reduced motion) plays it again from the start.
         if (!paused && videoAtEnd && !timed) {
             videoAtEnd = false
@@ -225,6 +252,9 @@ class TaleViewerState(
     }
 
     private fun show(group: Int, tale: Int) {
+        val fromGroup = groupIndex
+        val fromView = view
+        val changesGroup = shows > 0 && group != fromGroup
         groupIndex = group
         taleIndex = tale
         view = currentView()
@@ -237,6 +267,7 @@ class TaleViewerState(
         // Reduced motion: every tale starts paused; only a video can be played, from the button.
         if (reducedMotion) paused = true
         shows++
+        if (changesGroup) onGroupChange?.invoke(fromGroup, fromView, group)
     }
 
     private fun currentView(): TaleView = TaleView.read(groups.getOrNull(groupIndex)?.tales?.getOrNull(taleIndex) ?: EMPTY_TALE, taleIndex)

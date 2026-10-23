@@ -21,6 +21,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowDialog
 import site.lempert.taleart.sdk.delivery.DeliveryClient
+import site.lempert.taleart.sdk.ui.VIEWER_CLOSE_MS
 import site.lempert.taleart.sdk.ui.VIEWER_TAG
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -81,6 +82,8 @@ class TaleartViewViewerTest {
         assertTrue(dialog.window!!.decorView !== compose.activity.window.decorView)
 
         compose.onNodeWithContentDescription("Close").performClick()
+        // The viewer fades out (story 9.9) before the dialog goes.
+        compose.mainClock.advanceTimeBy(VIEWER_CLOSE_MS + 100L)
         frames()
         assertEquals(0, compose.onAllNodesWithTag(VIEWER_TAG).fetchSemanticsNodes().size)
         assertFalse(dialog.isShowing)
