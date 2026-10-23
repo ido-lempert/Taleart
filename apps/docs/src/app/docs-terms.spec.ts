@@ -1,7 +1,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import {
+  DEFAULT_SDK_BUILDS_KEPT,
   installSnippet,
+  pinnedSdkScriptTag,
   SDK_BUNDLE_PATH,
   SDK_CACHE_SECONDS,
   SDK_PINNED_CACHE_SECONDS,
@@ -9,6 +11,7 @@ import {
   zoneElement,
 } from '@taleart/contract/core';
 import {
+  DOCS_PINNED_SCRIPT,
   DOCS_SNIPPET,
   DOCS_THEME_SCRIPT,
   DOCS_TWO_ZONES_SNIPPET,
@@ -144,6 +147,32 @@ describe('the docs facts', () => {
     expect([SDK_PINNED_CACHE_SECONDS, SDK_PINNED_CACHE_TEXT]).toEqual([365 * 24 * 3600, 'a year']);
     expect(read(README)).toContain(`cached for ${SDK_CACHE_TEXT}`);
     expect(read(README)).toContain(`cached for ${SDK_PINNED_CACHE_TEXT}`);
+  });
+
+  it('say how many builds stay at their pinned URLs, and show the tag the Install tab copies (story 8.21)', () => {
+    expect(DEFAULT_SDK_BUILDS_KEPT).toBe(5);
+    const readme = read(README).replace(/\s+/g, ' ');
+    expect(readme).toContain(`keeps the last ${DEFAULT_SDK_BUILDS_KEPT} SDK builds this server served at their pinned URLs`);
+    expect(readme).toContain(`through the next ${DEFAULT_SDK_BUILDS_KEPT - 1} SDK builds the server serves`);
+    expect(readme).toContain(`\`SDK_BUILDS_KEPT\` (default ${DEFAULT_SDK_BUILDS_KEPT}, from 2 to 100`);
+    expect(readme).toContain('stops working at the next SDK build');
+    expect(readme).toContain('must persist across deploys');
+    expect(readme).toContain('`sdkBuildsKept`');
+    expect(readme).not.toContain('A pinned URL is gone with the next build');
+    expect(readme).not.toMatch(/next \d+ releases/);
+    const page = read('apps/docs/src/app/pages/install.ts').replace(/\s+/g, ' ');
+    expect(page).toContain('keeps the last {{ buildsKept }} SDK builds this server served at their pinned URLs');
+    expect(page).toContain('stops working at the next SDK build');
+    expect(page).toContain('must persist across deploys');
+    expect(page).not.toMatch(/releases/);
+    expect(page).toContain('protected readonly buildsKept = DEFAULT_SDK_BUILDS_KEPT;');
+    expect(page).not.toContain('is gone with the next build');
+    // The docs' example tag is the one the Install tab copies, with a real hash and integrity in place.
+    const tag = pinnedSdkScriptTag({
+      sdkPinnedUrl: `${EXAMPLE_INSTALL.apiUrl}/sdk/v1/taleart.abcdefghijklmnop.js`,
+      sdkIntegrity: 'sha384-…',
+    });
+    expect(tag).toBe(DOCS_PINNED_SCRIPT.replace('<hash>', 'abcdefghijklmnop'));
   });
 
   it('give the migration examples the API fold tests expect', () => {
