@@ -40,6 +40,15 @@ fun coverSource(group: DeliveryTaleGroup): CoverSource {
         val url = mediaUrl(cover.url)
         if (url != null && cover.kind != "video") return CoverSource.Image(url)
     }
+    return defaultCoverSource(group)
+}
+
+/**
+ * A group's default cover (`defaultCover` in the Web SDK): [coverSource] without the group's own
+ * cover. A banner slide shows it, as the Web SDK's banner does (`coverMedia`): the lowest image of
+ * its tales in order, else the first tale's canvas colour, else the neutral placeholder.
+ */
+fun defaultCoverSource(group: DeliveryTaleGroup): CoverSource {
     for (tale in group.tales) imageCandidates(tale).firstOrNull()?.let { return CoverSource.Image(it) }
     val doc = group.tales.firstOrNull()?.document as? JsonObject
     return CoverSource.Placeholder(doc?.let(::canvasColor))

@@ -22,13 +22,15 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  *
  * From XML: `app:taleartApiUrl`, `app:taleartSiteKey` and `app:taleartZone`. From code: set
  * [apiUrl], [siteKey] and [zone] (or [configure]); it reads the zone once all three are set and
- * again whenever one changes or [reload] is called, keeping the bar on screen until the new zone
- * arrives. The zone lives in [controller], outside composition, so the view keeps it when it is
- * detached and attached again (in a RecyclerView, a back stack).
+ * again whenever one changes or [reload] is called, keeping the display on screen until the new
+ * zone arrives. The display is the zone's bar or banner, as its frame type says, laid out at the
+ * full width with wrap_content height (the banner's height follows its width and aspect ratio).
+ * The zone lives in [controller], outside composition, so the view keeps it when it is detached and
+ * attached again (in a RecyclerView, a back stack).
  *
- * A tap on a group opens the full-screen tale viewer in a dialog window over the activity, whatever
- * layout the view sits in; Back or the viewer's Close returns to the bar. Set [opensViewer] to false
- * to handle taps yourself.
+ * A tap on a group (a bar item or a banner slide) opens the full-screen tale viewer in a dialog
+ * window over the activity, whatever layout the view sits in; Back or the viewer's Close returns to
+ * the display. Set [opensViewer] to false to handle taps yourself.
  *
  * It needs a ViewTreeLifecycleOwner, as every ComposeView does: an AppCompatActivity,
  * ComponentActivity or Fragment gives one. In a window without one (a plain `android.app.Activity`,
@@ -108,7 +110,7 @@ class TaleartView @JvmOverloads constructor(
         this.zone = zone
     }
 
-    /** Reads the zone again, as reopening the screen would; the bar stays until the new zone arrives. */
+    /** Reads the zone again, as reopening the screen would; the display stays until the new zone arrives. */
     fun reload() = controller.reload()
 
     override fun onAttachedToWindow() {

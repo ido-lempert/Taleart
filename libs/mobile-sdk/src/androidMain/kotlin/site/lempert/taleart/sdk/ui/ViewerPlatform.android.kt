@@ -1,9 +1,14 @@
 package site.lempert.taleart.sdk.ui
 
 import android.graphics.Color as AndroidColor
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.ViewGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -43,13 +48,25 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
     }
 }
 
-// "Remove animations" in the accessibility settings sets the animator duration scale to 0.
+// "Remove animations" in the accessibility settings sets the animator duration scale to 0. The
+// setting is observed: a change while the app runs reaches the banner at once, and the next viewer.
 @Composable
 internal actual fun rememberPrefersReducedMotion(): Boolean {
-    val context = LocalContext.current
-    return remember(context) {
-        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    val resolver = LocalContext.current.contentResolver
+    fun read() = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    val reduced = remember(resolver) { mutableStateOf(read()) }
+    DisposableEffect(resolver) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                reduced.value = read()
+            }
+        }
+        resolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        // A change between the first read and the registration.
+        reduced.value = read()
+        onDispose { resolver.unregisterContentObserver(observer) }
     }
+    return reduced.value
 }
 
 // TalkBack reads the viewer's live region as it changes.
