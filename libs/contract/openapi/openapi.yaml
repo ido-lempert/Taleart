@@ -424,7 +424,9 @@ paths:
       summary: Create a tale group in a project, placed in no zone (epic UX rework R14).
       description: >-
         The group starts Off (`draft`) with no tales and no placement; it can
-        be shown in a zone later. Unknown project 404 `project_not_found`.
+        be shown in a zone later. Unknown project 404 `project_not_found`. A
+        project holds at most 500 tale groups, archived ones included: 409
+        `tale_group_limit_reached`, and nothing is created.
       requestBody:
         required: true
         content:
@@ -443,6 +445,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1417,7 +1421,9 @@ paths:
       summary: Create a tale group and place it in a zone, after the zone's existing groups.
       description: >-
         The tale group belongs to the zone's project and gets one placement, at
-        the end of this zone.
+        the end of this zone. A project holds at most 500 tale groups,
+        archived ones included: 409 `tale_group_limit_reached`, and nothing is
+        created.
       requestBody:
         required: true
         content:
@@ -1436,6 +1442,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1597,7 +1605,10 @@ paths:
         independent afterwards. The caller needs access to the source group's
         project and to the target zone's project (403 `forbidden`). Unknown
         tale group: 404 `tale_group_not_found`; missing `zoneId`: 400
-        `validation_failed`; unknown zone: 404 `zone_not_found`.
+        `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts
+        against the target zone's project, which holds at most 500 tale groups,
+        archived ones included: 409 `tale_group_limit_reached`, and nothing is
+        copied.
       requestBody:
         required: true
         content:
@@ -1616,6 +1627,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -4192,6 +4205,7 @@ components:
         - slug_taken
         - tale_group_not_found
         - tale_group_full
+        - tale_group_limit_reached
         - tale_not_found
         - order_mismatch
         - media_not_found

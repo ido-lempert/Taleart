@@ -9,6 +9,7 @@ import {
   LEGACY_TALE_DURATION_MS,
   TALE_DOCUMENT_VERSION,
   MAX_TALES_PER_GROUP,
+  MAX_TALE_GROUPS_PER_PROJECT,
   mediaKind,
   projectFontIds,
   readContentStatus,
@@ -208,6 +209,21 @@ export class TaleGroupFullError extends Error {
   }
 }
 
+/**
+ * Thrown when a tale group would be created in (or copied into) a project that already holds
+ * {@link MAX_TALE_GROUPS_PER_PROJECT} groups, archived ones included (epic UX rework R14). 409.
+ */
+export class TaleGroupLimitError extends Error {
+  readonly code = ErrorCodes.taleGroupLimitReached;
+
+  constructor(readonly projectId: string) {
+    super(
+      `A project holds at most ${MAX_TALE_GROUPS_PER_PROJECT} tale groups, archived ones included, and this one is full.`,
+    );
+    this.name = 'TaleGroupLimitError';
+  }
+}
+
 /** Thrown when an archived tale group would be placed in a zone; restore it first (epic UX rework R10). */
 export class TaleGroupArchivedError extends Error {
   readonly code = ErrorCodes.taleGroupArchived;
@@ -274,6 +290,23 @@ const REORDER_PLACEMENTS_SQL = `UPDATE zone_tale_groups SET position = ordered.i
 // with a transaction-scoped advisory lock keyed on its id, not a row lock.
 async function lockZone(tx: Db, zoneId: string): Promise<void> {
   await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_groups:' || $1, 0))", [zoneId]);
+}
+
+// Serializes every creation of a tale group in one project (create in a zone or in none, copy, the
+// importer's create), so the cap below holds under concurrent creates. It is taken first in the
+// creating transaction, before the zone lock: project → zone → source group or import link.
+async function lockProjectGroups(tx: Db, projectId: string): Promise<void> {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('project_tale_groups:' || $1, 0))", [projectId]);
+}
+
+// Refuses a new tale group in a project already holding the most. Every group counts, archived ones
+// too: one can be restored, and none is ever deleted. Call it under {@link lockProjectGroups}.
+async function checkGroupLimit(tx: Db, projectId: string): Promise<void> {
+  const { rows } = await tx.query<{ count: number }>(
+    'SELECT count(*)::int AS count FROM tale_groups WHERE project_id = $1',
+    [projectId],
+  );
+  if ((rows[0]?.count ?? 0) >= MAX_TALE_GROUPS_PER_PROJECT) throw new TaleGroupLimitError(projectId);
 }
 
 /** The tale groups placed in the zone, by their position there, each with its tales by position. */
@@ -429,18 +462,23 @@ export async function listProjectTaleGroups(db: Db, projectId: string): Promise<
 
 /**
  * Creates a tale group in the project, placed in no zone (epic UX rework R14). It starts Off
- * (`draft`, AD-6 amended) with no tales. The caller checks that the project exists.
+ * (`draft`, AD-6 amended) with no tales. The caller checks that the project exists. A project at
+ * {@link MAX_TALE_GROUPS_PER_PROJECT} groups is refused ({@link TaleGroupLimitError}).
  */
 export async function createProjectTaleGroup(
-  db: Db,
+  db: TransactionalDb,
   input: { projectId: string; name: string },
 ): Promise<StoredProjectTaleGroup> {
-  const { rows } = await db.query<GroupRow>(
-    `INSERT INTO tale_groups (project_id, name) VALUES ($1, $2) RETURNING ${GROUP_COLUMNS}`,
-    [input.projectId, input.name],
-  );
-  const [group] = await asProjectGroups(db, rows.map((row) => ({ ...row, taleCount: 0, shownTaleCount: 0 })));
-  return group;
+  return inTransaction(db, async (tx) => {
+    await lockProjectGroups(tx, input.projectId);
+    await checkGroupLimit(tx, input.projectId);
+    const { rows } = await tx.query<GroupRow>(
+      `INSERT INTO tale_groups (project_id, name) VALUES ($1, $2) RETURNING ${GROUP_COLUMNS}`,
+      [input.projectId, input.name],
+    );
+    const [group] = await asProjectGroups(tx, rows.map((row) => ({ ...row, taleCount: 0, shownTaleCount: 0 })));
+    return group;
+  });
 }
 
 /**
@@ -449,6 +487,7 @@ export async function createProjectTaleGroup(
  * concurrent creates get distinct positions. `withGroup` runs in the same
  * transaction once the group is placed, so a caller can record what it owns
  * about the group (the importer's link, AD-7); if it throws, nothing is created.
+ * A project at {@link MAX_TALE_GROUPS_PER_PROJECT} groups is refused ({@link TaleGroupLimitError}).
  */
 export async function createTaleGroup(
   db: TransactionalDb,
@@ -460,7 +499,9 @@ export async function createTaleGroup(
   if (projectId === null) throw new ZoneNotFoundError(input.zoneId);
 
   return inTransaction(db, async (tx) => {
+    await lockProjectGroups(tx, projectId);
     await lockZone(tx, input.zoneId);
+    await checkGroupLimit(tx, projectId);
     const { rows } = await tx.query<GroupRow>(
       `INSERT INTO tale_groups (project_id, name) VALUES ($1, $2) RETURNING ${GROUP_COLUMNS}`,
       [projectId, input.name],
@@ -543,7 +584,8 @@ export async function placeTaleGroup(
  * authorizes both projects. `withCopy` runs in the same transaction once the
  * copy exists, so a caller can add what other modules own, such as tags (AD-1);
  * if it throws, nothing is copied. Throws {@link TaleGroupNotFoundError} for an
- * unknown group and `ZoneNotFoundError` for an unknown zone.
+ * unknown group, `ZoneNotFoundError` for an unknown zone and {@link TaleGroupLimitError}
+ * when the zone's project already holds {@link MAX_TALE_GROUPS_PER_PROJECT} groups.
  */
 export async function copyTaleGroup(
   db: TransactionalDb,
@@ -556,6 +598,7 @@ export async function copyTaleGroup(
   if (projectId === null) throw new ZoneNotFoundError(zoneId);
 
   return inTransaction(db, async (tx) => {
+    await lockProjectGroups(tx, projectId);
     await lockZone(tx, zoneId);
     // Shares the source group's row lock, so no tale is added to it mid-copy.
     // The row lock also makes a cover replace on the source wait for this copy,
@@ -566,6 +609,8 @@ export async function copyTaleGroup(
       [taleGroupId],
     );
     if (source.rows.length === 0) throw new TaleGroupNotFoundError(taleGroupId);
+    // The copy counts against the target zone's project.
+    await checkGroupLimit(tx, projectId);
     // The copy keeps the source's start and end time (AD-6) and shares its cover's storage key (AD-14).
     const { rows } = await tx.query<GroupRow>(
       `INSERT INTO tale_groups (project_id, name, starts_at, ends_at, cover_key, cover_content_type, cover_animated)

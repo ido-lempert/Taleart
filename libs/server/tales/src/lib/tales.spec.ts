@@ -39,6 +39,7 @@ import {
   taleGroupProjectId,
   taleProjectId,
   TaleGroupFullError,
+  TaleGroupLimitError,
   TaleGroupArchivedError,
   TaleGroupNotFoundError,
   TaleGroupNotInProjectError,
@@ -46,6 +47,7 @@ import {
   type TransactionalDb,
 } from './tales';
 import type { DbConnection } from '@taleart/server-access';
+import { MAX_TALE_GROUPS_PER_PROJECT } from '@taleart/contract';
 import { migrateShownStatus, migrateTales } from './migration';
 import { InvalidTaleDocumentError } from './tale-document';
 import { ZoneNotFoundError } from '@taleart/server-zones';
@@ -93,13 +95,23 @@ describe('tale groups', () => {
     const { db, query, statements, release } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
+      { rows: [{}] },
+      { rows: [{ count: 0 }] },
       { rows: [{ id: groupId, projectId, name: 'A' }] },
       { rows: [{ position: 2 }] },
     ]);
     const group = await createTaleGroup(db, { zoneId, name: 'A' });
     expect(group).toEqual({ id: groupId, projectId, name: 'A', ...NO_WINDOW, cover: null, position: 2, zoneIds: [zoneId], tales: [] });
-    const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
-    expect(lock?.[1]).toEqual([zoneId]);
+    // The project's group lock first, then the zone's; the cap is counted under both (R14).
+    const locks = query.mock.calls.filter((c) => /pg_advisory_xact_lock/.test(c[0] as string));
+    expect(locks.map((c) => [c[0], c[1]])).toEqual([
+      [expect.stringContaining("'project_tale_groups:'"), [projectId]],
+      [expect.stringContaining("'tale_groups:'"), [zoneId]],
+    ]);
+    const order = statements();
+    const count = order.findIndex((s) => /SELECT count\(\*\)::int AS count FROM tale_groups WHERE project_id = \$1/.test(s));
+    expect(count).toBeGreaterThan(order.findIndex((s) => /'tale_groups:'/.test(s)));
+    expect(count).toBeLessThan(order.findIndex((s) => /INSERT INTO tale_groups/.test(s)));
     expect(statements().some((s) => /FROM zones/.test(s) && /FOR UPDATE/.test(s))).toBe(false);
     const insertGroup = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
     expect(insertGroup?.[1]).toEqual([projectId, 'A']);
@@ -114,6 +126,8 @@ describe('tale groups', () => {
     const answers = () => [
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
+      { rows: [{}] },
+      { rows: [{ count: 0 }] },
       { rows: [{ id: groupId, projectId, name: 'A' }] },
       { rows: [{ position: 0 }] },
     ];
@@ -136,6 +150,44 @@ describe('tale groups', () => {
     ).rejects.toThrow('link failed');
     expect(failing.statements()).toContain('ROLLBACK');
     expect(failing.statements()).not.toContain('COMMIT');
+  });
+});
+
+describe('tale group cap (R14)', () => {
+  it('refuses a group in a zone of a project at the cap, archived groups counted, inserting nothing', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{}] },
+      { rows: [{ count: MAX_TALE_GROUPS_PER_PROJECT }] },
+    ]);
+    const withGroup = vi.fn();
+    await expect(createTaleGroup(db, { zoneId, name: 'A' }, withGroup)).rejects.toBeInstanceOf(TaleGroupLimitError);
+    // Every group of the project counts: no status filter.
+    const count = query.mock.calls.find((c) => /count\(\*\)/.test(c[0] as string));
+    expect(count?.[0]).not.toMatch(/status/);
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+    expect(statements()).toContain('ROLLBACK');
+    expect(withGroup).not.toHaveBeenCalled();
+  });
+
+  it('refuses a group in no zone of a project at the cap, and takes one under it', async () => {
+    const full = fakeDb([{ rows: [{}] }, { rows: [{ count: MAX_TALE_GROUPS_PER_PROJECT + 3 }] }]);
+    await expect(createProjectTaleGroup(full.db, { projectId, name: 'A' })).rejects.toThrow(
+      `A project holds at most ${MAX_TALE_GROUPS_PER_PROJECT} tale groups`,
+    );
+    expect(full.statements().some((s) => /INSERT/.test(s))).toBe(false);
+    expect(full.statements()).toContain('ROLLBACK');
+    const last = fakeDb([
+      { rows: [{}] },
+      { rows: [{ count: MAX_TALE_GROUPS_PER_PROJECT - 1 }] },
+      { rows: [{ id: groupId, projectId, name: 'A', storedStatus: 'draft', coverContentType: null, coverAnimated: false }] },
+    ]);
+    await expect(createProjectTaleGroup(last.db, { projectId, name: 'A' })).resolves.toMatchObject({ id: groupId });
+  });
+
+  it('starts at 500', () => {
+    expect(MAX_TALE_GROUPS_PER_PROJECT).toBe(500);
   });
 });
 
@@ -263,14 +315,21 @@ describe('placements', () => {
   });
 
   it('creates a group in the project, in no zone, with no tales', async () => {
-    const { db, query } = fakeDb([
+    const { db, query, statements } = fakeDb([
+      { rows: [{}] },
+      { rows: [{ count: 499 }] },
       { rows: [{ id: groupId, projectId, name: 'Loose', storedStatus: 'draft', coverContentType: null, coverAnimated: false }] },
     ]);
     expect(await createProjectTaleGroup(db, { projectId, name: 'Loose' })).toEqual(
       expect.objectContaining({ id: groupId, name: 'Loose', status: 'draft', taleCount: 0, shownTaleCount: 0, zoneIds: [], ...VIS }),
     );
-    expect(query.mock.calls[0][0]).toMatch(/INSERT INTO tale_groups \(project_id, name\) VALUES \(\$1, \$2\)/);
-    expect(query.mock.calls[0][1]).toEqual([projectId, 'Loose']);
+    // Under the project's group lock, counted first (R14).
+    const calls = query.mock.calls.filter((c) => c[0] !== 'BEGIN');
+    expect(calls[0]).toEqual([expect.stringContaining("'project_tale_groups:'"), [projectId]]);
+    expect(calls[1]).toEqual([expect.stringMatching(/count\(\*\)::int AS count FROM tale_groups WHERE project_id = \$1/), [projectId]]);
+    expect(calls[2][0]).toMatch(/INSERT INTO tale_groups \(project_id, name\) VALUES \(\$1, \$2\)/);
+    expect(calls[2][1]).toEqual([projectId, 'Loose']);
+    expect(statements()).toContain('COMMIT');
     expect(query.mock.calls.some((c) => /zone_tale_groups \(/.test(c[0] as string))).toBe(false);
   });
 });
@@ -884,7 +943,9 @@ describe('copy to zone', () => {
     const { db, query, statements } = fakeDb([
       { rows: [{ project_id: otherProject }] },
       { rows: [{}] },
+      { rows: [{}] },
       { rows: [{ name: 'Summer', projectId, startsAt: new Date('2026-11-01T00:00:00Z'), endsAt: null }] },
+      { rows: [{ count: 0 }] },
       {
         rows: [
           { id: copyId, projectId: otherProject, name: 'Summer', startsAt: new Date('2026-11-01T00:00:00Z'), endsAt: null },
@@ -917,8 +978,11 @@ describe('copy to zone', () => {
       ...VIS,
       tales: [{ id: 't9', taleGroupId: copyId, projectId: otherProject, title: 'T', position: 0, ...NO_WINDOW, media: null, ...VIS }],
     });
-    const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
-    expect(lock?.[1]).toEqual([zoneId]);
+    // The target project's group lock, then the zone's; the cap counts the target project (R14).
+    const locks = query.mock.calls.filter((c) => /pg_advisory_xact_lock/.test(c[0] as string));
+    expect(locks.map((c) => c[1])).toEqual([[otherProject], [zoneId]]);
+    const count = query.mock.calls.find((c) => /SELECT count\(\*\)::int AS count FROM tale_groups/.test(c[0] as string));
+    expect(count?.[1]).toEqual([otherProject]);
     const insertGroup = query.mock.calls.find((c) => /INSERT INTO tale_groups/.test(c[0] as string));
     // The copy keeps the group's and its tales' start and end times.
     // The copy keeps the group's and its tales' start and end times, and shares the source's cover (read by id).
@@ -958,7 +1022,9 @@ describe('copy to zone', () => {
     const { db, statements, query } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
+      { rows: [{}] },
       { rows: [{ name: 'A', projectId, startsAt: null, endsAt: null }] },
+      { rows: [{ count: 0 }] },
       { rows: [{ id: copyId, projectId, name: 'A', startsAt: null, endsAt: null }] },
       { rows: [] },
       { rows: [{ id: fontId }] },
@@ -987,7 +1053,9 @@ describe('copy to zone', () => {
     const { db, statements } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
+      { rows: [{}] },
       { rows: [{ name: 'A' }] },
+      { rows: [{ count: 0 }] },
       { rows: [{ id: copyId, projectId, name: 'A' }] },
     ]);
     await expect(
@@ -997,6 +1065,21 @@ describe('copy to zone', () => {
     ).rejects.toThrow('tags failed');
     expect(statements()).toContain('ROLLBACK');
     expect(statements()).not.toContain('COMMIT');
+  });
+
+  it('refuses a copy into a project at the cap, inserting nothing (R14)', async () => {
+    const { db, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{}] },
+      { rows: [{ name: 'A', projectId, startsAt: null, endsAt: null }] },
+      { rows: [{ count: MAX_TALE_GROUPS_PER_PROJECT }] },
+    ]);
+    const refused = copyTaleGroup(db, { taleGroupId: groupId, zoneId });
+    await expect(refused).rejects.toBeInstanceOf(TaleGroupLimitError);
+    await expect(refused).rejects.toMatchObject({ code: 'tale_group_limit_reached', projectId });
+    expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+    expect(statements()).toContain('ROLLBACK');
   });
 
   it('tells whether any tale, cover, document or upload still references a media key', async () => {
@@ -1384,7 +1467,9 @@ describe('covers', () => {
     const { db, query } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
+      { rows: [{}] },
       { rows: [{ name: 'A', projectId, startsAt: null, endsAt: null }] },
+      { rows: [{ count: 0 }] },
       {
         rows: [
           {
