@@ -264,3 +264,15 @@ covers = ["R14"]
 after = [18]
 hitl = false
 risk = "low"
+
+[[entry]]
+id = 23
+type = "story"
+title = "Each device has a visitor id, and Delivery limits requests per visitor"
+description = "Owner decision 2026-10-23: a visitor is a device, identified by a random UUID v4 the SDK generates once and keeps on the device (Web SDK: localStorage, falling back to a per-page id when storage is blocked; native SDK: the SDK's key-value store). Every Delivery request sends it (header X-TaleArt-Visitor). The Delivery rate limit counts per visitor id instead of per IPv6 /64; because a client can invent ids, a coarser per-address cap (IPv4 address, IPv6 /48) stays as a backstop, and a missing or malformed id falls back to the address. The id is not personal data beyond the device and is never tied to an external user id here; analytics (epic 6) and seen state may reuse it later."
+verify = "Two devices behind one address each get their own allowance; one device rotating ids hits the address backstop; a request without an id is limited by address as today; the Web SDK and the native SDK send the same id on every request and keep it across reloads and app restarts; CORS allows the header."
+covers = ["R9"]
+after = [22]
+hitl = false
+risk = "medium"
+notes = ["Owner decision 2026-10-23 answering the IPv6 /64 question: visitors are based on a device id or a UUID v4 generated and stored on the device."]

@@ -78,3 +78,27 @@ covers = ["R11"]
 after = [5, 6]
 hitl = true
 risk = "low"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Fonts the host app installs are used by the family name in the content"
+description = "Owner decision 2026-10-23: fonts are installed by the host app, separately from the SDK, and the family name comes from the content (the tale document's text fonts, the project theme's fontFamily, the bar and banner titles). The SDK resolves a family name to a font the host installed: Android from the app's res/font or assets/fonts by name, or fonts registered through a TaleartFonts.register(name, FontFamily) API; iOS from fonts the app registered (UIAppFonts) via UIFont(name:), or the same register API. Names are matched as the web matches font-family (case-insensitive, quotes trimmed, first available in the list), then the generic fallback. The SDK stops downloading project WOFF2 files on mobile."
+verify = "Taller bundles one named font on each platform; a tale whose text names it draws in it on Android and iOS, a name the app does not have falls back as on the web, and the bar title uses the theme's named font; side-by-side screenshots."
+covers = ["R13"]
+after = [5]
+hitl = false
+risk = "medium"
+notes = ["Owner decision 2026-10-23."]
+
+[[entry]]
+id = 9
+type = "story"
+title = "An open viewer follows the reduced-motion setting live, with smooth transitions"
+description = "Owner decision 2026-10-23 ('make it nice'): when the person turns reduced motion on or off while the viewer is open, the viewer follows at once (pause auto-advance and snap progress, or resume), and the viewer's own motion is polished: open and close, group change and tale change transitions that feel native on each platform, all switched off under reduced motion."
+verify = "Toggle Remove animations / Reduce Motion with a tale open: the viewer pauses or resumes without closing; with motion on, opening, swiping between groups and closing animate smoothly on both platforms (screen recordings or frame sequences)."
+covers = ["R11"]
+after = [5]
+hitl = false
+risk = "low"
+notes = ["Owner decision 2026-10-23."]
