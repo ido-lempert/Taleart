@@ -18,7 +18,10 @@ export function normalize(css) {
 const src = resolve(import.meta.dirname, '../../dashboard/src');
 const styles = normalize(readFileSync(`${src}/styles.css`, 'utf8'));
 const appCss = normalize(readFileSync(`${src}/app/app.css`, 'utf8'));
-const studio = normalize(readFileSync(`${src}/app/pages/tale-studio.ts`, 'utf8'));
+// Tale Studio's two stylesheets and its template (one text, as when they were inline in tale-studio.ts).
+const studio = normalize(
+  ['.css', '-canvas.css', '.html'].map((ext) => readFileSync(`${src}/app/pages/tale-studio${ext}`, 'utf8')).join('\n'),
+);
 const projects = normalize(readFileSync(`${src}/app/pages/projects.ts`, 'utf8')).replace(/` /g, '`');
 
 /** The value of a custom property of `:root`. */

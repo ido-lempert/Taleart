@@ -1,0 +1,226 @@
+.canvas {
+  position: relative;
+  flex: none;
+  width: min(100%, 300px);
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  container-type: size;
+  touch-action: none;
+  /* Its layers and guides stack inside it, under the keyboard shortcuts popover. */
+  isolation: isolate;
+}
+.canvas__media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.el,
+.el-edit {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 1px dashed #fff;
+  outline: 1px solid rgb(0 0 0 / 70%);
+  background: transparent;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.el {
+  flex-direction: column;
+  align-items: stretch;
+  cursor: move;
+  touch-action: none;
+}
+.el__line {
+  display: block;
+}
+.el__media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.el__shape {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.el__stroke {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.el__emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.el__link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0 0.8em;
+  overflow: hidden;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.el__swipe {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2em;
+  width: 100%;
+  height: 100%;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.el__swipe-arrow {
+  width: 0.7em;
+  height: 0.7em;
+  border-top: 0.16em solid currentColor;
+  border-left: 0.16em solid currentColor;
+  transform: translateY(0.2em) rotate(45deg);
+}
+.el__swipe-label {
+  max-width: 100%;
+  padding: 0.35em 1em;
+  overflow: hidden;
+  border-radius: 999px;
+  text-overflow: ellipsis;
+}
+.el__glyphs.is-highlight {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.el.is-selected {
+  border: 2px solid var(--ember);
+  box-shadow: inset 0 0 0 1px #fff;
+  outline: 2px solid #000;
+}
+.el.is-locked {
+  cursor: default;
+}
+/*
+ * A low-contrast label (R12): a warning badge in the element's top corner, legible on any backdrop;
+ * above the inner focus ring (.el:focus-visible::after, z-index 0).
+ */
+.el__warn {
+  position: absolute;
+  top: 2px;
+  inset-inline-end: 2px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff3c4;
+  color: #5c3b00;
+  box-shadow: 0 0 0 1px #5c3b00;
+  font-size: 12px;
+  line-height: 1;
+  /* Takes the pointer, so its tooltip shows; a press on it still selects and drags the element. */
+  cursor: help;
+}
+.guides,
+.snap-line {
+  position: absolute;
+  z-index: 100;
+  pointer-events: none;
+}
+.guides {
+  outline: 1px dashed #fff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 60%),
+    0 0 0 999px rgb(0 0 0 / 25%);
+}
+.snap-line {
+  background: var(--ember);
+  box-shadow:
+    0 0 0 1px #fff,
+    0 0 0 2px #000;
+}
+.snap-line--x {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.snap-line--y {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+/*
+ * The ring outside, and again inside: an element that fills the canvas has its outer ring cut
+ * off by the canvas edge (WCAG 2.4.7). The inner ring sits over the element's media (z-index 0)
+ * and under its badges (z-index 1 and up); on a tiny element it is thinner, to leave it visible.
+ */
+.el:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 5px var(--ink);
+}
+.el:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 2px var(--ink),
+    inset 0 0 0 5px #fff;
+}
+.el--tiny:focus-visible::after {
+  box-shadow:
+    inset 0 0 0 1px var(--ink),
+    inset 0 0 0 2px #fff;
+}
+/*
+ * The keyboard focus ring drawn again above every layer (WCAG 2.4.7, 2.4.11, story 7.15), on the
+ * focused layer's box and rotation, so a layer partly under others shows where it is while the
+ * layers keep their stacking (a keyboard reorder stays visible). Below the guides (100).
+ */
+.focus-frame {
+  position: absolute;
+  z-index: 98;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px var(--ink),
+    inset 0 0 0 2px var(--ink),
+    inset 0 0 0 4px #fff;
+}
+/* Typing in place stays above every layer, so a text under a picture is seen while edited (7.15). */
+.el-edit {
+  z-index: 99;
+  resize: none;
+  border: 2px solid var(--ember);
+  background: rgb(0 0 0 / 35%);
+}

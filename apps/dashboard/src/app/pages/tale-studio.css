@@ -1,0 +1,65 @@
+.studio-help {
+  position: relative;
+}
+.studio-help__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 12px;
+}
+.studio-help__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  font-size: var(--text-sm);
+}
+.studio-help__panel[hidden] {
+  display: none;
+}
+.studio-help__panel p {
+  margin: 0;
+}
+.studio {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  align-items: flex-start;
+}
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 240px;
+  max-width: 420px;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.row .field {
+  flex: 1;
+  min-width: 100px;
+}
+.selected {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+textarea.input {
+  min-height: 96px;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+}
