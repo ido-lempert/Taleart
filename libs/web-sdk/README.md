@@ -251,8 +251,9 @@ below:
 
 Past 40 KB gzipped, the viewer and the document renderers move to a chunk the SDK loads when the viewer first opens
 (AD-16), and `web-sdk:size` reports both chunks. Until then the SDK is one chunk, and the check reports what that split
-would move (from `dist/libs/web-sdk-modules.json`, the module report the build writes beside the package; it is not
-published). The split also needs the API to serve the second chunk under `/sdk/v1` and the UMD build to keep working.
+would move, as lower bounds (from `dist/libs/web-sdk-modules.json`, the module report the build writes beside the
+package; it is not published). Sizes are measured at gzip level 9 (what the API sends) and level 6 (most servers' and
+CDNs' default), and judged on the larger. The split also needs the API to serve the second chunk under `/sdk/v1` and the UMD build to keep working.
 
 ### Measuring
 
@@ -266,9 +267,11 @@ the SDK's size per chunk. It fails when cold p75 is over 1.5 s, the SDK over its
 font file. A second zone holds one composed tale of 20 elements (14 texts, every other one in a project font, 4 shapes,
 an emoji and a button): the run checks that its page requests no font before the tale opens, then times the first tale
 frame (all 20 elements placed and painted, the texts in their fallback) and the font swap from the tap on its bar item,
-and fails when p75 first tale frame is over 1 s or the font is in use before the first frame. Last, it loads the first
-zone from the API's test page, which loads the SDK from `/sdk/v1/taleart.js` as a host page does, and fails when cold
-p75 there is over 1.5 s or the SDK did not come gzipped. `PERF_RUNS` (default 10), `PERF_BUDGET_MS` (default 1500),
+and fails when p75 first tale frame is over 1 s. Three more runs hold the font's response back 1.5 s: they fail when
+the first frame then takes over 1 s (it waited for the font) or paints with the project font already loaded. Last, it
+loads the first zone from the API's test page, which loads the SDK from `/sdk/v1/taleart.js` as a host page does, and
+fails when cold p75 there is over 1.5 s or the SDK did not come gzipped. It ends with every gate, its limit and its
+margin. `PERF_RUNS` (default 10), `PERF_BUDGET_MS` (default 1500),
 `PERF_FRAME_BUDGET_MS` (default 1000) and `PERF_DEBUG=1` (the first load's requests) tune it.
 
 What a run adds to the database, and deletes again at the end (also when it fails or gets SIGINT/SIGTERM): an admin

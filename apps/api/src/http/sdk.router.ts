@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { gzip as gzipCallback } from 'node:zlib';
 import {
   SDK_BASE,
   SDK_BUNDLE_PATH,
@@ -26,8 +27,6 @@ export interface SdkFiles {
 /** A file as served: its bytes, ETag, content hash for a pinned URL, and SRI integrity. */
 export interface ServedFile {
   body: Buffer;
-  /** The body gzipped (level 9), sent to a client that accepts gzip (the Web SDK's budget is gzipped, epic Tale Studio R15). */
-  gzip: Buffer;
   etag: string;
   /** 16 base64url characters of its SHA-256: the `<hash>` of `taleart.<hash>.js`. */
   hash: string;
@@ -50,7 +49,6 @@ export function servedFile(path: string): () => Promise<ServedFile | null> {
       const sha256 = createHash('sha256').update(body).digest('base64url');
       const file = {
         body,
-        gzip: gzipSync(body, { level: 9 }),
         etag: `"${sha256.slice(0, 27)}"`,
         hash: sha256.slice(0, 16),
         integrity: `sha384-${createHash('sha384').update(body).digest('base64')}`,
@@ -61,6 +59,27 @@ export function servedFile(path: string): () => Promise<ServedFile | null> {
       served = null;
       return null;
     }
+  };
+}
+
+const gzipAsync = promisify(gzipCallback);
+
+/**
+ * The gzipped body of a served file (level 9), made on the first request that asks for it and kept
+ * with that file: requests at the same time share one compression, and a rebuilt file (a new
+ * ServedFile) gets its own.
+ */
+export function gzipCache(): (file: ServedFile) => Promise<Buffer> {
+  const zipped = new WeakMap<ServedFile, Promise<Buffer>>();
+  return (file) => {
+    let done = zipped.get(file);
+    if (!done) {
+      done = gzipAsync(file.body, { level: 9 });
+      // A failure is not kept: the next request tries again.
+      done.catch(() => zipped.delete(file));
+      zipped.set(file, done);
+    }
+    return done;
   };
 }
 
@@ -152,22 +171,33 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
   );
   const csp = testPageCsp(publicApiUrl);
 
-  const sendBundle = (req: Request, res: Response, file: ServedFile, cacheControl: string) => {
+  const gzipped = gzipCache();
+  const sendBundle = async (req: Request, res: Response, file: ServedFile, cacheControl: string) => {
     // Compressed for a client that accepts gzip, as a CDN serves it: the 50 KB budget is gzipped
-    // (epic Tale Studio R15). The ETag differs per encoding, so a cache never mixes the two.
+    // (epic Tale Studio R15). Only the bundle: the test page's files go as they are. The ETag
+    // differs per encoding, so a cache never mixes the two.
     const gzip = req.acceptsEncodings('gzip') === 'gzip';
+    res.vary('Accept-Encoding');
     res.set({
       'Content-Type': 'text/javascript; charset=utf-8',
       // Any page loads it, as a module script, so it is fetched with CORS (open on every API route).
       'Cross-Origin-Resource-Policy': 'cross-origin',
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': cacheControl,
-      Vary: 'Accept-Encoding',
       ETag: gzip ? `${file.etag.slice(0, -1)}-gz"` : file.etag,
     });
-    if (gzip) res.set('Content-Encoding', 'gzip');
-    // send answers 304 to a matching If-None-Match.
-    res.send(gzip ? file.gzip : file.body);
+    // A matching If-None-Match: 304, with no body and no Content-Encoding.
+    if (req.fresh) {
+      res.status(304).end();
+      return;
+    }
+    if (!gzip) {
+      res.send(file.body);
+      return;
+    }
+    const body = await gzipped(file);
+    res.set('Content-Encoding', 'gzip');
+    res.send(body);
   };
 
   router.get('/taleart.js', async (req, res, next) => {
@@ -175,7 +205,7 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
       const file = await bundle();
       if (!file) return notFound(res);
       // A deploy replaces it at the same URL: pages pick the new one up within five minutes.
-      sendBundle(req, res, file, `public, max-age=${SDK_CACHE_SECONDS}`);
+      await sendBundle(req, res, file, `public, max-age=${SDK_CACHE_SECONDS}`);
     } catch (err) {
       next(err);
     }
@@ -188,7 +218,7 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
         const file = await bundle();
         // Only the current build: an old hash is gone with its build.
         if (!file || file.hash !== pinned[1]) return notFound(res);
-        return sendBundle(req, res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
+        return await sendBundle(req, res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
       }
       const page = Object.prototype.hasOwnProperty.call(PAGE_FILES, req.params.name) ? pages.get(req.params.name) : undefined;
       const file = page && (await page.read());

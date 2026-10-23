@@ -1,5 +1,5 @@
 /// <reference types='vitest' />
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import dts from 'vite-plugin-dts';
@@ -29,6 +29,11 @@ function moduleReport(): Plugin {
   return {
     name: 'taleart-module-report',
     apply: 'build',
+    // A failed build leaves no report of the previous one behind. Once per build command: buildStart
+    // runs again for each output format, after the ES one has written the report.
+    configResolved() {
+      rmSync(MODULE_REPORT, { force: true });
+    },
     generateBundle(options, bundle) {
       if (options.format !== 'es') return;
       const chunks: Record<string, { id: string; code: string }[]> = {};

@@ -19,7 +19,7 @@ describe('the Web SDK size check', () => {
     const { failures, lines } = judge([chunk('index.js', 40, modules)]);
     expect(failures).toEqual([]);
     expect(lines.join('\n')).toMatch(/index\.js: 40\.00 KB gzipped \(loaded by the page\)/);
-    expect(lines.join('\n')).toMatch(/would move the viewer and renderers, ~[\d.]+ KB in 3 modules/);
+    expect(lines.join('\n')).toMatch(/would move the viewer and renderers, at least [\d.]+ KB in 3 modules/);
   });
 
   it('fails one chunk past 40 KB, asking for the viewer chunk (AD-16)', () => {
@@ -73,6 +73,9 @@ describe('the Web SDK size check', () => {
       const chunks = readChunks(dir);
       expect(chunks.map((c) => c.name)).toEqual(['index.js', 'a-viewer.js']);
       expect(chunks[0].gzipped).toBeGreaterThan(chunks[1].gzipped);
+      // Judged on the larger of gzip level 9 and level 6.
+      expect(chunks[0].gzipped).toBe(Math.max(chunks[0].level9, chunks[0].level6));
+      expect(judge(chunks).lines[0]).toMatch(/level 9 [\d.]+ KB, level 6 [\d.]+ KB/);
       expect(chunks[0].modules).toEqual([{ id: 'm', code: '' }]);
       expect(chunks[1].modules).toBeNull();
     });

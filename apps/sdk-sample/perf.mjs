@@ -14,8 +14,9 @@
 // 4 shapes, an emoji and a button; stories 7.14, 7.17): its page must request no font until the tale
 // opens; then the first tale frame (all 20 elements on the stage, the texts in their fallback) and
 // the font swap are timed from the tap. Exits 1 when the font is requested before the tale opens,
-// swaps in before the first frame (the frame waited for it), or p75 first tale frame is over
-// FRAME_BUDGET_MS.
+// or p75 first tale frame is over FRAME_BUDGET_MS. A few more runs hold the font's response back
+// FONT_HOLD_MS: exits 1 when the first frame then comes late (it waited for the font) or paints
+// with a project font face already loaded. Each gate's margin is printed.
 //
 // The same zone is also loaded from the API's own test page, which loads the SDK as a host page does
 // from `<api>/sdk/v1/taleart.js` (epic UX rework R13): cold p75 first content there must be within
@@ -33,7 +34,7 @@ import { join, resolve } from 'node:path';
 import pg from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { chromium } from 'playwright';
-import { judge, kb, readChunks } from '../../libs/web-sdk/scripts/size-budget.mjs';
+import { BUNDLE_LIMIT_BYTES, judge, kb, readChunks, SPLIT_AT_BYTES } from '../../libs/web-sdk/scripts/size-budget.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const API_MAIN = join(ROOT, 'dist/apps/api/main.js');
@@ -422,10 +423,15 @@ async function measure(browser, url) {
   }
 }
 
+// How long a held run holds the font response back (see measureFontTale).
+export const FONT_HOLD_MS = 1500;
+
 // The font zone in a fresh, throttled context: no font before the tale opens; then, from the tap on
-// its bar item, the first tale frame (all its elements on the stage, painted) and the moment the
-// project font is in use.
-async function measureFontTale(browser, url) {
+// its bar item, the first tale frame (all its elements on the open viewer's card, painted) and the
+// moment the project font is in use. With `holdMs`, the font's response is held back that long, so
+// a first frame that waited for the font would come after it; `fontAtFrame` says whether a project
+// font face was loaded when the frame painted (the texts must still be in their fallback).
+async function measureFontTale(browser, url, holdMs = 0) {
   const context = await browser.newContext(DEVICE);
   try {
     const page = await context.newPage();
@@ -435,6 +441,15 @@ async function measureFontTale(browser, url) {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU_SLOWDOWN });
     const fontRequests = [];
     page.on('request', (req) => isFontRequest(req.url()) && fontRequests.push(req.url()));
+    if (holdMs > 0) {
+      await page.route(
+        (u) => isFontRequest(u.href),
+        async (route) => {
+          await new Promise((done) => setTimeout(done, holdMs));
+          await route.continue();
+        },
+      );
+    }
     const errors = [];
     page.on('pageerror', (err) => errors.push(String(err)));
     await page.goto(url, { waitUntil: 'commit' });
@@ -443,19 +458,23 @@ async function measureFontTale(browser, url) {
     const beforeOpen = fontRequests.length;
     await page.evaluate((count) => {
       const host = document.querySelector('taleart-view');
-      const times = (window.__taleartFont = { start: 0, frame: NaN, font: NaN });
+      const times = (window.__taleartFont = { start: 0, frame: NaN, font: NaN, fontAtFrame: null });
+      const fontLoaded = () => [...document.fonts].some((f) => f.family.includes('taleart-font-') && f.status === 'loaded');
       host.addEventListener('click', () => (times.start = performance.now()), { capture: true, once: true });
       let painting = false;
       const check = () => {
         if (times.start) {
-          const placed = host.shadowRoot.querySelectorAll('dialog[open] .ta-canvas > .ta-el');
+          // The open viewer's card only (the frame), never a side card of the deck.
+          const placed = host.shadowRoot.querySelectorAll('dialog[open] .frame > .ta-area > .ta-canvas > .ta-el');
           if (!painting && placed.length >= count) {
             // Painted on the next frame.
             painting = true;
-            requestAnimationFrame(() => (times.frame = performance.now() - times.start));
+            requestAnimationFrame(() => {
+              times.frame = performance.now() - times.start;
+              times.fontAtFrame = fontLoaded();
+            });
           }
-          const loaded = [...document.fonts].some((f) => f.family.includes('taleart-font-') && f.status === 'loaded');
-          if (Number.isNaN(times.font) && loaded) times.font = performance.now() - times.start;
+          if (Number.isNaN(times.font) && fontLoaded()) times.font = performance.now() - times.start;
         }
         if (Number.isNaN(times.frame) || Number.isNaN(times.font)) requestAnimationFrame(check);
       };
@@ -467,9 +486,9 @@ async function measureFontTale(browser, url) {
       null,
       { timeout: 20_000, polling: 50 },
     );
-    const { frame, font } = await page.evaluate(() => window.__taleartFont);
+    const { frame, font, fontAtFrame } = await page.evaluate(() => window.__taleartFont);
     if (errors.length) throw new Error(`The page logged errors: ${errors.join('; ')}`);
-    return { beforeOpen, afterOpen: fontRequests.length, frame, font };
+    return { beforeOpen, afterOpen: fontRequests.length, frame, font, fontAtFrame };
   } finally {
     await context.close();
   }
@@ -603,13 +622,11 @@ async function main() {
     const frames = [];
     const swaps = [];
     let earlyFonts = 0;
-    let fontBeforeFrame = 0;
     let fetchedFonts = 0;
     for (let run = 1; run <= RUNS; run++) {
       const result = await measureFontTale(browser, fontUrl);
       frames.push(result.frame);
       swaps.push(result.font);
-      if (!(result.font > result.frame)) fontBeforeFrame++;
       earlyFonts += result.beforeOpen;
       fetchedFonts += result.afterOpen - result.beforeOpen;
       const r = (v) => Math.round(v);
@@ -620,6 +637,20 @@ async function main() {
     }
     console.log(summary(`First tale frame (${TALE_ELEMENTS} elements, project font)`, frames));
     console.log(summary('Project font swapped in', swaps));
+
+    // The first frame never waits for the font: with the font's response held back FONT_HOLD_MS, the
+    // frame still paints within the frame budget, before the font arrives, with no project font face loaded.
+    const HELD_RUNS = Math.min(RUNS, 3);
+    const held = [];
+    for (let run = 1; run <= HELD_RUNS; run++) {
+      const result = await measureFontTale(browser, fontUrl, FONT_HOLD_MS);
+      held.push(result);
+      console.log(
+        `font held ${FONT_HOLD_MS} ms, run ${run}: first tale frame ${Math.round(result.frame)} ms ` +
+          `(project font loaded then: ${result.fontAtFrame ? 'yes' : 'no'}), project font in use ${Math.round(result.font)} ms`,
+      );
+    }
+    const heldFrameMax = Math.max(...held.map((r) => r.frame));
 
     // The SDK as the API serves it (epic UX rework R13), on the API's test page.
     const served = [];
@@ -640,12 +671,31 @@ async function main() {
     const frameP75 = percentile(frames, 75);
     const servedP75 = percentile(served, 75);
     const failures = [...size.failures];
+    // Each timed gate with its margin (limit minus measured; negative is over).
+    const heldLimit = Math.min(FRAME_BUDGET_MS, FONT_HOLD_MS);
+    const gates = [
+      ['SDK, all chunks gzipped', size.total / 1024, BUNDLE_LIMIT_BYTES / 1024, 'KB'],
+      ["SDK, the page's chunk gzipped", size.entry / 1024, SPLIT_AT_BYTES / 1024, 'KB'],
+      ['cold p75 first content (sample page)', p75, BUDGET_MS, 'ms'],
+      ['cold p75 first content (API-served SDK)', servedP75, BUDGET_MS, 'ms'],
+      [`p75 first tale frame (${TALE_ELEMENTS} elements, project font)`, frameP75, FRAME_BUDGET_MS, 'ms'],
+      [`slowest first tale frame with the font held ${FONT_HOLD_MS} ms`, heldFrameMax, heldLimit, 'ms'],
+    ];
+    console.log('Gates (margin = limit - measured):');
+    for (const [name, value, limit, unit] of gates) {
+      const f = (v) => (unit === 'KB' ? v.toFixed(2) : String(Math.round(v)));
+      console.log(`  ${value <= limit ? 'ok  ' : 'OVER'} ${name}: ${f(value)} ${unit} of ${f(limit)} ${unit}, margin ${f(limit - value)} ${unit}`);
+    }
     if (!(p75 <= BUDGET_MS)) failures.push(`cold p75 first content ${Math.round(p75)} ms is over ${BUDGET_MS} ms`);
     if (!(servedP75 <= BUDGET_MS)) {
       failures.push(`cold p75 first content with the API-served SDK ${Math.round(servedP75)} ms is over ${BUDGET_MS} ms`);
     }
     if (servedSdk.encoding !== 'gzip') failures.push(`the API sent the SDK with content-encoding ${servedSdk.encoding}, not gzip`);
-    if (fontBeforeFrame > 0) failures.push(`the project font was in use before the first tale frame in ${fontBeforeFrame} runs`);
+    if (!(heldFrameMax <= heldLimit)) {
+      failures.push(`with the font held ${FONT_HOLD_MS} ms, a first tale frame took ${Math.round(heldFrameMax)} ms (it waited for the font)`);
+    }
+    if (held.some((r) => r.fontAtFrame)) failures.push('a project font face was loaded at the first tale frame of a held run');
+    if (held.some((r) => !(r.font >= FONT_HOLD_MS))) failures.push('a held run had its project font in use before the font response was sent');
     if (fontRequests.length > 0) failures.push(`a page whose tales use no project font requested ${fontRequests[0]}`);
     if (earlyFonts > 0) failures.push('the font zone requested its font before the tale opened');
     if (fetchedFonts < RUNS) failures.push('opening the font tale did not request its font');
