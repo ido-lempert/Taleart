@@ -12,9 +12,13 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import {
+  audienceDetail,
+  audienceSummary,
   visibilityReasonText,
   visibilitySummary,
   VISIBLE_ON_SITE_TEXT,
+  withAudience,
+  type GroupAudience,
   type Visibility,
   type VisibilitySubject,
 } from '@taleart/contract/core';
@@ -76,6 +80,11 @@ export function tipPosition(
  * reasons are also the button's description for screen readers. `compact` shows only the dot, for
  * tale cards; its name is the line and its tooltip goes beside the card. Nothing shows while the
  * visibility is unknown. `anyZone` words a group read for every zone (the Tale groups page).
+ *
+ * A visible group with an audience (epic targeting R7) says who it is for: "Visible on site · for
+ * viewers tagged summer or vip". Its line is then a button too, named by the whole line, whose
+ * tooltip names the full audience. Targeting is never a reason here: who sees a delivered group
+ * depends on the viewer, the reasons do not (AD-6).
  */
 @Component({
   selector: 'app-visibility',
@@ -206,7 +215,7 @@ export function tipPosition(
           type="button"
           class="visibility__line"
           [attr.aria-label]="compact() ? line() : null"
-          [attr.aria-describedby]="known.visible ? null : tipId"
+          [attr.aria-describedby]="known.visible && !audience() ? null : tipId"
           (pointerdown)="pressing = true"
           (click)="toggle()"
         >
@@ -217,7 +226,13 @@ export function tipPosition(
         </button>
         <div #tip class="visibility__tip" role="tooltip" popover="manual" [id]="tipId">
           @if (known.visible) {
-            <p>{{ line() }}</p>
+            @if (audience()) {
+              @for (sentence of audienceDetail(); track $index) {
+                <p>{{ sentence }}</p>
+              }
+            } @else {
+              <p>{{ line() }}</p>
+            }
           } @else {
             <p class="visibility__tip-title">{{ anyZone() ? 'Not visible in any zone because:' : 'Not visible because:' }}</p>
             <ul>
@@ -245,6 +260,8 @@ export class VisibilityIndicator {
   readonly compact = input(false);
   /** Read for every zone the content is placed in, as the Tale groups page does. */
   readonly anyZone = input(false);
+  /** A group's targeting (its tags and match mode): a visible group with an audience says who it is for. */
+  readonly targeting = input<GroupAudience | null>(null);
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly document = inject(DOCUMENT);
@@ -252,18 +269,29 @@ export class VisibilityIndicator {
   private readonly tip = viewChild<ElementRef<HTMLElement>>('tip');
 
   protected readonly tipId = `visibility-tip-${nextId++}`;
+  /** Who a visible group is for, as the line says it; null when it has no audience or is not visible. */
+  protected readonly audience = computed(() => {
+    const targeting = this.targeting();
+    return this.visibility()?.visible && targeting ? audienceSummary(targeting) : null;
+  });
+  protected readonly audienceDetail = computed(() => {
+    const targeting = this.targeting();
+    return this.audience() && targeting ? audienceDetail(targeting) : [];
+  });
   protected readonly line = computed(() => {
     const visibility = this.visibility();
     if (!visibility) return '';
-    if (visibility.visible && this.anyZone()) return `${VISIBLE_ON_SITE_TEXT} in at least one zone`;
-    return visibilityLine(visibility, this.viewing());
+    if (visibility.visible && this.anyZone()) return withAudience(`${VISIBLE_ON_SITE_TEXT} in at least one zone`, this.audience());
+    return withAudience(visibilityLine(visibility, this.viewing()), this.audience());
   });
   protected readonly reasons = computed(() => {
     const visibility = this.visibility();
     return visibility ? visibilityReasons(visibility, this.viewing()) : [];
   });
-  /** A button with a tooltip when there is more to say than the line: reasons, or a compact dot. */
-  protected readonly interactive = computed(() => this.visibility()?.visible === false || this.compact());
+  /** A button with a tooltip when there is more to say than the line: reasons, an audience, or a compact dot. */
+  protected readonly interactive = computed(
+    () => this.visibility()?.visible === false || this.compact() || this.audience() !== null,
+  );
   protected readonly open = signal(false);
 
   /** True between a press and its click, so the focus a press gives does not open what the click toggles. */

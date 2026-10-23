@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import type { Visibility, VisibilitySubject } from '@taleart/contract/core';
+import type { GroupAudience, Visibility, VisibilitySubject } from '@taleart/contract/core';
 import { formatLocal } from './schedule';
 import { TIP_HIDE_DELAY_MS, tipPosition, visibilityLine, VisibilityIndicator } from './visibility';
 
@@ -8,7 +8,13 @@ import { TIP_HIDE_DELAY_MS, tipPosition, visibilityLine, VisibilityIndicator } f
   imports: [VisibilityIndicator],
   template: `
     <div class="tale-card">
-      <app-visibility [visibility]="visibility()" [viewing]="viewing()" [compact]="compact()" [anyZone]="anyZone()" />
+      <app-visibility
+        [visibility]="visibility()"
+        [viewing]="viewing()"
+        [compact]="compact()"
+        [anyZone]="anyZone()"
+        [targeting]="targeting()"
+      />
     </div>
   `,
 })
@@ -17,6 +23,7 @@ class Host {
   readonly viewing = signal<VisibilitySubject>('tale');
   readonly compact = signal(false);
   readonly anyZone = signal(false);
+  readonly targeting = signal<GroupAudience | null>(null);
 }
 
 const at = '2026-12-01T09:00:00.000Z';
@@ -35,8 +42,10 @@ function render(
   viewing: VisibilitySubject = 'tale',
   compact = false,
   anyZone = false,
+  targeting: GroupAudience | null = null,
 ) {
   const fixture = TestBed.createComponent(Host);
+  fixture.componentInstance.targeting.set(targeting);
   fixture.componentInstance.visibility.set(visibility);
   fixture.componentInstance.viewing.set(viewing);
   fixture.componentInstance.compact.set(compact);
@@ -60,6 +69,47 @@ describe('VisibilityIndicator (epic UX rework R7)', () => {
     expect(text(host)).toBe('Visible on site');
     expect(host.querySelector('.visibility__dot')?.getAttribute('aria-hidden')).toBe('true');
     expect(host.querySelector('button')).toBeNull();
+  });
+
+  describe('who a targeted group is for (epic targeting R7)', () => {
+    const tags = (...names: string[]) => names.map((name, i) => ({ id: `t${i}`, name }));
+
+    it('adds the audience to "Visible on site", as a button named by the whole line and described by the full audience', () => {
+      const { host } = render(VISIBLE, 'group', false, false, { tags: tags('summer', 'vip'), tagMatch: 'any' });
+      const button = host.querySelector('button.visibility__line');
+      expect(text(button)).toBe('Visible on site · for viewers tagged summer or vip');
+      // No aria-label: the name is the visible line, so voice control and screen readers say the same.
+      expect(button?.hasAttribute('aria-label')).toBe(false);
+      const tip = host.querySelector('[role=tooltip]');
+      expect(button?.getAttribute('aria-describedby')).toBe(tip?.id);
+      expect([...(tip?.querySelectorAll('p') ?? [])].map(text)).toEqual([
+        'Shown to viewers tagged with any of summer or vip.',
+        'A page that passes no tags shows it to every viewer.',
+      ]);
+    });
+
+    it('says "and" for All, and words a group read for every zone', () => {
+      const all = render(VISIBLE, 'group', false, true, { tags: tags('summer', 'vip'), tagMatch: 'all' });
+      expect(text(all.host.querySelector('button'))).toBe(
+        'Visible on site in at least one zone · for viewers tagged summer and vip',
+      );
+    });
+
+    it('opens its tooltip on focus, as the reasons do', () => {
+      const { fixture, host, open } = render(VISIBLE, 'group', false, false, { tags: tags('summer') });
+      host.querySelector('button')?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      fixture.detectChanges();
+      expect(open()).toBe(true);
+    });
+
+    it('says nothing more for an untagged group, nor for a targeted group that is not visible', () => {
+      const untagged = render(VISIBLE, 'group', false, false, { tags: [], tagMatch: 'all' });
+      expect(text(untagged.host)).toBe('Visible on site');
+      expect(untagged.host.querySelector('button')).toBeNull();
+      const hidden = render(notVisible, 'group', false, false, { tags: tags('summer') });
+      expect(text(hidden.host.querySelector('button'))).toBe('Not visible: group is off');
+      expect(text(hidden.host.querySelector('[role=tooltip]'))).not.toContain('summer');
+    });
   });
 
   it('shows a hollow dot and "Not visible:" with the first reason, as a button described by every reason', () => {

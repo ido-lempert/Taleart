@@ -5386,11 +5386,32 @@ describe('App', () => {
     const future = '2031-01-01T09:00:00.000Z';
     // One group in every state the filters tell apart; names in the API's order (by name).
     const states = [
-      projectGroup({ id: 'g1', name: 'Archived one', status: 'archived', zoneIds: ['z1'], startsAt: future, visibility: why('archived') }, 1),
+      projectGroup(
+        { id: 'g1', name: 'Archived one', status: 'archived', zoneIds: ['z1'], startsAt: future, tags: [{ id: 't2', name: 'vip' }], visibility: why('archived') },
+        1,
+      ),
       projectGroup({ id: 'g2', name: 'Draft loose', status: 'draft', visibility: why('not-in-any-zone') }),
-      projectGroup({ id: 'g3', name: 'Ends later', status: 'live', zoneIds: ['z1'], endsAt: future, visibility: VISIBLE }, 2),
+      projectGroup(
+        {
+          id: 'g3',
+          name: 'Ends later',
+          status: 'live',
+          zoneIds: ['z1'],
+          endsAt: future,
+          tags: [
+            { id: 't1', name: 'summer' },
+            { id: 't2', name: 'vip' },
+          ],
+          tagMatch: 'any',
+          visibility: VISIBLE,
+        },
+        2,
+      ),
       projectGroup({ id: 'g4', name: 'On, nothing shown', status: 'live', zoneIds: ['z1'], visibility: why('no-shown-tales') }),
-      projectGroup({ id: 'g5', name: 'Paused here', status: 'paused', zoneIds: ['z1'], visibility: why('group-off') }, 1),
+      projectGroup(
+        { id: 'g5', name: 'Paused here', status: 'paused', zoneIds: ['z1'], tags: [{ id: 't2', name: 'vip' }], tagMatch: 'all', visibility: why('group-off') },
+        1,
+      ),
       projectGroup(
         { id: 'g6', name: 'Starts later', status: 'scheduled', storedStatus: 'live', zoneIds: ['z1'], startsAt: future, visibility: why('starts-at') },
         1,
@@ -5403,6 +5424,7 @@ describe('App', () => {
       visible: ['Ends later', 'Visible now'],
       off: ['Draft loose', 'Paused here'],
       scheduled: ['Ends later', 'Starts later'],
+      targeted: ['Ends later', 'Paused here'],
       unplaced: ['Draft loose'],
       archived: ['Archived one'],
     };
@@ -5434,11 +5456,19 @@ describe('App', () => {
       const fieldset = root.querySelector('fieldset.group-filter');
       expect(fieldset?.querySelector('legend')?.textContent?.trim()).toBe('Show');
       const labels = [...(fieldset?.querySelectorAll('label') ?? [])].map((l) => l.textContent?.replace(/\s+/g, ' ').trim());
-      expect(labels).toEqual(['All , 6', 'Visible , 2', 'Off , 2', 'Scheduled , 2', 'Not in a zone , 1', 'Archived , 1']);
+      expect(labels).toEqual([
+        'All , 6',
+        'Visible , 2',
+        'Off , 2',
+        'Scheduled , 2',
+        'Targeted , 2',
+        'Not in a zone , 1',
+        'Archived , 1',
+      ]);
       expect(radio(root, 'all').checked).toBe(true);
       expect(names(root)).toEqual(expected['all']);
 
-      for (const id of ['visible', 'off', 'scheduled', 'unplaced', 'archived', 'all']) {
+      for (const id of ['visible', 'off', 'scheduled', 'targeted', 'unplaced', 'archived', 'all']) {
         radio(root, id).click();
         await settle(fixture);
         expect(radio(root, id).checked).toBe(true);
@@ -5501,6 +5531,13 @@ describe('App', () => {
         { label: 'Archive', reason: '', disabled: false },
       ]);
       expect(row('Ends later').querySelector('.window-chip')?.textContent).toContain('Ends');
+      // A visible targeted group says who it is for (epic targeting R7), in its button's name; an
+      // untargeted one, and a targeted one that is not visible, do not.
+      const targeted = row('Ends later').querySelector<HTMLElement>('app-visibility button.visibility__line');
+      expect(text(targeted)).toBe('Visible on site in at least one zone · for viewers tagged summer or vip');
+      expect(targeted?.getAttribute('aria-describedby')).toBeTruthy();
+      expect(visible.querySelector('app-visibility button')).toBeNull();
+      expect(text(row('Paused here').querySelector('app-visibility .visibility__line'))).toBe('Not visible: group is off');
       expect(row('Draft loose').querySelector('.group-row__count')?.textContent).toContain('No tales yet');
       // The name opens the group view on this page (story 8.19), placed in a zone or not.
       for (const name of ['Visible now', 'Draft loose']) {

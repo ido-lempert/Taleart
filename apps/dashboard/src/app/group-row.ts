@@ -112,7 +112,7 @@ export function opensFromRowClick(event: MouseEvent): boolean {
         @if (badge()) {
           <app-status-badge [status]="g.status" kind="group" />
         }
-        <app-visibility class="group-row__visibility" [visibility]="g.visibility" viewing="group" [anyZone]="anyZone()" />
+        <app-visibility class="group-row__visibility" [visibility]="g.visibility" viewing="group" [anyZone]="anyZone()" [targeting]="g" />
       </div>
       <app-menu-button class="group-row__menu" [label]="'More for ' + g.name" [items]="items()" (picked)="picked.emit($event)" />
     </div>
