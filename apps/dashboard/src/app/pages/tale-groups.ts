@@ -12,6 +12,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { Location } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   switchStatus,
@@ -20,8 +21,9 @@ import {
   type SettableStatus,
   type Zone,
 } from '@taleart/contract/core';
-import { DashboardStore } from '../dashboard.store';
-import { GroupRow } from '../group-row';
+import { DashboardStore, type TaleGroupSummary } from '../dashboard.store';
+import { GroupRow, opensFromRowClick } from '../group-row';
+import { GroupView } from './group-view';
 import { Icon } from '../icon';
 import type { MenuItem, MenuPick } from '../menu-button';
 import { statusActions, statusLabel } from '../status';
@@ -39,6 +41,10 @@ export const TALE_GROUP_FILTERS: readonly { id: TaleGroupFilter; label: string }
   { id: 'unplaced', label: 'Not in a zone' },
   { id: 'archived', label: 'Archived' },
 ];
+
+/** The query parameter of the open group view, and the history state marking an entry this page pushed. */
+const GROUP_PARAM = 'group';
+const GROUP_STATE = 'taleartGroupView';
 
 /** The filter a `?filter=` value names; anything else is All. */
 export function taleGroupFilter(value: string | null | undefined): TaleGroupFilter {
@@ -91,11 +97,13 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
  * belongs to the project, not to a zone (AD-14). Each is the zone page's row (`GroupRow`) with the
  * zones it is in, and a ⋯ menu without "Remove from this zone". A radio group filters them, with a
  * count per filter, kept in the URL (`?filter=visible`). "New tale group" opens the create drawer
- * with a zone picker that also offers "Not in a zone".
+ * with a zone picker that also offers "Not in a zone". A group's name (or a click on its row) opens
+ * the group view here (`?group=<id>`, story 8.19), for every group, placed in a zone or not: Add tale,
+ * Shown/Hidden, reorder and the tale ⋯ menu work on the group read with its tales, in any zone.
  */
 @Component({
   selector: 'app-tale-groups-page',
-  imports: [RouterLink, Icon, GroupRow],
+  imports: [RouterLink, Icon, GroupRow, GroupView],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .tale-groups__header {
@@ -160,18 +168,28 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
     .group-item:first-child {
       border-top: 0;
     }
-    .group-row__link {
-      color: var(--ink);
-      text-decoration: none;
-    }
-    .group-row__link:hover {
-      text-decoration: underline;
-      text-underline-offset: 3px;
-    }
   `,
   template: `
     <div class="page">
-      <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ announcement() }}</p>
+      <!-- While the group view is open, its own live region says it: one outside a modal dialog may go unread. -->
+      <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ openedGroup() ? '' : announcement() }}</p>
+      @if (openedGroup(); as open) {
+        <app-group-view
+          [group]="open"
+          zoneId=""
+          [panelId]="'group-view-' + open.id"
+          [otherZones]="zonesOf(open)"
+          [menuItems]="menus().get(open.id) ?? []"
+          [groupSaving]="saving().has(open.id)"
+          [groupError]="errors()[open.id] ?? ''"
+          [announcement]="announcement()"
+          [returnFocus]="groupViewReturn()"
+          (switched)="switchGroup(open, $event)"
+          (menuPicked)="picked(open, $event)"
+          (announce)="announce($event)"
+          (closed)="closeGroup()"
+        />
+      }
       @if (store.loaded()) {
         @if (store.selectedProject(); as project) {
           <section class="card section" aria-labelledby="tale-groups-title">
@@ -202,22 +220,34 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                 <ul class="group-items" [attr.aria-label]="listLabel()">
                   @for (group of groups(); track group.id) {
                     <li class="group-item">
+                      <!--
+                        A click on the row outside its controls opens the group, as its name does (R10). It
+                        is a pointer shortcut only: the name's button is the keyboard and screen reader way.
+                      -->
                       <app-group-row
                         [group]="group"
                         [items]="menus().get(group.id) ?? []"
                         [saving]="saving().has(group.id)"
                         [anyZone]="true"
                         [plain]="true"
+                        [opens]="true"
                         (toggled)="switchGroup(group, $event)"
                         (picked)="picked(group, $event)"
+                        (click)="rowClick(group, $event)"
                       >
+                        <!-- Opens the group view here, placed in a zone or not (story 8.19). -->
                         <h3 class="group-row__name" groupRowName [id]="'project-group-' + group.id">
-                          <!-- Opens the group view in the first zone it is in (R11); a group in no zone has none yet. -->
-                          @if (group.zoneIds[0]; as zoneId) {
-                            <a class="group-row__link" [routerLink]="['/zones', zoneId]" [queryParams]="{ group: group.id }">{{ group.name }}</a>
-                          } @else {
+                          <button
+                            type="button"
+                            class="group-row__open"
+                            [id]="'group-name-' + group.id"
+                            aria-haspopup="dialog"
+                            [attr.aria-expanded]="openedGroup()?.id === group.id"
+                            [attr.aria-controls]="openedGroup()?.id === group.id ? 'group-view-' + group.id : null"
+                            (click)="openGroup(group)"
+                          >
                             {{ group.name }}
-                          }
+                          </button>
                         </h3>
                         <p class="group-row__zones muted" groupRowExtra>
                           @if (zonesOf(group); as zones) {
@@ -232,7 +262,8 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                           }
                         </p>
                       </app-group-row>
-                      @if (errors()[group.id]; as message) {
+                      <!-- While its view is open, the view shows the message. -->
+                      @if (openedGroup()?.id === group.id ? '' : errors()[group.id]; as message) {
                         <div class="banner banner--inline" role="alert">
                           <app-icon name="alert" />
                           <span>{{ message }}</span>
@@ -274,6 +305,7 @@ export class TaleGroupsPage {
   protected readonly store = inject(DashboardStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly location = inject(Location);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
@@ -282,6 +314,22 @@ export class TaleGroupsPage {
    * filter replaces the history entry, so back and forward do not step through filters.
    */
   readonly filter = input<string | undefined>();
+  /**
+   * `?group=` (component input binding): the group whose view is open (story 8.19), placed in a
+   * zone or not; a reload or a shared link opens it, the browser's Back closes it.
+   */
+  readonly group = input<string | undefined>();
+
+  /** The group whose view is open: follows the URL, and changes at once on a click, before the URL has caught up. */
+  protected readonly openGroupId = linkedSignal<string | null>(() => this.group() ?? null);
+  /**
+   * The open group with its tales, as the store read it on its own (`GET /tale-groups/{id}`), so
+   * the view is the same for a group in no zone and one placed in several; null until read.
+   */
+  protected readonly openedGroup = computed(() => {
+    const id = this.openGroupId();
+    return id ? (this.store.readGroups()[id] ?? null) : null;
+  });
 
   protected readonly filters = TALE_GROUP_FILTERS;
   /** The chosen filter: follows the URL, and changes at once on a choice, before the URL catches up. */
@@ -374,6 +422,31 @@ export class TaleGroupsPage {
       const projectId = this.store.selectedProjectId();
       untracked(() => this.store.ensureProjectTaleGroups(projectId));
     });
+    // The open group is read with its tales, and forgotten once its view closes (story 8.19).
+    effect((onCleanup) => {
+      const id = this.openGroupId();
+      if (!id) return;
+      untracked(() => this.store.ensureTaleGroup(id));
+      onCleanup(() => this.store.releaseTaleGroup(id));
+    });
+    // A `?group=` naming no group of the selected project (a stale link, another project) is dropped, in place.
+    effect(() => {
+      const id = this.group();
+      const projectId = this.store.selectedProjectId();
+      if (id === undefined || !this.store.loaded() || this.store.apiDown()) return;
+      if (!(projectId in this.store.projectTaleGroups())) return;
+      if (!this.allGroups().some((group) => group.id === id)) {
+        this.openGroupId.set(null);
+        untracked(() =>
+          this.router.navigate([], {
+            relativeTo: this.route,
+            queryParams: { [GROUP_PARAM]: null },
+            queryParamsHandling: 'merge',
+            replaceUrl: true,
+          }),
+        );
+      }
+    });
     // A `?filter=` naming All or nothing known is dropped from the URL, in place.
     effect(() => {
       const raw = this.filter();
@@ -400,7 +473,7 @@ export class TaleGroupsPage {
   }
 
   /** The zones a group is placed in, in the order it was placed. */
-  protected zonesOf(group: ProjectTaleGroup): Zone[] {
+  protected zonesOf(group: TaleGroupSummary): Zone[] {
     return group.zoneIds.flatMap((id) => {
       const zone = this.store.zone(id);
       return zone ? [zone] : [];
@@ -424,8 +497,64 @@ export class TaleGroupsPage {
     this.store.openDrawer({ kind: 'taleGroup', zoneId: '', projectId }, event);
   }
 
+  /**
+   * Opens a group's view (its name's button, a row click): a history entry marked as ours, so
+   * closing it goes back in history, as Back does (as on the zone page, epic UX rework R11).
+   */
+  protected openGroup(group: TaleGroupSummary): void {
+    this.announcement.set('');
+    this.openGroupId.set(group.id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { [GROUP_PARAM]: group.id },
+      queryParamsHandling: 'merge',
+      state: { [GROUP_STATE]: group.id },
+    });
+  }
+
+  /**
+   * Closes the group view, which then puts focus back on the group's name. When this page opened
+   * it, it goes back in history; a deep link or a reload drops `?group=` in place.
+   */
+  protected closeGroup(): void {
+    const id = this.openGroupId();
+    this.openGroupId.set(null);
+    this.announcement.set('');
+    const state = this.location.getState() as Record<string, unknown> | null;
+    if (id && state?.[GROUP_STATE] === id && this.group() === id) {
+      this.location.back();
+      return;
+    }
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { [GROUP_PARAM]: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** A click on the row opens the group, as its name does, unless it was on one of the row's own controls. */
+  protected rowClick(group: ProjectTaleGroup, event: MouseEvent): void {
+    if (opensFromRowClick(event)) this.openGroup(group);
+  }
+
+  /**
+   * Where focus goes when the group view closes: the group's name in its row, found at that moment
+   * (also after a deep link); without the row (the filter no longer lists it), the list's heading.
+   */
+  protected readonly groupViewReturn = computed(() => {
+    const id = this.openedGroup()?.id;
+    return (): HTMLElement | null => {
+      const root = this.host.nativeElement;
+      return (
+        (id ? root.querySelector<HTMLElement>(`[id="group-name-${id}"]`) : null) ??
+        root.querySelector<HTMLElement>('#tale-groups-title')
+      );
+    };
+  });
+
   /** Does what a ⋯ item says; a drawer it opens returns focus to the menu's button. */
-  protected picked(group: ProjectTaleGroup, pick: MenuPick): void {
+  protected picked(group: TaleGroupSummary, pick: MenuPick): void {
     const taleGroupId = group.id;
     switch (pick.id) {
       case 'rename':
@@ -448,7 +577,7 @@ export class TaleGroupsPage {
   }
 
   /** Turns a group On (stores live) or Off (stores paused). */
-  protected async switchGroup(group: ProjectTaleGroup, on: boolean): Promise<void> {
+  protected async switchGroup(group: TaleGroupSummary, on: boolean): Promise<void> {
     const status = switchStatus(group.storedStatus, on);
     if (status) await this.changeStatus(group, status);
   }
@@ -459,7 +588,7 @@ export class TaleGroupsPage {
    * announcement says which filter lists it, and focus goes to the row that took its place (its
    * switch, else its ⋯), else the row before it, else the list's heading.
    */
-  private async changeStatus(group: ProjectTaleGroup, status: SettableStatus): Promise<void> {
+  private async changeStatus(group: TaleGroupSummary, status: SettableStatus): Promise<void> {
     const id = group.id;
     const index = this.groups().findIndex((g) => g.id === id);
     this.errors.update((errors) => {
@@ -484,7 +613,8 @@ export class TaleGroupsPage {
     const now = { ...group, status: saved.status, storedStatus: saved.storedStatus, visibility: saved.visibility };
     if (!inTaleGroupFilter(now, this.selected())) {
       text += `. It is listed under ${TALE_GROUP_FILTERS.find((f) => f.id === homeFilter(now))?.label}.`;
-      this.focusAfterLeaving(index);
+      // From its view, the view stays open and keeps focus; closing it then finds the heading.
+      if (this.openedGroup()?.id !== id) this.focusAfterLeaving(index);
     }
     this.announce(text);
   }
@@ -523,7 +653,7 @@ export class TaleGroupsPage {
   }
 
   // A repeated message is changed by a trailing no-break space, so it is announced again.
-  private announce(message: string): void {
+  protected announce(message: string): void {
     this.announcement.update((last) => (last === message ? `${message}\u00a0` : message));
   }
 }

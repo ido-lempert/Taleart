@@ -131,10 +131,14 @@ export class GroupView implements OnDestroy {
   private readonly injector = inject(Injector);
 
   readonly group = input.required<TaleGroup>();
+  /**
+   * The zone page it was opened from; '' on the Tale groups page (story 8.19), where the group is
+   * read on its own, placed in a zone or not, and its tales are ordered through the group.
+   */
   readonly zoneId = input.required<string>();
   /** The dialog's id, which the row's name button controls. */
   readonly panelId = input<string | null>(null);
-  /** The other zones the group is in, for "Also in" (AD-14). */
+  /** The other zones the group is in, for "Also in" (AD-14); on the Tale groups page, every zone it is in. */
   readonly otherZones = input<readonly Zone[]>([]);
   /** The group's ⋯ menu items, the same as on its row. */
   readonly menuItems = input<readonly MenuItem[]>([]);
@@ -249,7 +253,10 @@ export class GroupView implements OnDestroy {
   protected talePicked(tale: Tale, pick: MenuPick): void {
     switch (pick.id) {
       case 'studio':
-        void this.router.navigate(['/tales', tale.id, 'studio'], { queryParams: { zone: this.zoneId() } });
+        // The studio's back link returns here: the zone page, or the Tale groups page (story 8.19).
+        void this.router.navigate(['/tales', tale.id, 'studio'], {
+          queryParams: this.zoneId() ? { zone: this.zoneId() } : { from: 'tale-groups' },
+        });
         return;
       case 'media':
         return this.store.openDrawer({ kind: 'taleMedia', taleId: tale.id, focus: 'media' }, pick.opener);

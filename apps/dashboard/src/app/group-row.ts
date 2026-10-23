@@ -30,6 +30,24 @@ export function shownCount(group: GroupRowData): string {
 }
 
 /**
+ * Whether a click on a row opens its group, as its name does: not when it was on one of the row's
+ * own controls (switch, ⋯ and its menu, move buttons, handle, indicator, links) or ended a text
+ * selection. Shared by the zone page and the Tale groups page (story 8.19).
+ */
+export function opensFromRowClick(event: MouseEvent): boolean {
+  const target = event.target as HTMLElement | null;
+  if (
+    !target ||
+    target.closest(
+      'button, a, input, select, label, [role=menu], .menu-button, .group-row__reorder, .status-badge, app-visibility',
+    )
+  ) {
+    return false;
+  }
+  return (globalThis.getSelection?.()?.toString() ?? '') === '';
+}
+
+/**
  * One tale group as a list row (epic UX rework R10, R14), shared by the zone page and the Tale
  * groups page: cover, name, "3 of 4 shown", tags, the schedule chip when a window exists, the
  * On/Off switch (AD-6 amended), a badge for a status the switch does not say, the indicator (R7)

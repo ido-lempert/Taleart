@@ -1548,6 +1548,28 @@ paths:
         required: true
         schema:
           type: string
+    get:
+      operationId: getTaleGroup
+      summary: Read one tale group with its tales.
+      description: >-
+        The group with its tales in order, its tags, the zones it is placed in,
+        and the visibility of the group and each tale in any of those zones
+        (epic UX rework R7), placed in a zone or not. The dashboard reads it to
+        open a group that no zone lists, such as one placed in no zone (epic UX
+        rework R11, R14). Unknown tale group: 404 `tale_group_not_found`.
+      responses:
+        '200':
+          description: The tale group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleGroup'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
     patch:
       operationId: renameTaleGroup
       summary: Rename a tale group.

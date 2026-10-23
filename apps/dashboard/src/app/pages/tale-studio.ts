@@ -273,6 +273,8 @@ export class TaleStudioPage implements OnChanges {
   readonly taleId = input.required<string>();
   /** The zone page the studio was opened from (`?zone=`), where its back link returns. */
   readonly zone = input<string | undefined>(undefined);
+  /** `?from=tale-groups` when opened from the Tale groups page's group view (story 8.19), where its back link returns. */
+  readonly from = input<string | undefined>(undefined);
 
   /** The document being edited; null until read. */
   protected readonly doc = signal<TaleDocument | null>(null);
@@ -534,11 +536,21 @@ export class TaleStudioPage implements OnChanges {
   );
   /**
    * Back to the zone page the studio was opened from (`?zone=`) when it lists the tale, else the
-   * first zone that does, with the tale's group open (`?group=`) and named ("Back to Summer sale"); "Back" to the zones
-   * list while the group is not known.
+   * first zone that does, with the tale's group open (`?group=`) and named ("Back to Summer sale").
+   * Opened from the Tale groups page (`?from=tale-groups`), or for a tale no zone lists (its group
+   * is in no zone, story 8.19): back into the group's view there. "Back" to the zones list while
+   * the group is not known.
    */
   protected readonly backLink = computed(() => {
     const id = this.taleId();
+    const groupId = this.store.tale(id)?.taleGroupId;
+    const own = groupId ? this.store.groupSummary(groupId) : undefined;
+    const toTaleGroups = (group: { id: string; name: string }) => ({
+      link: ['/tale-groups'],
+      query: { group: group.id },
+      text: `Back to ${group.name}`,
+    });
+    if (own && this.from() === 'tale-groups') return toTaleGroups(own);
     const lists = this.store.taleGroups();
     const from = this.zone();
     const zones = from && lists[from] ? [from, ...Object.keys(lists).filter((z) => z !== from)] : Object.keys(lists);
@@ -547,6 +559,7 @@ export class TaleStudioPage implements OnChanges {
       // Back into the group's view on the zone page (epic UX rework R11).
       if (group) return { link: ['/zones', zoneId], query: { group: group.id }, text: `Back to ${group.name}` };
     }
+    if (own) return toTaleGroups(own);
     return { link: ['/zones'], query: null, text: 'Back' };
   });
 
@@ -825,6 +838,9 @@ export class TaleStudioPage implements OnChanges {
     const tale = await this.store.readTale(taleId);
     if (tale === null || taleId !== this.taleId()) return false;
     this.readVisibility.set({ taleId, visibility: tale.visibility });
+    // A tale no zone lists (its group is in no zone, story 8.19): read its group, so the studio
+    // knows the tale (title, project, Update tale) as for any other.
+    if (!this.store.tale(taleId)) this.store.ensureTaleGroup(tale.taleGroupId);
     return true;
   }
 
@@ -1158,7 +1174,7 @@ export class TaleStudioPage implements OnChanges {
     // Saved as the new tale: leaving for it does not ask, and nothing more is saved here.
     this.leavingForCopy = true;
     const opened = await this.router
-      .navigate(['/tales', tale.id, 'studio'], { queryParams: { zone: this.zone() } })
+      .navigate(['/tales', tale.id, 'studio'], { queryParams: { zone: this.zone(), from: this.from() } })
       .catch(() => false);
     if (!opened || this.taleId() === taleId) {
       // Still on the original: it stays in the stale choice, with the version on screen.

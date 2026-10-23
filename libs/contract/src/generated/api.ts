@@ -810,7 +810,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Read one tale group with its tales.
+         * @description The group with its tales in order, its tags, the zones it is placed in, and the visibility of the group and each tale in any of those zones (epic UX rework R7), placed in a zone or not. The dashboard reads it to open a group that no zone lists, such as one placed in no zone (epic UX rework R11, R14). Unknown tale group: 404 `tale_group_not_found`.
+         */
+        get: operations["getTaleGroup"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3774,6 +3778,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getTaleGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleGroupId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tale group. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleGroup"];
+                };
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
