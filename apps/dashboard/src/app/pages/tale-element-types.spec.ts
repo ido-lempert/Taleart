@@ -90,7 +90,7 @@ describe('studio element types (R8)', () => {
       ['Add text', 'Add image', 'Add video'],
       ['Add rectangle', 'Add ellipse', 'Add line', 'Add emoji', 'Add sticker'],
       ['Add button', 'Add image button', 'Add swipe-up link'],
-      ['Add poll'],
+      ['Add poll', 'Add rating'],
     ]);
   });
 
@@ -100,7 +100,7 @@ describe('studio element types (R8)', () => {
       ...TALE_TEST_ELEMENT_TYPES.map((t) => t.key),
     ]);
     const rows = addMenuRows(studioElementTypes({ testTypes: true }));
-    expect(rows[3].map((r) => r.entry.id)).toEqual(['studio-add-poll', 'studio-add-test-badge']);
+    expect(rows[3].map((r) => r.entry.id)).toEqual(['studio-add-poll', 'studio-add-rating', 'studio-add-test-badge']);
     expect(kindName({ type: 'test-badge' as never })).toBe('Test badge');
   });
 
@@ -185,6 +185,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
       'studio-add-image-button',
       'studio-add-swipe-up',
       'studio-add-poll',
+      'studio-add-rating',
     ]);
     expect(q('#studio-add').classList.contains('btn--sm')).toBe(false);
     expect(q('#studio-add-emoji').classList.contains('btn--sm')).toBe(true);

@@ -163,6 +163,10 @@ export type SwipeUpElement = TaleElementOf<'swipe-up', SwipeUpElementProps>;
 export type PollElementProps = Schemas['PollElementProps'];
 /** A poll: a question with two options a visitor votes on once (epic interactive components R2). */
 export type PollElement = TaleElementOf<'poll', PollElementProps>;
+/** The props of a `rating` element, from `element-types/rating.schema.json` (epic interactive components R5). */
+export type RatingElementProps = Schemas['RatingElementProps'];
+/** A Rating: a question and an emoji a visitor slides from 0 to 100, once (epic interactive components R5). */
+export type RatingElement = TaleElementOf<'rating', RatingElementProps>;
 /** A call to action: an element that is a link to its destination (R7). */
 export type LinkElement = ButtonElement | ImageButtonElement | SwipeUpElement;
 /** An element that shows media of the tale's project. */
@@ -179,7 +183,8 @@ export type TaleElement =
   | ButtonElement
   | ImageButtonElement
   | SwipeUpElement
-  | PollElement;
+  | PollElement
+  | RatingElement;
 
 /** The registered element type keys. */
 export type TaleElementType = TaleElement['type'];
@@ -871,6 +876,8 @@ export function elementName(
       return shortName(props.label) || 'Swipe-up link';
     case 'poll':
       return shortName((props as { question?: unknown }).question) || 'Poll';
+    case 'rating':
+      return shortName((props as { question?: unknown }).question) || 'Rating';
     case 'emoji': {
       const emoji = typeof props.emoji === 'string' ? props.emoji : '';
       const label = shortName(element.a11y?.label);

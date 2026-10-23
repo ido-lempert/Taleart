@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output } from '@angular/core';
-import { propSchema, propValueProblem, type PropSchema } from '@taleart/contract/tale-document';
-import type { ElementChange } from './tale-shapes';
+import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
+import { EMOJI_FONT_STACK, propSchema, propValueProblem, type PropSchema } from '@taleart/contract/tale-document';
+import { emojiName, TaleEmojiPicker, type ElementChange, type EmojiChoice } from './tale-shapes';
 import type { ChoicesField, FieldsInspector, InspectorField, StudioElementType } from './tale-element-types';
 
 /** One choice's label as the inspector shows it (epic interactive components R1). */
@@ -46,6 +46,7 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
  */
 @Component({
   selector: 'app-tale-fields-inspector',
+  imports: [TaleEmojiPicker],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (field of fields(); track field.prop) {
@@ -100,6 +101,22 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
               />
             </div>
           }
+          @case ('emoji') {
+            <div class="row fields-emoji">
+              <span class="fields-emoji__glyph" aria-hidden="true" [style.font-family]="emojiFont">{{ field.value }}</span>
+              <button
+                type="button"
+                class="btn btn--secondary btn--sm"
+                [id]="field.id"
+                [attr.aria-label]="emojiButtonName(field)"
+                [attr.aria-describedby]="describedBy(field)"
+                [attr.aria-disabled]="locked() ? 'true' : null"
+                (click)="openEmoji(field, $event)"
+              >
+                Choose emoji…
+              </button>
+            </div>
+          }
           @default {
             <input
               class="input"
@@ -151,6 +168,19 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
         }
       </fieldset>
     }
+    @if (picking(); as open) {
+      <app-tale-emoji-picker
+        [heading]="'Choose the ' + open.field.label.toLowerCase()"
+        [current]="open.field.value || null"
+        [returnFocus]="open.returnFocus"
+        (chosen)="pickedEmoji(open.field, $event)"
+        (closed)="picking.set(null)"
+      />
+    }
+  `,
+  styles: `
+    .fields-emoji { align-items: center; }
+    .fields-emoji__glyph { font-size: 1.75rem; line-height: 1; min-width: 2rem; text-align: center; }
   `,
 })
 export class TaleFieldsInspector {
@@ -158,6 +188,10 @@ export class TaleFieldsInspector {
   readonly type = input.required<StudioElementType>();
   readonly locked = input(false);
   readonly changed = output<ElementChange>();
+
+  protected readonly emojiFont = EMOJI_FONT_STACK;
+  /** The emoji picker, while it is open for an emoji field, and the control focus returns to. */
+  protected readonly picking = signal<{ field: FieldView; returnFocus: HTMLElement | null } | null>(null);
 
   private readonly edited = computed<Edited>(() => ({ id: this.element().id, props: propsOf(this.element()) }));
 
@@ -302,6 +336,27 @@ export class TaleFieldsInspector {
       props: { [field.prop]: value },
       said: value === undefined ? `${field.label} cleared` : `${field.label} set`,
     });
+  }
+
+  /**
+   * The emoji field's button name: its visible text first (WCAG 2.5.3, so voice control finds it by
+   * what it shows), then the emoji now by its Unicode name.
+   */
+  protected emojiButtonName(field: FieldView): string {
+    const name = field.value ? (emojiName(field.value) ?? field.value) : 'none';
+    return `Choose emoji… Current: ${name}`;
+  }
+
+  /** Opens the emoji picker for an emoji field (epic interactive components story 4.2); not while locked. */
+  protected openEmoji(field: FieldView, event: Event): void {
+    if (this.locked()) return;
+    this.picking.set({ field, returnFocus: event.currentTarget instanceof HTMLElement ? event.currentTarget : null });
+  }
+
+  /** The picker's emoji, applied to the field as one history step, as a typed value is. */
+  protected pickedEmoji(field: FieldView, choice: EmojiChoice): void {
+    this.picking.set(null);
+    this.apply(field, choice.emoji);
   }
 
   private setError(prop: string, problem: string | null): void {
