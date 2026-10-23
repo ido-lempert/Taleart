@@ -50,7 +50,8 @@ kotlin {
             implementation(project(":ios-sdk"))
         }
         commonMain.dependencies {
-            implementation(project(":mobile-sdk"))
+            // App's parameters (the key-value store, the client) are the SDK's types.
+            api(project(":mobile-sdk"))
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)

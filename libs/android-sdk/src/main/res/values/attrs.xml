@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TaleartView's XML attributes, as the <taleart-view> element's api-url, site-key and zone. -->
+    <declare-styleable name="TaleartView">
+        <attr name="taleartApiUrl" format="string" />
+        <attr name="taleartSiteKey" format="string" />
+        <attr name="taleartZone" format="string" />
+    </declare-styleable>
+</resources>
