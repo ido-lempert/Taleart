@@ -3,6 +3,7 @@ package site.lempert.taleart.sdk.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 
 /**
  * Plays a tale's video in the viewer: Media3 ExoPlayer on Android, AVPlayer on iOS
@@ -30,14 +31,24 @@ interface TaleVideoPlayer {
 
     /**
      * Shows a document's video element (R5, story 9.5) in its box on the canvas: always muted, as the
-     * web's `<video muted playsinline>`, and drawn so the canvas can round, fade and rotate it.
-     * Reports as [Video] does. By default it is [Video] without sound.
+     * web's `<video muted playsinline>`, looping in place with [loop] (beside the stage's video),
+     * and drawn with [look] (corner radius, rotation, opacity) where the canvas's own modifiers do
+     * not reach a native view. Reports as [Video] does. By default it is [Video] without sound.
      */
+    /**
+     * True when [DocumentVideo] draws [DocumentVideoLook] on its native view itself: the canvas
+     * then gives the video its upright box only, without Compose's clip, rotation and opacity,
+     * which do not reach a native view (iOS).
+     */
+    val drawsDocumentVideoLook: Boolean get() = false
+
     @Composable
     fun DocumentVideo(
         url: String,
         fit: MediaFit,
         playing: Boolean,
+        loop: Boolean,
+        look: DocumentVideoLook,
         onProgress: (positionMs: Long, durationMs: Long) -> Unit,
         onEnded: () -> Unit,
         onError: () -> Unit,
@@ -46,6 +57,13 @@ interface TaleVideoPlayer {
         Video(url, fit, playing, muted = true, onProgress = onProgress, onEnded = onEnded, onError = onError, modifier = modifier)
     }
 }
+
+/**
+ * How a document's video is drawn on the canvas: corner radius, rotation in degrees, opacity, and
+ * whether nothing above it in the z-order overlaps it ([nothingAbove]), so a native view may be
+ * placed over the canvas.
+ */
+data class DocumentVideoLook(val cornerRadius: Dp, val rotation: Float, val alpha: Float, val nothingAbove: Boolean)
 
 /** The platform's video player: Media3 ExoPlayer on Android, AVPlayer on iOS. */
 internal expect fun platformTaleVideoPlayer(): TaleVideoPlayer

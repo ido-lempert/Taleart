@@ -115,12 +115,15 @@ private object ExoTaleVideoPlayer : TaleVideoPlayer {
     }
 
     // A document's video: muted, drawn on a TextureView (not PlayerView's SurfaceView) so the
-    // canvas's clip, opacity and rotation apply to it; `cover` and `contain` scale the texture.
+    // canvas's clip, opacity and rotation (the modifier's; [look] is not needed) apply to it;
+    // `cover` and `contain` scale the texture. A looping video repeats in its player, without a gap.
     @Composable
     override fun DocumentVideo(
         url: String,
         fit: MediaFit,
         playing: Boolean,
+        loop: Boolean,
+        look: DocumentVideoLook,
         onProgress: (positionMs: Long, durationMs: Long) -> Unit,
         onEnded: () -> Unit,
         onError: () -> Unit,
@@ -133,6 +136,7 @@ private object ExoTaleVideoPlayer : TaleVideoPlayer {
         val player = remember(url) { RememberedPlayer(context, url, silent = true) }.player
         val texture = remember(player) { arrayOfNulls<TextureView>(1) }
         val fitNow by rememberUpdatedState(fit)
+        LaunchedEffect(player, loop) { player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF }
         DisposableEffect(player) {
             val listener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {

@@ -21,9 +21,9 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -61,7 +62,10 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -112,31 +116,36 @@ internal fun DocumentElementsLayer(
     video: DocumentVideoPlayback? = null,
     inertLinks: Boolean = false,
 ) {
-    BoxWithConstraints(modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
-        val density = LocalDensity.current
-        val width = constraints.maxWidth.toFloat()
-        val height = constraints.maxHeight.toFloat()
-        if (width <= 0f || height <= 0f) return@BoxWithConstraints
-        val canvas = CanvasMetrics(width, height, density.density, density.fontScale)
-        layer.elements.forEachIndexed { index, element ->
-            key(element.id, index) {
-                Element(element, index, canvas, themeFont, imageLoader, video, inertLinks)
+    // Boxes are placed from the canvas's left edge whatever the host's layout direction, as the
+    // web's `left:`; each text keeps its own direction (`TextStyle.textDirection`).
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        BoxWithConstraints(modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
+            val density = LocalDensity.current
+            val width = constraints.maxWidth.toFloat()
+            val height = constraints.maxHeight.toFloat()
+            if (width <= 0f || height <= 0f) return@BoxWithConstraints
+            val canvas = CanvasMetrics(width, height, density)
+            layer.elements.forEachIndexed { index, element ->
+                key(element.id, index) {
+                    Element(element, index, canvas, themeFont, imageLoader, video, inertLinks, layer.elements.filter { it.layer > element.layer })
+                }
             }
         }
     }
 }
 
 // The canvas's size in pixels and the density that turns pixels into dp and sp.
-private class CanvasMetrics(val width: Float, val height: Float, val density: Float, val fontScale: Float) {
+private class CanvasMetrics(val width: Float, val height: Float, val density: Density) {
     /** A fraction of the canvas height in pixels. */
     fun h(fraction: Double): Float = (fraction * height).toFloat()
-    fun dp(px: Float): Dp = (px / density).dp
-    // Text sizes follow the canvas, never the person's font scale, as the web's `cqh`.
-    fun sp(px: Float) = (px / (density * fontScale)).let { androidx.compose.ui.unit.TextUnit(it, androidx.compose.ui.unit.TextUnitType.Sp) }
+    fun dp(px: Float): Dp = with(density) { px.toDp() }
+    // Text sizes follow the canvas, never the person's font scale, as the web's `cqh`: the sp that
+    // the density (with its font scale, linear or not, as Android 14's) turns back into these pixels.
+    fun sp(px: Float): TextUnit = with(density) { px.toSp() }
 }
 
 // The element's place on the canvas: its box, its layer in the z-order, its rotation, and its place in the reading order.
-private fun Modifier.placed(element: DocumentElement, index: Int, canvas: CanvasMetrics): Modifier {
+private fun Modifier.placed(element: DocumentElement, index: Int, canvas: CanvasMetrics, rotate: Boolean = true): Modifier {
     val box = element.box
     val x = (box.x * canvas.width).roundToInt()
     val y = (box.y * canvas.height).roundToInt()
@@ -146,7 +155,7 @@ private fun Modifier.placed(element: DocumentElement, index: Int, canvas: Canvas
         .zIndex(element.layer.toFloat())
         .offset { IntOffset(x, y) }
         .requiredSize(canvas.dp(w.toFloat()), canvas.dp(h.toFloat()))
-        .then(if (box.rotation != 0.0) Modifier.graphicsLayer { rotationZ = box.rotation.toFloat() } else Modifier)
+        .then(if (rotate && box.rotation != 0.0) Modifier.graphicsLayer { rotationZ = box.rotation.toFloat() } else Modifier)
         .testTag(DOCUMENT_ELEMENT_TAG)
         .semantics {
             documentElementId = element.id
@@ -163,8 +172,12 @@ private fun Element(
     loader: ImageLoader,
     video: DocumentVideoPlayback?,
     inertLinks: Boolean,
+    above: List<DocumentElement>,
 ) {
-    val placed = Modifier.placed(element, index, canvas)
+    val player = LocalTaleVideoPlayer.current ?: remember { platformTaleVideoPlayer() }
+    // A native video view that draws its own look takes no Compose rotation.
+    val native = element is DocumentElement.Video && player.drawsDocumentVideoLook
+    val placed = Modifier.placed(element, index, canvas, rotate = !native)
     // Decorative elements are hidden from assistive technology (a link never is).
     val hidden = if (element.decorative) Modifier.clearAndSetSemantics { } else Modifier
     when (element) {
@@ -178,7 +191,7 @@ private fun Element(
                 .mediaLook(element.radius, element.opacity, canvas)
                 .then(if (element.alt == null) Modifier.clearAndSetSemantics { } else Modifier),
         )
-        is DocumentElement.Video -> VideoElement(element, canvas, video, placed)
+        is DocumentElement.Video -> VideoElement(element, canvas, video, player, above, placed)
         is DocumentElement.Shape -> ShapeElement(element, canvas, placed.then(hidden))
         is DocumentElement.Emoji -> EmojiElement(element, canvas, placed)
         is DocumentElement.Button -> ButtonElement(element, canvas, themeFont, inertLinks, placed)
@@ -390,34 +403,55 @@ private fun EmojiElement(element: DocumentElement.Emoji, canvas: CanvasMetrics, 
  * beside the stage's video. Without [playback] it shows its first frame.
  */
 @Composable
-private fun VideoElement(element: DocumentElement.Video, canvas: CanvasMetrics, playback: DocumentVideoPlayback?, modifier: Modifier) {
-    val player = LocalTaleVideoPlayer.current ?: remember { platformTaleVideoPlayer() }
-    // A video beside the stage's video loops: each end starts a new run.
-    var loops by remember { mutableIntStateOf(0) }
+private fun VideoElement(
+    element: DocumentElement.Video,
+    canvas: CanvasMetrics,
+    playback: DocumentVideoPlayback?,
+    player: TaleVideoPlayer,
+    above: List<DocumentElement>,
+    modifier: Modifier,
+) {
+    val bounds = elementBounds(element.box)
+    val nothingAbove = above.none { overlaps(elementBounds(it.box), bounds) }
     val named = element.alt?.let { alt -> Modifier.semantics { contentDescription = alt; role = Role.Image } }
         ?: Modifier.clearAndSetSemantics { }
-    key(playback?.run ?: 0, loops) {
+    val clock = playback?.clock == true
+    key(playback?.run ?: 0) {
         player.DocumentVideo(
             url = element.url,
             fit = element.fit,
             playing = playback?.playing == true,
-            onProgress = { position, duration -> if (playback?.clock == true) playback.onProgress(position, duration) },
-            onEnded = { if (playback?.clock == true) playback.onEnded() else loops++ },
-            onError = { if (playback?.clock == true) playback.onError() },
-            modifier = modifier.mediaLook(element.radius, element.opacity, canvas).then(named),
+            // A video beside the stage's video loops in place.
+            loop = !clock,
+            look = DocumentVideoLook(canvas.dp(canvas.h(element.radius)), element.box.rotation.toFloat(), element.opacity.toFloat(), nothingAbove),
+            onProgress = { position, duration -> if (clock) playback?.onProgress?.invoke(position, duration) },
+            onEnded = { if (clock) playback?.onEnded?.invoke() },
+            onError = { if (clock) playback?.onError?.invoke() },
+            modifier = (if (player.drawsDocumentVideoLook) modifier else modifier.mediaLook(element.radius, element.opacity, canvas)).then(named),
         )
     }
 }
 
+// True when two upright rectangles on the canvas share some area.
+private fun overlaps(a: ElementBox, b: ElementBox): Boolean =
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
 // ---- Links (R7) -------------------------------------------------------------------------------
 
-// Opens the link in the system browser; a link that cannot open changes nothing. An inert link
-// (a preview of a draft) is focusable and goes nowhere.
+/**
+ * What screen readers say a link does: it leaves the app for the browser (the web's
+ * "(opens in a new tab)", `NEW_TAB_NOTE`).
+ */
+const val LINK_ACTION_LABEL = "Open in browser"
+
+// Opens the link in the system browser; a link that cannot open changes nothing. A button for
+// assistive technology, whose action says it leaves the app. An inert link (a preview of a draft)
+// is focusable and goes nowhere.
 @Composable
 private fun Modifier.link(href: String, label: String, inert: Boolean): Modifier {
     val uri = LocalUriHandler.current
-    return if (inert) this.semantics { contentDescription = label }.focusable()
-    else this.clickable(onClickLabel = "Open link") { runCatching { uri.openUri(href) } }
+    return if (inert) this.semantics { contentDescription = label; role = Role.Button }.focusable()
+    else this.clickable(role = Role.Button, onClickLabel = LINK_ACTION_LABEL) { runCatching { uri.openUri(href) } }
 }
 
 /**
