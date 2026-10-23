@@ -75,9 +75,16 @@ The Install tab also has a Copy button and an "Open test page" link (below).
 
 An element renders only with both a site key and a slug. Put the key only in `site-key` (or `siteKey`), never in a
 query string: the SDK sends it only in the `Authorization` header. Slugs are not access control (they are often easy
-to guess), so treat what a visible zone shows as public. The Delivery API limits how often one address may ask (by
-default bursts of 600, then 20 a second); over the limit it answers 429, and the element renders nothing and logs one
-console error.
+to guess), so treat what a visible zone shows as public. The Delivery API limits how often one visitor may ask (by
+default bursts of 600, then 20 a second), and one address ten times that in all; over the limit it answers 429, and
+the element renders nothing and logs one console error.
+
+**The visitor id.** Each browser gets a visitor id: a random UUID v4 the SDK makes once and keeps in the host page's
+local storage under `taleart.visitor`. It holds no personal data and is tied to no account; the SDK sends it only to the
+Delivery API, in the `X-TaleArt-Visitor` header, which limits requests per visitor rather than per address, so many
+visitors behind one network each get their own allowance. Clearing the site's data makes a new one. Where local storage
+is blocked, the id lasts one page load; a request without an id is limited by its address. The native SDKs keep the same
+kind of id in the SDK's own device store, where it lasts until the app is reinstalled or its data is cleared.
 
 <!-- docs-check:removed -->
 ### Removed: zone keys and the `stage` attribute

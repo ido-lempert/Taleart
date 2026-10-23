@@ -21,7 +21,7 @@ import { defaultSdkFiles, hasKeptBuilds, sdkBuildsFromEnv, webSdkFileFromEnv } f
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
 import { configureTestElementTypes } from './element-types-config';
-import { deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
+import { ADDRESS_BACKSTOP_FACTOR, deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
 function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void {
@@ -36,8 +36,9 @@ async function start(): Promise<void> {
   // Emoji elements are checked with the RegExp v flag (Node.js 22 or later); without it the API does not start.
   assertEmojiCheckSupported();
   // Read before anything starts, so a bad value stops the API with a clear error.
-  // The Delivery API's limit per client and per process: DELIVERY_RATE_LIMIT_BURST (a whole number;
-  // 0 turns it off) and DELIVERY_RATE_LIMIT_PER_SECOND.
+  // The Delivery API's limit per visitor (or per address without a visitor id) and per process:
+  // DELIVERY_RATE_LIMIT_BURST (a whole number; 0 turns it off) and DELIVERY_RATE_LIMIT_PER_SECOND.
+  // Each address also gets ADDRESS_BACKSTOP_FACTOR times that in all.
   const rateLimit = deliveryRateLimitFromEnv(process.env);
   // Behind reverse proxies, TRUST_PROXY makes the limit count the visitor's address rather than the
   // proxy's. Set exactly the proxies in front of the API: their number, or their addresses and ranges.
@@ -131,7 +132,8 @@ async function start(): Promise<void> {
   log(
     'info',
     rateLimit ?
-      `Delivery API limited to ${rateLimit.burst} requests at once and ${rateLimit.perSecond} per second per address`
+      `Delivery API limited to ${rateLimit.burst} requests at once and ${rateLimit.perSecond} per second per visitor ` +
+        `(per address without a visitor id), and ${ADDRESS_BACKSTOP_FACTOR} times that per address in all`
     : 'Delivery API rate limit off',
   );
   // The Web SDK bundle host pages load from <PUBLIC_API_URL>/sdk/v1/taleart.js (epic UX rework R13):

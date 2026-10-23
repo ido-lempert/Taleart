@@ -4780,8 +4780,20 @@ describe('Management API v1: projects and zones', () => {
           const get = (bearer: string, query = '') =>
             globalThis.fetch(`${at}${query}`, { headers: { Authorization: `Bearer ${bearer}` } });
           try {
-            // A preflight is not counted.
-            expect((await globalThis.fetch(at, { method: 'OPTIONS' })).status).toBe(204);
+            // A preflight is not counted, and allows the visitor id header (story 8.23).
+            const preflight = await globalThis.fetch(at, {
+              method: 'OPTIONS',
+              headers: {
+                Origin: 'https://shop.example',
+                'Access-Control-Request-Method': 'GET',
+                'Access-Control-Request-Headers': 'authorization, x-taleart-visitor',
+              },
+            });
+            expect(preflight.status).toBe(204);
+            expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+            expect(preflight.headers.get('access-control-allow-headers')?.toLowerCase().split(/,\s*/)).toEqual(
+              expect.arrayContaining(['authorization', 'x-taleart-visitor']),
+            );
             expect((await get(key, `?zone=${zone.slug}`)).status).toBe(200);
             // A refusal counts too, so guessing keys or slugs is limited.
             expect((await get(key)).status).toBe(401);
@@ -4795,6 +4807,53 @@ describe('Management API v1: projects and zones', () => {
               expect(res.headers.get('access-control-expose-headers')).toBe('Retry-After');
               expect((await res.json()).error.code).toBe('rate_limited');
             }
+          } finally {
+            await new Promise<void>((resolve) => limited.close(() => resolve()));
+          }
+        });
+
+        it('limits each visitor id on its own, with a per-address backstop (story 8.23)', async () => {
+          const project = await createProject();
+          const zone = await placedZone(project.id, 'Visitors');
+          const { key } = await issueSite(project.id);
+          const limited = createApp(
+            pool,
+            loadFrameTypeRegistry(frameTypesDir),
+            new LocalDiskStorage(mediaDir),
+            { verifier: fakeVerifier },
+            { publicApiUrl },
+            undefined,
+            undefined,
+            { rateLimit: { burst: 2, perSecond: 0.01 } },
+          ).listen(0);
+          await new Promise<void>((resolve) => limited.once('listening', () => resolve()));
+          const at = `http://127.0.0.1:${(limited.address() as AddressInfo).port}/delivery/v1/zone?zone=${zone.slug}`;
+          const get = (visitor?: string) =>
+            globalThis.fetch(at, {
+              headers: { Authorization: `Bearer ${key}`, ...(visitor && { 'X-TaleArt-Visitor': visitor }) },
+            });
+          const visitor = (i: number) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`;
+          try {
+            // Two devices behind one address each get their own two requests.
+            for (const id of [visitor(1), visitor(2)]) {
+              expect((await get(id)).status).toBe(200);
+              expect((await get(id)).status).toBe(200);
+              expect((await get(id)).status).toBe(429);
+            }
+            // Without an id, or with a malformed one, the address has today's allowance.
+            expect((await get()).status).toBe(200);
+            expect((await get('not-a-visitor-id')).status).toBe(200);
+            expect((await get()).status).toBe(429);
+            // Rotating ids reaches the address backstop: ten visitors' worth (20 requests) in all.
+            // Six of them went through above; three were refused, which takes nothing.
+            const statuses: number[] = [];
+            for (let i = 10; i < 30; i++) statuses.push((await get(visitor(i))).status);
+            expect(statuses.filter((s) => s === 200)).toHaveLength(14);
+            const refused = await get(visitor(99));
+            expect(refused.status).toBe(429);
+            expect(refused.headers.get('access-control-allow-origin')).toBe('*');
+            expect(refused.headers.get('access-control-expose-headers')).toBe('Retry-After');
+            expect((await refused.json()).error.code).toBe('rate_limited');
           } finally {
             await new Promise<void>((resolve) => limited.close(() => resolve()));
           }

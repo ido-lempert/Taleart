@@ -148,15 +148,25 @@ import {
     </p>
     <pre tabindex="0" role="region" aria-label="Theme for one zone"><code>{{ themeScript }}</code></pre>
 
+    <h2 id="visitor-id">The visitor id</h2>
+    <p>
+      Each device gets a visitor id: a random UUID v4 the SDK makes once and keeps on the device, in the page's local
+      storage on the web (<code>taleart.visitor</code>) and in the SDK's own store in an app. It holds no personal
+      data and is tied to no account. The SDK sends it only to the Delivery API, in the
+      <code>X-TaleArt-Visitor</code> header, so the API can limit requests per visitor and many visitors behind one
+      network each get their own allowance. Clearing the site's data, or reinstalling the app, makes a new one. Where
+      local storage is blocked, the id lasts one page load.
+    </p>
+
     <h2 id="nothing-shows">When nothing shows</h2>
     <ul>
       <li>
         An unknown slug, or a revoked or rotated site key, renders nothing and logs one console error per element.
       </li>
       <li>
-        The Delivery API limits how often one address may ask (by default bursts of 600, then 20 requests a second).
-        Over the limit it answers 429, and the element renders nothing and logs one console error; a reload later
-        shows the zone again.
+        The Delivery API limits how often one visitor may ask (by default bursts of 600, then 20 requests a second),
+        and one address ten times that in all. Over the limit it answers 429, and the element renders nothing and
+        logs one console error; a reload later shows the zone again.
       </li>
       <li>
         Otherwise, open the zone page: it says <em>Not visible:</em> and why, such as "zone has no display",

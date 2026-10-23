@@ -2,6 +2,7 @@ import type { DeliveryZone } from '@taleart/contract';
 import { COVER_MOTION_MS } from './bar';
 import { FIRST_CONTENT_MARK, ZONE_MARK } from './first-content';
 import { configureZone, defineTaleartElement, TALEART_ELEMENT_TAG, TaleartElement } from './taleart-element';
+import { visitorId } from './visitor';
 
 const API = 'https://api.example.com';
 // Elements are placed with the project's site key and a zone slug (zone keys are gone, story 8.7).
@@ -85,7 +86,7 @@ describe('TaleartElement', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`${API}/delivery/v1/zone?zone=${SLUG}`);
-    expect(init.headers).toEqual({ Authorization: `Bearer ${SITE}` });
+    expect(init.headers).toEqual({ Authorization: `Bearer ${SITE}`, 'X-TaleArt-Visitor': visitorId() });
     expect(init.credentials).toBe('omit');
   });
 
@@ -655,7 +656,7 @@ describe('TaleartElement', () => {
       const el = await mount(site('home-top'));
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`${API}/delivery/v1/zone?zone=home-top`);
-      expect(init.headers).toEqual({ Authorization: `Bearer ${SITE_KEY}` });
+      expect(init.headers).toEqual({ Authorization: `Bearer ${SITE_KEY}`, 'X-TaleArt-Visitor': visitorId() });
       expect(init.credentials).toBe('omit');
       expect(items(el).map((b) => b.getAttribute('aria-label'))).toEqual(['Group of home-top']);
       expect(errorSpy).not.toHaveBeenCalled();
@@ -687,8 +688,8 @@ describe('TaleartElement', () => {
       await settle();
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock.mock.calls.map(([, init]) => (init as RequestInit).headers)).toEqual([
-        { Authorization: `Bearer ${SITE_KEY}` },
-        { Authorization: 'Bearer tas_otherproject' },
+        { Authorization: `Bearer ${SITE_KEY}`, 'X-TaleArt-Visitor': visitorId() },
+        { Authorization: 'Bearer tas_otherproject', 'X-TaleArt-Visitor': visitorId() },
       ]);
     });
 
