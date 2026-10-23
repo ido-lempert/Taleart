@@ -35,4 +35,17 @@ export async function migrateTargeting(db: Db): Promise<void> {
     );
   `);
   await db.query('CREATE INDEX IF NOT EXISTS tale_group_tags_tag_id_idx ON tale_group_tags (tag_id)');
+
+  // How a tale group's tags combine (epic targeting R1): one row per group whose mode was set.
+  // A group with no row reads `any`, the default, so existing groups keep showing as before.
+  // Removing the group removes its row.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tale_group_tag_matches (
+      tale_group_id uuid PRIMARY KEY,
+      project_id uuid NOT NULL REFERENCES projects(id),
+      tag_match text NOT NULL DEFAULT 'any' CHECK (tag_match IN ('any', 'all')),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      FOREIGN KEY (tale_group_id, project_id) REFERENCES tale_groups (id, project_id) ON DELETE CASCADE
+    );
+  `);
 }

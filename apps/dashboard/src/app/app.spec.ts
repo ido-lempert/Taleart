@@ -157,7 +157,7 @@ function menuItems(root: ParentNode, menu: string): { label: string; reason: str
 }
 
 /** Every item of a group row's ⋯ menu, in order (epic UX rework R10). */
-const GROUP_MENU = ['Rename', 'Cover', 'Tags', 'Schedule', 'Show in another zone', 'Copy to zone', 'Remove from this zone', 'Archive'];
+const GROUP_MENU = ['Rename', 'Cover', 'Audience', 'Schedule', 'Show in another zone', 'Copy to zone', 'Remove from this zone', 'Archive'];
 
 function type(input: HTMLInputElement | null, value: string): void {
   if (!input) throw new Error('No input');
@@ -2720,7 +2720,7 @@ describe('App', () => {
       const expected: [string, unknown][] = [
         ['Rename', { kind: 'renameTaleGroup', taleGroupId: 'g2' }],
         ['Cover', { kind: 'cover', taleGroupId: 'g2' }],
-        ['Tags', { kind: 'tags', taleGroupId: 'g2' }],
+        ['Audience', { kind: 'tags', taleGroupId: 'g2' }],
         ['Schedule', { kind: 'schedule', target: 'taleGroup', id: 'g2' }],
         ['Show in another zone', { kind: 'placeTaleGroup', taleGroupId: 'g2' }],
         ['Copy to zone', { kind: 'copyTaleGroup', taleGroupId: 'g2' }],
@@ -4203,22 +4203,22 @@ describe('App', () => {
       const chips = [...root.querySelectorAll('[aria-label="Tags of Summer"] li')].map((li) => li.textContent?.trim());
       expect(chips).toEqual(['Beach', 'summer']);
       expect(root.querySelector('[aria-label="Tags of Winter"] li')).toBeNull();
-      // Tags is an item of every group's ⋯ menu (epic UX rework R10).
+      // Audience (formerly Tags) is an item of every group's ⋯ menu (epic UX rework R10, epic targeting R1).
       expect(root.querySelectorAll('button[aria-label^="More for "]').length).toBe(2);
-      expect(menuItems(root, 'More for Winter').map((item) => item.label)).toContain('Tags');
+      expect(menuItems(root, 'More for Winter').map((item) => item.label)).toContain('Audience');
     });
 
-    it("opens the Tags drawer with the project's tags as checkboxes, creates a tag and saves the set", async () => {
+    it("opens the Audience drawer with the project's tags as checkboxes, creates a tag and saves the set", async () => {
       const { fixture, root } = await open('/zones/z1', {
         ...oneZone,
         groups: { z1: [{ ...group, tales: [], tags: [ref(beach)] }] },
         tags: { p1: [beach] },
       });
 
-      pickMenuItem(root, 'More for Summer', 'Tags');
+      pickMenuItem(root, 'More for Summer', 'Audience');
       await settle(fixture);
       const panel = drawer() as HTMLElement;
-      expect(panel.querySelector('h2')?.textContent).toContain('Tags');
+      expect(panel.querySelector('h2')?.textContent).toContain('Audience');
       expect(panel.textContent).toContain('For tale group Summer');
       const boxes = () =>
         [...panel.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].map((box) => [
@@ -4248,7 +4248,7 @@ describe('App', () => {
       buttonNamed(panel, 'Save').click();
       const save = http.expectOne(`${API_BASE}/tale-groups/g1/tags`);
       expect(save.request.method).toBe('PUT');
-      expect(save.request.body).toEqual({ tagIds: ['tag1'] });
+      expect(save.request.body).toEqual({ tagIds: ['tag1'], tagMatch: 'any' });
       save.flush({ ...group, tales: [], tags: [ref(summer)] });
       await settle(fixture);
 
@@ -4256,13 +4256,84 @@ describe('App', () => {
       expect(root.querySelector('[aria-label="Tags of Summer"] li')?.textContent?.trim()).toBe('summer');
     });
 
-    it("shows the API's message in the Tags drawer when a tag or the set is refused", async () => {
+    it('picks All or Any for the tags in the Audience drawer and saves it with them (epic targeting R1)', async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [ref(beach), ref(summer)], tagMatch: 'any' }] },
+        tags: { p1: [beach, summer] },
+      });
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const radios = () =>
+        [...panel.querySelectorAll<HTMLInputElement>('input[type=radio][name=tagMatch]')].map((radio) => [
+          radio.closest('label')?.textContent?.trim(),
+          radio.checked,
+        ]);
+      expect(radios()).toEqual([
+        ['Any of these tags', true],
+        ['All of these tags', false],
+      ]);
+      const hint = () => panel.querySelector('#tag-match-hint')?.textContent?.trim();
+      expect(hint()).toBe('Shows to viewers tagged Beach or summer, and on pages that pass no tags.');
+      const legend = panel.querySelector('input[name=tagMatch]')?.closest('fieldset')?.querySelector('legend');
+      expect(legend?.textContent?.trim()).toBe('Show to viewers tagged with');
+      expect(panel.querySelector('input[type=checkbox]')?.closest('fieldset')?.querySelector('legend')?.textContent?.trim()).toBe(
+        'Targeting tags for Summer',
+      );
+      // Changes to the hint are announced, and tag names are said to be public.
+      expect(panel.querySelector('#tag-match-hint')?.getAttribute('aria-live')).toBe('polite');
+      expect(panel.querySelector('#tag-public-note')?.textContent).toContain('visible to anyone who loads the zone');
+
+      panel.querySelectorAll<HTMLInputElement>('input[name=tagMatch]')[1].click();
+      await settle(fixture);
+      expect(radios().map(([, checked]) => checked)).toEqual([false, true]);
+      expect(hint()).toBe('Shows to viewers tagged Beach and summer, and on pages that pass no tags.');
+
+      buttonNamed(panel, 'Save').click();
+      const save = http.expectOne(`${API_BASE}/tale-groups/g1/tags`);
+      expect(save.request.body).toEqual({ tagIds: ['tag2', 'tag1'], tagMatch: 'all' });
+      save.flush({ ...group, tales: [], tags: [ref(beach), ref(summer)], tagMatch: 'all' });
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const reopened = drawer() as HTMLElement;
+      expect(reopened.querySelector('h2')?.textContent).toContain('Audience');
+      expect(reopened.querySelectorAll<HTMLInputElement>('input[name=tagMatch]')[1].checked).toBe(true);
+    });
+
+    it('disables All and Any while no tag is checked, and says why', async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [], tagMatch: 'all' }] },
+        tags: { p1: [beach, summer] },
+      });
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const matchSet = () => panel.querySelector('input[name=tagMatch]')?.closest('fieldset') as HTMLFieldSetElement;
+      expect(matchSet().disabled).toBe(true);
+      expect(panel.querySelector('#tag-match-hint')?.textContent?.trim()).toBe(
+        'With no targeting tags, the group shows to every viewer. Check a tag to choose Any or All.',
+      );
+      (panel.querySelector('input[type=checkbox]') as HTMLInputElement).click();
+      await settle(fixture);
+      expect(matchSet().disabled).toBe(false);
+      expect(panel.querySelector<HTMLInputElement>('input[name=tagMatch][value=all]')?.checked).toBe(true);
+      (panel.querySelector('input[type=checkbox]') as HTMLInputElement).click();
+      await settle(fixture);
+      expect(matchSet().disabled).toBe(true);
+    });
+
+    it("shows the API's message in the Audience drawer when a tag or the set is refused", async () => {
       const { fixture, root } = await open('/zones/z1', {
         ...oneZone,
         groups: { z1: [{ ...group, tales: [] }] },
         tags: { p1: [summer] },
       });
-      pickMenuItem(root, 'More for Summer', 'Tags');
+      pickMenuItem(root, 'More for Summer', 'Audience');
       await settle(fixture);
       const panel = drawer() as HTMLElement;
       expect(panel.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked).toBe(false);
@@ -4352,7 +4423,7 @@ describe('App', () => {
         ['Summer', 'g1', true],
         ['Spring', 'g3', false],
       ] as const) {
-        pickMenuItem(root, `More for ${name}`, 'Tags');
+        pickMenuItem(root, `More for ${name}`, 'Audience');
         await settle(fixture);
         const panel = drawer() as HTMLElement;
         if (created) {
@@ -4366,7 +4437,7 @@ describe('App', () => {
         }
         buttonNamed(panel, 'Save').click();
         const save = http.expectOne(`${API_BASE}/tale-groups/${id}/tags`);
-        expect(save.request.body).toEqual({ tagIds: ['tag1'] });
+        expect(save.request.body).toEqual({ tagIds: ['tag1'], tagMatch: 'any' });
         save.flush({ ...groups.find((g) => g.id === id), tags: [ref(summer)] });
         await settle(fixture);
       }
@@ -5423,7 +5494,7 @@ describe('App', () => {
       expect(menuItems(visible, 'More for Visible now')).toEqual([
         { label: 'Rename', reason: '', disabled: false },
         { label: 'Cover', reason: '', disabled: false },
-        { label: 'Tags', reason: '', disabled: false },
+        { label: 'Audience', reason: '', disabled: false },
         { label: 'Schedule', reason: '', disabled: false },
         { label: 'Show in another zone', reason: '', disabled: false },
         { label: 'Copy to zone', reason: '', disabled: false },
@@ -5607,7 +5678,7 @@ describe('App', () => {
       });
       const row = root.querySelector<HTMLElement>('.group-items > li') as HTMLElement;
       expect(row.querySelector('.group-row__tags')?.textContent).toContain('Promo');
-      pickMenuItem(row, 'More for Draft loose', 'Tags');
+      pickMenuItem(row, 'More for Draft loose', 'Audience');
       await settle(fixture);
       expect(drawer()?.textContent).toContain('For tale group Draft loose');
       const checked = drawer()?.querySelector<HTMLInputElement>('input[type=checkbox]');
@@ -5709,7 +5780,7 @@ describe('App', () => {
       );
       // The head's ⋯ is the Tale groups page's: no "Remove from this zone".
       expect(menuItems(view, 'More for Loose').map((item) => item.label)).toEqual([
-        'Rename', 'Cover', 'Tags', 'Schedule', 'Show in another zone', 'Copy to zone', 'Archive',
+        'Rename', 'Cover', 'Audience', 'Schedule', 'Show in another zone', 'Copy to zone', 'Archive',
       ]);
       expect(view.querySelector('.group-view__count')?.textContent).toContain('2 of 2 shown');
 

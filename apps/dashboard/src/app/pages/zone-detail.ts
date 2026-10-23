@@ -67,7 +67,7 @@ type Direction = 'earlier' | 'later';
  * The Tale groups tab lists its tale groups, one row each (epic UX rework R10): reorder handle and
  * move buttons, cover, name, "3 of 4 shown", the On/Off switch (AD-6 amended, R6), the indicator
  * (R7), the schedule chip when a window exists (R8), and a ⋯ menu with every other action (Rename,
- * Cover, Tags, Schedule, Show in another zone, Copy to zone, Remove from this zone, Archive or
+ * Cover, Audience, Schedule, Show in another zone, Copy to zone, Remove from this zone, Archive or
  * Restore); an item that cannot apply stays, disabled, with its reason. A status the switch does
  * not say (scheduled, blocked by group, archived) shows as a badge. Opening a group (its name, or
  * a click on the row outside its controls) opens its group view (R11, `GroupView`): a wide drawer,
@@ -570,7 +570,7 @@ export class ZoneDetailPage {
       menus.set(group.id, [
         { id: 'rename', label: 'Rename' },
         { id: 'cover', label: 'Cover' },
-        { id: 'tags', label: 'Tags' },
+        { id: 'tags', label: 'Audience' },
         { id: 'schedule', label: 'Schedule' },
         this.store.zonesToPlace(group.id).length > 0
           ? { id: 'place', label: 'Show in another zone' }
