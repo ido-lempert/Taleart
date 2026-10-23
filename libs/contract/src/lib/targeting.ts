@@ -18,9 +18,13 @@ export function isTagMatch(value: unknown): value is TagMatch {
   return value === 'any' || value === 'all';
 }
 
-/** A tag as the rule compares it: trimmed and in lower case. */
+/**
+ * A tag as the rule compares it: in Unicode NFC (so a composed and a decomposed letter are one),
+ * trimmed and in lower case. The lower case is locale-independent: no Turkish dotless-i rules and
+ * no accent folding, so every SDK gets the same answers.
+ */
 export function normalizeTargetingTag(tag: string): string {
-  return tag.trim().toLowerCase();
+  return tag.normalize('NFC').trim().toLowerCase();
 }
 
 /**
@@ -42,7 +46,8 @@ export function viewerTagSet(tags: readonly unknown[] | null | undefined): Reado
  * True when a delivered tale group shows to a viewer by its tags (epic targeting R2): a group with
  * no tags passes; a viewer with no tags (null, or none left once blank values are dropped) passes;
  * with `any`, one of the group's tags must be among the viewer's; with `all`, every one. Case and
- * surrounding spaces are ignored. A match mode other than `all` reads as `any`.
+ * surrounding spaces are ignored, and composed and decomposed letters match (NFC). A match mode
+ * other than `all` reads as `any`.
  */
 export function tagRulePasses(
   group: { readonly tags?: readonly string[] | null; readonly tagMatch?: string | null },

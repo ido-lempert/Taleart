@@ -163,6 +163,8 @@ export class TaleartElement extends HTMLElement {
   // without a new request; and the groups rendered from it.
   private loaded: { zone: DeliveryZone; configName: string } | null = null;
   private renderedKey: string | null = null;
+  // True while new viewer tags wait for the open viewer to close: its group still matches them.
+  private retargetOnClose = false;
 
   constructor() {
     super();
@@ -201,7 +203,17 @@ export class TaleartElement extends HTMLElement {
     if (!loaded || !this.isConnected) return;
     const zone = targeted(loaded.zone);
     // The same groups: the display, and an open viewer, stay as they are.
-    if (groupKey(zone) === this.renderedKey) return;
+    if (groupKey(zone) === this.renderedKey) {
+      this.retargetOnClose = false;
+      return;
+    }
+    // An open viewer whose group still matches stays open; the display follows when it closes.
+    // One whose group no longer matches closes, and focus goes to the display.
+    const open = this.viewer?.groupId ?? null;
+    if (open !== null && zone.taleGroups.some((group) => group.id === open)) {
+      this.retargetOnClose = true;
+      return;
+    }
     this.render(zone, this.clear(), loaded.configName);
   }
 
@@ -361,6 +373,7 @@ export class TaleartElement extends HTMLElement {
     this.root.replaceChildren();
     this.themed = null;
     this.renderedKey = null;
+    this.retargetOnClose = false;
     return focusGroup;
   }
 
@@ -386,7 +399,17 @@ export class TaleartElement extends HTMLElement {
         const item = barItems?.get(groupId);
         if (item) setItemSeen(item, names.get(groupId) ?? '', true);
       },
-      onClose: (groupId) => view?.focus(groupId),
+      onClose: (groupId) => {
+        // New viewer tags arrived while it was open: show the matching groups now, focus on this one.
+        if (this.retargetOnClose && this.viewer === viewer) {
+          this.retargetOnClose = false;
+          this.viewer = null;
+          this.pendingFocus = groupId;
+          this.retarget();
+          return;
+        }
+        view?.focus(groupId);
+      },
     });
     const open = (groupId: string) => {
       if (this.viewer === viewer) viewer.open(groupId);

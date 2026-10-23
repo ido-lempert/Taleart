@@ -11,7 +11,12 @@ function group(id: string, tags: string[], tagMatch: 'any' | 'all'): DeliveryTal
     tags,
     tagMatch,
     tales: [
-      { id: `t-${id}`, title: id, media: null, document: null as unknown as DeliveryTaleGroup['tales'][0]['document'] },
+      {
+        id: `t-${id}`,
+        title: id,
+        media: { kind: 'image', contentType: 'image/png', url: `${API}/media/tales/${id}.png` },
+        document: null as unknown as DeliveryTaleGroup['tales'][0]['document'],
+      },
     ],
   };
 }
@@ -61,6 +66,8 @@ describe('setTags (epic targeting R2)', () => {
     fetchMock = vi.fn(async () => respond(zone));
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
     localStorage.clear();
   });
 
@@ -103,6 +110,77 @@ describe('setTags (epic targeting R2)', () => {
     const bar = el.shadowRoot?.querySelector('.taleart');
     setTags(['Summer', 'winter']);
     expect(el.shadowRoot?.querySelector('.taleart')).toBe(bar);
+  });
+
+  it('renders the response with the tags set while it loaded', async () => {
+    let answer: (res: Response) => void = () => undefined;
+    fetchMock.mockImplementation(() => new Promise<Response>((resolve) => (answer = resolve)));
+    const el = await mount();
+    expect(shown(el)).toEqual([]);
+    setTags(['vip']);
+    setTags(['summer']);
+    answer(respond(zone));
+    await settle();
+    expect(shown(el)).toEqual(['A', 'D']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe('with the viewer open', () => {
+    const viewerDialog = (el: TaleartElement) => el.shadowRoot?.querySelector<HTMLDialogElement>('dialog.viewer');
+    const openGroup = (el: TaleartElement, id: string) =>
+      el.shadowRoot?.querySelector<HTMLButtonElement>(`button.item[data-tale-group-id="${id}"]`)?.click();
+
+    it('keeps it open while its group still matches, and shows the new groups once it closes', async () => {
+      const el = await mount();
+      openGroup(el, 'C');
+      const dialog = viewerDialog(el);
+      expect(dialog?.hasAttribute('open')).toBe(true);
+      expect(dialog?.getAttribute('aria-label')).toBe('C');
+
+      setTags(['vip']);
+      expect(viewerDialog(el)).toBe(dialog);
+      expect(dialog?.hasAttribute('open')).toBe(true);
+      // The display behind it waits for the viewer.
+      expect(shown(el)).toEqual(['A', 'B', 'C', 'D']);
+
+      dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(shown(el)).toEqual(['C', 'D']);
+      expect(el.shadowRoot?.activeElement?.getAttribute('data-tale-group-id')).toBe('C');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes it when its group no longer matches, and focuses the display', async () => {
+      const el = await mount();
+      openGroup(el, 'C');
+      expect(viewerDialog(el)?.hasAttribute('open')).toBe(true);
+
+      setTags(['summer']);
+      expect(el.shadowRoot?.querySelector('dialog.viewer[open]')).toBeNull();
+      expect(shown(el)).toEqual(['A', 'D']);
+      expect(el.shadowRoot?.activeElement?.getAttribute('data-tale-group-id')).toBe('A');
+    });
+
+    it('shows a group again once the tags match it again, and it opens', async () => {
+      const el = await mount();
+      openGroup(el, 'C');
+      setTags(['summer']);
+      expect(shown(el)).toEqual(['A', 'D']);
+      setTags(['vip']);
+      expect(shown(el)).toEqual(['C', 'D']);
+      openGroup(el, 'C');
+      expect(viewerDialog(el)?.getAttribute('aria-label')).toBe('C');
+      expect(viewerDialog(el)?.hasAttribute('open')).toBe(true);
+    });
+
+    it('closes it after all when tags change again so that its group no longer matches', async () => {
+      const el = await mount();
+      openGroup(el, 'C');
+      setTags(['vip']);
+      expect(viewerDialog(el)?.hasAttribute('open')).toBe(true);
+      setTags(['summer']);
+      expect(el.shadowRoot?.querySelector('dialog.viewer[open]')).toBeNull();
+      expect(shown(el)).toEqual(['A', 'D']);
+    });
   });
 
   it('applies to every element on the page, and to elements placed later', async () => {

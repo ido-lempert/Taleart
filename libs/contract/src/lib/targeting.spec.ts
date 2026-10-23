@@ -22,21 +22,42 @@ describe('the tag rule (epic targeting R2)', () => {
     expect(tagRulePasses({ tags: c.groupTags, tagMatch: c.tagMatch }, viewerTagSet(c.viewerTags))).toBe(c.passes);
   });
 
-  it('covers every case R2 names', () => {
-    const names = table.cases.map((c) => c.name);
-    for (const part of [
-      'no group tags',
-      'no setTags call',
-      'Any, one of two',
-      'Any, none',
-      'Any, all',
-      'All, one missing',
-      'All, all present',
-      'case',
-      'spaces',
-    ]) {
-      expect(names.some((name) => name.includes(part))).toBe(true);
-    }
+  // R2's cases with the answer each must hold, so the table cannot drift to the wrong expectation:
+  // a case named here must exist with exactly this result.
+  it.each([
+    ['no group tags, viewer tags', true],
+    ['no group tags with All, viewer tags', true],
+    ['Any, no setTags call', true],
+    ['All, no setTags call', true],
+    ['Any, empty viewer tags', true],
+    ['Any, one of two matching', true],
+    ['Any, none matching', false],
+    ['Any, all matching', true],
+    ['All, one missing', false],
+    ['All, all present', true],
+    ['Any, case differs', true],
+    ['Any, surrounding spaces', true],
+    ['All, case and spaces differ', true],
+    ['non-ASCII: accented letters match ignoring case', true],
+    ['non-ASCII: accents are not folded away', false],
+    ['non-ASCII: NFD viewer tag matches an NFC group tag', true],
+    ['non-ASCII: NFC viewer tag matches an NFD group tag under All', true],
+    ['non-ASCII: Turkish dotted capital I is not plain i', false],
+    ['non-ASCII: Turkish dotted capital I matches itself in any case', true],
+  ] as const)('the table holds "%s" with passes %s', (name, passes) => {
+    const found = table.cases.filter((c) => c.name === name);
+    expect(found).toHaveLength(1);
+    expect(found[0].passes).toBe(passes);
+    expect(tagRulePasses({ tags: found[0].groupTags, tagMatch: found[0].tagMatch }, found[0].viewerTags)).toBe(passes);
+  });
+
+  it('compares composed and decomposed letters alike, without Turkish or accent rules', () => {
+    const composed = 'café';
+    const decomposed = 'café';
+    expect(composed).not.toBe(decomposed);
+    expect(tagRulePasses({ tags: [composed], tagMatch: 'any' }, [decomposed])).toBe(true);
+    expect(tagRulePasses({ tags: ['İstanbul'], tagMatch: 'any' }, ['istanbul'])).toBe(false);
+    expect(tagRulePasses({ tags: ['café'], tagMatch: 'any' }, ['cafe'])).toBe(false);
   });
 
   it('shows the sample page matrix: A {summer} Any, B {summer, vip} All, C {vip} Any, D untagged', () => {
