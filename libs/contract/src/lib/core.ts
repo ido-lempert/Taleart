@@ -207,6 +207,13 @@ export const SDK_CACHE_SECONDS = 300;
 /** How long browsers keep the SDK at its pinned URL (`taleart.<hash>.js`): a year, since that file never changes. */
 export const SDK_PINNED_CACHE_SECONDS = 31_536_000;
 
+/**
+ * How many SDK builds the API keeps serving at their pinned URLs unless SDK_BUILDS_KEPT says
+ * otherwise, the current one included (story 8.21): a pinned page keeps working through this many
+ * SDK builds the server serves, less one. `InstallInfo.sdkBuildsKept` gives the server's own number.
+ */
+export const DEFAULT_SDK_BUILDS_KEPT = 5;
+
 /** What the install snippet says in place of the site key when the key is not at hand (it is shown only once). */
 export const SITE_KEY_PLACEHOLDER = 'YOUR_SITE_KEY';
 
@@ -218,6 +225,16 @@ function htmlAttribute(value: string): string {
 /** The script tag that loads the Web SDK as an ES module, from `info.sdkUrl`. */
 export function sdkScriptTag(info: Pick<InstallInfo, 'sdkUrl'>): string {
   return `<script type="module" src="${htmlAttribute(info.sdkUrl)}"></script>`;
+}
+
+/**
+ * The script tag that loads the Web SDK pinned to one build (`sdkPinnedUrl`) with Subresource
+ * Integrity (`sdkIntegrity`), or null when the API has no bundle. `crossorigin` makes the browser
+ * check the integrity of a file from another origin.
+ */
+export function pinnedSdkScriptTag(info: Pick<InstallInfo, 'sdkPinnedUrl' | 'sdkIntegrity'>): string | null {
+  if (!info.sdkPinnedUrl || !info.sdkIntegrity) return null;
+  return `<script type="module" src="${htmlAttribute(info.sdkPinnedUrl)}" integrity="${htmlAttribute(info.sdkIntegrity)}" crossorigin="anonymous"></script>`;
 }
 
 /**
@@ -325,6 +342,12 @@ export function uniqueZoneSlug(base: string, taken: (slug: string) => boolean): 
 
 /** The most tales one tale group holds (FR-010). */
 export const MAX_TALES_PER_GROUP = 100;
+
+/**
+ * The most tale groups that are not archived one project holds (epic UX rework R14). Archived groups
+ * do not count: archiving one frees a place, and restoring one needs a free place.
+ */
+export const MAX_TALE_GROUPS_PER_PROJECT = 500;
 
 /** Every content type a tale's media may have. */
 export const MEDIA_CONTENT_TYPES: readonly MediaContentType[] = mediaContentTypeValues;
@@ -617,6 +640,7 @@ export const ErrorCodes = {
   slugTaken: 'slug_taken',
   taleGroupNotFound: 'tale_group_not_found',
   taleGroupFull: 'tale_group_full',
+  taleGroupLimitReached: 'tale_group_limit_reached',
   taleNotFound: 'tale_not_found',
   orderMismatch: 'order_mismatch',
   mediaNotFound: 'media_not_found',

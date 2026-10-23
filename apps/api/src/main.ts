@@ -17,7 +17,7 @@ import {
 } from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
-import { defaultSdkFiles, webSdkFileFromEnv } from './http/sdk.router';
+import { defaultSdkFiles, hasKeptBuilds, sdkBuildsFromEnv, webSdkFileFromEnv } from './http/sdk.router';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
 import { configureTestElementTypes } from './element-types-config';
@@ -45,6 +45,9 @@ async function start(): Promise<void> {
   // The Web SDK bundle served at /sdk/v1/taleart.js: WEB_SDK_FILE, a .js file, else the one the build
   // copied next to main.js.
   const webSdkFile = webSdkFileFromEnv(process.env['WEB_SDK_FILE'], (p) => resolve(p)) ?? defaultSdkFiles(__dirname).bundleFile;
+  // The last SDK_BUILDS_KEPT builds (5) stay at their pinned URLs, in SDK_BUILDS_DIR (default
+  // .data/sdk-builds from the folder the API starts in; `off` keeps only the current one).
+  const sdkBuildsConfig = sdkBuildsFromEnv(process.env, (p) => resolve(p));
   // The element-type registry's test-only types (Tale Studio R8): accepted only with
   // TALE_TEST_ELEMENT_TYPES=on, which is refused in production.
   configureTestElementTypes(process.env, setTestElementTypesEnabled, (msg) => log('warn', msg));
@@ -133,11 +136,25 @@ async function start(): Promise<void> {
   );
   // The Web SDK bundle host pages load from <PUBLIC_API_URL>/sdk/v1/taleart.js (epic UX rework R13):
   // the build copies dist/libs/web-sdk/index.js next to main.js; WEB_SDK_FILE names another file.
-  const sdk = { bundleFile: webSdkFile };
+  const sdk = { bundleFile: webSdkFile, ...sdkBuildsConfig, warn: (msg: string, err?: unknown) => log('warn', msg, err) };
   log(
     'info',
     `Web SDK at ${publicApiUrl}${SDK_BUNDLE_PATH} from ${webSdkFile}${existsSync(webSdkFile) ? '' : ' (missing: answers 404 until it is built)'}`,
   );
+  log(
+    'info',
+    sdkBuildsConfig.buildsDir ?
+      `Web SDK pinned URLs: the last ${sdkBuildsConfig.buildsKept} builds, kept in ${sdkBuildsConfig.buildsDir}`
+    : 'Web SDK pinned URLs: the current build only (SDK_BUILDS_DIR=off)',
+  );
+  // Read before the app keeps the build it starts with: an empty folder in production means either
+  // a first deploy or a folder that does not survive deploys (no volume), where pinned pages break.
+  if (process.env['NODE_ENV'] === 'production' && sdkBuildsConfig.buildsDir && !hasKeptBuilds(sdkBuildsConfig.buildsDir)) {
+    log(
+      'warn',
+      `SDK_BUILDS_DIR ${sdkBuildsConfig.buildsDir} holds no earlier Web SDK builds. Unless this is the first deploy, it does not persist across deploys: put it on a volume, or pages pinned to earlier builds answer 404.`,
+    );
+  }
   const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit }, sdk);
   if (trustProxy !== undefined) {
     app.set('trust proxy', trustProxy);

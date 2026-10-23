@@ -424,7 +424,9 @@ paths:
       summary: Create a tale group in a project, placed in no zone (epic UX rework R14).
       description: >-
         The group starts Off (`draft`) with no tales and no placement; it can
-        be shown in a zone later. Unknown project 404 `project_not_found`.
+        be shown in a zone later. Unknown project 404 `project_not_found`. A
+        project holds at most 500 tale groups that are not archived: 409
+        `tale_group_limit_reached`, and nothing is created.
       requestBody:
         required: true
         content:
@@ -443,6 +445,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1417,7 +1421,9 @@ paths:
       summary: Create a tale group and place it in a zone, after the zone's existing groups.
       description: >-
         The tale group belongs to the zone's project and gets one placement, at
-        the end of this zone.
+        the end of this zone. A project holds at most 500 tale groups that
+        are not archived: 409 `tale_group_limit_reached`, and nothing is
+        created.
       requestBody:
         required: true
         content:
@@ -1436,6 +1442,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -1619,7 +1627,10 @@ paths:
         independent afterwards. The caller needs access to the source group's
         project and to the target zone's project (403 `forbidden`). Unknown
         tale group: 404 `tale_group_not_found`; missing `zoneId`: 400
-        `validation_failed`; unknown zone: 404 `zone_not_found`.
+        `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts
+        against the target zone's project, which holds at most 500 tale groups
+        that are not archived: 409 `tale_group_limit_reached`, and nothing is
+        copied.
       requestBody:
         required: true
         content:
@@ -1639,6 +1650,8 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
   /tale-groups/{taleGroupId}/status:
@@ -1656,7 +1669,9 @@ paths:
         `draft` or `paused` (publish); `paused` from `live` (pause) or from
         `archived` (restore); `archived` from `draft`, `live` or `paused`
         (archive). Setting the current status again changes nothing. Any
-        other change: 409 `invalid_status_transition`. A status other than
+        other change: 409 `invalid_status_transition`. A restore in a project
+        that already has 500 tale groups that are not archived: 409
+        `tale_group_limit_reached`. A status other than
         `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale
         group: 404 `tale_group_not_found`. Only `live` groups reach the
         Delivery API; the `live` tales of a `draft` or `paused` group read
@@ -3050,7 +3065,7 @@ components:
             type: string
     InstallInfo:
       type: object
-      required: [apiUrl, sdkUrl, sdkPinnedUrl, sdkIntegrity, testPageUrl]
+      required: [apiUrl, sdkUrl, sdkPinnedUrl, sdkIntegrity, sdkBuildsKept, testPageUrl]
       properties:
         apiUrl:
           type: string
@@ -3065,11 +3080,20 @@ components:
           description: >-
             The same bundle at a URL pinned to its content
             (`<apiUrl>/sdk/v1/taleart.<hash>.js`, cached a year, immutable),
-            for a page that also pins it with `integrity`; it is gone with the
-            next build. Null when the API has no bundle.
+            for a page that also pins it with `integrity`. The API keeps serving
+            it while it is one of the last `sdkBuildsKept` SDK builds it
+            served. Null when the API has no bundle.
         sdkIntegrity:
           type: [string, 'null']
           description: The bundle's Subresource Integrity value (`sha384-…`); null when the API has no bundle.
+        sdkBuildsKept:
+          type: integer
+          minimum: 1
+          description: >-
+            How many SDK builds this server keeps at their pinned URLs, the
+            current one included (SDK_BUILDS_KEPT, default 5). 1 when the
+            server keeps no earlier builds (SDK_BUILDS_DIR=off): a pinned URL
+            then stops working at the next SDK build.
         testPageUrl:
           type: string
           description: >-
@@ -4214,6 +4238,7 @@ components:
         - slug_taken
         - tale_group_not_found
         - tale_group_full
+        - tale_group_limit_reached
         - tale_not_found
         - order_mismatch
         - media_not_found

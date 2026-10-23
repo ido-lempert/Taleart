@@ -5,6 +5,7 @@ import {
   MAX_IMPORT_SELECTED_ZONES,
   MAX_LINK_LABEL_LENGTH,
   MAX_TALES_PER_GROUP,
+  MAX_TALE_GROUPS_PER_PROJECT,
   type ImportChangeCount,
   type ImportChanges,
   type ImportCount,
@@ -36,6 +37,7 @@ import {
   taleGroupName,
   taleTitle as storedTaleTitle,
   TaleGroupFullError,
+  TaleGroupLimitError,
   TaleGroupNotFoundError,
 } from '@taleart/server-tales';
 import { createZone, findZone, renameZoneWhen, zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
@@ -492,6 +494,9 @@ async function importLinked(
     } catch (err) {
       // Another import linked it meanwhile: its record stands, so read the link again.
       if (err instanceof AlreadyLinkedError) continue;
+      // A full project refuses the create before the link is checked (R14): another import may have
+      // created and linked this very record meanwhile, taking the last place. Then use its record.
+      if (err instanceof TaleGroupLimitError && (await findLinkTarget(db, source)) !== null) continue;
       throw err;
     }
     // create resolved, so its callback ran and set the id.
@@ -1070,6 +1075,14 @@ async function importContentWith(
           (link) => createTaleGroup(db, { zoneId, name }, (tx, created) => link(tx, created.taleGroupId)),
         );
       } catch (err) {
+        // The project is full (groups not archived): this new group is skipped, and the import goes on
+        // (groups it already brought across are found by their link and update as before).
+        if (err instanceof TaleGroupLimitError) {
+          skipGroup(
+            `Tale group "${text(name)}": the project already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups that are not archived`,
+          );
+          continue;
+        }
         if (!(err instanceof ZoneNotFoundError)) throw err;
         skipGroup(`Tale group "${text(name)}": its zone was deleted during the import`);
         continue;

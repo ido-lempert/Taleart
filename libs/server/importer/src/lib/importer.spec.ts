@@ -5,7 +5,12 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalDiskStorage } from '@taleart/server-storage';
-import { MAX_IMPORT_REPORT_DIFFERENCES, type ImportDifference, type ImportReport } from '@taleart/contract';
+import {
+  MAX_IMPORT_REPORT_DIFFERENCES,
+  MAX_TALE_GROUPS_PER_PROJECT,
+  type ImportDifference,
+  type ImportReport,
+} from '@taleart/contract';
 import type { TransactionalDb } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
 import { decryptToken, encryptToken, parseTokenKey } from './crypto';
@@ -315,7 +320,8 @@ function contentDb(intercept?: (sql: string, params: unknown[]) => unknown) {
   const groupTags = new Map<string, Set<string>>();
   // When set, the targeting module finds no tale group: as if it was deleted during the import.
   // talesGoneForUpdate: a tale found through its link is gone when its update reads it.
-  const state = { groupsGoneForTags: false, talesGoneForUpdate: false };
+  // otherGroups: the project's tale groups the import did not bring, for the cap (R14).
+  const state = { groupsGoneForTags: false, talesGoneForUpdate: false, otherGroups: 0 };
   // What the import recorded per record for re-imports, by `type:id`.
   const records = new Map<string, Record<string, unknown>>();
   // Each tale's media, and what the import recorded copying onto it.
@@ -463,6 +469,9 @@ function contentDb(intercept?: (sql: string, params: unknown[]) => unknown) {
     if (/SELECT project_id FROM tale_groups WHERE id = \$1$/.test(sql) && state.groupsGoneForTags) return { rows: [] };
     if (/SELECT project_id FROM tale_groups/.test(sql)) {
       return { rows: groups.has(p[0]) ? [{ project_id: projectId }] : [] };
+    }
+    if (/count\(\*\)::int AS count FROM tale_groups WHERE project_id = \$1/.test(sql)) {
+      return { rows: [{ count: groups.size + state.otherGroups }] };
     }
     if (/count\(\*\)::int/.test(sql)) {
       const count = [...tales.values()].filter((t) => t.groupId === p[0]).length;
@@ -695,6 +704,49 @@ describe('importContent: tale groups and tales', () => {
     );
     expect(report.tales).toEqual({ source: 101, imported: 100, skipped: 1 });
     expect(report.notes).toContain('Tale "T100" in "Big": the tale group already holds 100 tales');
+  });
+
+  it('skips with a note the new groups a full project cannot take, and goes on with the groups it holds (R14)', async () => {
+    const fake = contentDb();
+    const twoGroups = { '2001': [{ id: 'g1', name: 'Kept', sortOrder: 0 }, { id: 'g2', name: 'Late', sortOrder: 1 }] };
+    const twoStories = { g1: [{ id: 's1', name: 'A', sortOrder: 0 }], g2: [{ id: 's2', name: 'B', sortOrder: 0 }] };
+    fake.state.otherGroups = MAX_TALE_GROUPS_PER_PROJECT - 1;
+    const report = await importContent(fake.db, projectId, home, source(twoGroups, twoStories));
+    expect(report.taleGroups).toEqual({ source: 2, imported: 1, skipped: 1 });
+    expect(report.tales).toEqual({ source: 2, imported: 1, skipped: 1 });
+    const note = `Tale group "Late": the project already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups that are not archived`;
+    expect(report.notes).toContain(note);
+    expect(fake.zoneContent('Home page')).toEqual([{ name: 'Kept', tales: ['A'] }]);
+    expect(fake.links.has('story_group:g2')).toBe(false);
+    // Again, with a new story in the group it holds: that group takes it; the other is still refused.
+    twoStories.g1.push({ id: 's3', name: 'C', sortOrder: 1 });
+    const again = await importContent(fake.db, projectId, home, source(twoGroups, twoStories));
+    expect(again.taleGroups).toEqual({ source: 2, imported: 1, skipped: 1 });
+    expect(again.notes).toContain(note);
+    expect(fake.zoneContent('Home page')).toEqual([{ name: 'Kept', tales: ['A', 'C'] }]);
+  });
+
+  it('uses the other import\'s group when that import took the last place for the same record (R14)', async () => {
+    const fake = contentDb();
+    const otherId = '00000000-0000-4000-8000-0000000000ee';
+    fake.state.otherGroups = MAX_TALE_GROUPS_PER_PROJECT;
+    let reads = 0;
+    fake.setOnLinkRead((key) => {
+      // The read after the refusal: the other import created and linked g1 meanwhile, filling the project.
+      if (key === 'story_group:g1' && ++reads === 2) {
+        fake.links.set(key, otherId);
+        fake.groups.set(otherId, { name: 'Kept', zoneId: 'elsewhere', position: 0 });
+      }
+    });
+    const report = await importContent(
+      fake.db,
+      projectId,
+      home,
+      source({ '2001': [{ id: 'g1', name: 'Kept', sortOrder: 0 }] }, { g1: [{ id: 's1', name: 'A', sortOrder: 0 }] }),
+    );
+    expect(report.taleGroups).toEqual({ source: 1, imported: 1, skipped: 0 });
+    expect(report.notes.some((n) => n.includes('not archived'))).toBe(false);
+    expect([...fake.tales.values()]).toEqual([{ groupId: otherId, title: 'A', position: 0 }]);
   });
 
   it('rolls its creation back and uses the other link when another import linked the record meanwhile', async () => {
