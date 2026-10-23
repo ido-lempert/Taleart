@@ -76,6 +76,29 @@ function shownTales(tales: readonly Pick<Tale, 'storedStatus'>[]): number {
   return tales.filter((tale) => tale.storedStatus === 'live').length;
 }
 
+// The key of a group's tale order queue (story 8.19): one per group, whichever view orders its
+// tales (the zone page or the Tale groups page); zone ids, the other keys, are UUIDs.
+function taleOrderKey(taleGroupId: string): string {
+  return `tales:${taleGroupId}`;
+}
+
+/**
+ * How a tale group read on its own stands while it has no answer to show (story 8.19): being read,
+ * gone (403 or 404: removed, or not the caller's), or not read (any other failure).
+ */
+export type GroupReadState = 'loading' | 'gone' | 'error';
+
+// The answer to one group's read: the group, gone (403 or 404), or another failure.
+type GroupRead = { group: TaleGroup } | { gone: true } | { error: unknown };
+
+// A record without one key.
+function without<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
 // The groups with one group's tales replaced.
 function withTales(groups: ZoneTaleGroup[], taleGroupId: string, tales: Tale[]): ZoneTaleGroup[] {
   return groups.map((g) => (g.id === taleGroupId ? { ...g, tales } : g));
@@ -162,6 +185,20 @@ export class DashboardStore {
   /** The projects whose tale group list a page asked for, and those being read on their own now. */
   private readonly wantedProjectGroups = new Set<string>();
   private readonly readingProjectGroups = new Set<string>();
+  /**
+   * Tale groups read on their own, with their tales, keyed by id (story 8.19): the groups a page
+   * opened with {@link ensureTaleGroup}, such as a group in no zone, which no zone's list holds.
+   * Their visibility is in any zone, as the project's list gives it. Kept fresh by each refresh.
+   */
+  readonly readGroups = signal<Record<string, TaleGroup>>({});
+  /** Per wanted group without an answer to show: being read, gone or failed (story 8.19); absent once read. */
+  readonly groupReads = signal<Record<string, GroupReadState>>({});
+  /**
+   * How many holders want each group read on its own ({@link ensureTaleGroup}: the Tale groups
+   * page's open view, Tale Studio), and the groups being read on their own now.
+   */
+  private readonly wantedGroups = new Map<string, number>();
+  private readonly readingGroups = new Set<string>();
   /** The id of the tale group created last, by either create (epic UX rework R14); null before one. */
   readonly createdTaleGroupId = signal<string | null>(null);
   /** '' or why setup's first project was not created, shown once on the zones page's "Create your first project". */
@@ -174,13 +211,15 @@ export class DashboardStore {
 
   readonly drawer = signal<DrawerRequest | null>(null);
   /**
-   * Order requests run one at a time per zone, across groups and tales, so the
-   * database applies them in the order they were made. Per zone: the tail of
-   * that queue, the last order the API confirmed, how many requests are not
-   * settled, and an epoch bumped by a refusal so moves queued behind it are dropped.
+   * Order requests run one at a time per list, so the database applies them in the order they were
+   * made: per zone for its groups' order, per group (`tales:<id>`, story 8.19) for its tales' order,
+   * from whichever page. Per key: the tail of that queue, how many requests are not settled, and an
+   * epoch bumped by a refusal so moves queued behind it are dropped; per zone and per group, the
+   * last order the API confirmed.
    */
   private readonly orderQueues = new Map<string, Promise<unknown>>();
   private readonly confirmedGroups = new Map<string, ZoneTaleGroup[]>();
+  private readonly confirmedTales = new Map<string, Tale[]>();
   private readonly pendingOrders = new Map<string, number>();
   /** Zones a refresh skipped while their order writes were pending: read again once those settle. */
   private readonly staleOrders = new Set<string>();
@@ -257,8 +296,16 @@ export class DashboardStore {
     return this.taleGroups()[zoneId] ?? [];
   }
 
-  /** A tale group as some zone lists it, with its tales; its content is the same in every zone (AD-14). */
-  taleGroup(taleGroupId: string): ZoneTaleGroup | undefined {
+  /**
+   * A tale group with its tales: as some zone lists it, else as it was read on its own (a group in
+   * no zone, story 8.19); its content is the same in every zone (AD-14).
+   */
+  taleGroup(taleGroupId: string): TaleGroup | undefined {
+    return this.zoneTaleGroup(taleGroupId) ?? this.readGroups()[taleGroupId];
+  }
+
+  /** A tale group as some zone lists it, with its tales and its position there. */
+  private zoneTaleGroup(taleGroupId: string): ZoneTaleGroup | undefined {
     return Object.values(this.taleGroups())
       .flat()
       .find((g) => g.id === taleGroupId);
@@ -296,9 +343,9 @@ export class DashboardStore {
     return this.tags()[projectId] ?? [];
   }
 
+  /** A tale as a zone's list or a group read on its own holds it (story 8.19). */
   tale(taleId: string): Tale | undefined {
-    return Object.values(this.taleGroups())
-      .flat()
+    return [...Object.values(this.taleGroups()).flat(), ...Object.values(this.readGroups())]
       .flatMap((g) => g.tales)
       .find((t) => t.id === taleId);
   }
@@ -340,6 +387,98 @@ export class DashboardStore {
       .finally(() => this.readingProjectGroups.delete(projectId));
   }
 
+  /**
+   * Reads one tale group with its tales (`GET /tale-groups/{id}`) for a holder that shows it (the
+   * Tale groups page's group view, Tale Studio for a tale in no zone); later refreshes keep it fresh
+   * until every holder has called {@link releaseTaleGroup}. Until it is read, {@link groupReads}
+   * says it is loading, gone or failed.
+   */
+  ensureTaleGroup(taleGroupId: string): void {
+    if (!taleGroupId) return;
+    this.wantedGroups.set(taleGroupId, (this.wantedGroups.get(taleGroupId) ?? 0) + 1);
+    this.readOwnGroup(taleGroupId, false);
+  }
+
+  /** Reads a wanted group again, such as after its read failed (the page's Try again). */
+  retryTaleGroup(taleGroupId: string): void {
+    if (this.wantedGroups.has(taleGroupId)) this.readOwnGroup(taleGroupId, true);
+  }
+
+  /**
+   * One holder no longer shows the group; once none does, it is forgotten (refreshes no longer read
+   * it), with its tale order bookkeeping when no order write is pending.
+   */
+  releaseTaleGroup(taleGroupId: string): void {
+    const left = (this.wantedGroups.get(taleGroupId) ?? 0) - 1;
+    if (left > 0) {
+      this.wantedGroups.set(taleGroupId, left);
+      return;
+    }
+    this.wantedGroups.delete(taleGroupId);
+    this.readGroups.update((groups) => without(groups, taleGroupId));
+    this.groupReads.update((reads) => without(reads, taleGroupId));
+    if ((this.pendingOrders.get(taleOrderKey(taleGroupId)) ?? 0) === 0) this.forgetTaleOrder(taleGroupId);
+  }
+
+  // Reads a wanted group on its own, unless it is being read, or (`again` false) already read. An
+  // answer is shown unless a refresh that started meanwhile already showed a newer one.
+  private readOwnGroup(taleGroupId: string, again: boolean): void {
+    if (this.readingGroups.has(taleGroupId) || (!again && taleGroupId in this.readGroups())) return;
+    this.readingGroups.add(taleGroupId);
+    if (!(taleGroupId in this.readGroups())) this.groupReads.update((reads) => ({ ...reads, [taleGroupId]: 'loading' }));
+    const generation = this.generation;
+    const run = this.refreshes;
+    void this.readGroup(taleGroupId).then((read) => {
+      this.readingGroups.delete(taleGroupId);
+      if (generation !== this.generation || !this.wantedGroups.has(taleGroupId)) return;
+      if (run !== this.refreshes && taleGroupId in this.readGroups()) return;
+      if ('error' in read) {
+        // As a refresh's failed read does: the API-down banner (a 401 goes to sign-in instead).
+        if (!(read.error instanceof HttpErrorResponse && read.error.status === 401)) this.apiDown.set(true);
+        if (!(taleGroupId in this.readGroups())) this.groupReads.update((reads) => ({ ...reads, [taleGroupId]: 'error' }));
+        return;
+      }
+      this.applyGroupReads([taleGroupId], [read]);
+    });
+  }
+
+  // One group with its tales: gone on 403 or 404 (removed, or not the caller's), else the failure.
+  private async readGroup(taleGroupId: string): Promise<GroupRead> {
+    try {
+      return { group: await firstValueFrom(this.http.get<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}`)) };
+    } catch (error) {
+      return error instanceof HttpErrorResponse && (error.status === 403 || error.status === 404) ? { gone: true } : { error };
+    }
+  }
+
+  /**
+   * Shows answers to group reads, merged into what is shown at that moment: a group read is shown
+   * (keeping its tales' order while an order write is pending), a gone one dropped and marked gone,
+   * a wanted group these reads did not cover (opened meanwhile) kept as it is, and a group no longer
+   * wanted dropped. Failed reads are not passed here: what was shown stays.
+   */
+  private applyGroupReads(ids: readonly string[], reads: readonly GroupRead[]): void {
+    const answered = new Map(ids.map((id, i) => [id, reads[i]]));
+    this.readGroups.update((shown) => {
+      const next: Record<string, TaleGroup> = {};
+      for (const id of this.wantedGroups.keys()) {
+        const read = answered.get(id);
+        if (read && 'group' in read) next[id] = this.withPendingTales(read.group, shown[id]?.tales);
+        else if (!read && shown[id]) next[id] = shown[id];
+      }
+      return next;
+    });
+    this.groupReads.update((states) => {
+      const next = { ...states };
+      for (const [id, read] of answered) {
+        if ('group' in read) delete next[id];
+        else if ('gone' in read) next[id] = 'gone';
+      }
+      for (const id of Object.keys(next)) if (!this.wantedGroups.has(id)) delete next[id];
+      return next;
+    });
+  }
+
   /** Bumped by reset(), so a refresh that started before it writes nothing. */
   private generation = 0;
 
@@ -353,6 +492,9 @@ export class DashboardStore {
     this.taleGroups.set({});
     this.projectTaleGroups.set({});
     this.wantedProjectGroups.clear();
+    this.readGroups.set({});
+    this.groupReads.set({});
+    this.wantedGroups.clear();
     this.createdTaleGroupId.set(null);
     this.tags.set({});
     this.loaded.set(false);
@@ -427,16 +569,27 @@ export class DashboardStore {
       this.frameTypes.set(frameTypes);
       const groups = await this.loadEach<ZoneTaleGroup[]>(zones, (id) => `/zones/${id}/tale-groups`);
       if (!current()) return;
-      this.taleGroups.set(this.keepPendingOrders(groups));
+      this.taleGroups.set(this.keepPendingTales(this.keepPendingOrders(groups)));
       const tags = await this.loadEach<Tag[]>(projects, (id) => `/projects/${encodeURIComponent(id)}/tags`);
       if (!current()) return;
       this.tags.set(tags);
-      const projectGroups = await this.loadEach<ProjectTaleGroup[]>(
-        projects.filter((p) => this.wantedProjectGroups.has(p.id)),
-        (id) => `/projects/${encodeURIComponent(id)}/tale-groups`,
-      );
+      // The groups read on its own are read with the project lists, in parallel. Each is read even
+      // when a zone lists it: a zone's list gives its visibility in that zone, the Tale groups
+      // page's view shows it in any zone (story 8.19).
+      const ids = [...this.wantedGroups.keys()];
+      const [projectGroups, reads] = await Promise.all([
+        this.loadEach<ProjectTaleGroup[]>(
+          projects.filter((p) => this.wantedProjectGroups.has(p.id)),
+          (id) => `/projects/${encodeURIComponent(id)}/tale-groups`,
+        ),
+        Promise.all(ids.map((id) => this.readGroup(id))),
+      ]);
       if (!current()) return;
+      // A failed group read fails the refresh as any other read does; the groups keep what they show.
+      const failed = reads.find((read): read is { error: unknown } => 'error' in read);
+      if (failed) throw failed.error;
       this.projectTaleGroups.set(projectGroups);
+      this.applyGroupReads(ids, reads);
       this.apiDown.set(false);
     } catch (err) {
       // A 401 means the session ended; the auth interceptor sends the user to sign-in.
@@ -674,6 +827,8 @@ export class DashboardStore {
       storedStatus: group.storedStatus,
       tales: group.tales,
     }));
+    // A group read on its own takes the answer whole: it is read in any zone too.
+    this.patchReadGroup(group.id, (g) => ({ ...g, ...group }));
     this.projectTaleGroups.update((lists) =>
       Object.fromEntries(
         Object.entries(lists).map(([id, list]) => [
@@ -704,6 +859,20 @@ export class DashboardStore {
       ...g,
       tales: g.tales.map((t) => (t.id === tale.id ? { ...t, status: tale.status, storedStatus: tale.storedStatus } : t)),
     }));
+    // A group read on its own is read in any zone, as the status route answers: its visibility too.
+    this.patchReadGroup(tale.taleGroupId, (g) => ({
+      ...g,
+      tales: g.tales.map((t) =>
+        t.id === tale.id ? { ...t, status: tale.status, storedStatus: tale.storedStatus, visibility: tale.visibility ?? t.visibility } : t,
+      ),
+    }));
+    const confirmed = this.confirmedTales.get(tale.taleGroupId);
+    if (confirmed) {
+      this.confirmedTales.set(
+        tale.taleGroupId,
+        confirmed.map((t) => (t.id === tale.id ? { ...t, status: tale.status, storedStatus: tale.storedStatus } : t)),
+      );
+    }
     // The project's list counts Shown tales: from the group's tales when a zone lists them, else by the change.
     const listed = this.taleGroup(tale.taleGroupId);
     const delta = before === undefined ? 0 : Number(tale.storedStatus === 'live') - Number(before === 'live');
@@ -728,6 +897,12 @@ export class DashboardStore {
       Object.fromEntries(Object.entries(lists).map(([id, list]) => [id, patched(list)])),
     );
     for (const [zoneId, confirmed] of this.confirmedGroups) this.confirmedGroups.set(zoneId, patched(confirmed));
+  }
+
+  // Patches a group read on its own, when one is.
+  private patchReadGroup(taleGroupId: string, patch: (g: TaleGroup) => TaleGroup): void {
+    const group = this.readGroups()[taleGroupId];
+    if (group) this.readGroups.update((groups) => ({ ...groups, [taleGroupId]: patch(group) }));
   }
 
   /** Publishes, pauses, archives or restores a tale (AD-6). Returns the saved tale, or the message to show. */
@@ -810,6 +985,7 @@ export class DashboardStore {
       const confirmed = this.confirmedGroups.get(zoneId);
       if (confirmed) this.confirmedGroups.set(zoneId, withSavedTags(confirmed));
     }
+    this.patchReadGroup(taleGroupId, (g) => ({ ...g, tags: saved.tags }));
     return '';
   }
 
@@ -840,48 +1016,109 @@ export class DashboardStore {
   }
 
   /**
-   * Sets the order of a tale group's tales, from the zone page of `zoneId`.
-   * The new order shows at once; when the API refuses it, the last confirmed
-   * order comes back and the API's message is returned. The group's other
-   * zones show the saved order once the API confirms it.
+   * Sets the order of a tale group's tales, from whichever view shows it (a zone page, or the Tale
+   * groups page for a group read on its own, story 8.19), through the group's own queue. The new
+   * order shows at once wherever the group is shown; when the API refuses it, the last confirmed
+   * order comes back and the API's message is returned.
    */
-  orderTales(zoneId: string, taleGroupId: string, taleIds: string[]): Promise<string> {
-    const group = this.taleGroupsOf(zoneId).find((g) => g.id === taleGroupId);
+  orderTales(taleGroupId: string, taleIds: string[]): Promise<string> {
+    const group = this.taleGroup(taleGroupId);
     if (!group) return Promise.resolve('This tale group no longer exists.');
     const byId = new Map(group.tales.map((t) => [t.id, t]));
     const tales = taleIds.flatMap((id, position) => {
       const tale = byId.get(id);
       return tale ? [{ ...tale, position }] : [];
     });
-    return this.enqueueOrder(
-      zoneId,
-      withTales(this.taleGroupsOf(zoneId), taleGroupId, tales),
-      async () => {
-        const saved = await firstValueFrom(
-          this.http.put<Tale[]>(`${API_BASE}/tale-groups/${taleGroupId}/tales/order`, { taleIds }),
-        );
-        this.shareTales(zoneId, taleGroupId, saved);
-        return saved;
-      },
-      (confirmed, saved) => withTales(confirmed, taleGroupId, saved),
-    );
+    const key = taleOrderKey(taleGroupId);
+    const pending = this.pendingOrders.get(key) ?? 0;
+    if (pending === 0) this.confirmedTales.set(taleGroupId, group.tales);
+    this.pendingOrders.set(key, pending + 1);
+    this.showTales(taleGroupId, tales);
+    const epoch = this.orderEpochs.get(key) ?? 0;
+
+    const run = async (): Promise<string> => {
+      try {
+        if ((this.orderEpochs.get(key) ?? 0) !== epoch) return '';
+        try {
+          const saved = await firstValueFrom(
+            this.http.put<Tale[]>(`${API_BASE}/tale-groups/${taleGroupId}/tales/order`, { taleIds }),
+          );
+          this.confirmedTales.set(taleGroupId, saved);
+          this.confirmTalesInPendingZones(taleGroupId, saved);
+          if (this.pendingOrders.get(key) === 1) this.showTales(taleGroupId, saved);
+          return '';
+        } catch (err) {
+          this.orderEpochs.set(key, epoch + 1);
+          this.showTales(taleGroupId, this.confirmedTales.get(taleGroupId) ?? group.tales);
+          return apiErrorMessage(err, 'The new order was not saved. Try again.');
+        }
+      } finally {
+        const left = (this.pendingOrders.get(key) ?? 1) - 1;
+        this.pendingOrders.set(key, left);
+        if (left === 0) {
+          // A refresh kept the shown order while this waited: read it now that it is settled.
+          const stale = this.staleOrders.delete(key);
+          this.forgetTaleOrder(taleGroupId);
+          if (stale) void this.refresh();
+        }
+      }
+    };
+    const result = (this.orderQueues.get(key) ?? Promise.resolve()).then(run);
+    this.orderQueues.set(key, result);
+    return result;
   }
 
-  // Shows a group's saved tales in its other zones, which share them (AD-14).
-  private shareTales(fromZoneId: string, taleGroupId: string, tales: Tale[]): void {
-    const zoneIds = this.taleGroupsOf(fromZoneId).find((g) => g.id === taleGroupId)?.zoneIds ?? [];
-    for (const zoneId of zoneIds) {
-      if (zoneId === fromZoneId || !this.taleGroups()[zoneId]) continue;
-      const confirmed = this.confirmedGroups.get(zoneId);
-      if (confirmed) this.confirmedGroups.set(zoneId, withTales(confirmed, taleGroupId, tales));
-      this.setZoneGroups(zoneId, withTales(this.taleGroupsOf(zoneId), taleGroupId, tales));
+  // Shows a group's tales in that order wherever it is shown: every zone list and its own read.
+  private showTales(taleGroupId: string, tales: Tale[]): void {
+    this.taleGroups.update((lists) =>
+      Object.fromEntries(
+        Object.entries(lists).map(([id, list]) => [id, list.some((g) => g.id === taleGroupId) ? withTales(list, taleGroupId, tales) : list]),
+      ),
+    );
+    this.patchReadGroup(taleGroupId, (g) => ({ ...g, tales }));
+  }
+
+  // A saved tale order goes into the confirmed group order of each zone with a group reorder
+  // pending, and only there, so a refusal of that reorder does not bring the old tale order back.
+  private confirmTalesInPendingZones(taleGroupId: string, tales: Tale[]): void {
+    for (const [zoneId, confirmed] of this.confirmedGroups) {
+      if ((this.pendingOrders.get(zoneId) ?? 0) > 0) this.confirmedGroups.set(zoneId, withTales(confirmed, taleGroupId, tales));
     }
   }
 
-  // Shows `optimistic` at once, then sends the request after the zone's earlier
-  // order requests settle. A success updates the confirmed order (shown when
-  // nothing else is pending); a refusal shows the confirmed order again and
-  // drops the moves queued behind it, which were built on the refused order.
+  // Drops a group's tale order bookkeeping once nothing is pending for it.
+  private forgetTaleOrder(taleGroupId: string): void {
+    const key = taleOrderKey(taleGroupId);
+    if ((this.pendingOrders.get(key) ?? 0) > 0) return;
+    this.pendingOrders.delete(key);
+    this.orderEpochs.delete(key);
+    this.orderQueues.delete(key);
+    this.staleOrders.delete(key);
+    this.confirmedTales.delete(taleGroupId);
+  }
+
+  /**
+   * A refresh's zone lists, with the tales of a group whose tale order write is pending kept as
+   * they are shown (the read may predate the write); the group is read again once it settles.
+   */
+  private keepPendingTales(lists: Record<string, ZoneTaleGroup[]>): Record<string, ZoneTaleGroup[]> {
+    return Object.fromEntries(
+      Object.entries(lists).map(([id, list]) => [id, list.map((g) => this.withPendingTales(g, this.taleGroup(g.id)?.tales))]),
+    );
+  }
+
+  // A group as read, or with `shownTales` kept while its tale order write is pending.
+  private withPendingTales<G extends TaleGroup>(group: G, shownTales: Tale[] | undefined): G {
+    const key = taleOrderKey(group.id);
+    if ((this.pendingOrders.get(key) ?? 0) === 0 || !shownTales) return group;
+    this.staleOrders.add(key);
+    return { ...group, tales: shownTales };
+  }
+
+  // Shows `optimistic` at once, then sends the request after the zone's earlier group order
+  // requests settle. A success updates the confirmed order (shown when nothing else is pending); a
+  // refusal shows the confirmed order again and drops the moves queued behind it, which were built
+  // on the refused order.
   private enqueueOrder<T>(
     zoneId: string,
     optimistic: ZoneTaleGroup[],
