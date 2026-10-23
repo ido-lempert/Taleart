@@ -215,8 +215,8 @@ export class TaleBackdropSampler {
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = canvasColor(background.color);
     ctx.fillRect(0, 0, W, H);
-    const stage = stageTaleMedia(doc);
-    const backgroundFirst = background.type === 'media' && !(stage && layers[0] === stage);
+    const stageMedia = stageTaleMedia(doc);
+    const backgroundFirst = background.type === 'media' && !(stageMedia && layers[0] === stageMedia);
     const paintBackground = async () => {
       if (background.type !== 'media') return true;
       const frame = await this.frame(source(background.mediaKey), 'image');
