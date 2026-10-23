@@ -975,14 +975,31 @@ try {
     await view(page).locator('button.item').first().click();
     const dialog = dialogOf(page);
     await dialog.waitFor();
-    const frame = await page.evaluate(() =>
-      __taOne('dialog .frame').getBoundingClientRect().toJSON(),
+    // On a screen this wide the viewer is the wide-screen deck: the card shuffles in (scale and
+    // fade), so the card is measured, and axe run, once that has finished; before, its text is
+    // still faint (the 3.12-era check measured the shuffle mid-way: 0.92 of the card, 1.14:1).
+    await page.waitForFunction(() =>
+      __taOne('dialog .frame')
+        .getAnimations()
+        .every((a) => a.playState !== 'running'),
     );
+    const frame = await page.evaluate(() => {
+      const box = __taOne('dialog .frame').getBoundingClientRect().toJSON();
+      return { ...box, wide: matchMedia('(min-width: 768px) and (min-aspect-ratio: 1/1)').matches };
+    });
+    // Phone layout: the full height. Wide-screen deck: the card is 88 % of the height (or 36 % of
+    // the width, whichever is smaller), whole and centred, never cut by the window.
+    const card = Math.min(390 * 0.88, ((844 * 0.36) * 16) / 9);
+    const whole = frame.wide
+      ? Math.abs(frame.height - card) < 1 && Math.abs(frame.top - (390 - frame.bottom)) < 1 && frame.top >= 0
+      : frame.height === 390;
     check(
       '1.3.4',
-      frame.height === 390 && frame.width > 0 && frame.width <= 844,
-      'landscape: the viewer shows the tale at full height',
+      whole && frame.width > 0 && frame.width <= 844,
+      `landscape: the viewer shows the whole tale at ${frame.wide ? 'the deck card’s full size, centred' : 'full height'}`,
     );
+    if (!whole) console.error(`landscape frame: ${JSON.stringify(frame)}`);
+    await shot(page, '18-landscape-viewer');
     await axe(page, 'viewer in landscape');
     await context.close();
   }

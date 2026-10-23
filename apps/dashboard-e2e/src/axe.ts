@@ -61,7 +61,16 @@ export async function axeViolations(page: Page): Promise<string[]> {
     const result = await (window as unknown as { axe: Axe }).axe.run(document, {
       runOnly: { type: 'tag', values: tags },
     });
-    return result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
+    return result.violations
+      .map((v) => ({
+        id: v.id,
+        // Tale Studio's canvas layers (story 7.15): where they sit and how big they are is the tale's
+        // content, and layers overlap by design. 2.5.8's "equivalent" exception covers them: each has
+        // its row in the layers grid (a 24 px target or more), which selects it, and its fields.
+        nodes: v.id === 'target-size' ? v.nodes.filter((n) => !/^#studio-el-/.test(n.target.join(' '))) : v.nodes,
+      }))
+      .filter((v) => v.nodes.length > 0)
+      .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
   }, AXE_TAGS);
   return violations;
 }

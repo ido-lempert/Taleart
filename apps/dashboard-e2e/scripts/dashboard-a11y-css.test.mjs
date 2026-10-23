@@ -1,4 +1,4 @@
-// `nx run dashboard-e2e:test`: the dashboard CSS fixes of the WCAG 2.2 AA scan (story 8.17), checked
+// `nx run dashboard-e2e:test`: the dashboard CSS fixes of the WCAG 2.2 AA scans (stories 8.17 and 7.15), checked
 // in the stylesheets, whatever their whitespace and comments. `nx run dashboard-e2e:a11y` checks them
 // in the browser.
 import assert from 'node:assert/strict';
@@ -19,6 +19,7 @@ const src = resolve(import.meta.dirname, '../../dashboard/src');
 const styles = normalize(readFileSync(`${src}/styles.css`, 'utf8'));
 const appCss = normalize(readFileSync(`${src}/app/app.css`, 'utf8'));
 const studio = normalize(readFileSync(`${src}/app/pages/tale-studio.ts`, 'utf8'));
+const projects = normalize(readFileSync(`${src}/app/pages/projects.ts`, 'utf8')).replace(/` /g, '`');
 
 /** The value of a custom property of `:root`. */
 function token(name) {
@@ -44,8 +45,8 @@ function contrast(a, b) {
 function rule(css, selector) {
   const head = `${normalize(selector)}{`;
   let at = css.indexOf(head);
-  // A selector must start the rule: after `}`, `{`, `;` or at the start.
-  while (at > 0 && !'{};'.includes(css[at - 1])) at = css.indexOf(head, at + 1);
+  // A selector must start the rule: after `}`, `{`, `;`, a component's opening backtick or at the start.
+  while (at > 0 && !'{};`'.includes(css[at - 1])) at = css.indexOf(head, at + 1);
   assert.ok(at >= 0, `${selector} has a rule`);
   return css.slice(at + head.length, css.indexOf('}', at));
 }
@@ -109,4 +110,22 @@ test('a canvas element that fills the canvas shows its focus ring inside, under 
   assert.match(rule(studio, '.el__warn'), /z-index:2/);
   // Thinner on a tiny element.
   assert.match(rule(studio, '.el--tiny:focus-visible::after'), /inset 0 0 0 1px var\(--ink\),inset 0 0 0 2px #fff/);
+});
+
+test('a layer name wraps instead of being cut at 320 px (1.4.10, story 7.15)', () => {
+  const name = rule(styles, '.layer__name');
+  assert.match(name, /overflow-wrap:anywhere/);
+  assert.match(name, /min-width:0/);
+  assert.doesNotMatch(name, /white-space:nowrap|text-overflow:ellipsis|overflow:hidden/);
+});
+
+test('a canvas layer focused by keyboard comes above the others, below the guides (2.4.11, story 7.15)', () => {
+  assert.match(rule(studio, '.el:focus-visible'), /z-index:99 !important/);
+  assert.match(rule(studio, '.guides,.snap-line'), /z-index:100/);
+});
+
+test('a project card puts its actions below a long name instead of over it (1.4.10, 1.4.12, story 7.15)', () => {
+  assert.match(rule(projects, '.project-card'), /flex-wrap:wrap/);
+  assert.match(rule(projects, '.project-card__open'), /flex:1 1 12rem/);
+  assert.match(rule(projects, '.project-card__name'), /overflow-wrap:anywhere/);
 });

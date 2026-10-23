@@ -13,8 +13,13 @@ import { Icon } from '../icon';
   imports: [Icon, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
+    /*
+     * The actions go below the name when the card is too narrow for both (1.4.10, 1.4.12, story 7.15):
+     * before, the name's button shrank under them and a long name ran beneath the buttons.
+     */
     .project-card {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: var(--space-3);
       padding: var(--space-3) var(--space-4) var(--space-3) var(--space-2);
@@ -22,7 +27,7 @@ import { Icon } from '../icon';
     }
     .project-card__open {
       display: flex;
-      flex: 1;
+      flex: 1 1 12rem;
       align-items: center;
       gap: var(--space-3);
       min-width: 0;
@@ -49,6 +54,7 @@ import { Icon } from '../icon';
     }
     .project-card__name {
       display: block;
+      overflow-wrap: anywhere;
       font-size: var(--text-lg);
       font-weight: 600;
     }

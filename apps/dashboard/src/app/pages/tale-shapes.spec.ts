@@ -404,7 +404,12 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     expect(root.querySelector('[role=dialog]')).toBeNull();
     expect(live()).toContain('Emoji added: party popper');
     const el = q<HTMLButtonElement>('button.el');
-    expect(el.getAttribute('aria-label')).toBe('Emoji: 🎉 party popper');
+    // Named without the glyph, which a screen reader would read as the name a second time (story 7.15).
+    expect(el.getAttribute('aria-label')).toBe('Emoji: party popper');
+    const row = q<HTMLElement>('.layer__name');
+    expect(row.textContent?.replace(/\s+/g, ' ').trim()).toBe('🎉 party popper');
+    expect(row.querySelector('[aria-hidden=true]')?.textContent?.trim()).toBe('🎉');
+    expect(q<HTMLElement>('[id^=layer-more-]').getAttribute('aria-label')).toBe('More actions for party popper');
     const glyph = el.querySelector('.el__emoji') as HTMLElement;
     expect(glyph.textContent).toBe('🎉');
     expect(glyph.style.fontFamily).toContain('Apple Color Emoji');
@@ -511,6 +516,8 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     await settle(fixture);
     expect(textRow()).not.toContain('Low contrast');
     expect(live()).toMatch(/"Sale" has enough contrast now\.$/);
+    // The change and the verdict are two sentences (story 7.15).
+    expect(live()).toBe('Layer hidden. "Sale" has enough contrast now.');
     expect(live()?.match(/contrast/g)).toHaveLength(1);
     q<HTMLButtonElement>(`#layer-hide-${rect.id}`).click();
     await settle(fixture);
