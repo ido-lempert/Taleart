@@ -105,6 +105,8 @@ test('a canvas element that fills the canvas shows its focus ring inside, under 
   ]) {
     assert.match(ring, part);
   }
+  // Tale Studio 7.10's low-contrast badge stays above the ring.
+  assert.match(rule(studio, '.el__warn'), /z-index:2/);
   // Thinner on a tiny element.
   assert.match(rule(studio, '.el--tiny:focus-visible::after'), /inset 0 0 0 1px var\(--ink\),inset 0 0 0 2px #fff/);
 });

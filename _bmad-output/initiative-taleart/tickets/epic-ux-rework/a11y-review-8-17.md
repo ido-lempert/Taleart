@@ -80,7 +80,7 @@ violations, no unseen or hidden focus, no small targets, no reflow or text-spaci
 | 1 | 1.4.10 Reflow | every shell page and drawer at 320 px | The top bar (title, project switcher, New, Sign out) was 325 to 329 px wide: the page scrolled sideways. | Under 375 px the top bar wraps its actions to a second row (`app.css`). |
 | 2 | 1.4.3 Contrast (axe) | New zone drawer | The chosen template's description (`--text-muted` on `--surface-sunken`) was 4.4:1. | Template descriptions use `--text-secondary` (6.8:1 on that background) (`styles.css`). |
 | 3 | 2.4.11 Focus not obscured | zone page on a phone and at 320 px | A control scrolled into view by Tab landed under the fixed bottom bar (the last group's "Not visible: starts …" indicator) or the sticky top bar. | `scroll-padding-top` for the sticky top bar (two rows under 375 px) and, on phones, `scroll-padding-bottom` for the bottom bar (`styles.css`). |
-| 4 | 2.4.7 Focus visible | Tale Studio | An image filling the canvas showed no focus ring: its outer ring was cut off by the canvas edge. | The canvas element's ring is drawn again inside its edge: a `::after` overlay at `z-index: 0`, above the media and below badges, and thinner on elements about 30 px or less (`tale-studio.ts`). |
+| 4 | 2.4.7 Focus visible | Tale Studio | An image filling the canvas showed no focus ring: its outer ring was cut off by the canvas edge. | The canvas element's ring is drawn again inside its edge: a `::after` overlay at `z-index: 0`, above the media and below Tale Studio 7.10's low-contrast badge (`.el__warn`, raised to `z-index: 2`), and thinner on elements about 30 px or less (`tale-studio.ts`). |
 | 5 | 1.4.10 Reflow | top bar, long project name | The project switcher kept its full width (up to 150 px on phones). | The switcher and its select shrink (`min-width: 0`, the select at 100 % of the switcher), and the wrapped actions take the second row (`app.css`). |
 | 6 | 3.3.1 Error identification (good practice) | New zone and Name and slug drawers | A refused zone left focus on Create: the alert was read, but the user had to find the field. | Focus moves to the refused field (name, slug, template or project) (`create-drawer.ts`). |
 
@@ -119,9 +119,6 @@ Screenshots before and after: `shots-8.17/` in the build's scratchpad (see the p
 
 1. The walk below (hitl). Record each step's result and any finding; findings become fixes in this story.
 2. The scan runs in Chromium only; Safari and Firefox are seen only in the walk.
-3. Tale Studio 7.10 (not merged at this review) adds a contrast badge `.el__warn` at `z-index: 1` inside canvas
-   elements; the focus ring overlay here is at `z-index: 0`, so the badge stays above it. Re-run the scan after 7.10
-   merges.
 
 ## Keyboard and screen-reader walk
 

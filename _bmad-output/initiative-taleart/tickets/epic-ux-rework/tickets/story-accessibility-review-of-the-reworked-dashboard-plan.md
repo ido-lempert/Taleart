@@ -96,9 +96,10 @@ deferred: []
   - New fixes:
     - the switcher shrinks with a long project name;
     - focus goes to the refused zone field;
-    - the canvas ring overlay is at `z-index: 0` (under 7.10's `.el__warn` badge at `z-index: 1`; 7.10 is not merged
-      on `autopilot/foundation`, so nothing to change in it) and thinner on tiny elements (`isTiny`: w < 0.1 or
-      h < 0.06 of the canvas).
+    - the canvas ring overlay is at `z-index: 0` and thinner on tiny elements (`isTiny`: w < 0.1 or h < 0.06 of the
+      canvas);
+    - after merging `autopilot/foundation` at b316037 (8.16 docs, Tale Studio 7.10), 7.10's `.el__warn` badge was
+      raised to `z-index: 2`, explicitly above the ring, and the CSS test checks it.
   - A container query for "tiny" was rejected: `container-type` on `.el` would change what the elements' `cqh`
     units refer to.
 
