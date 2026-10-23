@@ -11,6 +11,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -69,6 +70,9 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
     private val store = InMemoryKeyValueStore()
     private val seen = SeenGroups(store)
     private val videos = FakeVideoPlayer()
+
+    // The person's reduced-motion setting as it changes while the viewer is open (open(live = true)).
+    private val liveReduced = mutableStateOf(false)
 
     /** A fake player: each tale's video is an instance the test drives. */
     private class FakeVideoPlayer : TaleVideoPlayer {
@@ -135,6 +139,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         groups: List<DeliveryTaleGroup> = zone.taleGroups,
         reduced: Boolean = false,
         lifecycle: LifecycleOwner? = null,
+        live: Boolean = false,
         direction: LayoutDirection = LayoutDirection.Ltr,
     ) {
         mainClock.autoAdvance = false
@@ -147,7 +152,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
                     onClose = { closed += it },
                     seenGroups = seen,
                     onGroupShown = { shown += it },
-                    reducedMotion = reduced,
+                    reducedMotion = if (live) liveReduced.value else reduced,
                 )
                 }
             }
@@ -161,6 +166,9 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         mainClock.advanceTimeByFrame()
         waitForIdle()
     }
+
+    // Lets the viewer's motion finish (story 9.9): a cube turn, a spring, the close fade.
+    private fun ComposeUiTest.settle() = advance(800)
 
     private fun ComposeUiTest.advance(ms: Long) {
         Snapshot.sendApplyNotifications()
@@ -263,6 +271,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         advance(5_100)
         assertEquals("$winter/1", tale())
         advance(5_100)
+        settle()
         assertEquals(null, tale())
         assertEquals(listOf(winter), closed)
     }
@@ -274,7 +283,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         assertEquals(setOf(summer), seen.ids)
         assertEquals(listOf(summer), shown)
         onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeLeft() }
-        frame()
+        settle()
         assertEquals("$winter/0", tale())
         assertEquals(setOf(summer, winter), seen.ids)
         waitUntil("the stored ids", 5_000) { store.get(SEEN_STORAGE_KEY) == "[\"$summer\",\"$winter\"]" }
@@ -325,14 +334,14 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
 
         tap(0.9f)
         onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeLeft() }
-        frame()
+        settle()
         assertEquals("$winter/0", tale())
         onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeRight() }
-        frame()
+        settle()
         // The previous group opens at its first tale.
         assertEquals("$summer/0", tale())
         onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeDown() }
-        frame()
+        settle()
         assertEquals(null, tale())
         assertEquals(listOf(summer), closed)
     }
@@ -342,7 +351,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         open(winter)
 
         onNodeWithContentDescription("Close").performClick()
-        frame()
+        settle()
         assertEquals(null, tale())
         assertEquals(listOf(winter), closed)
     }
@@ -469,7 +478,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         assertEquals(listOf(winter), clicked)
         assertEquals("$winter/0", tale())
         onNodeWithContentDescription("Close").performClick()
-        frame()
+        settle()
         assertEquals(null, tale())
         onNodeWithContentDescription("Winter tales, seen").assertExists()
         onNodeWithContentDescription("Summer trips").assertExists()
@@ -510,10 +519,10 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         open(summer, direction = LayoutDirection.Rtl)
 
         onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeRight() }
-        frame()
+        settle()
         assertEquals("$winter/0", tale())
         onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeLeft() }
-        frame()
+        settle()
         assertEquals("$summer/0", tale())
     }
 
@@ -626,4 +635,235 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         // The groups as they were when the viewer opened: Winter tales still follows.
         assertEquals("$winter/0", tale())
     }
+
+    // Story 9.9: reduced motion turned on and off while a tale shows, and the viewer's motion.
+
+    @Test
+    fun turningReducedMotionOnWhileATaleShowsPausesItAndOffResumesIt() = runComposeUiTest {
+        open(summer, live = true)
+        advance(1_000)
+        val playing = fills().first()
+        assertTrue(playing in 0.15f..0.3f, "fill $playing")
+        onNodeWithContentDescription("Pause").assertExists()
+
+        liveReduced.value = true
+        // The setting reaches the viewer as it composes, and its look on the next frame.
+        frame()
+        frame()
+        // Paused where it was: the progress snaps full, the timer waits, the viewer stays open.
+        assertEquals(1f, fills().first())
+        onNodeWithContentDescription("Pause").assertDoesNotExist()
+        onNodeWithContentDescription("Play").assertDoesNotExist()
+        advance(8_000)
+        assertEquals("$summer/0", tale())
+
+        liveReduced.value = false
+        frame()
+        frame()
+        onNodeWithContentDescription("Pause").assertExists()
+        assertEquals(playing, fills().first(), 0.05f)
+        // It goes on from where it was: the rest of the tale's 5 s, then the next tale.
+        advance(4_200)
+        assertEquals("$summer/1", tale())
+        assertEquals(emptyList(), closed)
+    }
+
+    @Test
+    fun aDragSidewaysTurnsTheNextGroupInBesideTheTaleUntilReleased() = runComposeUiTest {
+        open(summer)
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        stage.performTouchInput {
+            down(center)
+            moveBy(Offset(-width * 0.2f, 0f))
+            moveBy(Offset(-width * 0.2f, 0f))
+        }
+        frame()
+        // The next group's still page turns in while the finger holds; the live tale stays the same.
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertExists()
+        assertEquals("$summer/0", tale())
+        stage.performTouchInput { up() }
+        settle()
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+        assertEquals("$winter/0", tale())
+
+        // A drag released short of a swipe springs back to the same group.
+        stage.performTouchInput {
+            down(Offset(width * 0.8f, height / 2f))
+            moveBy(Offset(-width * 0.2f, 0f))
+            moveBy(Offset(width * 0.2f - 30.dp.toPx(), 0f))
+            up()
+        }
+        settle()
+        // Released 30 dp from where it started: a tap on the right, the next tale of Winter.
+        assertEquals("$winter/1", tale())
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun aTapPastAGroupsLastTaleTurnsTheCubeByItself() = runComposeUiTest {
+        open(summer)
+        repeat(2) { tap(0.9f) }
+        tap(0.9f)
+        // The new group is live at once; the old one turns out beside it until the turn ends.
+        assertEquals("$winter/0", tale())
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertExists()
+        settle()
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun underReducedMotionNothingFollowsTheFingerAndTheViewerClosesAtOnce() = runComposeUiTest {
+        open(summer, reduced = true)
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        stage.performTouchInput {
+            down(center)
+            moveBy(Offset(-width * 0.2f, 0f))
+            moveBy(Offset(-width * 0.2f, 0f))
+        }
+        frame()
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+        stage.performTouchInput { up() }
+        frame()
+        assertEquals("$winter/0", tale())
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+        onNodeWithContentDescription("Close").performClick()
+        frame()
+        frame()
+        assertEquals(null, tale())
+        assertEquals(listOf(winter), closed)
+    }
+
+    @Test
+    fun closingFadesOutBeforeTheHostIsToldOnce() = runComposeUiTest {
+        open(winter)
+        settle()
+        assertEquals(1f, presence())
+        onNodeWithContentDescription("Close").performClick()
+        advance(VIEWER_CLOSE_MS / 2L)
+        // Still drawn, half faded, and the host not told yet.
+        assertEquals("$winter/0", tale())
+        val fading = presence()!!
+        assertTrue(fading > 0f && fading < 1f, "presence $fading")
+        assertEquals(emptyList(), closed)
+        settle()
+        assertEquals(null, tale())
+        assertEquals(listOf(winter), closed)
+        // Told once, whatever comes after.
+        settle()
+        assertEquals(listOf(winter), closed)
+    }
+
+    @Test
+    fun theViewerOpensGrowingAndFadingIn() = runComposeUiTest {
+        open(summer)
+        val opening = presence()!!
+        assertTrue(opening < 1f, "presence $opening")
+        advance(VIEWER_OPEN_MS / 2L)
+        val half = presence()!!
+        assertTrue(half > opening && half < 1f, "presence $half")
+        settle()
+        assertEquals(1f, presence())
+    }
+
+    @Test
+    fun aViewerThatLeavesMidFadeStillTellsTheHostOnce() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        var showing by mutableStateOf(true)
+        setContent {
+            Fakes {
+                if (showing) TaleartViewer(zone.taleGroups, winter, onClose = { closed += it }, seenGroups = seen, reducedMotion = false)
+            }
+        }
+        frame()
+        onNodeWithContentDescription("Close").performClick()
+        frame()
+        assertEquals(emptyList(), closed)
+        showing = false
+        frame()
+        assertEquals(listOf(winter), closed)
+        settle()
+        assertEquals(listOf(winter), closed)
+    }
+
+    @Test
+    fun aTouchWhileTheCubeSettlesLandsItAtOnce() = runComposeUiTest {
+        open(summer)
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        stage.performTouchInput { swipeLeft() }
+        frame()
+        // Mid-settle: the turn is still going.
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertExists()
+        stage.performTouchInput { down(center) }
+        frame()
+        // Landed on Winter at once, under the new finger.
+        assertEquals("$winter/0", tale())
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+        stage.performTouchInput { up() }
+        frame()
+        // The release was a tap on the right: the next tale.
+        assertEquals("$winter/1", tale())
+    }
+
+    @Test
+    fun aWiggleOf20DpIsStillATap() = runComposeUiTest {
+        open(summer)
+        onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput {
+            down(Offset(width * 0.8f, height / 2f))
+            moveBy(Offset(20.dp.toPx(), 0f))
+            moveBy(Offset(-12.dp.toPx(), 4.dp.toPx()))
+            up()
+        }
+        settle()
+        assertEquals("$summer/1", tale())
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun rightToLeftADragTowardTheRightTurnsTheNextGroupIn() = runComposeUiTest {
+        open(summer, direction = LayoutDirection.Rtl)
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        // Toward the left there is no group before Summer: nothing turns in.
+        stage.performTouchInput {
+            down(center)
+            moveBy(Offset(-width * 0.2f, 0f))
+            moveBy(Offset(-width * 0.1f, 0f))
+        }
+        frame()
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+        stage.performTouchInput { moveBy(Offset(width * 0.6f, 0f)) }
+        frame()
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertExists()
+        stage.performTouchInput { up() }
+        settle()
+        assertEquals("$winter/0", tale())
+    }
+
+    @Test
+    fun aSwipeDownReleasedShortSpringsBack() = runComposeUiTest {
+        open(summer)
+        settle()
+        val page = onNodeWithTag(VIEWER_PAGE_TAG)
+        val top = page.fetchSemanticsNode().boundsInRoot.top
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        stage.performTouchInput {
+            down(Offset(width * 0.5f, height * 0.3f))
+            moveBy(Offset(0f, height * 0.15f))
+            moveBy(Offset(0f, height * 0.15f))
+        }
+        frame()
+        // The tale follows the finger down.
+        assertTrue(page.fetchSemanticsNode().boundsInRoot.top > top + 10f)
+        stage.performTouchInput {
+            moveBy(Offset(0f, -height * 0.3f + 20.dp.toPx()))
+            up()
+        }
+        frame()
+        assertTrue(page.fetchSemanticsNode().boundsInRoot.top > top, "springing back, not snapped")
+        settle()
+        assertEquals(top, page.fetchSemanticsNode().boundsInRoot.top, 0.5f)
+        assertEquals(emptyList(), closed)
+    }
+
+    private fun ComposeUiTest.presence(): Float? =
+        onAllNodes(SemanticsMatcher.keyIsDefined(ViewerPresence)).fetchSemanticsNodes().singleOrNull()?.config?.get(ViewerPresence)
 }

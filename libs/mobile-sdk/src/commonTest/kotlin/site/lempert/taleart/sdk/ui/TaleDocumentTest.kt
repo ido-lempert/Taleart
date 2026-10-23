@@ -120,6 +120,8 @@ class TaleDocumentTest {
         assertEquals(TextFont.Project(videoTale.fonts.single().id.lowercase()), text.look.font)
         assertEquals(FontStack.Serif, text.look.fallback)
         assertEquals(1, videoTale.fonts.size)
+        // Its family comes with it (story 9.8), for the host's font of that name.
+        assertEquals(mapOf(videoTale.fonts.single().id.lowercase() to "Inter"), view.canvas!!.projectFonts)
         val outline = view.canvas!!.layer.elements.filterIsInstance<DocumentElement.Button>().single()
         assertFalse(outline.look.filled)
     }

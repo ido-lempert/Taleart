@@ -316,11 +316,11 @@ export async function knownProjectFontIds(
 export async function deliveryProjectFonts(
   db: Db,
   fonts: readonly { projectId: string; fontId: string }[],
-): Promise<Map<string, StoredFontFile & { projectId: string }>> {
+): Promise<Map<string, StoredFontFile & { projectId: string; family: string }>> {
   if (fonts.length === 0) return new Map();
   const ids = [...new Set(fonts.map((f) => f.fontId))];
-  const { rows } = await db.query<StoredFontFile & { id: string; projectId: string }>(
-    `SELECT id, project_id AS "projectId", storage_key AS key, weight, style, size_bytes AS "sizeBytes"
+  const { rows } = await db.query<StoredFontFile & { id: string; projectId: string; family: string }>(
+    `SELECT id, project_id AS "projectId", family, storage_key AS key, weight, style, size_bytes AS "sizeBytes"
      FROM project_fonts WHERE id = ANY($1::uuid[])`,
     [ids],
   );

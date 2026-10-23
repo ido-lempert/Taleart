@@ -1,7 +1,6 @@
 package site.lempert.taleart.sdk.ui
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -87,23 +86,4 @@ internal fun parseHexColor(value: String?): Color? {
     val rgb = value.substring(1, 7).toLong(16)
     val alpha = if (value.length == 9) value.substring(7, 9).toLong(16) else 0xFF
     return Color(((alpha shl 24) or rgb).toInt())
-}
-
-/**
- * The first family of a CSS font list the platform can draw by name: the generic families
- * (`serif`, `sans-serif`, `monospace`, `cursive`, `system-ui`). Other names are skipped, as a
- * browser skips fonts it does not have; null when none is left (the host's font applies).
- */
-internal fun fontFamilyOf(list: String?): FontFamily? {
-    if (list == null) return null
-    for (raw in list.split(',')) {
-        when (raw.trim().trim('"', '\'').trim().lowercase()) {
-            "serif" -> return FontFamily.Serif
-            "sans-serif" -> return FontFamily.SansSerif
-            "monospace" -> return FontFamily.Monospace
-            "cursive" -> return FontFamily.Cursive
-            "system-ui" -> return FontFamily.Default
-        }
-    }
-    return null
 }
