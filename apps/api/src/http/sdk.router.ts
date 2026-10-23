@@ -1,9 +1,10 @@
-import { createHash } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { mkdir, readdir, readFile, rename, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gzip as gzipCallback } from 'node:zlib';
 import {
+  DEFAULT_SDK_BUILDS_KEPT,
   SDK_BASE,
   SDK_BUNDLE_PATH,
   SDK_CACHE_SECONDS,
@@ -22,6 +23,15 @@ export interface SdkFiles {
   bundleFile: string;
   /** The folder of the test page's own files (`test-page.html`, `.js`, `.css`). */
   pagesDir: string;
+  /**
+   * Where the API keeps the builds it served, as `taleart.<hash>.js`, so a pinned URL keeps working
+   * after a release (story 8.21); null keeps only the current build.
+   */
+  buildsDir: string | null;
+  /** How many builds the folder keeps, the current one included (the newest by modification time). */
+  buildsKept: number;
+  /** Told when the builds folder cannot be written or pruned; the current build is served anyway. */
+  warn?: (msg: string, err?: unknown) => void;
 }
 
 /** A file as served: its bytes, ETag, content hash for a pinned URL, and SRI integrity. */
@@ -45,20 +55,164 @@ export function servedFile(path: string): () => Promise<ServedFile | null> {
     try {
       const { mtimeMs, size } = await stat(path);
       if (served && served.mtimeMs === mtimeMs && served.size === size) return served.file;
-      const body = await readFile(path);
-      const sha256 = createHash('sha256').update(body).digest('base64url');
-      const file = {
-        body,
-        etag: `"${sha256.slice(0, 27)}"`,
-        hash: sha256.slice(0, 16),
-        integrity: `sha384-${createHash('sha384').update(body).digest('base64')}`,
-      };
+      const file = toServedFile(await readFile(path));
       served = { file, mtimeMs, size };
       return file;
     } catch {
       served = null;
       return null;
     }
+  };
+}
+
+/** A file's bytes as served: ETag, content hash and SRI integrity, all from the bytes. */
+export function toServedFile(body: Buffer): ServedFile {
+  const sha256 = createHash('sha256').update(body).digest('base64url');
+  return {
+    body,
+    etag: `"${sha256.slice(0, 27)}"`,
+    hash: sha256.slice(0, 16),
+    integrity: `sha384-${createHash('sha384').update(body).digest('base64')}`,
+  };
+}
+
+// The `<hash>` of a pinned URL: 16 base64url characters.
+const HASH = /^[A-Za-z0-9_-]{16}$/;
+// A kept build in the builds folder, and a temporary file being written there.
+const BUILD_FILE = /^taleart\.[A-Za-z0-9_-]{16}\.js$/;
+const TEMP_FILE = /^\.taleart\.[A-Za-z0-9_-]{16}\..+\.tmp$/;
+// A temporary file older than this was left by a process that stopped while writing it.
+const STALE_TEMP_MS = 10 * 60 * 1000;
+
+const isMissing = (err: unknown) => (err as NodeJS.ErrnoException | null)?.code === 'ENOENT';
+
+/** The builds folder: what {@link sdkBuilds} gives. */
+export interface SdkBuilds {
+  /**
+   * Keeps a build the API serves: written as `taleart.<hash>.js` (whole, by a rename) and made the
+   * newest, then the folder is cut to the newest `keep` builds, never removing this one. Never
+   * rejects: a failure is told to `warn`.
+   */
+  record(file: ServedFile): Promise<void>;
+  /** A kept build by its hash, or null: not kept, evicted, or its bytes no longer match the hash. */
+  read(hash: string): Promise<ServedFile | null>;
+}
+
+/**
+ * The last `keep` SDK builds the API served, in `dir` (story 8.21), so a page pinned to a build with
+ * Subresource Integrity keeps loading it after the next releases. Newest is by modification time,
+ * which recording a build sets: a restart or a redeploy of an older build makes it the newest again.
+ * Several API processes may share the folder: files appear whole, and a pruned file reads as gone.
+ * With no `dir`, nothing is kept.
+ */
+export function sdkBuilds(
+  dir: string | null,
+  keep: number,
+  warn: (msg: string, err?: unknown) => void = () => undefined,
+): SdkBuilds {
+  // One reader per kept build that was asked for, dropped when it reads as gone: probing hashes adds nothing.
+  const readers = new Map<string, () => Promise<ServedFile | null>>();
+  // One write at a time, in order; and modification times that only grow, within this process.
+  let queue: Promise<void> = Promise.resolve();
+  let lastTime = 0;
+
+  async function write(folder: string, file: ServedFile): Promise<void> {
+    await mkdir(folder, { recursive: true });
+    const name = `taleart.${file.hash}.js`;
+    const temp = join(folder, `.taleart.${file.hash}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+    try {
+      await writeFile(temp, file.body, { flag: 'wx' });
+      lastTime = Math.max(Date.now(), lastTime + 1);
+      const at = new Date(lastTime);
+      await utimes(temp, at, at);
+      await rename(temp, join(folder, name));
+    } catch (err) {
+      await unlink(temp).catch(() => undefined);
+      throw err;
+    }
+    await prune(folder, name);
+  }
+
+  async function prune(folder: string, current: string): Promise<void> {
+    const builds: { name: string; mtimeMs: number }[] = [];
+    for (const name of await readdir(folder)) {
+      const temp = TEMP_FILE.test(name);
+      if (!temp && !BUILD_FILE.test(name)) continue;
+      try {
+        const { mtimeMs } = await stat(join(folder, name));
+        if (temp) {
+          if (Date.now() - mtimeMs > STALE_TEMP_MS) await unlink(join(folder, name));
+        } else if (name !== current) {
+          builds.push({ name, mtimeMs });
+        }
+      } catch (err) {
+        if (!isMissing(err)) throw err;
+      }
+    }
+    // The current build is one of the `keep`: the newest others fill the rest.
+    builds.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.name < b.name ? -1 : 1));
+    for (const { name } of builds.slice(Math.max(0, keep - 1))) {
+      await unlink(join(folder, name)).catch((err) => {
+        if (!isMissing(err)) throw err;
+      });
+      readers.delete(name.slice('taleart.'.length, -'.js'.length));
+    }
+  }
+
+  return {
+    record(file) {
+      if (!dir) return Promise.resolve();
+      const folder = dir;
+      const done = queue
+        .then(() => write(folder, file))
+        .catch((err) => warn(`Web SDK builds in ${folder}: build ${file.hash} was not kept`, err));
+      queue = done;
+      return done;
+    },
+    async read(hash) {
+      if (!dir || !HASH.test(hash)) return null;
+      const reader = readers.get(hash) ?? servedFile(join(dir, `taleart.${hash}.js`));
+      const file = await reader();
+      // Only bytes that are that build: a renamed or damaged file would fail the page's integrity check.
+      if (!file || file.hash !== hash) {
+        readers.delete(hash);
+        return null;
+      }
+      readers.set(hash, reader);
+      return file;
+    },
+  };
+}
+
+/** The SDK the API serves: the current build, and any kept build by its hash. */
+export interface SdkSource {
+  /** The current build (WEB_SDK_FILE or the API build's copy), or null when it is missing. */
+  current(): Promise<ServedFile | null>;
+  /** The current build when the hash is its own, else a kept one, else null. */
+  pinned(hash: string): Promise<ServedFile | null>;
+}
+
+/**
+ * The current bundle, read again when it changes, with each build it holds recorded in `builds` the
+ * first time it is read (at start and after each rebuild or deploy).
+ */
+export function sdkSource(bundleFile: string, builds: SdkBuilds = sdkBuilds(null, 1)): SdkSource {
+  const read = servedFile(bundleFile);
+  let recorded: ServedFile | null = null;
+  const current = async () => {
+    const file = await read();
+    if (file && file !== recorded) {
+      recorded = file;
+      await builds.record(file);
+    }
+    return file;
+  };
+  return {
+    current,
+    async pinned(hash) {
+      const file = await current();
+      return file && file.hash === hash ? file : builds.read(hash);
+    },
   };
 }
 
@@ -164,7 +318,7 @@ function notFound(res: Response): void {
  * zone's slug from `?zone=` and a site key from the URL fragment or a field on the page; the server
  * never sees the key, and nothing of the request goes into what it sends.
  */
-export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = servedFile(files.bundleFile)): Router {
+export function sdkRouter(files: SdkFiles, publicApiUrl: string, sdk: SdkSource = sdkSource(files.bundleFile)): Router {
   const router = Router({ strict: true });
   const pages = new Map(
     Object.entries(PAGE_FILES).map(([name, { file, type }]) => [name, { read: servedFile(join(files.pagesDir, file)), type }]),
@@ -202,7 +356,7 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
 
   router.get('/taleart.js', async (req, res, next) => {
     try {
-      const file = await bundle();
+      const file = await sdk.current();
       if (!file) return notFound(res);
       // A deploy replaces it at the same URL: pages pick the new one up within five minutes.
       await sendBundle(req, res, file, `public, max-age=${SDK_CACHE_SECONDS}`);
@@ -215,9 +369,9 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
     try {
       const pinned = PINNED.exec(req.params.name);
       if (pinned) {
-        const file = await bundle();
-        // Only the current build: an old hash is gone with its build.
-        if (!file || file.hash !== pinned[1]) return notFound(res);
+        // The current build or one of the last ones kept (story 8.21); any other hash is unknown.
+        const file = await sdk.pinned(pinned[1]);
+        if (!file) return notFound(res);
         return await sendBundle(req, res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
       }
       const page = Object.prototype.hasOwnProperty.call(PAGE_FILES, req.params.name) ? pages.get(req.params.name) : undefined;
@@ -255,7 +409,33 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
  * (`dist/apps/api`; under tests, `apps/api/src`, which holds the page but no bundle).
  */
 export function defaultSdkFiles(dir: string): SdkFiles {
-  return { bundleFile: join(dir, 'web-sdk', 'index.js'), pagesDir: join(dir, 'sdk-pages') };
+  return {
+    bundleFile: join(dir, 'web-sdk', 'index.js'),
+    pagesDir: join(dir, 'sdk-pages'),
+    buildsDir: null,
+    buildsKept: DEFAULT_SDK_BUILDS_KEPT,
+  };
+}
+
+/** The most builds SDK_BUILDS_KEPT may keep. */
+export const MAX_SDK_BUILDS_KEPT = 100;
+
+/**
+ * The builds folder and how many builds it keeps (story 8.21): SDK_BUILDS_DIR (default
+ * `.data/sdk-builds`, resolved by `resolvePath`; `off` keeps only the current build) and
+ * SDK_BUILDS_KEPT (a whole number from 1 to {@link MAX_SDK_BUILDS_KEPT}, default
+ * {@link DEFAULT_SDK_BUILDS_KEPT}). A bad number stops the API at start.
+ */
+export function sdkBuildsFromEnv(
+  env: Record<string, string | undefined>,
+  resolvePath: (p: string) => string,
+): Pick<SdkFiles, 'buildsDir' | 'buildsKept'> {
+  const dir = env['SDK_BUILDS_DIR'] || '.data/sdk-builds';
+  const kept = env['SDK_BUILDS_KEPT'] || String(DEFAULT_SDK_BUILDS_KEPT);
+  if (!/^\d+$/.test(kept) || Number(kept) < 1 || Number(kept) > MAX_SDK_BUILDS_KEPT) {
+    throw new Error(`SDK_BUILDS_KEPT must be a whole number from 1 to ${MAX_SDK_BUILDS_KEPT}, not ${JSON.stringify(kept)}`);
+  }
+  return { buildsDir: dir === 'off' ? null : resolvePath(dir), buildsKept: Number(kept) };
 }
 
 /**

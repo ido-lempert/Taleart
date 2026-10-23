@@ -298,5 +298,88 @@ describe('SiteKeyCard: snippet, copy and test page (story 8.13)', () => {
     await settle(fixture);
     expect(root().querySelector('#install-snippet')).toBeNull();
     expect(root().querySelector('[role="alert"]')?.textContent).toContain('The snippet could not be loaded');
+    // Nor is there a pinned version to show.
+    expect(root().querySelector('app-pinned-sdk')).toBeNull();
+  });
+});
+
+describe('SiteKeyCard: the pinned SDK version (story 8.21)', () => {
+  let http: HttpTestingController;
+  let fixture: ComponentFixture<SiteKeyCard>;
+  let writeText: ReturnType<typeof vi.fn<(text: string) => Promise<void>>>;
+  const root = () => fixture.nativeElement as HTMLElement;
+  const statuses = () => [...root().querySelectorAll('[role="status"]')].map((s) => s.textContent?.trim());
+  const pinnedUrl = 'https://api.example.com/sdk/v1/taleart.abcdefghijklmn-_.js';
+  const integrity = 'sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC';
+  const pinnedTag = `<script type="module" src="${pinnedUrl}" integrity="${integrity}" crossorigin="anonymous"></script>`;
+
+  async function open(answer: object): Promise<void> {
+    fixture = TestBed.createComponent(SiteKeyCard);
+    fixture.componentRef.setInput('projectId', 'p1');
+    fixture.componentRef.setInput('zoneSlug', 'home-top');
+    fixture.componentRef.setInput('admin', false);
+    document.body.appendChild(root());
+    fixture.detectChanges();
+    await settle(fixture);
+    http.expectOne(url).flush(info);
+    http.expectOne(`${API_BASE}/install`).flush(answer);
+    await settle(fixture);
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [SiteKeyCard],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
+    writeText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  });
+
+  afterEach(() => {
+    http.verify();
+    document.body.replaceChildren();
+  });
+
+  it('shows the pinned URL and its integrity, to everyone, with how many releases it keeps working', async () => {
+    await open({ ...install, sdkPinnedUrl: pinnedUrl, sdkIntegrity: integrity });
+    expect(root().querySelector<HTMLInputElement>('#pinned-sdk-url')?.value).toBe(pinnedUrl);
+    expect(root().querySelector<HTMLInputElement>('#pinned-sdk-integrity')?.value).toBe(integrity);
+    expect(root().querySelector('label[for="pinned-sdk-url"]')?.textContent?.trim()).toBe('Pinned URL');
+    expect(root().querySelector('label[for="pinned-sdk-integrity"]')?.textContent?.trim()).toBe('Integrity');
+    expect(root().querySelector<HTMLInputElement>('#pinned-sdk-url')?.readOnly).toBe(true);
+    const hint = root().querySelector('#pinned-sdk-hint')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(hint).toContain('TaleArt keeps the last 5 builds at their pinned URLs');
+    expect(hint).toContain('keeps working through the next 4 releases');
+    // The snippet keeps the stable URL.
+    expect(root().querySelector('#install-snippet')?.textContent).toBe(placeholderSnippet);
+  });
+
+  it('copies the URL, the integrity and the pinned script tag, and says so when copying fails', async () => {
+    await open({ ...install, sdkPinnedUrl: pinnedUrl, sdkIntegrity: integrity });
+    const click = async (id: string) => {
+      root().querySelector<HTMLButtonElement>(`#${id}`)?.click();
+      await settle(fixture);
+    };
+    await click('pinned-sdk-copy-url');
+    expect(writeText).toHaveBeenLastCalledWith(pinnedUrl);
+    expect(statuses()).toContain('Pinned URL copied');
+    await click('pinned-sdk-copy-integrity');
+    expect(writeText).toHaveBeenLastCalledWith(integrity);
+    expect(statuses()).toContain('Integrity copied');
+    await click('pinned-sdk-copy-tag');
+    expect(writeText).toHaveBeenLastCalledWith(pinnedTag);
+    expect(statuses()).toContain('Pinned script tag copied');
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    await click('pinned-sdk-copy-url');
+    expect(statuses()).toContain('Could not copy. Select the text and copy it.');
+  });
+
+  it('says there is no pinned URL when the server has no SDK build', async () => {
+    await open({ ...install, sdkPinnedUrl: null, sdkIntegrity: null });
+    expect(root().querySelector('#pinned-sdk-url')).toBeNull();
+    expect(root().textContent).toContain('This server has no Web SDK build, so there is no pinned URL.');
+    // The snippet still shows: the stable URL answers once the SDK is built.
+    expect(root().querySelector('#install-snippet')).not.toBeNull();
   });
 });

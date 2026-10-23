@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { get, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -9,9 +9,18 @@ import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../app';
-import { gzipCache, installInfo, servedFile, testPageCsp, webSdkFileFromEnv } from './sdk.router';
+import {
+  gzipCache,
+  installInfo,
+  sdkBuilds,
+  sdkBuildsFromEnv,
+  servedFile,
+  testPageCsp,
+  toServedFile,
+  webSdkFileFromEnv,
+} from './sdk.router';
 
 // These routes touch neither the database nor storage: the app gets stand-ins that fail if used.
 const unused = new Proxy({}, { get: () => () => Promise.reject(new Error('not used')) });
@@ -272,6 +281,215 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
       const res = await fetch(`${origin}/sdk/v1/${path}`);
       expect(res.status, path).toBe(404);
     }
+  });
+});
+
+describe('pinned URLs of earlier builds (story 8.21)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'taleart-sdk-builds-'));
+  const bundleFile = join(dir, 'taleart.js');
+  const buildsDir = join(dir, 'builds');
+  const servers: Server[] = [];
+  const warnings: string[] = [];
+
+  // An API like a restarted one: its own memory, the same bundle file and builds folder.
+  async function start(options: { kept?: number; folder?: string | null } = {}): Promise<string> {
+    const server = createApp(
+      unused as Pool,
+      unused as FrameTypeRegistry,
+      unused as MediaStorage,
+      { verifier: unused as PasskeyVerifier },
+      { publicApiUrl: 'https://api.example.com' },
+      undefined,
+      undefined,
+      { rateLimit: null },
+      {
+        bundleFile,
+        buildsDir: options.folder === undefined ? buildsDir : options.folder,
+        buildsKept: options.kept ?? 3,
+        warn: (msg) => warnings.push(msg),
+      },
+    ).listen(0);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+
+  // A new build of the SDK: the bundle file replaced, and what its pinned URL and integrity are.
+  const build = (text: string) => {
+    const body = Buffer.from(`export const build = ${JSON.stringify(text)};\n`);
+    writeFileSync(bundleFile, body);
+    return { body, ...toServedFile(body), path: `/sdk/v1/taleart.${toServedFile(body).hash}.js` };
+  };
+  const status = async (url: string) => (await fetch(url)).status;
+  const kept = () => readdirSync(buildsDir).filter((name) => !name.startsWith('.')).sort();
+  // node:http, since fetch always asks for gzip and decodes it.
+  const raw = (url: string, headers: Record<string, string> = {}) =>
+    new Promise<{ status: number | undefined; headers: Record<string, string | string[] | undefined>; body: Buffer }>(
+      (resolve, reject) =>
+        get(url, { headers }, (r) => {
+          const chunks: Buffer[] = [];
+          r.on('data', (c: Buffer) => chunks.push(c));
+          r.on('end', () => resolve({ status: r.statusCode, headers: r.headers, body: Buffer.concat(chunks) }));
+        }).on('error', reject),
+    );
+
+  beforeEach(() => {
+    rmSync(buildsDir, { recursive: true, force: true });
+    warnings.length = 0;
+  });
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps serving the build a page pinned after a rebuild, with its own bytes, immutable', async () => {
+    const a = build('a');
+    const origin = await start();
+    expect(await status(`${origin}/sdk/v1/taleart.js`)).toBe(200);
+    const b = build('b, longer');
+    const stable = await fetch(`${origin}/sdk/v1/taleart.js`);
+    expect(await stable.text()).toBe(b.body.toString());
+
+    const res = await fetch(`${origin}${a.path}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(res.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    expect(res.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
+    const body = Buffer.from(await res.arrayBuffer());
+    expect(body.equals(a.body)).toBe(true);
+    // The integrity the Install tab gave for build a still holds.
+    expect(`sha384-${createHash('sha384').update(body).digest('base64')}`).toBe(a.integrity);
+    expect(await status(`${origin}${b.path}`)).toBe(200);
+    expect(kept()).toEqual([a, b].map((x) => `taleart.${x.hash}.js`).sort());
+  });
+
+  it('sends a kept build gzipped, with an ETag per encoding, and 304 to its validator', async () => {
+    const a = build('a');
+    const origin = await start();
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    build('b, longer');
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    const zipped = await raw(`${origin}${a.path}`, { 'Accept-Encoding': 'gzip' });
+    expect(zipped.headers['content-encoding']).toBe('gzip');
+    expect(zipped.headers['vary']).toMatch(/Accept-Encoding/);
+    expect(gunzipSync(zipped.body).equals(a.body)).toBe(true);
+    const plain = await raw(`${origin}${a.path}`);
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    expect(plain.body.equals(a.body)).toBe(true);
+    expect(plain.headers['etag']).toBe(a.etag);
+    expect(zipped.headers['etag']).toBe(`${a.etag.slice(0, -1)}-gz"`);
+    const fresh = await raw(`${origin}${a.path}`, { 'Accept-Encoding': 'gzip', 'If-None-Match': String(zipped.headers['etag']) });
+    expect(fresh.status).toBe(304);
+    expect(fresh.body.length).toBe(0);
+  });
+
+  it('keeps it across a restart with a changed SDK', async () => {
+    const a = build('a');
+    await start();
+    // The API reads the bundle at start: build a is kept though no page asked for it.
+    await expect.poll(() => (existsSync(buildsDir) ? kept() : [])).toEqual([`taleart.${a.hash}.js`]);
+    const b = build('b, longer');
+    const restarted = await start();
+    const res = await fetch(`${restarted}${a.path}`);
+    expect(res.status).toBe(200);
+    expect(Buffer.from(await res.arrayBuffer()).equals(a.body)).toBe(true);
+    expect(await (await fetch(`${restarted}/sdk/v1/taleart.js`)).text()).toBe(b.body.toString());
+    expect(await status(`${restarted}${b.path}`)).toBe(200);
+  });
+
+  it('keeps only the last N builds, the current one included; an evicted hash answers 404', async () => {
+    const origin = await start({ kept: 3 });
+    const builds = [];
+    for (const text of ['a', 'bb', 'ccc', 'dddd']) {
+      builds.push(build(text));
+      await fetch(`${origin}/sdk/v1/taleart.js`);
+    }
+    const [a, b, c, d] = builds;
+    expect(await status(`${origin}${a.path}`)).toBe(404);
+    for (const x of [b, c, d]) expect(await status(`${origin}${x.path}`), x.hash).toBe(200);
+    expect(kept()).toEqual([b, c, d].map((x) => `taleart.${x.hash}.js`).sort());
+  });
+
+  it('counts a build served again as the newest (a redeploy of an older build)', async () => {
+    const origin = await start({ kept: 3 });
+    const a = build('a');
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    const b = build('bb');
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    build('a');
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    const c = build('ccc');
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    const d = build('dddd');
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    expect(await status(`${origin}${b.path}`)).toBe(404);
+    for (const x of [a, c, d]) expect(await status(`${origin}${x.path}`), x.hash).toBe(200);
+  });
+
+  it('answers 404 to a hash it never served, and to a kept file whose bytes are not that build', async () => {
+    const a = build('a');
+    const origin = await start();
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    const b = build('bb');
+    await fetch(`${origin}/sdk/v1/taleart.js`);
+    expect(await status(`${origin}/sdk/v1/taleart.AAAAAAAAAAAAAAAA.js`)).toBe(404);
+    writeFileSync(join(buildsDir, `taleart.${a.hash}.js`), 'export const build = "tampered";\n');
+    expect(await status(`${origin}${a.path}`)).toBe(404);
+    // A file that is not a build is never served, whatever its name.
+    writeFileSync(join(buildsDir, 'notes.js'), 'x');
+    expect(await status(`${origin}/sdk/v1/notes.js`)).toBe(404);
+    expect(await status(`${origin}${b.path}`)).toBe(200);
+  });
+
+  it('keeps only the current build without a folder, and still serves it when the folder cannot be written', async () => {
+    const a = build('a');
+    const none = await start({ folder: null });
+    await fetch(`${none}/sdk/v1/taleart.js`);
+    const b = build('bb');
+    expect(await status(`${none}${b.path}`)).toBe(200);
+    expect(await status(`${none}${a.path}`)).toBe(404);
+
+    // A file where the folder should be: nothing is kept, a warning says so, the SDK is served.
+    writeFileSync(join(dir, 'not-a-folder'), '');
+    const broken = await start({ folder: join(dir, 'not-a-folder') });
+    expect(await status(`${broken}/sdk/v1/taleart.js`)).toBe(200);
+    expect(await status(`${broken}${b.path}`)).toBe(200);
+    expect(warnings.some((w) => w.includes(`build ${b.hash} was not kept`))).toBe(true);
+  });
+
+  it('writes each build whole, so another API sharing the folder never reads half of one', async () => {
+    const builds = sdkBuilds(buildsDir, 2);
+    const a = toServedFile(Buffer.from('a'.repeat(100_000)));
+    const b = toServedFile(Buffer.from('b'.repeat(100_000)));
+    await Promise.all([builds.record(a), builds.record(b), builds.record(a)]);
+    // No temporary files are left, and the last recorded is the newest.
+    expect(readdirSync(buildsDir).sort()).toEqual([`taleart.${a.hash}.js`, `taleart.${b.hash}.js`].sort());
+    expect((await builds.read(a.hash))?.body.equals(a.body)).toBe(true);
+    expect(await builds.read('../../etc/passwd')).toBeNull();
+    expect(await builds.read('AAAAAAAAAAAAAAAA')).toBeNull();
+  });
+});
+
+describe('sdkBuildsFromEnv', () => {
+  it('keeps five builds in .data/sdk-builds by default, or none with off', () => {
+    expect(sdkBuildsFromEnv({}, (p) => `/repo/${p}`)).toEqual({ buildsDir: '/repo/.data/sdk-builds', buildsKept: 5 });
+    expect(sdkBuildsFromEnv({ SDK_BUILDS_DIR: '/var/sdk', SDK_BUILDS_KEPT: '12' }, (p) => p)).toEqual({
+      buildsDir: '/var/sdk',
+      buildsKept: 12,
+    });
+    expect(sdkBuildsFromEnv({ SDK_BUILDS_DIR: 'off' }, (p) => p).buildsDir).toBeNull();
+  });
+
+  it('refuses a number of builds that is not a whole number from 1 to 100', () => {
+    for (const bad of ['0', '-1', '1.5', 'five', '101', ' 3']) {
+      expect(() => sdkBuildsFromEnv({ SDK_BUILDS_KEPT: bad }, (p) => p), bad).toThrow('SDK_BUILDS_KEPT must be a whole number');
+    }
+    expect(sdkBuildsFromEnv({ SDK_BUILDS_KEPT: '1' }, (p) => p).buildsKept).toBe(1);
+    expect(sdkBuildsFromEnv({ SDK_BUILDS_KEPT: '100' }, (p) => p).buildsKept).toBe(100);
   });
 });
 

@@ -50,11 +50,16 @@ The Install tab also has a Copy button and an "Open test page" link (below).
   URL; it is cached for five minutes, and a running API serves a rebuilt file at once. A site may also host the file
   itself, or install the npm package.
 - **Pinning it.** The same build is also served at a URL pinned to its content, `<api-url>/sdk/v1/taleart.<hash>.js`,
-  cached for a year. Open `<api-url>/api/v1/install` in a browser where you are signed in to the dashboard: it gives
-  that URL (`sdkPinnedUrl`) with its Subresource Integrity value (`sdkIntegrity`), for a page that wants the browser
-  to refuse any other file:
-  `<script type="module" src="…/taleart.<hash>.js" integrity="sha384-…" crossorigin="anonymous">`. A pinned URL is gone
-  with the next build, so a page that pins it updates it on each release.
+  cached for a year. The zone page's Install tab shows that URL and its Subresource Integrity value, each with a Copy
+  button, and copies the whole tag, for a page that wants the browser to refuse any other file:
+  `<script type="module" src="…/taleart.<hash>.js" integrity="sha384-…" crossorigin="anonymous">`
+  (`GET <api-url>/api/v1/install` gives them too, as `sdkPinnedUrl` and `sdkIntegrity`, to a signed-in user). The API
+  keeps the last 5 builds it served at their pinned URLs, the current one included, so a pinned page keeps working
+  through the next 4 releases; update the pin before then. An older or unknown hash answers 404. The API writes each
+  build it serves, at start and whenever the bundle file changes, to `SDK_BUILDS_DIR` (default `.data/sdk-builds` from
+  the folder the API starts in; outside the build output, which a rebuild replaces) and deletes the oldest beyond
+  `SDK_BUILDS_KEPT` (default 5, at most 100). `SDK_BUILDS_DIR=off` keeps only the current build. API processes that
+  serve the same pinned URLs share that folder (a volume, in a container).
 - **The test page.** `<api-url>/sdk/v1/test-page?zone=<slug>` renders one zone with this SDK. It reads the site key
   from the URL fragment (`#siteKey=…`, which a browser never sends to a server) and removes it from the address bar,
   or from a field on the page. It stores the key nowhere and sends it only in the SDK's `Authorization` header to the

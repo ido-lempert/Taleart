@@ -20,7 +20,7 @@ import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import type { RateLimitOptions } from './http/rate-limit';
-import { defaultSdkFiles, installRouter, sdkRouter, servedFile, type SdkFiles } from './http/sdk.router';
+import { defaultSdkFiles, installRouter, sdkBuilds, sdkRouter, sdkSource, type SdkFiles } from './http/sdk.router';
 import { siteKeyRouter } from './http/site-key.router';
 import { zonesRouter } from './http/zones.router';
 
@@ -73,7 +73,10 @@ export function createApp(
 ): express.Express {
   const publicApiUrl = urls.publicApiUrl ?? 'http://localhost:3333';
   const sdkFiles = { ...defaultSdkFiles(__dirname), ...sdk };
-  const sdkBundle = servedFile(sdkFiles.bundleFile);
+  // The current SDK build and the last ones it served, kept for pinned URLs (story 8.21). Read once
+  // now, so the build this API starts with is kept even if no page asks for it before the next one.
+  const sdkServed = sdkSource(sdkFiles.bundleFile, sdkBuilds(sdkFiles.buildsDir, sdkFiles.buildsKept, sdkFiles.warn));
+  void sdkServed.current().catch(() => undefined);
   const app = express();
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
   // reads its body first, with a larger limit, and the parser below then leaves that body as it is.
@@ -112,7 +115,7 @@ export function createApp(
   v1.use('/projects', siteKeyRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));
   v1.use('/projects', projectMediaRouter(pool, storage, media));
-  v1.use('/install', installRouter(publicApiUrl, sdkBundle));
+  v1.use('/install', installRouter(publicApiUrl, sdkServed.current));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));
@@ -134,7 +137,7 @@ export function createApp(
 
   // The Web SDK bundle for host pages and the test page that renders one zone with it (epic UX
   // rework R13): public, no session and no key.
-  app.use(SDK_BASE, sdkRouter(sdkFiles, publicApiUrl, sdkBundle));
+  app.use(SDK_BASE, sdkRouter(sdkFiles, publicApiUrl, sdkServed));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
