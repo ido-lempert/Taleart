@@ -30,11 +30,12 @@ class TaleartFontsTest : ComposeUiTestBase() {
     @AfterTest
     fun forget() = TaleartFonts.clear()
 
-    // A host that has "Lobster" (any case) and "Brand Sans", as Cursive and Monospace.
+    // A host that has "Lobster" (any case) and "Brand Sans", as Cursive and SansSerif: families no
+    // fallback stack in these tests draws in (a missing name falls back to Serif or Monospace).
     private val host = HostFontLookup { name ->
         when (fontKey(name)) {
             "lobster" -> FontFamily.Cursive
-            "brand sans" -> FontFamily.Monospace
+            "brand sans" -> FontFamily.SansSerif
             else -> null
         }
     }
@@ -43,19 +44,36 @@ class TaleartFontsTest : ComposeUiTestBase() {
     fun namesAreReadAsTheWebReadsAFontFamilyList() {
         assertEquals(listOf("Open Sans", "Brand Sans", "serif"), fontListNames(""" "Open Sans" , 'Brand   Sans',serif """))
         assertEquals(emptyList(), fontListNames(" , ,"))
+        // A quoted name may hold a comma; an unclosed quote runs to the end.
+        assertEquals(listOf("Brand, Inc Sans", "serif"), fontListNames(""""Brand, Inc Sans", serif"""))
+        assertEquals(listOf("A", "B, c"), fontListNames("A, 'B, c"))
+        assertEquals(
+            listOf(FontListEntry("serif", quoted = true), FontListEntry("monospace", quoted = false)),
+            fontListEntries("'serif', monospace"),
+        )
         assertEquals("brand sans", fontKey("  'Brand \t Sans' "))
+    }
+
+    @Test
+    fun distinctFamilyNamesHaveDistinctAndroidResourceNames() {
         assertEquals("brand_sans", fontResourceName("Brand Sans"))
-        assertEquals("brand_sans", fontResourceName("brand-sans"))
-        assertEquals("lobster_regular", fontResourceName("Lobster-Regular"))
+        assertEquals("brand__sans", fontResourceName("Brand-Sans"))
+        assertEquals("brand___sans", fontResourceName("Brand -Sans"))
         assertEquals("pt_serif_2", fontResourceName("PT  Serif 2"))
+        assertEquals("lobster", fontResourceName("Lobster"))
+        // A resource cannot carry these: the assets lookup still can.
         assertNull(fontResourceName("--"))
+        assertNull(fontResourceName("2Brand"))
+        assertNull(fontResourceName("Hébreu Sans"))
+        val names = listOf("Brand Sans", "Brand-Sans", "Brand  Sans", "BrandSans", "Brand Sans 2", "Brand-Sans-2")
+        assertEquals(5, names.mapNotNull(::fontResourceName).toSet().size, "only the double space collapses")
     }
 
     @Test
     fun theFirstEntryAvailableWinsThenAGenericFamilyElseNone() {
         // Case-insensitive, quoted or not.
         assertEquals(FontFamily.Cursive, fontFamilyOf("LOBSTER, serif", host))
-        assertEquals(FontFamily.Monospace, fontFamilyOf("\"brand sans\", Lobster", host))
+        assertEquals(FontFamily.SansSerif, fontFamilyOf("\"brand sans\", Lobster", host))
         // A name the app lacks is skipped, as a browser skips a font it does not have.
         assertEquals(FontFamily.Cursive, fontFamilyOf("Missing Font, 'Lobster'", host))
         assertEquals(FontFamily.Serif, fontFamilyOf("Missing Font, serif, Lobster", host))
@@ -68,6 +86,11 @@ class TaleartFontsTest : ComposeUiTestBase() {
         assertNull(fontFamilyOf(null, host))
         // A host that fails to read a font is a font it does not have.
         assertEquals(FontFamily.Serif, fontFamilyOf("Broken, serif", HostFontLookup { error("unreadable") }))
+        // A quoted generic keyword is a family name, as in CSS: the app has none of that name.
+        assertNull(fontFamilyOf("'serif'", host))
+        assertEquals(FontFamily.Monospace, fontFamilyOf("\"serif\", monospace", host))
+        // A quoted name with a comma is one name.
+        assertNull(fontFamilyOf("\"Lobster, serif\"", host))
     }
 
     @Test
@@ -76,12 +99,15 @@ class TaleartFontsTest : ComposeUiTestBase() {
         assertEquals(FontFamily.SansSerif, fontFamilyOf("lobster", host))
         assertEquals(FontFamily.SansSerif, fontFamilyOf("Missing, LOBSTER", host))
         // An earlier entry the host has still wins: the list's order decides.
-        assertEquals(FontFamily.Monospace, fontFamilyOf("Brand Sans, Lobster", host))
+        assertEquals(FontFamily.SansSerif, fontFamilyOf("Brand Sans, Lobster", host))
         TaleartFonts.register("Only Registered", FontFamily.Serif)
         assertEquals(FontFamily.Serif, fontFamilyOf("Only  Registered", HostFontLookup.None))
         TaleartFonts.unregister("LOBSTER")
         assertEquals(FontFamily.Cursive, fontFamilyOf("lobster", host))
         assertFailsWith<IllegalArgumentException> { TaleartFonts.register(" '' ", FontFamily.Serif) }
+        // A registration wins over a generic family of the same name.
+        TaleartFonts.register("cursive", FontFamily.Monospace)
+        assertEquals(FontFamily.Monospace, fontFamilyOf("cursive", host))
     }
 
     @Test
@@ -96,8 +122,16 @@ class TaleartFontsTest : ComposeUiTestBase() {
                             text("Missing", """{"source":"name","family":"Missing Font"}""", "monospace"),
                             text("Themed", """{"source":"theme"}""", "sans"),
                             text("Project", """{"source":"project","fontId":"0f0e0d0c-0000-4000-8000-00000000000a"}""", "serif"),
+                            text("Project gone", """{"source":"project","fontId":"0f0e0d0c-0000-4000-8000-00000000000b"}""", "monospace"),
+                            text("Project unnamed", """{"source":"project","fontId":"0f0e0d0c-0000-4000-8000-00000000000c"}""", "serif"),
+                            text("Project generic", """{"source":"project","fontId":"0f0e0d0c-0000-4000-8000-00000000000d"}""", "monospace"),
                         ),
                         themeFont = "Brand Sans, serif",
+                        projectFonts = mapOf(
+                            "0f0e0d0c-0000-4000-8000-00000000000a" to "Lobster",
+                            "0f0e0d0c-0000-4000-8000-00000000000b" to "Gone Font",
+                            "0f0e0d0c-0000-4000-8000-00000000000d" to "cursive",
+                        ),
                     )
                 }
             }
@@ -105,16 +139,21 @@ class TaleartFontsTest : ComposeUiTestBase() {
         waitForIdle()
         // Not registered yet: the list's next entry.
         assertEquals(FontFamily.Serif, family("Registered"))
-        TaleartFonts.register("Brand Display", FontFamily.Cursive)
+        TaleartFonts.register("Brand Display", FontFamily.Default)
         waitForIdle()
         // Registered while it shows: it redraws in the registered family.
-        assertEquals(FontFamily.Cursive, family("Registered"))
+        assertEquals(FontFamily.Default, family("Registered"))
         assertEquals(FontFamily.Cursive, family("Hosted"))
         // A name the app lacks: the text's fallback stack.
         assertEquals(FontFamily.Monospace, family("Missing"))
-        assertEquals(FontFamily.Monospace, family("Themed"))
-        // A project font is not downloaded on mobile: its fallback stack.
-        assertEquals(FontFamily.Serif, family("Project"))
+        // The theme's font: the host's Brand Sans.
+        assertEquals(FontFamily.SansSerif, family("Themed"))
+        // A project font is never downloaded on mobile: the host's font of its family, else its fallback.
+        assertEquals(FontFamily.Cursive, family("Project"))
+        assertEquals(FontFamily.Monospace, family("Project gone"))
+        assertEquals(FontFamily.Serif, family("Project unnamed"))
+        // A project family is a name, never a generic keyword.
+        assertEquals(FontFamily.Monospace, family("Project generic"))
     }
 
     @Test
@@ -148,8 +187,8 @@ class TaleartFontsTest : ComposeUiTestBase() {
     private var y = 0.0
 
     private fun text(label: String, font: String, fallback: String): String {
-        y += 0.15
-        return """{"id":"$label","type":"text","box":{"x":0.1,"y":$y,"w":0.8,"h":0.1,"rotation":0},"hidden":false,"locked":false,"a11y":{},
+        y += 0.09
+        return """{"id":"$label","type":"text","box":{"x":0.1,"y":$y,"w":0.8,"h":0.08,"rotation":0},"hidden":false,"locked":false,"a11y":{},
             "props":{"text":"$label","font":$font,"fallback":"$fallback","size":0.03}}"""
     }
 

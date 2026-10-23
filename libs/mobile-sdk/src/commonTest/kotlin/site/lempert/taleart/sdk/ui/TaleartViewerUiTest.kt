@@ -11,6 +11,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -685,15 +686,16 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
         assertEquals("$winter/0", tale())
 
-        // A short drag springs back to the same group.
+        // A drag released short of a swipe springs back to the same group.
         stage.performTouchInput {
-            down(center)
-            moveBy(Offset(width * 0.05f, 0f))
-            moveBy(Offset(width * 0.03f, 0f))
+            down(Offset(width * 0.8f, height / 2f))
+            moveBy(Offset(-width * 0.2f, 0f))
+            moveBy(Offset(width * 0.2f - 30.dp.toPx(), 0f))
             up()
         }
         settle()
-        assertEquals("$winter/0", tale())
+        // Released 30 dp from where it started: a tap on the right, the next tale of Winter.
+        assertEquals("$winter/1", tale())
         onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
     }
 
@@ -732,14 +734,136 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
     }
 
     @Test
-    fun closingFadesOutBeforeTheHostIsTold() = runComposeUiTest {
+    fun closingFadesOutBeforeTheHostIsToldOnce() = runComposeUiTest {
         open(winter)
+        settle()
+        assertEquals(1f, presence())
         onNodeWithContentDescription("Close").performClick()
-        frame()
-        // Still drawn, fading, and the host not told yet.
+        advance(VIEWER_CLOSE_MS / 2L)
+        // Still drawn, half faded, and the host not told yet.
+        assertEquals("$winter/0", tale())
+        val fading = presence()!!
+        assertTrue(fading > 0f && fading < 1f, "presence $fading")
         assertEquals(emptyList(), closed)
         settle()
         assertEquals(null, tale())
         assertEquals(listOf(winter), closed)
+        // Told once, whatever comes after.
+        settle()
+        assertEquals(listOf(winter), closed)
     }
+
+    @Test
+    fun theViewerOpensGrowingAndFadingIn() = runComposeUiTest {
+        open(summer)
+        val opening = presence()!!
+        assertTrue(opening < 1f, "presence $opening")
+        advance(VIEWER_OPEN_MS / 2L)
+        val half = presence()!!
+        assertTrue(half > opening && half < 1f, "presence $half")
+        settle()
+        assertEquals(1f, presence())
+    }
+
+    @Test
+    fun aViewerThatLeavesMidFadeStillTellsTheHostOnce() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        var showing by mutableStateOf(true)
+        setContent {
+            Fakes {
+                if (showing) TaleartViewer(zone.taleGroups, winter, onClose = { closed += it }, seenGroups = seen, reducedMotion = false)
+            }
+        }
+        frame()
+        onNodeWithContentDescription("Close").performClick()
+        frame()
+        assertEquals(emptyList(), closed)
+        showing = false
+        frame()
+        assertEquals(listOf(winter), closed)
+        settle()
+        assertEquals(listOf(winter), closed)
+    }
+
+    @Test
+    fun aTouchWhileTheCubeSettlesLandsItAtOnce() = runComposeUiTest {
+        open(summer)
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        stage.performTouchInput { swipeLeft() }
+        frame()
+        // Mid-settle: the turn is still going.
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertExists()
+        stage.performTouchInput { down(center) }
+        frame()
+        // Landed on Winter at once, under the new finger.
+        assertEquals("$winter/0", tale())
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+        stage.performTouchInput { up() }
+        frame()
+        // The release was a tap on the right: the next tale.
+        assertEquals("$winter/1", tale())
+    }
+
+    @Test
+    fun aWiggleOf20DpIsStillATap() = runComposeUiTest {
+        open(summer)
+        onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput {
+            down(Offset(width * 0.8f, height / 2f))
+            moveBy(Offset(20.dp.toPx(), 0f))
+            moveBy(Offset(-12.dp.toPx(), 4.dp.toPx()))
+            up()
+        }
+        settle()
+        assertEquals("$summer/1", tale())
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun rightToLeftADragTowardTheRightTurnsTheNextGroupIn() = runComposeUiTest {
+        open(summer, direction = LayoutDirection.Rtl)
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        // Toward the left there is no group before Summer: nothing turns in.
+        stage.performTouchInput {
+            down(center)
+            moveBy(Offset(-width * 0.2f, 0f))
+            moveBy(Offset(-width * 0.1f, 0f))
+        }
+        frame()
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertDoesNotExist()
+        stage.performTouchInput { moveBy(Offset(width * 0.6f, 0f)) }
+        frame()
+        onNodeWithTag(VIEWER_NEIGHBOR_TAG).assertExists()
+        stage.performTouchInput { up() }
+        settle()
+        assertEquals("$winter/0", tale())
+    }
+
+    @Test
+    fun aSwipeDownReleasedShortSpringsBack() = runComposeUiTest {
+        open(summer)
+        settle()
+        val page = onNodeWithTag(VIEWER_PAGE_TAG)
+        val top = page.fetchSemanticsNode().boundsInRoot.top
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG)
+        stage.performTouchInput {
+            down(Offset(width * 0.5f, height * 0.3f))
+            moveBy(Offset(0f, height * 0.15f))
+            moveBy(Offset(0f, height * 0.15f))
+        }
+        frame()
+        // The tale follows the finger down.
+        assertTrue(page.fetchSemanticsNode().boundsInRoot.top > top + 10f)
+        stage.performTouchInput {
+            moveBy(Offset(0f, -height * 0.3f + 20.dp.toPx()))
+            up()
+        }
+        frame()
+        assertTrue(page.fetchSemanticsNode().boundsInRoot.top > top, "springing back, not snapped")
+        settle()
+        assertEquals(top, page.fetchSemanticsNode().boundsInRoot.top, 0.5f)
+        assertEquals(emptyList(), closed)
+    }
+
+    private fun ComposeUiTest.presence(): Float? =
+        onAllNodes(SemanticsMatcher.keyIsDefined(ViewerPresence)).fetchSemanticsNodes().singleOrNull()?.config?.get(ViewerPresence)
 }

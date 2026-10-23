@@ -70,6 +70,9 @@ internal class ViewerMotion(private val state: TaleViewerState) {
     // The group change the motion itself makes (a committed drag): already in place, not turned again.
     private var committing = false
 
+    /** Where a released drag is settling: its target offset and the group it shows there (null: back). */
+    private var pending: Pair<Float, Int?>? = null
+
     /** Screen side (+1 right, -1 left) of the group [step] groups on (1 next, -1 previous). */
     fun sideOf(step: Int, dir: Int): Int = step * dir
 
@@ -108,19 +111,26 @@ internal class ViewerMotion(private val state: TaleViewerState) {
     fun commitTarget(commit: Boolean): Float {
         dragging = false
         val n = neighbor
-        return if (commit && n != null) -n.side.toFloat() else 0f
+        val target = if (commit && n != null) -n.side.toFloat() else 0f
+        pending = target to n?.groupIndex?.takeIf { target != 0f }
+        return target
     }
 
     /**
-     * The drag settled at [target] ([commitTarget]): a full turn shows the neighbor's group, which
-     * becomes the live page in place; else the neighbor leaves.
+     * The drag settled ([commitTarget]): a full turn shows the group it was released toward, which
+     * becomes the live page in place, when that group is still the one beside the group on screen;
+     * else the neighbor leaves. Nothing when no settle is pending.
      */
-    fun settled(target: Float) {
-        val n = neighbor
-        if (target != 0f && n != null) {
+    fun settled() {
+        val (_, group) = pending ?: return
+        pending = null
+        if (group != null) {
             committing = true
             try {
-                if (n.groupIndex > state.groupIndex) state.nextGroup() else state.previousGroup()
+                when (group) {
+                    state.groupIndex + 1 -> state.nextGroup()
+                    state.groupIndex - 1 -> state.previousGroup()
+                }
             } finally {
                 committing = false
             }
@@ -128,6 +138,9 @@ internal class ViewerMotion(private val state: TaleViewerState) {
         offset = 0f
         neighbor = null
     }
+
+    /** A new touch while a released drag still settles: it lands where it was going at once. */
+    fun finishSettle() = settled()
 
     /**
      * The group on screen changed from [from] (showing [fromView]) to [to] without a drag: the new
@@ -155,20 +168,28 @@ internal class ViewerMotion(private val state: TaleViewerState) {
         neighbor = null
     }
 
-    /** Animates the released drag to [target] on a spring, starting at [velocity] (widths a second), then [settled]. */
+    /**
+     * Animates the released drag to [target] on a spring, starting at [velocity] (widths a second),
+     * then [settled]. The tale waits meanwhile ([TaleViewerState.turning]): it does not end under a
+     * turning cube. Cancelled (a new touch), it lands at once ([finishSettle]).
+     */
     suspend fun settleDrag(target: Float, velocity: Float) {
+        state.turning = true
         try {
             animate(offset, target, initialVelocity = velocity, animationSpec = cubeSpring()) { value, _ -> offset = value }
         } finally {
-            settled(target)
+            settled()
+            state.turning = false
         }
     }
 
     /** Drops any transition at once: reduced motion turned on, or the viewer closed. */
     fun stop() {
         dragging = false
+        pending = null
         offset = 0f
         neighbor = null
+        state.turning = false
     }
 }
 

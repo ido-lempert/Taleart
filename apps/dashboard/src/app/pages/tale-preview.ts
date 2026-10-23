@@ -161,6 +161,7 @@ export class TalePreviewPane {
       .filter((font) => projectId && used.includes(font.id))
       .map((font) => ({
         id: font.id,
+        family: font.family,
         url: absolute(projectFontFileUrl(projectId as string, font.id)),
         weight: font.weight,
         style: font.style,

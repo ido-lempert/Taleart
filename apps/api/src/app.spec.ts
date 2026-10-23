@@ -6367,7 +6367,7 @@ describe('Management API v1: projects and zones', () => {
       await publish('tales', tale.id); // Going live publishes the draft (AD-15).
 
       const [{ tales }] = await delivered(key);
-      expect(tales[0].fonts).toEqual([{ id: font.id, url, weight: 700, style: 'italic' }]);
+      expect(tales[0].fonts).toEqual([{ id: font.id, family: 'Brand Sans', url, weight: 700, style: 'italic' }]);
       const res = await getPublic(url);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe('font/woff2');

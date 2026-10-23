@@ -47,5 +47,11 @@ internal val LocalViewerAppeared = staticCompositionLocalOf<State<Boolean>> { Ap
 
 private val AppearedAtOnce: State<Boolean> = mutableStateOf(true)
 
+/**
+ * True while the viewer moves (opening, closing, a drag down, a cube turn): read in a native view's
+ * update, which hides then, as a native view does not follow Compose's graphics layers.
+ */
+internal val LocalViewerInMotion = staticCompositionLocalOf<() -> Boolean> { { false } }
+
 /** Shows the viewer in place instead of full screen: for tests, which have no window to present over. */
 internal val LocalViewerInPlace = staticCompositionLocalOf { false }

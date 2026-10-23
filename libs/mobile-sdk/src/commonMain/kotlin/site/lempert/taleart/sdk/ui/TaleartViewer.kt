@@ -3,6 +3,7 @@ package site.lempert.taleart.sdk.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +12,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -126,6 +129,10 @@ const val VIEWER_PAGE_TAG = "taleart-viewer-page"
 val SegmentFill = SemanticsPropertyKey<Float>("TaleartSegmentFill")
 private var SemanticsPropertyReceiver.segmentFill by SegmentFill
 
+/** How far the viewer has opened, 0 (hidden) to 1 (shown), as it opens and closes; for tests only. */
+val ViewerPresence = SemanticsPropertyKey<Float>("TaleartViewerPresence")
+private var SemanticsPropertyReceiver.viewerPresence by ViewerPresence
+
 /** The tale a page shows, as `groupId/index`; for tests only. */
 val ViewerTale = SemanticsPropertyKey<String>("TaleartViewerTale")
 private var SemanticsPropertyReceiver.viewerTale by ViewerTale
@@ -210,9 +217,11 @@ fun TaleartViewer(
 }
 
 /**
- * The viewer of a [TaleViewerState] the caller holds (see the other overload). The state follows
- * [reducedMotion] while the viewer shows. The state's `onClosed` is called as the viewer starts to
- * close; it then fades out, drawing nothing once done.
+ * The viewer of a [TaleViewerState] the caller holds (see the other overload). The state keeps the
+ * reduced motion it was made with (the caller may set [TaleViewerState.reducedMotion]), unless
+ * [followReducedMotion]: it then follows the platform's setting live while the viewer shows. The
+ * state's `onClosed` is called as the viewer starts to close; it then fades out, drawing nothing
+ * once done.
  */
 @Composable
 fun TaleartViewer(
@@ -221,10 +230,24 @@ fun TaleartViewer(
     seenGroups: SeenGroups = rememberSeenGroups(),
     theme: TaleartTheme = TaleartTheme.DEFAULT,
     onGroupShown: (groupId: String) -> Unit = {},
-    reducedMotion: Boolean = rememberPrefersReducedMotion(),
-) = ViewerContent(state, modifier, seenGroups, theme, onGroupShown, reducedMotion, onExited = {})
+    followReducedMotion: Boolean = false,
+) = ViewerContent(
+    state,
+    modifier,
+    seenGroups,
+    theme,
+    onGroupShown,
+    reducedMotion = if (followReducedMotion) rememberPrefersReducedMotion() else null,
+    onExited = {},
+)
 
-/** The viewer, calling [onExited] once it has finished closing (its fade out done). */
+/** How long the viewer waits for its window to appear before it opens anyway (iOS). */
+internal const val VIEWER_APPEAR_TIMEOUT_MS = 500L
+
+/**
+ * The viewer, following [reducedMotion] when not null and calling [onExited] once, when it has
+ * finished closing (its fade out done) or leaves the composition after it closed.
+ */
 @Composable
 internal fun ViewerContent(
     state: TaleViewerState,
@@ -232,7 +255,7 @@ internal fun ViewerContent(
     seenGroups: SeenGroups,
     theme: TaleartTheme,
     onGroupShown: (groupId: String) -> Unit,
-    reducedMotion: Boolean,
+    reducedMotion: Boolean?,
     onExited: () -> Unit,
 ) {
     val shown by rememberUpdatedState(onGroupShown)
@@ -241,14 +264,35 @@ internal fun ViewerContent(
     val opened = remember(state) { state.isOpen }
     if (!opened) return
     // The person's setting, followed live: turned on, the tale pauses; turned off, it goes on.
-    SideEffect { state.reducedMotion = reducedMotion }
+    if (reducedMotion != null) SideEffect { state.reducedMotion = reducedMotion }
+    // The host is told once: when the fade out ends, or when the viewer leaves mid-fade.
+    val reported = remember(state) { BooleanArray(1) }
+    val report = {
+        if (!reported[0]) {
+            reported[0] = true
+            exitedNow()
+        }
+    }
+    DisposableEffect(state) {
+        onDispose { if (!state.isOpen) report() }
+    }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val dir = if (rtl) -1 else 1
     val motion = remember(state) { ViewerMotion(state) }
     // Open and close: 0 hidden, 1 shown. Under reduced motion it opens shown and closes at once.
     val presence = remember(state) { mutableFloatStateOf(if (state.reducedMotion) 1f else 0f) }
     var exited by remember(state) { mutableStateOf(false) }
-    val appeared = LocalViewerAppeared.current.value
+    // On iOS the modal's view appears a moment after the viewer composes: it opens then, or after
+    // VIEWER_APPEAR_TIMEOUT_MS should UIKit never say so. The tale and its video wait until then.
+    var appearTimedOut by remember(state) { mutableStateOf(false) }
+    val appeared = LocalViewerAppeared.current.value || appearTimedOut
+    LaunchedEffect(state, appeared) {
+        if (!appeared) {
+            delay(VIEWER_APPEAR_TIMEOUT_MS)
+            appearTimedOut = true
+        }
+    }
+    SideEffect { state.notShownYet = !appeared }
     LaunchedEffect(state, state.isOpen, appeared) {
         if (state.isOpen) {
             if (!appeared) return@LaunchedEffect
@@ -261,7 +305,7 @@ internal fun ViewerContent(
                 animate(presence.value, 0f, animationSpec = tween(VIEWER_CLOSE_MS, easing = VIEWER_EASING)) { v, _ -> presence.value = v }
             }
             exited = true
-            exitedNow()
+            report()
         }
     }
     // A group change the person did not drag turns the cube; reduced motion stops any turn.
@@ -282,8 +326,8 @@ internal fun ViewerContent(
         onDispose { }
     }
     // The tale's timer: frame by frame while it plays, keeping the time left across a pause.
-    LaunchedEffect(state.shows, state.timed, state.stopped, state.reducedMotion, appeared) {
-        if (!state.timed || state.stopped || state.reducedMotion || !appeared) return@LaunchedEffect
+    LaunchedEffect(state.shows, state.timed, state.stopped, state.reducedMotion) {
+        if (!state.timed || state.stopped || state.reducedMotion) return@LaunchedEffect
         var last = withFrameMillis { it }
         while (state.isOpen) {
             val now = withFrameMillis { it }
@@ -294,8 +338,8 @@ internal fun ViewerContent(
     // The stall check of a document's own video (R5): frame by frame while it should play; each
     // start (a new tale, run or resume) gives it a fresh VIDEO_STALL_MS, as the web's watchdog.
     // A finger held on the stage only suspends the count (stallTick skips while held); it does not restart it.
-    LaunchedEffect(state.shows, state.videoRuns, state.capped, state.paused, state.inBackground, state.reducedMotion) {
-        if (!state.capped || state.paused || state.inBackground || state.reducedMotion) return@LaunchedEffect
+    LaunchedEffect(state.shows, state.videoRuns, state.capped, state.paused, state.inBackground, state.notShownYet, state.reducedMotion) {
+        if (!state.capped || state.paused || state.inBackground || state.notShownYet || state.reducedMotion) return@LaunchedEffect
         state.restartStallCheck()
         var last = withFrameMillis { it }
         while (state.isOpen) {
@@ -345,7 +389,10 @@ internal fun ViewerContent(
                 drawRect(Color.Black.copy(alpha = 1f - 0.6f * pulled))
             }
             .testTag(VIEWER_TAG)
-            .semantics { paneTitle = state.group.name }
+            .semantics {
+                paneTitle = state.group.name
+                viewerPresence = presence.value
+            }
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { event ->
@@ -364,7 +411,10 @@ internal fun ViewerContent(
             },
         contentAlignment = Alignment.Center,
     ) {
+        // A native video view does not follow the viewer's layers: it hides while the viewer moves.
+        val moving = remember(state, motion) { { presence.value < 1f || dragDown.value != 0f || motion.offset != 0f || motion.neighbor != null } }
         // The frame: the whole width on a phone, at most 9:16 of the height (`.frame` in the Web SDK).
+        CompositionLocalProvider(LocalViewerInMotion provides moving) {
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val width = if (maxWidth < maxHeight * 9f / 16f) maxWidth else maxHeight * 9f / 16f
             Box(Modifier.width(width).fillMaxHeight()) {
@@ -381,6 +431,7 @@ internal fun ViewerContent(
                 )
             }
         }
+        }
     }
 }
 
@@ -391,6 +442,8 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
     val uri = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     val dir = if (rtl) -1 else 1
+    // The released drag settling now, if any: a new touch lands it at once.
+    val settling = remember(motion) { arrayOfNulls<Job>(1) }
     Box(
         Modifier
             .matchParentSize()
@@ -401,6 +454,11 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                 val slop = viewConfiguration.touchSlop
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    settling[0]?.let {
+                        motion.finishSettle()
+                        it.cancel()
+                        settling[0] = null
+                    }
                     state.held = true
                     var joined = false
                     // A tap a link took (a call to action on the canvas): it opens the link and does not step.
@@ -441,7 +499,13 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                             animate(dragDown.floatValue, 0f, animationSpec = cubeSpring()) { v, _ -> dragDown.floatValue = v }
                         }
                     }
-                    if (following) {
+                    val short = released != null && !joined && abs(dx) < swipe && abs(dy) < swipe
+                    if (following && short) {
+                        // A release that moved less than a swipe is still a tap or a hold, as on the web:
+                        // the page, barely moved, is back in place at once.
+                        motion.commitTarget(commit = false)
+                        motion.settled()
+                    } else if (following) {
                         // The cube settles: to the group the finger turned toward when it went far enough, else back.
                         val commit = released != null && !joined && abs(dx) >= swipe && abs(dx) > abs(dy)
                         val toNext = if (rtl) dx > 0 else dx < 0
@@ -452,7 +516,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                         } else {
                             val target = motion.commitTarget(commit)
                             val v = velocity.calculateVelocity().x / size.width
-                            scope.launch { motion.settleDrag(target, v) }
+                            settling[0] = scope.launch { motion.settleDrag(target, v) }
                         }
                         return@awaitEachGesture
                     }
@@ -549,7 +613,7 @@ private fun TalePreview(view: TaleView, themeFont: String?) {
         view.canvas?.let { canvas ->
             val still = canvas.copy(layer = canvas.layer.copy(elements = canvas.layer.elements.filter { it !is DocumentElement.Video }))
             CanvasBox(still, loader) { c ->
-                DocumentElementsLayer(c.layer, themeFont = themeFont, inertLinks = true, topChrome = VIEWER_TOP_BAR_HEIGHT)
+                DocumentElementsLayer(c.layer, themeFont = themeFont, inertLinks = true, topChrome = VIEWER_TOP_BAR_HEIGHT, projectFonts = c.projectFonts)
             }
         }
     }
@@ -581,7 +645,7 @@ private fun androidx.compose.foundation.layout.RowScope.Zone(label: String, weig
 internal fun TalePage(
     state: TaleViewerState,
     themeFont: String? = null,
-    elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit = { canvas -> DocumentElementsLayer(canvas.layer, themeFont = themeFont, video = documentVideoPlayback(state), topChrome = VIEWER_TOP_BAR_HEIGHT) },
+    elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit = { canvas -> DocumentElementsLayer(canvas.layer, themeFont = themeFont, video = documentVideoPlayback(state), topChrome = VIEWER_TOP_BAR_HEIGHT, projectFonts = canvas.projectFonts) },
 ) {
     val view = state.view
     val loader = rememberCoverImageLoader()

@@ -19,6 +19,113 @@ class ViewerMotionTest {
 
     private fun state(reduced: Boolean = false) = TaleViewerState(zone.taleGroups, summer, reduced)
 
+    // A group whose first tale is a video, then a still.
+    private val clips = readZone(
+        Json.parseToJsonElement(
+            """{"id":"z","name":"Z","slug":"clips","frame":{"id":"f","type":"bar","settings":{}},"taleGroups":[
+              {"id":"clips","name":"Clips","tales":[
+                {"id":"v","title":"Clip","media":{"kind":"video","contentType":"video/mp4","url":"http://api.test/media/clip.mp4"}},
+                {"id":"i","title":"Still","media":{"kind":"image","contentType":"image/png","url":"http://api.test/media/still.png"}}
+              ]},
+              {"id":"more","name":"More","tales":[{"id":"m","title":"More","media":{"kind":"image","contentType":"image/png","url":"http://api.test/media/m.png"}}]}
+            ]}""",
+        ) as JsonObject,
+    ).taleGroups
+
+    @Test
+    fun aVideoThatEndedUnderReducedMotionGoesOnOnceItIsTurnedOffAndNothingHoldsIt() {
+        val state = TaleViewerState(clips, "clips", reducedMotion = true)
+        state.videoEnded(state.shows, state.videoRuns)
+        assertTrue(state.videoAtEnd)
+        assertTrue(state.paused)
+        // Turned off while a finger holds the stage: it waits for the finger.
+        state.held = true
+        state.reducedMotion = false
+        assertEquals(0, state.taleIndex)
+        state.held = false
+        assertEquals(1, state.taleIndex)
+        // In the background, it waits for the app to come back.
+        val away = TaleViewerState(clips, "clips", reducedMotion = true)
+        away.videoEnded(away.shows, away.videoRuns)
+        away.inBackground = true
+        away.reducedMotion = false
+        assertEquals(0, away.taleIndex)
+        away.inBackground = false
+        assertEquals(1, away.taleIndex)
+    }
+
+    @Test
+    fun turnedOnAndOffWhileHeldOrAwayTheTaleWaitsForThemToo() {
+        val state = state()
+        state.tick(1_000)
+        state.held = true
+        state.reducedMotion = true
+        state.reducedMotion = false
+        assertFalse(state.paused)
+        // Still held: the timer waits.
+        state.tick(10_000)
+        assertEquals(1_000, state.elapsedMs)
+        state.held = false
+        state.tick(500)
+        assertEquals(1_500, state.elapsedMs)
+        state.inBackground = true
+        state.reducedMotion = true
+        assertTrue(state.paused)
+        state.reducedMotion = false
+        state.tick(10_000)
+        assertEquals(0, state.taleIndex)
+        state.inBackground = false
+        state.tick(500)
+        assertEquals(2_000, state.elapsedMs)
+    }
+
+    @Test
+    fun aVideoThatEndsUnderAFingerOrATurningCubeGoesOnOnceReleased() {
+        val state = TaleViewerState(clips, "clips")
+        state.held = true
+        state.videoEnded(state.shows, state.videoRuns)
+        assertEquals(0, state.taleIndex)
+        state.held = false
+        assertEquals(1, state.taleIndex)
+
+        val turning = TaleViewerState(clips, "clips")
+        turning.turning = true
+        assertTrue(turning.stopped)
+        turning.videoEnded(turning.shows, turning.videoRuns)
+        assertEquals(0, turning.taleIndex)
+        turning.turning = false
+        assertEquals(1, turning.taleIndex)
+    }
+
+    @Test
+    fun aSettleLandsOnTheGroupItWasReleasedTowardEvenIfTheNeighborChanged() {
+        val state = TaleViewerState(clips, "clips")
+        val motion = ViewerMotion(state)
+        motion.drag(-0.4f, dir = 1)
+        assertEquals(-1f, motion.commitTarget(commit = true))
+        // Something replaced the neighbor meanwhile: the settle still shows the group it was released toward.
+        motion.neighbor = NeighborPage(0, TaleView.read(clips[0].tales[0], 0), 1)
+        motion.finishSettle()
+        assertEquals(1, state.groupIndex)
+        assertNull(motion.neighbor)
+        // Landed once: a second call changes nothing.
+        motion.settled()
+        assertEquals(1, state.groupIndex)
+    }
+
+    @Test
+    fun aSettleTowardAGroupNoLongerBesideTheOneOnScreenLandsBack() {
+        val state = state()
+        val motion = ViewerMotion(state)
+        motion.drag(-0.4f, dir = 1)
+        motion.commitTarget(commit = true)
+        // The viewer moved on meanwhile (Winter is now on screen): nothing more changes.
+        state.nextGroup()
+        motion.settled()
+        assertEquals(1, state.groupIndex)
+        assertEquals(0f, motion.offset)
+    }
+
     @Test
     fun reducedMotionTurnedOnPausesWhereTheTaleIsAndTurnedOffGoesOn() {
         val state = state()
@@ -70,7 +177,7 @@ class ViewerMotionTest {
         val target = motion.commitTarget(commit = true)
         assertEquals(-1f, target)
         assertFalse(motion.dragging)
-        motion.settled(target)
+        motion.settled()
         assertEquals(1, state.groupIndex)
         assertEquals(0, state.taleIndex)
         assertEquals(0f, motion.offset)
@@ -88,7 +195,7 @@ class ViewerMotionTest {
         motion.drag(-0.1f, dir = 1)
         val target = motion.commitTarget(commit = false)
         assertEquals(0f, target)
-        motion.settled(target)
+        motion.settled()
         assertEquals(0, state.groupIndex)
         assertNull(motion.neighbor)
     }
