@@ -8,7 +8,7 @@ import {
   AltTextRequiredError,
   saveTaleDocument,
 } from './tale-document';
-import type { TransactionalDb } from './tales';
+import type { TransactionalDb } from '@taleart/server-access';
 
 // Tale Studio story 7.7: buttons, image buttons and the swipe-up link (R7, R14).
 const taleId = '00000000-0000-4000-8000-000000000010';

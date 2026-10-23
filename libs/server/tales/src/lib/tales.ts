@@ -26,7 +26,7 @@ import {
   type ZoneTaleGroup,
 } from '@taleart/contract';
 import { randomUUID } from 'node:crypto';
-import type { Db } from '@taleart/server-access';
+import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
 import { zoneProjectId, ZoneNotFoundError } from '@taleart/server-zones';
 import {
   deliveredMediaKeys,
@@ -161,11 +161,6 @@ export interface StoredTaleMedia {
   contentType: MediaContentType;
 }
 
-/** A database that can hand out one connection for a transaction, such as a pg Pool. */
-export interface TransactionalDb extends Db {
-  connect(): Promise<Db & { release(err?: Error | boolean): void }>;
-}
-
 /** Thrown when a tale request names a tale group that does not exist. */
 export class TaleGroupNotFoundError extends Error {
   readonly code = ErrorCodes.taleGroupNotFound;
@@ -279,27 +274,6 @@ const REORDER_PLACEMENTS_SQL = `UPDATE zone_tale_groups SET position = ordered.i
 // with a transaction-scoped advisory lock keyed on its id, not a row lock.
 async function lockZone(tx: Db, zoneId: string): Promise<void> {
   await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_groups:' || $1, 0))", [zoneId]);
-}
-
-// Runs `work` in one transaction on one connection; rolls back on any error.
-export async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
-  const tx = await db.connect();
-  try {
-    await tx.query('BEGIN');
-    const result = await work(tx);
-    await tx.query('COMMIT');
-    tx.release();
-    return result;
-  } catch (err) {
-    try {
-      await tx.query('ROLLBACK');
-      tx.release();
-    } catch (rollbackErr) {
-      // A connection that cannot roll back is not returned to the pool.
-      tx.release(rollbackErr as Error);
-    }
-    throw err;
-  }
 }
 
 /** The tale groups placed in the zone, by their position there, each with its tales by position. */

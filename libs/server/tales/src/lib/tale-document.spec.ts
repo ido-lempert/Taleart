@@ -11,7 +11,8 @@ import {
   StaleRevisionError,
   TaleDocumentTooLargeError,
 } from './tale-document';
-import { TaleNotFoundError, type TransactionalDb } from './tales';
+import type { TransactionalDb } from '@taleart/server-access';
+import { TaleNotFoundError } from './tales';
 import { DELIVERY_CACHE_SIZE } from './tale-document';
 
 const taleId = '00000000-0000-4000-8000-000000000010';

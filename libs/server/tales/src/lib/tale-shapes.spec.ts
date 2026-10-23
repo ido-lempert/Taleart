@@ -8,7 +8,7 @@ import {
   InvalidTaleDocumentError,
   saveTaleDocument,
 } from './tale-document';
-import type { TransactionalDb } from './tales';
+import type { TransactionalDb } from '@taleart/server-access';
 
 // Tale Studio story 7.6: shapes, emoji and image stickers.
 const taleId = '00000000-0000-4000-8000-000000000010';
