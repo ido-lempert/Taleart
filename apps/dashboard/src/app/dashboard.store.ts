@@ -2,7 +2,9 @@ import { computed, inject, Injectable, PLATFORM_ID, signal } from '@angular/core
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient, HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import {
+  ErrorCodes,
   isErrorBody,
+  MAX_TALE_GROUPS_PER_PROJECT,
   type Frame,
   type FrameType,
   type Invitation,
@@ -91,6 +93,17 @@ export function compareTags(a: { id: string; name: string }, b: { id: string; na
 // The API's own message when it sent the standard error body, else the fallback.
 function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
+}
+
+// A refused tale group create or copy: the API's message, which says plainly when the project is
+// full (epic UX rework R14); the client's own wording only when that message is missing.
+function taleGroupCreateMessage(err: unknown, fallback: string): string {
+  if (!(err instanceof HttpErrorResponse) || !isErrorBody(err.error)) return fallback;
+  const { code, message } = err.error.error;
+  if (code === ErrorCodes.taleGroupLimitReached && !message.trim()) {
+    return `This project already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups that are not archived, the most it can hold. Archive a tale group to make room.`;
+  }
+  return message;
 }
 
 /** The control a refusal of a zone change is about; null when it names none. */
@@ -540,7 +553,7 @@ export class DashboardStore {
     try {
       created = await firstValueFrom(this.http.post<ZoneTaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, { name }));
     } catch (err) {
-      return apiErrorMessage(err, 'Tale group was not saved. Try again.');
+      return taleGroupCreateMessage(err, 'Tale group was not saved. Try again.');
     }
     this.createdTaleGroupId.set(created.id);
     await this.refresh();
@@ -555,7 +568,7 @@ export class DashboardStore {
         this.http.post<ProjectTaleGroup>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tale-groups`, { name }),
       );
     } catch (err) {
-      return apiErrorMessage(err, 'Tale group was not saved. Try again.');
+      return taleGroupCreateMessage(err, 'Tale group was not saved. Try again.');
     }
     this.createdTaleGroupId.set(created.id);
     await this.refresh();
@@ -603,7 +616,7 @@ export class DashboardStore {
         this.http.post<ZoneTaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/copy`, { zoneId }),
       );
     } catch (err) {
-      return { copy: null, message: apiErrorMessage(err, 'The tale group was not copied. Try again.') };
+      return { copy: null, message: taleGroupCreateMessage(err, 'The tale group was not copied. Try again.') };
     }
     await this.refresh();
     return { copy, message: '' };

@@ -31,6 +31,7 @@ import {
   TaleDocumentTooLargeError,
   OrderMismatchError,
   TaleGroupFullError,
+  TaleGroupLimitError,
   TaleGroupNotFoundError,
   TaleGroupNotInProjectError,
   TaleNotFoundError,
@@ -106,6 +107,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
   }
   if (
     err instanceof TaleGroupFullError ||
+    err instanceof TaleGroupLimitError ||
     err instanceof OrderMismatchError ||
     err instanceof SetupClosedError ||
     err instanceof EmailTakenError ||
