@@ -432,6 +432,8 @@ export class TaleGroupsPage {
         return 'Every tale group is On or archived.';
       case 'scheduled':
         return 'No tale group has a start or end time.';
+      case 'targeted':
+        return "No tale group is targeted. Add targeting tags in a group's Audience.";
       case 'unplaced':
         return 'Every tale group is shown in at least one zone.';
       case 'archived':
@@ -485,6 +487,8 @@ export class TaleGroupsPage {
 
   /** True from "New tale group" until its drawer closes, to reveal the group it created. */
   private creating = false;
+  /** The group whose Audience drawer is open, with its place in the list, to tell if it leaves the list. */
+  private audienceOf: { id: string; name: string; index: number; listed: boolean } | null = null;
 
   constructor() {
     // This page lists the selected project's groups: read that list (only it, epic UX rework R14).
@@ -524,6 +528,23 @@ export class TaleGroupsPage {
     effect(() => {
       const raw = this.filter();
       if (raw !== undefined && taleGroupFilter(raw) === 'all') untracked(() => this.writeUrl('all'));
+    });
+    // Once a group's Audience drawer closes: a group its new tags took out of the list (the Targeted
+    // filter, its last tag removed) is announced with the filter that lists it, and focus goes where
+    // it goes when a status change takes a row out (`changeStatus`).
+    effect(() => {
+      if (this.store.drawer() !== null) return;
+      untracked(() => {
+        const pending = this.audienceOf;
+        this.audienceOf = null;
+        if (!pending?.listed) return;
+        const now = this.allGroups().find((group) => group.id === pending.id);
+        if (!now || inTaleGroupFilter(now, this.selected())) return;
+        this.announce(
+          `${pending.name} is not targeted now. It is listed under ${TALE_GROUP_FILTERS.find((f) => f.id === homeFilter(now))?.label}.`,
+        );
+        if (this.openedGroup()?.id !== pending.id) this.focusAfterLeaving(pending.index);
+      });
     });
     // Once the create drawer closes: a group the current filter hides brings All back, so it shows.
     effect(() => {
@@ -642,6 +663,12 @@ export class TaleGroupsPage {
       case 'cover':
         return this.store.openDrawer({ kind: 'cover', taleGroupId }, pick.opener);
       case 'tags':
+        this.audienceOf = {
+          id: taleGroupId,
+          name: group.name,
+          index: this.groups().findIndex((g) => g.id === taleGroupId),
+          listed: inTaleGroupFilter(group, this.selected()),
+        };
         return this.store.openDrawer({ kind: 'tags', taleGroupId }, pick.opener);
       case 'schedule':
         return this.store.openDrawer({ kind: 'schedule', target: 'taleGroup', id: taleGroupId }, pick.opener);

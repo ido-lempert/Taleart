@@ -102,6 +102,26 @@ describe('VisibilityIndicator (epic UX rework R7)', () => {
       expect(open()).toBe(true);
     });
 
+    it('closes an open tip when the line stops being a button, so it opens again later', () => {
+      const { fixture, host, open } = render(VISIBLE, 'group', false, false, { tags: tags('summer') });
+      const focus = () => {
+        host.querySelector('button')?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        fixture.detectChanges();
+      };
+      focus();
+      expect(open()).toBe(true);
+      // Its last tag removed while the tip is open: no button, no tip.
+      fixture.componentInstance.targeting.set({ tags: [] });
+      fixture.detectChanges();
+      expect(host.querySelector('button')).toBeNull();
+      expect(open()).toBe(false);
+      // Tagged again: the tip opens as before.
+      fixture.componentInstance.targeting.set({ tags: tags('vip') });
+      fixture.detectChanges();
+      focus();
+      expect(open()).toBe(true);
+    });
+
     it('says nothing more for an untagged group, nor for a targeted group that is not visible', () => {
       const untagged = render(VISIBLE, 'group', false, false, { tags: [], tagMatch: 'all' });
       expect(text(untagged.host)).toBe('Visible on site');
