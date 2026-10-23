@@ -1,5 +1,7 @@
 import {
+  DEFAULT_SDK_BUILDS_KEPT,
   installSnippet,
+  pinnedSdkScriptTag,
   SDK_CACHE_SECONDS,
   SDK_PINNED_CACHE_SECONDS,
   sdkScriptTag,
@@ -55,5 +57,27 @@ describe('install snippet and test page link (epic UX rework R13)', () => {
       'https://api.example.com/sdk/v1/test-page?zone=home-top#siteKey=tas_a%2Bb%2Fc%3D',
     );
     expect(testPageLink(info, 'a&b', 'k').split('#')[0]).toBe('https://api.example.com/sdk/v1/test-page?zone=a%26b');
+  });
+});
+
+describe('the pinned script tag (story 8.21)', () => {
+  it('loads one build with its integrity, cross-origin, and is null without a bundle', () => {
+    const pinned = {
+      sdkPinnedUrl: 'https://api.example.com/sdk/v1/taleart.abcdefghijklmn-_.js',
+      sdkIntegrity: 'sha384-AbC+/=',
+    };
+    expect(pinnedSdkScriptTag(pinned)).toBe(
+      '<script type="module" src="https://api.example.com/sdk/v1/taleart.abcdefghijklmn-_.js" ' +
+        'integrity="sha384-AbC+/=" crossorigin="anonymous"></script>',
+    );
+    expect(pinnedSdkScriptTag({ sdkPinnedUrl: null, sdkIntegrity: null })).toBeNull();
+    expect(pinnedSdkScriptTag({ ...pinned, sdkIntegrity: null })).toBeNull();
+    expect(pinnedSdkScriptTag({ sdkPinnedUrl: 'https://a.example/"><x', sdkIntegrity: 'i"' })).toBe(
+      '<script type="module" src="https://a.example/&quot;&gt;&lt;x" integrity="i&quot;" crossorigin="anonymous"></script>',
+    );
+  });
+
+  it('keeps five builds by default', () => {
+    expect(DEFAULT_SDK_BUILDS_KEPT).toBe(5);
   });
 });

@@ -1495,10 +1495,12 @@ export interface components {
             apiUrl: string;
             /** @description The Web SDK bundle (an ES module) for a host page's script tag, at a stable URL: a deploy replaces it there (cached five minutes). */
             sdkUrl: string;
-            /** @description The same bundle at a URL pinned to its content (`<apiUrl>/sdk/v1/taleart.<hash>.js`, cached a year, immutable), for a page that also pins it with `integrity`; it is gone with the next build. Null when the API has no bundle. */
+            /** @description The same bundle at a URL pinned to its content (`<apiUrl>/sdk/v1/taleart.<hash>.js`, cached a year, immutable), for a page that also pins it with `integrity`. The API keeps serving it while it is one of the last `sdkBuildsKept` SDK builds it served. Null when the API has no bundle. */
             sdkPinnedUrl: string | null;
             /** @description The bundle's Subresource Integrity value (`sha384-…`); null when the API has no bundle. */
             sdkIntegrity: string | null;
+            /** @description How many SDK builds this server keeps at their pinned URLs, the current one included (SDK_BUILDS_KEPT, default 5). 1 when the server keeps no earlier builds (SDK_BUILDS_DIR=off): a pinned URL then stops working at the next SDK build. */
+            sdkBuildsKept: number;
             /** @description The test page. It takes the zone's slug as `?zone=<slug>` and a site key in the URL fragment, `#siteKey=<key>`, or pasted on the page. */
             testPageUrl: string;
         };

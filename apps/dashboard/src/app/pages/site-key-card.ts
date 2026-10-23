@@ -13,6 +13,7 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { Drawer } from '../drawer';
+import { PinnedSdk } from './pinned-sdk';
 
 /** What the drawer is about to do. */
 export type SiteKeyAction = 'issue' | 'rotate' | 'revoke';
@@ -40,7 +41,7 @@ function refusal(err: unknown, fallback: string): string {
  */
 @Component({
   selector: 'app-site-key-card',
-  imports: [Drawer],
+  imports: [Drawer, PinnedSdk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     :host {
@@ -175,6 +176,10 @@ function refusal(err: unknown, fallback: string): string {
       }
       <p class="visually-hidden" role="status">{{ snippetStatus() }}</p>
     </section>
+
+    @if (install(); as urls) {
+      <app-pinned-sdk [install]="urls" />
+    }
 
     @if (action(); as current) {
       <app-drawer [heading]="heading(current)" [returnFocus]="returnFocus" [busy]="saving()" (closed)="close()">

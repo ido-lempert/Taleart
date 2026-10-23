@@ -565,6 +565,7 @@ describe('Management API v1: projects and zones', () => {
         // These tests run without a built SDK: nothing to pin.
         sdkPinnedUrl: null,
         sdkIntegrity: null,
+        sdkBuildsKept: 1,
         testPageUrl: `${publicApiUrl}/sdk/v1/test-page`,
       });
       const anonymous = await fetch(`${base}/install`, { headers: { Cookie: 'none=1' } });

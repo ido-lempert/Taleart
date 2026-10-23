@@ -6,11 +6,12 @@
 // TRUST_PROXY…). Media go to a new temporary folder. Playwright starts this as a web server (see
 // playwright.config.mts).
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import pg from 'pg';
 import { e2eDatabase } from './e2e-database.mjs';
+import { e2eSdk } from './e2e-sdk.mjs';
 
 const root = resolve(import.meta.dirname, '../../..');
 let database;
@@ -30,6 +31,11 @@ try {
   await admin.end();
 }
 
+const sdk = e2eSdk(root);
+rmSync(sdk.dir, { recursive: true, force: true });
+mkdirSync(sdk.dir, { recursive: true });
+copyFileSync(sdk.builtBundle, sdk.bundleFile);
+
 const env = {
   PATH: process.env.PATH ?? '',
   DATABASE_URL: database.url,
@@ -38,6 +44,10 @@ const env = {
   RP_ORIGIN: process.env.RP_ORIGIN ?? '',
   RP_ID: process.env.RP_ID ?? '',
   MEDIA_DIR: mkdtempSync(join(tmpdir(), 'taleart-e2e-media-')),
+  // The SDK from a copy of the API build's, with its own builds folder, both new on each run: the
+  // pinned-SDK test rebuilds it under the running API (story 8.21).
+  WEB_SDK_FILE: sdk.bundleFile,
+  SDK_BUILDS_DIR: sdk.buildsDir,
 };
 const child = spawn(process.execPath, [join(root, 'dist/apps/api/main.js')], { cwd: root, env, stdio: 'inherit' });
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
