@@ -1003,8 +1003,17 @@ try {
       check(posted.length === 0, 'moving the slider by keyboard posts nothing before Enter');
       await view.keyboard.press('Enter');
     } else {
-      // A touch drag from near the end back to 70, through the browser's own touch events.
-      const box = await slider.boundingBox();
+      // A touch drag from near the end back to 70, through the browser's own touch events, measured
+      // once the viewer's opening motion is over: the same box in five reads in a row, 50 ms apart.
+      let box = null;
+      for (let last = '', same = 0, tries = 0; tries < 100; tries++) {
+        box = await slider.boundingBox();
+        const now = JSON.stringify(box);
+        same = box && now === last ? same + 1 : 0;
+        last = now;
+        if (same >= 4) break;
+        await view.waitForTimeout(50);
+      }
       const y = box.y + box.height / 2;
       const cdp = await context.newCDPSession(view);
       const touchAt = (type, x) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });

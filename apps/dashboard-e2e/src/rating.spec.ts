@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import pg from 'pg';
 import { e2eDatabase } from '../scripts/e2e-database.mjs';
 import { emptyInstall, signIn } from './session';
@@ -28,6 +28,24 @@ async function shot(page: Page, name: string): Promise<void> {
 const barItems = (page: Page) => page.locator('taleart-view button.item');
 const slider = (page: Page) => page.locator('taleart-view dialog .ta-rating [role="slider"]');
 const viewer = (page: Page) => page.locator('taleart-view dialog');
+
+/**
+ * The element's box once the viewer's opening motion is over: the same in five reads in a row, 50 ms
+ * apart (about 200 ms without a change). Throws when it never settles within 5 s.
+ */
+async function settledBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  let last = '';
+  let same = 0;
+  for (const deadline = Date.now() + 5_000; Date.now() < deadline; ) {
+    const box = await locator.boundingBox();
+    const now = JSON.stringify(box);
+    same = box && now === last ? same + 1 : 0;
+    last = now;
+    if (box && same >= 4) return box;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('The slider did not stop moving');
+}
 
 // The responses recorded so far, read from the e2e database.
 async function responseRows(): Promise<{ value: string }[]> {
@@ -105,7 +123,7 @@ test.describe.serial('a Rating (epic interactive components story 4.2)', () => {
     await page.locator('#emoji-search').fill('red heart');
     await page.locator('app-tale-emoji-picker button[aria-label="red heart"]').press('Enter');
     await expect(page.locator('app-tale-emoji-picker')).toHaveCount(0);
-    await expect(choose).toHaveAttribute('aria-label', 'Emoji: red heart. Choose another emoji');
+    await expect(choose).toHaveAttribute('aria-label', 'Choose emoji… Current: red heart');
     await expect(page.locator('#studio-responses-total')).toHaveText('0 ratings');
     await expect(page.locator('#studio-add-rating')).toHaveAttribute('aria-disabled', 'true');
     await page.locator('#studio-update').click();
@@ -144,17 +162,7 @@ test.describe.serial('a Rating (epic interactive components story 4.2)', () => {
     await openRating(site);
     const where = async () => [await viewer(site).getAttribute('aria-label'), await viewer(site).locator('.segment.done').count()];
     const before = await where();
-    // Measured once the viewer's opening motion is over: the box no longer moves.
-    let box = await slider(site).boundingBox();
-    await expect
-      .poll(async () => {
-        const now = await slider(site).boundingBox();
-        const settled = JSON.stringify(now) === JSON.stringify(box);
-        box = now;
-        return settled;
-      })
-      .toBe(true);
-    if (!box) throw new Error('The slider has no box');
+    const box = await settledBox(slider(site));
     const y = box.y + box.height / 2;
     // A long sideways drag, from the end back to 80: on the stage it would swipe between groups.
     await site.mouse.move(box.x + box.width * 0.98, y);

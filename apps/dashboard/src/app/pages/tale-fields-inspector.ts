@@ -338,10 +338,13 @@ export class TaleFieldsInspector {
     });
   }
 
-  /** The emoji field's button name: the field, the emoji now by its Unicode name, and what it does. */
+  /**
+   * The emoji field's button name: its visible text first (WCAG 2.5.3, so voice control finds it by
+   * what it shows), then the emoji now by its Unicode name.
+   */
   protected emojiButtonName(field: FieldView): string {
     const name = field.value ? (emojiName(field.value) ?? field.value) : 'none';
-    return `${field.label}: ${name}. Choose another emoji`;
+    return `Choose emoji… Current: ${name}`;
   }
 
   /** Opens the emoji picker for an emoji field (epic interactive components story 4.2); not while locked. */

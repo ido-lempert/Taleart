@@ -164,7 +164,9 @@ describe('Tale Studio: a Rating (epic interactive components story 4.2)', () => 
 
     // The emoji field: a button named by the emoji's Unicode name, opening the emoji picker.
     const choose = q<HTMLButtonElement>(`#field-rating-emoji-${id}`);
-    expect(choose.getAttribute('aria-label')).toBe('Emoji: red heart. Choose another emoji');
+    // Its name starts with the text it shows (WCAG 2.5.3).
+    expect(choose.getAttribute('aria-label')).toBe('Choose emoji… Current: red heart');
+    expect(choose.getAttribute('aria-label')?.startsWith(choose.textContent?.trim() ?? '-')).toBe(true);
     expect(root.querySelector(`label[for="field-rating-emoji-${id}"]`)?.textContent?.trim()).toBe('Emoji');
     choose.click();
     await settle(fixture);
@@ -177,7 +179,7 @@ describe('Tale Studio: a Rating (epic interactive components story 4.2)', () => 
     expect(q('app-tale-emoji-picker')).toBeNull();
     expect(rating().props.emoji).toBe('🔥');
     expect(live()).toBe('Emoji set');
-    expect(q(`#field-rating-emoji-${id}`).getAttribute('aria-label')).toBe('Emoji: fire. Choose another emoji');
+    expect(q(`#field-rating-emoji-${id}`).getAttribute('aria-label')).toBe('Choose emoji… Current: fire');
 
     // After ratings on the site: the count and average, and a note before it is edited.
     q<HTMLButtonElement>('#studio-responses-refresh').click();

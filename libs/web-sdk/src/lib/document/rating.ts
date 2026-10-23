@@ -39,14 +39,13 @@ export const RATING_STYLES = `
 }
 .ta-rate-track::before { width: 100%; opacity: 0.2; }
 .ta-rate-fill { opacity: 0.6; }
-.ta-rate-thumb, .ta-rate-avg { position: absolute; top: 50%; transform: translate(-50%, -50%); }
-.ta-rate-thumb { font-size: 1.8em; line-height: 1; }
-.ta-rate-avg { width: 0.3em; height: 1.4em; border-radius: 999px; background: currentColor; display: none; }
+.ta-rate-thumb, .ta-rate-avg { position: absolute; top: 50%; transform: translateY(-50%); }
+.ta-rate-thumb { width: 1em; margin-inline-start: -0.5em; font-size: 1.8em; line-height: 1; text-align: center; }
+.ta-rate-avg { width: 0.3em; margin-inline-start: -0.15em; height: 1.4em; border-radius: 999px; background: currentColor; display: none; }
 .ta-rated .ta-rate-avg { display: block; }
 .ta-rated .ta-rate-track { cursor: default; }
 .ta-rate-track:focus-visible { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px #000; border-radius: 999px; }
 .ta-rate-out { margin: 0; font-size: 0.85em; font-weight: 600; text-align: center; }
-.ta-rate-thumb:dir(rtl), .ta-rate-avg:dir(rtl) { transform: translate(50%, -50%); }
 @media (forced-colors: active) { .ta-rate-track::before, .ta-rate-fill, .ta-rate-avg { background: CanvasText; } }
 `;
 
@@ -91,10 +90,13 @@ function text(tag: string, className: string, value: string): HTMLElement {
 const onScale = (n: unknown): number =>
   typeof n === 'number' && Number.isFinite(n) ? Math.min(RATING_MAX, Math.max(RATING_MIN, Math.round(n))) : RATING_MIN;
 
-// The result when it is a Rating's: a count and an average.
-function ratingOf(result: ResponseResult | null): RatingResult | null {
+// A count: a whole number, never negative, however large.
+const countOf = (n: number): number => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+
+/** The result when it is a Rating's: its count (any size) and its average on the scale; else null. */
+export function ratingOf(result: ResponseResult | null): RatingResult | null {
   const r = result as Partial<RatingResult> | null;
-  return r && typeof r.total === 'number' && typeof r.average === 'number' ? { total: onScale(r.total), average: onScale(r.average) } : null;
+  return r && typeof r.total === 'number' && typeof r.average === 'number' ? { total: countOf(r.total), average: onScale(r.average) } : null;
 }
 
 /**
@@ -210,7 +212,8 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
   // neither step, pause by holding, nor swipe between groups (R5).
   track.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
-    if (e.button !== 0 || answered || busy) return;
+    // A second pointer while one drags (a second finger) is ignored: the first one's drag goes on.
+    if (e.button !== 0 || answered || busy || dragging !== null) return;
     e.preventDefault();
     track.focus({ preventScroll: true });
     dragging = e.pointerId;
@@ -233,20 +236,24 @@ export function renderRating(element: DeliveryTaleElement, context: RenderContex
     set(at(e));
     submit();
   });
-  const cancel = () => {
-    dragging = null;
+  // A drag the browser cancelled, or whose capture was lost, ends without a rating; the viewer never
+  // sees it, as it never saw the press.
+  const cancel = (e: PointerEvent) => {
+    e.stopPropagation();
+    if (dragging === e.pointerId) dragging = null;
   };
   track.addEventListener('pointercancel', cancel);
   track.addEventListener('lostpointercapture', cancel);
   card.addEventListener('click', (e) => e.stopPropagation());
   track.addEventListener('keydown', (e) => {
-    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    // Once rated the slider is read-only: its keys go to the viewer again, as on any other part of the tale.
+    if (answered || e.altKey || e.ctrlKey || e.metaKey) return;
     const next = e.key === 'Enter' ? value : ratingKey(value, e.key, rtl());
     if (next === null) return;
     // The slider's keys are its own: they never step the tale (R10).
     e.preventDefault();
     e.stopPropagation();
-    if (answered || busy) return;
+    if (busy) return;
     if (e.key === 'Enter') submit();
     else set(next);
   });

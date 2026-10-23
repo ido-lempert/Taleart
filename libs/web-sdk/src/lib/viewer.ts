@@ -287,9 +287,10 @@ function onClose(e: Event): boolean {
   return !!(e.target as Element | null)?.closest?.('.close');
 }
 
-// True when Space goes to a control of an interactive component (a poll's option), which it presses (C7).
+// True when Space goes to a control of an interactive component (a poll's option, which it presses,
+// or a Rating's slider), not to the viewer's pause (C7).
 function onComponent(e: Event): boolean {
-  return !!(e.target as Element | null)?.closest?.('.ta-interactive button');
+  return !!(e.target as Element | null)?.closest?.('.ta-interactive button, .ta-interactive [role="slider"]');
 }
 
 // True when `node` lays out right to left (the host page's direction reaches the Shadow DOM).
