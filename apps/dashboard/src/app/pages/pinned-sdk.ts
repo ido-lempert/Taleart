@@ -40,6 +40,19 @@ const COPIED: Record<Copied, string> = {
       flex: 1 1 16rem;
       min-width: 0;
     }
+    /*
+     * The pinned URL and the integrity value wrap anywhere, growing to their content, so nothing is
+     * cut at 320 px (WCAG 2.2 SC 1.4.10, story 8.19 review): read-only text areas, not one-line inputs.
+     */
+    .pinned-value {
+      field-sizing: content;
+      padding-block: var(--space-2);
+      line-height: 1.4;
+      resize: none;
+      overflow-wrap: anywhere;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
   `,
   template: `
     <section class="card section zone-section" aria-labelledby="pinned-sdk-title">
@@ -62,15 +75,16 @@ const COPIED: Record<Copied, string> = {
           <div class="field">
             <label class="field__label" for="pinned-sdk-url">Pinned URL</label>
             <div class="pinned-row">
-              <input
+              <textarea
                 id="pinned-sdk-url"
-                class="input input--mono"
+                class="input input--mono pinned-value"
+                rows="2"
                 readonly
                 spellcheck="false"
                 [value]="p.url"
                 aria-describedby="pinned-sdk-hint"
                 (focus)="selectAll($event)"
-              />
+              ></textarea>
               <button type="button" class="btn btn--secondary btn--sm" id="pinned-sdk-copy-url" (click)="copy('url', p.url)">
                 Copy URL
               </button>
@@ -79,15 +93,16 @@ const COPIED: Record<Copied, string> = {
           <div class="field">
             <label class="field__label" for="pinned-sdk-integrity">Integrity</label>
             <div class="pinned-row">
-              <input
+              <textarea
                 id="pinned-sdk-integrity"
-                class="input input--mono"
+                class="input input--mono pinned-value"
+                rows="2"
                 readonly
                 spellcheck="false"
                 [value]="p.integrity"
                 aria-describedby="pinned-sdk-hint"
                 (focus)="selectAll($event)"
-              />
+              ></textarea>
               <button
                 type="button"
                 class="btn btn--secondary btn--sm"
@@ -132,7 +147,7 @@ export class PinnedSdk {
   }
 
   protected selectAll(event: Event): void {
-    (event.target as HTMLInputElement).select();
+    (event.target as HTMLInputElement | HTMLTextAreaElement).select();
   }
 
   protected async copy(what: Copied, text: string): Promise<void> {

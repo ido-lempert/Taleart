@@ -352,12 +352,15 @@ describe('SiteKeyCard: the pinned SDK version (story 8.21)', () => {
 
   it('shows the pinned URL and its integrity, to everyone, with how many builds it keeps working', async () => {
     await open(pinned(5));
-    expect(root().querySelector<HTMLInputElement>('#pinned-sdk-url')?.value).toBe(pinnedUrl);
-    expect(root().querySelector<HTMLInputElement>('#pinned-sdk-integrity')?.value).toBe(integrity);
+    expect(root().querySelector<HTMLTextAreaElement>('#pinned-sdk-url')?.value).toBe(pinnedUrl);
+    expect(root().querySelector<HTMLTextAreaElement>('#pinned-sdk-integrity')?.value).toBe(integrity);
     expect(root().querySelector('label[for="pinned-sdk-url"]')?.textContent?.trim()).toBe('Pinned URL');
     expect(root().querySelector('label[for="pinned-sdk-integrity"]')?.textContent?.trim()).toBe('Integrity');
-    expect(root().querySelector<HTMLInputElement>('#pinned-sdk-url')?.readOnly).toBe(true);
+    expect(root().querySelector<HTMLTextAreaElement>('#pinned-sdk-url')?.readOnly).toBe(true);
     for (const id of ['pinned-sdk-url', 'pinned-sdk-integrity']) {
+      // Read-only text that wraps, so nothing is cut at 320 px (WCAG 2.2 SC 1.4.10).
+      expect(root().querySelector(`#${id}`)?.tagName, id).toBe('TEXTAREA');
+      expect(root().querySelector(`#${id}`)?.classList.contains('pinned-value'), id).toBe(true);
       expect(root().querySelector(`#${id}`)?.getAttribute('aria-describedby'), id).toBe('pinned-sdk-hint');
     }
     expect(hint()).toContain('This server keeps the last 5 SDK builds it served at their pinned URLs, this one included');
