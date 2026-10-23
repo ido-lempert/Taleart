@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -25,9 +26,21 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(libs.compose.runtime)
+            // The Delivery client: hosts get the client, its results and the models.
+            api(libs.ktor.client.core)
+            api(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.serialization.json)
+        }
+        androidMain.dependencies {
+            implementation(libs.ktor.client.okhttp)
+        }
+        iosMain.dependencies {
+            implementation(libs.ktor.client.darwin)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }
