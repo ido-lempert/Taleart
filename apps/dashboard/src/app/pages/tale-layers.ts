@@ -41,6 +41,24 @@ export function layerName(element: TaleElement, elements: readonly TaleElement[]
 }
 
 /**
+ * A layer's name split for screen readers (story 7.15): an emoji named by its label shows its glyph
+ * before the name ("🎉 party popper"), and a screen reader reads the glyph as its own name, so the
+ * name would be said twice. `glyph` is that leading glyph, shown but hidden from screen readers;
+ * `spoken` the rest. Every other layer's `spoken` is its whole name, with no glyph.
+ */
+export function layerSpokenName(
+  element: TaleElement,
+  elements: readonly TaleElement[] = [element],
+): { glyph: string; spoken: string } {
+  const name = layerName(element, elements);
+  if (element.type !== 'emoji') return { glyph: '', spoken: name };
+  const glyph = element.props.emoji;
+  return glyph && name.startsWith(`${glyph} `) && name.length > glyph.length + 1
+    ? { glyph, spoken: name.slice(glyph.length + 1) }
+    : { glyph: '', spoken: name };
+}
+
+/**
  * The elements with the selected ones moved in the z-order. Forward and backward move each run
  * of selected elements one place past its unselected neighbour; front and back move them all to
  * the top or the bottom. Selected elements keep their order among themselves. The same array
@@ -283,3 +301,13 @@ export function shortcutLabel(command: LayerCommand, apple = isApple()): string 
  */
 export const LAYER_KEYSHORTCUTS =
   'Alt+ArrowUp Alt+ArrowDown Alt+Shift+ArrowUp Alt+Shift+ArrowDown H L D Delete Control+A Meta+A';
+
+/**
+ * Whether a canvas layer is wholly under higher layers (WCAG 2.4.11, story 7.15), from the layers
+ * hit at points sampled inside it: each stack lists the layer indices found at one point (the
+ * document's order, bottom first). Hidden when there is at least one point and, at every point, a
+ * layer above `index` was hit.
+ */
+export function hiddenUnder(stacks: readonly (readonly number[])[], index: number): boolean {
+  return stacks.length > 0 && stacks.every((stack) => stack.some((i) => i > index));
+}
