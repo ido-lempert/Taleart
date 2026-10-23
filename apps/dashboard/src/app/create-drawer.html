@@ -313,7 +313,7 @@
         @case ('tags') {
           @if (tagGroup(); as group) {
             <fieldset class="tag-options">
-              <legend class="field__label">Tags of {{ group.name }}</legend>
+              <legend class="field__label">Targeting tags</legend>
               @for (tag of projectTags(); track tag.id) {
                 <label class="checkbox">
                   <input
@@ -346,6 +346,22 @@
               </div>
               <p class="field__hint" id="new-tag-hint">Up to 40 characters. A new tag is checked for this group.</p>
             </div>
+            <fieldset class="tag-options" aria-describedby="tag-match-hint">
+              <legend class="field__label">Show to viewers tagged with</legend>
+              @for (option of tagMatchOptions; track option.value) {
+                <label class="checkbox">
+                  <input
+                    type="radio"
+                    name="tagMatch"
+                    [value]="option.value"
+                    [checked]="selectedTagMatch() === option.value"
+                    (change)="selectedTagMatch.set(option.value)"
+                  />
+                  <span>{{ option.label }}</span>
+                </label>
+              }
+            </fieldset>
+            <p class="field__hint" id="tag-match-hint">{{ tagMatchHint() }}</p>
           } @else {
             <p class="muted">This tale group no longer exists.</p>
           }

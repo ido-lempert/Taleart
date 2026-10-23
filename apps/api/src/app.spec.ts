@@ -334,7 +334,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -1306,6 +1306,7 @@ describe('Management API v1: projects and zones', () => {
         zoneIds: [zone.id],
         tales: [],
         tags: [],
+        tagMatch: 'any',
         // Off, in a zone that is not set up, with no tale (R7).
         visibility: notVisible(
           why('group-off', 'group'),
@@ -1711,6 +1712,7 @@ describe('Management API v1: projects and zones', () => {
           { id: beach.id, name: 'Beach' },
           { id: summer.id, name: 'summer' },
         ],
+        tagMatch: 'any',
         visibility: SOME_VISIBILITY,
       });
       expect(await groupTags(zone.id)).toEqual({ First: ['Beach', 'summer'], Second: [] });
@@ -1722,6 +1724,54 @@ describe('Management API v1: projects and zones', () => {
       expect(cleared.status).toBe(200);
       expect((await cleared.json()).tags).toEqual([]);
       expect(await groupTags(zone.id)).toEqual({ First: [], Second: [] });
+    });
+
+    it('stores how the tags combine, Any by default, and keeps it on reload and restart (epic targeting R1)', async () => {
+      const zone = await createZone();
+      const summer = await createTag(zone.projectId, 'summer');
+      const vip = await createTag(zone.projectId, 'vip');
+      const group = await createGroup(zone.id, 'First');
+      const tagMatchOf = async () => {
+        const read = await (await fetch(`${base}/tale-groups/${group.id}`)).json();
+        const listed = await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json();
+        const project = await (await fetch(`${base}/projects/${zone.projectId}/tale-groups`)).json();
+        return [read.tagMatch, listed[0].tagMatch, project[0].tagMatch];
+      };
+      expect(await tagMatchOf()).toEqual(['any', 'any', 'any']);
+
+      const res = await put(`/tale-groups/${group.id}/tags`, { tagIds: [summer.id, vip.id], tagMatch: 'all' });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.tagMatch).toBe('all');
+      expect(body.tags.map((t: { name: string }) => t.name)).toEqual(['summer', 'vip']);
+      expect(await tagMatchOf()).toEqual(['all', 'all', 'all']);
+
+      // Without tagMatch the group keeps its mode.
+      expect((await (await put(`/tale-groups/${group.id}/tags`, { tagIds: [vip.id] })).json()).tagMatch).toBe('all');
+      await restart();
+      expect(await tagMatchOf()).toEqual(['all', 'all', 'all']);
+      expect(await groupTags(zone.id)).toEqual({ First: ['vip'] });
+
+      expect((await (await put(`/tale-groups/${group.id}/tags`, { tagIds: [], tagMatch: 'any' })).json()).tagMatch).toBe(
+        'any',
+      );
+      const stored = await pool.query('SELECT tag_match, project_id FROM tale_group_tag_matches WHERE tale_group_id = $1', [
+        group.id,
+      ]);
+      expect(stored.rows).toEqual([{ tag_match: 'any', project_id: zone.projectId }]);
+    });
+
+    it('refuses a tagMatch other than any or all with 400 validation_failed and changes nothing', async () => {
+      const zone = await createZone();
+      const summer = await createTag(zone.projectId, 'summer');
+      const group = await createGroup(zone.id, 'First');
+      for (const tagMatch of ['ALL', 'some', 1, null]) {
+        const res = await put(`/tale-groups/${group.id}/tags`, { tagIds: [summer.id], tagMatch });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error.code).toBe('validation_failed');
+      }
+      expect(await groupTags(zone.id)).toEqual({ First: [] });
+      expect((await pool.query('SELECT 1 FROM tale_group_tag_matches')).rowCount).toBe(0);
     });
 
     it('carries tags in the order response too', async () => {
@@ -1931,6 +1981,8 @@ describe('Management API v1: projects and zones', () => {
           id: a.id,
           name: 'A',
           cover: null,
+          tags: ['summer'],
+          tagMatch: 'any',
           tales: [{ id: tale.id, title: 'Beach', media: null, document: NO_MEDIA_DOCUMENT }],
         },
       ]);
@@ -1959,6 +2011,7 @@ describe('Management API v1: projects and zones', () => {
         zoneIds: [z.id, z2.id],
         tales: [expect.objectContaining({ title: 'T', status: 'live' })],
         tags: [],
+        tagMatch: 'any',
         // On, with a tale to show, in two zones neither of which is set up yet: each zone reason once (R7).
         visibility: notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')),
       });
@@ -2053,13 +2106,13 @@ describe('Management API v1: projects and zones', () => {
         {
           id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [],
           // Cover, tags and counts (epic UX rework R14), but not the tales: the zone lists carry them.
-          cover: null, tags: [], shownTaleCount: 1,
+          cover: null, tags: [], tagMatch: 'any', shownTaleCount: 1,
           // In no zone (R7); its one tale has nothing published either.
           visibility: notVisible(why('group-off', 'group'), why('not-in-any-zone', 'group'), why('no-shown-tales', 'group')),
         },
-        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
-        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
-        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], tagMatch: 'any', shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', shownTaleCount: 0, visibility: SOME_VISIBILITY },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
@@ -2386,6 +2439,7 @@ describe('Management API v1: projects and zones', () => {
           expect.objectContaining({ title: 'Two', position: 1, media: null }),
         ],
         tags: [{ id: summer.id, name: 'summer' }],
+        tagMatch: 'any',
       });
       expect(body.id).not.toBe(g.id);
       expect(body.tales.map((t) => t.id)).not.toContain(one.id);
@@ -2418,6 +2472,29 @@ describe('Management API v1: projects and zones', () => {
       const reused: Listed = await (await copy(g.id, cZone.id)).json();
       expect(reused.tags).toEqual([{ id: existing.id, name: 'SUMMER' }]);
       expect((await pool.query('SELECT 1 FROM tags WHERE project_id = $1', [c.id])).rowCount).toBe(1);
+    });
+
+    it('keeps the tags and All on a copy, in the same project and in another (epic targeting R1)', async () => {
+      const { project, production, g, summer } = await setup();
+      const vip = await (await post(`/projects/${project.id}/tags`, { name: 'vip' })).json();
+      const set = await send('PUT', `/tale-groups/${g.id}/tags`, { tagIds: [summer.id, vip.id], tagMatch: 'all' });
+      expect(set.status).toBe(200);
+
+      const same: Listed & { tagMatch: string } = await (await copy(g.id, production.id)).json();
+      expect([same.tags.map((t) => t.name), same.tagMatch]).toEqual([['summer', 'vip'], 'all']);
+      const reread = await (await fetch(`${base}/tale-groups/${same.id}`)).json();
+      expect([reread.tags.map((t: { name: string }) => t.name), reread.tagMatch]).toEqual([['summer', 'vip'], 'all']);
+
+      const b = await createProject('Beta');
+      const bZone = await zoneIn(b.id, 'Beta home');
+      const other: Listed & { tagMatch: string } = await (await copy(g.id, bZone.id)).json();
+      expect([other.tags.map((t) => t.name), other.tagMatch]).toEqual([['summer', 'vip'], 'all']);
+      const stored = await pool.query('SELECT project_id FROM tale_group_tag_matches WHERE tale_group_id = $1', [other.id]);
+      expect(stored.rows).toEqual([{ project_id: b.id }]);
+
+      // The copy is independent: switching the source to Any leaves it All.
+      await send('PUT', `/tale-groups/${g.id}/tags`, { tagIds: [summer.id], tagMatch: 'any' });
+      expect((await (await fetch(`${base}/tale-groups/${same.id}`)).json()).tagMatch).toBe('all');
     });
 
     it('keeps copy and source independent: renames, tales, order and tags on one leave the other unchanged', async () => {
@@ -4932,6 +5009,8 @@ describe('Management API v1: projects and zones', () => {
             id: a.id,
             name: 'A',
             cover: null,
+            tags: [],
+            tagMatch: 'any',
             tales: [
               {
                 id: a1.id,
@@ -4947,6 +5026,8 @@ describe('Management API v1: projects and zones', () => {
             id: b.id,
             name: 'B',
             cover: null,
+            tags: [],
+            tagMatch: 'any',
             tales: [
               {
                 id: b1.id,
@@ -4962,6 +5043,42 @@ describe('Management API v1: projects and zones', () => {
         // No project id or Management API media path in the Delivery response (AD-13).
         expect(text).not.toContain(zone.projectId);
         expect(text).not.toContain('/api/v1');
+      });
+
+      it("sends each group's tag names and match mode, the same for every viewer (epic targeting R2, AD-13)", async () => {
+        const zone = await createZone();
+        await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: {} });
+        const tag = async (name: string) => (await (await post(`/projects/${zone.projectId}/tags`, { name })).json()).id;
+        const [summer, vip] = [await tag('summer'), await tag('VIP')];
+        const setTags = (groupId: string, tagIds: string[], tagMatch?: string) =>
+          fetch(`${base}/tale-groups/${groupId}/tags`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tagIds, tagMatch }),
+          });
+        const groups = {
+          A: await addGroup(zone.id, 'A'),
+          B: await addGroup(zone.id, 'B'),
+          C: await addGroup(zone.id, 'C'),
+          D: await addGroup(zone.id, 'D'),
+        };
+        for (const group of Object.values(groups)) await addTale(group.id, 'One');
+        expect((await setTags(groups.A.id, [summer])).status).toBe(200);
+        expect((await setTags(groups.B.id, [vip, summer], 'all')).status).toBe(200);
+        expect((await setTags(groups.C.id, [vip], 'any')).status).toBe(200);
+        const { key } = await issue(zone.id);
+
+        const body = await (await deliver(key)).json();
+        expect(
+          body.taleGroups.map((g: { name: string; tags: string[]; tagMatch: string }) => [g.name, g.tags, g.tagMatch]),
+        ).toEqual([
+          ['A', ['summer'], 'any'],
+          ['B', ['summer', 'VIP'], 'all'],
+          ['C', ['VIP'], 'any'],
+          ['D', [], 'any'],
+        ]);
+        // Tags only narrow in the SDK: the Delivery API still sends every group, and no tag ids.
+        expect(JSON.stringify(body)).not.toContain(summer);
       });
 
       it('answers an empty taleGroups list for a zone without tale groups', async () => {

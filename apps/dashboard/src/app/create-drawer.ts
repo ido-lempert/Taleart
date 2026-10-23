@@ -22,6 +22,7 @@ import {
   MEDIA_CONTENT_TYPES,
   ZONE_TEMPLATES,
   isMediaContentType,
+  DEFAULT_TAG_MATCH,
   isSwitchable,
   maxMediaBytes,
   SHOWN_STATUS_LABELS,
@@ -34,6 +35,7 @@ import {
   type SetScheduleRequest,
   type SettableStatus,
   type Tale,
+  type TagMatch,
   type ZoneTemplateKey,
 } from '@taleart/contract/core';
 import { CoverEditor } from './cover-editor';
@@ -154,6 +156,22 @@ export class CreateDrawer implements OnInit {
   protected readonly copyStatus = signal('');
   /** The tags checked in a tags drawer. */
   protected readonly selectedTagIds = signal<string[]>([]);
+  /** How the checked tags combine in the Audience drawer (epic targeting R1). */
+  protected readonly selectedTagMatch = signal<TagMatch>(DEFAULT_TAG_MATCH);
+  protected readonly tagMatchOptions: readonly { value: TagMatch; label: string }[] = [
+    { value: 'any', label: 'Any of these tags' },
+    { value: 'all', label: 'All of these tags' },
+  ];
+  /** What the Audience drawer's tags and match mode mean for a viewer, as checked now. */
+  protected readonly tagMatchHint = computed(() => {
+    const names = this.projectTags()
+      .filter((tag) => this.selectedTagIds().includes(tag.id))
+      .map((tag) => tag.name);
+    if (names.length === 0) return 'With no targeting tags, the group shows to every viewer.';
+    if (names.length === 1) return `Shows to viewers tagged ${names[0]}, and on pages that pass no tags.`;
+    const joined = `${names.slice(0, -1).join(', ')} ${this.selectedTagMatch() === 'all' ? 'and' : 'or'} ${names.at(-1)}`;
+    return `Shows to viewers tagged ${joined}, and on pages that pass no tags.`;
+  });
   /** The name typed in a tags drawer's "New tag" field. */
   protected newTag = '';
   /** The zone picked in a "Show in another zone" drawer. */
@@ -472,7 +490,7 @@ export class CreateDrawer implements OnInit {
       case 'invite':
         return 'Invite to project';
       case 'tags':
-        return 'Tags';
+        return 'Audience';
       case 'renameTaleGroup':
         return 'Rename tale group';
       case 'editZone':
@@ -548,6 +566,7 @@ export class CreateDrawer implements OnInit {
     this.projectId = this.onlyProject()?.id ?? this.store.selectedProjectId();
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
+    this.selectedTagMatch.set(this.tagGroup()?.tagMatch ?? DEFAULT_TAG_MATCH);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
     const edited = this.editedZone();
     if (edited) {
@@ -865,7 +884,7 @@ export class CreateDrawer implements OnInit {
         return;
       }
       case 'tags':
-        message = await this.store.setTaleGroupTags(request.taleGroupId, this.selectedTagIds());
+        message = await this.store.setTaleGroupTags(request.taleGroupId, this.selectedTagIds(), this.selectedTagMatch());
         break;
       case 'renameTaleGroup':
         message = await this.store.renameTaleGroup(request.taleGroupId, this.text);

@@ -359,7 +359,8 @@ export class TalePreview {
   private group(tale: PreviewTale): DeliveryTaleGroup {
     const delivered: DeliveryTale = { id: tale.id, title: tale.title, media: null, document: tale.document };
     if (tale.fonts?.length) delivered.fonts = tale.fonts;
-    return { id: `preview-${tale.id}`, name: tale.groupName, cover: null, tales: [delivered] };
+    // A preview shows the tale to the person editing it, so no targeting tags apply.
+    return { id: `preview-${tale.id}`, name: tale.groupName, cover: null, tags: [], tagMatch: 'any', tales: [delivered] };
   }
 
   private start(): void {

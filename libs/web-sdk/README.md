@@ -104,6 +104,28 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | `zone` / `zone` | The zone's slug, such as `home-top`, shown on the zone page. |
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
 
+## Targeting tags
+
+A tale group can carry targeting tags, combined with **Any** (the default) or **All**, set in the dashboard under the
+group's Audience. Tell the SDK the viewer's tags once for the whole page:
+
+```js
+import { setTags } from 'https://api.example.com/sdk/v1/taleart.js';
+
+setTags(['summer', 'vip']);
+```
+
+Every `<taleart-view>` on the page, now and later, then shows only the groups whose rule passes:
+
+- a group without tags always shows;
+- with **Any**, at least one of the group's tags is among the viewer's; with **All**, every one of them is;
+- tags match ignoring case and surrounding spaces (`'SUMMER '` matches `summer`);
+- while the page sets no tags (no call, `setTags(null)` or `setTags([])`), every group shows.
+
+Calling `setTags` again replaces the tags, and rendered elements show the matching groups at once, without a new
+request. The SDK decides in the browser: the tags are never sent to TaleArt. The Delivery API sends every group of the
+zone with its tag names, so targeting is not access control: anyone with the site key can read every visible group.
+
 ## Theme
 
 The project's theme, set in the dashboard, styles the zone's display and the viewer. A host page can override any of its fields

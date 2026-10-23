@@ -13,6 +13,7 @@ import {
   type SetScheduleRequest,
   type SettableStatus,
   type Tag,
+  type TagMatch,
   type Tale,
   type TaleGroup,
   type TaleGroupCover,
@@ -1053,30 +1054,32 @@ export class DashboardStore {
     }
   }
 
-  /** Replaces a tale group's tags; the group shows the saved tags. */
-  async setTaleGroupTags(taleGroupId: string, tagIds: string[]): Promise<string> {
+  /**
+   * Replaces a tale group's tags and sets how they combine (epic targeting R1); the group shows the
+   * saved tags and mode wherever it is listed.
+   */
+  async setTaleGroupTags(taleGroupId: string, tagIds: string[], tagMatch: TagMatch): Promise<string> {
     let saved: TaleGroup;
     try {
       saved = await firstValueFrom(
-        this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/tags`, { tagIds }),
+        this.http.put<TaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/tags`, {
+          tagIds,
+          tagMatch,
+        }),
       );
     } catch (err) {
-      return apiErrorMessage(err, 'The tags were not saved. Try again.');
+      return apiErrorMessage(err, 'The audience was not saved. Try again.');
     }
-    // Only the tags change, in every zone the group is placed in (AD-14): the
+    // Only the targeting changes, in every zone the group is placed in (AD-14): the
     // group's tales and positions may have moved meanwhile.
-    const withSavedTags = (groups: ZoneTaleGroup[]) =>
-      groups.map((g) => (g.id === taleGroupId ? { ...g, tags: saved.tags } : g));
-    this.taleGroups.update((all) => {
-      const next = { ...all };
-      for (const zoneId of saved.zoneIds) if (next[zoneId]) next[zoneId] = withSavedTags(next[zoneId]);
-      return next;
-    });
-    for (const zoneId of saved.zoneIds) {
-      const confirmed = this.confirmedGroups.get(zoneId);
-      if (confirmed) this.confirmedGroups.set(zoneId, withSavedTags(confirmed));
-    }
-    this.patchReadGroup(taleGroupId, (g) => ({ ...g, tags: saved.tags }));
+    const targeting = { tags: saved.tags, tagMatch: saved.tagMatch ?? tagMatch };
+    this.patchZoneGroups(taleGroupId, (g) => ({ ...g, ...targeting }));
+    this.patchReadGroup(taleGroupId, (g) => ({ ...g, ...targeting }));
+    this.projectTaleGroups.update((lists) =>
+      Object.fromEntries(
+        Object.entries(lists).map(([id, list]) => [id, list.map((g) => (g.id === taleGroupId ? { ...g, ...targeting } : g))]),
+      ),
+    );
     return '';
   }
 
