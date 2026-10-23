@@ -102,7 +102,13 @@ export function createApp(
   app.post(`${MANAGEMENT_API_BASE}/tales/:taleId/document/copy`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
   // A font or media upload's body is the file, whatever type it declares (R18, R5): its route reads it raw.
   const json = express.json();
-  app.use((req, res, next) => (req.method === 'POST' && UPLOAD_PATH.test(req.path) ? next() : json(req, res, next)));
+  // The Delivery API reads its own small bodies, after its CORS headers, so a refused body still
+  // reaches the browser as the API's error (epic interactive components R9).
+  app.use((req, res, next) =>
+    (req.method === 'POST' && UPLOAD_PATH.test(req.path)) || req.path.startsWith(`${DELIVERY_API_BASE}/`)
+      ? next()
+      : json(req, res, next),
+  );
 
   // The dashboard reaches the API through its dev proxy, on its own origin, so
   // cookies are same-origin. CORS stays open for other callers, never with credentials.

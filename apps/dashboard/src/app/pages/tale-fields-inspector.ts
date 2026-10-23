@@ -250,9 +250,10 @@ export class TaleFieldsInspector {
     const problem = this.choiceProblem(group, item, raw);
     this.setError(item.key, problem);
     if (problem || raw === item.value) return;
+    // Only this choice's label: the studio applies it to the element's current options.
     this.changed.emit({
       label: `${item.label} changed`,
-      props: { [group.prop]: this.withChoice(group, item.index, raw)[group.prop] },
+      choice: { prop: group.prop, index: item.index, label: raw },
       said: `${item.label} set`,
     });
   }

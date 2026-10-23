@@ -28,6 +28,12 @@ import { rateLimit, VISITOR_HEADER, visitorId, type RateLimitOptions } from './r
  */
 export const DEFAULT_RESPONSE_RATE_LIMIT: RateLimitOptions = { burst: 30, perSecond: 1 };
 
+/**
+ * The largest body a Delivery API request may send: a response is a few ids and a value, well under
+ * 1 KB. Read before the key lookups, so an oversized body costs no queries (413).
+ */
+export const DELIVERY_BODY_LIMIT_BYTES = 4 * 1024;
+
 const REQUEST_FIELDS = new Set(['taleId', 'elementId', 'value', 'clientAt']);
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 

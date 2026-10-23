@@ -67,7 +67,7 @@ export async function recordResponse(db: Db, input: NewResponse, now: Date = new
   const interaction = INTERACTIONS[type][0];
   const frameId = (await findZone(db, target.zoneId))?.frame?.id ?? null;
   const key = [target.taleId, target.element.id, interaction, input.visitorId];
-  const inserted = await db.query<{ value: string }>(
+  const inserted = await insertOrNotFound(() => db.query<{ value: string }>(
     `INSERT INTO interactive_responses
        (project_id, zone_id, frame_id, tale_group_id, tale_id, element_id, element_type, interaction, value,
         visitor_id, client_at, created_at)
@@ -75,7 +75,7 @@ export async function recordResponse(db: Db, input: NewResponse, now: Date = new
      ON CONFLICT (tale_id, element_id, interaction, visitor_id) DO NOTHING
      RETURNING value`,
     [...key, target.projectId, target.zoneId, frameId, target.taleGroupId, type, value, input.clientAt, now],
-  );
+  ));
   let stored = inserted.rows[0]?.value;
   const recorded = stored !== undefined;
   if (!recorded) {
@@ -94,6 +94,17 @@ export async function recordResponse(db: Db, input: NewResponse, now: Date = new
     recorded,
     result: await currentResult(db, target.taleId, target.element.id, interaction, choices),
   };
+}
+
+// The insert, with a tale deleted since the check (its key into `tales` fails, 23503) refused as a
+// target that is not shown, never a server error.
+async function insertOrNotFound<T>(insert: () => Promise<T>): Promise<T> {
+  try {
+    return await insert();
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === '23503') throw new ResponseTargetNotFoundError();
+    throw err;
+  }
 }
 
 // The component's result now: its stored responses per value, over the choices it holds now.

@@ -72,6 +72,17 @@ describe('kept answers (C11)', () => {
     expect(storedResponse('t', 'e')).toBeNull();
   });
 
+  it('drops null and other non-object entries, and keeps a new answer beside them', () => {
+    localStorage.setItem(
+      RESPONSES_STORAGE_KEY,
+      JSON.stringify({ 't:a': null, 't:b': 7, 't:c': 'x', 't:d': [1], 't:e': { v: 'tea', r: result, t: 1 } }),
+    );
+    expect(storedResponse('t', 'a')).toBeNull();
+    expect(() => keepResponse('t', 'f', { value: 'coffee', result })).not.toThrow();
+    expect(Object.keys(JSON.parse(localStorage.getItem(RESPONSES_STORAGE_KEY) as string)).sort()).toEqual(['t:e', 't:f']);
+    expect(storedResponse('t', 'e')?.value).toBe('tea');
+  });
+
   it('keeps at most the newest answers', () => {
     vi.useFakeTimers();
     try {

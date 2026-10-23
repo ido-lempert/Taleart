@@ -106,6 +106,23 @@ describe('recordResponse', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it('refuses a tale deleted between the check and the insert as not found, not a server error', async () => {
+    delivered.mockResolvedValue(poll);
+    const fk = Object.assign(new Error('insert or update violates foreign key constraint'), { code: '23503' });
+    const { db } = fakeDb([fk]);
+    const query = (db as unknown as { query: ReturnType<typeof vi.fn> }).query;
+    query.mockImplementationOnce(async () => {
+      throw fk;
+    });
+    await expect(recordResponse(db, input, now)).rejects.toBeInstanceOf(ResponseTargetNotFoundError);
+    // Any other database error is passed on.
+    const other = Object.assign(new Error('boom'), { code: '57014' });
+    query.mockImplementationOnce(async () => {
+      throw other;
+    });
+    await expect(recordResponse(db, input, now)).rejects.toBe(other);
+  });
+
   it('refuses a value that is not one of the options', async () => {
     delivered.mockResolvedValue(poll);
     const { db, query } = fakeDb([]);

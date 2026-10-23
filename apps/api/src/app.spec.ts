@@ -13809,6 +13809,66 @@ describe('Management API v1: projects and zones', () => {
         expect(await rows()).toEqual([]);
       });
 
+      it('keeps one row when the same visitor votes twice at once, and answers both alike', async () => {
+        const { tale, handle } = await livePoll();
+        const [first, second] = await Promise.all([vote(handle, tale.id, 'tea'), vote(handle, tale.id, 'coffee')]);
+        expect([first.status, second.status].sort()).toEqual([200, 201]);
+        const [a, b] = [await first.json(), await second.json()];
+        expect(a.value).toBe(b.value);
+        expect(a.result).toEqual(b.result);
+        expect(a.result.total).toBe(1);
+        expect((await rows()).map((r) => r.value)).toEqual([a.value]);
+      });
+
+      it('refuses a tale outside its window, an archived tale and a group not placed in the named zone', async () => {
+        const ended = await livePoll();
+        // Times from this process's clock, which the API compares with (the database's may differ).
+        const hour = 60 * 60 * 1000;
+        await pool.query('UPDATE tales SET ends_at = $2 WHERE id = $1', [ended.tale.id, new Date(Date.now() - hour)]);
+        const late = await vote(ended.handle, ended.tale.id, 'tea');
+        expect(late.status).toBe(404);
+        expect((await late.json()).error.code).toBe('response_target_not_found');
+        await pool.query('UPDATE tales SET ends_at = NULL, starts_at = $2 WHERE id = $1', [
+          ended.tale.id,
+          new Date(Date.now() + hour),
+        ]);
+        expect((await vote(ended.handle, ended.tale.id, 'tea')).status).toBe(404);
+
+        const archived = await livePoll();
+        expect((await setStatus('tales', archived.tale.id, 'archived')).status).toBe(200);
+        expect((await vote(archived.handle, archived.tale.id, 'tea')).status).toBe(404);
+
+        // Another zone of the same project, installed, where the poll's group is not placed.
+        const placed = await livePoll();
+        const other = await (await post('/zones', { name: 'Footer', projectId: placed.zone.projectId })).json();
+        const otherHandle = await installZone(other.id);
+        expect(otherHandle.split('|')[0]).toBe(placed.handle.split('|')[0]);
+        const elsewhere = await vote(otherHandle, placed.tale.id, 'tea');
+        expect(elsewhere.status).toBe(404);
+        expect((await elsewhere.json()).error.code).toBe('response_target_not_found');
+        expect((await vote(placed.handle, placed.tale.id, 'tea')).status).toBe(201);
+        expect(await rows()).toHaveLength(1);
+      });
+
+      it('refuses a body over 4 KB and a malformed one before the key check, with the Delivery CORS headers', async () => {
+        const { tale, handle } = await livePoll();
+        const big = await respond(handle, { taleId: tale.id, elementId: pollId, value: 'tea', clientAt: 'x'.repeat(5000) });
+        expect(big.status).toBe(413);
+        expect(big.headers.get('access-control-allow-origin')).toBe('*');
+        expect((await big.json()).error.code).toBe('validation_failed');
+        // Even with no key: the body is refused before the key lookups.
+        const keyless = await respond(`nope|${handle.split('|')[1]}`, 'x'.repeat(5000));
+        expect(keyless.status).toBe(413);
+        const garbled = await respond(handle, '{not json');
+        expect(garbled.status).toBe(400);
+        expect(garbled.headers.get('access-control-allow-origin')).toBe('*');
+        expect((await garbled.json()).error.code).toBe('validation_failed');
+        // Just under the limit is read, and refused only for what it says.
+        const fits = await respond(handle, { taleId: tale.id, elementId: pollId, value: 'tea', clientAt: 'x'.repeat(3500) });
+        expect(fits.status).toBe(400);
+        expect(await rows()).toEqual([]);
+      });
+
       it('limits writes per visitor more strictly than reads', async () => {
         const limited = createApp(
           pool,

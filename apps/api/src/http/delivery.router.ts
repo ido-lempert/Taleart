@@ -12,11 +12,16 @@ import { projectForSiteKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
 import { tagRulesForTaleGroups } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
-import { Router, type RequestHandler, type Response } from 'express';
+import express, { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
 import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, VISITOR_HEADER, type RateLimitOptions } from './rate-limit';
-import { DEFAULT_RESPONSE_RATE_LIMIT, deliveryResponsesRouter, responseRateLimit } from './responses.router';
+import {
+  DEFAULT_RESPONSE_RATE_LIMIT,
+  DELIVERY_BODY_LIMIT_BYTES,
+  deliveryResponsesRouter,
+  responseRateLimit,
+} from './responses.router';
 
 // One message for every refusal (epic UX rework R3): a missing, unknown or revoked site key and a
 // missing or unknown slug answer alike, so a caller cannot tell a slug from a key.
@@ -122,6 +127,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
   const responseLimit =
     options.responseRateLimit === undefined ? (limit ? DEFAULT_RESPONSE_RATE_LIMIT : null) : options.responseRateLimit;
   router.use('/responses', responseRateLimit(responseLimit));
+  // A small JSON body, parsed here (not by the app's parser) so its refusals carry the CORS headers above.
+  router.use(express.json({ limit: DELIVERY_BODY_LIMIT_BYTES }));
   router.use(requireDeliveryKey(pool));
   router.use(deliveryResponsesRouter(pool));
 
