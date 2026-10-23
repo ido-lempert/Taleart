@@ -19,10 +19,9 @@ import {
   type MediaContentType,
   type TaleDocument,
 } from '@taleart/contract';
-import type { Db } from '@taleart/server-access';
+import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
 import { lockMediaKeys, recordTaleMedia } from './document-media';
 import { checkPublishableDocument, checkTaleDocument } from './tale-document';
-import { inTransaction, type TransactionalDb } from './tales';
 
 /** The tale's media as a document element shows it: its key and the kind of element. */
 export interface TaleMediaRef {

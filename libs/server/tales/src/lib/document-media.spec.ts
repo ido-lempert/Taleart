@@ -29,7 +29,8 @@ import {
   publishTaleDocument,
   saveTaleDocument,
 } from './tale-document';
-import { copyTaleWithDocument, type TransactionalDb } from './tales';
+import type { TransactionalDb } from '@taleart/server-access';
+import { copyTaleWithDocument } from './tales';
 
 const taleId = '00000000-0000-4000-8000-000000000010';
 const projectId = '00000000-0000-4000-8000-0000000000aa';
