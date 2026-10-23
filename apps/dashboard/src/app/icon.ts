@@ -25,6 +25,7 @@ export type IconName =
   | 'button'
   | 'image-button'
   | 'swipe-up'
+  | 'poll'
   | 'eye'
   | 'eye-off'
   | 'lock'
@@ -141,6 +142,10 @@ export type IconName =
         @case ('swipe-up') {
           <path d="M7 10l5-5 5 5M12 5v10" />
           <rect x="6" y="17" width="12" height="4" rx="2" />
+        }
+        @case ('poll') {
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M7 9h6M7 13h10M7 17h4" />
         }
         @case ('eye') {
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

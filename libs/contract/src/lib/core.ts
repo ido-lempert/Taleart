@@ -681,6 +681,8 @@ export const ErrorCodes = {
   mediaStorageFull: 'media_storage_full',
   uploadBusy: 'upload_busy',
   lengthRequired: 'length_required',
+  responseTargetNotFound: 'response_target_not_found',
+  visitorIdRequired: 'visitor_id_required',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

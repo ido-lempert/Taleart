@@ -8,6 +8,7 @@ import {
 } from '@taleart/contract';
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
 import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
+import { POLL_STYLES, renderPoll } from './poll';
 import { renderEmoji, renderShape } from './shapes';
 import { renderText } from './text';
 
@@ -27,6 +28,7 @@ const RENDERERS: { readonly [K in TaleElementType]: ElementRenderer } = {
   button: renderButton,
   'image-button': renderImageButton,
   'swipe-up': renderSwipeUp,
+  poll: renderPoll,
 };
 
 /**
@@ -139,7 +141,7 @@ export const DOCUMENT_STYLES = `
   -webkit-user-select: text;
   -webkit-touch-callout: default;
 }
-`;
+${POLL_STYLES}`;
 
 const warned = new Set<string>();
 
@@ -175,6 +177,8 @@ export interface DocumentRenderOptions {
   reducedMotion?: boolean;
   /** Links render inert, without a destination: the Tale Studio preview, which shows a draft (AD-16). */
   inertLinks?: boolean;
+  /** Where interactive components send responses (R9); left out, they record nothing (the preview). */
+  responses?: RenderContext['responses'];
 }
 
 // The canvas's media background (R2): the image filling the canvas with its fit, over its band
@@ -216,6 +220,7 @@ export function renderTaleDocument(doc: DeliveryTaleDocument, options: DocumentR
   const color = canvasColor(doc);
   const context: RenderContext = { reducedMotion: options.reducedMotion === true };
   if (options.inertLinks) context.inertLinks = true;
+  if (options.responses) context.responses = options.responses;
   const media = backgroundMedia(doc, context.reducedMotion);
   // A media background paints its band colour with it, over the tale's media too.
   if ((options.background || media) && color) canvas.style.backgroundColor = color;

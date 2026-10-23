@@ -51,7 +51,7 @@ describe('the renderer lookup and the element-type registry (story 7.8)', () => 
       'TaleArt: element type "test-badge" is not supported by this SDK; it is skipped',
     );
     // Another unknown type warns once too.
-    renderTaleDocument(doc([element('p', 'poll', 0.1, {}), element('p2', 'poll', 0.2, {})]));
+    renderTaleDocument(doc([element('p', 'future-widget', 0.1, {}), element('p2', 'future-widget', 0.2, {})]));
     expect(warn).toHaveBeenCalledTimes(2);
   });
 

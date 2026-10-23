@@ -1,7 +1,24 @@
 import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output } from '@angular/core';
 import { propSchema, propValueProblem, type PropSchema } from '@taleart/contract/tale-document';
 import type { ElementChange } from './tale-shapes';
-import type { FieldsInspector, InspectorField, StudioElementType } from './tale-element-types';
+import type { ChoicesField, FieldsInspector, InspectorField, StudioElementType } from './tale-element-types';
+
+/** One choice's label as the inspector shows it (epic interactive components R1). */
+interface ChoiceView {
+  /** The error key: `<prop>/<index>`. */
+  key: string;
+  index: number;
+  id: string;
+  label: string;
+  value: string;
+}
+
+/** A choices field as the inspector shows it: its items and the label's schema. */
+interface ChoicesView extends ChoicesField {
+  id: string;
+  schema: PropSchema;
+  items: ChoiceView[];
+}
 
 /** One field as the inspector shows it: the descriptor's field with its schema rules. */
 interface FieldView extends InspectorField {
@@ -107,6 +124,33 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
         <span class="field__error" aria-live="polite" [id]="field.id + '-error'">{{ errors()[field.prop] ?? '' }}</span>
       </div>
     }
+    @if (choices(); as group) {
+      <fieldset class="field fields-choices" [attr.aria-describedby]="group.hint ? group.id + '-hint' : null">
+        <legend class="field__label">{{ group.label }}</legend>
+        @if (group.hint) {
+          <span class="field__hint" [id]="group.id + '-hint'">{{ group.hint }}</span>
+        }
+        @for (item of group.items; track item.key) {
+          @let invalid = errors()[item.key] ? 'true' : null;
+          <div class="field">
+            <label class="field__label" [for]="item.id">{{ item.label }}</label>
+            <input
+              class="input"
+              type="text"
+              [id]="item.id"
+              aria-required="true"
+              [attr.aria-invalid]="invalid"
+              [attr.aria-describedby]="item.id + '-error'"
+              [readOnly]="locked()"
+              [value]="item.value"
+              (input)="checkChoice(group, item, $any($event.target).value)"
+              (change)="applyChoice(group, item, $any($event.target).value)"
+            />
+            <span class="field__error" aria-live="polite" [id]="item.id + '-error'">{{ errors()[item.key] ?? '' }}</span>
+          </div>
+        }
+      </fieldset>
+    }
   `,
 })
 export class TaleFieldsInspector {
@@ -126,7 +170,10 @@ export class TaleFieldsInspector {
     computation: (now, previous) => {
       if (!previous || previous.source.id !== now.id) return {};
       return Object.fromEntries(
-        Object.entries(previous.value).filter(([prop]) => previous.source.props[prop] === now.props[prop]),
+        // A choice's error (`options/0`) is kept while its array prop is unchanged.
+        Object.entries(previous.value).filter(
+          ([key]) => previous.source.props[key.split('/')[0]] === now.props[key.split('/')[0]],
+        ),
       );
     },
   });
@@ -150,6 +197,66 @@ export class TaleFieldsInspector {
       ];
     });
   });
+
+  /** The descriptor's choices with their labels now, or null for a type without choices. */
+  protected readonly choices = computed<ChoicesView | null>(() => {
+    const type = this.type();
+    const choices = (type.inspector as FieldsInspector).choices;
+    if (!choices) return null;
+    const array = propSchema(type.schema, choices.prop)?.schema as { items?: { [key: string]: unknown } } | undefined;
+    const label = array?.items ? propSchema(array.items, 'label') : null;
+    if (!label) return null;
+    const value = this.edited().props[choices.prop];
+    const items = Array.isArray(value) ? (value as { label?: unknown }[]) : [];
+    const id = `field-${type.key}-${choices.prop}-${this.element().id}`;
+    return {
+      ...choices,
+      id,
+      schema: label.schema,
+      items: items.map((item, index) => ({
+        key: `${choices.prop}/${index}`,
+        index,
+        id: `${id}-${index}`,
+        label: choices.itemLabel(index),
+        value: typeof item?.label === 'string' ? item.label : '',
+      })),
+    };
+  });
+
+  // The props with the choice at `index` relabelled: a copy of the array, ids untouched.
+  private withChoice(group: ChoicesView, index: number, label: string): Record<string, unknown> {
+    const items = this.edited().props[group.prop] as Record<string, unknown>[];
+    return {
+      ...this.edited().props,
+      [group.prop]: items.map((item, i) => (i === index ? { ...item, label } : item)),
+    };
+  }
+
+  // Why the typed label is refused: the label's schema, then the descriptor's own check; or null.
+  private choiceProblem(group: ChoicesView, item: ChoiceView, raw: string): string | null {
+    return (
+      propValueProblem(group.schema, raw, true) ?? this.type().check?.(this.withChoice(group, item.index, raw)) ?? null
+    );
+  }
+
+  /** Checks a choice's label as it is typed, and says what is wrong, without applying it. */
+  protected checkChoice(group: ChoicesView, item: ChoiceView, raw: string): void {
+    this.setError(item.key, this.choiceProblem(group, item, raw));
+  }
+
+  /** Applies a choice's label the schema accepts as one history step; its id, and so its count, stay. */
+  protected applyChoice(group: ChoicesView, item: ChoiceView, raw: string): void {
+    if (this.locked()) return;
+    const problem = this.choiceProblem(group, item, raw);
+    this.setError(item.key, problem);
+    if (problem || raw === item.value) return;
+    // Only this choice's label: the studio applies it to the element's current options.
+    this.changed.emit({
+      label: `${item.label} changed`,
+      choice: { prop: group.prop, index: item.index, label: raw },
+      said: `${item.label} set`,
+    });
+  }
 
   /** The field's hint, then its error line: both stay described, so the rule is heard with the problem. */
   protected describedBy(field: FieldView): string {

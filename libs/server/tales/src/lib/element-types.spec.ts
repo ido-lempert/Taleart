@@ -41,7 +41,7 @@ afterEach(() => setTestElementTypesEnabled(false));
 
 describe('checkTaleDocument: the element-type registry (story 7.8)', () => {
   it('refuses a type the registry does not hold', () => {
-    expect(refused(doc([badge({}, { type: 'poll' })])).pointer).toBe('/elements/0/type');
+    expect(refused(doc([badge({}, { type: 'future-widget' })])).pointer).toBe('/elements/0/type');
     expect(refused(doc([badge({}, { type: 'constructor' })])).pointer).toBe('/elements/0/type');
   });
 
