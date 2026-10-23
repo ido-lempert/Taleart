@@ -63,3 +63,11 @@ title = "Analytics"
 description = "Per-widget and per-content metrics (Reach, Impression, Click, Engagement Rate, CTR) are recorded and shown, with published definitions."
 covers = ["R7"]
 after = [{ epic = 3, needs = "widgets emitting events" }, { epic = 4, needs = "interactive events" }]
+
+[[epic]]
+id = 9
+slug = "epic-native-mobile"
+title = "Native mobile"
+description = "The Taller sample app and the mobile SDK, generated from the KMP wizard with package site.lempert.taleart and one shared Compose UI, show a zone's bar or banner and its tales on Android and iOS from the same Delivery API (owner direction 2026-10-23)."
+covers = ["R9", "R11", "R13"]
+after = [{ epic = 3, needs = "the Delivery API zone query by site key and slug (8.7)" }, { epic = 7, needs = "the tale document and registry (story 5 only)" }]
