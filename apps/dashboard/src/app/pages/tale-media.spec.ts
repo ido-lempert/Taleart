@@ -9,6 +9,7 @@ import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { mediaChoiceName } from './tale-media';
 import { TaleStudioPage } from './tale-studio';
+import { settle, WAIT_FOR_TEST } from './tale-studio.testing';
 
 const url = `${API_BASE}/tales/t1/document`;
 const mediaUrl = `${API_BASE}/projects/p1/media`;
@@ -39,14 +40,6 @@ const media = (key: string, kind: 'image' | 'video', extra: Partial<ProjectMedia
 });
 const LIBRARY = [media(IMAGE, 'image'), media(VIDEO, 'video')];
 const empty: TaleDocument = { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] };
-
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
-  await fixture.whenStable();
-  await new Promise((resolve) => setTimeout(resolve));
-  fixture.detectChanges();
-}
-
-const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
 
 describe('Tale Studio images and video (epic Tale Studio R5)', () => {
   let http: HttpTestingController;
