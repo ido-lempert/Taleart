@@ -3207,6 +3207,18 @@ describe('App', () => {
         expect(buttonNamed(confirmation() as HTMLElement, 'Delete tale').disabled).toBe(false);
       });
 
+      it('drops a deletion request for a tale the group no longer holds, opening nothing', async () => {
+        const { fixture } = await open('/zones/z1', data);
+        const store = TestBed.inject(DashboardStore);
+        expect(store.requestTaleDeletion('gone', 'g1')).toBe(true);
+        await settle(fixture);
+        expect(store.taleDeletionRequest()).toBeNull();
+        expect(confirmation()).toBeNull();
+        // No view shows Winter: a request for it is refused at once.
+        expect(store.requestTaleDeletion('t1', 'g2')).toBe(false);
+        expect(store.taleDeletionRequest()).toBeNull();
+      });
+
       it('"Delete tale…" in the tale drawer closes it and asks in the group view; Escape returns to the card', async () => {
         const { fixture } = await open('/zones/z1', data);
         (groupView() as HTMLElement).querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();

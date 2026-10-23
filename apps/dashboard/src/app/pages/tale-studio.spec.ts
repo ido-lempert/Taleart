@@ -631,6 +631,28 @@ describe('TaleStudioPage', () => {
     expect([...root.querySelectorAll('[role=alert]')].map((a) => a.textContent?.trim()).join('')).toBe('');
   });
 
+  it('says plainly when a save is refused for media that no longer exists, such as a deleted tale media (story 8.20)', async () => {
+    await open({ document: existing, revision: 1 });
+    key(elements()[0], 'ArrowDown');
+    void fixture.componentInstance.canLeave();
+    await settle(fixture);
+    http.expectOne(url).flush(
+      {
+        error: {
+          code: 'invalid_tale_document',
+          message: "/canvas/background/mediaKey is not media of this tale's project",
+          pointer: '/canvas/background/mediaKey',
+        },
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await settle(fixture);
+    const alert = root.querySelector('[role=alert]')?.textContent ?? '';
+    expect(alert).toContain('this background uses a media file that no longer exists');
+    expect(alert).toContain('Pick other media for it, or remove it.');
+    expect(alert).not.toContain('/canvas');
+  });
+
   it('explains a refused save in plain words and marks the element its pointer names', async () => {
     await open({ document: existing, revision: 1 });
     key(elements()[0], 'ArrowDown');

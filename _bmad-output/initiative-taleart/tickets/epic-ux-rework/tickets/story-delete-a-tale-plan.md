@@ -99,3 +99,15 @@ Results (2026-10-23): run-many passes except the known `api:test` "auth > create
 
 **Manual checks:**
 - Screenshots in `shots-8.20/` (ports 3420/4420, own `_e2e_test` database): the menu with Delete, the confirmation, the view after the delete, the test page with two then one tale, the Tale groups page count.
+
+## Review fixes (2026-10-23)
+
+`autopilot/foundation` had not moved (5e58e15); nothing to merge.
+
+- **Orphan sweep:** `sweepUnusedTaleMediaFiles` (tales module) deletes uploaded tale media files (`tales/<uuid>.<ext>`) older than an hour that nothing references, each under `withMediaKeyDeletionGuard`; imported files (`tales/imported-…`) stay the importer's. `sweepImportMediaOfDeletedTales` (importer) removes `import_media` rows whose tale is gone, checked through `taleExists`. The import worker's start-up sweep runs both, the records before the imported-file sweep so those files can go too. A failed file delete still answers 204 and is logged; the sweep removes the file later (tested).
+- **Deletion requests:** `taleDeletionRequest` carries `{ taleId, taleGroupId }`. Group views register the group they show (`groupViewOpened`/`groupViewClosed`); `requestTaleDeletion` refuses when no view shows the group, the request is dropped when the last view of its group closes, and the view drops a request for a tale it no longer holds. The tale drawer shows "Delete tale…" only while a view of the tale's group is open.
+- **Tale Studio:** a save or update refused for media the project does not have (`UNKNOWN_MEDIA_REASON`, now shared by the contract and the tales module), such as a deleted tale's file, reads "The tale could not be saved: this <image|video|…|background> uses a media file that no longer exists, perhaps because the tale it came from was deleted. Pick other media for it, or remove it." with the element selected.
+- **Import report:** a tale deleted after the run found it is counted skipped (not imported, not `unchanged`), noted "it was deleted during the import, so it was not updated", and its media is not copied (one note only).
+- **Tests:** API +6 (failed file delete then swept; archived tale and tale of an archived group; imported file removed when alone and kept when a duplicate shares it; start-up sweep of `import_media` then the file; delete during a running import, held at the tale's import lock). Dashboard +3 (store request bookkeeping; a request for a gone tale or an unshown group; Studio message).
+- **Importer unit test** "leaves a record deleted before its update uncounted as changed" now expects the new outcome (skipped with a note, not `unchanged`).
+- **Verification:** run-many lint/test/build (14 projects, `--parallel=2`) passes except the known clock test (`expected 606033 to be 604800`) and the importer unit test above, since updated (server-importer 284 passed on rerun); API 638/639, dashboard 693. `dashboard-e2e:e2e`: the first run had `first-run.spec.ts` time out (`Test timeout of 120000ms exceeded`, waiting for "New zone" on a page still showing "Create your first project"); the rerun passed 12/12. `dashboard-e2e:a11y` 28 passed; `api:import-scale` 1 passed.

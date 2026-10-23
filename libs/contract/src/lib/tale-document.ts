@@ -643,6 +643,13 @@ export function isMediaElement<T extends { type: string }>(
 }
 
 /**
+ * Why a save or update refuses a media key that is not media of the tale's project (R5): an
+ * unknown key, another project's, or one whose file is gone, such as the media of a deleted tale
+ * (story 8.20). The refusal's message is the element's pointer, then this.
+ */
+export const UNKNOWN_MEDIA_REASON = "is not media of this tale's project";
+
+/**
  * The media keys a document of any trust references: each image, video and image sticker
  * element's `mediaKey`, and the canvas's media background. Values that are not strings are
  * skipped; the schema refuses them.

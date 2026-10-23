@@ -278,3 +278,30 @@ export async function recordNames(
   for (const { id, name } of rows) if (name !== null) names.set(id, name);
   return names;
 }
+
+/**
+ * Removes the `import_media` rows of tales that no longer exist (story 8.20): a delete forgets them
+ * after it commits, and this catches one whose clean-up failed. Each tale is checked through its
+ * owning module (`taleExists`, no foreign keys, AD-1). Returns how many it removed. The worker runs
+ * it when it starts, before it sweeps imported files, so their files can go too.
+ */
+export async function sweepImportMediaOfDeletedTales(
+  db: Db,
+  taleExists: (id: string) => Promise<boolean>,
+): Promise<number> {
+  let removed = 0;
+  let after = '00000000-0000-0000-0000-000000000000';
+  for (;;) {
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT tale_id AS id FROM import_media WHERE tale_id > $1::uuid ORDER BY tale_id LIMIT ${SWEEP_BATCH}`,
+      [after],
+    );
+    for (const { id } of rows) {
+      if (await taleExists(id)) continue;
+      await db.query('DELETE FROM import_media WHERE tale_id = $1', [id]);
+      removed++;
+    }
+    if (rows.length < SWEEP_BATCH) return removed;
+    after = rows[rows.length - 1].id;
+  }
+}
