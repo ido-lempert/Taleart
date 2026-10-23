@@ -20,6 +20,9 @@ import site.lempert.taleart.sdk.TaleartSdk
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import site.lempert.taleart.sdk.ui.BAR_ITEM_TAG
+import site.lempert.taleart.sdk.ui.SeenGroups
 
 @OptIn(ExperimentalTestApi::class)
 class AppUiTest : ComposeUiTestBase() {
@@ -32,6 +35,9 @@ class AppUiTest : ComposeUiTestBase() {
         DebugSettings.ZONE to "home-top",
     )
     private val requests = mutableListOf<HttpRequestData>()
+    // Seen groups in memory, so no test reads or leaves seen state on the device.
+    private val seen = SeenGroups(InMemoryStore())
+    private fun isolatedSeen() = seen
 
     private fun client(status: HttpStatusCode, body: String) = DeliveryClient(
         HttpClient(MockEngine { request ->
@@ -42,7 +48,7 @@ class AppUiTest : ComposeUiTestBase() {
 
     @Test
     fun showsTheTitleAndTheSdkVersion() = runComposeUiTest {
-        setContent { App() }
+        setContent { App(seenGroups = isolatedSeen()) }
 
         onNodeWithTag("title").assertIsDisplayed().assertTextEquals("TaleArt")
         onNodeWithTag("sdk-version").assertIsDisplayed().assertTextEquals("SDK ${TaleartSdk.VERSION}")
@@ -51,7 +57,7 @@ class AppUiTest : ComposeUiTestBase() {
     @Test
     fun opensTheSettingsUntilEveryFieldIsSetAndLoadsTheZoneFromThem() = runComposeUiTest {
         val store = InMemoryStore()
-        setContent { App(store = store, client = client(HttpStatusCode.OK, zone)) }
+        setContent { App(store = store, client = client(HttpStatusCode.OK, zone), seenGroups = isolatedSeen()) }
 
         onNodeWithTag("load").assertIsNotEnabled()
         onNodeWithTag("site-key").performTextInput("tas_key")
@@ -66,7 +72,7 @@ class AppUiTest : ComposeUiTestBase() {
 
     @Test
     fun listsTheGroupTitlesWithTheirTaleTitlesForASavedZone() = runComposeUiTest {
-        setContent { App(store = InMemoryStore(saved), client = client(HttpStatusCode.OK, zone)) }
+        setContent { App(store = InMemoryStore(saved), client = client(HttpStatusCode.OK, zone), seenGroups = isolatedSeen()) }
 
         waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag("group").fetchSemanticsNodes().size == 2 }
         val texts = { tag: String ->
@@ -80,9 +86,21 @@ class AppUiTest : ComposeUiTestBase() {
     }
 
     @Test
+    fun showsTheZonesBarAboveTheListAndReportsATap() = runComposeUiTest {
+        setContent { App(store = InMemoryStore(saved), client = client(HttpStatusCode.OK, zone), seenGroups = isolatedSeen()) }
+
+        waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(BAR_ITEM_TAG).fetchSemanticsNodes().size == 2 }
+        val barTop = onNodeWithTag("zone-display").fetchSemanticsNode().boundsInRoot.top
+        val listTop = onNodeWithTag("groups").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(barTop < listTop)
+        onAllNodesWithTag(BAR_ITEM_TAG)[1].performClick()
+        onNodeWithTag("tapped").assertTextEquals("Tapped: Winter tales")
+    }
+
+    @Test
     fun showsTheTypedErrorOfARefusedKey() = runComposeUiTest {
         val refused = """{"error":{"code":"invalid_site_key","message":"A valid site key and zone are required"}}"""
-        setContent { App(store = InMemoryStore(saved), client = client(HttpStatusCode.Unauthorized, refused)) }
+        setContent { App(store = InMemoryStore(saved), client = client(HttpStatusCode.Unauthorized, refused), seenGroups = isolatedSeen()) }
 
         waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag("error").fetchSemanticsNodes().isNotEmpty() }
         onNodeWithTag("error").assertTextEquals("Invalid site key or zone: A valid site key and zone are required")

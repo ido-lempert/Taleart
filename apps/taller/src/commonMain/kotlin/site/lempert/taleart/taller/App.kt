@@ -16,6 +16,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -43,6 +46,9 @@ import site.lempert.taleart.sdk.delivery.DeliveryClient
 import site.lempert.taleart.sdk.delivery.DeliveryZone
 import site.lempert.taleart.sdk.delivery.ZoneRequest
 import site.lempert.taleart.sdk.delivery.ZoneResult
+import site.lempert.taleart.sdk.ui.SeenGroups
+import site.lempert.taleart.sdk.ui.TaleartZone
+import site.lempert.taleart.sdk.ui.rememberSeenGroups
 
 /** The SDK line shown on Taller's shared screen. */
 fun sdkVersionLabel(version: String = TaleartSdk.VERSION): String = "SDK $version"
@@ -73,7 +79,10 @@ private sealed interface ZoneState {
 fun App(
     store: KeyValueStore = remember { InMemoryStore() },
     client: DeliveryClient? = null,
+    seenGroups: SeenGroups? = null,
 ) {
+    // The device's seen groups unless given (tests give an isolated store).
+    val seen = seenGroups ?: rememberSeenGroups()
     val deliveryClient = remember(client) { client ?: DeliveryClient() }
     // Closes only the client it made; a client passed in belongs to the caller.
     DisposableEffect(deliveryClient) { onDispose { if (client == null) deliveryClient.close() } }
@@ -131,7 +140,7 @@ fun App(
                     onCancel = if (settings.complete) ({ showSettings = false }) else null,
                 )
             } else {
-                HomeScreen(settings, state, onReload = { load(settings) })
+                HomeScreen(settings, state, seen, onReload = { load(settings) })
             }
         }
     }
@@ -179,8 +188,23 @@ private fun SettingsScreen(initial: DebugSettings, onLoad: (DebugSettings) -> Un
 }
 
 @Composable
-private fun HomeScreen(settings: DebugSettings, state: ZoneState, onReload: () -> Unit) {
+private fun HomeScreen(settings: DebugSettings, state: ZoneState, seen: SeenGroups, onReload: () -> Unit) {
+    var tapped by remember { mutableStateOf<String?>(null) }
     Column {
+        // The zone's display, as a host app shows it; the debug list follows.
+        val zone = ((state as? ZoneState.Done)?.result as? ZoneResult.Success)?.zone
+        if (zone != null) {
+            TaleartZone(
+                zone,
+                modifier = Modifier.testTag("zone-display"),
+                onGroupClick = { tapped = it.name },
+                seenGroups = seen,
+                // The host's title colour and font, as the web bar inherits the page's.
+                titleStyle = TextStyle(color = LocalContentColor.current, fontFamily = LocalTextStyle.current.fontFamily),
+            )
+            tapped?.let { Text("Tapped: $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("tapped")) }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "Zone ${settings.zone} at ${settings.apiUrl}",
