@@ -380,7 +380,7 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
         frame()
         assertEquals("$winter/0", tale())
         onNodeWithContentDescription("Close").performClick()
-        frame()
+        advance(VIEWER_CLOSE_MS + 100L)
         assertEquals(null, tale())
         assertEquals(winter, shown())
         assertEquals(setOf(summer, winter), seen.ids)
@@ -507,7 +507,7 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
         frame()
         assertEquals("$winter/0", tale())
         onNodeWithContentDescription("Close").performClick()
-        frame()
+        advance(VIEWER_CLOSE_MS + 100L)
         assertEquals(null, tale())
 
         json = homeTopBanner
@@ -521,7 +521,7 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
         repeat(3) { onNodeWithContentDescription("Next tale").performClick() }
         frame()
         onNodeWithContentDescription("Close").performClick()
-        frame()
+        advance(VIEWER_CLOSE_MS + 100L)
         frame()
         assertEquals(winter, shown())
         json = zoneJson(banner(), groupsJson("A", "B"))

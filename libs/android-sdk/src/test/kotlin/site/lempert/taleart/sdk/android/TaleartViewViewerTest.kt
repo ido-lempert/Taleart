@@ -21,6 +21,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowDialog
 import site.lempert.taleart.sdk.delivery.DeliveryClient
+import site.lempert.taleart.sdk.ui.VIEWER_CLOSE_MS
+import site.lempert.taleart.sdk.ui.VIEWER_OPEN_MS
 import site.lempert.taleart.sdk.ui.VIEWER_TAG
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -39,9 +41,14 @@ class TaleartViewViewerTest {
         {"id":"summer","name":"Summer","tales":[{"id":"a","title":"Beach"},{"id":"b","title":"Hike"}]},
         {"id":"winter","name":"Winter","tales":[{"id":"c","title":"Snow"}]}]}"""
 
-    private fun client() = DeliveryClient(HttpClient(MockEngine {
-        respond(zone, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+    private fun client(body: String = zone) = DeliveryClient(HttpClient(MockEngine {
+        respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
     }))
+
+    // A group of its own for the Back tests: the SDK keeps seen groups for the process, and Summer
+    // seen there would change the other tests' names.
+    private val autumnZone = """{"id":"z","name":"Z","slug":"home-top","frame":{"id":"f","type":"bar","settings":{}},"taleGroups":[
+        {"id":"autumn-%s","name":"Autumn %s","tales":[{"id":"a","title":"Leaves"}]}]}"""
 
     // A few frames: the dialog's window attaches, then its content composes and lays out.
     private fun frames() = repeat(5) {
@@ -81,6 +88,8 @@ class TaleartViewViewerTest {
         assertTrue(dialog.window!!.decorView !== compose.activity.window.decorView)
 
         compose.onNodeWithContentDescription("Close").performClick()
+        // The viewer fades out (story 9.9) before the dialog goes.
+        compose.mainClock.advanceTimeBy(VIEWER_CLOSE_MS + 100L)
         frames()
         assertEquals(0, compose.onAllNodesWithTag(VIEWER_TAG).fetchSemanticsNodes().size)
         assertFalse(dialog.isShowing)
@@ -149,5 +158,64 @@ class TaleartViewViewerTest {
         compose.waitForIdle()
         assertEquals(listOf("winter"), tapped)
         assertEquals(0, compose.onAllNodesWithTag(VIEWER_TAG).fetchSemanticsNodes().size)
+    }
+
+    // Opens group [name] from a bar in a host layout, on the test's clock; the dialog it shows in.
+    private fun openGroup(name: String): android.app.Dialog {
+        compose.runOnUiThread {
+            val activity = compose.activity
+            val view = TaleartView(activity).apply {
+                client = client(autumnZone.replace("%s", name))
+                configure("http://api.test", "tas_key", "home-top")
+            }
+            val host = FrameLayout(activity)
+            host.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140))
+            activity.setContentView(host)
+        }
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Autumn $name").fetchSemanticsNodes().isNotEmpty() }
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithContentDescription("Autumn $name").performClick()
+        frames()
+        compose.mainClock.advanceTimeBy(VIEWER_OPEN_MS + 100L)
+        frames()
+        compose.onNodeWithTag(VIEWER_TAG).assertExists()
+        return assertNotNull(ShadowDialog.getLatestDialog())
+    }
+
+    private fun back(dialog: android.app.Dialog) = compose.runOnUiThread {
+        (dialog as androidx.activity.ComponentDialog).onBackPressedDispatcher.onBackPressed()
+    }
+
+    @Test
+    fun backClosesTheViewerWithItsFadeThenRemovesTheDialog() {
+        val name = "back"
+        val dialog = openGroup(name)
+        back(dialog)
+        frames()
+        // Fading: still drawn, the dialog still up.
+        compose.onNodeWithTag(VIEWER_TAG).assertExists()
+        assertTrue(dialog.isShowing)
+        compose.mainClock.advanceTimeBy(VIEWER_CLOSE_MS + 100L)
+        frames()
+        assertEquals(0, compose.onAllNodesWithTag(VIEWER_TAG).fetchSemanticsNodes().size)
+        assertFalse(dialog.isShowing)
+        compose.onNodeWithContentDescription("Autumn $name, seen").assertExists()
+    }
+
+    @Test
+    fun aSecondBackWhileTheViewerFadesRemovesItAtOnce() {
+        val name = "twice"
+        val dialog = openGroup(name)
+        back(dialog)
+        frames()
+        back(dialog)
+        frames()
+        assertEquals(0, compose.onAllNodesWithTag(VIEWER_TAG).fetchSemanticsNodes().size)
+        assertFalse(dialog.isShowing)
+        compose.onNodeWithContentDescription("Autumn $name, seen").assertExists()
+        // Nothing more happens once the fade would have ended.
+        compose.mainClock.advanceTimeBy(VIEWER_CLOSE_MS + 100L)
+        frames()
+        compose.onNodeWithContentDescription("Autumn $name, seen").assertExists()
     }
 }

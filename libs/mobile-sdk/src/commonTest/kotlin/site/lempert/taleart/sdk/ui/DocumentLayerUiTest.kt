@@ -118,7 +118,6 @@ class DocumentLayerUiTest : ComposeUiTestBase() {
             LocalTaleVideoPlayer provides videos,
             LocalViewerInPlace provides true,
             LocalUriHandler provides uriHandler,
-            LocalFontHttpClient provides HttpClient(MockEngine { respond(ByteArray(0), HttpStatusCode.NotFound) }),
             content = content,
         )
     }

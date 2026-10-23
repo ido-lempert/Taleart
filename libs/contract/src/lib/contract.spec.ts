@@ -46,6 +46,7 @@ import {
   USER_ROLES,
   SITE_KEY_PREFIX,
   siteKeyPrefix,
+  type DeliveryFont,
 } from '../index';
 
 describe('contract', () => {
@@ -99,6 +100,23 @@ describe('banner frame schema', () => {
     expect(Object.keys(schema.properties)).toEqual(Object.keys(fields));
     for (const [key, expected] of Object.entries(fields)) expect(schema.properties[key]).toMatchObject(expected);
     expect(schema.additionalProperties).toBe(false);
+  });
+});
+
+describe('delivery fonts (story 9.8)', () => {
+  it("names each project font's family, which native SDKs resolve against the host app's fonts", () => {
+    const spec = readFileSync(join(__dirname, '../../openapi/openapi.yaml'), 'utf8');
+    const block = spec.slice(spec.indexOf('    DeliveryFont:'), spec.indexOf('    DeliveryTaleDocument:'));
+    expect(block).toContain('required: [id, family, url, weight, style]');
+    expect(block).toMatch(/\n        family:\n          type: string\n/);
+    const font: DeliveryFont = {
+      id: '0f0e0d0c-0000-4000-8000-00000000000a',
+      family: 'Brand Sans',
+      url: 'https://api.test/media/fonts/x.woff2',
+      weight: 400,
+      style: 'normal',
+    };
+    expect(font.family).toBe('Brand Sans');
   });
 });
 

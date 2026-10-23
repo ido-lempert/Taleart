@@ -1614,7 +1614,7 @@ export interface DeliveryStoredTale {
   /** The tale's document as delivered (AD-15), or null when it has none or it no longer validates. */
   document: KeyedDeliveryDocument | null;
   /** The project fonts the delivered document uses (R18), whose keys the API turns into public URLs. */
-  fonts: (Omit<StoredFontFile, 'sizeBytes'> & { id: string })[];
+  fonts: (Omit<StoredFontFile, 'sizeBytes'> & { id: string; family: string })[];
   /**
    * The media keys the delivered document may show (R5): those its published document's `tale_media`
    * rows mark delivered, which the public route serves. The API turns them into public URLs and
@@ -1746,7 +1746,7 @@ export async function listDeliveryTaleGroups(
       ids.flatMap((id) => {
         const font = fonts.get(id);
         return font && font.projectId === tale.projectId
-          ? [{ id, key: font.key, weight: font.weight, style: font.style }]
+          ? [{ id, family: font.family, key: font.key, weight: font.weight, style: font.style }]
           : [];
       }),
     ]),

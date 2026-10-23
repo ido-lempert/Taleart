@@ -144,12 +144,16 @@ private object AvTaleVideoPlayer : TaleVideoPlayer {
                 delay(50)
             }
         }
+        val moving = LocalViewerInMotion.current
         UIKitView(
             factory = {
                 PlayerView(AVPlayerLayer.playerLayerWithPlayer(player))
             },
             update = { view ->
                 view.playerLayer.videoGravity = if (fit == MediaFit.Cover) AVLayerVideoGravityResizeAspectFill else AVLayerVideoGravityResizeAspect
+                // A native view does not fade, grow or turn with the viewer (story 9.9): it hides
+                // while the viewer moves, the stage's black in its place.
+                view.hidden = moving()
             },
             modifier = modifier,
             // Touches go to the viewer's gestures, not the video.
@@ -229,6 +233,7 @@ private object AvTaleVideoPlayer : TaleVideoPlayer {
                 delay(50)
             }
         }
+        val moving = LocalViewerInMotion.current
         UIKitView(
             factory = {
                 TurnedHolder(
@@ -244,6 +249,7 @@ private object AvTaleVideoPlayer : TaleVideoPlayer {
                 view.layer.cornerRadius = if (drawn) look.cornerRadius.value.toDouble() else 0.0
                 view.alpha = if (drawn) look.alpha.toDouble() else 1.0
                 view.transform = CGAffineTransformMakeRotation(if (drawn) look.rotation * PI / 180 else 0.0)
+                holder.hidden = moving()
             },
             modifier = modifier,
             properties = UIKitInteropProperties(interactionMode = null, isNativeAccessibilityEnabled = false, placedAsOverlay = look.overlay),

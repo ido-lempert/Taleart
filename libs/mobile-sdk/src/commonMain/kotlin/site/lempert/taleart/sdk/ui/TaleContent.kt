@@ -48,6 +48,8 @@ data class TaleCanvas(
     val label: String,
     /** The document's elements the canvas draws: all but the tale's own media when the stage draws it. */
     val layer: DocumentLayer = DocumentLayer.EMPTY,
+    /** The family name of each project font the tale's text uses, by font id in lower case (story 9.8). */
+    val projectFonts: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -115,6 +117,7 @@ data class TaleView(
                 label = label,
                 // The stage draws the tale's own media; the canvas draws the rest (`elements.slice(1)`).
                 layer = DocumentLayer.read(doc, skipFirst = media != null),
+                projectFonts = tale.fonts.filter { it.family.isNotBlank() }.associate { it.id.lowercase() to it.family },
             )
             return TaleView(
                 media = media,

@@ -163,14 +163,44 @@ fun TaleartZone(
 private class ViewerRequest(val id: Int, val groupId: String, val groups: List<DeliveryTaleGroup>, val theme: TaleartTheme)
 
 // The viewer over the app (or in place, in tests), with the SDK's own image loader and video player.
+// It is removed once it has finished closing; Back closes it with its transition.
 @Composable
 private fun ViewerOverlay(request: ViewerRequest, seenGroups: SeenGroups, onClose: (lastGroup: String?) -> Unit) {
     val loader = LocalCoverImageLoader.current
     val player = LocalTaleVideoPlayer.current
-    val viewer = @Composable {
-        CompositionLocalProvider(LocalCoverImageLoader provides loader, LocalTaleVideoPlayer provides player) {
-            TaleartViewer(request.groups, request.groupId, onClose = { onClose(it) }, seenGroups = seenGroups, theme = request.theme)
+    val reduced = rememberPrefersReducedMotion()
+    val last = remember(request) { arrayOfNulls<String>(1) }
+    val state = remember(request) { TaleViewerState(request.groups, request.groupId, reduced, onClosed = { last[0] = it }) }
+    // The zone is told once, with the group shown last, whichever way the viewer goes.
+    val reported = remember(request) { BooleanArray(1) }
+    val report = { group: String? ->
+        if (!reported[0]) {
+            reported[0] = true
+            onClose(group)
         }
     }
-    if (LocalViewerInPlace.current) viewer() else FullScreenViewer(request.id, onDismissRequest = { onClose(null) }, content = viewer)
+    val viewer = @Composable {
+        CompositionLocalProvider(LocalCoverImageLoader provides loader, LocalTaleVideoPlayer provides player) {
+            ViewerContent(
+                state,
+                Modifier,
+                seenGroups,
+                request.theme,
+                onGroupShown = {},
+                reducedMotion = rememberPrefersReducedMotion(),
+                onExited = { report(last[0]) },
+            )
+        }
+    }
+    if (LocalViewerInPlace.current) {
+        viewer()
+    } else {
+        FullScreenViewer(
+            request.id,
+            onDismissRequest = { report(last[0]) },
+            // Back closes with the fade; a second Back while it fades removes it at once, keeping the group shown last.
+            onBack = { if (state.isOpen) state.close() else report(last[0]) },
+            content = viewer,
+        )
+    }
 }
