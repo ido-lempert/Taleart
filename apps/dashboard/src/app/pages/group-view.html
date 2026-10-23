@@ -7,6 +7,15 @@
     (closed)="duplicating.set(null)"
   />
 }
+@if (deleting(); as d) {
+  <app-delete-tale
+    [tale]="d.tale"
+    [groupName]="group().name"
+    [returnFocus]="deleteFocus"
+    (deleted)="deletedTale($event)"
+    (closed)="deleting.set(null)"
+  />
+}
 <app-drawer
   [heading]="group().name"
   [wide]="true"
@@ -96,7 +105,7 @@
         (cdkDropListDropped)="dropTale($event)"
       >
         @for (tale of group().tales; track tale.id; let ti = $index, tFirst = $first, tLast = $last) {
-          <li class="tale-card" [attr.data-tone]="tone(tale.id)" cdkDrag cdkDragPreviewContainer="parent">
+          <li class="tale-card" [attr.data-tone]="tone(tale.id)" [attr.data-tale-id]="tale.id" cdkDrag cdkDragPreviewContainer="parent">
             @if (tale.media; as media) {
               @if (media.kind === 'video') {
                 <!-- Loads and plays only while on screen: a group can hold 100 tales. -->

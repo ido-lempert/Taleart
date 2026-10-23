@@ -61,8 +61,10 @@ const openDrawers: Drawer[] = [];
       [class.drawer--wide]="wide()"
       [attr.id]="panelId()"
       role="dialog"
+      [attr.role]="dialogRole()"
       aria-modal="true"
       [attr.aria-labelledby]="titleId"
+      [attr.aria-describedby]="describedBy()"
       (keydown)="trapTab($event)"
     >
       <header class="drawer__header">
@@ -88,6 +90,10 @@ export class Drawer implements OnDestroy {
   readonly wide = input(false);
   /** The dialog's id, for a trigger's `aria-controls`. */
   readonly panelId = input<string | null>(null);
+  /** `alertdialog` for a confirmation of something that cannot be undone, such as deleting a tale. */
+  readonly dialogRole = input<'dialog' | 'alertdialog'>('dialog');
+  /** The id of the text that says what the dialog is about, read with its name. */
+  readonly describedBy = input<string | null>(null);
   /** The close button's name. */
   readonly closeLabel = input('Close');
   /**

@@ -50,6 +50,7 @@ export {
   TaleGroupFullError,
   TaleGroupLimitError,
   TaleGroupArchivedError,
+  type DeletedTale,
   type StoredTaleMedia,
   type StoredCover,
   type DeliveryStoredTale,
@@ -82,6 +83,8 @@ export const setTaleGroupStatus = thenClearFonts(tales.setTaleGroupStatus);
 export const setTaleStatus = thenClearFonts(tales.setTaleStatus);
 export const setTaleGroupSchedule = thenClearFonts(tales.setTaleGroupSchedule);
 export const setTaleSchedule = thenClearFonts(tales.setTaleSchedule);
+// A deleted tale's media and fonts stop being public at once (story 8.20).
+export const deleteTale = thenClearFonts(tales.deleteTale);
 // A tale's media is an element of its documents (R16), so setting it can make a key public or private.
 export const setTaleMedia = thenClearFonts(tales.setTaleMedia);
 // These two run inside the importer's transaction: the importer clears the public caches once it

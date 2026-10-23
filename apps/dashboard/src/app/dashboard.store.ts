@@ -930,6 +930,65 @@ export class DashboardStore {
   }
 
   /**
+   * A tale whose deletion was asked for outside the group view (the tale drawer's "Delete tale…"):
+   * the group view showing its group opens the confirmation, then clears it (story 8.20).
+   */
+  readonly taleDeletionRequest = signal<string | null>(null);
+
+  /**
+   * Deletes a tale for good (story 8.20). A tale order of its group still being saved goes first,
+   * since it lists this tale. Once deleted, the tale leaves every list at once (the group's other
+   * tales close up, the project list's counts drop), then everything is read again. A tale already
+   * gone counts as deleted. Returns '' or the message to show.
+   */
+  async deleteTale(taleId: string): Promise<string> {
+    const tale = this.tale(taleId);
+    if (tale) await (this.orderQueues.get(taleOrderKey(tale.taleGroupId)) ?? Promise.resolve()).catch(() => undefined);
+    try {
+      await firstValueFrom(this.http.delete<void>(`${API_BASE}/tales/${encodeURIComponent(taleId)}`));
+    } catch (err) {
+      if (!(err instanceof HttpErrorResponse && err.status === 404)) {
+        return err instanceof HttpErrorResponse && err.status === 0
+          ? 'The tale was not deleted. Check the connection and try again.'
+          : apiErrorMessage(err, 'The tale was not deleted. Try again.');
+      }
+    }
+    if (tale) this.removeTale(tale);
+    const drawer = this.drawer();
+    if (drawer && 'taleId' in drawer && drawer.taleId === taleId) this.closeDrawer();
+    await this.refresh();
+    return '';
+  }
+
+  // Takes a deleted tale out of every list that shows its group, the others closing up, and out of
+  // the project list's counts.
+  private removeTale(tale: Tale): void {
+    const without = (tales: Tale[]) =>
+      tales.filter((t) => t.id !== tale.id).map((t, position) => (t.position === position ? t : { ...t, position }));
+    this.patchZoneGroups(tale.taleGroupId, (g) => ({ ...g, tales: without(g.tales) }));
+    this.patchReadGroup(tale.taleGroupId, (g) => ({ ...g, tales: without(g.tales) }));
+    const confirmed = this.confirmedTales.get(tale.taleGroupId);
+    if (confirmed) this.confirmedTales.set(tale.taleGroupId, without(confirmed));
+    const shown = shownTales([tale]);
+    this.projectTaleGroups.update((lists) =>
+      Object.fromEntries(
+        Object.entries(lists).map(([id, list]) => [
+          id,
+          list.map((g) =>
+            g.id === tale.taleGroupId
+              ? {
+                  ...g,
+                  taleCount: Math.max(0, g.taleCount - 1),
+                  shownTaleCount: Math.max(0, g.shownTaleCount - shown),
+                }
+              : g,
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /**
    * Sets or clears the start and end time of a tale group or tale (AD-6), in
    * UTC; every zone shows the status that follows from it. Returns '' or the
    * message to show, such as the API's refusal of an end before the start.

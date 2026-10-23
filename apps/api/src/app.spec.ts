@@ -4111,6 +4111,7 @@ describe('Management API v1: projects and zones', () => {
         ['GET', `/projects/${b.project.id}/tags`],
         ['POST', `/projects/${b.project.id}/tags`, { name: 'Mine' }],
         ['GET', `/tales/${b.tale.id}/media`],
+        ['DELETE', `/tales/${b.tale.id}`],
       ];
       for (const [method, path, body] of requests) {
         const res = await send(method, path, body);
@@ -4159,8 +4160,10 @@ describe('Management API v1: projects and zones', () => {
       expect((await send('PATCH', `/tale-groups/${a.group.id}`, { name: 'Renamed' })).status).toBe(200);
       expect((await send('PUT', `/tale-groups/${a.group.id}/status`, { status: 'live' })).status).toBe(200);
       expect((await send('PUT', `/tales/${a.tale.id}/status`, { status: 'live' })).status).toBe(200);
+      expect((await send('DELETE', `/tales/${a.tale.id}`)).status).toBe(204);
 
       expect((await send('POST', `/zones/${unknownId}/frame`, { type: 'bar' })).status).toBe(404);
+      expect((await send('DELETE', `/tales/${unknownId}`)).status).toBe(404);
       expect((await send('POST', `/tale-groups/${unknownId}/tales`, { title: 'X' })).status).toBe(404);
       expect((await send('GET', `/tales/${unknownId}/media`)).status).toBe(404);
       expect((await send('PUT', `/tale-groups/${unknownId}/tags`, { tagIds: [] })).status).toBe(404);
@@ -9487,6 +9490,204 @@ describe('Management API v1: projects and zones', () => {
       expect(removed.status).toBe(409);
       expect((await removed.json()).error.code).toBe('font_in_use');
     });
+
+    describe('delete a tale (epic UX rework R11, story 8.20)', () => {
+      function remove(taleId: string): Promise<Response> {
+        return fetch(`${base}/tales/${taleId}`, { method: 'DELETE' });
+      }
+
+      // A minimal WOFF2 face the font route accepts.
+      function woff2(): Buffer {
+        const data = Buffer.alloc(2048, 7);
+        data.fill(0, 0, 50);
+        data.write('wOF2', 0, 'latin1');
+        data.writeUInt32BE(0x00010000, 4);
+        data.writeUInt32BE(2048, 8);
+        data.writeUInt16BE(1, 12);
+        data.writeUInt32BE(1024, 16);
+        data.writeUInt32BE(2048 - 50, 20);
+        data[49] = 0x10;
+        return data;
+      }
+
+      const rowsOf = async (table: 'tale_media' | 'tale_fonts', taleId: string) =>
+        (await pool.query(`SELECT 1 FROM ${table} WHERE tale_id = $1`, [taleId])).rowCount;
+
+      // The zone's delivered tales of a group, with each tale's media URLs.
+      async function delivered(handle: string, groupId: string) {
+        clearDeliveryCache();
+        const res = await deliverZone(handle);
+        expect(res.status).toBe(200);
+        const group = (await res.json()).taleGroups.find((g: { id: string }) => g.id === groupId);
+        return ((group?.tales ?? []) as { id: string; document: { elements: { props: { url?: string } }[] } }[]).map(
+          (tale) => ({
+            id: tale.id,
+            urls: tale.document.elements.map((e) => e.props.url).filter((u): u is string => typeof u === 'string'),
+          }),
+        );
+      }
+      const served = async (url: string) => (await globalThis.fetch(`${origin}${new URL(url).pathname}`)).status;
+
+      it('deletes the tale with its documents and media rows, renumbers the group and removes a file nothing else uses', async () => {
+        const { first, beach, mediaKey, taleMediaKey } = await setup();
+        expect(await rowsOf('tale_media', beach.id)).toBeGreaterThan(0);
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(true);
+
+        const res = await remove(beach.id);
+        expect(res.status).toBe(204);
+        expect(await res.text()).toBe('');
+        // Positions are 0..n-1 again (titles checks it).
+        expect(await titles(first.id)).toEqual(['Arrival', 'Cliffs']);
+        expect((await pool.query('SELECT 1 FROM tales WHERE id = $1', [beach.id])).rowCount).toBe(0);
+        expect(await rowsOf('tale_media', beach.id)).toBe(0);
+        // The tale's own media file went with it; the project's uploaded image stays in its media.
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(false);
+        expect(existsSync(join(mediaDir, mediaKey))).toBe(true);
+                expect((await fetch(`${base}/tales/${beach.id}`)).status).toBe(404);
+        // The group reads without it.
+        const group = await (await fetch(`${base}/tale-groups/${first.id}`)).json();
+        expect(group.tales.map((t: { title: string; position: number }) => [t.title, t.position])).toEqual([
+          ['Arrival', 0],
+          ['Cliffs', 1],
+        ]);
+
+        for (const id of [beach.id, randomUUID(), 'nope']) {
+          const again = await remove(id);
+          expect([again.status, (await again.json()).error.code]).toEqual([404, 'tale_not_found']);
+        }
+      });
+
+      it("keeps a file the duplicate still uses and still serves it; deleting the last tale using it removes it", async () => {
+        const { zone, first, beach, taleMediaKey } = await setup();
+        const copy = await (await duplicate(beach.id)).json();
+        await publish('tales', beach.id, copy.id);
+        await update(beach.id);
+        await update(copy.id);
+        const handle = await installZone(zone.id);
+        const before = await delivered(handle, first.id);
+        const originalUrls = before.find((t) => t.id === beach.id)?.urls ?? [];
+        const ownUrl = originalUrls.find((u) => u.includes(taleMediaKey)) as string;
+        expect(ownUrl).toBeDefined();
+        expect(await served(ownUrl)).toBe(200);
+
+        expect((await remove(beach.id)).status).toBe(204);
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(true);
+        const after = await delivered(handle, first.id);
+        expect(after.map((t) => t.id)).not.toContain(beach.id);
+        const copyUrls = after.find((t) => t.id === copy.id)?.urls ?? [];
+        expect(copyUrls.some((u) => u.includes(taleMediaKey))).toBe(true);
+        for (const url of copyUrls) expect(await served(url)).toBe(200);
+        expect(await titles(first.id)).toEqual(['Arrival', 'Beach (copy)', 'Cliffs']);
+
+        // The copy was the last tale using the file: it goes, and its public URL answers 404.
+        expect((await remove(copy.id)).status).toBe(204);
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(false);
+        expect(await served(ownUrl)).toBe(404);
+        expect((await delivered(handle, first.id)).map((t) => t.id)).not.toContain(copy.id);
+      });
+
+      it("keeps a file a copied group's tale uses (copy to zone)", async () => {
+        const { zone, first, beach, taleMediaKey } = await setup();
+        // Copy to zone shares the tales' keys (AD-14).
+        const copied = await post(`/tale-groups/${first.id}/copy`, { zoneId: zone.id });
+        expect(copied.status).toBe(201);
+        expect((await remove(beach.id)).status).toBe(204);
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(true);
+        expect(await isMediaKeyInUse(pool, taleMediaKey)).toBe(true);
+      });
+
+      it('deletes its font rows and keeps the project font, which can then be deleted', async () => {
+        const { zone, beach, mediaKey } = await setup();
+        const query = new URLSearchParams({ family: 'Brand Sans', weight: '700', style: 'normal', fallback: 'serif', licence: 'confirmed' });
+        const uploaded = await fetch(`${base}/projects/${zone.projectId}/fonts?${query}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'font/woff2' },
+          body: woff2(),
+        });
+        expect(uploaded.status).toBe(201);
+        const font = await uploaded.json();
+        const doc = styled('Brand', mediaKey);
+        const text = doc.elements.find((e) => e.type === 'text') as { props: Record<string, unknown> };
+        text.props = { ...text.props, font: { source: 'project', fontId: font.id }, fallback: 'serif' };
+        await save(beach.id, doc);
+        await update(beach.id);
+        expect(await rowsOf('tale_fonts', beach.id)).toBe(2);
+        const inUse = await fetch(`${base}/projects/${zone.projectId}/fonts/${font.id}`, { method: 'DELETE' });
+        expect(inUse.status).toBe(409);
+
+        expect((await remove(beach.id)).status).toBe(204);
+        expect(await rowsOf('tale_fonts', beach.id)).toBe(0);
+        const fonts = await (await fetch(`${base}/projects/${zone.projectId}/fonts`)).json();
+        expect(fonts.map((f: { id: string }) => f.id)).toContain(font.id);
+        const freed = await fetch(`${base}/projects/${zone.projectId}/fonts/${font.id}`, { method: 'DELETE' });
+        expect(freed.status).toBe(204);
+      });
+
+      it('deletes a tale left Hidden without media, as a failed upload leaves it (story 8.13)', async () => {
+        const { first } = await setup();
+        const left = await (await post(`/tale-groups/${first.id}/tales`, { title: 'Upload failed' })).json();
+        expect((await setStatus('tales', left.id, 'paused')).status).toBe(200);
+        expect((await remove(left.id)).status).toBe(204);
+        expect(await titles(first.id)).toEqual(['Arrival', 'Beach', 'Cliffs']);
+      });
+
+      it('lets a content manager delete in their project, and refuses another project with 403', async () => {
+        const { zone, beach, c } = await setup();
+        const other = await createZone();
+        const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+        await addProjectMember(pool, zone.projectId, user.id);
+        sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+        expect((await remove(beach.id)).status).toBe(204);
+
+        await pool.query('DELETE FROM project_members WHERE user_id = $1', [user.id]);
+        await addProjectMember(pool, other.projectId, user.id);
+        const refused = await remove(c.id);
+        expect([refused.status, (await refused.json()).error.code]).toEqual([403, 'forbidden']);
+        expect((await pool.query('SELECT 1 FROM tales WHERE id = $1', [c.id])).rowCount).toBe(1);
+      });
+
+      it('applies deletes racing duplicates, reorders, adds, saves and status changes one after the other, without a deadlock', async () => {
+        const { zone, first, second, a, beach, c, mediaKey, taleMediaKey } = await setup();
+        const { revision } = await state(beach.id);
+        const results = await Promise.all([
+          duplicate(beach.id),
+          remove(beach.id),
+          duplicate(beach.id, { taleGroupId: second.id }),
+          fetch(`${base}/tale-groups/${first.id}/tales/order`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taleIds: [c.id, beach.id, a.id] }),
+          }),
+          post(`/tale-groups/${first.id}/tales`, { title: 'Added' }),
+          fetch(`${base}/tales/${beach.id}/document`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ document: styled('Racing', mediaKey), revision }),
+          }),
+          setStatus('tales', beach.id, 'paused'),
+          remove(c.id),
+          post(`/tale-groups/${first.id}/copy`, { zoneId: zone.id }),
+        ]);
+        const statuses = results.map((r) => r.status);
+        // Nothing fails for another reason than the tale being gone, or an order built on a list
+        // that changed meanwhile.
+        expect(statuses.filter((s) => s >= 500)).toEqual([]);
+        expect([statuses[1], statuses[7]]).toEqual([204, 204]);
+        for (const i of [0, 2]) expect([201, 404]).toContain(statuses[i]);
+        expect([200, 404, 409]).toContain(statuses[3]);
+        expect(statuses[4]).toBe(201);
+        for (const i of [5, 6]) expect([200, 404]).toContain(statuses[i]);
+        expect(statuses[8]).toBe(201);
+        // Each group's positions are 0..n-1 (titles checks it); the deleted tales are gone.
+        const order = await titles(first.id);
+        expect(order).not.toContain('Beach');
+        expect(order).not.toContain('Cliffs');
+        await titles(second.id);
+        // A file any tale still references is on disk; one nothing references is gone.
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(await isMediaKeyInUse(pool, taleMediaKey));
+        expect(existsSync(join(mediaDir, mediaKey))).toBe(true);
+      }, 20_000);
+    });
   });
 
   describe('imports from another tool', () => {
@@ -11795,6 +11996,32 @@ describe('Management API v1: projects and zones', () => {
       );
       expect(await contentCounts(project.id)).toEqual({ groups: 5, placements: 5, tales: 12, links: 24 });
       expect(await target('story_group', '3006')).toBe(groupId);
+    });
+
+    it('does not bring back a tale a person deleted, keeping its link and forgetting its baseline (story 8.20)', async () => {
+      const project = await createProject();
+      startWorker();
+      await importOnce(project.id);
+      const { rows } = await pool.query<{ id: string }>(
+        `SELECT target_id AS id FROM import_links WHERE project_id = $1 AND source_type = 'story' AND source_id = '4001'`,
+        [project.id],
+      );
+      const taleId = rows[0].id;
+      const counts = await contentCounts(project.id);
+      expect((await pool.query("SELECT 1 FROM import_records WHERE target_type = 'tale' AND target_id = $1", [taleId])).rowCount).toBe(1);
+
+      expect((await fetch(`${base}/tales/${taleId}`, { method: 'DELETE' })).status).toBe(204);
+      expect((await pool.query("SELECT 1 FROM import_records WHERE target_type = 'tale' AND target_id = $1", [taleId])).rowCount).toBe(0);
+      expect((await pool.query('SELECT 1 FROM import_media WHERE tale_id = $1', [taleId])).rowCount).toBe(0);
+      expect(await contentCounts(project.id)).toEqual({ ...counts, tales: counts.tales - 1 });
+
+      const job = await importOnce(project.id);
+      expect(job['status']).toBe('done');
+      expect((job['report'] as { notes: string[] }).notes).toContain(
+        'Tale "Up to 50% off" in "Summer sale": its earlier import was deleted, so it was not imported again',
+      );
+      expect(await contentCounts(project.id)).toEqual({ ...counts, tales: counts.tales - 1 });
+      expect((await pool.query('SELECT 1 FROM tales WHERE id = $1', [taleId])).rowCount).toBe(0);
     });
 
     it('rolls back a tale group another import linked first, and imports its tales into that one', async () => {
