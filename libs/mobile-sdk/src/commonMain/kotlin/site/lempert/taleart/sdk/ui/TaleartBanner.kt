@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -127,8 +129,9 @@ private object BannerIcons {
  * with its group. Nothing shows when no group has a tale.
  *
  * Autoplay runs only with the `autoplay` setting, two or more slides and no preference for reduced
- * motion ([reducedMotion]); any interaction (a touch on the slides, a button, a dot, focus) stops
- * it, and the rotation button starts it again. Without `loop` it stops on the last slide. The
+ * motion ([reducedMotion], followed live); an interaction (a tap or a sideways drag on the slides,
+ * a button, a dot, focus) stops it, and the rotation button starts it again. Unlike the web banner,
+ * where any pointerdown stops it, a vertical scroll that starts on the banner leaves it playing. Without `loop` it stops on the last slide. The
  * project's [theme] sets the background, the slides' corner radius (12dp by default) and the dots'
  * colour; [titleStyle]'s colour is the shown dot's colour when the theme has no title colour, as the
  * web banner takes the host page's text colour.
@@ -146,10 +149,23 @@ fun TaleartBanner(
     modifier: Modifier = Modifier,
     titleStyle: TextStyle = TextStyle.Default,
     reducedMotion: Boolean = rememberPrefersReducedMotion(),
-) = TaleartBanner(groups, settings, theme, onGroupClick, modifier, titleStyle, reducedMotion, show = null)
+) = TaleartBanner(groups, settings, theme, onGroupClick, modifier, titleStyle, reducedMotion, show = null, onShowDone = {})
 
-/** Asks a banner to show the slide of [groupId], as the Web SDK's banner `focus` does when the viewer closes. */
-internal class BannerShowRequest(val groupId: String)
+/**
+ * Asks a banner to show and focus the slide of [groupId], as the Web SDK's banner `focus` does when
+ * the viewer closes. Only a banner that was already on screen when the request was made honours it:
+ * a banner made later (a reload with other groups, a switch from the bar) starts at its first slide.
+ */
+internal class BannerShowRequest(val groupId: String) {
+    /** The order requests were made in (main thread only). */
+    val serial: Long = ++made
+
+    internal companion object {
+        /** The serial of the latest request; a banner notes it when it is made. */
+        var made: Long = 0L
+            private set
+    }
+}
 
 @Composable
 internal fun TaleartBanner(
@@ -161,11 +177,16 @@ internal fun TaleartBanner(
     titleStyle: TextStyle,
     reducedMotion: Boolean,
     show: BannerShowRequest?,
+    onShowDone: (BannerShowRequest) -> Unit,
 ) {
     val slides = remember(groups) { groups.filter { it.tales.isNotEmpty() } }
-    if (slides.isEmpty()) return
+    if (slides.isEmpty()) {
+        // No banner to honour it: the request is dropped, not kept for a later one.
+        if (show != null) SideEffect { onShowDone(show) }
+        return
+    }
     // A new set of slides starts again at the first, as the Web SDK renders a new banner.
-    key(slides) { Banner(slides, settings, theme, onGroupClick, modifier, titleStyle, reducedMotion, show) }
+    key(slides) { Banner(slides, settings, theme, onGroupClick, modifier, titleStyle, reducedMotion, show, onShowDone) }
 }
 
 @Composable
@@ -178,8 +199,12 @@ private fun Banner(
     titleStyle: TextStyle,
     reducedMotion: Boolean,
     show: BannerShowRequest?,
+    onShowDone: (BannerShowRequest) -> Unit,
 ) {
     val count = slides.size
+    // Requests made before this banner existed are not its own (see BannerShowRequest).
+    val madeAfter = remember { BannerShowRequest.made }
+    val showDone by rememberUpdatedState(onShowDone)
     val loop = settings.loop
     val canRotate = settings.autoplay && count > 1
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -188,8 +213,8 @@ private fun Banner(
     var index by remember { mutableIntStateOf(0) }
     // Set by the person's interaction or by reaching the last slide without loop; only the rotation button clears it.
     var stopped by remember { mutableStateOf(false) }
-    // True while the SDK moves focus itself, which is not the person's interaction.
-    var programmaticFocus by remember { mutableStateOf(false) }
+    // True while the SDK moves focus itself, which is not the person's interaction (not state: read in callbacks only).
+    val programmaticFocus = remember { BooleanArray(1) }
     val atEnd = !loop && index == count - 1
     val rotating = canRotate && !stopped && !reducedMotion && !atEnd
 
@@ -205,12 +230,14 @@ private fun Banner(
         stopped = true
     }
 
-    // The track follows the index: sliding, or at once under reduced motion.
-    val position = remember { Animatable(0f) }
+    // The track follows the index: sliding, or at once under reduced motion (`transition: none`).
+    val animated = remember { Animatable(0f) }
     LaunchedEffect(index, reducedMotion) {
-        if (reducedMotion) position.snapTo(index.toFloat())
-        else position.animateTo(index.toFloat(), tween(SLIDE_MS, easing = EASE))
+        if (reducedMotion) animated.snapTo(index.toFloat())
+        else animated.animateTo(index.toFloat(), tween(SLIDE_MS, easing = EASE))
     }
+    // Read in layout (the slides' offsets) and composition (which slides are drawn).
+    val position = { if (reducedMotion) index.toFloat() else animated.value }
 
     // The timer for the next slide, restarted by every change of slide or rotation state.
     LaunchedEffect(rotating, index, settings.intervalSeconds) {
@@ -225,17 +252,27 @@ private fun Banner(
     LaunchedEffect(show) {
         val request = show ?: return@LaunchedEffect
         val i = slides.indexOfFirst { it.id == request.groupId }
-        if (i < 0) return@LaunchedEffect
+        // Consumed whether honoured or not, so no later banner takes it up; consuming it changes
+        // [show], which restarts this effect, so it comes last.
+        if (request.serial <= madeAfter || i < 0) {
+            showDone(request)
+            return@LaunchedEffect
+        }
         index = i
-        programmaticFocus = true
         try {
-            runCatching { focusers[i].requestFocus() }
-            delay(1)
+            // The slide becomes focusable once it is the shown one: wait for that frame, then focus it.
+            withFrameNanos { }
+            programmaticFocus[0] = true
+            try {
+                runCatching { focusers[i].requestFocus() }
+            } finally {
+                programmaticFocus[0] = false
+            }
         } finally {
-            programmaticFocus = false
+            showDone(request)
         }
     }
-    val stopsOnFocus = Modifier.onFocusChanged { if (it.isFocused && !programmaticFocus) interact() }
+    val stopsOnFocus = Modifier.onFocusChanged { if (it.isFocused && !programmaticFocus[0]) interact() }
 
     val radius = theme.cornerRadius ?: DEFAULT_RADIUS
     val background = parseHexColor(theme.backgroundColor)
@@ -254,8 +291,9 @@ private fun Banner(
                 bannerShown = slides[index].id
                 bannerRotating = rotating
             }
-            .then(if (background != null) Modifier.background(background) else Modifier)
-            .padding(vertical = 8.dp),
+            // The web banner's 8px margin lies outside its background.
+            .padding(vertical = 8.dp)
+            .then(if (background != null) Modifier.background(background) else Modifier),
     ) {
         BoxWithConstraints(
             Modifier
@@ -266,16 +304,20 @@ private fun Banner(
                 .testTag(BANNER_VIEWPORT_TAG)
                 .pointerInput(rtl, count, loop) {
                     val swipe = SWIPE_MIN_DP.dp.toPx()
+                    val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
                         // Seen before the slide's button, so a swipe can take the tap from it.
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        interact()
+                        // Unlike the web banner, whose pointerdown stops autoplay, a touch stops it only
+                        // once it drags sideways (a tap stops it through the slide's button): a page
+                        // scrolled by a finger that lands on the banner keeps it playing.
                         var swiped = false
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             val dx = change.position.x - down.position.x
                             val dy = change.position.y - down.position.y
+                            if (!stopped && abs(dx) > slop && abs(dx) > abs(dy)) interact()
                             if (!swiped && abs(dx) >= swipe && abs(dx) > abs(dy)) swiped = true
                             // A swipe is never a tap: the slide's button does not open.
                             if (swiped) change.consume()
@@ -290,25 +332,21 @@ private fun Banner(
         ) {
             val width = constraints.maxWidth.toFloat()
             // The slides, one width apart; the Row-like offset mirrors right to left by itself.
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .clipToBounds()
-                    .then(
-                        // Screen readers hear slide changes only when the person makes them.
-                        if (!rotating) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier,
-                    ),
-            ) {
+            Box(Modifier.fillMaxSize().clipToBounds()) {
                 val near = setOfNotNull(index, stepTo(1), stepTo(-1))
+                // Every slide the track passes on its way to the shown one, so none pops in mid-slide.
+                val at = position()
+                val from = minOf(at, index.toFloat()) - 1f
+                val to = maxOf(at, index.toFloat()) + 1f
                 slides.forEachIndexed { n, group ->
                     val shown = n == index
-                    val offset = n - position.value
-                    // Slides out of view and not next to the shown one wait (the Web SDK's lazy pictures).
-                    val drawn = abs(offset) < 1f || n in near
+                    // Slides off the path and not next to the shown one wait (the Web SDK's lazy pictures).
+                    val drawn = n.toFloat() in from..to || n in near
+                    // Placed in layout, so the slide moves every frame without recomposing.
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .offset { IntOffset((offset * width).roundToInt(), 0) }
+                            .offset { IntOffset(((n - position()) * width).roundToInt(), 0) }
                             .then(
                                 if (shown) {
                                     Modifier
@@ -322,6 +360,8 @@ private fun Banner(
                                         .semantics {
                                             contentDescription = group.name
                                             stateDescription = bannerSlideLabel(n, count)
+                                            // Screen readers hear the slide shown only when the person changes it.
+                                            if (!rotating) liveRegion = LiveRegionMode.Polite
                                         }
                                 } else {
                                     // Hidden slides are inert, as in the Web SDK.

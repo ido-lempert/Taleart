@@ -3,14 +3,18 @@ package site.lempert.taleart.sdk.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSBundle
+import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSOperationQueue
 import platform.UIKit.UIAccessibilityAnnouncementNotification
 import platform.UIKit.UIAccessibilityIsReduceMotionEnabled
 import platform.UIKit.UIAccessibilityPostNotification
+import platform.UIKit.UIAccessibilityReduceMotionStatusDidChangeNotification
 import platform.UIKit.UIApplication
 import platform.UIKit.UIColor
 import platform.UIKit.UIModalPresentationOverFullScreen
@@ -122,8 +126,22 @@ internal fun topViewController(): UIViewController? {
     return top
 }
 
+// Reduce Motion, observed: a change while the app runs reaches the banner at once, and the next viewer.
 @Composable
-internal actual fun rememberPrefersReducedMotion(): Boolean = remember { UIAccessibilityIsReduceMotionEnabled() }
+internal actual fun rememberPrefersReducedMotion(): Boolean {
+    val reduced = remember { mutableStateOf(UIAccessibilityIsReduceMotionEnabled()) }
+    DisposableEffect(Unit) {
+        val center = NSNotificationCenter.defaultCenter
+        val observer = center.addObserverForName(
+            UIAccessibilityReduceMotionStatusDidChangeNotification,
+            `object` = null,
+            queue = NSOperationQueue.mainQueue,
+        ) { _ -> reduced.value = UIAccessibilityIsReduceMotionEnabled() }
+        reduced.value = UIAccessibilityIsReduceMotionEnabled()
+        onDispose { center.removeObserver(observer) }
+    }
+    return reduced.value
+}
 
 internal actual fun announceForAccessibility(text: String) {
     UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, text)

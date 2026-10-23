@@ -141,6 +141,7 @@ fun TaleartZone(
                 titleStyle = titleStyle,
                 reducedMotion = rememberPrefersReducedMotion(),
                 show = returnTo,
+                onShowDone = { if (returnTo === it) returnTo = null },
             )
         }
     }
@@ -150,7 +151,8 @@ fun TaleartZone(
             ViewerOverlay(request, seenGroups) { lastGroup ->
                 if (open?.id == request.id) {
                     open = null
-                    lastGroup?.let { returnTo = BannerShowRequest(it) }
+                    // Only a banner on screen now takes it up (see BannerShowRequest).
+                    if (lastGroup != null && zone.frame?.type == BANNER_FRAME_TYPE) returnTo = BannerShowRequest(lastGroup)
                 }
             }
         }
