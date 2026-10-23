@@ -75,9 +75,25 @@ The Install tab also has a Copy button and an "Open test page" link (below).
 
 An element renders only with both a site key and a slug. Put the key only in `site-key` (or `siteKey`), never in a
 query string: the SDK sends it only in the `Authorization` header. Slugs are not access control (they are often easy
-to guess), so treat what a visible zone shows as public. The Delivery API limits how often one address may ask (by
-default bursts of 600, then 20 a second); over the limit it answers 429, and the element renders nothing and logs one
-console error.
+to guess), so treat what a visible zone shows as public. The Delivery API limits how often one visitor may ask (by
+default bursts of 600, then 20 a second), and one address ten times that in all; over the limit it answers 429, and
+the element renders nothing and logs one console error. A flood from one device behind a shared network (a NAT, such
+as an office or a mobile carrier) can use up that address's allowance for everyone behind it. Whoever runs the API must
+set `TRUST_PROXY` to exactly the proxies in front of it: otherwise every client is counted as the proxy's address and
+they all share one allowance.
+
+**The visitor id.** Each browser gets a visitor id: a random UUID v4 the SDK makes once and keeps in the host page's
+local storage under `taleart.visitor`. It is random, not derived from the person or the device, and tied to no account,
+but it is a stable identifier of a browser, so cover it in your privacy notice and in your consent setup like other
+local storage. The SDK sends it only to the Delivery API, in the `X-TaleArt-Visitor` header, which limits requests per
+visitor rather than per address, so many visitors behind one network each get their own allowance; proxies, CDNs and
+access logs in front of the API can see the header too. Clearing the site's data makes a new one, and Safari may clear
+script-written storage after seven days without a visit. Where local storage is blocked, the id lasts one page load; a
+request without an id is limited by its address. The native SDKs keep the same kind of id in the SDK's own device store
+(the `taleart-sdk` SharedPreferences on Android, the `taleart-sdk` NSUserDefaults suite on iOS). Clearing the app's
+data makes a new one, and so does a reinstall, unless a device backup restores it: Android Auto Backup and iOS backups
+restore that store, so an app that wants a fresh id after a reinstall excludes `sharedpref/taleart-sdk.xml` in its
+Android backup rules (`android:fullBackupContent` and `android:dataExtractionRules`).
 
 <!-- docs-check:removed -->
 ### Removed: zone keys and the `stage` attribute
@@ -103,6 +119,29 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 | `site-key` / `siteKey` | The project's site key (`tas_…`) issued in the dashboard. |
 | `zone` / `zone` | The zone's slug, such as `home-top`, shown on the zone page. |
 | `theme` / `theme` | Theme fields for this element (JSON in the attribute, an object in the property); see below. |
+
+## Targeting tags
+
+A tale group can carry targeting tags, combined with **Any** (the default) or **All**, set in the dashboard under the
+group's Audience. Tell the SDK the viewer's tags once for the whole page:
+
+```js
+import { setTags } from 'https://api.example.com/sdk/v1/taleart.js';
+
+setTags(['summer', 'vip']);
+```
+
+Every `<taleart-view>` on the page, now and later, then shows only the groups whose rule passes:
+
+- a group without tags always shows;
+- with **Any**, at least one of the group's tags is among the viewer's; with **All**, every one of them is;
+- tags match ignoring case and surrounding spaces (`'SUMMER '` matches `summer`);
+- while the page sets no tags (no call, `setTags(null)` or `setTags([])`), every group shows.
+
+Calling `setTags` again replaces the tags, and rendered elements show the matching groups at once, without a new
+request. The SDK decides in the browser: the tags are never sent to TaleArt. The Delivery API sends every group of the
+zone with its tag names, so targeting is not access control: anyone with the site key can read every visible group
+and its tag names. Keep anything private out of tag names.
 
 ## Theme
 

@@ -71,7 +71,7 @@ class DeliveryClientTest {
         assertEquals("$api/delivery/v1/zone?zone=home-top", request.url.toString())
         assertEquals("GET", request.method.value)
         assertEquals("Bearer $key", request.headers[HttpHeaders.Authorization])
-        assertEquals(setOf(HttpHeaders.Authorization), request.headers.names().filter { it != HttpHeaders.Accept && it != HttpHeaders.AcceptCharset }.toSet())
+        assertEquals(setOf(HttpHeaders.Authorization, VISITOR_HEADER), request.headers.names().filter { it != HttpHeaders.Accept && it != HttpHeaders.AcceptCharset }.toSet())
     }
 
     @Test

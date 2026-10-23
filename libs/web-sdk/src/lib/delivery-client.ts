@@ -1,5 +1,6 @@
 // Types only: nothing from the contract ends up in the bundle (AD-3).
 import type { DeliveryZone, ErrorBody } from '@taleart/contract';
+import { VISITOR_HEADER, visitorId } from './visitor';
 
 // The Delivery API base path (AD-2), as `DELIVERY_API_BASE` in the contract.
 const DELIVERY_PATH = '/delivery/v1';
@@ -43,7 +44,7 @@ const inFlight = new Map<string, Promise<SharedResponse>>();
 
 /**
  * Reads a zone from the Delivery API at `apiUrl`, with the key as a bearer token and never a
- * cookie, and the slug as the `zone` query parameter. Throws
+ * cookie, the slug as the `zone` query parameter, and this browser's visitor id. Throws
  * {@link DeliveryError} for a refused key or slug, any other error status or a network failure.
  */
 export async function fetchZone(
@@ -81,7 +82,10 @@ export async function fetchZone(
 async function read(url: string, key: string, fetchImpl: typeof fetch): Promise<SharedResponse> {
   let res: Response;
   try {
-    res = await fetchImpl(url, { headers: { Authorization: `Bearer ${key}` }, credentials: 'omit' });
+    res = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${key}`, [VISITOR_HEADER]: visitorId() },
+      credentials: 'omit',
+    });
   } catch (err) {
     throw new DeliveryError(`Could not reach the TaleArt API: ${err instanceof Error ? err.message : String(err)}`);
   }

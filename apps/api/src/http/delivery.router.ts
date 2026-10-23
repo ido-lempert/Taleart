@@ -1,4 +1,5 @@
 import {
+  DEFAULT_TAG_MATCH,
   ErrorCodes,
   isZoneSlug,
   mediaKind,
@@ -9,11 +10,12 @@ import {
 } from '@taleart/contract';
 import { projectForSiteKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
+import { tagRulesForTaleGroups } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
 import { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
-import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, type RateLimitOptions } from './rate-limit';
+import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, VISITOR_HEADER, type RateLimitOptions } from './rate-limit';
 
 // One message for every refusal (epic UX rework R3): a missing, unknown or revoked site key and a
 // missing or unknown slug answer alike, so a caller cannot tell a slug from a key.
@@ -77,8 +79,9 @@ export interface DeliveryOptions {
   /** The frame types, whose schema defaults fill each frame's missing settings (AD-5). */
   frameTypes: FrameTypeRegistry;
   /**
-   * The per-address limit of the Delivery API ({@link DEFAULT_DELIVERY_RATE_LIMIT} when left
-   * out); null turns it off.
+   * The per-visitor limit of the Delivery API, also the per-address limit of requests without a
+   * visitor id, with a per-address backstop above it ({@link rateLimit});
+   * {@link DEFAULT_DELIVERY_RATE_LIMIT} when left out, and null turns it off.
    */
   rateLimit?: RateLimitOptions | null;
 }
@@ -93,7 +96,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
 
   router.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    // The SDKs send the device's visitor id (epic UX rework 8.23), so a preflight must allow it.
+    res.setHeader('Access-Control-Allow-Headers', `Authorization, Content-Type, ${VISITOR_HEADER}`);
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     // A client script may read when to try again after a 429.
     res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
@@ -124,6 +128,11 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         listDeliveryTaleGroups(pool, zoneId),
         getProjectTheme(pool, zone.projectId),
       ]);
+      // Each group's tag rule, the same for every viewer: the SDK matches the viewer's tags (AD-13).
+      const tagRules = await tagRulesForTaleGroups(
+        pool,
+        taleGroups.map((group) => group.id),
+      );
       // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).
       const body: DeliveryZone = {
         id: zone.id,
@@ -140,6 +149,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         taleGroups: taleGroups.map((group) => ({
           id: group.id,
           name: group.name,
+          tags: tagRules.get(group.id)?.tags ?? [],
+          tagMatch: tagRules.get(group.id)?.tagMatch ?? DEFAULT_TAG_MATCH,
           cover: group.cover && {
             kind: mediaKind(group.cover.contentType),
             contentType: group.cover.contentType,

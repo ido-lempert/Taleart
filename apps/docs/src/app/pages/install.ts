@@ -148,15 +148,45 @@ import {
     </p>
     <pre tabindex="0" role="region" aria-label="Theme for one zone"><code>{{ themeScript }}</code></pre>
 
+    <h2 id="visitor-id">The visitor id</h2>
+    <p>
+      Each device gets a visitor id: a random UUID v4 the SDK makes once and keeps on the device, in the page's local
+      storage on the web (<code>taleart.visitor</code>) and in the SDK's own store in an app. It is random, not
+      derived from the person or the device, and tied to no account. It is still a stable identifier of a browser or
+      an app install, so cover it in your privacy notice and your consent setup like other local storage.
+    </p>
+    <p>
+      The SDK sends it only to the Delivery API, in the <code>X-TaleArt-Visitor</code> header, so the API can limit
+      requests per visitor and many visitors behind one network each get their own allowance. Proxies, CDNs and
+      access logs in front of the API can see the header too.
+    </p>
+    <ul>
+      <li>
+        On the web, clearing the site's data makes a new id, and Safari may clear script-written storage after seven
+        days without a visit. Where local storage is blocked, the id lasts one page load.
+      </li>
+      <li>
+        In an app, clearing the app's data makes a new id. A reinstall does too, unless a device backup restores it:
+        Android Auto Backup and iOS backups restore the SDK's store. To start fresh after a reinstall on Android,
+        exclude <code>sharedpref/taleart-sdk.xml</code> in the app's backup rules
+        (<code>android:fullBackupContent</code> and <code>android:dataExtractionRules</code>).
+      </li>
+    </ul>
+
     <h2 id="nothing-shows">When nothing shows</h2>
     <ul>
       <li>
         An unknown slug, or a revoked or rotated site key, renders nothing and logs one console error per element.
       </li>
       <li>
-        The Delivery API limits how often one address may ask (by default bursts of 600, then 20 requests a second).
-        Over the limit it answers 429, and the element renders nothing and logs one console error; a reload later
-        shows the zone again.
+        The Delivery API limits how often one visitor may ask (by default bursts of 600, then 20 requests a second),
+        and one address ten times that in all. Over the limit it answers 429, and the element renders nothing and
+        logs one console error; a reload later shows the zone again. A flood from one device behind a shared network
+        (an office or a mobile carrier) can use up that address's allowance for everyone behind it.
+      </li>
+      <li>
+        If you run the API behind a proxy, set <code>TRUST_PROXY</code> to exactly the proxies in front of it.
+        Otherwise every visitor is counted as the proxy's address, and they all share one allowance.
       </li>
       <li>
         Otherwise, open the zone page: it says <em>Not visible:</em> and why, such as "zone has no display",
