@@ -1,5 +1,5 @@
 /// <reference types='vitest' />
-import { copyFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import dts from 'vite-plugin-dts';
@@ -19,6 +19,32 @@ function copyPackageFiles(): Plugin {
   };
 }
 
+// Each ES chunk's modules with their rendered code, for `web-sdk:size` (scripts/size-budget.mjs) to
+// report what the AD-16 split would move. Written next to the package folder, so it is never published.
+const MODULE_REPORT = path.join(outDir, '../web-sdk-modules.json');
+
+/** Writes MODULE_REPORT: `{ chunks: { [file]: { id, code }[] } }`, ids relative to the workspace. */
+function moduleReport(): Plugin {
+  const root = path.join(import.meta.dirname, '../..');
+  return {
+    name: 'taleart-module-report',
+    apply: 'build',
+    generateBundle(options, bundle) {
+      if (options.format !== 'es') return;
+      const chunks: Record<string, { id: string; code: string }[]> = {};
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type !== 'chunk') continue;
+        chunks[chunk.fileName] = Object.entries(chunk.modules).map(([id, m]) => ({
+          id: path.relative(root, id).split(path.sep).join('/'),
+          code: m.code ?? '',
+        }));
+      }
+      mkdirSync(path.dirname(MODULE_REPORT), { recursive: true });
+      writeFileSync(MODULE_REPORT, JSON.stringify({ chunks }));
+    },
+  };
+}
+
 export default defineConfig(() => ({
   root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/libs/web-sdk',
@@ -26,6 +52,7 @@ export default defineConfig(() => ({
   resolve: { tsconfigPaths: true },
   plugins: [
     copyPackageFiles(),
+    moduleReport(),
     dts({
       entryRoot: 'src',
       tsconfigPath: path.join(import.meta.dirname, 'tsconfig.lib.json'),

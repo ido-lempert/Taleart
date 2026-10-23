@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import {
   SDK_BASE,
   SDK_BUNDLE_PATH,
@@ -9,7 +10,7 @@ import {
   SDK_TEST_PAGE_PATH,
   type InstallInfo,
 } from '@taleart/contract';
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 
 /** Where the API finds what it serves under `/sdk/v1` (epic UX rework R13). */
 export interface SdkFiles {
@@ -25,6 +26,8 @@ export interface SdkFiles {
 /** A file as served: its bytes, ETag, content hash for a pinned URL, and SRI integrity. */
 export interface ServedFile {
   body: Buffer;
+  /** The body gzipped (level 9), sent to a client that accepts gzip (the Web SDK's budget is gzipped, epic Tale Studio R15). */
+  gzip: Buffer;
   etag: string;
   /** 16 base64url characters of its SHA-256: the `<hash>` of `taleart.<hash>.js`. */
   hash: string;
@@ -47,6 +50,7 @@ export function servedFile(path: string): () => Promise<ServedFile | null> {
       const sha256 = createHash('sha256').update(body).digest('base64url');
       const file = {
         body,
+        gzip: gzipSync(body, { level: 9 }),
         etag: `"${sha256.slice(0, 27)}"`,
         hash: sha256.slice(0, 16),
         integrity: `sha384-${createHash('sha384').update(body).digest('base64')}`,
@@ -148,25 +152,30 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
   );
   const csp = testPageCsp(publicApiUrl);
 
-  const sendBundle = (res: Response, file: ServedFile, cacheControl: string) => {
+  const sendBundle = (req: Request, res: Response, file: ServedFile, cacheControl: string) => {
+    // Compressed for a client that accepts gzip, as a CDN serves it: the 50 KB budget is gzipped
+    // (epic Tale Studio R15). The ETag differs per encoding, so a cache never mixes the two.
+    const gzip = req.acceptsEncodings('gzip') === 'gzip';
     res.set({
       'Content-Type': 'text/javascript; charset=utf-8',
       // Any page loads it, as a module script, so it is fetched with CORS (open on every API route).
       'Cross-Origin-Resource-Policy': 'cross-origin',
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': cacheControl,
-      ETag: file.etag,
+      Vary: 'Accept-Encoding',
+      ETag: gzip ? `${file.etag.slice(0, -1)}-gz"` : file.etag,
     });
+    if (gzip) res.set('Content-Encoding', 'gzip');
     // send answers 304 to a matching If-None-Match.
-    res.send(file.body);
+    res.send(gzip ? file.gzip : file.body);
   };
 
-  router.get('/taleart.js', async (_req, res, next) => {
+  router.get('/taleart.js', async (req, res, next) => {
     try {
       const file = await bundle();
       if (!file) return notFound(res);
       // A deploy replaces it at the same URL: pages pick the new one up within five minutes.
-      sendBundle(res, file, `public, max-age=${SDK_CACHE_SECONDS}`);
+      sendBundle(req, res, file, `public, max-age=${SDK_CACHE_SECONDS}`);
     } catch (err) {
       next(err);
     }
@@ -179,7 +188,7 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, bundle = served
         const file = await bundle();
         // Only the current build: an old hash is gone with its build.
         if (!file || file.hash !== pinned[1]) return notFound(res);
-        return sendBundle(res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
+        return sendBundle(req, res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
       }
       const page = Object.prototype.hasOwnProperty.call(PAGE_FILES, req.params.name) ? pages.get(req.params.name) : undefined;
       const file = page && (await page.read());

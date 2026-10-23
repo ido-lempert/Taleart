@@ -22,6 +22,12 @@
         "packageRoot": "dist/{projectRoot}"
       }
     },
+    "build": {
+      "outputs": [
+        "{workspaceRoot}/dist/libs/web-sdk",
+        "{workspaceRoot}/dist/libs/web-sdk-modules.json"
+      ]
+    },
     "size": {
       "executor": "nx:run-commands",
       "cache": false,
@@ -29,7 +35,7 @@
         "build"
       ],
       "options": {
-        "command": "node libs/web-sdk/scripts/check-size.mjs dist/libs/web-sdk/index.js"
+        "command": "node libs/web-sdk/scripts/check-size.mjs dist/libs/web-sdk"
       }
     },
     "types-check": {
