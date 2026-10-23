@@ -99,7 +99,8 @@ R10 (parent R5, R12; architecture AD-12): **Docs for targeting and its privacy**
 - Deleting a list, replacing it, and erasing one person each leave no trace of the removed IDs in the database.
 - A segment over user attributes shows its group to a matching viewer, and no attribute leaves the browser.
 - Every targeted group in the dashboard says who it is for, and the indicator and the Delivery filter agree on the audience-empty case.
-- The closing end-to-end suite runs the matrix on the deployed sample page, and the WCAG scan of the Audience screens is clean.
+- The closing end-to-end suite runs the matrix in CI and once on the staging sample page, and the WCAG scan of the Audience screens is clean.
+- Every story is merged to `main` and deployed to staging, where the sample page and the dashboard show targeting working.
 
 ## Boundaries
 
@@ -125,11 +126,12 @@ R10 (parent R5, R12; architecture AD-12): **Docs for targeting and its privacy**
 
 - Decision (2026-10-20): names approved by the user: tag (dashboard label "Targeting tags"), segment (`segments`), user list (`userLists`, replaces audience and member), user attributes (`setUserAttributes`), external user ID (`externalUserId`, replaces external user key).
 - Decision (2026-10-20): TaleArt stores no sensitive end-user data (AD-13); user attributes stay in the host's client, segments are evaluated in the SDK.
-- Decision (2026-10-23, Sofia, refinement): the epic file's whole-epic gate on epic-web-zones is replaced by per-story `after` pins (3.1, 1.5, 8.2, 8.6, 8.10, 9.2); web zones and the UX rework are in review, so only those stories matter.
+- Decision (2026-10-23, Sofia, refinement): the epic file's whole-epic gate on epic-web-zones is replaced by per-story `after` pins (1.5, 1.14, 3.1, 8.2, 8.6, 8.10, 8.14, 8.16, 9.2, 9.3); web zones and the UX rework are in review, so only those stories matter.
 - Decision (2026-10-23, Sofia): tracer bullet is story 1 (tag match mode from the Audience drawer through the Delivery response to the Web SDK filter); the least certain story, user-list matching by external user ID with its privacy rules, follows as 3 and 4. Build order and lanes are in `tickets/tickets.toml`.
 - Decision (2026-10-23, Sofia): a refactor sweep (11) and a closing end-to-end suite (12) close the epic, since R5's Verify is a test matrix.
 - Waits on epic-web-zones and epic-ux-rework because: the zone, the Delivery response, the group row ⋯ menu and the indicator are what targeting extends (pinned per story).
-- Waits on epic-native-mobile because: story 9 extends its Delivery client and zone composable (9.2, 9.3).
+- Waits on epic-native-mobile because: story 9 extends its Delivery client and zone composable (9.2, 9.3). Only story 9 waits on epic 9.
+- Decision (2026-10-23, Sofia): the device visitor id of UX rework story 8.23 (header `X-TaleArt-Visitor`, owner decision) is a separate header from the external user ID and is never linked to it, stored with it, or used for targeting.
 
 ### Owner decisions to confirm
 
