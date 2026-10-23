@@ -9,7 +9,9 @@ import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { layerName } from './tale-layers';
 import { EMOJI_COLUMNS, EMOJI_GROUPS, emojiGridMove, emojiLayout, emojiName, searchEmoji } from './tale-shapes';
-import { shapeView, TaleStudioPage } from './tale-studio';
+import { shapeView } from './tale-canvas-view';
+import { TaleStudioPage } from './tale-studio';
+import { settle, WAIT_FOR_TEST } from './tale-studio.testing';
 
 // Tale Studio story 7.6 (epic Tale Studio R6, R12, R13): shapes, emoji and image stickers.
 const url = `${API_BASE}/tales/t1/document`;
@@ -39,13 +41,6 @@ const media = (key: string, contentType: ProjectMedia['contentType']): ProjectMe
   sizeBytes: 100,
 });
 const empty: TaleDocument = { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] };
-const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
-
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
-  await fixture.whenStable();
-  await new Promise((resolve) => setTimeout(resolve));
-  fixture.detectChanges();
-}
 
 describe('the emoji catalog', () => {
   it('holds single RGI emoji, each once, each with its Unicode name', () => {

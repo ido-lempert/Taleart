@@ -32,6 +32,7 @@ import {
   type TextWeight,
 } from '@taleart/contract/text-style';
 import { isFontFamily, MAX_FONT_FAMILY_LENGTH } from '@taleart/contract/theme';
+import { percent } from './tale-layers';
 
 /** A style change the inspector asks for: one history step, with what the live region says. */
 export interface TextStyleChange {
@@ -44,7 +45,7 @@ export interface TextStyleChange {
 }
 
 /** The names people read for each system stack (the contract's, shared with the font page). */
-export const STACK_NAMES = SYSTEM_FONT_STACK_NAMES;
+const STACK_NAMES = SYSTEM_FONT_STACK_NAMES;
 const SIZE_NAMES: Readonly<Record<TextSizePreset | 'custom', string>> = {
   small: 'Small',
   medium: 'Medium',
@@ -77,8 +78,6 @@ const AGAINST: Readonly<Record<'box' | 'highlight' | 'canvas' | 'media', string>
 type FontChoice = SystemFontStack | 'theme' | 'name' | `project:${string}`;
 
 const PROJECT_CHOICE = 'project:';
-
-const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 
 /**
  * A contrast ratio as people read it: rounded down to one decimal, so a ratio just under its

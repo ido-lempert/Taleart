@@ -22,7 +22,9 @@ import {
 } from './tale-element-types';
 import { TaleFieldsInspector } from './tale-fields-inspector';
 import type { ElementChange } from './tale-shapes';
-import { kindName, TaleStudioPage } from './tale-studio';
+import { kindName } from './tale-canvas-view';
+import { TaleStudioPage } from './tale-studio';
+import { settle, WAIT_FOR_TEST } from './tale-studio.testing';
 
 // Tale Studio story 7.8 (epic Tale Studio R8): the Add menu and the inspector come from the
 // element-type registry; a test-only type registered by configuration goes end to end.
@@ -40,13 +42,6 @@ const tale = {
   media: null,
 };
 const group = { id: 'g1', name: 'Summer', projectId: 'p1', tales: [tale] } as unknown as ZoneTaleGroup;
-const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
-
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
-  await fixture.whenStable();
-  await new Promise((resolve) => setTimeout(resolve));
-  fixture.detectChanges();
-}
 
 describe('studio element types (R8)', () => {
   it('has one descriptor per registered type, in registry order', () => {

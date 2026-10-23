@@ -1,8 +1,11 @@
 // Tale Studio's layer operations (epic Tale Studio R2, R3): pure functions over the document's
 // elements, whose array order is the z-order, first at the bottom (AD-15).
 import {
+  cleanText,
   elementBounds,
   elementName,
+  LABEL_TEXT_RULE,
+  MAX_LABEL_LENGTH,
   TALE_SAFE_AREA,
   type CanvasRect,
   type TaleElement,
@@ -27,6 +30,11 @@ export type ReorderCommand = 'forward' | 'backward' | 'front' | 'back';
 // Box values are kept to 4 decimals, so moves do not pile up floating-point noise.
 export const round = (value: number): number => Math.round(value * 10000) / 10000;
 export const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+/** One line of a layer's label (its accessible name), without the characters a label may not hold, within its limit. */
+export const cleanLabel = (value: string): string =>
+  [...cleanText(value.replace(/\n/g, ' '), LABEL_TEXT_RULE)].slice(0, MAX_LABEL_LENGTH).join('');
+/** A canvas fraction as the percent the inspector fields show, to one decimal (0.125 → 12.5). */
+export const percent = (fraction: number): number => Math.round(fraction * 1000) / 10;
 
 /**
  * A short name for a layer, from its content, as the contract's `elementName` gives it (shared with
@@ -89,7 +97,7 @@ export function reorder<T extends { id: string }>(
 }
 
 /** How far a duplicate sits from its original, as a fraction of the canvas, so both can be seen. */
-export const DUPLICATE_OFFSET = 0.02;
+const DUPLICATE_OFFSET = 0.02;
 
 // The offset start: `offset` further on, or back the other way when the canvas has no room for it.
 function shifted(start: number, size: number, offset: number): number {
@@ -275,6 +283,33 @@ export function layerShortcut(event: KeyboardEvent, apple = isApple()): LayerCom
   if (key === 'l') return 'lock';
   if (key === 'd') return 'duplicate';
   return null;
+}
+
+/**
+ * Shift+F10 or the context-menu key, which open a layer's actions menu. Browsers turn these keys
+ * into a `contextmenu` event only on some systems (not on a Mac), so the studio answers them itself
+ * (WCAG 2.1.1, story 7.15).
+ */
+export function isMenuKey(event: KeyboardEvent): boolean {
+  const shiftF10 = event.key === 'F10' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+  return shiftF10 || event.key === 'ContextMenu';
+}
+
+/** Shift+Space, Ctrl+Space or Cmd+Space, which add a layer to the selection or take it out. */
+export function isSelectionKey(event: KeyboardEvent): boolean {
+  return event.key === ' ' && (event.shiftKey || event.ctrlKey || event.metaKey);
+}
+
+/** How far an arrow key without Alt, Ctrl or Cmd moves the selection, `step` along its axis; null for any other key. */
+export function arrowMove(event: KeyboardEvent, step: number): [number, number] | null {
+  if (event.altKey || event.ctrlKey || event.metaKey) return null;
+  const moves: Record<string, [number, number]> = {
+    ArrowLeft: [-step, 0],
+    ArrowRight: [step, 0],
+    ArrowUp: [0, -step],
+    ArrowDown: [0, step],
+  };
+  return moves[event.key] ?? null;
 }
 
 /** How each shortcut reads, with the Mac symbols on a Mac. */

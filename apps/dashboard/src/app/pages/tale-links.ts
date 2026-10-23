@@ -28,12 +28,13 @@ import {
 } from '@taleart/contract/text-style';
 import type { ElementChange } from './tale-shapes';
 import { contrastWarning, parseHexColor } from './tale-text-style';
+import { percent } from './tale-layers';
 
 /** How people read each button style. */
-export const VARIANT_NAMES: Readonly<Record<ButtonVariant, string>> = { filled: 'Filled', outline: 'Outline' };
+const VARIANT_NAMES: Readonly<Record<ButtonVariant, string>> = { filled: 'Filled', outline: 'Outline' };
 
 /** How people read each link type. */
-export const LINK_KIND_NAMES: Readonly<Record<LinkElement['type'], string>> = {
+const LINK_KIND_NAMES: Readonly<Record<LinkElement['type'], string>> = {
   button: 'Button',
   'image-button': 'Image button',
   'swipe-up': 'Swipe-up link',
@@ -52,8 +53,6 @@ export function hrefMessage(value: string): string | null {
 export function needsLinkUrl(element: { props: unknown }): boolean {
   return !isLinkUrl((element.props as { href?: unknown }).href);
 }
-
-const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 
 // One line of label text, without the characters a label may not hold, within its limit.
 const cleanLine = (value: string, max: number) =>

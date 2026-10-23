@@ -34,13 +34,11 @@ import {
   emojiFontSize,
   emptyTaleDocument,
   elementBounds,
-  elementName,
   hasAltText,
   hasVideoElement,
   isLinkElement,
   isMediaElement,
   isSwipeUpBox,
-  isOffCanvas,
   isOutsideSafeArea,
   readingOrder,
   isTaleMediaElement,
@@ -54,9 +52,6 @@ import {
   MAX_SWIPE_UP_ELEMENTS,
   MEDIA_FITS,
   MIN_TALE_DURATION_MS,
-  BUTTON_OUTLINE_WIDTH,
-  buttonFontSize,
-  linkLabel,
   NEW_BUTTON_BOX,
   NEW_EMOJI_BOX,
   NEW_IMAGE_BUTTON_BOX,
@@ -68,12 +63,7 @@ import {
   newButtonProps,
   newShapeProps,
   newSwipeUpProps,
-  resolveButtonStyle,
-  resolveShapeStyle,
-  resolveSwipeUpStyle,
   SWIPE_UP_BOX,
-  SWIPE_UP_FONT_SIZE,
-  TALE_ELEMENT_TYPE_REGISTRY,
   TALE_SAFE_AREA,
   type MediaElement,
   type ShapeElement,
@@ -82,21 +72,13 @@ import {
   type TaleDocument,
   type TaleElement,
   type TaleElementBox,
-  type TextElementProps,
+  type TaleElementType,
 } from '@taleart/contract/tale-document';
 import {
-  DEFAULT_TEXT_STYLE,
   isSmallTarget,
-  linkLabelStyle,
   resolveTextStyle,
-  TEXT_BOX_PADDING_EM,
-  TEXT_HIGHLIGHT_PADDING_EM,
-  textCssWeight,
-  textBackdropAt,
   textContrast,
-  textFontFamily,
   type TextBackdrop,
-  type TextStyle,
 } from '@taleart/contract/text-style';
 import { DashboardStore } from '../dashboard.store';
 import { formatLocal } from '../schedule';
@@ -108,11 +90,8 @@ import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
 import {
   BackdropReads,
-  backdropKey,
-  hasLabel,
   TaleBackdropSampler,
   type BackdropResults,
-  type WantedRead,
 } from './tale-backdrop';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
@@ -122,13 +101,23 @@ import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } fro
 import { needsLinkUrl, TaleLinkStyle } from './tale-links';
 import {
   addMenuRows,
-  elementTypeLabel,
   STUDIO_TEST_ELEMENT_TYPES,
   studioElementTypes,
   type AddMenuEntry,
   type StudioElementType,
 } from './tale-element-types';
 import { TaleFieldsInspector } from './tale-fields-inspector';
+import { contrastChange, isLowContrast, labelBackdrop, wantedReads, type SampleLookup } from './tale-contrast';
+import {
+  kindName,
+  linkView,
+  newTextProps,
+  shapeView,
+  textView,
+  type LinkView,
+  type ShapeView,
+  type TextView,
+} from './tale-canvas-view';
 import { TalePreviewPane } from './tale-preview';
 import {
   SHAPE_NAMES,
@@ -139,6 +128,7 @@ import {
   type EmojiChoice,
 } from './tale-shapes';
 import {
+  arrowMove,
   boundsOf,
   clamp,
   clampMove,
@@ -148,12 +138,15 @@ import {
   hiddenUnder,
   historyShortcut,
   isApple,
+  isMenuKey,
+  isSelectionKey,
   isTextEntry,
   LAYER_KEYSHORTCUTS,
   layerName,
   layerSpokenName,
   layerShortcut,
   moveBox,
+  percent,
   reorder,
   round,
   snap,
@@ -167,10 +160,10 @@ import {
 } from './tale-layers';
 
 /** How far an arrow key moves an element, as a fraction of the canvas; Shift moves ten times as far. */
-export const MOVE_STEP = 0.01;
+const MOVE_STEP = 0.01;
 
 /** How long leaving the studio waits for unsaved changes to save before it asks (ms). */
-export const LEAVE_WAIT_MS = 5000;
+const LEAVE_WAIT_MS = 5000;
 
 /** How often, at most, coming back to the page reads the tale again (ms). */
 export const BACK_TO_PAGE_INTERVAL_MS = 15_000;
@@ -214,81 +207,6 @@ const REORDERED: Record<ReorderCommand, [string, string]> = {
   back: ['moved to the back', 'Already at the back'],
 };
 const layers = (n: number) => (n === 1 ? 'Layer' : `${n} layers`);
-// The name people read for each registered type: its registry label ("Text", "Swipe-up link"), R8.
-const KIND_NAMES: ReadonlyMap<string, string> = new Map(TALE_ELEMENT_TYPE_REGISTRY.map((t) => [t.key, t.label]));
-/** How people read an element's type: "Text", "Image", "Video", "Emoji", "Sticker", or a shape's ("Ellipse"). */
-export const kindName = (element: { type: TaleElement['type']; props?: unknown }): string => {
-  const shape = element.type === 'shape' ? (element.props as { shape?: ShapeKind } | undefined)?.shape : undefined;
-  return (shape && SHAPE_NAMES[shape]) || KIND_NAMES.get(element.type) || elementTypeLabel(element.type) || 'Layer';
-};
-
-/** How the canvas draws a shape, as the Web SDK renders it: each value from the contract's `resolveShapeStyle`. */
-export interface ShapeView {
-  fill: string | null;
-  border: string | null;
-  radius: string | null;
-  opacity: number;
-  /** A line's bar: its thickness and colour; null for a rectangle or an ellipse. */
-  line: { height: string; color: string | null } | null;
-}
-
-/** The canvas look of a shape's props. */
-export function shapeView(props: unknown): ShapeView {
-  const look = resolveShapeStyle(props);
-  if (!look) return { fill: null, border: null, radius: null, opacity: 1, line: null };
-  const stroked = look.stroke !== null && look.strokeWidth > 0;
-  if (look.shape === 'line') {
-    return {
-      fill: null,
-      border: null,
-      radius: null,
-      opacity: look.opacity,
-      line: { height: `${look.strokeWidth * 100}cqh`, color: stroked ? look.stroke : null },
-    };
-  }
-  return {
-    fill: look.fill,
-    border: stroked ? `${look.strokeWidth * 100}cqh solid ${look.stroke}` : null,
-    radius: look.shape === 'ellipse' ? '50%' : look.radius > 0 ? `${look.radius * 100}cqh` : null,
-    opacity: look.opacity,
-    line: null,
-  };
-}
-
-/** How the canvas draws a button or the swipe-up link, as the Web SDK renders it (R7). */
-export interface LinkView {
-  label: string;
-  color: string;
-  background: string | null;
-  border: string | null;
-  radius: string | null;
-  fontSize: string;
-}
-
-/** The canvas look of a button or swipe-up link: each value from the contract's resolvers. */
-export function linkView(element: { type: string; box: TaleElementBox; props: unknown }): LinkView {
-  const label = linkLabel((element.props as { label?: unknown }).label);
-  const size = (n: number) => `${Math.round(n * 100000) / 1000}cqh`;
-  if (element.type === 'swipe-up') {
-    const look = resolveSwipeUpStyle(element.props);
-    return { label, color: look.color, background: look.background, border: null, radius: null, fontSize: size(SWIPE_UP_FONT_SIZE) };
-  }
-  const look = resolveButtonStyle(element.props);
-  return {
-    label,
-    color: look.color,
-    background: look.variant === 'filled' ? look.fill : null,
-    border: look.variant === 'outline' ? `${size(BUTTON_OUTLINE_WIDTH)} solid ${look.fill}` : null,
-    radius: look.radius > 0 ? size(look.radius) : null,
-    fontSize: size(buttonFontSize(element.box)),
-  };
-}
-
-/** The style whose contrast a layer's label is checked for (R12): a text's, or a button's or swipe-up link's label. */
-export function labelStyleOf(element: { type: string; box: TaleElementBox; props: unknown }): TextStyle | null {
-  return element.type === 'text' ? resolveTextStyle(element.props) : linkLabelStyle(element);
-}
-
 /** The media picker while it is open: what it picks for, and of which kind. */
 interface OpenPicker {
   purpose: 'add' | 'replace' | 'background';
@@ -304,54 +222,6 @@ interface OpenPicker {
   returnFocus: HTMLElement | null;
 }
 
-/** How the canvas draws a text, as the Web SDK renders it: each value from the contract's `resolveTextStyle`. */
-export interface TextView {
-  dir: string;
-  family: string;
-  size: string;
-  weight: number;
-  fontStyle: string;
-  color: string;
-  lineHeight: number;
-  align: string;
-  /** A solid box's colour and inline padding, or null. */
-  boxColor: string | null;
-  boxPadding: string | null;
-  /** A per-line highlight's colour and inline padding, or null. */
-  lineColor: string | null;
-  linePadding: string | null;
-}
-
-/** The canvas look of a text's props; `themeFont` is the project theme's font-family list, or null. */
-export function textView(props: unknown, themeFont: string | null): TextView {
-  const look = resolveTextStyle(props);
-  const box = look.background === 'box';
-  const line = look.background === 'highlight';
-  return {
-    dir: look.direction,
-    family: textFontFamily(look, themeFont),
-    size: `${look.size * 100}cqh`,
-    weight: textCssWeight(look.weight),
-    fontStyle: look.italic ? 'italic' : 'normal',
-    color: look.color,
-    lineHeight: look.lineHeight,
-    align: look.align,
-    boxColor: box ? look.backgroundColor : null,
-    boxPadding: box ? `${TEXT_BOX_PADDING_EM}em` : null,
-    lineColor: line ? look.backgroundColor : null,
-    linePadding: line ? `${TEXT_HIGHLIGHT_PADDING_EM}em` : null,
-  };
-}
-
-/**
- * The props of a new text: its text and every style setting stored explicitly (story 7.4), the
- * direction `auto` included, so what it looks like does not depend on defaults.
- */
-export function newTextProps(text: string): TextElementProps {
-  const { font, ...style } = DEFAULT_TEXT_STYLE;
-  return { text, font: { ...font }, ...style };
-}
-
 // The props of a media element given other media: other media is not the tale's own (R16), so the
 // mark goes, and the server keeps the tale's media apart from it.
 function replacedMedia<P extends object>(props: P, mediaKey: string): P {
@@ -361,8 +231,10 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
 }
 
 /**
- * Tale Studio (epic Tale Studio stories 1 to 3): a tale on a 9:16 canvas with its media over the
- * canvas colour, where a content manager adds text elements, types their text in place, moves
+ * Tale Studio (epic Tale Studio): a tale on a 9:16 canvas with its media over the canvas colour,
+ * where a content manager adds elements of every registered type (texts, media, shapes, emoji,
+ * stickers, buttons and the swipe-up link; their inspectors, the canvas views in
+ * `tale-canvas-view.ts`, the layer logic in `tale-layers.ts`), types texts in place, moves
  * them by dragging (snapping to the centre, the safe-area edges and other elements), by the arrow
  * keys (Shift for larger steps) or by position fields, arranges them in a layers list (select,
  * reorder, hide, lock, duplicate, delete, from the row, an actions menu or the keyboard), sets
@@ -389,1273 +261,9 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     DuplicateTale,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: `
-    .studio-help {
-      position: relative;
-    }
-    .studio-help__mark {
-      display: inline-grid;
-      place-items: center;
-      width: 18px;
-      height: 18px;
-      border: 1px solid currentColor;
-      border-radius: 50%;
-      font-weight: 700;
-      font-size: 12px;
-    }
-    .studio-help__panel {
-      position: absolute;
-      top: calc(100% + 4px);
-      left: 0;
-      z-index: 20;
-      width: min(420px, calc(100vw - 32px));
-      padding: var(--space-3) var(--space-4);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-control);
-      background: var(--surface);
-      box-shadow: var(--shadow-raised);
-      font-size: var(--text-sm);
-    }
-    .studio-help__panel[hidden] {
-      display: none;
-    }
-    .studio-help__panel p {
-      margin: 0;
-    }
-    .studio {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-6);
-      align-items: flex-start;
-    }
-    .canvas {
-      position: relative;
-      flex: none;
-      width: min(100%, 300px);
-      aspect-ratio: 9 / 16;
-      overflow: hidden;
-      border-radius: var(--radius-control);
-      container-type: size;
-      touch-action: none;
-      /* Its layers and guides stack inside it, under the keyboard shortcuts popover. */
-      isolation: isolate;
-    }
-    .canvas__media {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      pointer-events: none;
-    }
-    .el,
-    .el-edit {
-      position: absolute;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0;
-      padding: 0;
-      border: 1px dashed #fff;
-      outline: 1px solid rgb(0 0 0 / 70%);
-      background: transparent;
-      text-align: center;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    .el {
-      flex-direction: column;
-      align-items: stretch;
-      cursor: move;
-      touch-action: none;
-    }
-    .el__line {
-      display: block;
-    }
-    .el__media {
-      display: block;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-    .el__shape {
-      position: relative;
-      display: block;
-      box-sizing: border-box;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-    .el__stroke {
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 50%;
-      transform: translateY(-50%);
-    }
-    .el__emoji {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      height: 100%;
-      line-height: 1;
-      white-space: nowrap;
-      pointer-events: none;
-    }
-    .el__link {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-      width: 100%;
-      height: 100%;
-      padding: 0 0.8em;
-      overflow: hidden;
-      font-weight: 700;
-      line-height: 1.2;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      pointer-events: none;
-    }
-    .el__swipe {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 0.2em;
-      width: 100%;
-      height: 100%;
-      font-weight: 700;
-      line-height: 1.2;
-      white-space: nowrap;
-      pointer-events: none;
-    }
-    .el__swipe-arrow {
-      width: 0.7em;
-      height: 0.7em;
-      border-top: 0.16em solid currentColor;
-      border-left: 0.16em solid currentColor;
-      transform: translateY(0.2em) rotate(45deg);
-    }
-    .el__swipe-label {
-      max-width: 100%;
-      padding: 0.35em 1em;
-      overflow: hidden;
-      border-radius: 999px;
-      text-overflow: ellipsis;
-    }
-    .el__glyphs.is-highlight {
-      -webkit-box-decoration-break: clone;
-      box-decoration-break: clone;
-    }
-    .el.is-selected {
-      border: 2px solid var(--ember);
-      box-shadow: inset 0 0 0 1px #fff;
-      outline: 2px solid #000;
-    }
-    .el.is-locked {
-      cursor: default;
-    }
-    /*
-     * A low-contrast label (R12): a warning badge in the element's top corner, legible on any backdrop;
-     * above the inner focus ring (.el:focus-visible::after, z-index 0).
-     */
-    .el__warn {
-      position: absolute;
-      top: 2px;
-      inset-inline-end: 2px;
-      z-index: 2;
-      display: grid;
-      place-items: center;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: #fff3c4;
-      color: #5c3b00;
-      box-shadow: 0 0 0 1px #5c3b00;
-      font-size: 12px;
-      line-height: 1;
-      /* Takes the pointer, so its tooltip shows; a press on it still selects and drags the element. */
-      cursor: help;
-    }
-    .guides,
-    .snap-line {
-      position: absolute;
-      z-index: 100;
-      pointer-events: none;
-    }
-    .guides {
-      outline: 1px dashed #fff;
-      box-shadow:
-        0 0 0 1px rgb(0 0 0 / 60%),
-        0 0 0 999px rgb(0 0 0 / 25%);
-    }
-    .snap-line {
-      background: var(--ember);
-      box-shadow:
-        0 0 0 1px #fff,
-        0 0 0 2px #000;
-    }
-    .snap-line--x {
-      top: 0;
-      bottom: 0;
-      width: 1px;
-    }
-    .snap-line--y {
-      left: 0;
-      right: 0;
-      height: 1px;
-    }
-    /*
-     * The ring outside, and again inside: an element that fills the canvas has its outer ring cut
-     * off by the canvas edge (WCAG 2.4.7). The inner ring sits over the element's media (z-index 0)
-     * and under its badges (z-index 1 and up); on a tiny element it is thinner, to leave it visible.
-     */
-    .el:focus-visible {
-      outline: 3px solid #fff;
-      outline-offset: 1px;
-      box-shadow: 0 0 0 5px var(--ink);
-    }
-    .el:focus-visible::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      box-shadow:
-        inset 0 0 0 2px var(--ink),
-        inset 0 0 0 5px #fff;
-    }
-    .el--tiny:focus-visible::after {
-      box-shadow:
-        inset 0 0 0 1px var(--ink),
-        inset 0 0 0 2px #fff;
-    }
-    /*
-     * The keyboard focus ring drawn again above every layer (WCAG 2.4.7, 2.4.11, story 7.15), on the
-     * focused layer's box and rotation, so a layer partly under others shows where it is while the
-     * layers keep their stacking (a keyboard reorder stays visible). Below the guides (100).
-     */
-    .focus-frame {
-      position: absolute;
-      z-index: 98;
-      pointer-events: none;
-      box-shadow:
-        0 0 0 2px #fff,
-        0 0 0 4px var(--ink),
-        inset 0 0 0 2px var(--ink),
-        inset 0 0 0 4px #fff;
-    }
-    /* Typing in place stays above every layer, so a text under a picture is seen while edited (7.15). */
-    .el-edit {
-      z-index: 99;
-      resize: none;
-      border: 2px solid var(--ember);
-      background: rgb(0 0 0 / 35%);
-    }
-    .panel {
-      display: flex;
-      flex: 1;
-      flex-direction: column;
-      gap: var(--space-4);
-      min-width: 240px;
-      max-width: 420px;
-    }
-    .row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-3);
-    }
-    .row .field {
-      flex: 1;
-      min-width: 100px;
-    }
-    .selected {
-      margin: 0;
-      padding: 0;
-      border: 0;
-    }
-    textarea.input {
-      min-height: 96px;
-      padding: var(--space-2) var(--space-3);
-      resize: vertical;
-    }
-  `,
-  template: `
-    <div class="page">
-      <header class="page-header">
-        <a class="back-link" [routerLink]="backLink().link" [queryParams]="backLink().query"><app-icon name="back" /> {{ backLink().text }}</a>
-        <h2 class="page-header__title">Tale Studio</h2>
-        @if (tale(); as t) {
-          <p class="page-header__meta">{{ t.title }}</p>
-        }
-      </header>
-      @if (doc(); as d) {
-        <section class="card section" aria-labelledby="studio-title">
-          <h3 class="section__title visually-hidden" id="studio-title">Edit {{ tale()?.title ?? 'tale' }}</h3>
-          <div class="studio-bar">
-            <button
-              type="button"
-              class="btn btn--ghost btn--sm"
-              id="studio-undo"
-              [attr.aria-disabled]="historyState().undo === null ? 'true' : null"
-              [attr.aria-keyshortcuts]="undoKeys"
-              [title]="
-                historyState().undo === null ? 'Nothing to undo' : 'Undo ' + historyState().undo + ' (' + undoKey + ')'
-              "
-              (click)="runHistory('undo')"
-            >
-              <app-icon name="undo" /> Undo
-            </button>
-            <button
-              type="button"
-              class="btn btn--ghost btn--sm"
-              id="studio-redo"
-              [attr.aria-disabled]="historyState().redo === null ? 'true' : null"
-              [attr.aria-keyshortcuts]="redoKeys"
-              [title]="
-                historyState().redo === null ? 'Nothing to redo' : 'Redo ' + historyState().redo + ' (' + redoKey + ')'
-              "
-              (click)="runHistory('redo')"
-            >
-              <app-icon name="redo" /> Redo
-            </button>
-            <div class="studio-help" (focusout)="helpFocusOut($event)">
-              <button
-                #helpButton
-                type="button"
-                class="btn btn--ghost btn--sm studio-help__button"
-                id="studio-help-button"
-                aria-controls="studio-keys"
-                [attr.aria-expanded]="helpOpen()"
-                (click)="toggleHelp()"
-                (keydown.escape)="closeHelp($event)"
-              >
-                <span class="studio-help__mark" aria-hidden="true">?</span> Keyboard shortcuts
-              </button>
-              <!-- Stays in the page when closed: the canvas is described by it. -->
-              <div
-                class="studio-help__panel"
-                id="studio-keys"
-                role="group"
-                aria-label="Keyboard shortcuts"
-                tabindex="-1"
-                [hidden]="!helpOpen()"
-                (keydown.escape)="closeHelp($event)"
-              >
-                <p>
-                  Select a layer to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
-                  stops editing. Dragging snaps to the centre, the safe areas and other layers; hold Alt to place freely.
-                  On the canvas and in the layers list: {{ keys.forward }} and {{ keys.backward }} reorder,
-                  {{ keys.front }} and {{ keys.back }} bring to the front or the back, H hides, L locks, D duplicates,
-                  {{ keys.delete }} deletes, {{ keys['select-all'] }} selects all, and the context-menu key or Shift+F10
-                  opens the actions. Outside text fields, {{ undoKey }} undoes and {{ redoKey }} redoes. Changes save
-                  automatically.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              class="btn btn--ghost btn--sm"
-              id="studio-preview"
-              [attr.aria-controls]="previewOpen() ? 'studio-preview-pane' : null"
-              [attr.aria-expanded]="previewOpen()"
-              (click)="previewOpen.set(!previewOpen())"
-            >
-              <app-icon name="eye" /> Preview
-            </button>
-            <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()">{{ saveText() }}</p>
-          </div>
-          <div class="studio-update" [class.is-pending]="unpublished()">
-            <p class="studio-update__state" id="studio-update-state">
-              @if (siteVisibility(); as v) {
-                <span class="studio-update__dot" [class.is-visible]="v.visible" aria-hidden="true"></span>
-              }
-              {{ statusLine() }}
-            </p>
-            <button
-              type="button"
-              class="btn btn--primary btn--sm"
-              id="studio-update"
-              aria-describedby="studio-update-state"
-              [attr.aria-disabled]="!canUpdate() || updating() ? 'true' : null"
-              (click)="updateTale()"
-            >
-              Update tale
-            </button>
-            <button
-              type="button"
-              class="btn btn--ghost btn--sm"
-              id="studio-discard"
-              aria-describedby="studio-update-state"
-              [attr.aria-disabled]="!unpublished() || published().document === null || updating() ? 'true' : null"
-              (click)="discardChanges()"
-            >
-              Discard changes
-            </button>
-            <button
-              type="button"
-              class="btn btn--secondary btn--sm"
-              id="studio-duplicate"
-              [attr.aria-disabled]="updating() || !tale() ? 'true' : null"
-              (click)="openDuplicate($event)"
-            >
-              Duplicate
-            </button>
-          </div>
-          @if (duplicateResult(); as dup) {
-            <p class="studio-notice" id="studio-duplicated">
-              {{ dup.message }}
-              <a [routerLink]="['/tales', dup.id, 'studio']" [queryParams]="{ zone: zone() }">Open the copy</a>
-            </p>
-          }
-          @if (duplicating() && tale(); as t) {
-            <app-duplicate-tale
-              [tale]="t"
-              [returnFocus]="duplicateOpener"
-              (duplicated)="duplicatedTale($event)"
-              (closed)="duplicating.set(false)"
-            />
-          }
-          @if (saveState(); as s) {
-            @if (s.kind === 'conflict') {
-              <div class="form-error studio-alert" role="alert">
-                <p>
-                  Someone saved this tale after you opened it, so your latest changes are not saved. They are still
-                  here. Reload the latest version, which discards your changes, or keep your version as a new draft tale
-                  in the same group.
-                </p>
-                <div class="row">
-                  <button type="button" class="btn btn--secondary btn--sm" (click)="reload()">
-                    Reload latest version
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn--primary btn--sm"
-                    [attr.aria-disabled]="keeping() ? 'true' : null"
-                    (click)="keepAsNewTale()"
-                  >
-                    Keep my version as a new tale
-                  </button>
-                </div>
-              </div>
-            } @else if (recovering()) {
-              <!-- Stays while saving is failing, through each retry, so "Retry now" keeps its focus. -->
-              <div class="form-error studio-alert" id="studio-save-problem">
-                <p>{{ saveError() }}</p>
-                <p class="studio-retry">{{ retryText() }}</p>
-                <button
-                  type="button"
-                  class="btn btn--secondary btn--sm"
-                  id="studio-retry"
-                  [attr.aria-disabled]="s.kind === 'saving' ? 'true' : null"
-                  (click)="retrySave()"
-                >
-                  Retry now
-                </button>
-              </div>
-            }
-          }
-          <!-- One live region for save failures: the first failure and nothing per retry. -->
-          <p class="visually-hidden" role="alert">{{ saveAlert() }}</p>
-          @if (error()) {
-            <p class="form-error studio-alert" role="alert">{{ error() }}</p>
-          }
-          @if (notice()) {
-            <p class="studio-notice" role="status">{{ notice() }}</p>
-          }
-          <div class="studio">
-            <div
-              class="canvas"
-              id="studio-canvas"
-              tabindex="-1"
-              role="group"
-              aria-label="Canvas, 9:16"
-              aria-describedby="studio-keys"
-              [style.background-color]="d.canvas.background.color"
-            >
-              @if (d.canvas.background.type === 'media') {
-                <!-- The background image (R2), over its band colour, as the Web SDK paints it. Over the tale's
-                     own media drawn full-bleed (R16) it lies above that media, bands included, as before. -->
-                <img
-                  class="canvas__media"
-                  crossorigin="anonymous"
-                  [src]="mediaSrc(d.canvas.background.mediaKey)"
-                  alt=""
-                  [style.object-fit]="d.canvas.background.fit"
-                  [style.z-index]="stageMedia() ? 2 : null"
-                  [style.background-color]="stageMedia() ? d.canvas.background.color : null"
-                />
-              }
-              @for (el of d.elements; track el.id; let i = $index) {
-                @let v = view(el);
-                @if (el.hidden) {
-                  <!-- A hidden layer is not drawn; it stays in the layers list. -->
-                } @else if (editingId() === el.id && el.type === 'text') {
-                  <textarea
-                    class="el-edit"
-                    [id]="'studio-edit-' + el.id"
-                    aria-label="Text"
-                    [style.left.%]="el.box.x * 100"
-                    [style.top.%]="el.box.y * 100"
-                    [style.width.%]="el.box.w * 100"
-                    [style.height.%]="el.box.h * 100"
-                    [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
-                    [attr.dir]="v.dir"
-                    [style.font-family]="v.family"
-                    [style.font-size]="v.size"
-                    [style.line-height]="v.lineHeight"
-                    [style.font-weight]="v.weight"
-                    [style.font-style]="v.fontStyle"
-                    [style.color]="v.color"
-                    [style.text-align]="v.align"
-                    [style.background-color]="v.boxColor ?? v.lineColor"
-                    [style.padding-inline]="v.boxPadding ?? v.linePadding"
-                    [value]="el.props.text"
-                    (input)="typeText(el.id, $any($event.target))"
-                    (blur)="stopEditing()"
-                    (keydown.escape)="stopEditing(true)"
-                  ></textarea>
-                } @else if (el.type !== 'text') {
-                  <!-- An image, video, shape, emoji or sticker (R5, R6), as the Web SDK renders it. -->
-                  <button
-                    type="button"
-                    class="el"
-                    [id]="'studio-el-' + el.id"
-                    [class.is-selected]="isSelected(el.id)"
-                    [class.el--tiny]="isTiny(el)"
-                    [class.is-locked]="el.locked"
-                    [attr.aria-pressed]="isSelected(el.id)"
-                    [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
-                    [attr.aria-label]="kind(el) + ': ' + spokenName(el)"
-                    [attr.aria-describedby]="'layer-state-' + el.id"
-                    [attr.aria-keyshortcuts]="keyShortcuts"
-                    [style.left.%]="el.box.x * 100"
-                    [style.top.%]="el.box.y * 100"
-                    [style.width.%]="el.box.w * 100"
-                    [style.height.%]="el.box.h * 100"
-                    [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
-                    [style.z-index]="raisedId() === el.id ? 99 : i + 1"
-                    (focus)="layerFocused($event, el.id)"
-                    (blur)="layerBlurred(el.id)"
-                    (click)="pick($event, el.id)"
-                    (contextmenu)="openMenuAt($event, el, 'canvas')"
-                    (keydown)="onKey($event, el)"
-                    (pointerdown)="dragStart($event, el)"
-                    (pointermove)="dragMove($event)"
-                    (pointerup)="dragEnd($event)"
-                    (pointercancel)="dragEnd($event)"
-                  >
-                    @if (el.type === 'video') {
-                      <video
-                        class="el__media"
-                        crossorigin="anonymous"
-                        [src]="mediaSrc(el.props.mediaKey)"
-                        [muted]="true"
-                        muted
-                        playsinline
-                        preload="metadata"
-                        aria-hidden="true"
-                        [style.object-fit]="el.props.fit"
-                        [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
-                        [style.opacity]="el.props.opacity ?? 1"
-                        (loadedmetadata)="videoLoaded(el.props.mediaKey, $any($event.target))"
-                      ></video>
-                    } @else if (el.type === 'image') {
-                      <img
-                        class="el__media"
-                        crossorigin="anonymous"
-                        [src]="mediaSrc(el.props.mediaKey)"
-                        alt=""
-                        draggable="false"
-                        [style.object-fit]="el.props.fit"
-                        [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
-                        [style.opacity]="el.props.opacity ?? 1"
-                      />
-                    } @else if (el.type === 'sticker') {
-                      <!-- An image sticker shows the whole image (R6). -->
-                      <img
-                        class="el__media"
-                        crossorigin="anonymous"
-                        [src]="mediaSrc(el.props.mediaKey)"
-                        alt=""
-                        draggable="false"
-                        style="object-fit: contain"
-                        [style.opacity]="el.props.opacity ?? 1"
-                      />
-                    } @else if (el.type === 'image-button') {
-                      <!-- An image button shows its whole image (R7). -->
-                      <img
-                        class="el__media"
-                        crossorigin="anonymous"
-                        [src]="mediaSrc(el.props.mediaKey)"
-                        alt=""
-                        draggable="false"
-                        style="object-fit: contain"
-                        [style.border-radius]="(el.props.radius ?? 0) * 100 + 'cqh'"
-                      />
-                    } @else if (el.type === 'button') {
-                      @let b = link(el);
-                      <span
-                        class="el__link"
-                        [style.color]="b.color"
-                        [style.background-color]="b.background"
-                        [style.border]="b.border"
-                        [style.border-radius]="b.radius"
-                        [style.font-size]="b.fontSize"
-                        [textContent]="b.label"
-                      ></span>
-                    } @else if (el.type === 'swipe-up') {
-                      @let b = link(el);
-                      <span class="el__swipe" [style.color]="b.color" [style.font-size]="b.fontSize">
-                        <span class="el__swipe-arrow"></span>
-                        <span class="el__swipe-label" [style.background-color]="b.background" [textContent]="b.label"></span>
-                      </span>
-                    } @else if (el.type === 'shape') {
-                      @let s = shape(el);
-                      <span
-                        class="el__shape"
-                        [style.background-color]="s.fill"
-                        [style.border]="s.border"
-                        [style.border-radius]="s.radius"
-                        [style.opacity]="s.opacity"
-                      >
-                        @if (s.line; as line) {
-                          <span
-                            class="el__stroke"
-                            [style.height]="line.height"
-                            [style.background-color]="line.color"
-                          ></span>
-                        }
-                      </span>
-                    } @else if (el.type === 'emoji') {
-                      <!-- An emoji is text in the platform's emoji fonts, sized to its box (R6). -->
-                      <span
-                        class="el__emoji"
-                        aria-hidden="true"
-                        [style.font-family]="emojiFont"
-                        [style.font-size]="emojiSize(el.box)"
-                        [textContent]="el.props.emoji"
-                      ></span>
-                    } @else {
-                      <!-- A type registered by configuration (R8): its descriptor's stand-in, in a dashed box. -->
-                      @let c = configuredView($any(el));
-                      <span
-                        class="el__link"
-                        [style.color]="c.color"
-                        [style.border]="'0.3cqh dashed ' + c.color"
-                        [style.font-size]="c.fontSize"
-                        [textContent]="c.text"
-                      ></span>
-                    }
-                    @if (lowContrast().has(el.id)) {
-                      <!-- The layer's state (aria-describedby) says it; this marks it on the canvas (R12). -->
-                      <span class="el__warn" aria-hidden="true" title="Low contrast: the text may be hard to read"><app-icon name="alert" /></span>
-                    }
-                  </button>
-                } @else {
-                  <button
-                    type="button"
-                    class="el"
-                    [id]="'studio-el-' + el.id"
-                    [class.is-selected]="isSelected(el.id)"
-                    [class.el--tiny]="isTiny(el)"
-                    [class.is-locked]="el.locked"
-                    [attr.aria-pressed]="isSelected(el.id)"
-                    [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
-                    [attr.aria-label]="'Text: ' + name(el)"
-                    [attr.aria-describedby]="'layer-state-' + el.id"
-                    [attr.aria-keyshortcuts]="keyShortcuts"
-                    [style.left.%]="el.box.x * 100"
-                    [style.top.%]="el.box.y * 100"
-                    [style.width.%]="el.box.w * 100"
-                    [style.height.%]="el.box.h * 100"
-                    [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
-                    [style.z-index]="raisedId() === el.id ? 99 : i + 1"
-                    (focus)="layerFocused($event, el.id)"
-                    (blur)="layerBlurred(el.id)"
-                    [attr.dir]="v.dir"
-                    [style.font-family]="v.family"
-                    [style.font-size]="v.size"
-                    [style.line-height]="v.lineHeight"
-                    [style.font-weight]="v.weight"
-                    [style.font-style]="v.fontStyle"
-                    [style.color]="v.color"
-                    [style.text-align]="v.align"
-                    [style.background-color]="v.boxColor"
-                    [style.padding-inline]="v.boxPadding"
-                    (click)="pick($event, el.id)"
-                    (dblclick)="edit(el.id)"
-                    (contextmenu)="openMenuAt($event, el, 'canvas')"
-                    (keydown)="onKey($event, el)"
-                    (pointerdown)="dragStart($event, el)"
-                    (pointermove)="dragMove($event)"
-                    (pointerup)="dragEnd($event)"
-                    (pointercancel)="dragEnd($event)"
-                  >
-                    <!-- As the Web SDK renders it: a block line holding the inline glyphs, highlighted per line. -->
-                    <span class="el__line"
-                      ><span
-                        class="el__glyphs"
-                        [class.is-highlight]="v.lineColor !== null"
-                        [style.background-color]="v.lineColor"
-                        [style.padding-inline]="v.linePadding"
-                        [textContent]="el.props.text"
-                      ></span
-                    ></span>
-                    @if (lowContrast().has(el.id)) {
-                      <!-- The layer's state (aria-describedby) says it; this marks it on the canvas (R12). -->
-                      <span class="el__warn" aria-hidden="true" title="Low contrast: the text may be hard to read"><app-icon name="alert" /></span>
-                    }
-                  </button>
-                }
-              }
-              @if (focusBox(); as f) {
-                <div
-                  class="focus-frame"
-                  aria-hidden="true"
-                  [style.left.%]="f.x * 100"
-                  [style.top.%]="f.y * 100"
-                  [style.width.%]="f.w * 100"
-                  [style.height.%]="f.h * 100"
-                  [style.transform]="f.rotation ? 'rotate(' + f.rotation + 'deg)' : null"
-                ></div>
-              }
-              @if (guides()) {
-                <div
-                  class="guides"
-                  aria-hidden="true"
-                  [style.left.%]="safeArea.side * 100"
-                  [style.right.%]="safeArea.side * 100"
-                  [style.top.%]="safeArea.top * 100"
-                  [style.bottom.%]="safeArea.bottom * 100"
-                ></div>
-              }
-              @if (snapLines(); as lines) {
-                @if (lines.x !== null) {
-                  <div class="snap-line snap-line--x" aria-hidden="true" [style.left.%]="lines.x * 100"></div>
-                }
-                @if (lines.y !== null) {
-                  <div class="snap-line snap-line--y" aria-hidden="true" [style.top.%]="lines.y * 100"></div>
-                }
-              }
-            </div>
-            <div class="panel">
-              <!-- The Add menu, from the element-type registry and each type's studio descriptor (R8). -->
-              @for (row of addRows; track $index) {
-                <div class="row">
-                  @for (item of row; track item.entry.id) {
-                    @let limited = limitReached(item.entry);
-                    <button
-                      type="button"
-                      class="btn btn--secondary"
-                      [class.btn--sm]="item.entry.small"
-                      [id]="item.entry.id"
-                      [disabled]="d.elements.length >= maxElements || (item.entry.needsProject && !projectId())"
-                      [attr.aria-disabled]="limited ? 'true' : null"
-                      [attr.aria-describedby]="limited ? item.entry.limit?.hintId : null"
-                      (click)="addFromMenu(item.entry, item.type)"
-                    >
-                      <app-icon [name]="item.entry.icon" /> {{ item.entry.label }}
-                    </button>
-                  }
-                </div>
-              }
-              @for (limit of reachedLimits(); track limit.hintId) {
-                <p class="field__hint" [id]="limit.hintId">{{ limit.hint }}</p>
-              }
-              <section class="field" aria-labelledby="layers-title">
-                <h4 class="field__label" id="layers-title">Layers</h4>
-                <p class="field__hint" id="layers-hint">
-                  Top layer first. The up and down arrows move between layers, left and right between a layer's
-                  controls. {{ multiHint }} adds a layer to the selection.
-                </p>
-                @if (layerRows().length === 0) {
-                  <p class="muted">No layers yet.</p>
-                } @else {
-                  <div
-                    class="layers"
-                    role="grid"
-                    aria-labelledby="layers-title"
-                    aria-describedby="layers-hint"
-                    aria-multiselectable="true"
-                  >
-                    @for (row of layerRows(); track row.el.id) {
-                      <div
-                        class="layer"
-                        role="row"
-                        [class.is-selected]="isSelected(row.el.id)"
-                        [class.is-hidden]="row.el.hidden"
-                        [attr.aria-selected]="isSelected(row.el.id)"
-                      >
-                        <div
-                          role="gridcell"
-                          class="layer__select"
-                          [id]="'layer-' + row.el.id"
-                          [attr.tabindex]="tabIndex(row.el.id, 0)"
-                          [attr.aria-keyshortcuts]="keyShortcuts"
-                          (click)="pick($event, row.el.id)"
-                          (focus)="activate(row.el.id, 0)"
-                          (keydown)="onCellKey($event, row.el, 0)"
-                          (contextmenu)="openMenuAt($event, row.el, 'list')"
-                        >
-                          <span class="layer__line">
-                            <app-icon [name]="row.el.type" />
-                            <span class="visually-hidden">{{ kind(row.el) }}: </span>
-                            <span class="layer__name"
-                              >@if (row.glyph) {<span aria-hidden="true">{{ row.glyph }} </span>}{{ row.spoken }}</span
-                            >
-                            @if (row.order) {
-                              <!-- Where screen readers and Tab meet it on the sample page (AD-15, R12). -->
-                              <span class="layer__order" title="Reading order"
-                                ><span class="visually-hidden">, read </span>#{{ row.order }}</span
-                              >
-                            }
-                          </span>
-                          <span class="layer__state" [id]="'layer-state-' + row.el.id">
-                            @if (row.el.hidden) {
-                              <span>Hidden</span>
-                            }
-                            @if (row.el.locked) {
-                              <span>Locked</span>
-                            }
-                            @if (row.outside) {
-                              <span class="layer__warning"><app-icon name="alert" /> Outside safe area</span>
-                            }
-                            @if (row.lowContrast) {
-                              <span class="layer__warning"><app-icon name="alert" /> Low contrast</span>
-                            }
-                            @if (row.missingAlt) {
-                              <span class="layer__warning"><app-icon name="alert" /> Needs alt text</span>
-                            }
-                            @if (row.missingLink) {
-                              <span class="layer__warning"><app-icon name="alert" /> Needs a web address</span>
-                            }
-                            @if (row.smallTarget) {
-                              <span class="layer__warning"><app-icon name="alert" /> Small target</span>
-                            }
-                            @if (row.longVideo) {
-                              <span class="layer__warning"><app-icon name="alert" /> Longer than 15 s</span>
-                            }
-                          </span>
-                        </div>
-                        <div role="gridcell">
-                          <button
-                            type="button"
-                            class="btn btn--ghost layer__toggle"
-                            [id]="'layer-hide-' + row.el.id"
-                            [attr.tabindex]="tabIndex(row.el.id, 1)"
-                            [attr.aria-label]="'Hide ' + row.spoken"
-                            [attr.aria-pressed]="row.el.hidden"
-                            aria-keyshortcuts="H"
-                            (click)="run('hide', 'list', 'layer-hide-' + row.el.id, row.el.id)"
-                            (focus)="activate(row.el.id, 1)"
-                            (keydown)="onCellKey($event, row.el, 1)"
-                            (contextmenu)="openMenuAt($event, row.el, 'list')"
-                          >
-                            <app-icon [name]="row.el.hidden ? 'eye-off' : 'eye'" />
-                          </button>
-                        </div>
-                        <div role="gridcell">
-                          <button
-                            type="button"
-                            class="btn btn--ghost layer__toggle"
-                            [id]="'layer-lock-' + row.el.id"
-                            [attr.tabindex]="tabIndex(row.el.id, 2)"
-                            [attr.aria-label]="'Lock ' + row.spoken"
-                            [attr.aria-pressed]="row.el.locked"
-                            aria-keyshortcuts="L"
-                            (click)="run('lock', 'list', 'layer-lock-' + row.el.id, row.el.id)"
-                            (focus)="activate(row.el.id, 2)"
-                            (keydown)="onCellKey($event, row.el, 2)"
-                            (contextmenu)="openMenuAt($event, row.el, 'list')"
-                          >
-                            <app-icon [name]="row.el.locked ? 'lock' : 'unlock'" />
-                          </button>
-                        </div>
-                        <div role="gridcell">
-                          <button
-                            type="button"
-                            class="btn btn--ghost layer__toggle"
-                            [id]="'layer-more-' + row.el.id"
-                            [attr.tabindex]="tabIndex(row.el.id, 3)"
-                            [attr.aria-label]="'More actions for ' + row.spoken"
-                            aria-haspopup="menu"
-                            [attr.aria-expanded]="menu()?.returnId === 'layer-more-' + row.el.id"
-                            (click)="openMenuFrom($any($event.currentTarget), row.el)"
-                            (focus)="activate(row.el.id, 3)"
-                            (keydown)="onCellKey($event, row.el, 3)"
-                            (contextmenu)="openMenuAt($event, row.el, 'list')"
-                          >
-                            <app-icon name="more" />
-                          </button>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                }
-              </section>
-              @if (selected(); as el) {
-                <fieldset class="field selected">
-                  <legend class="field__label">Selected {{ kind(el).toLowerCase() }}</legend>
-                  @if (el.locked) {
-                    <p class="field__hint">{{ lockedHint }}</p>
-                  }
-                  @if (el.type === 'text') {
-                    <div class="field">
-                      <label class="field__label" for="studio-text">Text</label>
-                      <textarea
-                        id="studio-text"
-                        class="input"
-                        aria-describedby="studio-text-hint"
-                        [readOnly]="el.locked"
-                        [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
-                        [value]="el.props.text"
-                        (input)="typeText(el.id, $any($event.target))"
-                        (blur)="sealHistory()"
-                      ></textarea>
-                      <span class="field__hint" id="studio-text-hint">
-                        {{ textNotice() || 'Up to ' + maxText.toLocaleString('en') + ' characters.' }}
-                      </span>
-                    </div>
-                  }
-                  @if (el.type !== 'swipe-up') {
-                    <div class="row">
-                      <div class="field">
-                        <label class="field__label" for="studio-x">Left (%)</label>
-                        <input
-                          id="studio-x"
-                          class="input"
-                          type="number"
-                          min="0"
-                          [attr.max]="maxPercent(el.box.w)"
-                          step="1"
-                          [readOnly]="el.locked"
-                          [value]="percent(el.box.x)"
-                          (change)="setPosition(el.id, 'x', $any($event.target))"
-                        />
-                      </div>
-                      <div class="field">
-                        <label class="field__label" for="studio-y">Top (%)</label>
-                        <input
-                          id="studio-y"
-                          class="input"
-                          type="number"
-                          min="0"
-                          [attr.max]="maxPercent(el.box.h)"
-                          step="1"
-                          [readOnly]="el.locked"
-                          [value]="percent(el.box.y)"
-                          (change)="setPosition(el.id, 'y', $any($event.target))"
-                        />
-                      </div>
-                    </div>
-                    <div class="row">
-                      <div class="field">
-                        <label class="field__label" for="studio-w">Width (%)</label>
-                        <input
-                          id="studio-w"
-                          class="input"
-                          type="number"
-                          min="1"
-                          max="100"
-                          step="1"
-                          [readOnly]="el.locked"
-                          [value]="percent(el.box.w)"
-                          (change)="setSize(el.id, 'w', $any($event.target))"
-                        />
-                      </div>
-                      <div class="field">
-                        <label class="field__label" for="studio-h">Height (%)</label>
-                        <input
-                          id="studio-h"
-                          class="input"
-                          type="number"
-                          min="1"
-                          max="100"
-                          step="1"
-                          [readOnly]="el.locked"
-                          [value]="percent(el.box.h)"
-                          (change)="setSize(el.id, 'h', $any($event.target))"
-                        />
-                      </div>
-                      <div class="field">
-                        <label class="field__label" for="studio-rotation">Rotation (°)</label>
-                        <input
-                          id="studio-rotation"
-                          class="input"
-                          type="number"
-                          min="-180"
-                          max="180"
-                          step="1"
-                          [readOnly]="el.locked"
-                          [value]="el.box.rotation"
-                          (change)="setRotation(el.id, $any($event.target))"
-                        />
-                      </div>
-                    </div>
-                  }
-                  @if (el.type === 'shape') {
-                    <app-tale-shape-style
-                      [element]="el"
-                      [locked]="el.locked"
-                      (changed)="restyleElement(el.id, $event)"
-                      (notice)="say($event)"
-                    />
-                  } @else if (el.type === 'button' || el.type === 'image-button' || el.type === 'swipe-up') {
-                    <app-tale-link-style
-                      [element]="el"
-                      [locked]="el.locked"
-                      [lockedHint]="lockedHint"
-                      [backdrop]="selectedBackdrop()"
-                      (changed)="restyleElement(el.id, $event)"
-                      (notice)="say($event)"
-                      (replace)="openPicker('replace', 'image', el.id, false, true)"
-                    />
-                  } @else if (fieldsTypeOf(el); as configured) {
-                    <app-tale-fields-inspector
-                      [element]="el"
-                      [type]="configured"
-                      [locked]="el.locked"
-                      (changed)="restyleElement(el.id, $event)"
-                    />
-                  } @else if (el.type === 'emoji') {
-                    <app-tale-emoji-style
-                      [element]="el"
-                      [locked]="el.locked"
-                      [lockedHint]="lockedHint"
-                      (changed)="restyleElement(el.id, $event)"
-                      (notice)="say($event)"
-                      (replace)="openEmojiPicker(el.id)"
-                    />
-                  } @else if (isMedia(el)) {
-                    <app-tale-media-style
-                      [element]="el"
-                      [videoSeconds]="
-                        el.type === 'video' && el !== stageMedia()
-                          ? (videoSeconds().get(el.props.mediaKey) ?? null)
-                          : null
-                      "
-                      [locked]="el.locked"
-                      [lockedHint]="lockedHint"
-                      (changed)="restyleElement(el.id, $event)"
-                      (notice)="say($event)"
-                      (replace)="
-                        openPicker('replace', el.type === 'video' ? 'video' : 'image', el.id, el.type === 'sticker')
-                      "
-                    />
-                    @if (isTaleMedia(el)) {
-                      <p class="field__hint" id="studio-tale-media-hint">
-                        @if (el === stageMedia()) {
-                          This is the tale's media: it fills the stage and plays as before{{
-                            el.type === 'video' ? ', with sound and for its whole length' : ''
-                          }}. Moving, resizing, rotating, rounding or fading it makes it a layer like any other{{
-                            el.type === 'video' ? ' (muted, at most 15 seconds)' : ''
-                          }}.
-                        } @else {
-                          This is the tale's media, now a layer like any other. At the bottom, filling the canvas, it
-                          plays as the tale's media again.
-                        }
-                      </p>
-                    }
-                  } @else if (el.type === 'text') {
-                    <app-tale-text-style
-                      [elementId]="el.id"
-                      [props]="el.props"
-                      [locked]="el.locked"
-                      [themeFont]="themeFont()"
-                      [backdrop]="selectedBackdrop()"
-                      [projectFonts]="projectFonts()"
-                      [projectId]="projectId() ?? null"
-                      (changed)="restyle(el.id, $event)"
-                      (notice)="say($event)"
-                    />
-                  } @else {
-                    <!-- A type this studio has no descriptor for (R8): kept as it is; it can be moved or deleted. -->
-                    <p class="field__hint" id="studio-unknown-type-hint">
-                      This layer's type can't be edited here. It stays in the tale as it is; you can move or delete it.
-                    </p>
-                  }
-                  <div class="row">
-                    <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">
-                      Delete {{ kind(el).toLowerCase() }}
-                    </button>
-                  </div>
-                </fieldset>
-              } @else if (selection().length > 1) {
-                <fieldset class="field selected">
-                  <legend class="field__label">{{ selection().length }} layers selected</legend>
-                  <p class="field__hint">
-                    Move them together with the arrow keys or by dragging one of them; reorder them from the layers
-                    list.
-                  </p>
-                  <div class="row">
-                    <button type="button" class="btn btn--ghost btn--sm" (click)="run('delete', 'list', 'studio-add')">
-                      Delete {{ selection().length }} layers
-                    </button>
-                  </div>
-                </fieldset>
-              }
-              <fieldset class="field selected">
-                <legend class="field__label">Canvas</legend>
-                <div class="row">
-                  <div class="field">
-                    <label class="field__label" for="studio-bg">Background colour</label>
-                    <input
-                      id="studio-bg"
-                      class="input"
-                      type="color"
-                      aria-describedby="studio-bg-hint"
-                      [value]="d.canvas.background.color.slice(0, 7).toLowerCase()"
-                      (change)="setBackground($any($event.target).value)"
-                    />
-                  </div>
-                  <div class="field">
-                    <label class="field__label" for="studio-bg-hex">Hex value</label>
-                    <input
-                      id="studio-bg-hex"
-                      class="input input--mono"
-                      type="text"
-                      spellcheck="false"
-                      autocomplete="off"
-                      [attr.aria-describedby]="hexError() ? 'studio-bg-hint studio-bg-error' : 'studio-bg-hint'"
-                      [attr.aria-invalid]="hexError() ? 'true' : null"
-                      [value]="d.canvas.background.color"
-                      (change)="setBackgroundHex($any($event.target))"
-                    />
-                  </div>
-                </div>
-                <span class="field__hint" id="studio-bg-hint">
-                  @if (d.canvas.background.type === 'media') {
-                    As #RRGGBB, or #RRGGBBAA with transparency. It fills the bands the background image leaves, and
-                    shows until the image does.
-                  } @else {
-                    As #RRGGBB, or #RRGGBBAA with transparency. It fills the canvas behind the tale's media.
-                  }
-                </span>
-                @if (hexError()) {
-                  <span class="field__error" id="studio-bg-error">{{ hexError() }}</span>
-                }
-                <div class="row">
-                  <button
-                    type="button"
-                    class="btn btn--secondary btn--sm"
-                    id="studio-bg-media"
-                    [disabled]="!projectId()"
-                    (click)="openPicker('background', 'image')"
-                  >
-                    @if (d.canvas.background.type === 'media') {
-                      Choose another background image…
-                    } @else {
-                      Background image…
-                    }
-                  </button>
-                  @if (d.canvas.background.type === 'media') {
-                    <button
-                      type="button"
-                      class="btn btn--ghost btn--sm"
-                      id="studio-bg-media-remove"
-                      (click)="removeBackgroundMedia()"
-                    >
-                      Remove background image
-                    </button>
-                  }
-                </div>
-                @if (d.canvas.background.type === 'media') {
-                  <div class="field">
-                    <label class="field__label" for="studio-bg-fit">Background image fit</label>
-                    <select id="studio-bg-fit" class="input" (change)="setBackgroundFit($any($event.target).value)">
-                      @for (fit of fits; track fit) {
-                        <option [value]="fit" [selected]="fit === d.canvas.background.fit">{{ fitNames[fit] }}</option>
-                      }
-                    </select>
-                  </div>
-                }
-                <div class="field">
-                  <label class="field__label" for="studio-duration">Duration (seconds)</label>
-                  <input
-                    id="studio-duration"
-                    class="input"
-                    type="number"
-                    [min]="minDuration"
-                    [max]="maxDuration"
-                    step="0.5"
-                    aria-describedby="studio-duration-hint"
-                    [readOnly]="hasVideo()"
-                    [value]="durationSeconds()"
-                    (change)="setDuration($any($event.target))"
-                  />
-                  <span class="field__hint" id="studio-duration-hint">
-                    @if (hasVideo()) {
-                      The tale plays for its video's length.
-                    } @else {
-                      How long the tale shows, from {{ minDuration }} to {{ maxDuration }} seconds.
-                    }
-                  </span>
-                </div>
-                <label class="checkbox">
-                  <input type="checkbox" [checked]="guides()" (change)="showGuides($any($event.target).checked)" />
-                  Show safe areas
-                </label>
-              </fieldset>
-            </div>
-            @if (previewOpen()) {
-              <!-- The Web SDK's own viewer on the unsaved document (R10, AD-16). -->
-              <app-tale-preview
-                id="studio-preview-pane"
-                [document]="d"
-                [taleId]="taleId()"
-                [projectId]="projectId()"
-                [title]="tale()?.title ?? ''"
-                [groupName]="groupName()"
-                [theme]="projectTheme()"
-                [fonts]="projectFonts()"
-              />
-            }
-          </div>
-          <p class="visually-hidden" aria-live="polite">{{ announcement() }}</p>
-          @if (picker(); as p) {
-            @if (projectId(); as projectId) {
-              <app-tale-media-picker
-                [projectId]="projectId"
-                [kind]="p.kind"
-                [heading]="p.heading"
-                [stickers]="p.sticker"
-                [currentKey]="p.currentKey"
-                [returnFocus]="p.returnFocus"
-                (chosen)="pickedMedia($event)"
-                (closed)="closePicker()"
-              />
-            }
-          }
-          @if (emojiPicker(); as e) {
-            <app-tale-emoji-picker
-              [heading]="e.heading"
-              [current]="e.current"
-              [returnFocus]="e.returnFocus"
-              (chosen)="pickedEmoji($event)"
-              (closed)="emojiPicker.set(null)"
-            />
-          }
-          @if (menu(); as m) {
-            <app-tale-layer-menu
-              [items]="m.items"
-              [x]="m.x"
-              [y]="m.y"
-              [anchorId]="m.returnId"
-              (chosen)="menuChosen($event)"
-              (closed)="closeMenu($event)"
-            />
-          }
-        </section>
-      } @else if (error()) {
-        <p class="form-error" role="alert">{{ error() }}</p>
-      } @else {
-        <p class="muted">Loading the tale…</p>
-      }
-    </div>
-  `,
+  templateUrl: './tale-studio.html',
+  // The page's own layout, then the canvas and its layers (two files under the 4 kB style budget).
+  styleUrls: ['./tale-studio.css', './tale-studio-canvas.css'],
 })
 export class TaleStudioPage implements OnChanges {
   protected readonly store = inject(DashboardStore);
@@ -1854,6 +462,8 @@ export class TaleStudioPage implements OnChanges {
    * (`backdropKey`); null when they cannot be read. A label whose key is missing is being read.
    */
   private readonly samples = signal<BackdropResults>(new Map());
+  /** The colours read behind the label with this key (read where needed, so only labels over media track them). */
+  private readonly sample: SampleLookup = (key) => this.samples().get(key);
   private readonly sampler = inject(TaleBackdropSampler);
   private readonly reads = new BackdropReads(
     (doc, index) => {
@@ -1891,7 +501,7 @@ export class TaleStudioPage implements OnChanges {
         // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design, as the
         // swipe-up link sits in the bottom safe area (R7).
         outside: el !== this.stageMedia() && el.type !== 'swipe-up' && isOutsideSafeArea(el.box),
-        lowContrast: this.isLowContrast(this.doc(), i, this.backdrop()),
+        lowContrast: isLowContrast(this.doc(), i, this.backdrop(), this.sample),
         // An image, video or sticker without alt text or the decorative mark, or an image button
         // without alt text, keeps the tale from being updated (R12).
         missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
@@ -2575,7 +1185,7 @@ export class TaleStudioPage implements OnChanges {
     return layerSpokenName(element, this.doc()?.elements ?? [element]).spoken;
   }
 
-  protected kind(element: { type: TaleElement['type'] }): string {
+  protected kind(element: { type: TaleElementType }): string {
     return kindName(element);
   }
 
@@ -2583,33 +1193,14 @@ export class TaleStudioPage implements OnChanges {
   protected backdropOf(id: string): TextBackdrop {
     const doc = this.doc();
     const index = doc?.elements.findIndex((e) => e.id === id) ?? -1;
-    return doc ? this.labelBackdrop(doc, index, this.backdrop()) : this.backdrop();
-  }
-
-  /**
-   * What lies behind the label at `index` of `doc` (R12): the contract's colour when it can work
-   * one out, else the colours read from the layers below it (see `TaleBackdropSampler`).
-   */
-  private labelBackdrop(doc: TaleDocument, index: number, base: TextBackdrop): TextBackdrop {
-    const backdrop = textBackdropAt(doc.elements, index, base);
-    const label = doc.elements[index];
-    // Wholly off the canvas, no one sees it: nothing to judge.
-    if (label && isOffCanvas(label.box)) return { ...backdrop, offCanvas: true };
-    return backdrop.overMedia ? { ...backdrop, samples: this.samples().get(backdropKey(doc, index)) } : backdrop;
+    return doc ? labelBackdrop(doc, index, this.backdrop(), this.sample) : this.backdrop();
   }
 
   /** Asks for the colours behind each label over media, for what lies behind it now (see `BackdropReads`). */
   private requestReads(): void {
     const doc = this.doc();
     if (!doc || !this.projectId()) return;
-    const base = this.backdrop();
-    const wanted: WantedRead[] = [];
-    doc.elements.forEach((element, index) => {
-      if (element.hidden || !hasLabel(element) || isOffCanvas(element.box)) return;
-      if (!textBackdropAt(doc.elements, index, base).overMedia) return;
-      wanted.push({ key: backdropKey(doc, index), index });
-    });
-    this.reads.update(doc, wanted);
+    this.reads.update(doc, wantedReads(doc, this.backdrop()));
   }
 
   /** How the canvas draws a shape, kept per props object. */
@@ -2640,9 +1231,7 @@ export class TaleStudioPage implements OnChanges {
     return projectId ? projectMediaSrc(projectId, key) : '';
   }
 
-  protected percent(value: number): number {
-    return Math.round(value * 1000) / 10;
-  }
+  protected readonly percent = percent;
 
   protected maxPercent(size: number): number {
     return this.percent(1 - size);
@@ -2691,42 +1280,6 @@ export class TaleStudioPage implements OnChanges {
     // Cleared first, so the same message twice is announced twice.
     this.announcement.set('');
     setTimeout(() => this.announcement.set(said), 0);
-  }
-
-  /** True when the label of the element at `index` (a text, a button or the swipe-up link) has low contrast (R7, R12). */
-  private isLowContrast(doc: TaleDocument | null, index: number, base: TextBackdrop): boolean {
-    const element = doc?.elements[index];
-    const style = element ? labelStyleOf(element) : null;
-    return !!doc && style !== null && textContrast(style, this.labelBackdrop(doc, index, base)).kind === 'low';
-  }
-
-  /** The ids of the texts and links of `doc` with low contrast against what lies behind each (R7, R12). */
-  private lowContrastIds(doc: TaleDocument): Set<string> {
-    const base: TextBackdrop = {
-      canvasColor: doc.canvas.background.color,
-      // The tale's own media (R16) is an element, which `textBackdropAt` meets on its way down.
-      overMedia: doc.canvas.background.type === 'media',
-    };
-    const low = new Set<string>();
-    doc.elements.forEach((e, i) => {
-      if (!e.hidden && this.isLowContrast(doc, i, base)) low.add(e.id);
-    });
-    return low;
-  }
-
-  // What a change did to the contrast of texts other than the one being restyled (which says it
-  // itself): a move, reorder, hide or restyle of another layer can turn a text's verdict (R12).
-  private contrastChange(before: TaleDocument, next: TaleDocument): string {
-    const was = this.lowContrastIds(before);
-    const now = this.lowContrastIds(next);
-    const notes: string[] = [];
-    next.elements.forEach((e, i) => {
-      if (labelStyleOf(e) === null || e.id === this.restylingId || was.has(e.id) === now.has(e.id)) return;
-      if (!now.has(e.id) && !before.elements.some((b) => b.id === e.id)) return;
-      const name = elementName(next.elements, i);
-      notes.push(now.has(e.id) ? `"${name}" now has low contrast.` : `"${name}" has enough contrast now.`);
-    });
-    return notes.join(' ');
   }
 
   // When the tale's own media (R16) stops or starts being drawn full-bleed, what that does to how it
@@ -2779,7 +1332,7 @@ export class TaleStudioPage implements OnChanges {
       return false;
     }
     this.history.record(label, before, next, mergeKey);
-    this.contrastNote = [this.contrastChange(before, next), this.stageMediaChange(before, next)]
+    this.contrastNote = [contrastChange(before, next, this.restylingId, this.sample), this.stageMediaChange(before, next)]
       .filter(Boolean)
       .join(' ');
     // Said with the change's own announcement; alone when the change says nothing.
@@ -3091,21 +1644,17 @@ export class TaleStudioPage implements OnChanges {
   // Shift+Space, Ctrl+Space or Cmd+Space adds the layer to the selection or takes it out; true when it was one.
   private selectionKey(event: KeyboardEvent, id: string): boolean {
     this.keyToggled = false;
-    if (event.key !== ' ' || !(event.shiftKey || event.ctrlKey || event.metaKey)) return false;
+    if (!isSelectionKey(event)) return false;
     event.preventDefault();
     this.keyToggled = true;
     this.toggleSelected(id);
     return true;
   }
 
-  /**
-   * Shift+F10 or the context-menu key opens the layer actions below the control; true when it was
-   * one. Browsers turn these keys into a `contextmenu` event only on some systems (not on a Mac), so
-   * the studio answers the keys itself (WCAG 2.1.1, story 7.15); handled here, no event follows.
-   */
+  // Shift+F10 or the context-menu key (`isMenuKey`) opens the layer actions below the control;
+  // true when it was one. Handled here, so no `contextmenu` event follows.
   private menuKey(event: KeyboardEvent, element: TaleElement, origin: Origin): boolean {
-    const shiftF10 = event.key === 'F10' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-    if (!shiftF10 && event.key !== 'ContextMenu') return false;
+    if (!isMenuKey(event)) return false;
     event.preventDefault();
     if (!this.isSelected(element.id)) this.selectOnly(element.id);
     const control = event.currentTarget as HTMLElement;
@@ -3171,15 +1720,8 @@ export class TaleStudioPage implements OnChanges {
   protected onKey(event: KeyboardEvent, element: TaleElement): void {
     if (this.menuKey(event, element, 'canvas')) return;
     if (this.shortcut(event, element, 'canvas') || this.selectionKey(event, element.id)) return;
-    const step = event.shiftKey ? MOVE_STEP * 10 : MOVE_STEP;
-    const moves: Record<string, [number, number]> = {
-      ArrowLeft: [-step, 0],
-      ArrowRight: [step, 0],
-      ArrowUp: [0, -step],
-      ArrowDown: [0, step],
-    };
-    const move = moves[event.key];
-    if (move && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    const move = arrowMove(event, event.shiftKey ? MOVE_STEP * 10 : MOVE_STEP);
+    if (move) {
       event.preventDefault();
       if (!this.isSelected(element.id)) this.selectOnly(element.id);
       // An arrow held down is one step; each press is a step of its own.

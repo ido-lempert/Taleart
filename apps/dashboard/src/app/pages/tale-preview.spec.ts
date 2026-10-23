@@ -10,6 +10,7 @@ import { PREVIEW_REDRAW_MS } from '@taleart/web-sdk/preview';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { TalePreviewPane } from './tale-preview';
 import { TaleStudioPage } from './tale-studio';
+import { settle, WAIT_FOR_TEST } from './tale-studio.testing';
 
 // Tale Studio story 7.9 (R10, AD-16): the preview mounts the Web SDK's viewer on the unsaved document.
 
@@ -49,14 +50,6 @@ const DOC = {
     { ...base, id: 'hid', type: 'text', box: box(0.8), hidden: true, props: { text: 'Hidden layer' } },
   ],
 } as unknown as TaleDocument;
-
-const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
-
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
-  await fixture.whenStable();
-  await new Promise((resolve) => setTimeout(resolve));
-  fixture.detectChanges();
-}
 
 describe('Tale Studio preview (epic Tale Studio R10)', () => {
   let http: HttpTestingController;
