@@ -134,6 +134,7 @@ import {
   type EmojiChoice,
 } from './tale-shapes';
 import {
+  arrowMove,
   boundsOf,
   clamp,
   clampMove,
@@ -143,6 +144,8 @@ import {
   hiddenUnder,
   historyShortcut,
   isApple,
+  isMenuKey,
+  isSelectionKey,
   isTextEntry,
   LAYER_KEYSHORTCUTS,
   layerName,
@@ -234,8 +237,10 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
 }
 
 /**
- * Tale Studio (epic Tale Studio stories 1 to 3): a tale on a 9:16 canvas with its media over the
- * canvas colour, where a content manager adds text elements, types their text in place, moves
+ * Tale Studio (epic Tale Studio): a tale on a 9:16 canvas with its media over the canvas colour,
+ * where a content manager adds elements of every registered type (texts, media, shapes, emoji,
+ * stickers, buttons and the swipe-up link; their inspectors, the canvas views in
+ * `tale-canvas-view.ts`, the layer logic in `tale-layers.ts`), types texts in place, moves
  * them by dragging (snapping to the centre, the safe-area edges and other elements), by the arrow
  * keys (Shift for larger steps) or by position fields, arranges them in a layers list (select,
  * reorder, hide, lock, duplicate, delete, from the row, an actions menu or the keyboard), sets
@@ -1698,21 +1703,17 @@ export class TaleStudioPage implements OnChanges {
   // Shift+Space, Ctrl+Space or Cmd+Space adds the layer to the selection or takes it out; true when it was one.
   private selectionKey(event: KeyboardEvent, id: string): boolean {
     this.keyToggled = false;
-    if (event.key !== ' ' || !(event.shiftKey || event.ctrlKey || event.metaKey)) return false;
+    if (!isSelectionKey(event)) return false;
     event.preventDefault();
     this.keyToggled = true;
     this.toggleSelected(id);
     return true;
   }
 
-  /**
-   * Shift+F10 or the context-menu key opens the layer actions below the control; true when it was
-   * one. Browsers turn these keys into a `contextmenu` event only on some systems (not on a Mac), so
-   * the studio answers the keys itself (WCAG 2.1.1, story 7.15); handled here, no event follows.
-   */
+  // Shift+F10 or the context-menu key (`isMenuKey`) opens the layer actions below the control;
+  // true when it was one. Handled here, so no `contextmenu` event follows.
   private menuKey(event: KeyboardEvent, element: TaleElement, origin: Origin): boolean {
-    const shiftF10 = event.key === 'F10' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-    if (!shiftF10 && event.key !== 'ContextMenu') return false;
+    if (!isMenuKey(event)) return false;
     event.preventDefault();
     if (!this.isSelected(element.id)) this.selectOnly(element.id);
     const control = event.currentTarget as HTMLElement;
@@ -1778,15 +1779,8 @@ export class TaleStudioPage implements OnChanges {
   protected onKey(event: KeyboardEvent, element: TaleElement): void {
     if (this.menuKey(event, element, 'canvas')) return;
     if (this.shortcut(event, element, 'canvas') || this.selectionKey(event, element.id)) return;
-    const step = event.shiftKey ? MOVE_STEP * 10 : MOVE_STEP;
-    const moves: Record<string, [number, number]> = {
-      ArrowLeft: [-step, 0],
-      ArrowRight: [step, 0],
-      ArrowUp: [0, -step],
-      ArrowDown: [0, step],
-    };
-    const move = moves[event.key];
-    if (move && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    const move = arrowMove(event, event.shiftKey ? MOVE_STEP * 10 : MOVE_STEP);
+    if (move) {
       event.preventDefault();
       if (!this.isSelected(element.id)) this.selectOnly(element.id);
       // An arrow held down is one step; each press is a step of its own.

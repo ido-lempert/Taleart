@@ -285,6 +285,33 @@ export function layerShortcut(event: KeyboardEvent, apple = isApple()): LayerCom
   return null;
 }
 
+/**
+ * Shift+F10 or the context-menu key, which open a layer's actions menu. Browsers turn these keys
+ * into a `contextmenu` event only on some systems (not on a Mac), so the studio answers them itself
+ * (WCAG 2.1.1, story 7.15).
+ */
+export function isMenuKey(event: KeyboardEvent): boolean {
+  const shiftF10 = event.key === 'F10' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+  return shiftF10 || event.key === 'ContextMenu';
+}
+
+/** Shift+Space, Ctrl+Space or Cmd+Space, which add a layer to the selection or take it out. */
+export function isSelectionKey(event: KeyboardEvent): boolean {
+  return event.key === ' ' && (event.shiftKey || event.ctrlKey || event.metaKey);
+}
+
+/** How far an arrow key without Alt, Ctrl or Cmd moves the selection, `step` along its axis; null for any other key. */
+export function arrowMove(event: KeyboardEvent, step: number): [number, number] | null {
+  if (event.altKey || event.ctrlKey || event.metaKey) return null;
+  const moves: Record<string, [number, number]> = {
+    ArrowLeft: [-step, 0],
+    ArrowRight: [step, 0],
+    ArrowUp: [0, -step],
+    ArrowDown: [0, step],
+  };
+  return moves[event.key] ?? null;
+}
+
 /** How each shortcut reads, with the Mac symbols on a Mac. */
 export function shortcutLabel(command: LayerCommand, apple = isApple()): string {
   const alt = apple ? '⌥' : 'Alt+';
