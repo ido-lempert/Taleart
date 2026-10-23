@@ -50,6 +50,13 @@ data class DeliveryTaleGroup(
     val id: String = "",
     /** The group's title. */
     val name: String = "",
+    /**
+     * The names of the group's targeting tags (epic targeting R2), empty when it has none. Read for
+     * the contract; the mobile SDKs do not target by tag yet, so every group shows.
+     */
+    val tags: List<String> = emptyList(),
+    /** How the tags combine: `any` (the default) or `all`. */
+    val tagMatch: String = "any",
     /** The group's cover, or null when it has none. */
     val cover: DeliveryCover? = null,
     /** The group's published tales by position. */
@@ -92,6 +99,12 @@ data class DeliveryCover(
 @Serializable
 data class DeliveryFont(
     val id: String = "",
+    /**
+     * The face's family name, as the project stores it; empty from servers before story 9.8.
+     * Mobile SDKs draw the text in a font the host app installed under this name (they never
+     * download project fonts), else its fallback stack.
+     */
+    val family: String = "",
     val url: String = "",
     val weight: Int = 400,
     /** `normal` or `italic`. */
@@ -111,6 +124,8 @@ internal fun readZone(body: JsonObject): DeliveryZone = DeliveryZone(
         DeliveryTaleGroup(
             id = group.string("id"),
             name = group.string("name"),
+            tags = (group["tags"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
+            tagMatch = group.string("tagMatch", "any").takeIf { it == "any" || it == "all" } ?: "any",
             cover = (group["cover"] as? JsonObject)?.let { cover ->
                 DeliveryCover(
                     kind = cover.string("kind"),
@@ -130,6 +145,7 @@ internal fun readZone(body: JsonObject): DeliveryZone = DeliveryZone(
                     fonts = tale.objects("fonts").map { font ->
                         DeliveryFont(
                             id = font.string("id"),
+                            family = font.string("family"),
                             url = font.string("url"),
                             weight = (font["weight"] as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull ?: 400,
                             style = font.string("style", "normal"),

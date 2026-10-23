@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TaleArt SDK finds the fonts content names by resource name only (story 9.8): a release
+     build that shrinks resources must keep them. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@font/*" />

@@ -228,7 +228,7 @@ describe('TaleViewer with project fonts (epic Tale Studio R18)', () => {
     };
     return {
       ...tale(id, { ...base, elements: [element] }),
-      fonts: [{ id: FONT_ID, url: FONT_URL, weight: 700, style: 'italic' }],
+      fonts: [{ id: FONT_ID, family: 'Brand Sans', url: FONT_URL, weight: 700, style: 'italic' }],
     };
   };
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -300,7 +300,7 @@ describe('TaleViewer with project fonts (epic Tale Studio R18)', () => {
     host.replaceChildren();
     const unsafe = {
       ...branded('t2'),
-      fonts: [{ id: FONT_ID, url: 'javascript:alert(1)', weight: 700, style: 'italic' }],
+      fonts: [{ id: FONT_ID, family: 'Brand Sans', url: 'javascript:alert(1)', weight: 700, style: 'italic' }],
     };
     viewer = new TaleViewer(host, [{ id: 'g', name: 'G', cover: null, tales: [unsafe as DeliveryTale] }]);
     viewer.open('g');

@@ -111,7 +111,7 @@ fun TaleartBar(
     val title = titleStyle.merge(
         TextStyle(
             color = parseHexColor(theme.titleColor) ?: titleStyle.color.takeOrElse(Color.Black),
-            fontFamily = fontFamilyOf(theme.fontFamily) ?: titleStyle.fontFamily,
+            fontFamily = rememberFontFamily(theme.fontFamily) ?: titleStyle.fontFamily,
             fontSize = 12.sp,
             lineHeight = 16.sp,
             textAlign = TextAlign.Center,
