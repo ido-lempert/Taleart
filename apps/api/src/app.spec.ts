@@ -2107,6 +2107,53 @@ describe('Management API v1: projects and zones', () => {
       }
     });
 
+    it('reads one tale group with its tales and tags, placed in no zone or in one (story 8.19)', async () => {
+      const { project, z2 } = await setup();
+      const loose = await (await post(`/projects/${project.id}/tale-groups`, { name: 'Loose' })).json();
+      const first = await (await post(`/tale-groups/${loose.id}/tales`, { title: 'One' })).json();
+      const second = await (await post(`/tale-groups/${loose.id}/tales`, { title: 'Two' })).json();
+      const tag = await (await post(`/projects/${project.id}/tags`, { name: 'Promo' })).json();
+      expect((await send('PUT', `/tale-groups/${loose.id}/tags`, { tagIds: [tag.id] })).status).toBe(200);
+      expect(
+        (await send('PUT', `/tale-groups/${loose.id}/tales/order`, { taleIds: [second.id, first.id] })).status,
+      ).toBe(200);
+
+      const res = await fetch(`${base}/tale-groups/${loose.id}`);
+      expect(res.status).toBe(200);
+      const read = await res.json();
+      expect(read).toMatchObject({
+        id: loose.id, projectId: project.id, name: 'Loose', storedStatus: 'draft', zoneIds: [],
+        tags: [{ id: tag.id, name: 'Promo' }],
+      });
+      expect(read.tales.map((t: { id: string; position: number }) => [t.id, t.position])).toEqual([
+        [second.id, 0],
+        [first.id, 1],
+      ]);
+      expect(read.visibility.reasons.map((r: { code: string }) => r.code)).toContain('not-in-any-zone');
+      expect(read.tales[0].visibility.visible).toBe(false);
+
+      // Placed in a zone, it lists that zone; the zone's list holds the same tales.
+      expect((await send('PUT', `/zones/${z2.id}/tale-groups/${loose.id}`)).status).toBe(201);
+      const placed = await (await fetch(`${base}/tale-groups/${loose.id}`)).json();
+      expect(placed.zoneIds).toEqual([z2.id]);
+      expect(placed.tales.map((t: { id: string }) => t.id)).toEqual([second.id, first.id]);
+
+      // Archived, it is still read, as archived, with its tales (the Tale groups page's Archived filter opens it).
+      expect((await send('PUT', `/tale-groups/${loose.id}/status`, { status: 'archived' })).status).toBe(200);
+      const archived = await fetch(`${base}/tale-groups/${loose.id}`);
+      expect(archived.status).toBe(200);
+      const archivedBody = await archived.json();
+      expect(archivedBody).toMatchObject({ id: loose.id, status: 'archived', storedStatus: 'archived' });
+      expect(archivedBody.tales).toHaveLength(2);
+      expect(archivedBody.visibility.visible).toBe(false);
+
+      for (const id of [unknownId, 'nope']) {
+        const missing = await fetch(`${base}/tale-groups/${id}`);
+        expect(missing.status).toBe(404);
+        expect((await missing.json()).error.code).toBe('tale_group_not_found');
+      }
+    });
+
     it('gives concurrent placements in one zone distinct, dense positions', async () => {
       const { project, z2 } = await setup();
       const z3 = await zoneIn(project.id, 'Elsewhere');
@@ -4023,6 +4070,21 @@ describe('Management API v1: projects and zones', () => {
       }
     });
 
+    it('lets a content manager read a tale group in no zone of their project, not of another (story 8.19)', async () => {
+      const { a, b } = await twoProjects();
+      const mine = await (await post(`/projects/${a.project.id}/tale-groups`, { name: 'Loose' })).json();
+      const theirs = await (await post(`/projects/${b.project.id}/tale-groups`, { name: 'Loose' })).json();
+      await signInAsContentManager([a.project.id]);
+      const read = await send('GET', `/tale-groups/${mine.id}`);
+      expect(read.status).toBe(200);
+      expect(await read.json()).toMatchObject({ id: mine.id, zoneIds: [], tales: [] });
+      for (const id of [theirs.id, b.group.id]) {
+        const refused = await send('GET', `/tale-groups/${id}`);
+        expect(refused.status).toBe(403);
+        expect((await refused.json()).error.code).toBe('forbidden');
+      }
+    });
+
     it('refuses every route on another project with 403 forbidden', async () => {
       const { a, b } = await twoProjects();
       await signInAsContentManager([a.project.id]);
@@ -4042,6 +4104,7 @@ describe('Management API v1: projects and zones', () => {
         ['DELETE', `/zones/${b.zone.id}/tale-groups/${b.group.id}`],
         ['GET', `/projects/${b.project.id}/tale-groups`],
         ['POST', `/projects/${b.project.id}/tale-groups`, { name: 'Mine' }],
+        ['GET', `/tale-groups/${b.group.id}`],
         ['PATCH', `/tale-groups/${b.group.id}`, { name: 'Mine' }],
         ['PUT', `/tale-groups/${b.group.id}/status`, { status: 'live' }],
         ['PUT', `/tales/${b.tale.id}/status`, { status: 'paused' }],

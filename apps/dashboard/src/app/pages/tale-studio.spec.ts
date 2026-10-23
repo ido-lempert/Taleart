@@ -146,6 +146,10 @@ describe('TaleStudioPage', () => {
     for (const read of http.match((r) => r.method === 'GET' && /\/tales\/[^/]+$/.test(r.url))) {
       read.flush({ visibility: { visible: true, reasons: [] } });
     }
+    // A tale the store's zone lists do not hold has its group read (story 8.19); not what these test.
+    for (const read of http.match((r) => r.method === 'GET' && /\/tale-groups\/[^/]+$/.test(r.url))) {
+      read.flush(null, { status: 404, statusText: 'Not Found' });
+    }
     http.verify();
     document.body.replaceChildren();
     vi.restoreAllMocks();
@@ -253,6 +257,102 @@ describe('TaleStudioPage', () => {
       fixture.componentRef.setInput('zone', 'z9');
       fixture.detectChanges();
       expect(back()?.getAttribute('href')).toBe('/zones/z1?group=g1');
+    });
+
+    it('reads the group of a tale in no zone and goes back to it on the Tale groups page (story 8.19)', async () => {
+      const store = TestBed.inject(DashboardStore);
+      store.taleGroups.set({});
+      fixture = TestBed.createComponent(TaleStudioPage);
+      fixture.componentRef.setInput('taleId', 't1');
+      fixture.detectChanges();
+      http.expectOne(url).flush(draftRead({ document: null, revision: 0 }));
+      await settle(fixture);
+      root = fixture.nativeElement as HTMLElement;
+      // No zone lists it: the studio does not know the tale yet.
+      expect(root.querySelector('#studio-duplicate')?.getAttribute('aria-disabled')).toBe('true');
+      const read = http.expectOne((r) => r.method === 'GET' && r.url === `${API_BASE}/tales/t1`);
+      read.flush({ ...tale, visibility: { visible: false, reasons: [{ code: 'not-in-any-zone', subject: 'group' }] } });
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g1`)
+        .flush({ ...group, zoneIds: [], tags: [], visibility: { visible: false, reasons: [] } });
+      await settle(fixture);
+      // Once the tale is known, its project's theme and fonts are read.
+      http.expectOne(`${API_BASE}/projects/p1/theme`).flush({ projectId: 'p1', theme: {}, resolved: DEFAULT_THEME });
+      http.expectOne(`${API_BASE}/projects/p1/fonts`).flush([]);
+      await settle(fixture);
+      expect(store.tale('t1')?.title).toBe('Beach');
+      expect(root.querySelector('.page-header__meta')?.textContent?.trim()).toBe('Beach');
+      expect(root.querySelector('#studio-duplicate')?.getAttribute('aria-disabled')).toBeNull();
+      const back = root.querySelector('a.back-link');
+      expect(back?.textContent?.trim()).toBe('Back to Summer');
+      expect(back?.getAttribute('href')).toBe('/tale-groups?group=g1');
+    });
+
+    it('reads the group of a tale in no zone only once the store is loaded, and releases it on close and on another tale (story 8.19)', async () => {
+      const store = TestBed.inject(DashboardStore);
+      store.taleGroups.set({});
+      store.loaded.set(false);
+      fixture = TestBed.createComponent(TaleStudioPage);
+      fixture.componentRef.setInput('taleId', 't1');
+      fixture.detectChanges();
+      http.expectOne(url).flush(draftRead({ document: null, revision: 0 }));
+      await settle(fixture);
+      http
+        .expectOne((r) => r.method === 'GET' && r.url === `${API_BASE}/tales/t1`)
+        .flush({ ...tale, visibility: { visible: false, reasons: [] } });
+      await settle(fixture);
+      // Not loaded yet: the zone lists may still list it, so its group is not read.
+      http.expectNone(`${API_BASE}/tale-groups/g1`);
+      store.loaded.set(true);
+      await settle(fixture);
+      const groupRead = { ...group, zoneIds: [], tags: [], visibility: { visible: false, reasons: [] } };
+      http.expectOne(`${API_BASE}/tale-groups/g1`).flush(groupRead);
+      await settle(fixture);
+      for (const req of http.match((r) => /\/projects\/p1\/(theme|fonts)$/.test(r.url))) {
+        req.flush(r(req.request.url));
+      }
+      expect(Object.keys(store.readGroups())).toEqual(['g1']);
+
+      // Another tale: the first one's group is released.
+      fixture.componentRef.setInput('taleId', 't2');
+      await settle(fixture);
+      expect(store.readGroups()).toEqual({});
+      for (const req of http.match((r) => r.url.includes('/tales/t2'))) req.flush(null, { status: 404, statusText: 'Not Found' });
+      await settle(fixture);
+
+      // Back to the first tale, then the studio closes: released again.
+      fixture.componentRef.setInput('taleId', 't1');
+      await settle(fixture);
+      for (const req of http.match((r) => r.url === url)) req.flush(draftRead({ document: null, revision: 0 }));
+      await settle(fixture);
+      for (const req of http.match((r) => r.method === 'GET' && r.url === `${API_BASE}/tales/t1`)) {
+        req.flush({ ...tale, visibility: { visible: false, reasons: [] } });
+      }
+      await settle(fixture);
+      for (const req of http.match(`${API_BASE}/tale-groups/g1`)) req.flush(groupRead);
+      await settle(fixture);
+      expect(Object.keys(store.readGroups())).toEqual(['g1']);
+      fixture.destroy();
+      expect(store.readGroups()).toEqual({});
+      for (const req of http.match((r) => /\/projects\/p1\/(theme|fonts)$/.test(r.url))) req.flush(r(req.request.url));
+
+      function r(requested: string): object {
+        return requested.endsWith('/theme') ? { projectId: 'p1', theme: {}, resolved: DEFAULT_THEME } : [];
+      }
+    });
+
+    it('goes back to the Tale groups page when opened from there, even for a group in a zone (story 8.19)', async () => {
+      fixture = TestBed.createComponent(TaleStudioPage);
+      fixture.componentRef.setInput('taleId', 't1');
+      fixture.componentRef.setInput('from', 'tale-groups');
+      fixture.detectChanges();
+      http.expectOne(url).flush(draftRead({ document: null, revision: 0 }));
+      http.expectOne(`${API_BASE}/projects/p1/theme`).flush({ projectId: 'p1', theme: {}, resolved: DEFAULT_THEME });
+      http.expectOne(`${API_BASE}/projects/p1/fonts`).flush([]);
+      await settle(fixture);
+      root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('a.back-link')?.getAttribute('href')).toBe('/tale-groups?group=g1');
     });
 
     it('closes when focus leaves it, and stays open while focus moves inside it', async () => {

@@ -53,9 +53,11 @@
         }
       </ul>
     }
-    @if (otherZones().length > 0) {
+    @if (!zoneId() && otherZones().length === 0) {
+      <p class="group__zones muted">Not in a zone. Show it in a zone from the ⋯ menu to put it on the site.</p>
+    } @else if (otherZones().length > 0) {
       <p class="group__zones muted">
-        Also in:
+        {{ zoneId() ? 'Also in' : 'In' }}:
         @for (other of otherZones(); track other.id; let last = $last) {
           <a [routerLink]="['/zones', other.id]">{{ other.name }}</a>@if (!last) {<span>, </span>}
         }

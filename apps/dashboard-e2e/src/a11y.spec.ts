@@ -319,6 +319,15 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
       await expect(page.getByRole('heading', { name: 'Tale groups' }).first()).toBeVisible();
       await check(`tale-groups-${filter}`, { layout: filter === 'all' });
     }
+    // A group in no zone opens in the group view on this page (story 8.19).
+    await page.goto('/tale-groups?filter=unplaced');
+    await page.getByRole('button', { name: 'Loose ideas', exact: true }).click();
+    const view = page.getByRole('dialog', { name: 'Loose ideas' });
+    await expect(view).toBeVisible();
+    await expect(view.getByText('Not in a zone.')).toBeVisible();
+    await check('tale-groups-group-view');
+    await page.keyboard.press('Escape');
+    await expect(view).toBeHidden();
   });
 
   test('zones list with a zone', async () => {
