@@ -218,3 +218,49 @@ covers = []
 after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
 hitl = false
 risk = "low"
+
+# Follow-ups found while building the epic (owner said "continue", 2026-10-23).
+
+[[entry]]
+id = 19
+type = "story"
+title = "A tale group in no zone can get tales"
+description = "Size S. The Tale groups page opens any group, placed or not, in the group view (8.11), with Add tale, Shown/Hidden, reorder and the ⋯ menu; the group view and the tale drawer read tales from the project's group, not only from a zone list (follow-up from 8.14)."
+verify = "Create a tale group in no zone from the Tale groups page, open it, add two tales from media, hide one, reorder them; show the group in a zone and turn it On: the sample page shows the shown tale."
+covers = ["R11", "R14"]
+after = [18]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 20
+type = "story"
+title = "Delete a tale"
+description = "Size S. A tale's ⋯ menu offers Delete after Archive, with a confirmation that names the tale; the API deletes the tale, its documents and its media and font rows, and the media deletion guard keeps any file another tale or copy still uses (AD-14). Tales left Hidden by a failed upload (8.13) can now be removed."
+verify = "Delete a tale that shares media with a duplicate: the duplicate's media still loads; delete the last tale using a file: the file is removed; the group's count and the sample page update; a content manager of another project gets 403."
+covers = ["R11"]
+after = [18]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 21
+type = "story"
+title = "Pinned SDK URLs keep working after a release"
+description = "Size S. The API keeps serving the last few content-hashed SDK builds (taleart.<hash>.js) after a new release instead of only the current one, so pages pinned with SRI keep working; the Install tab shows the pinned URL and its integrity (follow-up from 8.13)."
+verify = "Pin the SDK on a page, rebuild and restart the API with a changed SDK: the pinned page still loads its version with SRI, the stable URL serves the new one, and the Install tab shows the new pinned URL."
+covers = ["R13"]
+after = [18]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 22
+type = "story"
+title = "A project holds at most a set number of tale groups"
+description = "Size S. A per-project cap on tale groups (starting value 500), enforced on create, copy and import under a project lock, with a clear message in the dashboard and the import report (follow-up from 8.14)."
+verify = "At the cap, New tale group, Copy to zone and an import of a new group are refused with the message; archiving does not free a place unless the owner decides otherwise (documented)."
+covers = ["R14"]
+after = [18]
+hitl = false
+risk = "low"
