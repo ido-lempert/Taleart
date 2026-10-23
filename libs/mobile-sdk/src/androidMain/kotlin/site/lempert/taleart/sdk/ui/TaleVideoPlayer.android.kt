@@ -22,8 +22,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
 internal actual fun platformTaleVideoPlayer(): TaleVideoPlayer = ExoTaleVideoPlayer
@@ -51,7 +49,9 @@ private class RememberedPlayer(context: Context, url: String, silent: Boolean = 
     override fun onAbandoned() = player.release()
 }
 
-// Media3 ExoPlayer in a PlayerView without controls; one player per tale shown, released with it.
+// Media3 ExoPlayer drawn on a TextureView, not PlayerView's SurfaceView: a SurfaceView ignores the
+// viewer's graphics layers, while the stage's video must fade, grow, follow a drag and turn with the
+// cube (story 9.9). One player per tale shown, released with it.
 private object ExoTaleVideoPlayer : TaleVideoPlayer {
     @OptIn(UnstableApi::class)
     @Composable
@@ -70,6 +70,8 @@ private object ExoTaleVideoPlayer : TaleVideoPlayer {
         val ended by rememberUpdatedState(onEnded)
         val failed by rememberUpdatedState(onError)
         val player = remember(url) { RememberedPlayer(context, url) }.player
+        val texture = remember(player) { arrayOfNulls<TextureView>(1) }
+        val fitNow by rememberUpdatedState(fit)
         DisposableEffect(player) {
             val listener = object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -80,6 +82,10 @@ private object ExoTaleVideoPlayer : TaleVideoPlayer {
                 }
 
                 override fun onPlayerError(error: PlaybackException) = failed()
+
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    texture[0]?.let { fitTexture(it, videoSize, fitNow) }
+                }
             }
             player.addListener(listener)
             onDispose {
@@ -99,17 +105,19 @@ private object ExoTaleVideoPlayer : TaleVideoPlayer {
         }
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    setKeepContentOnPlayerReset(true)
+                TextureView(ctx).also { view ->
+                    texture[0] = view
+                    // The bands a contained video leaves show the stage behind it, black.
+                    view.isOpaque = false
+                    view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> fitTexture(v as TextureView, player.videoSize, fitNow) }
+                    player.setVideoTextureView(view)
                 }
             },
-            update = { view ->
-                view.player = player
-                view.resizeMode = if (fit == MediaFit.Cover) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+            update = { view -> fitTexture(view, player.videoSize, fit) },
+            onRelease = { view ->
+                player.clearVideoTextureView(view)
+                texture[0] = null
             },
-            onRelease = { view -> view.player = null },
             modifier = modifier,
         )
     }

@@ -1700,6 +1700,8 @@ export interface components {
              * @description The font id a text's `font.fontId` names.
              */
             id: string;
+            /** @description The face's family name as the project stores it (spaces collapsed). The Web SDK draws the face under its id's alias and does not use it; native SDKs, which do not download project fonts, draw the text in a font the host app installed under this family name, else its fallback stack. */
+            family: string;
             /**
              * Format: uri
              * @description The public `font/woff2` URL of the file (AD-11), open to any origin.

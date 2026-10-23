@@ -10,5 +10,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- A font Taller installs for TaleArt content that names it (story 9.8): Lobster, under the OFL (Fonts/OFL.txt). -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Lobster-Regular.ttf</string>
+	</array>
 </dict>
 </plist>
