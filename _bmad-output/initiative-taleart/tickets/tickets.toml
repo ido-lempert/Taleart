@@ -54,7 +54,7 @@ slug = "epic-targeting"
 title = "Tag and audience targeting"
 description = "Tags on tale groups combine with AND or OR, and user lists import from CSV and match the external user ID, deciding which groups a viewer sees; segments are built from user attributes."
 covers = ["R5", "R12"]
-after = [{ epic = 3, needs = "zones to demonstrate targeting" }]
+after = [{ epic = 3, needs = "zones to demonstrate targeting (3.1)" }, { epic = 1, needs = "tags on tale groups (1.5) and the dashboard shell (1.14)" }, { epic = 8, needs = "site key and slug delivery (8.6), the indicator (8.2), the group row menu (8.10), the Tale groups page (8.14) and the docs (8.16), per story" }, { epic = 9, needs = "the native Delivery client and zone (9.2, 9.3) for story 9 only" }]
 
 [[epic]]
 id = 6
