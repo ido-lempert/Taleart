@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PollElementProps",
+  "description": "The props of a poll (epic interactive components R1, R2): an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question", "options", "theme"],
+  "properties": {
+    "title": {
+      "description": "A short heading above the question; none when left out.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "question": {
+      "description": "The question visitors answer.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+    },
+    "options": {
+      "description": "The two answers, in the order they show.",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {
+          "id": {
+            "description": "The option's id, unique in the poll and kept when its label changes: votes are counted by it.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "label": {
+            "description": "The answer as visitors read it: its accessible name.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]*$"
+          }
+        }
+      }
+    },
+    "theme": {
+      "description": "`light` draws dark text on a light card; `dark` light text on a dark card.",
+      "type": "string",
+      "enum": ["light", "dark"]
+    }
+  }
+}

@@ -205,3 +205,6 @@ export {
   type ReasonClause,
 } from './lib/delivery-rule';
 export { groupVisibilities, taleVisibilities, withVisibility, zoneVisibilities } from './lib/visibility';
+// One element of a tale delivered in a zone now, for the interactive module's responses (epic
+// interactive components R9): by the Delivery filter above, from the published document.
+export { deliveredTaleElement, type DeliveredTaleElement } from './lib/delivered-element';

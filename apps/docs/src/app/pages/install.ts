@@ -157,8 +157,10 @@ import {
     </p>
     <p>
       The SDK sends it only to the Delivery API, in the <code>X-TaleArt-Visitor</code> header, so the API can limit
-      requests per visitor and many visitors behind one network each get their own allowance. Proxies, CDNs and
-      access logs in front of the API can see the header too.
+      requests per visitor and many visitors behind one network each get their own allowance. It also keys a
+      visitor's vote on a poll, which counts once per visitor; a vote needs the id. On the web the SDK keeps the
+      visitor's answers in local storage too (<code>taleart.responses</code>), to show them on a return visit.
+      Proxies, CDNs and access logs in front of the API can see the header too.
     </p>
     <ul>
       <li>

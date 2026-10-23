@@ -37,6 +37,7 @@ import {
   hasAltText,
   hasVideoElement,
   isLinkElement,
+  isInteractiveElementType,
   isMediaElement,
   isSwipeUpBox,
   isOutsideSafeArea,
@@ -108,6 +109,7 @@ import {
   type StudioElementType,
 } from './tale-element-types';
 import { TaleFieldsInspector } from './tale-fields-inspector';
+import { TaleResponsesPanel } from './tale-responses';
 import { contrastChange, isLowContrast, labelBackdrop, wantedReads, type SampleLookup } from './tale-contrast';
 import {
   kindName,
@@ -258,6 +260,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     TaleEmojiStyle,
     TaleLinkStyle,
     TaleFieldsInspector,
+    TaleResponsesPanel,
     TalePreviewPane,
     DuplicateTale,
   ],
@@ -2222,6 +2225,11 @@ export class TaleStudioPage implements OnChanges {
   /** True for an image, video, image sticker or image button: the media inspector edits it. */
   protected isMedia(element: TaleElement): element is MediaElement {
     return isMediaElement(element);
+  }
+
+  /** True for an interactive component, whose inspector also shows its responses (epic interactive components R11). */
+  protected isInteractive(element: { type: string }): boolean {
+    return isInteractiveElementType(element.type);
   }
 
   /** The registered type of an element whose inspector is its descriptor's fields (R8), or null. */

@@ -86,7 +86,8 @@ they all share one allowance.
 local storage under `taleart.visitor`. It is random, not derived from the person or the device, and tied to no account,
 but it is a stable identifier of a browser, so cover it in your privacy notice and in your consent setup like other
 local storage. The SDK sends it only to the Delivery API, in the `X-TaleArt-Visitor` header, which limits requests per
-visitor rather than per address, so many visitors behind one network each get their own allowance; proxies, CDNs and
+visitor rather than per address, so many visitors behind one network each get their own allowance, and counts each
+visitor's vote on a poll once (a vote needs the id); proxies, CDNs and
 access logs in front of the API can see the header too. Clearing the site's data makes a new one, and Safari may clear
 script-written storage after seven days without a visit. Where local storage is blocked, the id lasts one page load; a
 request without an id is limited by its address. The native SDKs keep the same kind of id in the SDK's own device store
@@ -262,6 +263,18 @@ stage's height, whichever is more; a hold that drifts up, or a slower drag, is n
 link a vertical drag stays a tap, and the viewer's taps, sideways swipes and hold to pause are unchanged. A link that
 opens a new tab says "(opens in a new tab)" in its accessible name. While a link has keyboard focus the tale waits,
 and when the tale goes (by a key or the arrows) focus returns to the viewer.
+
+### Polls
+
+A poll is a card with a question and two options, each a `<button>`, inside a group named by the question; its text is
+set as text nodes and its colours come from its light or dark theme. Pressing an option (by pointer, Enter or Space)
+posts the vote to `POST /delivery/v1/responses` with the site key, the zone's slug and the visitor id; the card then
+shows each option's percentage with the visitor's choice marked, says so in a polite live region, and takes no second
+vote (the server keeps the first one). A press on the poll never steps the tale, and the tale waits while keyboard
+focus is inside it. The SDK keeps the answer and the percentages it received in the host page's local storage under
+`taleart.responses` (at most 200 answers), and shows them on a return visit without asking again; clearing the site's
+data forgets them, while the server still holds the vote. The Tale Studio preview records nothing. Under a CSP, the
+API origin must be allowed in `connect-src`, as it already is for the Delivery API.
 
 ### Budgets
 

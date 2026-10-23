@@ -1007,7 +1007,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a tale.
-         * @description Deletes the tale for good (epic UX rework R11): its draft and published documents, and its references to media and project fonts. The group's remaining tales keep their order, numbered from the start again. A file the tale used is deleted only when nothing references it any more: a copy of the tale (AD-14), another tale, a tale group cover or the project's uploaded media keeps it (AD-11). Project fonts stay in the project. Once deleted, the tale is no longer delivered and its media's public URL answers 404 unless a delivered tale or cover still uses that file. A tale that came from an import is not created again by a later import of the same source: a person's deletion wins (AD-7). Events already recorded keep the tale's id (AD-10). Any member with access to the tale's project may delete it (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         * @description Deletes the tale for good (epic UX rework R11): its draft and published documents, and its references to media and project fonts. The group's remaining tales keep their order, numbered from the start again. A file the tale used is deleted only when nothing references it any more: a copy of the tale (AD-14), another tale, a tale group cover or the project's uploaded media keeps it (AD-11). Project fonts stay in the project. Once deleted, the tale is no longer delivered and its media's public URL answers 404 unless a delivered tale or cover still uses that file. A tale that came from an import is not created again by a later import of the same source: a person's deletion wins (AD-7). Events already recorded keep the tale's id (AD-10); the visitors' responses to its interactive components are deleted with it (epic interactive components R9). Any member with access to the tale's project may delete it (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
          */
         delete: operations["deleteTale"];
         options?: never;
@@ -1193,6 +1193,48 @@ export interface paths {
          * @description Creates a new tale in `taleGroupId` (default: the tale's own group), which must be a group of the tale's project (AD-4): an unknown group or one of another project answers 400 `tale_group_not_found`, as placing a group does. The copy is stored `paused` (Hidden), so it does not show twice on the site until someone shows it. In the tale's own group it is placed right after the original (the later tales move one on); in another group, last. Its title is the original's with " (copy)"; it keeps the start and end time. It holds the original's published document as its published document and the original's draft as its draft (AD-15), each at revision 1 (0 when there is none), so a pending change is still pending on the copy; every element gets a new id. Media and project fonts are not copied: the copy shares the original's storage keys (AD-11, AD-14), and a file stays while any tale uses it, so changing or archiving the original never breaks the copy. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a `taleGroupId` that is not a string: 400 `validation_failed`.
          */
         post: operations["duplicateTale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tales/{taleId}/responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the responses to a tale's interactive components.
+         * @description The visitors' responses to the tale's interactive components (epic interactive components R11), as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         */
+        get: operations["getTaleResponses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a visitor's response to an interactive component (Delivery API).
+         * @description Served under `/delivery/v1` (epic interactive components R9). Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule of AD-6: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's counts and percentages per option). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times (AD-10); no user data (AD-13). Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
+         */
+        post: operations["postDeliveryResponse"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1667,7 +1709,7 @@ export interface components {
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button` or `swipe-up`. */
+            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up` or `poll`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
@@ -1684,6 +1726,56 @@ export interface components {
         ButtonElementProps: components["schemas"]["button.schema"];
         ImageButtonElementProps: components["schemas"]["image-button.schema"];
         SwipeUpElementProps: components["schemas"]["swipe-up.schema"];
+        PollElementProps: components["schemas"]["poll.schema"];
+        ChoiceCount: {
+            /** @description The choice's id (a poll's option id). */
+            id: string;
+            count: number;
+            /** @description The choice's share of the votes as a whole percentage; the shares add up to 100 when there is a vote, and are 0 without one. */
+            percent: number;
+        };
+        /** @description A choice component's result, over the choices its published document holds now, in their order. */
+        ChoiceResult: {
+            total: number;
+            choices: components["schemas"]["ChoiceCount"][];
+        };
+        InteractiveResponseRequest: {
+            /** Format: uuid */
+            taleId: string;
+            /** Format: uuid */
+            elementId: string;
+            /** @description The response, such as a poll's option id. */
+            value: string;
+            /**
+             * Format: date-time
+             * @description When the visitor responded, by the device's clock.
+             */
+            clientAt?: string;
+        };
+        InteractiveResponse: {
+            /** Format: uuid */
+            elementId: string;
+            /** @description The visitor's stored response; on a repeat, the first one. */
+            value: string;
+            /** @description True when this request recorded it; false for a repeat. */
+            recorded: boolean;
+            result: components["schemas"]["ChoiceResult"];
+        };
+        ElementResponseCounts: {
+            /** Format: uuid */
+            elementId: string;
+            /** @description The element's type when its responses were recorded, such as `poll`. */
+            elementType: string;
+            total: number;
+            /** @description The number of responses per stored value, most first. */
+            values: {
+                value: string;
+                count: number;
+            }[];
+        };
+        TaleResponses: {
+            elements: components["schemas"]["ElementResponseCounts"][];
+        };
         /** @description An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
         MediaBackground: {
             /** @constant */
@@ -2121,7 +2213,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2403,6 +2495,28 @@ export interface components {
             color: string;
             /** @description The colour of the pill behind the label as #RRGGBB or #RRGGBBAA (#RRGGBB00 for none). */
             background: string;
+        };
+        /**
+         * PollElementProps
+         * @description The props of a poll (epic interactive components R1, R2): an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.
+         */
+        "poll.schema": {
+            /** @description A short heading above the question; none when left out. */
+            title?: string;
+            /** @description The question visitors answer. */
+            question: string;
+            /** @description The two answers, in the order they show. */
+            options: {
+                /** @description The option's id, unique in the poll and kept when its label changes: votes are counted by it. */
+                id: string;
+                /** @description The answer as visitors read it: its accessible name. */
+                label: string;
+            }[];
+            /**
+             * @description `light` draws dark text on a light card; `dark` light text on a dark card.
+             * @enum {string}
+             */
+            theme: "light" | "dark";
         };
     };
     responses: {
@@ -4484,6 +4598,76 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getTaleResponses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The counts per component. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaleResponses"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    postDeliveryResponse: {
+        parameters: {
+            query: {
+                /** @description The zone's slug, as for `GET /zone`. */
+                zone: string;
+            };
+            header: {
+                /** @description The visitor id (epic UX rework 8.23): a random UUID v4 the SDK keeps on the device, all in lowercase or all in uppercase. Responses are kept per visitor id. */
+                "X-TaleArt-Visitor": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InteractiveResponseRequest"];
+            };
+        };
+        responses: {
+            /** @description A repeat; the visitor's first response, kept, with the current result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractiveResponse"];
+                };
+            };
+            /** @description The response was recorded; the current result. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InteractiveResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
 }
 type FlattenedDeepRequired<T> = {
     [K in keyof T]-?: FlattenedDeepRequired<T[K] extends unknown[] | undefined | null ? Extract<T[K], unknown[]>[number] : T[K]>;
@@ -4520,7 +4704,7 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];
@@ -4533,3 +4717,4 @@ export const imageSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<component
 export const videoSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["video.schema"]["fit"]> = ["cover", "contain"];
 export const shapeSchemaShapeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["shape.schema"]["shape"]> = ["rectangle", "ellipse", "line"];
 export const buttonSchemaVariantValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["button.schema"]["variant"]> = ["filled", "outline"];
+export const pollSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["poll.schema"]["theme"]> = ["light", "dark"];
