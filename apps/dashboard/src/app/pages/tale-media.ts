@@ -3,8 +3,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { isMediaContentType, maxMediaBytes, type MediaKind, type ProjectMedia } from '@taleart/contract/core';
 import {
-  cleanText,
-  LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_MEDIA_RADIUS,
   MAX_TALE_VIDEO_MS,
@@ -18,7 +16,7 @@ import {
 } from '@taleart/contract/tale-document';
 import { Drawer } from '../drawer';
 import { ProjectMediaService, projectMediaSrc } from '../project-media.service';
-import { percent } from './tale-layers';
+import { cleanLabel, percent } from './tale-layers';
 
 /** The names people read for each fit. */
 export const FIT_NAMES: Readonly<Record<MediaFit, string>> = {
@@ -395,7 +393,7 @@ export class TaleMediaStyle {
   protected setAlt(field: HTMLTextAreaElement): void {
     if (this.locked()) return;
     // One line, without the characters a label may not hold (the server refuses them), and within its limit.
-    const label = [...cleanText(field.value.replace(/\n/g, ' '), LABEL_TEXT_RULE)].slice(0, MAX_LABEL_LENGTH).join('');
+    const label = cleanLabel(field.value);
     field.value = label;
     const a11y: TaleElementA11y = { ...this.element().a11y };
     if (label.trim()) a11y.label = label;

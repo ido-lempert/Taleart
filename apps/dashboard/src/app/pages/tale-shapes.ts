@@ -2,9 +2,7 @@
 // emoji's Unicode name, and the inspectors of a selected shape or emoji.
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import {
-  cleanText,
   EMOJI_FONT_STACK,
-  LABEL_TEXT_RULE,
   MAX_LABEL_LENGTH,
   MAX_SHAPE_RADIUS,
   MAX_STROKE_WIDTH,
@@ -16,7 +14,7 @@ import {
 } from '@taleart/contract/tale-document';
 import { Drawer } from '../drawer';
 import { parseHexColor } from './tale-text-style';
-import { percent } from './tale-layers';
+import { cleanLabel, percent } from './tale-layers';
 
 /** One emoji the picker offers, with its Unicode (CLDR) name, the accessible name it starts with. */
 export interface EmojiChoice {
@@ -341,10 +339,6 @@ export interface ElementChange {
 
 /** The names people read for each shape, from the contract. */
 export { SHAPE_NAMES };
-
-// One line of label text, without the characters a label may not hold, within its limit.
-const cleanLabel = (value: string) =>
-  [...cleanText(value.replace(/\n/g, ' '), LABEL_TEXT_RULE)].slice(0, MAX_LABEL_LENGTH).join('');
 
 /**
  * The inspector of a selected shape (R6, R12): fill and stroke colours (a rectangle or ellipse may
