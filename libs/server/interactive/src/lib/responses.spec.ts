@@ -1,3 +1,4 @@
+import type { ChoiceResult } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 import { InvalidResponseValueError, ResponseTargetNotFoundError, VisitorIdRequiredError } from './errors';
 import { migrateInteractive } from './migration';
@@ -86,7 +87,26 @@ describe('recordResponse', () => {
     const result = await recordResponse(db, input, now);
     expect(result.recorded).toBe(false);
     expect(result.value).toBe('coffee');
-    expect(result.result.choices.map((c) => c.percent)).toEqual([0, 100]);
+    expect((result.result as ChoiceResult).choices.map((c) => c.percent)).toEqual([0, 100]);
+  });
+
+  it('records a rating as its whole number and answers the count and average (R5)', async () => {
+    const rating = { ...poll, element: { id: elementId, type: 'rating', props: { question: 'How was it?', emoji: '❤️', theme: 'light' } } };
+    delivered.mockResolvedValue(rating);
+    const { db, query } = fakeDb([{ rows: [{ value: '80' }] }, { rows: [{ value: '80', count: '1' }, { value: '40', count: '1' }, { value: 'tea', count: '9' }] }]);
+    const result = await recordResponse(db, { ...input, value: '80' }, now);
+    expect(result).toEqual({ elementId, value: '80', recorded: true, result: { total: 2, average: 60 } });
+    const params = (query.mock.calls[0] as unknown[])[1];
+    expect(params).toEqual([taleId, elementId, 'rate', visitorId, projectId, zoneId, frameId, groupId, 'rating', '80', null, now]);
+  });
+
+  it('refuses a rating that is not a whole number from 0 to 100 written plainly', async () => {
+    delivered.mockResolvedValue({ ...poll, element: { id: elementId, type: 'rating', props: { question: 'Q', emoji: '❤️', theme: 'dark' } } });
+    const { db, query } = fakeDb([]);
+    for (const value of ['101', '-1', '080', '8.5', ' 8', '', 'tea', 80, null]) {
+      await expect(recordResponse(db, { ...input, value }, now)).rejects.toBeInstanceOf(InvalidResponseValueError);
+    }
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('records a zone without a display with no frame id', async () => {

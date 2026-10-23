@@ -61,6 +61,20 @@ describe('responseClient', () => {
     await expect(offline.send('t', 'e', 'tea')).rejects.toThrow('Could not reach the TaleArt API');
     expect(storedResponse('t', 'e')).toBeNull();
   });
+
+  it("keeps a Rating's count and average (story 4.2), and refuses a result of neither kind", async () => {
+    const rating = { total: 2, average: 60 };
+    const client = responseClient('https://api.example', { key: 'k', zone: 'z' }, async () =>
+      new Response(JSON.stringify({ elementId: 'r', value: '80', recorded: true, result: rating }), { status: 201 }),
+    );
+    expect(await client.send('t', 'r', '80')).toEqual({ value: '80', result: rating });
+    expect(storedResponse('t', 'r')).toEqual({ value: '80', result: rating });
+    const odd = responseClient('https://api.example', { key: 'k', zone: 'z' }, async () =>
+      new Response(JSON.stringify({ elementId: 'r', value: '80', recorded: true, result: { total: 2 } }), { status: 201 }),
+    );
+    await expect(odd.send('t', 's', '80')).rejects.toBeInstanceOf(DeliveryError);
+    expect(storedResponse('t', 's')).toBeNull();
+  });
 });
 
 describe('kept answers (C11)', () => {

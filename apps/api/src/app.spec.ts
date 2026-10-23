@@ -13943,6 +13943,91 @@ describe('Management API v1: projects and zones', () => {
         expect((await res.json()).error.code).toBe('forbidden');
       });
     });
+
+    describe('Ratings (epic interactive components, story 4.2)', () => {
+      const ratingId = '00000000-0000-4000-8000-0000000000dd';
+
+      function ratingElement(extra: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
+        return {
+          id: ratingId,
+          type: 'rating',
+          box: { x: 0.1, y: 0.7, w: 0.8, h: 0.2, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { question: 'How was the beach?', emoji: '❤️', theme: 'dark', ...props },
+          ...extra,
+        };
+      }
+
+      function rate(handle: string, taleId: string, value: unknown, visitor: string | null = visitorA) {
+        return respond(handle, { taleId, elementId: ratingId, value }, visitor);
+      }
+
+      async function newTale() {
+        const zone = await createZone();
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+        return (await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json()) as { id: string };
+      }
+
+      async function refusedAt(document: unknown): Promise<string> {
+        const tale = await newTale();
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error.code).toBe('invalid_tale_document');
+        return body.error.pointer;
+      }
+
+      it('saves a Rating beside a poll and reads it back', async () => {
+        const tale = await newTale();
+        const document = pollDoc([pollElement(), ratingElement({}, { title: 'Quick one' })]);
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document).toEqual(document);
+      });
+
+      it("refuses an emoji that is not one emoji, such as 'ab', a second Rating, and markup-free rules", async () => {
+        expect(await refusedAt(pollDoc([ratingElement({}, { emoji: 'ab' })]))).toBe('/elements/0/props/emoji');
+        expect(await refusedAt(pollDoc([ratingElement({}, { emoji: '❤️❤️' })]))).toBe('/elements/0/props/emoji');
+        const second = { ...ratingElement({ hidden: true }), id: '00000000-0000-4000-8000-0000000000ee' };
+        expect(await refusedAt(pollDoc([ratingElement(), second]))).toBe('/elements/1/type');
+        expect(await refusedAt(pollDoc([ratingElement({}, { question: 'How\nwas it?' })]))).toBe('/elements/0/props/question');
+        expect(await refusedAt(pollDoc([ratingElement({}, { value: 50 })]))).toBe('/elements/0/props/value');
+      });
+
+      it('records ratings once per visitor and answers the count and average', async () => {
+        const { tale, handle } = await livePoll([textElement(), ratingElement()]);
+        const first = await rate(handle, tale.id, '80');
+        expect(first.status).toBe(201);
+        expect(await first.json()).toEqual({ elementId: ratingId, value: '80', recorded: true, result: { total: 1, average: 80 } });
+        const second = await rate(handle, tale.id, '40', visitorB);
+        expect(second.status).toBe(201);
+        expect((await second.json()).result).toEqual({ total: 2, average: 60 });
+        // The first rating wins (C9).
+        const repeat = await rate(handle, tale.id, '0');
+        expect(repeat.status).toBe(200);
+        expect(await repeat.json()).toEqual({ elementId: ratingId, value: '80', recorded: false, result: { total: 2, average: 60 } });
+        expect((await rows()).map((r) => [r.elementType, r.interaction, r.value])).toEqual([
+          ['rating', 'rate', '80'],
+          ['rating', 'rate', '40'],
+        ]);
+        const counts = await (await fetch(`${base}/tales/${tale.id}/responses`)).json();
+        expect(counts.elements).toEqual([
+          { elementId: ratingId, elementType: 'rating', total: 2, values: [{ value: '40', count: 1 }, { value: '80', count: 1 }] },
+        ]);
+      });
+
+      it('refuses a value that is no whole number from 0 to 100', async () => {
+        const { tale, handle } = await livePoll([ratingElement()]);
+        for (const value of ['101', '-10', '080', '8.5', 'tea', '', 80, null]) {
+          const res = await rate(handle, tale.id, value);
+          expect(res.status).toBe(422);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+        expect(await rows()).toEqual([]);
+      });
+    });
   });
 
   describe('auth', () => {

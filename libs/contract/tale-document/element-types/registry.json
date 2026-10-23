@@ -10,6 +10,7 @@
     { "key": "image-button", "label": "Image button", "schema": "image-button.schema.json" },
     { "key": "swipe-up", "label": "Swipe-up link", "schema": "swipe-up.schema.json" },
     { "key": "poll", "label": "Poll", "schema": "poll.schema.json" },
+    { "key": "rating", "label": "Rating", "schema": "rating.schema.json" },
     { "key": "test-badge", "label": "Test badge", "schema": "test-badge.schema.json", "testOnly": true }
   ]
 }

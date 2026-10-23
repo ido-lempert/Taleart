@@ -1,5 +1,5 @@
 // Types only: nothing from the contract ends up in the bundle (AD-3).
-import type { ChoiceResult, InteractiveResponse } from '@taleart/contract';
+import type { ChoiceResult, InteractiveResponse, RatingResult, ResponseResult } from '@taleart/contract';
 import { DeliveryError, type ZoneRequest } from './delivery-client';
 import { VISITOR_HEADER, visitorId } from './visitor';
 
@@ -12,7 +12,8 @@ export const MAX_STORED_RESPONSES = 200;
 /** A visitor's answer as the SDK keeps it: the stored value and the result the server answered then. */
 export interface StoredResponse {
   value: string;
-  result: ChoiceResult;
+  /** A poll's counts and percentages per option, or a Rating's count and average. */
+  result: ResponseResult;
 }
 
 /**
@@ -29,7 +30,7 @@ export interface ResponseClient {
 
 interface Kept {
   v: string;
-  r: ChoiceResult;
+  r: ResponseResult;
   t: number;
 }
 
@@ -49,17 +50,19 @@ function readAll(): Record<string, Kept> {
   }
 }
 
-// True for a result the renderer can draw: counts and whole percentages per choice.
-function isResult(value: unknown): value is ChoiceResult {
-  const result = value as Partial<ChoiceResult> | null;
+// True for a result a renderer can draw: counts and whole percentages per choice (a poll's), or a
+// count and an average (a Rating's).
+function isResult(value: unknown): value is ResponseResult {
+  const result = value as Partial<ChoiceResult & RatingResult> | null;
   return (
     typeof result === 'object' &&
     result !== null &&
     typeof result.total === 'number' &&
-    Array.isArray(result.choices) &&
-    result.choices.every(
-      (c) => typeof c?.id === 'string' && typeof c.count === 'number' && typeof c.percent === 'number',
-    )
+    (Array.isArray(result.choices)
+      ? result.choices.every(
+          (c) => typeof c?.id === 'string' && typeof c.count === 'number' && typeof c.percent === 'number',
+        )
+      : typeof result.average === 'number')
   );
 }
 
