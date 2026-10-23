@@ -215,4 +215,46 @@ class TaleDocumentTest {
         assertFalse(isLinkUrl("https://"))
         assertFalse(isLinkUrl("https://example.com/" + "a".repeat(2048)))
     }
+
+    @Test
+    fun boxesOutsideTheSchemaAreNotLaidOut() {
+        val layer = doc(
+            element("text", """{"text":"wide"}""", """{"x":0.1,"y":0.1,"w":1000,"h":0.1,"rotation":0}""", id = "wide"),
+            element("text", """{"text":"far"}""", """{"x":1e9,"y":-1e9,"w":0.5,"h":0.1,"rotation":0}""", id = "far"),
+            element("text", """{"text":"flat"}""", """{"x":0.1,"y":0.1,"w":0,"h":0.1,"rotation":0}""", id = "flat"),
+            element("text", """{"text":"spun"}""", """{"x":0.1,"y":0.1,"w":0.5,"h":0.1,"rotation":720}""", id = "spun"),
+            element("text", """{"text":"edge"}""", """{"x":1,"y":1,"w":1,"h":1,"rotation":-180}""", id = "edge"),
+        )
+        assertEquals(listOf("edge"), layer.elements.map { it.id })
+    }
+
+    @Test
+    fun aDocumentDrawsAtMostSixtyElements() {
+        val many = (0 until 500).map { i ->
+            element("shape", """{"shape":"rectangle","fill":"#ffffff"}""", """{"x":0,"y":${i / 1000.0},"w":0.1,"h":0.01,"rotation":0}""", id = "e$i")
+        }
+        val layer = doc(*many.toTypedArray())
+        assertEquals(MAX_TALE_ELEMENTS, layer.elements.size)
+        assertEquals((0 until 60).map { "e$it" }.toSet(), layer.elements.map { it.id }.toSet())
+    }
+
+    @Test
+    fun linksAreCheckedAndNormalizedForEveryPlatform() {
+        assertNull(linkHref("intent://scan/#Intent;scheme=zxing;end"))
+        assertNull(linkHref("file:///etc/passwd"))
+        assertNull(linkHref("javascript:alert(1)"))
+        assertNull(linkHref("HTTPS://user:pw@example.com"))
+        // A backslash ends the authority, as browsers read it: the link opens example.com.
+        assertEquals("https://example.com/@evil.example", linkHref("https://example.com\\@evil.example"))
+        assertEquals("https://Example.COM/A?b=C#D", linkHref("HTTPS://Example.COM/A?b=C#D"))
+        assertEquals("http://example.com:8080/x", linkHref("HtTp://example.com:8080/x"))
+        // Characters a URL parser may refuse are percent-encoded as UTF-8.
+        assertEquals("https://example.com/caf%C3%A9/%F0%9F%8C%B4?q=%7Bx%7D", linkHref("https://example.com/café/🌴?q={x}"))
+        // No IDNA: a host that is not ASCII is refused.
+        assertNull(linkHref("https://exämple.com/"))
+        assertEquals("https://[::1]:8443/", linkHref("https://[::1]:8443/"))
+        val button = doc(element("button", """{"label":"Go","href":"HTTPS://Example.com/a b","variant":"filled","color":"#000000","fill":"#ffffff"}"""))
+        // A space is refused by the contract's rule.
+        assertEquals(emptyList(), button.elements)
+    }
 }

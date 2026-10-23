@@ -7,6 +7,8 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.ViewGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
@@ -22,6 +24,10 @@ import androidx.core.view.WindowCompat
 // sits (a ComposeView in any host layout), and Back closes it.
 @Composable
 internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+    // The dialog has a lifecycle of its own, which stays resumed while the app is in the background
+    // (Home, or a browser a link opened): the viewer follows the host's lifecycle instead, so the
+    // tale waits while the app is away.
+    val host = LocalLifecycleOwner.current
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
@@ -44,7 +50,7 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
                 WindowCompat.getInsetsController(it, view).isAppearanceLightNavigationBars = false
             }
         }
-        content()
+        CompositionLocalProvider(LocalLifecycleOwner provides host, content = content)
     }
 }
 

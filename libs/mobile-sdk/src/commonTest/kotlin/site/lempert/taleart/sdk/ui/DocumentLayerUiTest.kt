@@ -11,7 +11,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -266,5 +273,57 @@ class DocumentLayerUiTest : ComposeUiTestBase() {
         mainClock.advanceTimeByFrame()
         waitForIdle()
         assertTrue(videos.playing, "plays: ${videos.urls}")
+    }
+
+    @Test
+    fun aRightToLeftHostDoesNotMirrorTheCanvas() = runComposeUiTest {
+        val layer = layerOf(
+            """{"id":"left","type":"shape","box":{"x":0.1,"y":0.2,"w":0.3,"h":0.1,"rotation":0},"a11y":{"label":"left"},"props":{"shape":"rectangle","fill":"#ff0000"}}""",
+            """{"id":"hebrew","type":"text","box":{"x":0.1,"y":0.5,"w":0.5,"h":0.1,"rotation":0},"a11y":{},"props":{"text":"שלום","align":"start"}}""",
+        )
+        setContent {
+            Fakes {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
+                }
+            }
+        }
+        waitForIdle()
+        // A box at x = 0.1 stays on the left, as the web's `left:`.
+        close(18.dp, node("left").getUnclippedBoundsInRoot().left, "left box")
+        close(18.dp, node("hebrew").getUnclippedBoundsInRoot().left, "text box")
+        // The Hebrew text keeps its own direction: `start` is the right of its box.
+        val hebrew = textLayout("שלום")
+        assertTrue(hebrew.getLineLeft(0) > hebrew.size.width / 2f)
+    }
+
+    @Test
+    fun textSizeIgnoresTheFontScale() = runComposeUiTest {
+        val layer = layerOf("""{"id":"t","type":"text","box":{"x":0.1,"y":0.5,"w":0.8,"h":0.1,"rotation":0},"a11y":{},"props":{"text":"Same size","size":0.05}}""")
+        val scale = mutableStateOf(1f)
+        setContent {
+            Fakes {
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density, scale.value)) {
+                    Box(Modifier.size(180.dp, 320.dp)) { DocumentElementsLayer(layer) }
+                }
+            }
+        }
+        waitForIdle()
+        val normal = textLayout("Same size").size
+        scale.value = 2f
+        waitForIdle()
+        assertEquals(normal, textLayout("Same size").size)
+    }
+
+    @Test
+    fun linksAreButtonsThatSayTheyLeaveTheApp() = runComposeUiTest {
+        canvas(TaleView.read(group.tales[0], 0).canvas!!.layer)
+        val button = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)
+        for (label in listOf("Shop the sale", "More deals")) {
+            val config = onNode(button.and(hasText(label))).fetchSemanticsNode().config
+            assertEquals(LINK_ACTION_LABEL, config[SemanticsActions.OnClick].label)
+        }
+        onNode(button.and(hasContentDescription("Open the lookbook"))).assertExists()
     }
 }

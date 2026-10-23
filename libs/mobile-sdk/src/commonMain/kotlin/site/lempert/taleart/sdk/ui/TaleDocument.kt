@@ -25,6 +25,9 @@ val DOCUMENT_ELEMENT_TYPES: Set<String> = setOf("text", "image", "video", "shape
 const val CANVAS_ASPECT_WIDTH = 9.0
 const val CANVAS_ASPECT_HEIGHT = 16.0
 
+/** The most elements a document holds (`MAX_TALE_ELEMENTS`); the renderer draws no more. */
+const val MAX_TALE_ELEMENTS = 60
+
 /** The longest a document's own video runs the tale (`MAX_TALE_VIDEO_MS`, R5). */
 const val MAX_TALE_VIDEO_MS = 15_000L
 
@@ -234,7 +237,8 @@ data class DocumentLayer(
          * without a type, props or a box of finite numbers are left out; one swipe-up link at most.
          */
         fun read(doc: JsonObject, skipFirst: Boolean = false): DocumentLayer {
-            val all = (doc["elements"] as? JsonArray).orEmpty().let { if (skipFirst) it.drop(1) else it }
+            // At most MAX_TALE_ELEMENTS, as the server allows: a document sent with more draws only its first ones.
+            val all = (doc["elements"] as? JsonArray).orEmpty().take(MAX_TALE_ELEMENTS).let { if (skipFirst) it.drop(1) else it }
             val placeable = all.mapNotNull { raw ->
                 val e = raw as? JsonObject ?: return@mapNotNull null
                 val type = e.text("type") ?: return@mapNotNull null
@@ -266,10 +270,18 @@ data class DocumentLayer(
 // An element with a type, props and a box of finite numbers.
 internal class Placed(val json: JsonObject, val type: String, val props: JsonObject, val box: ElementBox)
 
+// A box inside the schema's ranges (`Box` in tale-document/v1.schema.json): x and y from 0 to 1, w and
+// h above 0 up to 1, rotation from -180 to 180. The server refuses any other; one that comes anyway
+// is not laid out, so no element is drawn huge or far off the canvas.
 private fun readBox(box: JsonObject?): ElementBox? {
     if (box == null) return null
     fun n(key: String) = box.number(key)
-    return ElementBox(n("x") ?: return null, n("y") ?: return null, n("w") ?: return null, n("h") ?: return null, n("rotation") ?: return null)
+    val x = n("x")?.takeIf { it in 0.0..1.0 } ?: return null
+    val y = n("y")?.takeIf { it in 0.0..1.0 } ?: return null
+    val w = n("w")?.takeIf { it > 0.0 && it <= 1.0 } ?: return null
+    val h = n("h")?.takeIf { it > 0.0 && it <= 1.0 } ?: return null
+    val rotation = n("rotation")?.takeIf { it in -180.0..180.0 } ?: return null
+    return ElementBox(x, y, w, h, rotation)
 }
 
 private fun readElement(p: Placed, layer: Int): DocumentElement? {
@@ -313,19 +325,19 @@ private fun readElement(p: Placed, layer: Int): DocumentElement? {
         }
         "button" -> {
             val label = linkLabel(props.text("label"))
-            val href = props.text("href")?.takeIf(::isLinkUrl)
+            val href = linkHref(props.text("href"))
             if (label.isEmpty() || href == null) null
             else DocumentElement.Button(id, p.box, layer, label, href, resolveButtonLook(props))
         }
         "image-button" -> {
-            val href = props.text("href")?.takeIf(::isLinkUrl) ?: return null
+            val href = linkHref(props.text("href")) ?: return null
             val url = mediaUrl(props.text("url")) ?: return null
             val name = linkLabel(rawLabel).ifEmpty { linkHost(href) }
             DocumentElement.ImageButton(id, p.box, layer, url, href, props.numberIn("radius", 0.0, 0.5, 0.0), name)
         }
         "swipe-up" -> {
             val label = linkLabel(props.text("label"))
-            val href = props.text("href")?.takeIf(::isLinkUrl)
+            val href = linkHref(props.text("href"))
             if (label.isEmpty() || href == null) null
             else DocumentElement.SwipeUp(
                 id, SWIPE_UP_BOX, layer, label, href,
@@ -508,6 +520,37 @@ fun isLinkUrl(value: String?): Boolean {
     val authority = value.substring(scheme.length + 3).split('/', '?', '#', '\\').first()
     if (authority.contains('@')) return false
     return linkHost(value).isNotEmpty()
+}
+
+// Characters RFC 3986 allows in a URL as they are (unreserved, reserved and `%`).
+private fun isUrlCharacter(c: Char): Boolean =
+    c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c in "-._~:/?#[]@!$&'()*+,;=%"
+
+private val HOST = Regex("^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\\.?|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?$")
+
+/**
+ * A link's destination as the SDK opens it, or null (`linkHref`): it passes [isLinkUrl] and is
+ * normalized as a browser would open it, so every platform's URL parser takes it (iOS's `NSURL`
+ * gives nil for many strings a browser accepts): the scheme in lower case, a backslash read as a
+ * slash (`https://a.example\@b` opens a.example, as the contract's check judges it), and every
+ * character outside RFC 3986 percent-encoded as UTF-8. A host that is not ASCII letters, digits,
+ * dots and hyphens (or an IPv6 literal), with an optional port, is refused: there is no IDNA here.
+ */
+fun linkHref(value: String?): String? {
+    if (!isLinkUrl(value)) return null
+    val scheme = value!!.substringBefore("://").lowercase()
+    val rest = value.substring(scheme.length + 3).replace('\\', '/')
+    val authority = rest.split('/', '?', '#').first()
+    if (!HOST.matches(authority)) return null
+    val out = StringBuilder("$scheme://$authority")
+    // Each character, a surrogate pair as one, kept or percent-encoded.
+    for (c in codePoints(rest.substring(authority.length))) {
+        if (c.length == 1 && isUrlCharacter(c[0])) out.append(c)
+        else for (b in c.encodeToByteArray()) {
+            out.append('%').append("0123456789ABCDEF"[(b.toInt() shr 4) and 0xf]).append("0123456789ABCDEF"[b.toInt() and 0xf])
+        }
+    }
+    return out.toString()
 }
 
 // The host of an http(s) URL, lower case, without its port.

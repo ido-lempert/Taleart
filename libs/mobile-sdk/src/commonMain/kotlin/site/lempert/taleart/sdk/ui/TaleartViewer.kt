@@ -67,6 +67,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.paneTitle
@@ -122,11 +123,12 @@ const val SWIPE_UP_MIN_DP = SWIPE_MIN_DP
 const val SWIPE_UP_MIN_SHARE = 0.08f
 
 /**
- * The most one frame moves the tale's timer on. No frames come while the viewer is not drawn (the
- * app behind a browser a link opened), so the first frame after that would otherwise count the
- * whole time away as play and skip the tale.
+ * The most one frame moves the tale's timer on: a safety net only. The tale waits while the app is
+ * in the background (its lifecycle stops the timer); should frames still stop for long without a
+ * lifecycle event (a window hidden some other way), the first frame after does not count the whole
+ * time away as play and skip the tale.
  */
-internal const val MAX_FRAME_STEP_MS = 100L
+internal const val MAX_FRAME_STEP_MS = 1_000L
 
 /** A press at least this long is a hold (pause), not a tap (step) (`HOLD_MIN_MS`). */
 const val HOLD_MIN_MS = 250L
@@ -213,8 +215,9 @@ fun TaleartViewer(
     }
     // The stall check of a document's own video (R5): frame by frame while it should play; each
     // start (a new tale, run or resume) gives it a fresh VIDEO_STALL_MS, as the web's watchdog.
-    LaunchedEffect(state.shows, state.videoRuns, state.capped, state.stopped) {
-        if (!state.capped || state.stopped || state.reducedMotion) return@LaunchedEffect
+    // A finger held on the stage only suspends the count (stallTick skips while held); it does not restart it.
+    LaunchedEffect(state.shows, state.videoRuns, state.capped, state.paused, state.inBackground) {
+        if (!state.capped || state.paused || state.inBackground || state.reducedMotion) return@LaunchedEffect
         state.restartStallCheck()
         var last = withFrameMillis { it }
         while (state.isOpen) {
@@ -352,6 +355,14 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
                 }
             },
     ) {
+        // The tap zones, for screen readers: the gestures over the stage handle touch; these name the
+        // parts. They lie under the tale and come first in the reading order, so the tale's links,
+        // drawn over them, are what touch exploration finds where they are.
+        Row(Modifier.matchParentSize().semantics { isTraversalGroup = true; traversalIndex = -1f }) {
+            // The Row mirrors right to left by itself: Previous is then the right third.
+            Zone("Previous tale", 1f) { state.previous() }
+            Zone("Next tale", 2f) { state.next() }
+        }
         Box(
             Modifier.matchParentSize().graphicsLayer {
                 // A swipe down drags the tale with the finger, unless the person prefers reduced motion.
@@ -359,12 +370,6 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: Stri
             },
         ) {
             key(state.shows) { TalePage(state, themeFont = themeFont) }
-        }
-        // The tap zones, for screen readers: the gestures above handle touch; these name the parts.
-        Row(Modifier.matchParentSize()) {
-            // The Row mirrors right to left by itself: Previous is then the right third.
-            Zone("Previous tale", 1f) { state.previous() }
-            Zone("Next tale", 2f) { state.next() }
         }
     }
 }
