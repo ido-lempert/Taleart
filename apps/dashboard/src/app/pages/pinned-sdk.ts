@@ -1,5 +1,8 @@
-import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core';
-import { DEFAULT_SDK_BUILDS_KEPT, pinnedSdkScriptTag, type InstallInfo } from '@taleart/contract/core';
+import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import { pinnedSdkScriptTag, type InstallInfo } from '@taleart/contract/core';
+
+// Long enough for a screen reader to see the status emptied before the new text arrives.
+const ANNOUNCE_DELAY_MS = 100;
 
 /** What each Copy button copies, and what it announces. */
 type Copied = 'url' | 'integrity' | 'tag';
@@ -12,9 +15,8 @@ const COPIED: Record<Copied, string> = {
 
 /**
  * The Install tab's pinned SDK (story 8.21): the current build's URL pinned to its content and its
- * Subresource Integrity value, each with a Copy button, and the script tag with both. The API keeps
- * the last builds at their pinned URLs ({@link DEFAULT_SDK_BUILDS_KEPT} unless the server sets
- * SDK_BUILDS_KEPT), so a pinned page keeps working through the next releases.
+ * Subresource Integrity value, each with a Copy button, and the script tag with both. It says how
+ * long the URL keeps working from `sdkBuildsKept`, the number of SDK builds this server keeps.
  */
 @Component({
   selector: 'app-pinned-sdk',
@@ -48,9 +50,14 @@ const COPIED: Record<Copied, string> = {
         <div class="pinned">
           <p class="muted" id="pinned-sdk-hint">
             For a page that wants the browser to refuse any other file: load the SDK from this URL with its integrity
-            value. It always serves this build. TaleArt keeps the last {{ kept }} builds at their pinned URLs (unless your
-            server sets another number), so a pinned page keeps working through the next {{ kept - 1 }} releases: update
-            the pin before then.
+            value. It always serves this build.
+            @if (kept() > 1) {
+              This server keeps the last {{ kept() }} SDK builds it served at their pinned URLs, this one included, so
+              this URL keeps working through the next {{ kept() - 1 }} SDK
+              {{ kept() === 2 ? 'build' : 'builds' }} this server serves: update the pin before then.
+            } @else {
+              This server keeps only its current SDK build, so this URL stops working at the next SDK build.
+            }
           </p>
           <div class="field">
             <label class="field__label" for="pinned-sdk-url">Pinned URL</label>
@@ -78,6 +85,7 @@ const COPIED: Record<Copied, string> = {
                 readonly
                 spellcheck="false"
                 [value]="p.integrity"
+                aria-describedby="pinned-sdk-hint"
                 (focus)="selectAll($event)"
               />
               <button
@@ -108,7 +116,12 @@ export class PinnedSdk {
   /** What `GET /install` answered. */
   readonly install = input.required<InstallInfo>();
 
-  protected readonly kept = DEFAULT_SDK_BUILDS_KEPT;
+  /** How many SDK builds this server keeps at their pinned URLs (1: only the current one). */
+  protected readonly kept = computed(() => {
+    const kept = this.install().sdkBuildsKept;
+    // An older API does not say: it kept only the current build.
+    return Number.isInteger(kept) && kept >= 1 ? kept : 1;
+  });
   protected readonly status = signal('');
 
   /** The pinned URL, its integrity and the script tag with both; null without a bundle. */
@@ -123,13 +136,16 @@ export class PinnedSdk {
   }
 
   protected async copy(what: Copied, text: string): Promise<void> {
-    // Cleared first, so copying twice announces again.
+    // Cleared first and set after a tick, so the same copy twice is announced twice.
     this.status.set('');
+    let said: string;
     try {
       await navigator.clipboard.writeText(text);
-      this.status.set(COPIED[what]);
+      said = COPIED[what];
     } catch {
-      this.status.set('Could not copy. Select the text and copy it.');
+      said = 'Could not copy. Select the text and copy it.';
     }
+    await new Promise((resolve) => setTimeout(resolve, ANNOUNCE_DELAY_MS));
+    this.status.set(said);
   }
 }

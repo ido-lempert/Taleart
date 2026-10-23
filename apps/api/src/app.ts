@@ -20,7 +20,15 @@ import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
 import type { RateLimitOptions } from './http/rate-limit';
-import { defaultSdkFiles, installRouter, sdkBuilds, sdkRouter, sdkSource, type SdkFiles } from './http/sdk.router';
+import {
+  defaultSdkFiles,
+  installRouter,
+  MIN_SDK_BUILDS_KEPT_WITH_FOLDER,
+  sdkBuilds,
+  sdkRouter,
+  sdkSource,
+  type SdkFiles,
+} from './http/sdk.router';
 import { siteKeyRouter } from './http/site-key.router';
 import { zonesRouter } from './http/zones.router';
 
@@ -75,7 +83,12 @@ export function createApp(
   const sdkFiles = { ...defaultSdkFiles(__dirname), ...sdk };
   // The current SDK build and the last ones it served, kept for pinned URLs (story 8.21). Read once
   // now, so the build this API starts with is kept even if no page asks for it before the next one.
-  const sdkServed = sdkSource(sdkFiles.bundleFile, sdkBuilds(sdkFiles.buildsDir, sdkFiles.buildsKept, sdkFiles.warn));
+  const sdkBuildsKept = sdkFiles.buildsDir ? Math.max(MIN_SDK_BUILDS_KEPT_WITH_FOLDER, sdkFiles.buildsKept) : 1;
+  const sdkServed = sdkSource(
+    sdkFiles.bundleFile,
+    sdkBuilds(sdkFiles.buildsDir, sdkBuildsKept, sdkFiles.warn),
+    sdkFiles.stableMs,
+  );
   void sdkServed.current().catch(() => undefined);
   const app = express();
   // A tale document may be up to 128 KB (AD-15), over express.json()'s 100 KB default. Its route
@@ -115,7 +128,7 @@ export function createApp(
   v1.use('/projects', siteKeyRouter(pool));
   v1.use('/projects', projectFontsRouter(pool, storage));
   v1.use('/projects', projectMediaRouter(pool, storage, media));
-  v1.use('/install', installRouter(publicApiUrl, sdkServed.current));
+  v1.use('/install', installRouter(publicApiUrl, sdkServed.current, sdkBuildsKept));
   v1.use('/frame-types', frameTypesRouter(frameTypes));
   v1.use('/zones', zonesRouter(pool, frameTypes));
   v1.use('/zones', zoneTaleGroupsRouter(pool));

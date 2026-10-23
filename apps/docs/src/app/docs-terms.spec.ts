@@ -152,12 +152,19 @@ describe('the docs facts', () => {
   it('say how many builds stay at their pinned URLs, and show the tag the Install tab copies (story 8.21)', () => {
     expect(DEFAULT_SDK_BUILDS_KEPT).toBe(5);
     const readme = read(README).replace(/\s+/g, ' ');
-    expect(readme).toContain(`keeps the last ${DEFAULT_SDK_BUILDS_KEPT} builds it served at their pinned URLs`);
-    expect(readme).toContain(`through the next ${DEFAULT_SDK_BUILDS_KEPT - 1} releases`);
-    expect(readme).toContain(`\`SDK_BUILDS_KEPT\` (default ${DEFAULT_SDK_BUILDS_KEPT}`);
+    expect(readme).toContain(`keeps the last ${DEFAULT_SDK_BUILDS_KEPT} SDK builds this server served at their pinned URLs`);
+    expect(readme).toContain(`through the next ${DEFAULT_SDK_BUILDS_KEPT - 1} SDK builds the server serves`);
+    expect(readme).toContain(`\`SDK_BUILDS_KEPT\` (default ${DEFAULT_SDK_BUILDS_KEPT}, from 2 to 100`);
+    expect(readme).toContain('stops working at the next SDK build');
+    expect(readme).toContain('must persist across deploys');
+    expect(readme).toContain('`sdkBuildsKept`');
     expect(readme).not.toContain('A pinned URL is gone with the next build');
-    const page = read('apps/docs/src/app/pages/install.ts');
-    expect(page).toContain('keeps the last {{ buildsKept }} builds it served at their pinned');
+    expect(readme).not.toMatch(/next \d+ releases/);
+    const page = read('apps/docs/src/app/pages/install.ts').replace(/\s+/g, ' ');
+    expect(page).toContain('keeps the last {{ buildsKept }} SDK builds this server served at their pinned URLs');
+    expect(page).toContain('stops working at the next SDK build');
+    expect(page).toContain('must persist across deploys');
+    expect(page).not.toMatch(/releases/);
     expect(page).toContain('protected readonly buildsKept = DEFAULT_SDK_BUILDS_KEPT;');
     expect(page).not.toContain('is gone with the next build');
     // The docs' example tag is the one the Install tab copies, with a real hash and integrity in place.

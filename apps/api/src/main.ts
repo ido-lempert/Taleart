@@ -17,7 +17,7 @@ import {
 } from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
-import { defaultSdkFiles, sdkBuildsFromEnv, webSdkFileFromEnv } from './http/sdk.router';
+import { defaultSdkFiles, hasKeptBuilds, sdkBuildsFromEnv, webSdkFileFromEnv } from './http/sdk.router';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
 import { configureTestElementTypes } from './element-types-config';
@@ -147,6 +147,14 @@ async function start(): Promise<void> {
       `Web SDK pinned URLs: the last ${sdkBuildsConfig.buildsKept} builds, kept in ${sdkBuildsConfig.buildsDir}`
     : 'Web SDK pinned URLs: the current build only (SDK_BUILDS_DIR=off)',
   );
+  // Read before the app keeps the build it starts with: an empty folder in production means either
+  // a first deploy or a folder that does not survive deploys (no volume), where pinned pages break.
+  if (process.env['NODE_ENV'] === 'production' && sdkBuildsConfig.buildsDir && !hasKeptBuilds(sdkBuildsConfig.buildsDir)) {
+    log(
+      'warn',
+      `SDK_BUILDS_DIR ${sdkBuildsConfig.buildsDir} holds no earlier Web SDK builds. Unless this is the first deploy, it does not persist across deploys: put it on a volume, or pages pinned to earlier builds answer 404.`,
+    );
+  }
   const app = createApp(pool, frameTypes, storage, auth, { publicApiUrl }, importer, media, { rateLimit }, sdk);
   if (trustProxy !== undefined) {
     app.set('trust proxy', trustProxy);

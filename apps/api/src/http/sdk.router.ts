@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { mkdir, readdir, readFile, rename, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -32,6 +33,8 @@ export interface SdkFiles {
   buildsKept: number;
   /** Told when the builds folder cannot be written or pruned; the current build is served anyway. */
   warn?: (msg: string, err?: unknown) => void;
+  /** How long the bundle must hold still before its build is kept ({@link SDK_STABLE_MS}; tests set 0). */
+  stableMs?: number;
 }
 
 /** A file as served: its bytes, ETag, content hash for a pinned URL, and SRI integrity. */
@@ -42,22 +45,46 @@ export interface ServedFile {
   hash: string;
   /** `sha384-…`, for a script tag's `integrity` attribute. */
   integrity: string;
+  /** When its file last changed (ms since the epoch), when it was read from a file. */
+  mtimeMs?: number;
 }
+
+/** How {@link servedFile} reads: the file system, or a stand-in under test. */
+export interface FileReads {
+  stat(path: string): Promise<{ mtimeMs: number; size: number }>;
+  readFile(path: string): Promise<Buffer>;
+}
+
+const FILE_SYSTEM: FileReads = { stat, readFile };
+
+// Reads of a file that keeps changing while it is read, before the last whole read is served instead.
+const READ_ATTEMPTS = 3;
+const READ_RETRY_MS = 25;
 
 /**
  * Reads a file and keeps it, reading it again when its size or modification time changes (a deploy
- * or a rebuild replaced it), so a running API never serves a stale SDK. A missing file reads as null
- * and is looked for again on the next request.
+ * or a rebuild replaced it), so a running API never serves a stale SDK. A read is kept only when the
+ * file held still while it was read (same size and modification time before and after, and all its
+ * bytes): a file being written in place is read again, and while it keeps changing the last whole
+ * read is served (null if there is none). Deploys should still write the new file elsewhere and
+ * rename it into place. A missing file reads as null and is looked for again on the next request.
  */
-export function servedFile(path: string): () => Promise<ServedFile | null> {
+export function servedFile(path: string, fs: FileReads = FILE_SYSTEM): () => Promise<ServedFile | null> {
   let served: { file: ServedFile; mtimeMs: number; size: number } | null = null;
   return async () => {
     try {
-      const { mtimeMs, size } = await stat(path);
-      if (served && served.mtimeMs === mtimeMs && served.size === size) return served.file;
-      const file = toServedFile(await readFile(path));
-      served = { file, mtimeMs, size };
-      return file;
+      for (let attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, READ_RETRY_MS));
+        const before = await fs.stat(path);
+        if (served && served.mtimeMs === before.mtimeMs && served.size === before.size) return served.file;
+        const body = await fs.readFile(path);
+        const after = await fs.stat(path);
+        if (body.length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs) continue;
+        const file = { ...toServedFile(body), mtimeMs: before.mtimeMs };
+        served = { file, mtimeMs: before.mtimeMs, size: before.size };
+        return file;
+      }
+      return served?.file ?? null;
     } catch {
       served = null;
       return null;
@@ -99,18 +126,26 @@ export interface SdkBuilds {
 }
 
 /**
+ * The fewest builds a builds folder keeps: during a rolling deploy an old and a new API process both
+ * serve and both record, and each must keep the other's current build.
+ */
+export const MIN_SDK_BUILDS_KEPT_WITH_FOLDER = 2;
+
+/**
  * The last `keep` SDK builds the API served, in `dir` (story 8.21), so a page pinned to a build with
- * Subresource Integrity keeps loading it after the next releases. Newest is by modification time,
+ * Subresource Integrity keeps loading it after the next SDK builds. Newest is by modification time,
  * which recording a build sets: a restart or a redeploy of an older build makes it the newest again.
- * Several API processes may share the folder: files appear whole, and a pruned file reads as gone.
- * With no `dir`, nothing is kept.
+ * Several API processes may share the folder (their clocks in sync, as the times come from each):
+ * files appear whole, and a pruned file reads as gone. With no `dir`, nothing is kept.
  */
 export function sdkBuilds(
   dir: string | null,
-  keep: number,
+  keepAsked: number,
   warn: (msg: string, err?: unknown) => void = () => undefined,
 ): SdkBuilds {
-  // One reader per kept build that was asked for, dropped when it reads as gone: probing hashes adds nothing.
+  const keep = Math.max(MIN_SDK_BUILDS_KEPT_WITH_FOLDER, keepAsked);
+  // One reader per kept build that was asked for, at most `keep`, dropped when it reads as gone:
+  // probing hashes adds nothing.
   const readers = new Map<string, () => Promise<ServedFile | null>>();
   // One write at a time, in order; and modification times that only grow, within this process.
   let queue: Promise<void> = Promise.resolve();
@@ -178,7 +213,10 @@ export function sdkBuilds(
         readers.delete(hash);
         return null;
       }
+      readers.delete(hash);
       readers.set(hash, reader);
+      // The least recently read goes first.
+      while (readers.size > keep) readers.delete(readers.keys().next().value as string);
       return file;
     },
   };
@@ -192,18 +230,37 @@ export interface SdkSource {
   pinned(hash: string): Promise<ServedFile | null>;
 }
 
+/** How long the bundle file must stay unchanged before its build is kept for pinned URLs. */
+export const SDK_STABLE_MS = 1000;
+
 /**
- * The current bundle, read again when it changes, with each build it holds recorded in `builds` the
- * first time it is read (at start and after each rebuild or deploy).
+ * The current bundle, read again when it changes, with each build it holds recorded in `builds`
+ * once its file has held still for `stableMs` (at start and after each rebuild or deploy); a build
+ * read sooner is recorded by a timer when it has. Recording runs beside the request: `builds` tells
+ * its failures.
  */
-export function sdkSource(bundleFile: string, builds: SdkBuilds = sdkBuilds(null, 1)): SdkSource {
+export function sdkSource(
+  bundleFile: string,
+  builds: SdkBuilds = sdkBuilds(null, 1),
+  stableMs = SDK_STABLE_MS,
+): SdkSource {
   const read = servedFile(bundleFile);
   let recorded: ServedFile | null = null;
-  const current = async () => {
+  let waiting: ReturnType<typeof setTimeout> | null = null;
+  const current = async (): Promise<ServedFile | null> => {
     const file = await read();
     if (file && file !== recorded) {
-      recorded = file;
-      await builds.record(file);
+      const age = Date.now() - (file.mtimeMs ?? 0);
+      if (age >= stableMs) {
+        recorded = file;
+        void builds.record(file);
+      } else if (!waiting) {
+        waiting = setTimeout(() => {
+          waiting = null;
+          void current();
+        }, stableMs - age + 10);
+        waiting.unref();
+      }
     }
     return file;
   };
@@ -246,22 +303,23 @@ function origin(publicApiUrl: string): string {
  * The install URLs the dashboard's Install tab shows (`GET /api/v1/install`): with the bundle, its
  * pinned URL (`taleart.<hash>.js`, cached for a year) and SRI integrity; null without it.
  */
-export function installInfo(publicApiUrl: string, bundle: ServedFile | null): InstallInfo {
+export function installInfo(publicApiUrl: string, bundle: ServedFile | null, buildsKept = 1): InstallInfo {
   const apiUrl = origin(publicApiUrl);
   return {
     apiUrl,
     sdkUrl: `${apiUrl}${SDK_BUNDLE_PATH}`,
     sdkPinnedUrl: bundle ? `${apiUrl}${SDK_BASE}/taleart.${bundle.hash}.js` : null,
     sdkIntegrity: bundle ? bundle.integrity : null,
+    sdkBuildsKept: buildsKept,
     testPageUrl: `${apiUrl}${SDK_TEST_PAGE_PATH}`,
   };
 }
 
-export function installRouter(publicApiUrl: string, bundle: () => Promise<ServedFile | null>): Router {
+export function installRouter(publicApiUrl: string, bundle: () => Promise<ServedFile | null>, buildsKept = 1): Router {
   const router = Router();
   router.get('/', async (_req, res, next) => {
     try {
-      res.json(installInfo(publicApiUrl, await bundle()));
+      res.json(installInfo(publicApiUrl, await bundle(), buildsKept));
     } catch (err) {
       next(err);
     }
@@ -371,7 +429,11 @@ export function sdkRouter(files: SdkFiles, publicApiUrl: string, sdk: SdkSource 
       if (pinned) {
         // The current build or one of the last ones kept (story 8.21); any other hash is unknown.
         const file = await sdk.pinned(pinned[1]);
-        if (!file) return notFound(res);
+        if (!file) {
+          // Not kept here (yet, or any more): a cache must ask again, not remember the 404.
+          res.set('Cache-Control', 'no-store');
+          return notFound(res);
+        }
         return await sendBundle(req, res, file, `public, max-age=${SDK_PINNED_CACHE_SECONDS}, immutable`);
       }
       const page = Object.prototype.hasOwnProperty.call(PAGE_FILES, req.params.name) ? pages.get(req.params.name) : undefined;
@@ -421,9 +483,10 @@ export function defaultSdkFiles(dir: string): SdkFiles {
 export const MAX_SDK_BUILDS_KEPT = 100;
 
 /**
- * The builds folder and how many builds it keeps (story 8.21): SDK_BUILDS_DIR (default
- * `.data/sdk-builds`, resolved by `resolvePath`; `off` keeps only the current build) and
- * SDK_BUILDS_KEPT (a whole number from 1 to {@link MAX_SDK_BUILDS_KEPT}, default
+ * The builds folder and how many builds it keeps (story 8.21): SDK_BUILDS_DIR (unset or empty:
+ * `.data/sdk-builds`, resolved by `resolvePath`; `off`, `false`, `none`, `no` or `0`, in any case,
+ * keep only the current build, which counts as keeping 1) and SDK_BUILDS_KEPT (a whole number from
+ * {@link MIN_SDK_BUILDS_KEPT_WITH_FOLDER} to {@link MAX_SDK_BUILDS_KEPT}, default
  * {@link DEFAULT_SDK_BUILDS_KEPT}). A bad number stops the API at start.
  */
 export function sdkBuildsFromEnv(
@@ -431,11 +494,31 @@ export function sdkBuildsFromEnv(
   resolvePath: (p: string) => string,
 ): Pick<SdkFiles, 'buildsDir' | 'buildsKept'> {
   const dir = env['SDK_BUILDS_DIR'] || '.data/sdk-builds';
+  if (OFF.has(dir.trim().toLowerCase())) return { buildsDir: null, buildsKept: 1 };
   const kept = env['SDK_BUILDS_KEPT'] || String(DEFAULT_SDK_BUILDS_KEPT);
-  if (!/^\d+$/.test(kept) || Number(kept) < 1 || Number(kept) > MAX_SDK_BUILDS_KEPT) {
-    throw new Error(`SDK_BUILDS_KEPT must be a whole number from 1 to ${MAX_SDK_BUILDS_KEPT}, not ${JSON.stringify(kept)}`);
+  if (!/^\d+$/.test(kept) || Number(kept) < MIN_SDK_BUILDS_KEPT_WITH_FOLDER || Number(kept) > MAX_SDK_BUILDS_KEPT) {
+    throw new Error(
+      `SDK_BUILDS_KEPT must be a whole number from ${MIN_SDK_BUILDS_KEPT_WITH_FOLDER} to ${MAX_SDK_BUILDS_KEPT}, not ${JSON.stringify(kept)} ` +
+        '(an old and a new API process both keep their build during a deploy; SDK_BUILDS_DIR=off keeps only the current one)',
+    );
   }
-  return { buildsDir: dir === 'off' ? null : resolvePath(dir), buildsKept: Number(kept) };
+  return { buildsDir: resolvePath(dir), buildsKept: Number(kept) };
+}
+
+// SDK_BUILDS_DIR values that keep no earlier builds, in any case.
+const OFF = new Set(['off', 'false', 'none', '0', 'no']);
+
+/**
+ * True when the builds folder holds at least one kept build. The API warns at start in production
+ * when it does not: after a first deploy, an empty folder means it does not persist across deploys
+ * (a container without a volume), and every earlier pinned URL answers 404.
+ */
+export function hasKeptBuilds(dir: string): boolean {
+  try {
+    return readdirSync(dir).some((name) => BUILD_FILE.test(name));
+  } catch {
+    return false;
+  }
 }
 
 /**
