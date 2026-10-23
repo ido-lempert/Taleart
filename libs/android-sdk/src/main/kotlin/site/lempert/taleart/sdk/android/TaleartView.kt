@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.AttributeSet
 import android.util.Log
 import android.widget.FrameLayout
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.findViewTreeLifecycleOwner
@@ -23,6 +26,10 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  * arrives. The zone lives in [controller], outside composition, so the view keeps it when it is
  * detached and attached again (in a RecyclerView, a back stack).
  *
+ * A tap on a group opens the full-screen tale viewer in a dialog window over the activity, whatever
+ * layout the view sits in; Back or the viewer's Close returns to the bar. Set [opensViewer] to false
+ * to handle taps yourself.
+ *
  * It needs a ViewTreeLifecycleOwner, as every ComposeView does: an AppCompatActivity,
  * ComponentActivity or Fragment gives one. In a window without one (a plain `android.app.Activity`,
  * a bare WindowManager view) it draws nothing and logs a warning instead of crashing; set one with
@@ -39,8 +46,14 @@ class TaleartView @JvmOverloads constructor(
 
     private var composeView: ComposeView? = null
 
-    /** Called with the tapped tale group (its id and title); the viewer comes with story 9.4. */
+    /** Called with the tapped tale group (its id and title), before the viewer opens (unless [opensViewer] is false). */
     var onGroupClickListener: ((DeliveryTaleGroup) -> Unit)? = null
+
+    /**
+     * True (the default) when a tap on a group opens the full-screen tale viewer, a dialog window
+     * over the activity; false when the host handles taps itself through [onGroupClickListener].
+     */
+    var opensViewer: Boolean by mutableStateOf(true)
 
     /** Called with each failed read (a refused key, an unknown slug, a network failure); the view then shows nothing. */
     var onErrorListener: ((ZoneResult.Failure) -> Unit)?
@@ -111,7 +124,7 @@ class TaleartView @JvmOverloads constructor(
         val view = ComposeView(context).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                TaleartZone(controller, onGroupClick = { group -> onGroupClickListener?.invoke(group) })
+                TaleartZone(controller, onGroupClick = { group -> onGroupClickListener?.invoke(group) }, opensViewer = opensViewer)
             }
         }
         composeView = view

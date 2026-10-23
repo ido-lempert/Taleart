@@ -28,6 +28,10 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  * most 126 points. [height] holds its current height (0 while there is nothing to show) and
  * [onHeightChange] reports each change, so a host can size its container to fit.
  *
+ * A tap on a group opens the full-screen tale viewer, presented modally over the app's top view
+ * controller wherever the bar is embedded; its Close or a swipe down dismisses it. Set
+ * [opensViewer] to false to handle taps yourself.
+ *
  * From Swift: `let zone = TaleartZoneView(apiUrl: url, siteKey: key, zone: "home-top")`, then
  * `zone.viewController`.
  */
@@ -35,8 +39,14 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
     /** The zone shown, read with the process's shared Delivery client unless [client] is set. */
     val controller = TaleartZoneController()
 
-    /** Called with the tapped tale group; the viewer comes with story 9.4. */
+    /** Called with the tapped tale group, before the viewer opens (unless [opensViewer] is false). */
     var onGroupClick: ((DeliveryTaleGroup) -> Unit)? = null
+
+    /**
+     * True (the default) when a tap on a group opens the full-screen tale viewer, presented modally
+     * over the app's top view controller; false when the host handles taps itself through [onGroupClick].
+     */
+    var opensViewer: Boolean by mutableStateOf(true)
 
     /** Called with each failed read (a refused key, an unknown slug, a network failure); nothing shows then. */
     var onError: ((ZoneResult.Failure) -> Unit)?
@@ -97,6 +107,7 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
                 controller,
                 modifier = Modifier.onSizeChanged { size -> reportHeight(with(density) { size.height.toDp().value.toDouble() }) },
                 onGroupClick = { group -> onGroupClick?.invoke(group) },
+                opensViewer = opensViewer,
             )
         }
     }
@@ -112,10 +123,13 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
 fun TaleartViewController(apiUrl: String, siteKey: String, zone: String): UIViewController =
     TaleartZoneView(apiUrl, siteKey, zone).viewController
 
-/** A view controller showing the zone with slug [zone], calling [onGroupClick] with each tapped group. */
+/** A view controller showing the zone with slug [zone], calling [onGroupClick] with each tapped group instead of opening the viewer. */
 fun TaleartViewController(
     apiUrl: String,
     siteKey: String,
     zone: String,
     onGroupClick: (DeliveryTaleGroup) -> Unit,
-): UIViewController = TaleartZoneView(apiUrl, siteKey, zone).also { it.onGroupClick = onGroupClick }.viewController
+): UIViewController = TaleartZoneView(apiUrl, siteKey, zone).also {
+    it.onGroupClick = onGroupClick
+    it.opensViewer = false
+}.viewController
