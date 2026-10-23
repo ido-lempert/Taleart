@@ -1,19 +1,12 @@
 package site.lempert.taleart.taller
 
-/** Simple key-value storage on the device: SharedPreferences on Android, NSUserDefaults on iOS. */
-interface KeyValueStore {
-    fun get(key: String): String?
-    fun set(key: String, value: String)
-}
+import site.lempert.taleart.sdk.storage.InMemoryKeyValueStore
+
+/** The SDK's key-value storage on the device: SharedPreferences on Android, NSUserDefaults on iOS. */
+typealias KeyValueStore = site.lempert.taleart.sdk.storage.KeyValueStore
 
 /** A store kept in memory only, for previews and tests. */
-class InMemoryStore(initial: Map<String, String> = emptyMap()) : KeyValueStore {
-    private val values = initial.toMutableMap()
-    override fun get(key: String): String? = values[key]
-    override fun set(key: String, value: String) {
-        values[key] = value
-    }
-}
+typealias InMemoryStore = InMemoryKeyValueStore
 
 /**
  * The API URL the debug settings start with: the host machine as the Android emulator
