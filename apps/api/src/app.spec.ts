@@ -2137,6 +2137,15 @@ describe('Management API v1: projects and zones', () => {
       expect(placed.zoneIds).toEqual([z2.id]);
       expect(placed.tales.map((t: { id: string }) => t.id)).toEqual([second.id, first.id]);
 
+      // Archived, it is still read, as archived, with its tales (the Tale groups page's Archived filter opens it).
+      expect((await send('PUT', `/tale-groups/${loose.id}/status`, { status: 'archived' })).status).toBe(200);
+      const archived = await fetch(`${base}/tale-groups/${loose.id}`);
+      expect(archived.status).toBe(200);
+      const archivedBody = await archived.json();
+      expect(archivedBody).toMatchObject({ id: loose.id, status: 'archived', storedStatus: 'archived' });
+      expect(archivedBody.tales).toHaveLength(2);
+      expect(archivedBody.visibility.visible).toBe(false);
+
       for (const id of [unknownId, 'nope']) {
         const missing = await fetch(`${base}/tale-groups/${id}`);
         expect(missing.status).toBe(404);
@@ -3911,6 +3920,21 @@ describe('Management API v1: projects and zones', () => {
       ]) {
         expect(res.status).toBe(403);
         expect(await res.json()).toEqual({ error: { code: 'forbidden', message: expect.any(String) } });
+      }
+    });
+
+    it('lets a content manager read a tale group in no zone of their project, not of another (story 8.19)', async () => {
+      const { a, b } = await twoProjects();
+      const mine = await (await post(`/projects/${a.project.id}/tale-groups`, { name: 'Loose' })).json();
+      const theirs = await (await post(`/projects/${b.project.id}/tale-groups`, { name: 'Loose' })).json();
+      await signInAsContentManager([a.project.id]);
+      const read = await send('GET', `/tale-groups/${mine.id}`);
+      expect(read.status).toBe(200);
+      expect(await read.json()).toMatchObject({ id: mine.id, zoneIds: [], tales: [] });
+      for (const id of [theirs.id, b.group.id]) {
+        const refused = await send('GET', `/tale-groups/${id}`);
+        expect(refused.status).toBe(403);
+        expect((await refused.json()).error.code).toBe('forbidden');
       }
     });
 

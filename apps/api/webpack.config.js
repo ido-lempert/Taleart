@@ -1,5 +1,31 @@
 const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
 const { join } = require('path');
+const { Compilation, WebpackError } = require('webpack');
+
+/**
+ * Fails the build when an asset it must carry was not emitted, such as the Web SDK bundle when
+ * dist/libs/web-sdk was not built first (`--excludeTaskDependencies`): the asset copy skips a
+ * missing input without an error, and Nx would otherwise cache an API that answers 404 for
+ * /sdk/v1/taleart.js (story 8.19 review).
+ */
+class RequireAssets {
+  constructor(files) {
+    this.files = files;
+  }
+  apply(compiler) {
+    compiler.hooks.thisCompilation.tap('RequireAssets', (compilation) => {
+      compilation.hooks.processAssets.tap({ name: 'RequireAssets', stage: Compilation.PROCESS_ASSETS_STAGE_REPORT }, () => {
+        for (const file of this.files) {
+          if (!compilation.getAsset(file)) {
+            compilation.errors.push(
+              new WebpackError(`${file} was not emitted: build the Web SDK first (nx run web-sdk:build), then the API.`),
+            );
+          }
+        }
+      });
+    });
+  }
+}
 
 module.exports = {
   output: {
@@ -29,5 +55,6 @@ module.exports = {
       generatePackageJson: true,
       sourceMap: true,
     }),
+    new RequireAssets(['web-sdk/index.js']),
   ],
 };

@@ -684,7 +684,22 @@ export class TaleStudioPage implements OnChanges {
   });
   protected readonly saveFailed = computed(() => !['saved', 'pending', 'saving'].includes(this.saveState().kind));
 
+  /** The group of the tale, as `GET /tales/{id}` named it, for the tale it was read for (story 8.19). */
+  private readonly taleGroupId = signal<{ taleId: string; groupId: string } | null>(null);
+
   constructor() {
+    // A tale no zone lists (its group is in no zone, story 8.19): its group is read, once the store
+    // is loaded, so the studio knows the tale (title, project, Update tale, Duplicate) as any other.
+    // Released when the tale changes, a zone lists it after all, or the studio closes.
+    effect((onCleanup) => {
+      const read = this.taleGroupId();
+      const taleId = this.taleId();
+      if (!read || read.taleId !== taleId || !this.store.loaded()) return;
+      const listed = Object.values(this.store.taleGroups()).some((list) => list.some((g) => g.tales.some((t) => t.id === taleId)));
+      if (listed) return;
+      untracked(() => this.store.ensureTaleGroup(read.groupId));
+      onCleanup(() => this.store.releaseTaleGroup(read.groupId));
+    });
     // Labels over media are judged against the colours read behind them (R12): read again after each change.
     effect(() => {
       this.doc();
@@ -838,9 +853,7 @@ export class TaleStudioPage implements OnChanges {
     const tale = await this.store.readTale(taleId);
     if (tale === null || taleId !== this.taleId()) return false;
     this.readVisibility.set({ taleId, visibility: tale.visibility });
-    // A tale no zone lists (its group is in no zone, story 8.19): read its group, so the studio
-    // knows the tale (title, project, Update tale) as for any other.
-    if (!this.store.tale(taleId)) this.store.ensureTaleGroup(tale.taleGroupId);
+    this.taleGroupId.set({ taleId, groupId: tale.taleGroupId });
     return true;
   }
 
