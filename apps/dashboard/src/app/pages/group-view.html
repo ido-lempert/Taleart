@@ -39,7 +39,7 @@
       @if (needsBadge(group().status)) {
         <app-status-badge [status]="group().status" kind="group" />
       }
-      <app-visibility class="group-view__visibility" [visibility]="group().visibility" viewing="group" />
+      <app-visibility class="group-view__visibility" [visibility]="group().visibility" viewing="group" [targeting]="group()" />
     </div>
     <app-menu-button
       class="group-view__menu"

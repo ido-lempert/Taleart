@@ -15,6 +15,7 @@ import {
 import { Location } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
+  isTargeted,
   switchStatus,
   type ContentStatus,
   type ProjectTaleGroup,
@@ -30,7 +31,7 @@ import { statusActions, statusLabel } from '../status';
 import { visibilityLine } from '../visibility';
 
 /** The filters of the Tale groups page (epic UX rework R14), as `?filter=` holds them; `all` is the default. */
-export type TaleGroupFilter = 'all' | 'visible' | 'off' | 'scheduled' | 'unplaced' | 'archived';
+export type TaleGroupFilter = 'all' | 'visible' | 'off' | 'scheduled' | 'targeted' | 'unplaced' | 'archived';
 
 /** The filters in the order the page offers them, with their labels. */
 export const TALE_GROUP_FILTERS: readonly { id: TaleGroupFilter; label: string }[] = [
@@ -38,6 +39,7 @@ export const TALE_GROUP_FILTERS: readonly { id: TaleGroupFilter; label: string }
   { id: 'visible', label: 'Visible' },
   { id: 'off', label: 'Off' },
   { id: 'scheduled', label: 'Scheduled' },
+  { id: 'targeted', label: 'Targeted' },
   { id: 'unplaced', label: 'Not in a zone' },
   { id: 'archived', label: 'Archived' },
 ];
@@ -58,13 +60,15 @@ export function taleGroupFilter(value: string | null | undefined): TaleGroupFilt
  * - Visible: visible on site in at least one zone, by the Delivery rule (R7).
  * - Off: stored `draft` or `paused` (the switch says Off).
  * - Scheduled: has a start or an end time, whether or not it is open now.
+ * - Targeted: has an audience (epic targeting R7): targeting tags, so only some viewers see it.
  * - Not in a zone: placed in no zone.
- * So Scheduled overlaps Visible, Off and Not in a zone, and Not in a zone overlaps Off; Visible never
- * overlaps Off or Not in a zone. A group that is On but not visible (no shown tale, a zone not set
- * up, a window not open, a status a process set) shows under All, and under Scheduled when it has a window.
+ * So Scheduled overlaps Visible, Off and Not in a zone, Not in a zone overlaps Off, and Targeted
+ * overlaps every filter but Archived; Visible never overlaps Off or Not in a zone. A group that is
+ * On but not visible (no shown tale, a zone not set up, a window not open, a status a process set)
+ * shows under All, and under Scheduled when it has a window.
  */
 export function inTaleGroupFilter(
-  group: Pick<ProjectTaleGroup, 'storedStatus' | 'startsAt' | 'endsAt' | 'zoneIds' | 'visibility'>,
+  group: Pick<ProjectTaleGroup, 'storedStatus' | 'startsAt' | 'endsAt' | 'zoneIds' | 'visibility' | 'tags' | 'tagMatch'>,
   filter: TaleGroupFilter,
 ): boolean {
   const archived = group.storedStatus === 'archived';
@@ -77,6 +81,8 @@ export function inTaleGroupFilter(
       return group.storedStatus === 'draft' || group.storedStatus === 'paused';
     case 'scheduled':
       return group.startsAt !== null || group.endsAt !== null;
+    case 'targeted':
+      return isTargeted(group);
     case 'unplaced':
       return group.zoneIds.length === 0;
     default:
