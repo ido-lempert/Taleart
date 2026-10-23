@@ -7,9 +7,14 @@ import kotlinx.serialization.json.JsonObject
 import site.lempert.taleart.sdk.delivery.HOME_TOP_ZONE_JSON
 import site.lempert.taleart.sdk.delivery.readZone
 import site.lempert.taleart.sdk.storage.InMemoryKeyValueStore
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 // The bar's settings, the theme, the seen groups and the covers, read as the Web SDK reads them
 // (libs/web-sdk/src/lib/bar.spec.ts, theme.spec.ts, seen.spec.ts).
@@ -87,30 +92,70 @@ class BarReadersTest {
     }
 
     @Test
-    fun seenGroupsAreKeptNewestLastAndCapped() {
+    fun seenGroupsAreKeptNewestLastAndCapped() = runTest {
         val store = InMemoryKeyValueStore()
-        val seen = SeenGroups(store)
-        assertEquals(emptySet(), seen.ids())
+        val seen = SeenGroups(store, StandardTestDispatcher(testScheduler))
+        seen.awaitLoaded()
+        assertEquals(emptySet(), seen.ids)
         seen.markSeen("a")
         seen.markSeen("b")
         seen.markSeen("a")
+        // The rings change at once; the store just after.
+        assertEquals(setOf("a", "b"), seen.ids)
+        advanceUntilIdle()
         assertEquals("[\"b\",\"a\"]", store.get(SEEN_STORAGE_KEY))
         repeat(SEEN_LIMIT + 5) { seen.markSeen("g$it") }
-        assertEquals(SEEN_LIMIT, seen.ids().size)
-        assertEquals(false, "a" in seen.ids())
+        advanceUntilIdle()
+        assertEquals(SEEN_LIMIT, SeenGroups.readIds(store).size)
+        assertEquals(false, "a" in SeenGroups.readIds(store))
+    }
+
+    @Test
+    fun theStoredIdsAreReadOffTheCallersThreadAndKeepWhatWasMarkedMeanwhile() = runTest {
+        val store = InMemoryKeyValueStore(mapOf(SEEN_STORAGE_KEY to "[\"old\"]"))
+        val seen = SeenGroups(store, StandardTestDispatcher(testScheduler))
+        assertFalse(seen.isLoaded)
+        assertEquals(emptySet(), seen.ids)
+        seen.markSeen("new")
+        advanceUntilIdle()
+        assertTrue(seen.isLoaded)
+        assertEquals(setOf("old", "new"), seen.ids)
+        assertEquals("[\"old\",\"new\"]", store.get(SEEN_STORAGE_KEY))
     }
 
     @Test
     fun brokenSeenStorageReadsAsNothingSeen() {
-        assertEquals(emptySet(), SeenGroups(InMemoryKeyValueStore(mapOf(SEEN_STORAGE_KEY to "{nope"))).ids())
-        assertEquals(setOf("x"), SeenGroups(InMemoryKeyValueStore(mapOf(SEEN_STORAGE_KEY to "[1,\"x\",null]"))).ids())
+        assertEquals(emptyList(), SeenGroups.readIds(InMemoryKeyValueStore(mapOf(SEEN_STORAGE_KEY to "{nope"))))
+        assertEquals(listOf("x"), SeenGroups.readIds(InMemoryKeyValueStore(mapOf(SEEN_STORAGE_KEY to "[1,\"x\",null]"))))
+    }
+
+    @Test
+    fun aVideoCoverGivesWayToTheNextImageCandidate() {
+        val zone = readZone(
+            json(
+                """{"frame":null,"taleGroups":[
+                {"id":"a","name":"A","cover":{"kind":"video","url":"https://cdn.test/c.mp4"},
+                 "tales":[{"id":"t","document":{"elements":[
+                   {"type":"video","props":{"url":"https://cdn.test/t.mp4"}},
+                   {"type":"sticker","props":{"url":"https://cdn.test/s.png"}}]}}]},
+                {"id":"b","name":"B","tales":[
+                  {"id":"t1","media":{"kind":"video","url":"https://cdn.test/v.mp4"}},
+                  {"id":"t2","media":{"kind":"image","url":"https://cdn.test/i.png"}}]},
+                {"id":"c","name":"C","cover":{"kind":"video","url":"https://cdn.test/c.mp4"},
+                 "tales":[{"id":"t","document":{"canvas":{"background":{"type":"color","color":"#abcdef"}},
+                   "elements":[{"type":"video","props":{"url":"https://cdn.test/t.mp4"}}]}}]}]}""",
+            ) as JsonObject,
+        )
+        assertEquals(CoverSource.Image("https://cdn.test/s.png"), coverSource(zone.taleGroups[0]))
+        assertEquals(CoverSource.Image("https://cdn.test/i.png"), coverSource(zone.taleGroups[1]))
+        assertEquals(CoverSource.Placeholder("#abcdef"), coverSource(zone.taleGroups[2]))
     }
 
     @Test
     fun aGroupsCoverIsItsOwnElseItsFirstTalesMediaElseItsCanvasColour() {
         val zone = readZone(Json.parseToJsonElement(HOME_TOP_ZONE_JSON) as JsonObject)
         assertEquals(
-            CoverSource.Media("image", "http://localhost:3592/media/tales/3b00e2b1-fa35-4657-9849-a78f9f7cf9c3.png"),
+            CoverSource.Image("http://localhost:3592/media/tales/3b00e2b1-fa35-4657-9849-a78f9f7cf9c3.png"),
             coverSource(zone.taleGroups[0]),
         )
         val withCover = readZone(
@@ -121,9 +166,9 @@ class BarReadersTest {
                 {"id":"j","name":"J","cover":{"kind":"image","url":"javascript:alert(1)"},"tales":[]}]}""",
             ) as JsonObject,
         )
-        assertEquals(CoverSource.Media("image", "https://cdn.test/c.png"), coverSource(withCover.taleGroups[0]))
+        assertEquals(CoverSource.Image("https://cdn.test/c.png"), coverSource(withCover.taleGroups[0]))
         assertEquals(CoverSource.Placeholder("#123456"), coverSource(withCover.taleGroups[1]))
-        assertEquals(CoverSource.Media("image", "https://cdn.test/bg.png"), coverSource(withCover.taleGroups[2]))
+        assertEquals(CoverSource.Image("https://cdn.test/bg.png"), coverSource(withCover.taleGroups[2]))
         assertEquals(CoverSource.Placeholder(null), coverSource(withCover.taleGroups[3]))
     }
 

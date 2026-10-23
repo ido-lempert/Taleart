@@ -16,6 +16,14 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+// Robolectric reaches into JDK internals on JDK 17+.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--add-opens=java.base/java.io=ALL-UNNAMED")
 }
 
 kotlin {
@@ -27,4 +35,12 @@ kotlin {
 dependencies {
     // The shared SDK brings the Compose UI (ComposeView) that TaleartView hosts.
     api(project(":mobile-sdk"))
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.ktor.client.mock)
+    // ComponentActivity, declared in a test manifest, hosts the view with a lifecycle owner.
+    testImplementation(libs.androidx.activity.compose)
+    testImplementation(libs.androidx.compose.uiTestManifest)
 }

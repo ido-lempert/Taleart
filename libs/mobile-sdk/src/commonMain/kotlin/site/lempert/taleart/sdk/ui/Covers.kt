@@ -8,10 +8,10 @@ import site.lempert.taleart.sdk.delivery.DeliveryTaleGroup
 
 /** What a bar item shows in its ring. */
 sealed interface CoverSource {
-    /** A picture: an image, or a video (drawn as the placeholder until the viewer story adds video). */
-    data class Media(val kind: String, val url: String) : CoverSource
+    /** A still image to load from [url]. */
+    data class Image(val url: String) : CoverSource
 
-    /** No media to show: the first tale's canvas colour (`#rrggbb` or `#rrggbbaa`), or null for the neutral placeholder. */
+    /** No image to show: the first tale's canvas colour (`#rrggbb` or `#rrggbbaa`), or null for the neutral placeholder. */
     data class Placeholder(val color: String?) : CoverSource
 }
 
@@ -25,43 +25,45 @@ internal fun mediaUrl(value: String?): String? {
 }
 
 /**
- * The group's cover (R12) when it has one, else its default cover, as the Web SDK's bar picks it:
- * the lowest media element of its first tale that has media, else the first tale's canvas colour.
+ * The picture a bar item shows, in the Web SDK's order (bar.ts `cover` and `defaultCover`): the
+ * group's own cover (R12), else the lowest media of its tales in order (a document's media
+ * background, then its image, video and sticker elements; a tale without a document has its
+ * media), else the first tale's canvas colour, else the neutral placeholder.
+ *
+ * The Web SDK draws a video's first frame. The Delivery API sends no poster or thumbnail for a
+ * video, and the SDK does not decode video yet, so a video candidate is skipped and the next image
+ * candidate in that order is used instead: a group whose cover is a video still shows a picture
+ * from its tales rather than a flat placeholder.
  */
 fun coverSource(group: DeliveryTaleGroup): CoverSource {
     group.cover?.let { cover ->
         val url = mediaUrl(cover.url)
-        if (url != null) return CoverSource.Media(if (cover.kind == "video") "video" else "image", url)
+        if (url != null && cover.kind != "video") return CoverSource.Image(url)
     }
-    return defaultCover(group)
-}
-
-/** A group's default cover (web zones R12, Tale Studio R16), as `defaultCover` in the Web SDK. */
-fun defaultCover(group: DeliveryTaleGroup): CoverSource {
-    for (tale in group.tales) lowestMedia(tale)?.let { return it }
+    for (tale in group.tales) imageCandidates(tale).firstOrNull()?.let { return CoverSource.Image(it) }
     val doc = group.tales.firstOrNull()?.document as? JsonObject
     return CoverSource.Placeholder(doc?.let(::canvasColor))
 }
 
-// A tale's lowest media element: its document's media background, else its first image, video or
-// image sticker; a tale sent without a document (servers before R16) has its media.
-private fun lowestMedia(tale: DeliveryTale): CoverSource.Media? {
+// A tale's image candidates, lowest first: its document's media background, then its image and
+// sticker elements (video elements are skipped, see coverSource); a tale sent without a document
+// (servers before R16) has its media, when that is an image.
+private fun imageCandidates(tale: DeliveryTale): List<String> {
     val doc = tale.document as? JsonObject
     if (doc == null) {
-        val media = tale.media ?: return null
-        val url = mediaUrl(media.url) ?: return null
-        return CoverSource.Media(if (media.kind == "video") "video" else "image", url)
+        val media = tale.media ?: return emptyList()
+        return listOfNotNull(mediaUrl(media.url)?.takeIf { media.kind != "video" })
     }
-    val background = ((doc["canvas"] as? JsonObject)?.get("background") as? JsonObject)
-    if (background?.text("type") == "media") mediaUrl(background.text("url"))?.let { return CoverSource.Media("image", it) }
+    val found = mutableListOf<String>()
+    val background = (doc["canvas"] as? JsonObject)?.get("background") as? JsonObject
+    if (background?.text("type") == "media") mediaUrl(background.text("url"))?.let(found::add)
     for (element in (doc["elements"] as? JsonArray).orEmpty()) {
         val el = element as? JsonObject ?: continue
         val type = el.text("type")
-        if (type != "image" && type != "video" && type != "sticker") continue
-        val url = mediaUrl((el["props"] as? JsonObject)?.text("url")) ?: continue
-        return CoverSource.Media(if (type == "video") "video" else "image", url)
+        if (type != "image" && type != "sticker") continue
+        mediaUrl((el["props"] as? JsonObject)?.text("url"))?.let(found::add)
     }
-    return null
+    return found
 }
 
 private fun canvasColor(doc: JsonObject): String? {
