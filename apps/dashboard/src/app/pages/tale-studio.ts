@@ -555,12 +555,15 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     .el.is-locked {
       cursor: default;
     }
-    /* A low-contrast label (R12): a warning badge in the element's top corner, legible on any backdrop. */
+    /*
+     * A low-contrast label (R12): a warning badge in the element's top corner, legible on any backdrop;
+     * above the inner focus ring (.el:focus-visible::after, z-index 0).
+     */
     .el__warn {
       position: absolute;
       top: 2px;
       inset-inline-end: 2px;
-      z-index: 1;
+      z-index: 2;
       display: grid;
       place-items: center;
       width: 18px;
