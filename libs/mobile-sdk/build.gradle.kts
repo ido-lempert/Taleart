@@ -44,3 +44,10 @@ kotlin {
         }
     }
 }
+
+// ContractModelsTest reads the contract's OpenAPI spec: a change to it reruns the host tests.
+tasks.withType<Test>().configureEach {
+    inputs.file(layout.projectDirectory.file("../contract/openapi/openapi.yaml"))
+        .withPropertyName("deliveryContract")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}

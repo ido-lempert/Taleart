@@ -17,7 +17,11 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -59,7 +63,7 @@ class DeliveryClientTest {
     private val refused = """{"error":{"code":"invalid_site_key","message":"A valid site key and zone are required"}}"""
 
     @Test
-    fun readsTheZoneBySlugWithTheSiteKeyAsABearerTokenOnceAndNoCookie() = runTest {
+    fun readsTheZoneBySlugWithTheSiteKeyAsABearerTokenOnce() = runTest {
         val client = client { json(HOME_TOP_ZONE_JSON) }
         assertIs<ZoneResult.Success>(client.fetchZone(api, homeTop))
         assertEquals(1, requests.size)
@@ -67,7 +71,7 @@ class DeliveryClientTest {
         assertEquals("$api/delivery/v1/zone?zone=home-top", request.url.toString())
         assertEquals("GET", request.method.value)
         assertEquals("Bearer $key", request.headers[HttpHeaders.Authorization])
-        assertNull(request.headers[HttpHeaders.Cookie])
+        assertEquals(setOf(HttpHeaders.Authorization), request.headers.names().filter { it != HttpHeaders.Accept && it != HttpHeaders.AcceptCharset }.toSet())
     }
 
     @Test
@@ -77,8 +81,8 @@ class DeliveryClientTest {
         assertEquals("home-top", zone.slug)
         val frame = assertNotNull(zone.frame)
         assertEquals("bar", frame.type)
-        assertEquals("circle", frame.settings["shape"]?.jsonPrimitive?.content)
-        assertEquals("gradient", zone.theme?.get("ringStyle")?.jsonPrimitive?.content)
+        assertEquals("circle", frame.settings?.jsonObject?.get("shape")?.jsonPrimitive?.content)
+        assertEquals("gradient", zone.theme?.jsonObject?.get("ringStyle")?.jsonPrimitive?.content)
         assertEquals(listOf("Summer trips", "Winter tales"), zone.taleGroups.map { it.name })
         assertEquals(
             listOf(listOf("Beach day", "Mountain hike", "City night"), listOf("First snow", "Hot cocoa")),
@@ -90,7 +94,7 @@ class DeliveryClientTest {
         assertEquals("image", tale.media?.kind)
         assertEquals("image/png", tale.media?.contentType)
         assertTrue(tale.media?.url.orEmpty().startsWith("http://localhost:3592/media/tales/"))
-        assertNotNull(tale.document?.get("elements"))
+        assertNotNull(tale.document?.jsonObject?.get("elements"))
         assertEquals(emptyList<DeliveryFont>(), tale.fonts)
     }
 
@@ -306,6 +310,107 @@ class DeliveryClientTest {
     fun keepsUnknownJsonValuesOfTheThemeAndSettings() = runTest {
         val body = zoneWith(frame = """{"id":"f1","type":"bar","settings":{"future":"x"}}""")
         val zone = assertIs<ZoneResult.Success>(client { json(body) }.fetchZone(api, homeTop)).zone
-        assertEquals(JsonPrimitive("x"), zone.frame?.settings?.get("future"))
+        assertEquals(JsonPrimitive("x"), zone.frame?.settings?.jsonObject?.get("future"))
+    }
+
+    @Test
+    fun readsAWrongTypedFieldAsItsDefaultAndKeepsTheRestOfTheZone() = runTest {
+        val body = """{"id":"z1","name":7,"slug":"home-top","theme":"dark",
+            "frame":{"id":"f1","type":"bar","settings":[1]},
+            "taleGroups":[{"id":"g1","name":"Summer","cover":"none","tales":[
+              {"id":"t1","title":"Beach","media":"x","document":[1,2],"fonts":[3,{"id":"f","url":"u","weight":"bold"}]},
+              5,
+              {"id":"t2","title":{"en":"Snow"}}]}]}"""
+        val zone = assertIs<ZoneResult.Success>(client { json(body) }.fetchZone(api, homeTop)).zone
+        assertEquals("", zone.name)
+        assertEquals(JsonPrimitive("dark"), zone.theme)
+        assertIs<JsonArray>(zone.frame?.settings)
+        val group = zone.taleGroups.single()
+        assertNull(group.cover)
+        assertEquals(listOf("t1", "t2"), group.tales.map { it.id })
+        val beach = group.tales.first()
+        assertNull(beach.media)
+        assertIs<JsonArray>(beach.document)
+        assertEquals(400, beach.fonts.single().weight)
+        assertEquals("", group.tales[1].title)
+    }
+
+    @Test
+    fun answersEveryReadInProgressAsOfflineWhenClosed() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val client = client {
+            gate.await()
+            json(HOME_TOP_ZONE_JSON)
+        }
+        val calls = List(2) { async { client.fetchZone(api, homeTop) } }
+        testScheduler.runCurrent()
+        client.close()
+        for (result in calls.awaitAll()) {
+            assertEquals(DeliveryClient.CLOSED_MESSAGE, assertIs<ZoneResult.Offline>(result).message)
+        }
+    }
+
+    @Test
+    fun answersAReadAfterCloseAtOnceWithoutARequest() = runTest {
+        val client = client { json(HOME_TOP_ZONE_JSON) }
+        client.close()
+        assertEquals(DeliveryClient.CLOSED_MESSAGE, assertIs<ZoneResult.Offline>(client.fetchZone(api, homeTop)).message)
+        assertEquals(0, requests.size)
+    }
+
+    @Test
+    fun keepsTheSharedRequestForTheOtherCallerWhenOneCallerIsCancelled() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val client = client {
+            gate.await()
+            json(HOME_TOP_ZONE_JSON)
+        }
+        val leaving = async { client.fetchZone(api, homeTop) }
+        val staying = async { client.fetchZone(api, homeTop) }
+        testScheduler.runCurrent()
+        leaving.cancel()
+        yield()
+        gate.complete(Unit)
+        assertIs<ZoneResult.Success>(staying.await())
+        assertTrue(leaving.isCancelled)
+        assertEquals(1, requests.size)
+    }
+
+    @Test
+    fun neverKeepsABodyThatIsNotAZoneForRevalidation() = runTest {
+        var html = true
+        val client = client {
+            if (html) {
+                respond("<html></html>", HttpStatusCode.OK, headersOf(HttpHeaders.ETag to listOf("\"h\""), HttpHeaders.ContentType to listOf("text/html")))
+            } else {
+                json(HOME_TOP_ZONE_JSON)
+            }
+        }
+        assertIs<ZoneResult.InvalidResponse>(client.fetchZone(api, homeTop))
+        html = false
+        assertIs<ZoneResult.Success>(client.fetchZone(api, homeTop))
+        assertNull(requests[1].headers[HttpHeaders.IfNoneMatch])
+    }
+
+    @Test
+    fun keepsTheMostRecentlyUsedThirtyTwoZonesARevalidationCountingAsAUse() = runTest {
+        val client = client { request ->
+            val zone = request.url.parameters["zone"]!!
+            if (request.headers[HttpHeaders.IfNoneMatch] == "\"$zone\"") {
+                respond("", HttpStatusCode.NotModified)
+            } else {
+                json(HOME_TOP_ZONE_JSON, HttpStatusCode.OK, HttpHeaders.ETag to "\"$zone\"")
+            }
+        }
+        suspend fun read(slug: String): String? {
+            client.fetchZone(api, ZoneRequest(key, slug))
+            return requests.last().headers[HttpHeaders.IfNoneMatch]
+        }
+        for (i in 0 until 32) read("zone-$i")
+        assertEquals("\"zone-0\"", read("zone-0"))
+        read("zone-32")
+        // zone-1 was the least recently used and left; zone-0, revalidated, stayed.
+        assertNull(read("zone-1"))
+        assertEquals("\"zone-0\"", read("zone-0"))
     }
 }
