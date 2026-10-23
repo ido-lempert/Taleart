@@ -18,7 +18,8 @@ class SharedPreferencesKeyValueStore(context: Context, name: String) : KeyValueS
  * The SharedPreferences file the SDK keeps its own state in (the seen tale groups). A library
  * cannot exclude a file from the host app's backup: an app that wants it left out lists
  * `sharedpref/taleart-sdk.xml` in its backup rules (`android:fullBackupContent` and
- * `android:dataExtractionRules`). It holds only tale group ids, no key or personal data.
+ * `android:dataExtractionRules`). It holds only tale group ids and the device's random visitor id,
+ * no key or personal data.
  */
 const val SDK_PREFERENCES = "taleart-sdk"
 
@@ -35,3 +36,5 @@ actual fun rememberDeviceKeyValueStore(): KeyValueStore {
     val context = LocalContext.current.applicationContext
     return remember(context) { deviceKeyValueStore(context) }
 }
+
+internal actual fun deviceKeyValueStoreOrNull(): KeyValueStore? = synchronized(deviceStoreLock) { deviceStore }

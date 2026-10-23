@@ -27,6 +27,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import site.lempert.taleart.sdk.storage.KeyValueStore
+import site.lempert.taleart.sdk.storage.deviceKeyValueStoreOrNull
 
 /** The Delivery API base path (AD-2), as `DELIVERY_API_BASE` in the contract. */
 const val DELIVERY_PATH = "/delivery/v1"
@@ -36,7 +38,10 @@ expect fun platformHttpClient(): HttpClient
 
 /**
  * Reads zones from the Delivery API, as `fetchZone` in libs/web-sdk/src/lib/delivery-client.ts does:
- * `GET <apiUrl>/delivery/v1/zone?zone=<slug>` with the site key as a bearer token and never a cookie.
+ * `GET <apiUrl>/delivery/v1/zone?zone=<slug>` with the site key as a bearer token and never a cookie,
+ * and the device's visitor id in `X-TaleArt-Visitor` (epic UX rework 8.23). The id is a random UUID
+ * v4 kept in [visitorStore] (by default the SDK's own device store, where the seen tale groups are),
+ * so it lasts across app restarts.
  *
  * Like the Web SDK it shares one request among callers that ask for the same zone with the same
  * key at the same time, and asks again once that request settles. Like a browser, it keeps the last
@@ -47,7 +52,9 @@ expect fun platformHttpClient(): HttpClient
 class DeliveryClient(
     private val httpClient: HttpClient = platformHttpClient(),
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    visitorStore: () -> KeyValueStore? = ::deviceKeyValueStoreOrNull,
 ) : AutoCloseable {
+    private val visitor = VisitorId(visitorStore)
     // Runs the shared requests, so one caller leaving does not cancel the request for the others.
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val lock = Mutex()
@@ -104,10 +111,11 @@ class DeliveryClient(
     private fun closedResult() = ZoneResult.Offline(CLOSED_MESSAGE, null)
 
     private suspend fun read(url: String, key: String, id: String): RawResponse {
-        val cached = lock.withLock { etags[id] }
+        val (cached, visitorId) = lock.withLock { etags[id] to visitor.current() }
         val response = try {
             httpClient.get(url) {
                 header(HttpHeaders.Authorization, "Bearer $key")
+                header(VISITOR_HEADER, visitorId)
                 if (cached != null) header(HttpHeaders.IfNoneMatch, cached.etag)
             }
         } catch (e: CancellationException) {
