@@ -45,7 +45,7 @@ export interface TextStyleChange {
 }
 
 /** The names people read for each system stack (the contract's, shared with the font page). */
-export const STACK_NAMES = SYSTEM_FONT_STACK_NAMES;
+const STACK_NAMES = SYSTEM_FONT_STACK_NAMES;
 const SIZE_NAMES: Readonly<Record<TextSizePreset | 'custom', string>> = {
   small: 'Small',
   medium: 'Medium',
