@@ -109,6 +109,26 @@ describe('the poll descriptor and the choices field', () => {
   });
 });
 
+// A poll as a stored draft holds it.
+function storedPoll(): PollElement {
+  return {
+    id: '00000000-0000-4000-8000-0000000000aa',
+    type: 'poll',
+    box: { x: 0.1, y: 0.36, w: 0.8, h: 0.28, rotation: 0 },
+    hidden: false,
+    locked: false,
+    a11y: {},
+    props: {
+      question: 'Tea or coffee?',
+      theme: 'light',
+      options: [
+        { id: 'tea', label: 'Tea' },
+        { id: 'coffee', label: 'Coffee' },
+      ],
+    },
+  };
+}
+
 describe('Tale Studio: a poll (epic interactive components story 4.1)', () => {
   let http: HttpTestingController;
   let fixture: ComponentFixture<TaleStudioPage>;
@@ -234,6 +254,37 @@ describe('Tale Studio: a poll (epic interactive components story 4.1)', () => {
     expect(body.document.elements[0]).toMatchObject({ type: 'poll', props: { question: 'Tea or coffee?' } });
     req.flush({ document: body.document, revision: 1 });
     expect(await leaving).toBe(true);
+  });
+
+  it('refuses to duplicate a poll, since a tale holds one', async () => {
+    await open({ version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [storedPoll()] });
+    const el = q<HTMLButtonElement>(`#studio-el-${storedPoll().id}`);
+    el.click();
+    await settle(fixture);
+    http.expectOne(responsesUrl).flush({ elements: [] });
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }));
+    await settle(fixture);
+    expect(doc().elements).toHaveLength(1);
+    expect(live()).toBe('A tale holds one poll, so it cannot be duplicated');
+  });
+
+  it('applies each option edit to the poll as it is then, even when two land before a redraw', async () => {
+    await open({ version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [storedPoll()] });
+    const id = storedPoll().id;
+    q<HTMLButtonElement>(`#studio-el-${id}`).click();
+    await settle(fixture);
+    http.expectOne(responsesUrl).flush({ elements: [] });
+    // Both fields change before the inspector sees the first edit.
+    for (const [i, label] of ['Green tea', 'Black coffee'].entries()) {
+      const field = q<HTMLInputElement>(`#field-poll-options-${id}-${i}`);
+      field.value = label;
+      field.dispatchEvent(new Event('change'));
+    }
+    await settle(fixture);
+    expect(poll().props.options).toEqual([
+      { id: 'tea', label: 'Green tea' },
+      { id: 'coffee', label: 'Black coffee' },
+    ]);
   });
 
   it('says when the votes cannot be read', async () => {

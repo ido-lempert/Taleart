@@ -38,6 +38,7 @@ import {
   hasVideoElement,
   isLinkElement,
   isInteractiveElementType,
+  ELEMENT_TYPE_LIMITS,
   isMediaElement,
   isSwipeUpBox,
   isOutsideSafeArea,
@@ -1640,6 +1641,15 @@ export class TaleStudioPage implements OnChanges {
           this.say('A tale holds one swipe-up link, so it cannot be duplicated');
           break;
         }
+        // Any type with a per-tale limit, such as a poll (epic interactive components C3).
+        const limit = Object.prototype.hasOwnProperty.call(ELEMENT_TYPE_LIMITS, element.type)
+          ? ELEMENT_TYPE_LIMITS[element.type]
+          : undefined;
+        if (limit !== undefined && doc.elements.filter((e) => e.type === element.type).length >= limit) {
+          const name = (this.typesByKey.get(element.type)?.label ?? element.type).toLowerCase();
+          this.say(`A tale holds ${limit === 1 ? `one ${name}` : `at most ${limit} of type ${name}`}, so it cannot be duplicated`);
+          break;
+        }
         if (doc.elements.length >= MAX_TALE_ELEMENTS) {
           this.say(`A tale holds at most ${MAX_TALE_ELEMENTS} layers`);
           break;
@@ -2350,6 +2360,16 @@ export class TaleStudioPage implements OnChanges {
         if (change.props) {
           props = { ...props, ...change.props };
           for (const [key, value] of Object.entries(change.props)) if (value === undefined) delete props[key];
+        }
+        const choice = change.choice;
+        const items = choice ? props[choice.prop] : undefined;
+        if (choice && Array.isArray(items) && choice.index >= 0 && choice.index < items.length) {
+          props = {
+            ...props,
+            [choice.prop]: items.map((item: Record<string, unknown>, i: number) =>
+              i === choice.index ? { ...item, label: choice.label } : item,
+            ),
+          };
         }
         return { ...e, a11y: change.a11y ?? e.a11y, props } as TaleElement;
       }),

@@ -36,7 +36,13 @@ interface Kept {
 function readAll(): Record<string, Kept> {
   try {
     const parsed = JSON.parse(localStorage.getItem(RESPONSES_STORAGE_KEY) ?? '{}') as unknown;
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, Kept>) : {};
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    // Only object entries: anything else (null, a number, written by hand or by another script) is dropped.
+    const kept: Record<string, Kept> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) kept[key] = value as Kept;
+    }
+    return kept;
   } catch {
     // Missing, blocked or not JSON: nothing kept.
     return {};

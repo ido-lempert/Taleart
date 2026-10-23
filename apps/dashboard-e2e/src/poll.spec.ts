@@ -85,20 +85,16 @@ test.describe.serial('a poll (epic interactive components story 4.1)', () => {
     const question = page.locator('input[id^="field-poll-question-"]');
     await expect(question).toBeFocused();
     const id = (await question.getAttribute('id'))?.replace('field-poll-question-', '') ?? '';
-    // Each edit is one history step that redraws the inspector: type the next once this one shows.
     await question.fill('Tea or coffee?');
     await question.press('Tab');
-    await expect(page.locator('.selected, body').getByText('Tea or coffee?').first()).toBeVisible();
+    // Typed one after another: each option's edit lands on the poll as it is then.
     for (const [i, label] of ['Tea', 'Coffee'].entries()) {
-      await expect(async () => {
-        const option = page.locator(`#field-poll-options-${id}-${i}`);
-        await option.fill(label);
-        await option.press('Tab');
-        await expect(page.locator('#studio-responses li').nth(i)).toContainText(label, { timeout: 1000 });
-      }).toPass({ timeout: 15_000 });
+      const option = page.locator(`#field-poll-options-${id}-${i}`);
+      await option.fill(label);
+      await option.press('Tab');
     }
-    await expect(page.locator('#studio-add-poll')).toHaveAttribute('aria-disabled', 'true');
     await expect(page.locator('#studio-responses li')).toHaveText(['Tea0', 'Coffee0']);
+    await expect(page.locator('#studio-add-poll')).toHaveAttribute('aria-disabled', 'true');
     await page.locator('#studio-update').click();
     await expect
       .poll(async () => (await api<{ published: { document: { elements: { type: string }[] } | null } }>('get', `/tales/${taleId}/document`)).published.document?.elements.map((e) => e.type))

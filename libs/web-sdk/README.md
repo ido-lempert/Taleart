@@ -299,6 +299,10 @@ focus is inside it. The SDK keeps the answer and the percentages it received in 
 data forgets them, while the server still holds the vote. The Tale Studio preview records nothing. Under a CSP, the
 API origin must be allowed in `connect-src`, as it already is for the Delivery API.
 
+Poll counts are indicative, not tamper-proof. A vote counts once per visitor id, and the visitor id is made by the
+browser: clearing site data, a private window or a script that sends new ids can vote again (within the Delivery API's
+rate limits). Do not use a poll where the result must be trusted, such as a contest.
+
 ### Budgets
 
 The Web SDK's budgets (NFR-006; epic Tale Studio R15) on a mid-tier phone over Fast 4G, checked by the two targets
