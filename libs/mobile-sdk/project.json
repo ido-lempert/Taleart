@@ -7,7 +7,13 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "./gradlew :mobile-sdk:testAndroidHostTest :mobile-sdk:iosSimulatorArm64Test --console=plain"
+        "command": "./gradlew :mobile-sdk:testAndroidHostTest --console=plain"
+      }
+    },
+    "test-ios": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "./gradlew :mobile-sdk:iosSimulatorArm64Test --console=plain"
       }
     }
   }

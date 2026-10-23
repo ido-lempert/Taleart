@@ -59,7 +59,7 @@ build/
 local.properties
 *.iml
 xcuserdata/
-captures
+apps/taller/androidApp/captures/
 .externalNativeBuild
 .cxx
 *.xcodeproj/*

@@ -62,12 +62,26 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.compose.uiTest)
+        }
+        getByName("androidHostTest").dependencies {
+            implementation(libs.robolectric)
+            implementation(libs.androidx.compose.uiTestManifest)
         }
     }
 }
 
 compose.resources {
     packageOfResClass = "site.lempert.taleart.taller.resources"
+}
+
+kotlin.compilerOptions {
+    freeCompilerArgs.add("-Xexpect-actual-classes")
+}
+
+// Robolectric (Compose UI tests on the Android host) reaches into JDK internals on JDK 17+.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--add-opens=java.base/java.io=ALL-UNNAMED")
 }
 
 dependencies {

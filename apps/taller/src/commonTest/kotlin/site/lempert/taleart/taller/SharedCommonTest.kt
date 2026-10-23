@@ -1,18 +1,14 @@
 package site.lempert.taleart.taller
 
+import site.lempert.taleart.sdk.TaleartSdk
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class SharedCommonTest {
 
     @Test
-    fun example() {
-        assertEquals(3, 1 + 2)
-    }
-
-    @Test
     fun showsTheSdkVersion() {
-        assertEquals("SDK 0.0.1", sdkVersionLabel())
+        assertEquals("SDK ${TaleartSdk.VERSION}", sdkVersionLabel())
     }
 
     @Test
