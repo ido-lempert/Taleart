@@ -140,7 +140,8 @@ Every `<taleart-view>` on the page, now and later, then shows only the groups wh
 
 Calling `setTags` again replaces the tags, and rendered elements show the matching groups at once, without a new
 request. The SDK decides in the browser: the tags are never sent to TaleArt. The Delivery API sends every group of the
-zone with its tag names, so targeting is not access control: anyone with the site key can read every visible group.
+zone with its tag names, so targeting is not access control: anyone with the site key can read every visible group
+and its tag names. Keep anything private out of tag names.
 
 ## Theme
 

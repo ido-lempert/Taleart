@@ -4278,6 +4278,12 @@ describe('App', () => {
       expect(hint()).toBe('Shows to viewers tagged Beach or summer, and on pages that pass no tags.');
       const legend = panel.querySelector('input[name=tagMatch]')?.closest('fieldset')?.querySelector('legend');
       expect(legend?.textContent?.trim()).toBe('Show to viewers tagged with');
+      expect(panel.querySelector('input[type=checkbox]')?.closest('fieldset')?.querySelector('legend')?.textContent?.trim()).toBe(
+        'Targeting tags for Summer',
+      );
+      // Changes to the hint are announced, and tag names are said to be public.
+      expect(panel.querySelector('#tag-match-hint')?.getAttribute('aria-live')).toBe('polite');
+      expect(panel.querySelector('#tag-public-note')?.textContent).toContain('visible to anyone who loads the zone');
 
       panel.querySelectorAll<HTMLInputElement>('input[name=tagMatch]')[1].click();
       await settle(fixture);
@@ -4296,6 +4302,29 @@ describe('App', () => {
       const reopened = drawer() as HTMLElement;
       expect(reopened.querySelector('h2')?.textContent).toContain('Audience');
       expect(reopened.querySelectorAll<HTMLInputElement>('input[name=tagMatch]')[1].checked).toBe(true);
+    });
+
+    it('disables All and Any while no tag is checked, and says why', async () => {
+      const { fixture, root } = await open('/zones/z1', {
+        ...oneZone,
+        groups: { z1: [{ ...group, tales: [], tags: [], tagMatch: 'all' }] },
+        tags: { p1: [beach, summer] },
+      });
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const matchSet = () => panel.querySelector('input[name=tagMatch]')?.closest('fieldset') as HTMLFieldSetElement;
+      expect(matchSet().disabled).toBe(true);
+      expect(panel.querySelector('#tag-match-hint')?.textContent?.trim()).toBe(
+        'With no targeting tags, the group shows to every viewer. Check a tag to choose Any or All.',
+      );
+      (panel.querySelector('input[type=checkbox]') as HTMLInputElement).click();
+      await settle(fixture);
+      expect(matchSet().disabled).toBe(false);
+      expect(panel.querySelector<HTMLInputElement>('input[name=tagMatch][value=all]')?.checked).toBe(true);
+      (panel.querySelector('input[type=checkbox]') as HTMLInputElement).click();
+      await settle(fixture);
+      expect(matchSet().disabled).toBe(true);
     });
 
     it("shows the API's message in the Audience drawer when a tag or the set is refused", async () => {

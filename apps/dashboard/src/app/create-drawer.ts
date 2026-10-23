@@ -167,7 +167,7 @@ export class CreateDrawer implements OnInit {
     const names = this.projectTags()
       .filter((tag) => this.selectedTagIds().includes(tag.id))
       .map((tag) => tag.name);
-    if (names.length === 0) return 'With no targeting tags, the group shows to every viewer.';
+    if (names.length === 0) return 'With no targeting tags, the group shows to every viewer. Check a tag to choose Any or All.';
     if (names.length === 1) return `Shows to viewers tagged ${names[0]}, and on pages that pass no tags.`;
     const joined = `${names.slice(0, -1).join(', ')} ${this.selectedTagMatch() === 'all' ? 'and' : 'or'} ${names.at(-1)}`;
     return `Shows to viewers tagged ${joined}, and on pages that pass no tags.`;

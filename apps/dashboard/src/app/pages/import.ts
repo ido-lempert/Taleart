@@ -267,11 +267,14 @@ import { IMPORT_PILL_STYLES, importStatusClass, importStatusLabel, importTimeTex
                         name="tags"
                         [disabled]="!taleGroups()"
                         [checked]="taleGroups() && tags()"
-                        [attr.aria-describedby]="taleGroups() ? null : 'import-needs-groups'"
+                        [attr.aria-describedby]="taleGroups() ? 'import-tags-public' : 'import-needs-groups import-tags-public'"
                         (change)="tags.set(checkedOf($event))"
                       />
                       Tags
                     </label>
+                    <span class="field__hint" id="import-tags-public">
+                      Storyly labels become targeting tags. Tag names are visible to anyone who loads a zone.
+                    </span>
                   </li>
                 </ul>
                 @if (!taleGroups()) {

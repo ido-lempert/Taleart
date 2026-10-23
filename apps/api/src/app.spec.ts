@@ -5141,6 +5141,45 @@ describe('Management API v1: projects and zones', () => {
         expect(JSON.stringify(body)).not.toContain(summer);
       });
 
+      it("changes the ETag when a group's tags or match mode change, so a browser revalidates (epic targeting R1)", async () => {
+        const zone = await createZone();
+        await post(`/zones/${zone.id}/frame`, { type: 'bar', settings: {} });
+        const summer = (await (await post(`/projects/${zone.projectId}/tags`, { name: 'summer' })).json()).id;
+        const vip = (await (await post(`/projects/${zone.projectId}/tags`, { name: 'vip' })).json()).id;
+        const group = await addGroup(zone.id, 'A');
+        await addTale(group.id, 'One');
+        const setTags = async (tagIds: string[], tagMatch?: string) => {
+          const res = await fetch(`${base}/tale-groups/${group.id}/tags`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tagIds, tagMatch }),
+          });
+          expect(res.status).toBe(200);
+        };
+        const { key } = await issue(zone.id);
+        const etag = async () => {
+          const res = await deliver(key);
+          expect(res.status).toBe(200);
+          return res.headers.get('etag');
+        };
+
+        const untagged = await etag();
+        expect(untagged).toBeTruthy();
+        expect(await etag()).toBe(untagged);
+        await setTags([summer, vip]);
+        const tagged = await etag();
+        expect(tagged).not.toBe(untagged);
+        await setTags([summer, vip], 'all');
+        const all = await etag();
+        expect(all).not.toBe(tagged);
+        // A browser holding the old ETag gets the new body, not a 304. (`max-age=0`, as a browser
+        // revalidates: fetch otherwise sends `no-cache`, which Express never answers with 304.)
+        const revalidated = await deliver(key, { 'If-None-Match': tagged ?? '', 'Cache-Control': 'max-age=0' });
+        expect(revalidated.status).toBe(200);
+        expect((await revalidated.json()).taleGroups[0].tagMatch).toBe('all');
+        expect((await deliver(key, { 'If-None-Match': all ?? '', 'Cache-Control': 'max-age=0' })).status).toBe(304);
+      });
+
       it('answers an empty taleGroups list for a zone without tale groups', async () => {
         const zone = await createZone();
         const { key } = await issue(zone.id);
