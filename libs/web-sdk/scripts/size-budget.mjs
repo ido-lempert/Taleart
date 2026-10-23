@@ -6,6 +6,8 @@
 //   passes 40 KB, the viewer and the document renderers move to a chunk loaded on the viewer's first
 //   open (AD-16); until then everything is in `index.js`, and the check reports what that split
 //   would move, from the module report the build writes (`dist/libs/web-sdk-modules.json`).
+// - Sizes are measured at gzip level 9 (what the API's `/sdk/v1` sends) and level 6 (the default of
+//   most servers and CDNs); the budget is judged on the larger of the two.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -24,7 +26,7 @@ export const VIEWER_MODULES = [
   /(^|\/)libs\/contract\/src\/lib\/(tale-document|project-fonts|text-style)\.ts$/,
 ];
 
-export const gzipped = (data) => gzipSync(data, { level: 9 }).length;
+export const gzipped = (data, level = 9) => gzipSync(data, { level }).length;
 export const kb = (bytes) => `${(bytes / 1024).toFixed(2)} KB`;
 
 /**
@@ -39,11 +41,17 @@ export function readChunks(dir) {
     .sort((a, b) => (a === ENTRY_CHUNK ? -1 : b === ENTRY_CHUNK ? 1 : a.localeCompare(b)));
   return files.map((name) => {
     const code = readFileSync(join(dir, name), 'utf8');
-    return { name, gzipped: gzipped(code), modules: report[name] ?? null };
+    const level9 = gzipped(code, 9);
+    const level6 = gzipped(code, 6);
+    return { name, gzipped: Math.max(level9, level6), level9, level6, modules: report[name] ?? null };
   });
 }
 
-/** What the AD-16 split would move out of a chunk's `modules` ({ id, code }[]): each side, gzipped on its own. */
+/**
+ * What the AD-16 split would move out of a chunk's `modules` ({ id, code }[]): each side, gzipped on
+ * its own. A lower bound for each chunk: a real split adds the import and export glue between them,
+ * and helpers both sides use (see the README) end up in one or the other.
+ */
 export function splitEstimate(modules) {
   const viewer = modules.filter((m) => VIEWER_MODULES.some((p) => p.test(m.id)));
   const rest = modules.filter((m) => !viewer.includes(m));
@@ -64,10 +72,11 @@ export function judge(chunks) {
   const lines = [];
   const failures = [];
   const entry = chunks.find((c) => c.name === ENTRY_CHUNK);
-  if (!entry) return { lines, failures: [`no ${ENTRY_CHUNK} among the chunks`], total: 0 };
+  if (!entry) return { lines, failures: [`no ${ENTRY_CHUNK} among the chunks`], total: 0, entry: 0 };
   const total = chunks.reduce((sum, c) => sum + c.gzipped, 0);
   for (const c of chunks) {
-    lines.push(`  ${c.name}: ${kb(c.gzipped)} gzipped (${c === entry ? 'loaded by the page' : 'loaded on first open'})`);
+    const levels = c.level9 === undefined ? '' : `; level 9 ${kb(c.level9)}, level 6 ${kb(c.level6)}`;
+    lines.push(`  ${c.name}: ${kb(c.gzipped)} gzipped (${c === entry ? 'loaded by the page' : 'loaded on first open'}${levels})`);
   }
   lines.push(`  all chunks: ${kb(total)} gzipped (budget ${kb(BUNDLE_LIMIT_BYTES)})`);
   if (chunks.length === 1) {
@@ -75,8 +84,8 @@ export function judge(chunks) {
       const split = splitEstimate(entry.modules);
       lines.push(
         `  one chunk (splits past ${kb(SPLIT_AT_BYTES)}): the split would move the viewer and renderers, ` +
-          `~${kb(split.viewer.gzipped)} in ${split.viewer.modules.length} modules, to a chunk loaded on first open, ` +
-          `leaving ~${kb(split.first.gzipped)} in ${ENTRY_CHUNK}`,
+          `at least ${kb(split.viewer.gzipped)} in ${split.viewer.modules.length} modules, to a chunk loaded on first open, ` +
+          `leaving at least ${kb(split.first.gzipped)} in ${ENTRY_CHUNK} (lower bounds, level 9)`,
       );
     } else {
       lines.push(`  one chunk (splits past ${kb(SPLIT_AT_BYTES)}); no module report, so no split estimate`);
@@ -90,5 +99,5 @@ export function judge(chunks) {
         : `${ENTRY_CHUNK} is ${kb(entry.gzipped)} gzipped, over ${kb(SPLIT_AT_BYTES)} even with the viewer in its own chunk`,
     );
   }
-  return { lines, failures, total };
+  return { lines, failures, total, entry: entry.gzipped };
 }

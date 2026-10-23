@@ -82,3 +82,7 @@ deferred: []
 - `node_modules/.bin/nx run web-sdk:size` -- per-chunk report, exit 0
 - `TEST_DATABASE_URL=… node_modules/.bin/nx run sdk-sample:perf` -- PASS line
 - `node_modules/.bin/nx run-many -t lint test build -p … --parallel=2` -- green except the known auth clock test
+
+## Review Triage Log
+
+- Pass 1 (coordinator): no must-fix; the API gzip change is accepted in this story. Patched: font-after-frame proved by holding the font response 1.5 s (`page.route`) and checking no font face is loaded at the frame; frame counted on the open card only (`.frame > .ta-area > .ta-canvas > .ta-el`, after 8.18); gate margins printed; router uses `res.vary`, gzips only the bundle, lazily, one in-flight compression per file (`gzipCache`), 304 without Content-Encoding; router tests for `gzip;q=0`, `*`, HEAD length, pinned, cross-encoding validators, test page untouched, regzip after rebuild; sizes at gzip levels 9 and 6 (judged on the larger); split estimate stated as a lower bound; the module report is deleted once per build (`configResolved`; `buildStart` runs per output format and deleted the ES report).
