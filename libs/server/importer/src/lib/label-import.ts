@@ -9,6 +9,10 @@ import {
 import { labelOutcome, MAX_IMPORT_TAGS, type LabelOutcome } from './labels';
 import type { ReportText } from './record-shape';
 
+// Storyly labels become the groups' targeting tags. Tag names are public: the Delivery API sends them
+// with each group to anyone holding the site key, so the SDK can match the viewer's tags (AD-13,
+// owner decision in epic targeting story 5.1).
+
 /** The most label names one merge note quotes; the rest are counted. */
 const MERGE_NOTE_NAMES = 5;
 /** The most merge notes one report holds; one more note counts the rest. */

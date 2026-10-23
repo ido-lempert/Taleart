@@ -1,0 +1,194 @@
+{
+  "$comment": "The tag rule's test table (epic targeting R2). Every SDK and the dashboard preview run it: viewerTags null means the page never called setTags. A case holds when tagRulePasses({ tags: groupTags, tagMatch }, viewerTags) equals passes. Tags are compared after Unicode NFC normalisation, trimming and a locale-independent lower case (no Turkish rules, no accent folding).",
+  "cases": [
+    {
+      "name": "no group tags, no setTags call",
+      "groupTags": [],
+      "tagMatch": "any",
+      "viewerTags": null,
+      "passes": true
+    },
+    {
+      "name": "no group tags, viewer tags",
+      "groupTags": [],
+      "tagMatch": "any",
+      "viewerTags": ["summer"],
+      "passes": true
+    },
+    {
+      "name": "no group tags with All, viewer tags",
+      "groupTags": [],
+      "tagMatch": "all",
+      "viewerTags": ["summer"],
+      "passes": true
+    },
+    {
+      "name": "Any, no setTags call",
+      "groupTags": ["summer"],
+      "tagMatch": "any",
+      "viewerTags": null,
+      "passes": true
+    },
+    {
+      "name": "All, no setTags call",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "all",
+      "viewerTags": null,
+      "passes": true
+    },
+    {
+      "name": "Any, empty viewer tags",
+      "groupTags": ["summer"],
+      "tagMatch": "any",
+      "viewerTags": [],
+      "passes": true
+    },
+    {
+      "name": "All, only blank viewer tags",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "all",
+      "viewerTags": ["", "  "],
+      "passes": true
+    },
+    {
+      "name": "Any, one of two matching",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "any",
+      "viewerTags": ["vip"],
+      "passes": true
+    },
+    {
+      "name": "Any, none matching",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "any",
+      "viewerTags": ["winter"],
+      "passes": false
+    },
+    {
+      "name": "Any, all matching",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "any",
+      "viewerTags": ["vip", "summer"],
+      "passes": true
+    },
+    {
+      "name": "All, one missing",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "all",
+      "viewerTags": ["summer"],
+      "passes": false
+    },
+    {
+      "name": "All, all present",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "all",
+      "viewerTags": ["vip", "summer"],
+      "passes": true
+    },
+    {
+      "name": "All, all present among others",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "all",
+      "viewerTags": ["winter", "vip", "summer"],
+      "passes": true
+    },
+    {
+      "name": "All, one group tag present",
+      "groupTags": ["vip"],
+      "tagMatch": "all",
+      "viewerTags": ["vip"],
+      "passes": true
+    },
+    {
+      "name": "Any, case differs",
+      "groupTags": ["Summer"],
+      "tagMatch": "any",
+      "viewerTags": ["SUMMER"],
+      "passes": true
+    },
+    {
+      "name": "Any, surrounding spaces",
+      "groupTags": ["summer"],
+      "tagMatch": "any",
+      "viewerTags": ["  summer "],
+      "passes": true
+    },
+    {
+      "name": "All, case and spaces differ",
+      "groupTags": ["summer", "VIP"],
+      "tagMatch": "all",
+      "viewerTags": ["SUMMER ", " vip"],
+      "passes": true
+    },
+    {
+      "name": "Any, inner spaces still count",
+      "groupTags": ["summer sale"],
+      "tagMatch": "any",
+      "viewerTags": ["summersale"],
+      "passes": false
+    },
+    {
+      "name": "Any, repeated viewer tags none matching",
+      "groupTags": ["summer"],
+      "tagMatch": "any",
+      "viewerTags": ["winter", "winter"],
+      "passes": false
+    },
+    {
+      "name": "unknown match mode reads as Any",
+      "groupTags": ["summer", "vip"],
+      "tagMatch": "some",
+      "viewerTags": ["vip"],
+      "passes": true
+    },
+    {
+      "name": "non-ASCII: accented letters match ignoring case",
+      "groupTags": ["\u00c9t\u00e9"],
+      "tagMatch": "any",
+      "viewerTags": ["\u00e9t\u00e9"],
+      "passes": true
+    },
+    {
+      "name": "non-ASCII: accents are not folded away",
+      "groupTags": ["caf\u00e9"],
+      "tagMatch": "any",
+      "viewerTags": ["cafe"],
+      "passes": false
+    },
+    {
+      "name": "non-ASCII: NFD viewer tag matches an NFC group tag",
+      "groupTags": ["caf\u00e9"],
+      "tagMatch": "any",
+      "viewerTags": ["cafe\u0301"],
+      "passes": true
+    },
+    {
+      "name": "non-ASCII: NFC viewer tag matches an NFD group tag under All",
+      "groupTags": ["cafe\u0301", "vip"],
+      "tagMatch": "all",
+      "viewerTags": ["CAF\u00c9", "vip"],
+      "passes": true
+    },
+    {
+      "name": "non-ASCII: Turkish dotted capital I is not plain i",
+      "groupTags": ["\u0130stanbul"],
+      "tagMatch": "any",
+      "viewerTags": ["istanbul"],
+      "passes": false
+    },
+    {
+      "name": "non-ASCII: Turkish dotted capital I matches itself in any case",
+      "groupTags": ["\u0130stanbul"],
+      "tagMatch": "any",
+      "viewerTags": ["\u0130STANBUL"],
+      "passes": true
+    },
+    {
+      "name": "non-ASCII: plain capital I lowers to plain i",
+      "groupTags": ["ISTANBUL"],
+      "tagMatch": "any",
+      "viewerTags": ["istanbul"],
+      "passes": true
+    }
+  ]
+}
