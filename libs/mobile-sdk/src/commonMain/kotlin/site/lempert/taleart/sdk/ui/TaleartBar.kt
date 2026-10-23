@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +77,10 @@ fun barItemLabel(name: String, seen: Boolean): String = if (seen) "$name, seen" 
  * project's [theme] as libs/web-sdk/src/lib/bar.ts and theme.ts style it. Groups in [seen] show
  * the seen ring. [titleStyle] carries the host's font and title colour, which apply where the
  * theme leaves them unset.
+ *
+ * It fills the width it is given and scrolls sideways. Its height is 8dp of padding plus the cover
+ * size (48, 64 or 80dp), plus, when titles show, 6dp and one or two 16dp title lines: at most
+ * 126dp (large covers, two-line titles).
  */
 @Composable
 fun TaleartBar(
@@ -172,6 +177,7 @@ fun TaleartBar(
 private fun Cover(group: DeliveryTaleGroup, shape: Shape, edge: Color, loader: ImageLoader) {
     val source = remember(group) { coverSource(group) }
     val placeholder = (source as? CoverSource.Placeholder)?.color?.let(::parseHexColor) ?: COVER_PLACEHOLDER
+    // A cover's image loads over the neutral placeholder; a failed load leaves the placeholder.
     Box(
         Modifier
             .fillMaxSize()
@@ -179,7 +185,7 @@ private fun Cover(group: DeliveryTaleGroup, shape: Shape, edge: Color, loader: I
             .background(placeholder)
             .border(DEFAULT_RING_WIDTH.dp, edge, shape),
     ) {
-        if (source is CoverSource.Media && source.kind == "image") {
+        if (source is CoverSource.Image) {
             AsyncImage(
                 model = source.url,
                 contentDescription = null,
@@ -204,8 +210,12 @@ private fun Color.takeOrElse(fallback: Color): Color = if (this == Color.Unspeci
 // One image loader for every bar: Coil over the SDK's Ktor client (no cookies), with Coil's caches.
 private var coverImageLoader: ImageLoader? = null
 
+/** The loader of cover images, when not the SDK's own: tests provide one on a fake server. */
+internal val LocalCoverImageLoader = staticCompositionLocalOf<ImageLoader?> { null }
+
 @Composable
 private fun rememberCoverImageLoader(): ImageLoader {
+    LocalCoverImageLoader.current?.let { return it }
     val context: PlatformContext = LocalPlatformContext.current
     return remember(context) {
         coverImageLoader ?: ImageLoader.Builder(context)

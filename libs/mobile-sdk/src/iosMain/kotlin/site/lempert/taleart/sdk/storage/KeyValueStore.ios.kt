@@ -1,7 +1,6 @@
 package site.lempert.taleart.sdk.storage
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import platform.Foundation.NSUserDefaults
 
 /** A store in NSUserDefaults, the standard ones unless [defaults] says otherwise. */
@@ -14,5 +13,13 @@ class UserDefaultsKeyValueStore(
     }
 }
 
+/** The NSUserDefaults suite the SDK keeps its own state in (the seen tale groups), apart from the app's. */
+const val SDK_DEFAULTS_SUITE = "taleart-sdk"
+
+/** The SDK's own store, one per process: the [SDK_DEFAULTS_SUITE] NSUserDefaults suite. */
+val deviceKeyValueStore: KeyValueStore by lazy {
+    UserDefaultsKeyValueStore(NSUserDefaults(suiteName = SDK_DEFAULTS_SUITE))
+}
+
 @Composable
-actual fun rememberDeviceKeyValueStore(): KeyValueStore = remember { UserDefaultsKeyValueStore() }
+actual fun rememberDeviceKeyValueStore(): KeyValueStore = deviceKeyValueStore
