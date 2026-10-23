@@ -1,8 +1,11 @@
 // Tale Studio's layer operations (epic Tale Studio R2, R3): pure functions over the document's
 // elements, whose array order is the z-order, first at the bottom (AD-15).
 import {
+  cleanText,
   elementBounds,
   elementName,
+  LABEL_TEXT_RULE,
+  MAX_LABEL_LENGTH,
   TALE_SAFE_AREA,
   type CanvasRect,
   type TaleElement,
@@ -27,6 +30,9 @@ export type ReorderCommand = 'forward' | 'backward' | 'front' | 'back';
 // Box values are kept to 4 decimals, so moves do not pile up floating-point noise.
 export const round = (value: number): number => Math.round(value * 10000) / 10000;
 export const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+/** One line of a layer's label (its accessible name), without the characters a label may not hold, within its limit. */
+export const cleanLabel = (value: string): string =>
+  [...cleanText(value.replace(/\n/g, ' '), LABEL_TEXT_RULE)].slice(0, MAX_LABEL_LENGTH).join('');
 /** A canvas fraction as the percent the inspector fields show, to one decimal (0.125 → 12.5). */
 export const percent = (fraction: number): number => Math.round(fraction * 1000) / 10;
 
