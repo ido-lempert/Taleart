@@ -1,5 +1,7 @@
 import {
+  DEFAULT_TAG_MATCH,
   ErrorCodes,
+  isTagMatch,
   MAX_TALE_GROUP_NAME_LENGTH,
   type CopyTaleGroupRequest,
   type CreateTaleGroupRequest,
@@ -11,6 +13,7 @@ import {
   type SetScheduleRequest,
   type SetStatusRequest,
   type SetTaleGroupTagsRequest,
+  type TagMatch,
   type TaleGroup,
   type ZoneTaleGroup,
 } from '@taleart/contract';
@@ -33,7 +36,7 @@ import {
   taleGroupExists,
   TaleGroupNotFoundError,
 } from '@taleart/server-tales';
-import { copyTaleGroupTags, setTaleGroupTags, tagsForTaleGroups } from '@taleart/server-targeting';
+import { copyTaleGroupTags, setTaleGroupTags, tagMatchesForTaleGroups, tagsForTaleGroups } from '@taleart/server-targeting';
 import { zoneExists, ZoneNotFoundError } from '@taleart/server-zones';
 import { Router } from 'express';
 import type { Pool } from 'pg';
@@ -42,12 +45,28 @@ import { HttpError } from './errors';
 import { requiredName, requiredSchedule, requiredSettableStatus, requiredString, requiredStringArray } from './validation';
 
 /**
- * Tale groups with their tags. The tales module stores groups and the
- * targeting module their tags; the API composes the two (AD-1).
+ * Tale groups with their tags and tag match mode. The tales module stores
+ * groups and the targeting module their tags; the API composes the two (AD-1).
  */
-export async function withTags<G extends { id: string }>(pool: Pool, groups: G[]): Promise<(G & Pick<TaleGroup, 'tags'>)[]> {
-  const tags = await tagsForTaleGroups(pool, groups.map((g) => g.id));
-  return groups.map((group) => ({ ...group, tags: tags.get(group.id) ?? [] }));
+export async function withTags<G extends { id: string }>(
+  pool: Pool,
+  groups: G[],
+): Promise<(G & Pick<TaleGroup, 'tags' | 'tagMatch'>)[]> {
+  const ids = groups.map((g) => g.id);
+  const [tags, matches] = await Promise.all([tagsForTaleGroups(pool, ids), tagMatchesForTaleGroups(pool, ids)]);
+  return groups.map((group) => ({
+    ...group,
+    tags: tags.get(group.id) ?? [],
+    tagMatch: matches.get(group.id) ?? DEFAULT_TAG_MATCH,
+  }));
+}
+
+// The optional `tagMatch` of a tags request: left out keeps the group's mode; anything but `any` or `all` is a 400.
+function optionalTagMatch(body: unknown): TagMatch | undefined {
+  const value = (body as { tagMatch?: unknown } | null)?.tagMatch;
+  if (value === undefined) return undefined;
+  if (!isTagMatch(value)) throw new HttpError(400, ErrorCodes.validationFailed, 'tagMatch must be "any" or "all"');
+  return value;
 }
 
 /** Tale groups under a zone: mounted at `/zones`. */
@@ -69,7 +88,7 @@ export function zoneTaleGroupsRouter(pool: Pool): Router {
       if (!(await zoneExists(pool, req.params.zoneId))) throw new ZoneNotFoundError(req.params.zoneId);
       const input: CreateTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
       const group = await createTaleGroup(pool, { zoneId: req.params.zoneId, ...input });
-      res.status(201).json({ ...group, tags: [] } satisfies ZoneTaleGroup);
+      res.status(201).json({ ...group, tags: [], tagMatch: DEFAULT_TAG_MATCH } satisfies ZoneTaleGroup);
     } catch (err) {
       next(err);
     }
@@ -141,7 +160,7 @@ export function projectTaleGroupsRouter(pool: Pool): Router {
       }
       const input: CreateTaleGroupRequest = { name: requiredName(req.body, 'name', MAX_TALE_GROUP_NAME_LENGTH) };
       const group = await createProjectTaleGroup(pool, { projectId, ...input });
-      res.status(201).json({ ...group, tags: [] } satisfies ProjectTaleGroup);
+      res.status(201).json({ ...group, tags: [], tagMatch: DEFAULT_TAG_MATCH } satisfies ProjectTaleGroup);
     } catch (err) {
       next(err);
     }
@@ -213,12 +232,12 @@ export function taleGroupsRouter(pool: Pool): Router {
       const input: CopyTaleGroupRequest = { zoneId: requiredString(req.body, 'zoneId') };
       await authorize(pool, res, 'zone', input.zoneId);
       // The tales module copies the group and its tales; the targeting module
-      // its tags, in the same transaction (AD-1, AD-14).
-      let tags: TaleGroup['tags'] = [];
+      // its tags and match mode, in the same transaction (AD-1, AD-14, epic targeting R1).
+      let targeting: Pick<TaleGroup, 'tags' | 'tagMatch'> = { tags: [], tagMatch: DEFAULT_TAG_MATCH };
       const copy = await copyTaleGroup(pool, { taleGroupId, zoneId: input.zoneId }, async (tx, ids) => {
-        tags = await copyTaleGroupTags(tx, ids);
+        targeting = await copyTaleGroupTags(tx, ids);
       });
-      res.status(201).json({ ...copy, tags } satisfies ZoneTaleGroup);
+      res.status(201).json({ ...copy, ...targeting } satisfies ZoneTaleGroup);
     } catch (err) {
       next(err);
     }
@@ -241,9 +260,12 @@ export function taleGroupsRouter(pool: Pool): Router {
       // Tale group first (404), then the body (400), then the tags (400 tag_not_found).
       const { taleGroupId } = req.params;
       if (!(await taleGroupExists(pool, taleGroupId))) throw new TaleGroupNotFoundError(taleGroupId);
-      const input: SetTaleGroupTagsRequest = { tagIds: requiredStringArray(req.body, 'tagIds') };
-      const tags = await setTaleGroupTags(pool, taleGroupId, input.tagIds);
-      const body: TaleGroup = { ...(await getTaleGroup(pool, taleGroupId)), tags };
+      const input: SetTaleGroupTagsRequest = {
+        tagIds: requiredStringArray(req.body, 'tagIds'),
+        tagMatch: optionalTagMatch(req.body),
+      };
+      const targeting = await setTaleGroupTags(pool, taleGroupId, input.tagIds, input.tagMatch);
+      const body: TaleGroup = { ...(await getTaleGroup(pool, taleGroupId)), ...targeting };
       res.json(body);
     } catch (err) {
       next(err);

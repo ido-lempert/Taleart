@@ -313,7 +313,7 @@
         @case ('tags') {
           @if (tagGroup(); as group) {
             <fieldset class="tag-options">
-              <legend class="field__label">Tags of {{ group.name }}</legend>
+              <legend class="field__label">Targeting tags for {{ group.name }}</legend>
               @for (tag of projectTags(); track tag.id) {
                 <label class="checkbox">
                   <input
@@ -346,6 +346,26 @@
               </div>
               <p class="field__hint" id="new-tag-hint">Up to 40 characters. A new tag is checked for this group.</p>
             </div>
+            <!-- Any or All means nothing without a checked tag, so the choice is disabled and the hint says why. -->
+            <fieldset class="tag-options" aria-describedby="tag-match-hint" [disabled]="selectedTagIds().length === 0">
+              <legend class="field__label">Show to viewers tagged with</legend>
+              @for (option of tagMatchOptions; track option.value) {
+                <label class="checkbox">
+                  <input
+                    type="radio"
+                    name="tagMatch"
+                    [value]="option.value"
+                    [checked]="selectedTagMatch() === option.value"
+                    (change)="selectedTagMatch.set(option.value)"
+                  />
+                  <span>{{ option.label }}</span>
+                </label>
+              }
+            </fieldset>
+            <p class="field__hint" id="tag-match-hint" aria-live="polite">{{ tagMatchHint() }}</p>
+            <p class="field__hint" id="tag-public-note">
+              Tag names are visible to anyone who loads the zone, so keep anything private out of them.
+            </p>
           } @else {
             <p class="muted">This tale group no longer exists.</p>
           }

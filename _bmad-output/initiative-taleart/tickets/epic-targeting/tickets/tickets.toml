@@ -1,0 +1,148 @@
+# Breakdown for epic-targeting, vertical slices in build order.
+# Each entry is a flow a person reviews in the dashboard, on the sample host page that loads the Web SDK,
+# or in the native sample app. Table order is build order; id is permanent.
+#
+# Lanes (all share libs/server/targeting migrations and the Audience drawer, so they run in order):
+#   Tags:        1 -> 2
+#   User lists:  3 (after 1) -> 4 (after 2 and 3) -> 5
+#   Segments:    6 (after 1 and 3, which builds the Audience page) -> 7 (after 4 and 6)
+#   Then 8 (preview, after 5 and 7), 9 (native SDK, after 7), 10 (docs), 11 (sweep), 12 (end-to-end suite).
+# Story 9 can run beside 8 and 10: it touches only libs/mobile-sdk and the contract test tables.
+# Importer story 2.12 (audiences as user lists) waits on story 3, which exposes the user-list interface.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: tags combine with All or Any and the sample page shows only matching groups"
+description = "Adds the tag match mode (Any by default, All) per tale group to libs/contract and the targeting module (its own table, returned with the group by the Management API, kept when the group is copied or duplicated), and the tag rule function with its test table to libs/contract (epic R1, R2). The Delivery API returns each group's tag names and match mode. The Web SDK gains a page-wide setTags(tags) and filters a zone's groups by the rule, re-rendering when the tags change. The group's ⋯ menu item Tags becomes Audience, a drawer with the targeting tags and the All/Any choice."
+verify = "On the sample page, with groups A {summer} Any, B {summer, vip} All, C {vip} Any and D untagged: no setTags call shows all four; setTags(['summer']) shows A and D; setTags(['SUMMER ', 'vip']) shows all four; copying B to another zone keeps its tags and All; the contract test table passes; the bundle stays at or under 50 KB gzipped."
+covers = ["R1", "R2"]
+after = ["1.5", "3.1", "8.6", "8.10"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-13", "_bmad-output/initiative-taleart/research-storyly-competitive-teardown/digests/flows-audiences-conversion-r2-3.md"]
+notes = ["Owner decision to confirm: with no tags passed, every delivered group shows (epic Notes)."]
+
+[[entry]]
+id = 2
+type = "story"
+title = "A targeted group says who it is for"
+description = "Adds the audience summary to the group row, the group view and the Tale groups page ('Visible on site · for viewers tagged summer or vip') and a Targeted filter on the Tale groups page (epic R7). Targeting is not a Not-visible reason; the summary comes from the Management API's group response, not from delivery-rule.ts. List and segment wording is added by stories 4 and 7."
+verify = "A group tagged summer and vip with Any reads 'Visible on site · for viewers tagged summer or vip', with All 'summer and vip'; an untagged group shows no summary; the Targeted filter lists exactly the tagged groups; an accessibility-tree assertion finds the summary in the indicator's accessible name."
+covers = ["R7"]
+after = [1, "8.2", "8.14"]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Create a user list from a CSV, stored only as keyed hashes"
+description = "Adds user lists to the targeting module: a per-project secret, lists (name, count, updated), and their IDs stored only as HMAC-SHA-256 (epic R3, R5). The Management API creates, renames, lists and deletes lists (hard delete in one transaction) and takes a streamed single-column CSV upload with the limits of R3, answering added, already present and refused counts with the first refused line numbers, and never echoing an ID. The public interface exposes create-list and add-IDs for importer story 2.12. The dashboard gets an Audience page with a User lists tab: create, upload with the report and the email or phone warning, rename, delete with confirmation; IDs are never shown. Deleting a project deletes its lists and their hashes."
+verify = "Upload a 10-row CSV with a duplicate, an empty row and a 300-character value: the list shows 8 IDs and the report names the refused line; a CSV of emails shows the warning and the list is created; a database dump and the API log contain none of the uploaded IDs in clear; delete the list: no row of it remains; delete a test project with a list: none of its lists or hashes remain."
+covers = ["R3", "R5"]
+after = [1, "1.14"]
+hitl = false
+risk = "high"
+notes = ["Privacy: the CSV is streamed and not kept; no ID in logs, errors or responses (epic R5)."]
+
+[[entry]]
+id = 4
+type = "story"
+title = "Target a group to user lists; the viewer's external user ID picks them"
+description = "The Audience drawer can name user lists. The Web SDK gains setExternalUserId(id | null) and sends it in a request header defined in libs/contract, never in the URL; the Delivery API hashes it for the lookup and drops it, leaves out groups targeted only to lists the viewer is not in, marks list-matched groups, and answers private, no-store when the header is present (epic R4, R5). Adds the audience-empty reason as one clause in delivery-rule.ts, and the list wording of the audience summary (epic R7)."
+verify = "With a group targeted to list A: a viewer in A sees it on the sample page, a viewer not in A and a viewer with no ID do not, and their Delivery responses do not contain the group; target a group only to an empty list: it reads 'Not visible: its user lists are empty' and nobody sees it; the indicator-versus-Delivery unit test passes with the new case; the request URL and the API log carry no external user ID."
+covers = ["R4", "R5", "R7"]
+after = [2, 3]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-2", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-6"]
+
+[[entry]]
+id = 5
+type = "story"
+title = "Keep a user list current and erase one person from every list"
+description = "Adds, on a list, Replace with a CSV, Remove the IDs in a CSV and Empty, each reporting its counts, and on the Audience page Erase a person: one external user ID removed from every list of the project, reporting how many lists held it, through a Management API endpoint and a dashboard action (epic R5). All removals are hard deletes in one transaction."
+verify = "Replace a 5-ID list with a 3-ID CSV: it holds 3; remove 2 by CSV: it holds 1; erase an ID held by two lists: both shrink by one, the report says 2, and the sample page no longer shows that viewer the lists' groups; after each step a database dump holds no removed hash."
+covers = ["R5", "R3"]
+after = [4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Define segments from user attributes"
+description = "Adds segments to libs/contract (condition shape, operators, typed values, All or Any) with the evaluator and its test table, and to the targeting module and Management API (create, edit, list, delete, refused while a group uses it, naming those groups), with a Segments tab on the Audience page using a condition builder (epic R6). Groups cannot use segments yet; story 7 adds that."
+verify = "Create 'plan equals pro AND visits greater than 3': it lists and reloads unchanged; a condition with a number operator on a boolean value is refused with its reason; the contract evaluator passes its table, including missing attributes and 'is not set'; the condition builder works with only a keyboard."
+covers = ["R6"]
+after = [1, 3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Target a group to segments; the Web SDK matches user attributes on the page"
+description = "The Audience drawer can name segments. The Delivery API returns each group's segment rules; the Web SDK gains setUserAttributes(attributes) and shows a group with lists or segments when it is list-matched or a segment matches, and its tag rule passes (epic R4, R6). Attributes are kept in memory only and never sent. Adds the segment wording of the audience summary (epic R7)."
+verify = "A group targeted to the segment of story 6 shows on the sample page for {plan: 'pro', visits: 5} and not for {visits: 2}; a group with list A and the segment shows to a viewer in A without attributes and to a matching viewer not in A; the browser network log and localStorage hold no attribute value; the bundle stays at or under 50 KB gzipped."
+covers = ["R6", "R4", "R7"]
+after = [4, 6]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-13"]
+
+[[entry]]
+id = 8
+type = "story"
+title = "Preview a zone as a viewer"
+description = "Adds a Preview as viewer panel to the zone page: viewer tags, an external user ID and user attributes in, the zone's delivered groups out, each left-out group with its reason (tag rule, not in its lists, no matching segment), using the contract rule functions (epic R8). The external user ID goes to a Management API lookup and is not stored; attributes are evaluated in the dashboard."
+verify = "For a zone with the epic's matrix of groups, the preview for each of four viewers lists the same groups the sample page shows for them, and names the reason for each group left out; the Management API log has no trace of the typed ID."
+covers = ["R8"]
+after = [5, 7]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "The native SDK targets by tags, external user ID and user attributes"
+description = "Adds setTags, setExternalUserId and setUserAttributes to libs/mobile-sdk, sends the external user ID in the contract's header, and ports the tag rule and the segment evaluator to Kotlin, run against the contract's test tables as shared fixtures (epic R9). Attributes are not sent or persisted."
+verify = "The shared test tables pass on the JVM and iOS targets; the Android sample app shows the expected groups for a tagged viewer, a listed viewer and a segment-matched viewer, as the sample web page does."
+covers = ["R9"]
+after = [7, "9.2", "9.3"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Docs: targeting, the SDK calls and what TaleArt stores"
+description = "Adds a Targeting page to the docs app and sections to the Web SDK and native SDK READMEs: tags with All and Any, user lists and their CSV, segments and user attributes, the external user ID (opaque, not an email), setTags, setExternalUserId and setUserAttributes, the matching rule, the privacy section listing what is stored and how to delete it (lists, erase a person, backups), and that targeting is not access control (epic R10)."
+verify = "Each SDK snippet in the docs, pasted into the sample page, shows the documented groups; the privacy section names every stored item of epic R5 and no instruction uses an email as the ID."
+covers = ["R10"]
+after = [5, 7, "8.16"]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scope set at its start from the plans and review findings this epic deferred; scope pushed out of another story is a new story."
+verify = "The epic's tests, lint and the SDK budget check pass unchanged in behaviour, and each deferred finding is closed or recorded."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 12
+type = "story"
+title = "End-to-end targeting matrix on the sample page"
+description = "A Playwright suite on the sample page runs the epic's matrix: no tags, Any, All, no viewer tags, list member and non-member, no external user ID, segment match and miss, combined list and segment, audience-empty; checks no external user ID in a URL and no attribute in any request; and runs an automated WCAG 2.2 AA scan of the Audience page, the Audience drawer and the preview."
+verify = "The suite passes in CI against the local stack and once against the staging sample page and its report lists every matrix row with the expected groups; the WCAG scan reports no violations."
+covers = ["R2", "R4", "R6"]
+after = [11]
+hitl = false
+risk = "medium"

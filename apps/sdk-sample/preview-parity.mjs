@@ -29,7 +29,7 @@ if (shotsDir) mkdirSync(shotsDir, { recursive: true });
 const root = resolve(import.meta.dirname, '../..');
 const API = 'http://taleart-api.test';
 const PREVIEW_PAGE = 'http://studio-preview.test/';
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, X-TaleArt-Visitor' };
 const SITE_KEY = 'tas_parity';
 const VIEWPORT = { width: 390, height: 844 };
 const MAX_DIFFERING = Math.floor(VIEWPORT.width * VIEWPORT.height * 0.001);

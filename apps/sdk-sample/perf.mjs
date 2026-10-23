@@ -257,6 +257,7 @@ async function removeSeeded(databaseUrl, { userId, projectId }) {
         'project_media',
         'site_keys',
         'zone_tale_groups',
+        'tale_group_tag_matches',
         'tale_group_tags',
         'tales',
         'tale_groups',

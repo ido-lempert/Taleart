@@ -50,7 +50,7 @@ export interface AppAuth {
 
 /** How the Delivery API is limited. */
 export interface AppDelivery {
-  /** The per-address request limit of `/delivery/v1`; the default when left out, off when null. */
+  /** The per-visitor request limit of `/delivery/v1` (with a per-address backstop); the default when left out, off when null. */
   rateLimit?: RateLimitOptions | null;
 }
 

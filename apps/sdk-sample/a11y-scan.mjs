@@ -102,7 +102,7 @@ const ZONE = {
 // The same zone's groups shown by a second zone whose display is a banner (AD-17).
 const bannerZone = (settings) => ({ ...ZONE, id: 'z2', name: 'Home promo', slug: 'home-promo', frame: { id: 'f2', type: 'banner', settings } });
 
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, X-TaleArt-Visitor' };
 
 // The project's site key the scan's pages place their zones with (epic UX rework R3).
 const SITE_KEY = 'tas_scan';

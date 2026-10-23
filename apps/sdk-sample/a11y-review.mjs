@@ -19,7 +19,7 @@ const shotsDir = args.shots ? resolve(args.shots) : null;
 if (shotsDir) mkdirSync(shotsDir, { recursive: true });
 
 const API = 'http://taleart-api.test';
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, X-TaleArt-Visitor' };
 // A light 9:16 picture with a dark band, so controls are checked over both light and dark media.
 const SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="160"><rect width="90" height="160" fill="#f3f4f6"/>' +

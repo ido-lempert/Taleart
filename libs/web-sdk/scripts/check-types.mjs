@@ -38,6 +38,7 @@ if (leaks.length) {
 const consumer = `import {
   configureZone,
   defineTaleartElement,
+  setTags,
   TaleartElement,
   TALEART_ELEMENT_TAG,
   type ZoneOptions,
@@ -48,6 +49,11 @@ configureZone('promo', options);
 configureZone('promo', null);
 configureZone('home-top', { theme: { accentColor: '#000000' } });
 defineTaleartElement(TALEART_ELEMENT_TAG);
+// The viewer's tags (epic targeting R2); null clears them.
+setTags(['summer', 'vip']);
+setTags(null);
+// @ts-expect-error tags are an array of names
+setTags('summer');
 const element = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
 element.siteKey = 'tas_…';
 element.zone = 'home-top';

@@ -1291,10 +1291,15 @@ paths:
         the key's project has) answers the same 401 `invalid_site_key` body,
         so a caller cannot tell an unknown slug from a refused key. A 401 is sent with
         `Cache-Control: no-store`. Every Delivery API request counts against
-        a per-address token bucket (by default 600 at once, 20 per second);
-        over it the API answers 429 `rate_limited` with `Retry-After`.
-        CORS is open to any origin,
-        without credentials. Tale groups and their tales come in dashboard
+        its visitor's token bucket (by default 600 at once, 20 per second),
+        the visitor named by the `X-TaleArt-Visitor` header; a request
+        without a valid visitor id counts against a bucket of the same size
+        for its address (an IPv4 address or an IPv6 /48). Every request also
+        counts against its address's backstop, ten times that size, so a
+        client inventing ids gains no more than ten visitors' allowance (epic
+        UX rework 8.23). Over either the API answers 429 `rate_limited` with
+        `Retry-After`. CORS is open to any origin, without credentials, and
+        allows the `X-TaleArt-Visitor` header. Tale groups and their tales come in dashboard
         order; only `live` groups and tales whose start and end times, and
         their group's, contain the current time are listed (AD-6); each
         tale's media URL is absolute and public (AD-11). The zone is cached
@@ -1312,6 +1317,19 @@ paths:
             the project's site key, as a host page names it in `zone="..."`.
           schema:
             type: string
+        - name: X-TaleArt-Visitor
+          in: header
+          required: false
+          description: >-
+            The visitor id: a random UUID v4 the SDK generates once per device
+            and keeps there (the Web SDK in localStorage, the native SDK in its
+            device store), with no personal data. Written all in lowercase or
+            all in uppercase; anything else counts as no id. It is used only to
+            rate limit per visitor.
+          schema:
+            type: string
+            format: uuid
+            pattern: '^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12})$'
       responses:
         '200':
           description: The zone, its display, and its tale groups by position.
@@ -1623,8 +1641,8 @@ paths:
         with the same titles, positions and media; media files are not
         duplicated, the copy shares their storage keys (AD-11). For each of
         the source's tags, a tag of the target project with the same name,
-        ignoring case, is reused, else created. Copy and source are
-        independent afterwards. The caller needs access to the source group's
+        ignoring case, is reused, else created; the copy keeps the source's
+        `tagMatch`. Copy and source are independent afterwards. The caller needs access to the source group's
         project and to the target zone's project (403 `forbidden`). Unknown
         tale group: 404 `tale_group_not_found`; missing `zoneId`: 400
         `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts
@@ -1939,7 +1957,9 @@ paths:
         The list becomes the group's full set of tags; an empty list clears
         them, and repeated ids count once. Every id must name a tag of the
         group's own project; otherwise nothing changes and the answer is 400
-        `tag_not_found`. Unknown tale group: 404 `tale_group_not_found`.
+        `tag_not_found`. `tagMatch`, when given, sets how the tags combine
+        (`any` or `all`); a value that is neither is 400 `validation_failed`.
+        Unknown tale group: 404 `tale_group_not_found`.
       requestBody:
         required: true
         content:
@@ -2647,7 +2667,7 @@ components:
       description: >-
         A tale group belongs to its project (AD-14). Zones place it, each in
         its own order; its tales, tags and media are the same in every zone.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tales, tags, visibility]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tales, tags, tagMatch, visibility]
       properties:
         visibility:
           $ref: '#/components/schemas/Visibility'
@@ -2711,6 +2731,8 @@ components:
           description: The group's tags, by name ignoring case.
           items:
             $ref: '#/components/schemas/TaleGroupTag'
+        tagMatch:
+          $ref: '#/components/schemas/TagMatch'
     ZoneTaleGroup:
       description: A tale group as a zone lists it, with its position in that zone.
       allOf:
@@ -2728,7 +2750,7 @@ components:
         A tale group as the project's list shows it (epic UX rework R14): the
         group's own fields, cover, tags and visibility in any zone it is placed
         in, with its tale counts instead of its tales, so the list stays small.
-      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tags, visibility, taleCount, shownTaleCount]
+      required: [id, projectId, name, status, storedStatus, startsAt, endsAt, cover, zoneIds, tags, tagMatch, visibility, taleCount, shownTaleCount]
       properties:
         visibility:
           $ref: '#/components/schemas/Visibility'
@@ -2771,6 +2793,8 @@ components:
           description: The group's tags, by name ignoring case.
           items:
             $ref: '#/components/schemas/TaleGroupTag'
+        tagMatch:
+          $ref: '#/components/schemas/TagMatch'
         taleCount:
           type: integer
           minimum: 0
@@ -2822,6 +2846,18 @@ components:
           description: The ids of the group's new tags, all of the group's project. Repeats count once.
           items:
             type: string
+        tagMatch:
+          $ref: '#/components/schemas/TagMatch'
+          description: How the tags combine (epic targeting R1); left out, the group keeps its match mode.
+    TagMatch:
+      type: string
+      enum: [any, all]
+      description: >-
+        How a tale group's targeting tags combine (epic targeting R1, R2):
+        `any` (the default) shows the group to a viewer with at least one of
+        its tags, `all` only to a viewer with every one of them. A group with
+        no tags, or a viewer whose page passed no tags, always passes. The
+        SDK decides (AD-13), with `tagRulePasses` from the contract.
     CreateTaleGroupRequest:
       type: object
       required: [name]
@@ -3319,13 +3355,24 @@ components:
             $ref: '#/components/schemas/DeliveryTaleGroup'
     DeliveryTaleGroup:
       type: object
-      required: [id, name, cover, tales]
+      required: [id, name, cover, tales, tags, tagMatch]
       properties:
         id:
           type: string
           format: uuid
         name:
           type: string
+        tags:
+          type: array
+          description: >-
+            The names of the group's targeting tags, ignoring case by name
+            (epic targeting R2); empty when the group has none. The SDK
+            compares them with the viewer's tags (AD-13); every viewer gets
+            the same list.
+          items:
+            type: string
+        tagMatch:
+          $ref: '#/components/schemas/TagMatch'
         cover:
           description: >-
             The group's cover, or null when it has none; the bar then shows
