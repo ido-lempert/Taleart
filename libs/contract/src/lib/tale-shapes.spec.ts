@@ -162,7 +162,7 @@ describe('elementName', () => {
       element('sticker', { mediaKey: STICKER }),
       element('image', { mediaKey: STICKER, fit: 'cover' }, { a11y: { label: 'A cat' } }),
       element('shape', { shape: 'constructor' }),
-      element('poll', {}),
+      element('future-widget', {}),
     ];
     expect(elements.map((_, i) => elementName(elements, i))).toEqual([
       'Big sale',

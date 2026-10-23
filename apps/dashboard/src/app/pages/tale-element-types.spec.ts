@@ -54,12 +54,12 @@ describe('studio element types (R8)', () => {
   });
 
   it('refuses a registered type without a descriptor, or a field its schema lacks', () => {
-    const poll = { key: 'poll', label: 'Poll', schema: { type: 'object', properties: { q: { type: 'string' } } } };
-    expect(() => studioElementTypes({ registry: [poll] })).toThrow('Element type "poll" has no Tale Studio descriptor');
+    const widget = { key: 'widget', label: 'Widget', schema: { type: 'object', properties: { q: { type: 'string' } } } };
+    expect(() => studioElementTypes({ registry: [widget] })).toThrow('Element type "widget" has no Tale Studio descriptor');
     const add = [
       {
-        id: 'studio-add-poll',
-        label: 'Add poll',
+        id: 'studio-add-widget',
+        label: 'Add widget',
         icon: 'plus' as const,
         row: 3,
         small: true,
@@ -67,14 +67,14 @@ describe('studio element types (R8)', () => {
         action: { kind: 'configured' as const },
       },
     ];
-    expect(() => studioElementTypes({ registry: [poll], descriptors: { poll: { add, inspector: 'text' } } })).toThrow(
+    expect(() => studioElementTypes({ registry: [widget], descriptors: { widget: { add, inspector: 'text' } } })).toThrow(
       'says nothing of how',
     );
     expect(() =>
       studioElementTypes({
-        registry: [poll],
+        registry: [widget],
         descriptors: {
-          poll: {
+          widget: {
             add,
             inspector: { fields: [{ prop: 'answer', label: 'Answer', control: 'text' }] },
             create: { box: { x: 0, y: 0, w: 0.5, h: 0.1, rotation: 0 }, props: () => ({}) },
@@ -90,6 +90,7 @@ describe('studio element types (R8)', () => {
       ['Add text', 'Add image', 'Add video'],
       ['Add rectangle', 'Add ellipse', 'Add line', 'Add emoji', 'Add sticker'],
       ['Add button', 'Add image button', 'Add swipe-up link'],
+      ['Add poll'],
     ]);
   });
 
@@ -99,7 +100,7 @@ describe('studio element types (R8)', () => {
       ...TALE_TEST_ELEMENT_TYPES.map((t) => t.key),
     ]);
     const rows = addMenuRows(studioElementTypes({ testTypes: true }));
-    expect(rows[3].map((r) => r.entry.id)).toEqual(['studio-add-test-badge']);
+    expect(rows[3].map((r) => r.entry.id)).toEqual(['studio-add-poll', 'studio-add-test-badge']);
     expect(kindName({ type: 'test-badge' as never })).toBe('Test badge');
   });
 
@@ -183,6 +184,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
       'studio-add-button',
       'studio-add-image-button',
       'studio-add-swipe-up',
+      'studio-add-poll',
     ]);
     expect(q('#studio-add').classList.contains('btn--sm')).toBe(false);
     expect(q('#studio-add-emoji').classList.contains('btn--sm')).toBe(true);

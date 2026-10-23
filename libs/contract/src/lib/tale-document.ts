@@ -159,6 +159,10 @@ export type ButtonElement = TaleElementOf<'button', ButtonElementProps>;
 export type ImageButtonElement = TaleElementOf<'image-button', ImageButtonElementProps>;
 /** The swipe-up link: a label pinned to the bottom safe area; a tale holds at most one (R7). */
 export type SwipeUpElement = TaleElementOf<'swipe-up', SwipeUpElementProps>;
+/** The props of a `poll` element, from `element-types/poll.schema.json` (epic interactive components R2). */
+export type PollElementProps = Schemas['PollElementProps'];
+/** A poll: a question with two options a visitor votes on once (epic interactive components R2). */
+export type PollElement = TaleElementOf<'poll', PollElementProps>;
 /** A call to action: an element that is a link to its destination (R7). */
 export type LinkElement = ButtonElement | ImageButtonElement | SwipeUpElement;
 /** An element that shows media of the tale's project. */
@@ -174,7 +178,8 @@ export type TaleElement =
   | StickerElement
   | ButtonElement
   | ImageButtonElement
-  | SwipeUpElement;
+  | SwipeUpElement
+  | PollElement;
 
 /** The registered element type keys. */
 export type TaleElementType = TaleElement['type'];
@@ -864,6 +869,8 @@ export function elementName(
       );
     case 'swipe-up':
       return shortName(props.label) || 'Swipe-up link';
+    case 'poll':
+      return shortName((props as { question?: unknown }).question) || 'Poll';
     case 'emoji': {
       const emoji = typeof props.emoji === 'string' ? props.emoji : '';
       const label = shortName(element.a11y?.label);
@@ -1184,3 +1191,4 @@ export function linkLabel(value: unknown): string {
   if (typeof value !== 'string') return '';
   return [...cleanText(value.replace(/\s+/g, ' '), LABEL_TEXT_RULE)].slice(0, MAX_LINK_LABEL_LENGTH).join('').trim();
 }
+export * from './interactive';

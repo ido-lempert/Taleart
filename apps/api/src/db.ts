@@ -1,5 +1,6 @@
 import { migrateAccess } from '@taleart/server-access';
 import { migrateImporter } from '@taleart/server-importer';
+import { migrateInteractive } from '@taleart/server-interactive';
 import { copyZonePlacements, migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
 import { migrateTargeting } from '@taleart/server-targeting';
 import { foldStagesIntoZones, migrateZones } from '@taleart/server-zones';
@@ -39,7 +40,8 @@ export function createPool(connectionString?: string, max = databasePoolMax()): 
 // UX rework, owner decision 2026-10-22). The zones module's fold of stages
 // and extra frames into zones (AD-17) runs after tales, because each new zone
 // gets copies of its original zone's placements through the tales module
-// (AD-14). The importer runs last: its jobs and links reference projects and
+// (AD-14). The interactive module's responses reference tales (and are deleted
+// with them). The importer runs last: its jobs and links reference projects and
 // the records it imports.
 const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Promise<void> }> = [
   { module: 'access', run: migrateAccess },
@@ -52,6 +54,7 @@ const migrations: ReadonlyArray<{ module: string; run: (db: DbConnection) => Pro
     },
   },
   { module: 'targeting', run: migrateTargeting },
+  { module: 'interactive', run: migrateInteractive },
   { module: 'importer', run: migrateImporter },
 ];
 

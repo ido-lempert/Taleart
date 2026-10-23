@@ -11,6 +11,7 @@ import { prefersReducedMotion, stillCover } from './bar';
 import { loadTaleFonts } from './document/fonts';
 import { mediaUrl, renderImage } from './document/media';
 import { canvasColor, DOCUMENT_STYLES, renderTaleDocument, type DocumentRenderOptions } from './document/renderer';
+import type { ResponseClient } from './responses';
 
 /** How long a tale shows on the timer when the server sends it without a document (servers before R16). */
 export const IMAGE_DURATION_MS = LEGACY_TALE_DURATION_MS;
@@ -200,7 +201,7 @@ const VIEWER_WIDE_STYLES = `
   .frame { z-index: 2; background: #000; }
   .side { display: block; z-index: 1; background: #111827; cursor: pointer; filter: ${SIDE_FILTER}; }
   .side:hover { filter: brightness(0.6); }
-  .side .ta-cta { pointer-events: none; }
+  .side .ta-cta, .side .ta-interactive { pointer-events: none; }
   .nav { display: grid; position: absolute; top: calc(50% - 22px); z-index: 3; }
   .nav.prev { inset-inline-start: calc(50% - var(--card-w) / 2 - 56px); }
   .nav.next { inset-inline-start: calc(50% + var(--card-w) / 2 + 12px); }
@@ -286,6 +287,11 @@ function onClose(e: Event): boolean {
   return !!(e.target as Element | null)?.closest?.('.close');
 }
 
+// True when Space goes to a control of an interactive component (a poll's option), which it presses (C7).
+function onComponent(e: Event): boolean {
+  return !!(e.target as Element | null)?.closest?.('.ta-interactive button');
+}
+
 // True when `node` lays out right to left (the host page's direction reaches the Shadow DOM).
 export function isRtl(node: Element): boolean {
   return typeof getComputedStyle === 'function' && getComputedStyle(node).direction === 'rtl';
@@ -305,6 +311,8 @@ export interface TaleViewerOptions {
   onGroupShown?: (groupId: string) => void;
   /** Called once the viewer closed, with the group it showed last. */
   onClose?: (groupId: string) => void;
+  /** Sends the visitor's responses to interactive components (epic interactive components R9); none records nothing. */
+  responses?: ResponseClient;
 }
 
 /**
@@ -607,7 +615,7 @@ export class TaleViewer {
     dialog.addEventListener('keydown', (e) => this.onKeyDown(e));
     // Firefox activates a focused button on Space's keyup.
     dialog.addEventListener('keyup', (e) => {
-      if (e.key === ' ' && !hasModifier(e) && !onClose(e)) {
+      if (e.key === ' ' && !hasModifier(e) && !onClose(e) && !onComponent(e)) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -651,7 +659,7 @@ export class TaleViewer {
     const [forward, back] = this.rtl ? ['ArrowLeft', 'ArrowRight'] : ['ArrowRight', 'ArrowLeft'];
     if (e.key === forward) this.next();
     else if (e.key === back) this.previous();
-    else if (e.key === ' ' && onClose(e)) return;
+    else if (e.key === ' ' && (onClose(e) || onComponent(e))) return;
     else if (e.key === ' ') {
       if (!e.repeat) this.togglePause();
     } else if (e.key === 'Escape') this.close();
@@ -661,7 +669,9 @@ export class TaleViewer {
   }
 
   private onFocusChange(target: EventTarget | null): void {
-    const onLink = !!(target as Element | null)?.closest?.('.ta-cta') && !!this.layer?.contains(target as Node);
+    // Focus inside an interactive component pauses the tale too (C7).
+    const onLink =
+      !!(target as Element | null)?.closest?.('.ta-cta, .ta-interactive') && !!this.layer?.contains(target as Node);
     if (onLink === this.linkFocused) return;
     this.linkFocused = onLink;
     this.applyPause();
@@ -822,6 +832,7 @@ export class TaleViewer {
         background: !this.media,
         label: current.title || `Tale ${tale + 1}`,
         reducedMotion: this.reduced,
+        ...(this.options.responses && { responses: { client: this.options.responses, taleId: current.id } }),
         ...this.renderOptions,
       });
       this.parts.top.before(this.layer);
@@ -934,8 +945,8 @@ export class TaleViewer {
         side.appendChild(img);
       }
     }
-    // A side card's links are pictures only: the card is the one target, and focus never reaches them.
-    for (const link of side.querySelectorAll('a')) link.tabIndex = -1;
+    // A side card's links and components are pictures only: the card is the one target, and focus never reaches them.
+    for (const control of side.querySelectorAll<HTMLElement>('a, button')) control.tabIndex = -1;
     for (const video of side.querySelectorAll('video')) {
       video.autoplay = false;
       video.muted = true;

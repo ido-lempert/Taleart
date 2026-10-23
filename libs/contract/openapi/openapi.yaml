@@ -2020,7 +2020,9 @@ paths:
         its media's public URL answers 404 unless a delivered tale or cover
         still uses that file. A tale that came from an import is not created
         again by a later import of the same source: a person's deletion wins
-        (AD-7). Events already recorded keep the tale's id (AD-10). Any member
+        (AD-7). Events already recorded keep the tale's id (AD-10); the
+        visitors' responses to its interactive components are deleted with
+        it (epic interactive components R9). Any member
         with access to the tale's project may delete it (403 `forbidden`
         otherwise). Unknown tale: 404 `tale_not_found`.
       responses:
@@ -2454,6 +2456,120 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /tales/{taleId}/responses:
+    parameters:
+      - name: taleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getTaleResponses
+      summary: Read the responses to a tale's interactive components.
+      description: >-
+        The visitors' responses to the tale's interactive components (epic
+        interactive components R11), as Tale Studio's inspector shows them:
+        per component, the number of responses in all and per stored value
+        (a poll's option id), whatever the tale's documents hold now. A
+        component without a response is not listed. Counts include only
+        responses from the site; the studio preview records none. Any member
+        with access to the tale's project may read them (403 `forbidden`
+        otherwise). Unknown tale: 404 `tale_not_found`.
+      responses:
+        '200':
+          description: The counts per component.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaleResponses'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /responses:
+    servers:
+      - url: /delivery/v1
+        description: Delivery API (AD-2), for SDKs. Accepts site keys only.
+    post:
+      operationId: postDeliveryResponse
+      summary: Record a visitor's response to an interactive component (Delivery API).
+      description: >-
+        Served under `/delivery/v1` (epic interactive components R9). Accepts
+        the project's site key and the zone's slug exactly as `GET /zone`
+        does, with the same 401 `invalid_site_key` for every refused key or
+        slug, and the same per-visitor rate limit, plus a stricter limit of
+        its own for writes (by default 30 at once and 1 per second per
+        visitor). The `X-TaleArt-Visitor` header is required here: a missing
+        or invalid visitor id answers 400 `visitor_id_required`. The response
+        is kept only when the tale is delivered in that zone now (the
+        visibility rule of AD-6: its group is placed there and on, the tale
+        shown and updated, inside their windows, the zone set up), and its
+        published document holds a visible element with that id of an
+        interactive type; otherwise 404 `response_target_not_found`, the
+        same for a tale of another project, a hidden tale and an unknown
+        element. The value must be valid for the element (a poll's option
+        id), else 422 `validation_failed`. Each visitor keeps one response
+        per tale, component and interaction kind, and the first is kept
+        (C9): a new response answers 201, a repeat 200 with the stored value
+        and `recorded: false`. Either way the answer carries the current
+        result (a poll's counts and percentages per option). The row records
+        the project, zone, display, tale group and tale ids, the element's
+        id and type, the value, the visitor id and the client's and the
+        server's times (AD-10); no user data (AD-13). Deleting the tale
+        deletes its responses. Answers are `Cache-Control: no-store`.
+      security:
+        - siteKey: []
+      parameters:
+        - name: zone
+          in: query
+          required: true
+          description: The zone's slug, as for `GET /zone`.
+          schema:
+            type: string
+        - name: X-TaleArt-Visitor
+          in: header
+          required: true
+          description: >-
+            The visitor id (epic UX rework 8.23): a random UUID v4 the SDK
+            keeps on the device, all in lowercase or all in uppercase.
+            Responses are kept per visitor id.
+          schema:
+            type: string
+            format: uuid
+            pattern: '^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12})$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InteractiveResponseRequest'
+      responses:
+        '200':
+          description: A repeat; the visitor's first response, kept, with the current result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InteractiveResponse'
+        '201':
+          description: The response was recorded; the current result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InteractiveResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
@@ -3446,8 +3562,8 @@ components:
           type: string
           description: >-
             A key of the element-type registry, such as `text`, `image`,
-            `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`
-            or `swipe-up`.
+            `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`,
+            `swipe-up` or `poll`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
@@ -3479,6 +3595,107 @@ components:
       $ref: '../tale-document/element-types/image-button.schema.json'
     SwipeUpElementProps:
       $ref: '../tale-document/element-types/swipe-up.schema.json'
+    PollElementProps:
+      $ref: '../tale-document/element-types/poll.schema.json'
+    ChoiceCount:
+      type: object
+      required: [id, count, percent]
+      properties:
+        id:
+          type: string
+          description: The choice's id (a poll's option id).
+        count:
+          type: integer
+          minimum: 0
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            The choice's share of the votes as a whole percentage; the shares
+            add up to 100 when there is a vote, and are 0 without one.
+    ChoiceResult:
+      type: object
+      description: >-
+        A choice component's result, over the choices its published document
+        holds now, in their order.
+      required: [total, choices]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChoiceCount'
+    InteractiveResponseRequest:
+      type: object
+      additionalProperties: false
+      required: [taleId, elementId, value]
+      properties:
+        taleId:
+          type: string
+          format: uuid
+        elementId:
+          type: string
+          format: uuid
+        value:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The response, such as a poll's option id.
+        clientAt:
+          type: string
+          format: date-time
+          description: When the visitor responded, by the device's clock.
+    InteractiveResponse:
+      type: object
+      required: [elementId, value, recorded, result]
+      properties:
+        elementId:
+          type: string
+          format: uuid
+        value:
+          type: string
+          description: The visitor's stored response; on a repeat, the first one.
+        recorded:
+          type: boolean
+          description: True when this request recorded it; false for a repeat.
+        result:
+          $ref: '#/components/schemas/ChoiceResult'
+    ElementResponseCounts:
+      type: object
+      required: [elementId, elementType, total, values]
+      properties:
+        elementId:
+          type: string
+          format: uuid
+        elementType:
+          type: string
+          description: The element's type when its responses were recorded, such as `poll`.
+        total:
+          type: integer
+          minimum: 0
+        values:
+          type: array
+          description: The number of responses per stored value, most first.
+          items:
+            type: object
+            required: [value, count]
+            properties:
+              value:
+                type: string
+              count:
+                type: integer
+                minimum: 1
+    TaleResponses:
+      type: object
+      required: [elements]
+      properties:
+        elements:
+          type: array
+          items:
+            $ref: '#/components/schemas/ElementResponseCounts'
     MediaBackground:
       $ref: '../tale-document/v1.schema.json#/$defs/MediaBackground'
     ColorBackground:
@@ -4322,6 +4539,8 @@ components:
         - media_storage_full
         - upload_busy
         - length_required
+        - response_target_not_found
+        - visitor_id_required
         - internal_error
     ErrorBody:
       type: object

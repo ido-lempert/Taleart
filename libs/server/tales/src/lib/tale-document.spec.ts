@@ -57,7 +57,7 @@ describe('checkTaleDocument', () => {
   });
 
   it('refuses an unknown element type, naming its pointer', () => {
-    expect(refusal(doc([text(1), { ...text(2), type: 'poll' }]))).toBe('/elements/1/type');
+    expect(refusal(doc([text(1), { ...text(2), type: 'future-widget' }]))).toBe('/elements/1/type');
   });
 
   it('refuses out-of-range boxes', () => {
@@ -273,7 +273,7 @@ describe('deliverableTaleDocument', () => {
 
   it('delivers nothing for no document or one that no longer validates', () => {
     expect(deliverableTaleDocument(null)).toBeNull();
-    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'poll' }]))).toBeNull();
+    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'future-widget' }]))).toBeNull();
   });
 
   it('refuses an unknown version or oversize stored text at once, and checks in full once per tale and revision', () => {
@@ -283,9 +283,9 @@ describe('deliverableTaleDocument', () => {
     const first = deliverableTaleDocument(doc([text(1, 'One')]), 't:1');
     expect(first?.elements[0].props).toEqual({ text: 'One' });
     // The same tale and revision is not checked again: a changed row with the same key reads as cached.
-    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'poll' }]), 't:1')).toBe(first);
+    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'future-widget' }]), 't:1')).toBe(first);
     // A save raises the revision, and the new key is checked.
-    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'poll' }]), 't:2')).toBeNull();
+    expect(deliverableTaleDocument(doc([{ ...text(1), type: 'future-widget' }]), 't:2')).toBeNull();
     clearDeliveryCache();
   });
 
@@ -421,7 +421,7 @@ describe('tale document storage', () => {
     ]);
     const err = await publishTaleDocument(stale.db, taleId, 4, 0).catch((e: unknown) => e);
     expect((err as StaleRevisionError).currentRevision).toBe(6);
-    const invalid = fakeDb([{ rows: [{ document: doc([{ ...text(1), type: 'poll' }]), revision: 1, ...NONE }] }]);
+    const invalid = fakeDb([{ rows: [{ document: doc([{ ...text(1), type: 'future-widget' }]), revision: 1, ...NONE }] }]);
     await expect(publishTaleDocument(invalid.db, taleId, 1, 0)).rejects.toBeInstanceOf(InvalidTaleDocumentError);
     expect(invalid.calls()).toHaveLength(1);
     await expect(publishTaleDocument(fakeDb([{ rows: [] }]).db, taleId, 0, 0)).rejects.toBeInstanceOf(
@@ -459,7 +459,7 @@ describe('tale document storage', () => {
 
   it('checks the document before writing', async () => {
     const { db, query } = fakeDb([]);
-    await expect(saveTaleDocument(db, taleId, doc([{ ...text(1), type: 'poll' }]), 0)).rejects.toBeInstanceOf(
+    await expect(saveTaleDocument(db, taleId, doc([{ ...text(1), type: 'future-widget' }]), 0)).rejects.toBeInstanceOf(
       InvalidTaleDocumentError,
     );
     expect(query).not.toHaveBeenCalled();

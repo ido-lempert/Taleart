@@ -70,6 +70,24 @@ skips only the element it has no renderer for and shows the rest of the tale.
 Tests: each layer has a registry test that fails when the type is missing from it
 (`element-types.spec.ts` in the contract, server-tales, web-sdk and the dashboard).
 
+### Interactive components
+
+A component a visitor answers (epic interactive components; the `poll` first) adds, beyond the four steps above:
+
+- **Contract** (`src/lib/interactive.ts`): its per-tale limit in `ELEMENT_TYPE_LIMITS` (the server refuses a document
+  over it; the studio's Add entry takes its `limit` from it) and its interaction kinds in `INTERACTIONS` (the first is
+  the default; a visitor has one response per tale, element and kind, the first wins). Choice ids are props of the
+  element (`{ id, label }` items), so counts survive an edit to the text.
+- **Server** (`libs/server/interactive`, `responses.ts`): how its value is checked and counted (`CHOICES` for a choice
+  component). `recordResponse` accepts a response only for an element of a tale the zone delivers now
+  (`deliveredTaleElement` in the tales module, the AD-6 rule) and its published document; the Delivery API's
+  `POST /responses` needs the site key, the slug and a valid `X-TaleArt-Visitor`, and is rate limited.
+- **Studio**: a fixed list of choices is a `choices` field of the fields inspector (labels edited, ids kept); the
+  inspector shows the component's counts (`tale-responses.ts`, from `GET /api/v1/tales/{taleId}/responses`).
+- **SDK**: the renderer posts through `context.responses` (absent in the Tale Studio preview and on side cards, which
+  record nothing), keeps the answer locally (`responses.ts`), marks its root `ta-interactive` (focus inside it pauses
+  the tale; Space presses its buttons) and never lets a press step the tale.
+
 ### Test-only types
 
 An entry marked `"testOnly": true` (today `test-badge`) is generated into `TALE_TEST_ELEMENT_TYPES`
