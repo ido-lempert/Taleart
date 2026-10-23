@@ -13,6 +13,7 @@ import {
   ViewEncapsulation,
 } from '@angular/core';
 import { Icon } from './icon';
+import { hideFromTopLayer, isOutside, placeAt, PopupListeners, showInTopLayer, viewportSize } from './top-layer';
 
 let nextId = 0;
 
@@ -237,7 +238,7 @@ export class MenuButton {
 
   // A press or a click (a keyboard or assistive technology click has no press) outside closes it.
   private readonly onOutside = (event: Event) => {
-    if (!this.host.nativeElement.contains(event.target as Node)) this.close(false);
+    if (isOutside(this.host.nativeElement, event)) this.close(false);
   };
   // The menu does not follow its button: a scroll (other than the menu's own) or a resize closes it.
   private readonly onScroll = (event: Event) => {
@@ -245,6 +246,12 @@ export class MenuButton {
   };
   private readonly onResize = () => this.close(false);
   private readonly closeQuietly = () => this.close(false);
+  private readonly listeners = new PopupListeners(this.document, [
+    { on: 'document', type: 'pointerdown', listener: this.onOutside, capture: true },
+    { on: 'document', type: 'click', listener: this.onOutside, capture: true },
+    { on: 'window', type: 'scroll', listener: this.onScroll, capture: true },
+    { on: 'window', type: 'resize', listener: this.onResize },
+  ]);
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.close(false));
@@ -328,13 +335,9 @@ export class MenuButton {
       this.open.set(true);
       // Renders the menu now, so it can be shown and focused in this event.
       this.changes.detectChanges();
-      const menu = this.menu()?.nativeElement;
-      if (menu && typeof menu.showPopover === 'function') menu.showPopover();
+      showInTopLayer(this.menu()?.nativeElement);
       this.place();
-      this.document.addEventListener('pointerdown', this.onOutside, true);
-      this.document.addEventListener('click', this.onOutside, true);
-      this.document.defaultView?.addEventListener('scroll', this.onScroll, true);
-      this.document.defaultView?.addEventListener('resize', this.onResize);
+      this.listeners.add();
     }
     const items = this.menuItems();
     items[focus === 'first' ? 0 : items.length - 1]?.focus({ preventScroll: true });
@@ -342,21 +345,11 @@ export class MenuButton {
 
   /** Closes the menu; `refocus` puts focus back on its button. */
   close(refocus: boolean): void {
-    this.document.removeEventListener('pointerdown', this.onOutside, true);
-    this.document.removeEventListener('click', this.onOutside, true);
-    this.document.defaultView?.removeEventListener('scroll', this.onScroll, true);
-    this.document.defaultView?.removeEventListener('resize', this.onResize);
+    this.listeners.remove();
     if (closeOpenMenu === this.closeQuietly) closeOpenMenu = null;
     if (!this.open()) return;
     this.open.set(false);
-    const menu = this.menu()?.nativeElement;
-    if (menu && typeof menu.hidePopover === 'function') {
-      try {
-        menu.hidePopover();
-      } catch {
-        // Already closed, as when the page removed it.
-      }
-    }
+    hideFromTopLayer(this.menu()?.nativeElement);
     if (refocus) this.trigger().nativeElement.focus();
   }
 
@@ -373,10 +366,9 @@ export class MenuButton {
     const at = menuPosition(
       trigger.getBoundingClientRect(),
       { width: menu.offsetWidth, height: menu.offsetHeight },
-      { width: view?.innerWidth ?? 1024, height: view?.innerHeight ?? 768 },
+      viewportSize(view),
       rtl,
     );
-    menu.style.left = `${at.left}px`;
-    menu.style.top = `${at.top}px`;
+    placeAt(menu, at);
   }
 }
