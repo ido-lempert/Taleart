@@ -3,7 +3,7 @@ title: 'Tracer: add a poll to a tale and see a visitor''s vote counted'
 type: 'feature'
 ticket: '1'
 created: '2026-10-23'
-status: 'built'
+status: built
 baseline_revision: '6177b93'
 route: 'full'
 route_source: 'auto'
