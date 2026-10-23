@@ -2475,7 +2475,8 @@ paths:
         The visitors' responses to the tale's interactive components (epic
         interactive components R11), as Tale Studio's inspector shows them:
         per component, the number of responses in all and per stored value
-        (a poll's option id), whatever the tale's documents hold now. A
+        (a poll's option id, a Rating's value from 0 to 100), whatever the
+        tale's documents hold now. A
         component without a response is not listed. Counts include only
         responses from the site; the studio preview records none. Any member
         with access to the tale's project may read them (403 `forbidden`
@@ -2515,11 +2516,13 @@ paths:
         interactive type; otherwise 404 `response_target_not_found`, the
         same for a tale of another project, a hidden tale and an unknown
         element. The value must be valid for the element (a poll's option
-        id), else 422 `validation_failed`. Each visitor keeps one response
+        id; a Rating's whole number from 0 to 100, written plainly, such as
+        `80`), else 422 `validation_failed`. Each visitor keeps one response
         per tale, component and interaction kind, and the first is kept
         (C9): a new response answers 201, a repeat 200 with the stored value
         and `recorded: false`. Either way the answer carries the current
-        result (a poll's counts and percentages per option). The row records
+        result (a poll's counts and percentages per option, a Rating's count
+        and average). The row records
         the project, zone, display, tale group and tale ids, the element's
         id and type, the value, the visitor id and the client's and the
         server's times (AD-10); no user data (AD-13). Deleting the tale
@@ -3599,7 +3602,7 @@ components:
           description: >-
             A key of the element-type registry, such as `text`, `image`,
             `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`,
-            `swipe-up` or `poll`.
+            `swipe-up`, `poll` or `rating`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
@@ -3633,6 +3636,8 @@ components:
       $ref: '../tale-document/element-types/swipe-up.schema.json'
     PollElementProps:
       $ref: '../tale-document/element-types/poll.schema.json'
+    RatingElementProps:
+      $ref: '../tale-document/element-types/rating.schema.json'
     ChoiceCount:
       type: object
       required: [id, count, percent]
@@ -3664,6 +3669,23 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ChoiceCount'
+    RatingResult:
+      type: object
+      description: >-
+        A Rating's result (epic interactive components R5): how many visitors
+        rated it, and the average of their ratings.
+      required: [total, average]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        average:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            The ratings' mean on the 0 to 100 scale, rounded to a whole
+            number (half up); 0 without a rating.
     InteractiveResponseRequest:
       type: object
       additionalProperties: false
@@ -3679,7 +3701,9 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-          description: The response, such as a poll's option id.
+          description: >-
+            The response, such as a poll's option id or a Rating's whole
+            number from 0 to 100 (`80`).
         clientAt:
           type: string
           format: date-time
@@ -3698,7 +3722,12 @@ components:
           type: boolean
           description: True when this request recorded it; false for a repeat.
         result:
-          $ref: '#/components/schemas/ChoiceResult'
+          description: >-
+            The component's result now: a poll's counts and percentages per
+            option, or a Rating's count and average.
+          oneOf:
+            - $ref: '#/components/schemas/ChoiceResult'
+            - $ref: '#/components/schemas/RatingResult'
     ElementResponseCounts:
       type: object
       required: [elementId, elementType, total, values]

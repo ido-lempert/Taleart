@@ -6,6 +6,7 @@ import { InjectionToken } from '@angular/core';
 import {
   ELEMENT_TYPE_LIMITS,
   hasDisallowedCharacter,
+  isEmojiGlyph,
   LABEL_TEXT_RULE,
   limitedVideoCount,
   MAX_SWIPE_UP_ELEMENTS,
@@ -64,8 +65,12 @@ export interface InspectorField {
   /** The prop it edits. */
   prop: string;
   label: string;
-  /** `text` and `number` inputs, a `color` picker with its hex field, or a `select` of the schema's enum. */
-  control: 'text' | 'number' | 'color' | 'select';
+  /**
+   * `text` and `number` inputs, a `color` picker with its hex field, a `select` of the schema's enum,
+   * or an `emoji` shown with a button that opens the studio's emoji picker (epic interactive
+   * components story 4.2).
+   */
+  control: 'text' | 'number' | 'color' | 'select' | 'emoji';
   /** For a select: the name people read for each enum value. */
   options?: readonly { value: string; label: string }[];
   hint?: string;
@@ -135,15 +140,49 @@ const entry = (
 // on one line, and its option ids differ (epic interactive components R2).
 function checkPollProps(props: Readonly<Record<string, unknown>>): string | null {
   const options = Array.isArray(props['options']) ? (props['options'] as { id?: unknown; label?: unknown }[]) : [];
-  const texts = [props['question'], props['title'], ...options.map((o) => o?.label)];
+  const problem = lineTextProblem([props['question'], props['title'], ...options.map((o) => o?.label)]);
+  if (problem) return problem;
+  if (new Set(options.map((o) => o?.id)).size !== options.length) return 'Each option needs its own id.';
+  return null;
+}
+
+// A component's texts show on one line, as plain text that is not blank; the first problem, or null.
+function lineTextProblem(texts: readonly unknown[]): string | null {
   for (const text of texts) {
     if (typeof text !== 'string') continue;
     if (text.trim() === '') return 'Enter some text.';
     if (hasDisallowedCharacter(text, LABEL_TEXT_RULE) || text.includes('\n')) return 'Use one line of plain text.';
   }
-  if (new Set(options.map((o) => o?.id)).size !== options.length) return 'Each option needs its own id.';
   return null;
 }
+
+// A Rating's rules its schema cannot state, as the server's `PROPS_RULES` holds them: its text shows
+// on one line, and its emoji is one RGI emoji (epic interactive components R5, R15).
+function checkRatingProps(props: Readonly<Record<string, unknown>>): string | null {
+  return (
+    lineTextProblem([props['question'], props['title']]) ?? (isEmojiGlyph(props['emoji']) ? null : 'Choose one emoji.')
+  );
+}
+
+// A limit of one element of `type` per tale (epic interactive components C3), named in its Add entry.
+function oneOf(type: string, hintId: string, hintOrder: number, hint: string): AddLimit {
+  return {
+    hintId,
+    hintOrder,
+    hint,
+    reached: (doc) => (doc?.elements.filter((e) => e.type === type).length ?? 0) >= ELEMENT_TYPE_LIMITS[type],
+  };
+}
+
+const THEME_FIELD: InspectorField = {
+  prop: 'theme',
+  label: 'Theme',
+  control: 'select',
+  options: [
+    { value: 'light', label: 'Light' },
+    { value: 'dark', label: 'Dark' },
+  ],
+};
 
 /** The descriptors of the registry's types, keyed by registry key (R8). */
 export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescriptor>> = {
@@ -189,27 +228,14 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
   poll: {
     add: [
       entry('studio-add-poll', 'Add poll', 'poll', 3, { kind: 'configured' }, {
-        limit: {
-          hintId: 'studio-poll-hint',
-          hintOrder: 2,
-          hint: 'A tale holds one poll. Delete it to add another.',
-          reached: (doc) => (doc?.elements.filter((e) => e.type === 'poll').length ?? 0) >= ELEMENT_TYPE_LIMITS['poll'],
-        },
+        limit: oneOf('poll', 'studio-poll-hint', 2, 'A tale holds one poll. Delete it to add another.'),
       }),
     ],
     inspector: {
       fields: [
         { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
         { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
-        {
-          prop: 'theme',
-          label: 'Theme',
-          control: 'select',
-          options: [
-            { value: 'light', label: 'Light' },
-            { value: 'dark', label: 'Dark' },
-          ],
-        },
+        THEME_FIELD,
       ],
       choices: {
         prop: 'options',
@@ -232,6 +258,34 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     // The canvas shows its question; the preview pane draws it as visitors see it (AD-16).
     preview: (props) => (typeof props['question'] === 'string' ? props['question'] : ''),
     check: checkPollProps,
+  },
+  rating: {
+    add: [
+      entry('studio-add-rating', 'Add rating', 'rating', 3, { kind: 'configured' }, {
+        limit: oneOf('rating', 'studio-rating-hint', 3, 'A tale holds one rating. Delete it to add another.'),
+      }),
+    ],
+    inspector: {
+      fields: [
+        { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
+        { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
+        {
+          prop: 'emoji',
+          label: 'Emoji',
+          control: 'emoji',
+          hint: 'Visitors slide it from 0 to 100 to rate.',
+        },
+        THEME_FIELD,
+      ],
+    },
+    create: {
+      box: { x: 0.1, y: 0.62, w: 0.8, h: 0.22, rotation: 0 },
+      props: () => ({ question: 'How much do you like it?', emoji: '❤️', theme: 'light' }),
+    },
+    // The canvas shows its emoji and question; the preview pane draws the slider as visitors see it (AD-16).
+    preview: (props) =>
+      [props['emoji'], props['question']].filter((part): part is string => typeof part === 'string').join(' '),
+    check: checkRatingProps,
   },
   'swipe-up': {
     add: [
@@ -313,6 +367,7 @@ const PROP_TYPES: Readonly<Record<InspectorField['control'], readonly string[]>>
   text: ['string'],
   color: ['string'],
   select: ['string'],
+  emoji: ['string'],
   number: ['integer', 'number'],
 };
 
