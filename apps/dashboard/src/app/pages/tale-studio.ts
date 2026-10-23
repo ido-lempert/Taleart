@@ -145,11 +145,13 @@ import {
   duplicateElement,
   historyKeyShortcuts,
   historyLabel,
+  hiddenUnder,
   historyShortcut,
   isApple,
   isTextEntry,
   LAYER_KEYSHORTCUTS,
   layerName,
+  layerSpokenName,
   layerShortcut,
   moveBox,
   reorder,
@@ -630,7 +632,24 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
         inset 0 0 0 1px var(--ink),
         inset 0 0 0 2px #fff;
     }
+    /*
+     * The keyboard focus ring drawn again above every layer (WCAG 2.4.7, 2.4.11, story 7.15), on the
+     * focused layer's box and rotation, so a layer partly under others shows where it is while the
+     * layers keep their stacking (a keyboard reorder stays visible). Below the guides (100).
+     */
+    .focus-frame {
+      position: absolute;
+      z-index: 98;
+      pointer-events: none;
+      box-shadow:
+        0 0 0 2px #fff,
+        0 0 0 4px var(--ink),
+        inset 0 0 0 2px var(--ink),
+        inset 0 0 0 4px #fff;
+    }
+    /* Typing in place stays above every layer, so a text under a picture is seen while edited (7.15). */
     .el-edit {
+      z-index: 99;
       resize: none;
       border: 2px solid var(--ember);
       background: rgb(0 0 0 / 35%);
@@ -883,7 +902,6 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     [style.width.%]="el.box.w * 100"
                     [style.height.%]="el.box.h * 100"
                     [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
-                    [style.z-index]="i + 1"
                     [attr.dir]="v.dir"
                     [style.font-family]="v.family"
                     [style.font-size]="v.size"
@@ -910,7 +928,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     [class.is-locked]="el.locked"
                     [attr.aria-pressed]="isSelected(el.id)"
                     [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
-                    [attr.aria-label]="kind(el) + ': ' + name(el)"
+                    [attr.aria-label]="kind(el) + ': ' + spokenName(el)"
                     [attr.aria-describedby]="'layer-state-' + el.id"
                     [attr.aria-keyshortcuts]="keyShortcuts"
                     [style.left.%]="el.box.x * 100"
@@ -918,7 +936,9 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     [style.width.%]="el.box.w * 100"
                     [style.height.%]="el.box.h * 100"
                     [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
-                    [style.z-index]="i + 1"
+                    [style.z-index]="raisedId() === el.id ? 99 : i + 1"
+                    (focus)="layerFocused($event, el.id)"
+                    (blur)="layerBlurred(el.id)"
                     (click)="pick($event, el.id)"
                     (contextmenu)="openMenuAt($event, el, 'canvas')"
                     (keydown)="onKey($event, el)"
@@ -1052,7 +1072,9 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     [style.width.%]="el.box.w * 100"
                     [style.height.%]="el.box.h * 100"
                     [style.transform]="el.box.rotation ? 'rotate(' + el.box.rotation + 'deg)' : null"
-                    [style.z-index]="i + 1"
+                    [style.z-index]="raisedId() === el.id ? 99 : i + 1"
+                    (focus)="layerFocused($event, el.id)"
+                    (blur)="layerBlurred(el.id)"
                     [attr.dir]="v.dir"
                     [style.font-family]="v.family"
                     [style.font-size]="v.size"
@@ -1088,6 +1110,17 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     }
                   </button>
                 }
+              }
+              @if (focusBox(); as f) {
+                <div
+                  class="focus-frame"
+                  aria-hidden="true"
+                  [style.left.%]="f.x * 100"
+                  [style.top.%]="f.y * 100"
+                  [style.width.%]="f.w * 100"
+                  [style.height.%]="f.h * 100"
+                  [style.transform]="f.rotation ? 'rotate(' + f.rotation + 'deg)' : null"
+                ></div>
               }
               @if (guides()) {
                 <div
@@ -1170,7 +1203,9 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                           <span class="layer__line">
                             <app-icon [name]="row.el.type" />
                             <span class="visually-hidden">{{ kind(row.el) }}: </span>
-                            <span class="layer__name">{{ row.name }}</span>
+                            <span class="layer__name"
+                              >@if (row.glyph) {<span aria-hidden="true">{{ row.glyph }} </span>}{{ row.spoken }}</span
+                            >
                             @if (row.order) {
                               <!-- Where screen readers and Tab meet it on the sample page (AD-15, R12). -->
                               <span class="layer__order" title="Reading order"
@@ -1211,7 +1246,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             class="btn btn--ghost layer__toggle"
                             [id]="'layer-hide-' + row.el.id"
                             [attr.tabindex]="tabIndex(row.el.id, 1)"
-                            [attr.aria-label]="'Hide ' + row.name"
+                            [attr.aria-label]="'Hide ' + row.spoken"
                             [attr.aria-pressed]="row.el.hidden"
                             aria-keyshortcuts="H"
                             (click)="run('hide', 'list', 'layer-hide-' + row.el.id, row.el.id)"
@@ -1228,7 +1263,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             class="btn btn--ghost layer__toggle"
                             [id]="'layer-lock-' + row.el.id"
                             [attr.tabindex]="tabIndex(row.el.id, 2)"
-                            [attr.aria-label]="'Lock ' + row.name"
+                            [attr.aria-label]="'Lock ' + row.spoken"
                             [attr.aria-pressed]="row.el.locked"
                             aria-keyshortcuts="L"
                             (click)="run('lock', 'list', 'layer-lock-' + row.el.id, row.el.id)"
@@ -1245,7 +1280,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             class="btn btn--ghost layer__toggle"
                             [id]="'layer-more-' + row.el.id"
                             [attr.tabindex]="tabIndex(row.el.id, 3)"
-                            [attr.aria-label]="'More actions for ' + row.name"
+                            [attr.aria-label]="'More actions for ' + row.spoken"
                             aria-haspopup="menu"
                             [attr.aria-expanded]="menu()?.returnId === 'layer-more-' + row.el.id"
                             (click)="openMenuFrom($any($event.currentTarget), row.el)"
@@ -1641,6 +1676,15 @@ export class TaleStudioPage implements OnChanges {
   /** What the person should know after keeping their version as a new tale. */
   protected readonly notice = signal('');
   protected readonly announcement = signal('');
+  /** The canvas layer with keyboard focus (`:focus-visible`): its ring is drawn again above the layers. */
+  protected readonly focusRing = signal<string | null>(null);
+  /** That layer, raised above the others only while it is wholly under higher layers (WCAG 2.4.11). */
+  protected readonly raisedId = signal<string | null>(null);
+  protected readonly focusBox = computed(() => {
+    const id = this.focusRing();
+    const element = id ? this.doc()?.elements.find((e) => e.id === id) : undefined;
+    return element && !element.hidden ? element.box : null;
+  });
   /** Whether the Duplicate drawer is open (epic Tale Studio R11), and the button that opened it. */
   protected readonly duplicating = signal(false);
   protected duplicateOpener: HTMLElement | null = null;
@@ -1842,7 +1886,8 @@ export class TaleStudioPage implements OnChanges {
       .map((el, i) => ({
         el,
         order: this.readingIndex().get(el.id) ?? null,
-        name: layerName(el, this.doc()?.elements ?? [el]),
+        // Said without an emoji's glyph, which a screen reader would read as a second name (7.15).
+        ...layerSpokenName(el, this.doc()?.elements ?? [el]),
         // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design, as the
         // swipe-up link sits in the bottom safe area (R7).
         outside: el !== this.stageMedia() && el.type !== 'swipe-up' && isOutsideSafeArea(el.box),
@@ -2025,6 +2070,13 @@ export class TaleStudioPage implements OnChanges {
         clearTimeout(this.readsTimer);
         this.readsTimer = setTimeout(() => this.requestReads());
       });
+    });
+    // A layer moved or reordered by keyboard may come out from under the others, or go under them:
+    // whether the focused one is raised is read again after each change (2.4.11, story 7.15).
+    effect(() => {
+      this.doc();
+      if (this.focusRing() === null) return;
+      untracked(() => setTimeout(() => this.raiseIfHidden()));
     });
     inject(DestroyRef).onDestroy(() => {
       clearTimeout(this.readsTimer);
@@ -2518,6 +2570,11 @@ export class TaleStudioPage implements OnChanges {
     return layerName(element, this.doc()?.elements ?? [element]);
   }
 
+  /** The layer's name as screen readers are given it: an emoji's without its glyph (see `layerSpokenName`). */
+  protected spokenName(element: TaleElement): string {
+    return layerSpokenName(element, this.doc()?.elements ?? [element]).spoken;
+  }
+
   protected kind(element: { type: TaleElement['type'] }): string {
     return kindName(element);
   }
@@ -2629,7 +2686,8 @@ export class TaleStudioPage implements OnChanges {
     // A text whose contrast verdict the last change turned is named once, with what the change says.
     const note = this.contrastNote;
     this.contrastNote = '';
-    const said = note ? `${text} ${note}`.trim() : text;
+    // Two sentences, so a screen reader pauses between them ("Layer hidden. "Sale" has …", story 7.15).
+    const said = note ? `${/[.!?…]$/.test(text.trim()) || !text.trim() ? text : `${text.trim()}.`} ${note}`.trim() : text;
     // Cleared first, so the same message twice is announced twice.
     this.announcement.set('');
     setTimeout(() => this.announcement.set(said), 0);
@@ -3040,7 +3098,78 @@ export class TaleStudioPage implements OnChanges {
     return true;
   }
 
+  /**
+   * Shift+F10 or the context-menu key opens the layer actions below the control; true when it was
+   * one. Browsers turn these keys into a `contextmenu` event only on some systems (not on a Mac), so
+   * the studio answers the keys itself (WCAG 2.1.1, story 7.15); handled here, no event follows.
+   */
+  private menuKey(event: KeyboardEvent, element: TaleElement, origin: Origin): boolean {
+    const shiftF10 = event.key === 'F10' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+    if (!shiftF10 && event.key !== 'ContextMenu') return false;
+    event.preventDefault();
+    if (!this.isSelected(element.id)) this.selectOnly(element.id);
+    const control = event.currentTarget as HTMLElement;
+    const rect = control.getBoundingClientRect();
+    this.openMenu(rect.left, rect.bottom, origin, control.id);
+    return true;
+  }
+
+  /** A canvas layer took focus: with a keyboard (`:focus-visible`), its ring is drawn above the layers. */
+  protected layerFocused(event: FocusEvent, id: string): void {
+    const target = event.target as HTMLElement;
+    if (!target.matches(':focus-visible')) return;
+    this.focusRing.set(id);
+    this.raiseIfHidden();
+  }
+
+  protected layerBlurred(id: string): void {
+    if (this.focusRing() === id) this.focusRing.set(null);
+    if (this.raisedId() !== id) return;
+    this.raisedId.set(null);
+    // Back to its place at once, as `raiseIfHidden` raised it (a render may not have come between).
+    const index = this.doc()?.elements.findIndex((e) => e.id === id) ?? -1;
+    const target = document.getElementById(`studio-el-${id}`);
+    if (target && index >= 0) target.style.zIndex = String(index + 1);
+  }
+
+  /**
+   * Raises the keyboard-focused layer above the others only while it is wholly under higher layers,
+   * read in the browser at nine points of it by the layers' own order (a raise does not count);
+   * otherwise it keeps its place and only its ring is drawn above (2.4.11, story 7.15).
+   */
+  private raiseIfHidden(): void {
+    const id = this.focusRing();
+    const doc = this.doc();
+    const target = id ? document.getElementById(`studio-el-${id}`) : null;
+    if (!id || !doc || !target || typeof document.elementsFromPoint !== 'function') {
+      this.raisedId.set(null);
+      return;
+    }
+    const order = new Map(doc.elements.map((e, i) => [`studio-el-${e.id}`, i]));
+    const box = target.getBoundingClientRect();
+    const stacks: number[][] = [];
+    for (const fx of [0.15, 0.5, 0.85]) {
+      for (const fy of [0.15, 0.5, 0.85]) {
+        const x = box.left + box.width * fx;
+        const y = box.top + box.height * fy;
+        if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
+        stacks.push(
+          document
+            .elementsFromPoint(x, y)
+            .map((n) => order.get(n.closest('.el')?.id ?? '') ?? -1)
+            .filter((i) => i >= 0),
+        );
+      }
+    }
+    const index = order.get(target.id) ?? -1;
+    const raise = hiddenUnder(stacks, index);
+    // At once, as the next render will: the ring and the layer show in the frame focus arrived in.
+    target.style.zIndex = String(raise ? 99 : index + 1);
+    this.raisedId.set(raise ? id : null);
+  }
+
   protected onKey(event: KeyboardEvent, element: TaleElement): void {
+    if (this.menuKey(event, element, 'canvas')) return;
     if (this.shortcut(event, element, 'canvas') || this.selectionKey(event, element.id)) return;
     const step = event.shiftKey ? MOVE_STEP * 10 : MOVE_STEP;
     const moves: Record<string, [number, number]> = {
@@ -3068,7 +3197,7 @@ export class TaleStudioPage implements OnChanges {
    * first and last, Ctrl+Home and Ctrl+End to the top and bottom layers.
    */
   protected onCellKey(event: KeyboardEvent, element: TaleElement, col: number): void {
-    if (this.shortcut(event, element, 'list')) return;
+    if (this.menuKey(event, element, 'list') || this.shortcut(event, element, 'list')) return;
     if (col === 0 && this.selectionKey(event, element.id)) return;
     if (
       col === 0 &&
