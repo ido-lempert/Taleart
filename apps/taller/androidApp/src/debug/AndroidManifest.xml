@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds read a local API over plain HTTP; release builds keep the platform default.
+     Android 17 also asks before an app reaches the local network (10.0.2.2 is the host machine
+     from the emulator); MainActivity asks for it when the build declares it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+
+</manifest>
