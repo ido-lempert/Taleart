@@ -60,10 +60,10 @@ interface TaleVideoPlayer {
 
 /**
  * How a document's video is drawn on the canvas: corner radius, rotation in degrees, opacity, and
- * whether nothing above it in the z-order overlaps it ([nothingAbove]), so a native view may be
- * placed over the canvas.
+ * whether a native view may be placed over the canvas ([overlay]): nothing above it in the z-order
+ * overlaps it, its turned box lies wholly inside the canvas, and it stays clear of the viewer's top bar.
  */
-data class DocumentVideoLook(val cornerRadius: Dp, val rotation: Float, val alpha: Float, val nothingAbove: Boolean)
+data class DocumentVideoLook(val cornerRadius: Dp, val rotation: Float, val alpha: Float, val overlay: Boolean)
 
 /** The platform's video player: Media3 ExoPlayer on Android, AVPlayer on iOS. */
 internal expect fun platformTaleVideoPlayer(): TaleVideoPlayer

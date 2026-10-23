@@ -161,12 +161,14 @@ private object AvTaleVideoPlayer : TaleVideoPlayer {
     override val drawsDocumentVideoLook: Boolean get() = true
 
     // A document's video: muted, looping in place with [loop]. A native view sits behind the
-    // Compose canvas, which leaves a transparent hole the size of its upright box. With nothing
-    // above it in the z-order, it is placed over the canvas instead and draws its look on itself:
-    // its layer's corner radius (clipping), a rotation about its centre and its alpha, composited
-    // over the elements below. With an element above it (a caption on the video), it stays in its
-    // hole so the element shows over it, drawn upright, square-cornered and opaque, since a turned,
-    // rounded or faded video would show the hole's black around it.
+    // Compose canvas, which leaves a transparent hole the size of its upright box. When it may
+    // ([DocumentVideoLook.overlay]: nothing above it overlaps it, it lies wholly inside the canvas,
+    // which does not clip an overlay, and clear of the viewer's top bar, which it would cover), it
+    // is placed over the canvas instead and draws its look on itself: its layer's corner radius
+    // (clipping), a rotation about its centre and its alpha, composited over the elements below.
+    // Otherwise it stays in its hole, under the elements above it and the viewer's controls, drawn
+    // upright, square-cornered and opaque, since a turned, rounded or faded video would show the
+    // hole's black around it.
     @OptIn(ExperimentalComposeUiApi::class)
     @Composable
     override fun DocumentVideo(
@@ -237,14 +239,14 @@ private object AvTaleVideoPlayer : TaleVideoPlayer {
             },
             update = { holder ->
                 val view = holder.video
-                val drawn = look.nothingAbove
+                val drawn = look.overlay
                 view.playerLayer.videoGravity = if (fit == MediaFit.Cover) AVLayerVideoGravityResizeAspectFill else AVLayerVideoGravityResizeAspect
                 view.layer.cornerRadius = if (drawn) look.cornerRadius.value.toDouble() else 0.0
                 view.alpha = if (drawn) look.alpha.toDouble() else 1.0
                 view.transform = CGAffineTransformMakeRotation(if (drawn) look.rotation * PI / 180 else 0.0)
             },
             modifier = modifier,
-            properties = UIKitInteropProperties(interactionMode = null, isNativeAccessibilityEnabled = false, placedAsOverlay = look.nothingAbove),
+            properties = UIKitInteropProperties(interactionMode = null, isNativeAccessibilityEnabled = false, placedAsOverlay = look.overlay),
         )
     }
 }

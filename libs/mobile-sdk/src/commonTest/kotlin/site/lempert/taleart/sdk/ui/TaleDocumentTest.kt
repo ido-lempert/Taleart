@@ -229,6 +229,23 @@ class TaleDocumentTest {
     }
 
     @Test
+    fun coversPickOnlyElementsTheRendererWouldDraw() {
+        fun group(vararg elements: String) = readZone(
+            Json.parseToJsonElement(
+                """{"taleGroups":[{"id":"g","name":"G","tales":[{"id":"t","title":"T","document":{"version":1,"canvas":{"background":{"type":"color","color":"#112233"}},"elements":[${elements.joinToString(",")}]}}]}]}""",
+            ) as JsonObject,
+        ).taleGroups.single()
+        val image = { url: String, box: String -> element("image", "{\"url\":\"https://cdn.test/$url.png\",\"fit\":\"cover\"}", box) }
+        // A box outside the schema is not drawn, so it is no cover.
+        val bad = image("bad", """{"x":0,"y":0,"w":5,"h":1,"rotation":0}""")
+        val good = image("good", """{"x":0,"y":0,"w":1,"h":1,"rotation":0}""")
+        assertEquals(CoverSource.Image("https://cdn.test/good.png"), defaultCoverSource(group(bad, good)))
+        // An image past the sixtieth element is not drawn either.
+        val filler = (0 until 60).map { element("shape", """{"shape":"rectangle","fill":"#ffffff"}""") }
+        assertEquals(CoverSource.Placeholder("#112233"), defaultCoverSource(group(*(filler + good).toTypedArray())))
+    }
+
+    @Test
     fun aDocumentDrawsAtMostSixtyElements() {
         val many = (0 until 500).map { i ->
             element("shape", """{"shape":"rectangle","fill":"#ffffff"}""", """{"x":0,"y":${i / 1000.0},"w":0.1,"h":0.01,"rotation":0}""", id = "e$i")
@@ -253,6 +270,14 @@ class TaleDocumentTest {
         // No IDNA: a host that is not ASCII is refused.
         assertNull(linkHref("https://exämple.com/"))
         assertEquals("https://[::1]:8443/", linkHref("https://[::1]:8443/"))
+        // A backslash is a slash only before the query; after it, it is data.
+        assertEquals("https://example.com/a/b?q=c%5Cd#e%5Cf", linkHref("https://example.com\\a\\b?q=c\\d#e\\f"))
+        assertNull(linkHref("https://example.com:65536/"), "port over 65535")
+        assertEquals("https://example.com:65535/", linkHref("https://example.com:65535/"))
+        assertNull(linkHref("https://[:]/"), "empty IPv6 literal")
+        assertNull(linkHref("https://example.com/100%"), "a lone percent sign")
+        assertNull(linkHref("https://example.com/%zz"), "a percent sign without two hex digits")
+        assertEquals("https://example.com/a%20b", linkHref("https://example.com/a%20b"))
         val button = doc(element("button", """{"label":"Go","href":"HTTPS://Example.com/a b","variant":"filled","color":"#000000","fill":"#ffffff"}"""))
         // A space is refused by the contract's rule.
         assertEquals(emptyList(), button.elements)

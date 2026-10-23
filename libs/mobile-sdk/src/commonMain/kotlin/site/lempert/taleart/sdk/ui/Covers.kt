@@ -66,10 +66,12 @@ private fun imageCandidates(tale: DeliveryTale): List<String> {
     val found = mutableListOf<String>()
     val background = (doc["canvas"] as? JsonObject)?.get("background") as? JsonObject
     if (background?.text("type") == "media") mediaUrl(background.text("url"))?.let(found::add)
-    for (element in (doc["elements"] as? JsonArray).orEmpty()) {
+    // The elements the renderer would draw: at most MAX_TALE_ELEMENTS, each with a box inside the schema's ranges.
+    for (element in (doc["elements"] as? JsonArray).orEmpty().take(MAX_TALE_ELEMENTS)) {
         val el = element as? JsonObject ?: continue
         val type = el.text("type")
         if (type != "image" && type != "sticker") continue
+        if (readBox(el["box"] as? JsonObject) == null) continue
         mediaUrl((el["props"] as? JsonObject)?.text("url"))?.let(found::add)
     }
     return found

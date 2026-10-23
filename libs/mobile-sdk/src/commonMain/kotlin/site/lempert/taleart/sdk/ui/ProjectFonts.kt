@@ -97,7 +97,12 @@ internal class ProjectFontLoader(
             }
         }
         if (todo.isEmpty()) return
-        coroutineScope { todo.map { async { loadOne(it, http ?: client) } }.awaitAll() }
+        try {
+            coroutineScope { todo.map { async { loadOne(it, http ?: client) } }.awaitAll() }
+        } finally {
+            // A load cancelled before a face's child started leaves no face marked as loading.
+            for (font in todo) loading -= font.id.lowercase()
+        }
     }
 
     private suspend fun loadOne(font: DeliveryFont, http: HttpClient) {
@@ -119,8 +124,12 @@ internal class ProjectFontLoader(
                         else -> response.bodyAsChannel().readRemaining(MAX_FONT_BYTES + 1L).readByteArray()
                     }
                 } ?: return@withTimeoutOrNull null
-                if (bytes.size > MAX_FONT_BYTES || !isWoff2(bytes)) {
-                    why = "its file is not WOFF2 of at most $MAX_FONT_BYTES bytes"
+                if (bytes.size > MAX_FONT_BYTES) {
+                    why = "its file is larger than $MAX_FONT_BYTES bytes (${bytes.size} read)"
+                    return@withTimeoutOrNull null
+                }
+                if (!isWoff2(bytes)) {
+                    why = "its file is not WOFF2"
                     return@withTimeoutOrNull null
                 }
                 why = "the platform could not read it"
