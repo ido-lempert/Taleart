@@ -214,7 +214,7 @@ private var coverImageLoader: ImageLoader? = null
 internal val LocalCoverImageLoader = staticCompositionLocalOf<ImageLoader?> { null }
 
 @Composable
-private fun rememberCoverImageLoader(): ImageLoader {
+internal fun rememberCoverImageLoader(): ImageLoader {
     LocalCoverImageLoader.current?.let { return it }
     val context: PlatformContext = LocalPlatformContext.current
     return remember(context) {

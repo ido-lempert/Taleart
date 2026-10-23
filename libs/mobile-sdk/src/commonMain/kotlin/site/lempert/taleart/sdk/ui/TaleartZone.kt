@@ -1,6 +1,9 @@
 package site.lempert.taleart.sdk.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -39,6 +42,7 @@ fun TaleartZone(
     seenGroups: SeenGroups = rememberSeenGroups(),
     titleStyle: TextStyle = TextStyle.Default,
     reloadKey: Any? = null,
+    opensViewer: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     val controller = remember { TaleartZoneController(client ?: TaleartSdk.sharedClient, scope) }
@@ -57,7 +61,7 @@ fun TaleartZone(
             controller.reload()
         }
     }
-    TaleartZone(controller, modifier, onGroupClick, seenGroups, titleStyle)
+    TaleartZone(controller, modifier, onGroupClick, seenGroups, titleStyle, opensViewer)
 }
 
 /** The zone a [TaleartZoneController] holds: nothing until it has one, then as [TaleartZone] with a [DeliveryZone]. */
@@ -68,15 +72,22 @@ fun TaleartZone(
     onGroupClick: (DeliveryTaleGroup) -> Unit = {},
     seenGroups: SeenGroups = rememberSeenGroups(),
     titleStyle: TextStyle = TextStyle.Default,
+    opensViewer: Boolean = true,
 ) {
-    controller.zone?.let { TaleartZone(it, modifier, onGroupClick, seenGroups, titleStyle) }
+    controller.zone?.let { TaleartZone(it, modifier, onGroupClick, seenGroups, titleStyle, opensViewer) }
 }
 
 /**
  * An already-loaded zone: its display when the SDK knows its type (AD-5), now the bar; a zone
  * without a display, or with a type the SDK does not know, renders nothing. Groups in [seenGroups]
- * show the seen ring. Tapping a group calls [onGroupClick] and marks nothing: as in the Web SDK a
- * group becomes seen when the viewer shows it, which calls [SeenGroups.markSeen] (story 9.4).
+ * show the seen ring.
+ *
+ * Tapping a group calls [onGroupClick] and, unless [opensViewer] is false, opens the full-screen
+ * [TaleartViewer] at that group (a group without tales opens nothing), over the whole app whatever
+ * layout the bar sits in: a full-screen dialog on Android, a modal view controller on iOS. As in the
+ * Web SDK a group becomes seen when the viewer shows it, never on the tap; its ring turns to the seen
+ * colour behind the viewer. With [opensViewer] false the host handles taps itself, and can show
+ * [TaleartViewer] when and where it likes.
  */
 @Composable
 fun TaleartZone(
@@ -85,7 +96,9 @@ fun TaleartZone(
     onGroupClick: (DeliveryTaleGroup) -> Unit = {},
     seenGroups: SeenGroups = rememberSeenGroups(),
     titleStyle: TextStyle = TextStyle.Default,
+    opensViewer: Boolean = true,
 ) {
+    var open by remember(zone) { mutableStateOf<String?>(null) }
     val frame = zone.frame ?: return
     if (frame.type != BAR_FRAME_TYPE) return
     val settings = remember(frame) { BarSettings.read(frame.settings) }
@@ -95,8 +108,25 @@ fun TaleartZone(
         settings = settings,
         theme = theme,
         seen = seenGroups.ids,
-        onGroupClick = onGroupClick,
+        onGroupClick = { group ->
+            onGroupClick(group)
+            if (opensViewer && group.tales.isNotEmpty()) open = group.id
+        },
         modifier = modifier,
         titleStyle = titleStyle,
     )
+    open?.let { groupId -> ViewerOverlay(zone, groupId, seenGroups, theme) { open = null } }
+}
+
+// The viewer over the app (or in place, in tests), with the SDK's own image loader and video player.
+@Composable
+private fun ViewerOverlay(zone: DeliveryZone, groupId: String, seenGroups: SeenGroups, theme: TaleartTheme, onClose: () -> Unit) {
+    val loader = LocalCoverImageLoader.current
+    val player = LocalTaleVideoPlayer.current
+    val viewer = @Composable {
+        CompositionLocalProvider(LocalCoverImageLoader provides loader, LocalTaleVideoPlayer provides player) {
+            TaleartViewer(zone.taleGroups, groupId, onClose = { onClose() }, seenGroups = seenGroups, theme = theme)
+        }
+    }
+    if (LocalViewerInPlace.current) viewer() else FullScreenViewer(onDismissRequest = onClose, content = viewer)
 }

@@ -33,6 +33,8 @@ kotlin {
             api(libs.compose.ui)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor3)
+            // The tale viewer (story 9.4) waits while the app is in the background.
+            implementation(libs.androidx.lifecycle.runtimeCompose)
             // The Delivery client: hosts get the client, its results and the models.
             api(libs.ktor.client.core)
             api(libs.kotlinx.coroutines.core)
@@ -40,6 +42,10 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // The tale viewer's video (story 9.4), and its full-screen dialog's system bars.
+            implementation(libs.media3.exoplayer)
+            implementation(libs.media3.ui)
+            implementation(libs.androidx.core.ktx)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)

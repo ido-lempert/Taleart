@@ -145,7 +145,10 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
         val store = InMemoryKeyValueStore()
         val seenGroups = SeenGroups(store)
         val clicked = mutableListOf<DeliveryTaleGroup>()
-        show { TaleartZone(api, key, "home-top", onGroupClick = { clicked += it }, client = client(), seenGroups = seenGroups) }
+        // The host handles taps itself: no viewer opens (TaleartViewerUiTest covers the one that does).
+        show {
+            TaleartZone(api, key, "home-top", onGroupClick = { clicked += it }, client = client(), seenGroups = seenGroups, opensViewer = false)
+        }
 
         waitForLabels(listOf("Summer trips", "Winter tales"))
         onNodeWithContentDescription("Winter tales").assertHasClickAction().performClick()

@@ -43,4 +43,6 @@ dependencies {
     // ComponentActivity, declared in a test manifest, hosts the view with a lifecycle owner.
     testImplementation(libs.androidx.activity.compose)
     testImplementation(libs.androidx.compose.uiTestManifest)
+    // The viewer test taps the bar and finds the viewer in its dialog window (story 9.4).
+    testImplementation(libs.androidx.compose.uiTestJunit4)
 }
