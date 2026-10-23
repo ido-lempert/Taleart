@@ -2402,7 +2402,7 @@ describe('App', () => {
       const withTales = { ...shared, tales: [taleA, taleB] };
       const { fixture } = await open('/zones/z1', { ...twoZones, groups: { z1: [withTales], z3: [{ ...withTales, position: 0 }] } });
 
-      const saving = store.orderTales('z1', 'g1', ['t2', 't1']);
+      const saving = store.orderTales('g1', ['t2', 't1']);
       await settle(fixture);
       http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`).flush([
         { ...taleB, position: 0 },
@@ -5690,6 +5690,208 @@ describe('App', () => {
       await settle(fixture);
       expect(groupView()?.querySelector('[role=switch][aria-label="Loose on site"]')?.getAttribute('aria-checked')).toBe('true');
       expect(announced(fixture.nativeElement as HTMLElement)).toContain('Loose is now');
+    });
+
+    // Review fixes (story 8.19).
+    const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const pageLive = (root: HTMLElement) => root.querySelector('app-tale-groups-page .page > [aria-live=polite]')?.textContent ?? '';
+
+    // Answers a refresh up to its last stage (the project lists and the groups read on their own),
+    // which the test answers itself.
+    async function refreshToLastStage(fixture: ComponentFixture<unknown>, given: Data): Promise<void> {
+      lastData = given;
+      http.expectOne(`${API_BASE}/projects`).flush(given.projects ?? []);
+      await settle(fixture);
+      http
+        .expectOne(`${API_BASE}/zones`)
+        .flush((given.zones ?? []).map((z) => ({ slug: z.id, ...z, frame: given.displays?.[z.id] ?? null })));
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/frame-types`).flush(frameTypes);
+      await settle(fixture);
+      for (const z of given.zones ?? []) http.expectOne(`${API_BASE}/zones/${z.id}/tale-groups`).flush(given.groups?.[z.id] ?? []);
+      await settle(fixture);
+      for (const p of given.projects ?? []) http.expectOne(`${API_BASE}/projects/${p.id}/tags`).flush(given.tags?.[p.id] ?? []);
+      await settle(fixture);
+    }
+
+    it('keeps a group opened while a refresh runs, though that refresh did not read it', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+      const store = TestBed.inject(DashboardStore);
+      const refreshing = store.refresh();
+      await refreshToLastStage(fixture, data);
+      // The refresh is past the point where it chose the groups to read: Loose was not wanted then.
+      nameButton(root, 'Loose').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tale-groups/g2`).flush(loose);
+      await settle(fixture);
+      flushProjectGroups(data);
+      await refreshing;
+      await settle(fixture);
+      expect(Object.keys(store.readGroups())).toEqual(['g2']);
+      expect(cards()).toEqual(['Beach', 'Pool']);
+    });
+
+    it('drops a group released while a refresh that read it runs', async () => {
+      const { fixture } = await openLoose();
+      const store = TestBed.inject(DashboardStore);
+      const refreshing = store.refresh();
+      await refreshToLastStage(fixture, data);
+      const read = http.expectOne(`${API_BASE}/tale-groups/g2`);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      read.flush(loose);
+      flushProjectGroups(data);
+      await refreshing;
+      await settle(fixture);
+      expect(store.readGroups()).toEqual({});
+      expect(groupView()).toBeNull();
+    });
+
+    it('says the group is being opened, then why it could not be, and opens it on Try again', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+      nameButton(root, 'Loose').click();
+      await settle(fixture);
+      expect(text(root.querySelector('.group-opening[role=status]'))).toBe('Opening Loose…');
+      expect(nameButton(root, 'Loose').getAttribute('aria-busy')).toBe('true');
+      http.expectOne(`${API_BASE}/tale-groups/g2`).flush(null, { status: 500, statusText: 'Server Error' });
+      await settle(fixture);
+      const alert = root.querySelector('.group-opening[role=alert]') as HTMLElement;
+      expect(text(alert.querySelector('span'))).toBe('Loose could not be opened. Check the connection and try again.');
+      expect(TestBed.inject(DashboardStore).apiDown()).toBe(true);
+      expect(groupView()).toBeNull();
+      expect(nameButton(root, 'Loose').getAttribute('aria-busy')).toBeNull();
+      expect(url()).toBe('/tale-groups?group=g2');
+
+      buttonNamed(alert, 'Try again').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tale-groups/g2`).flush(loose);
+      await settle(fixture);
+      expect(cards()).toEqual(['Beach', 'Pool']);
+      expect(root.querySelector('.group-opening')).toBeNull();
+    });
+
+    it('drops ?group= and says so when the group is gone (403 or 404)', async () => {
+      for (const status of [404, 403]) {
+        const { fixture, root } = await open('/tale-groups', data);
+        nameButton(root, 'Loose').click();
+        await settle(fixture);
+        http
+          .expectOne(`${API_BASE}/tale-groups/g2`)
+          .flush({ error: { code: status === 404 ? 'tale_group_not_found' : 'forbidden', message: 'No' } }, { status, statusText: 'No' });
+        for (let i = 0; i < 20 && url() !== '/tale-groups'; i++) await settle(fixture);
+        expect(url()).toBe('/tale-groups');
+        expect(text(root.querySelector('.group-opening[role=alert]'))).toBe(
+          'Loose could not be opened: it no longer exists, or you no longer have access to it.',
+        );
+        expect(TestBed.inject(DashboardStore).apiDown()).toBe(false);
+        expect(TestBed.inject(DashboardStore).readGroups()).toEqual({});
+        fixture.destroy();
+      }
+    });
+
+    it('keeps the open group as it was when a refresh cannot read it, with the API-down banner', async () => {
+      const { fixture } = await openLoose();
+      const store = TestBed.inject(DashboardStore);
+      const refreshing = store.refresh();
+      await refreshToLastStage(fixture, data);
+      http.expectOne(`${API_BASE}/tale-groups/g2`).flush(null, { status: 502, statusText: 'Bad Gateway' });
+      flushProjectGroups(data);
+      await refreshing;
+      await settle(fixture);
+      expect(store.apiDown()).toBe(true);
+      expect(cards()).toEqual(['Beach', 'Pool']);
+    });
+
+    it('orders tales through one queue per group, apart from the zone order; a refused zone order keeps the saved tale order', async () => {
+      const twoGroups: Data = {
+        ...data,
+        groups: { z1: [{ ...placed, tales: [taleA, taleB] }, { ...placed, id: 'g3', name: 'Other', position: 1, tales: [] }] },
+      };
+      const { fixture } = await open('/tale-groups', twoGroups);
+      const store = TestBed.inject(DashboardStore);
+      const groupOrder = store.orderTaleGroups('z1', ['g3', 'g1']);
+      const taleOrder = store.orderTales('g1', ['t2', 't1']);
+      await settle(fixture);
+      // Both are in flight at once: the tale order does not wait behind the zone's group order.
+      const groupsReq = http.expectOne(`${API_BASE}/zones/z1/tale-groups/order`);
+      const talesReq = http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`);
+      expect(store.taleGroupsOf('z1')[1].tales.map((t) => t.id)).toEqual(['t2', 't1']);
+      talesReq.flush([{ ...taleB, position: 0 }, { ...taleA, position: 1 }]);
+      expect(await taleOrder).toBe('');
+      groupsReq.flush({ error: { code: 'order_mismatch', message: 'Changed elsewhere' } }, { status: 409, statusText: 'Conflict' });
+      expect(await groupOrder).toBe('Changed elsewhere');
+      await settle(fixture);
+      expect(store.taleGroupsOf('z1').map((g) => g.id)).toEqual(['g1', 'g3']);
+      expect(store.taleGroupsOf('z1')[0].tales.map((t) => t.id)).toEqual(['t2', 't1']);
+      // Nothing pending: the group's tale order bookkeeping is gone.
+      const internals = store as unknown as { pendingOrders: Map<string, number>; confirmedTales: Map<string, unknown> };
+      expect(internals.pendingOrders.has('tales:g1')).toBe(false);
+      expect(internals.confirmedTales.size).toBe(0);
+    });
+
+    it('shows a tale order from the Tale groups view in the zone lists too, and a hidden tale\'s visibility from the answer', async () => {
+      const placedRead = { ...placed, position: undefined, tales: [{ ...taleA, visibility: VISIBLE }, { ...taleB, visibility: VISIBLE }] };
+      const given: Data = { ...data, groups: { z1: [{ ...placed, tales: [taleA, taleB] }] }, readGroups: { ...data.readGroups, g1: placedRead } };
+      const { fixture, root } = await open('/tale-groups', given);
+      nameButton(root, 'Summer').click();
+      await settle(fixture);
+      flushReadGroups(given);
+      await settle(fixture);
+      (cardOf('A').querySelector('[aria-label="Move A later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const store = TestBed.inject(DashboardStore);
+      expect(store.taleGroupsOf('z1')[0].tales.map((t) => t.id)).toEqual(['t2', 't1']);
+      http.expectOne(`${API_BASE}/tale-groups/g1/tales/order`).flush([{ ...taleB, position: 0 }, { ...taleA, position: 1 }]);
+      await settle(fixture);
+      expect(cards()).toEqual(['B', 'A']);
+
+      cardOf('A').querySelector<HTMLButtonElement>('[role=switch]')?.click();
+      await settle(fixture);
+      const hiddenWhy = { visible: false, reasons: [{ code: 'tale-hidden', subject: 'tale' }] };
+      http.expectOne(`${API_BASE}/tales/t1/status`).flush({ ...taleA, status: 'paused', storedStatus: 'paused', visibility: hiddenWhy });
+      await settle(fixture);
+      expect(store.readGroups()['g1'].tales.find((t) => t.id === 't1')?.visibility).toEqual(hiddenWhy);
+      await flushRefresh(fixture, given);
+    });
+
+    it('archives the group from its view: the view closes, Undo shows above the list with focus, and restores it', async () => {
+      const { fixture, root } = await openLoose();
+      pickMenuItem(groupView() as HTMLElement, 'More for Loose', 'Archive');
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g2/status`);
+      expect(req.request.body).toEqual({ status: 'archived' });
+      const archived = { ...loose, status: 'archived', storedStatus: 'archived', visibility: { visible: false, reasons: [{ code: 'archived', subject: 'group' }] } };
+      req.flush(archived);
+      await settle(fixture);
+      const archivedData: Data = {
+        ...data,
+        projectGroups: { p1: [projectGroup({ ...archived, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)] },
+        readGroups: { g2: archived },
+      };
+      await flushRefresh(fixture, archivedData);
+      for (let i = 0; i < 20 && url() !== '/tale-groups'; i++) await settle(fixture);
+      expect(url()).toBe('/tale-groups');
+      expect(groupView()).toBeNull();
+      expect(text(root.querySelector('.undo-bar'))).toBe('Loose archived. Undo');
+      expect(document.activeElement?.id).toBe('undo-archive');
+      expect(pageLive(root)).toContain('Undo is above the list.');
+
+      (root.querySelector('#undo-archive') as HTMLButtonElement).click();
+      await settle(fixture);
+      const undo = http.expectOne(`${API_BASE}/tale-groups/g2/status`);
+      // It was Off (draft) before: Undo brings it back Off.
+      expect(undo.request.body).toEqual({ status: 'paused' });
+      const paused = { ...loose, status: 'paused', storedStatus: 'paused' };
+      undo.flush(paused);
+      await settle(fixture);
+      await flushRefresh(fixture, {
+        ...data,
+        projectGroups: { p1: [projectGroup({ ...paused, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)] },
+      });
+      await settle(fixture);
+      expect(root.querySelector('.undo-bar')).toBeNull();
+      expect(pageLive(root)).toContain('Loose restored, off');
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('More for Loose');
     });
   });
 

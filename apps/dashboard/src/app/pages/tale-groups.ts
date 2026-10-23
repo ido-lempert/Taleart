@@ -168,6 +168,20 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
     .group-item:first-child {
       border-top: 0;
     }
+    .undo-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2) var(--space-3);
+      margin-bottom: var(--space-3);
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-control);
+      background: var(--surface-sunken);
+    }
+    .group-opening {
+      margin: 0 0 var(--space-3);
+    }
   `,
   template: `
     <div class="page">
@@ -199,6 +213,28 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                 <app-icon name="plus" /> New tale group
               </button>
             </div>
+            <!-- Opening a group reads it with its tales (story 8.19): while it is read, and when it cannot be. -->
+            @if (opening(); as open) {
+              @if (open.state === 'loading') {
+                <p class="muted group-opening" role="status">Opening {{ open.name }}…</p>
+              } @else {
+                <div class="banner banner--inline group-opening" role="alert">
+                  <app-icon name="alert" />
+                  <span>{{ open.message }}</span>
+                  @if (open.state === 'error') {
+                    <button type="button" class="btn btn--secondary btn--sm" (click)="store.retryTaleGroup(open.id)">Try again</button>
+                  }
+                </div>
+              }
+            }
+            @if (undo(); as last) {
+              <div class="undo-bar">
+                <span>{{ last.name }} archived.</span>
+                <button type="button" class="btn btn--secondary btn--sm" id="undo-archive" [disabled]="undoing()" (click)="undoArchive()">
+                  Undo
+                </button>
+              </div>
+            }
             @if (allGroups().length > 0) {
               <fieldset class="group-filter">
                 <legend>Show</legend>
@@ -243,6 +279,7 @@ export function homeFilter(group: Parameters<typeof inTaleGroupFilter>[0]): Tale
                             [id]="'group-name-' + group.id"
                             aria-haspopup="dialog"
                             [attr.aria-expanded]="openedGroup()?.id === group.id"
+                            [attr.aria-busy]="opening()?.id === group.id && opening()?.state === 'loading' ? 'true' : null"
                             [attr.aria-controls]="openedGroup()?.id === group.id ? 'group-view-' + group.id : null"
                             (click)="openGroup(group)"
                           >
@@ -330,6 +367,33 @@ export class TaleGroupsPage {
     const id = this.openGroupId();
     return id ? (this.store.readGroups()[id] ?? null) : null;
   });
+  /**
+   * The group being opened while it has no answer to show: being read, or why it cannot be (a
+   * failure, with Try again; gone, kept as a notice after `?group=` is dropped).
+   */
+  protected readonly opening = computed(() => {
+    const id = this.openGroupId() ?? this.goneId();
+    if (!id || this.openedGroup()) return null;
+    const state = this.goneId() === id ? 'gone' : this.store.groupReads()[id];
+    if (!state) return null;
+    const name = this.allGroups().find((group) => group.id === id)?.name ?? 'The tale group';
+    const message =
+      state === 'gone'
+        ? `${name} could not be opened: it no longer exists, or you no longer have access to it.`
+        : state === 'error'
+          ? `${name} could not be opened. Check the connection and try again.`
+          : '';
+    return { id, name, state, message };
+  });
+  /** The group whose read answered gone, kept for its notice once `?group=` is dropped. */
+  private readonly goneId = signal<string | null>(null);
+
+  /** The group archived last, with its status before, for Undo; cleared when the project changes. */
+  protected readonly undo = linkedSignal<string, { id: string; name: string; before: ContentStatus } | null>({
+    source: () => this.store.selectedProjectId(),
+    computation: () => null,
+  });
+  protected readonly undoing = signal(false);
 
   protected readonly filters = TALE_GROUP_FILTERS;
   /** The chosen filter: follows the URL, and changes at once on a choice, before the URL catches up. */
@@ -422,12 +486,25 @@ export class TaleGroupsPage {
       const projectId = this.store.selectedProjectId();
       untracked(() => this.store.ensureProjectTaleGroups(projectId));
     });
-    // The open group is read with its tales, and forgotten once its view closes (story 8.19).
+    // The open group is read with its tales, once the store is loaded, and forgotten once its view
+    // closes (story 8.19).
     effect((onCleanup) => {
       const id = this.openGroupId();
-      if (!id) return;
-      untracked(() => this.store.ensureTaleGroup(id));
+      if (!id || !this.store.loaded()) return;
+      untracked(() => {
+        this.goneId.set(null);
+        this.store.ensureTaleGroup(id);
+      });
       onCleanup(() => this.store.releaseTaleGroup(id));
+    });
+    // A group whose read answers gone (403 or 404): `?group=` is dropped in place, and the page says why.
+    effect(() => {
+      const id = this.openGroupId();
+      if (!id || this.store.groupReads()[id] !== 'gone') return;
+      untracked(() => {
+        this.goneId.set(id);
+        this.dropGroupParam();
+      });
     });
     // A `?group=` naming no group of the selected project (a stale link, another project) is dropped, in place.
     effect(() => {
@@ -435,17 +512,7 @@ export class TaleGroupsPage {
       const projectId = this.store.selectedProjectId();
       if (id === undefined || !this.store.loaded() || this.store.apiDown()) return;
       if (!(projectId in this.store.projectTaleGroups())) return;
-      if (!this.allGroups().some((group) => group.id === id)) {
-        this.openGroupId.set(null);
-        untracked(() =>
-          this.router.navigate([], {
-            relativeTo: this.route,
-            queryParams: { [GROUP_PARAM]: null },
-            queryParamsHandling: 'merge',
-            replaceUrl: true,
-          }),
-        );
-      }
+      if (!this.allGroups().some((group) => group.id === id)) untracked(() => this.dropGroupParam());
     });
     // A `?filter=` naming All or nothing known is dropped from the URL, in place.
     effect(() => {
@@ -503,6 +570,7 @@ export class TaleGroupsPage {
    */
   protected openGroup(group: TaleGroupSummary): void {
     this.announcement.set('');
+    this.goneId.set(null);
     this.openGroupId.set(group.id);
     void this.router.navigate([], {
       relativeTo: this.route,
@@ -525,6 +593,12 @@ export class TaleGroupsPage {
       this.location.back();
       return;
     }
+    this.dropGroupParam();
+  }
+
+  // Closes the view without a history step: `?group=` leaves the URL in place.
+  private dropGroupParam(): void {
+    this.openGroupId.set(null);
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { [GROUP_PARAM]: null },
@@ -586,9 +660,11 @@ export class TaleGroupsPage {
    * Sets a group's status and announces it from the API's answer, with what the indicator now says.
    * When the group leaves the list (archived, restored, or no longer under the filter), the
    * announcement says which filter lists it, and focus goes to the row that took its place (its
-   * switch, else its ⋯), else the row before it, else the list's heading.
+   * switch, else its ⋯), else the row before it, else the list's heading. Archive offers Undo above
+   * the list, as the zone page does; archived from its view, the view closes and focus goes to Undo.
    */
   private async changeStatus(group: TaleGroupSummary, status: SettableStatus): Promise<void> {
+    const before = group.storedStatus;
     const id = group.id;
     const index = this.groups().findIndex((g) => g.id === id);
     this.errors.update((errors) => {
@@ -611,12 +687,57 @@ export class TaleGroupsPage {
     let text =
       `${group.name} is now ${statusLabel(read, 'group').toLowerCase()}. ` + visibilityLine(saved.visibility, 'group');
     const now = { ...group, status: saved.status, storedStatus: saved.storedStatus, visibility: saved.visibility };
+    const fromView = this.openedGroup()?.id === id;
+    const archived = status === 'archived';
+    if (archived) this.undo.set({ id, name: group.name, before });
     if (!inTaleGroupFilter(now, this.selected())) {
       text += `. It is listed under ${TALE_GROUP_FILTERS.find((f) => f.id === homeFilter(now))?.label}.`;
-      // From its view, the view stays open and keeps focus; closing it then finds the heading.
-      if (this.openedGroup()?.id !== id) this.focusAfterLeaving(index);
+      // From its view, the view stays open and keeps focus (unless archived, below).
+      if (!fromView) this.focusAfterLeaving(index);
+    }
+    if (archived) {
+      text += `${text.endsWith('.') ? '' : '.'} Undo is above the list.`;
+      if (fromView) {
+        this.closeGroup();
+        afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>('#undo-archive')?.focus(), {
+          injector: this.injector,
+        });
+      }
     }
     this.announce(text);
+  }
+
+  /** Restores the group archived last: back to Off, then On again when it was On (as on the zone page). */
+  protected async undoArchive(): Promise<void> {
+    const last = this.undo();
+    if (!last || this.undoing()) return;
+    this.undoing.set(true);
+    let result = await this.store.changeTaleGroupStatus(last.id, 'paused');
+    if (!result.message && last.before === 'live') result = await this.store.changeTaleGroupStatus(last.id, 'live');
+    this.undoing.set(false);
+    if (result.message || !result.group) {
+      this.errors.update((errors) => ({ ...errors, [last.id]: result.message }));
+      return;
+    }
+    this.undo.set(null);
+    const saved = result.group;
+    let text = `${last.name} restored, ${statusLabel(saved.status, 'group').toLowerCase()}. ${visibilityLine(saved.visibility, 'group')}`;
+    const listed = this.allGroups().find((g) => g.id === last.id);
+    if (listed && !inTaleGroupFilter({ ...listed, ...saved }, this.selected())) {
+      text += `. It is listed under ${TALE_GROUP_FILTERS.find((f) => f.id === homeFilter({ ...listed, ...saved }))?.label}.`;
+    }
+    this.announce(text);
+    // The Undo button is gone: focus goes to the group's ⋯ when the list shows it, else the heading.
+    afterNextRender(
+      () => {
+        const root = this.host.nativeElement;
+        const target =
+          root.querySelector<HTMLElement>(`[id="group-name-${last.id}"]`)?.closest('li')?.querySelector<HTMLElement>('.menu-button__trigger') ??
+          root.querySelector<HTMLElement>('#tale-groups-title');
+        target?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   // Focus for a row that left the list: the row now at its place, else the one before, else the heading.

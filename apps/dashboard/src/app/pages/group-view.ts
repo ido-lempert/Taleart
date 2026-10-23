@@ -323,7 +323,7 @@ export class GroupView implements OnDestroy {
     moveItemInArray(ids, from, to);
     this.announce.emit(`${group.tales[from].title} moved to position ${to + 1} of ${ids.length}`);
     this.error.set('');
-    void this.store.orderTales(this.zoneId(), group.id, ids).then((message) => {
+    void this.store.orderTales(group.id, ids).then((message) => {
       if (message) this.error.set(message);
     });
   }
