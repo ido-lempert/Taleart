@@ -27,6 +27,24 @@ interface TaleVideoPlayer {
         onError: () -> Unit,
         modifier: Modifier,
     )
+
+    /**
+     * Shows a document's video element (R5, story 9.5) in its box on the canvas: always muted, as the
+     * web's `<video muted playsinline>`, and drawn so the canvas can round, fade and rotate it.
+     * Reports as [Video] does. By default it is [Video] without sound.
+     */
+    @Composable
+    fun DocumentVideo(
+        url: String,
+        fit: MediaFit,
+        playing: Boolean,
+        onProgress: (positionMs: Long, durationMs: Long) -> Unit,
+        onEnded: () -> Unit,
+        onError: () -> Unit,
+        modifier: Modifier,
+    ) {
+        Video(url, fit, playing, muted = true, onProgress = onProgress, onEnded = onEnded, onError = onError, modifier = modifier)
+    }
 }
 
 /** The platform's video player: Media3 ExoPlayer on Android, AVPlayer on iOS. */

@@ -34,8 +34,8 @@ sealed interface StageMedia {
 }
 
 /**
- * A document's 9:16 canvas (AD-16) as far as story 9.4 draws it: its background colour (when it
- * paints one) and its media background. Story 9.5 adds the document's elements on top of it.
+ * A document's 9:16 canvas (AD-16): its background colour (when it paints one), its media
+ * background, and its elements ([layer], story 9.5) over them.
  */
 data class TaleCanvas(
     /** `#rrggbb` or `#rrggbbaa` painted across the canvas, or null when the stage media lies below it. */
@@ -46,6 +46,8 @@ data class TaleCanvas(
     val document: JsonObject,
     /** The canvas's accessible name: the tale's title, or `Tale N`. */
     val label: String,
+    /** The document's elements the canvas draws: all but the tale's own media when the stage draws it. */
+    val layer: DocumentLayer = DocumentLayer.EMPTY,
 )
 
 /**
@@ -61,8 +63,21 @@ data class TaleView(
     val canvas: TaleCanvas?,
     val durationMs: Long,
 ) {
-    /** The video that runs the tale, if any. */
+    /** The stage's video, which runs the tale for its whole length, if any. */
     val video: StageMedia.Video? get() = media as? StageMedia.Video
+
+    /**
+     * The document's own video (R5) when the stage has none: it runs the tale, for 15 s at most
+     * ([MAX_TALE_VIDEO_MS]), and a stall ends it ([VIDEO_STALL_MS]). Beside a stage video it only
+     * loops along, muted.
+     */
+    val documentVideo: DocumentElement.Video? get() = if (video == null) canvas?.layer?.video else null
+
+    /** The tale runs on a video (the stage's or the document's), not on the timer. */
+    val runsOnVideo: Boolean get() = video != null || documentVideo != null
+
+    /** The swipe-up link's destination, which a flick up opens (R7), or null. */
+    val swipeUpHref: String? get() = canvas?.layer?.swipeUpHref
 
     companion object {
         /**
@@ -98,6 +113,8 @@ data class TaleView(
                 background = background,
                 document = doc,
                 label = label,
+                // The stage draws the tale's own media; the canvas draws the rest (`elements.slice(1)`).
+                layer = DocumentLayer.read(doc, skipFirst = media != null),
             )
             return TaleView(
                 media = media,
