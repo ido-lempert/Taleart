@@ -25,7 +25,9 @@ export const DEFAULT_DELIVERY_RATE_LIMIT: RateLimitOptions = { burst: 600, perSe
  * ids its requests carry: the backstop against a client that invents a new id for every request.
  * With the default limit that is 6,000 at once and 200 per second. Ten keeps a home, an office or a
  * school behind one NAT clear of it in practice (they rarely all load pages in the same second),
- * while a client rotating ids gets no more than ten devices would.
+ * while a client rotating ids gets no more than ten devices would. The other side: a flood from one
+ * device behind a shared NAT can use up the backstop for everyone behind that address. And behind a
+ * proxy, TRUST_PROXY must name it ({@link trustProxyFromEnv}), or every client is the proxy's address.
  */
 export const ADDRESS_BACKSTOP_FACTOR = 10;
 

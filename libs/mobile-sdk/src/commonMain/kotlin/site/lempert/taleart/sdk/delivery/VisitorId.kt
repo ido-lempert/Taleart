@@ -19,8 +19,12 @@ internal fun newVisitorId(): String = Uuid.random().toString()
 
 /**
  * The device's visitor id: a random UUID v4 made once and kept in [store] under
- * [VISITOR_STORAGE_KEY], with no personal data in it. It goes only to the Delivery API, which limits
- * requests per visitor; reinstalling the app or clearing its data makes a new one. While [store]
+ * [VISITOR_STORAGE_KEY]. It is random, not derived from the person or the device, and tied to no
+ * account, but it is a stable identifier of the install: hosts cover it in their privacy notice and
+ * consent. It goes only to the Delivery API, which limits requests per visitor (proxies and access
+ * logs in front of the API can see it too). Clearing the app's data makes a new one; so does a
+ * reinstall, unless a device backup (Android Auto Backup, an iOS backup) restores the SDK's store.
+ * On Android, `sharedpref/taleart-sdk.xml` in the app's backup rules leaves it out. While [store]
  * gives no store (or it fails), the id lasts this process, and it is kept once a store is there.
  * Not thread-safe: [DeliveryClient] reads it under its lock.
  */

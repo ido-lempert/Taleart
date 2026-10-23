@@ -69,7 +69,9 @@ describe('visitor id (story 8.23)', () => {
       frame: { id: 'f', type: 'bar', settings: {} },
       taleGroups: [],
     } as unknown as DeliveryZone;
-    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(zone), { status: 200 }));
+    const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(
+      async () => new Response(JSON.stringify(zone), { status: 200 }),
+    );
     for (const slug of ['a', 'b']) {
       await fetchZone('https://api.example.com', { key: 'tas_k', zone: slug }, fetchMock as unknown as typeof fetch);
     }

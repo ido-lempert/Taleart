@@ -41,7 +41,10 @@ expect fun platformHttpClient(): HttpClient
  * `GET <apiUrl>/delivery/v1/zone?zone=<slug>` with the site key as a bearer token and never a cookie,
  * and the device's visitor id in `X-TaleArt-Visitor` (epic UX rework 8.23). The id is a random UUID
  * v4 kept in [visitorStore] (by default the SDK's own device store, where the seen tale groups are),
- * so it lasts across app restarts.
+ * so it lasts across app restarts; see `VisitorId` for what it is and how it is reset. On Android the
+ * default store needs the app's Context: before any TaleArt composable has run, make the client with
+ * `DeliveryClient(context)` or call `TaleartSdk.init(context)` once (in `Application.onCreate`), or
+ * the first requests of a process carry an id that lasts only until the store opens.
  *
  * Like the Web SDK it shares one request among callers that ask for the same zone with the same
  * key at the same time, and asks again once that request settles. Like a browser, it keeps the last
