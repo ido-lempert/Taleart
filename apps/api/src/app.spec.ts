@@ -13987,7 +13987,7 @@ describe('Management API v1: projects and zones', () => {
         expect((await res.json()).document).toEqual(document);
       });
 
-      it("refuses an emoji that is not one emoji, such as 'ab', a second Rating, and markup-free rules", async () => {
+      it("refuses an emoji that is not one emoji (such as 'ab'), a second Rating, a line feed and an unknown prop", async () => {
         expect(await refusedAt(pollDoc([ratingElement({}, { emoji: 'ab' })]))).toBe('/elements/0/props/emoji');
         expect(await refusedAt(pollDoc([ratingElement({}, { emoji: '❤️❤️' })]))).toBe('/elements/0/props/emoji');
         const second = { ...ratingElement({ hidden: true }), id: '00000000-0000-4000-8000-0000000000ee' };
@@ -14020,12 +14020,27 @@ describe('Management API v1: projects and zones', () => {
 
       it('refuses a value that is no whole number from 0 to 100', async () => {
         const { tale, handle } = await livePoll([ratingElement()]);
-        for (const value of ['101', '-10', '080', '8.5', 'tea', '', 80, null]) {
+        for (const value of ['101', '-10', '080', '8.5', ' 80', '80 ', '1e2', '0x50', 'tea', '', 80, null]) {
           const res = await rate(handle, tale.id, value);
           expect(res.status).toBe(422);
           expect((await res.json()).error.code).toBe('validation_failed');
         }
         expect(await rows()).toEqual([]);
+      });
+
+      it("checks each value against its own component: a poll's option id is no rating, a rating no option", async () => {
+        const { tale, handle } = await livePoll([pollElement(), ratingElement()]);
+        const optionToRating = await rate(handle, tale.id, 'tea');
+        expect(optionToRating.status).toBe(422);
+        expect((await optionToRating.json()).error.code).toBe('validation_failed');
+        const ratingToPoll = await vote(handle, tale.id, '80');
+        expect(ratingToPoll.status).toBe(422);
+        expect(await rows()).toEqual([]);
+        // Each takes its own kind of value, and counts apart.
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(201);
+        const rated = await rate(handle, tale.id, '80');
+        expect(rated.status).toBe(201);
+        expect((await rated.json()).result).toEqual({ total: 1, average: 80 });
       });
     });
   });

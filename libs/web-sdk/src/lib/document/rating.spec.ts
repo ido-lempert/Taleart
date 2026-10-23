@@ -1,7 +1,7 @@
 import type { DeliveryTaleDocument, DeliveryTaleElement, DeliveryTaleGroup } from '@taleart/contract';
 import { TaleViewer } from '../viewer';
 import type { ResponseClient, StoredResponse } from '../responses';
-import { ratingKey, ratingSummary, renderRating } from './rating';
+import { ratingKey, ratingOf, ratingSummary, renderRating } from './rating';
 import { ELEMENT_RENDERERS, renderTaleDocument } from './renderer';
 
 // Epic interactive components story 4.2: the Rating renderer (R5, R10, C7, C9, C11; AD-16).
@@ -36,8 +36,8 @@ function sized(track: HTMLElement): HTMLElement {
   track.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 40, right: 200, bottom: 40, x: 0, y: 0, toJSON: () => ({}) });
   return track;
 }
-function drag(track: Element, type: string, x: number): PointerEvent {
-  const e = new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: 20 });
+function drag(track: Element, type: string, x: number, pointerId = 1): PointerEvent {
+  const e = new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: 20, pointerId });
   track.dispatchEvent(e);
   return e;
 }
@@ -114,11 +114,73 @@ describe('renderRating', () => {
     expect(track.getAttribute('aria-valuetext')).toBe('You rated 40 out of 100');
     expect(node.querySelector('.ta-rate-out')?.textContent).toBe('Average 40 from 1 rating');
     expect(node.querySelector('[aria-live]')?.textContent).toBe('You rated 40. Average 40 from 1 rating.');
-    // No second rating: the keys still belong to the slider, and change nothing.
-    expect(press(track, 'ArrowRight').defaultPrevented).toBe(true);
-    press(track, 'Enter');
+    // No second rating: the read-only slider lets its keys through to the viewer, and changes nothing.
+    for (const k of ['ArrowRight', 'ArrowLeft', 'Home', 'End', 'Enter']) expect(press(track, k).defaultPrevented).toBe(false);
     expect(now()).toBe('40');
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a count of any size, from the server and as kept (C11)', async () => {
+    const { client } = fakeClient(null, async () => ({ value: '80', result: { total: 250, average: 60 } }));
+    const node = renderRating(rating(), { reducedMotion: false, responses: { client, taleId: 't1' } }) as HTMLElement;
+    press(slider(node), 'Enter');
+    await flush();
+    expect(node.querySelector('.ta-rate-out')?.textContent).toBe('Average 60 from 250 ratings');
+    const kept = fakeClient({ value: '30', result: { total: 12_345, average: 41 } });
+    const again = renderRating(rating(), { reducedMotion: false, responses: { client: kept.client, taleId: 't1' } }) as HTMLElement;
+    expect(again.querySelector('.ta-rate-out')?.textContent).toBe('Average 41 from 12345 ratings');
+    expect(ratingOf({ total: 7.9, average: 140 })).toEqual({ total: 7, average: 100 });
+    expect(ratingOf({ total: -3, average: -1 })).toEqual({ total: 0, average: 0 });
+    expect(ratingOf({ total: 2, choices: [] })).toBeNull();
+  });
+
+  it('takes a release outside the track as the nearest end', () => {
+    const { client, send } = fakeClient();
+    const node = renderRating(rating(), { reducedMotion: false, responses: { client, taleId: 't1' } }) as HTMLElement;
+    const track = sized(slider(node));
+    drag(track, 'pointerdown', 100);
+    // With the pointer captured, the release comes to the track wherever it happens.
+    drag(track, 'pointermove', -80);
+    drag(track, 'pointerup', -80);
+    expect(send).toHaveBeenCalledWith('t1', ratingId, '0');
+  });
+
+  it('ends a drag whose capture was lost without posting, and keeps the cancel from the viewer', () => {
+    const { client, send } = fakeClient();
+    const node = renderRating(rating(), { reducedMotion: false, responses: { client, taleId: 't1' } }) as HTMLElement;
+    const outer = document.createElement('div');
+    outer.appendChild(node);
+    const heard: string[] = [];
+    for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'lostpointercapture']) {
+      outer.addEventListener(type, () => heard.push(type));
+    }
+    const track = sized(slider(node));
+    drag(track, 'pointerdown', 100);
+    drag(track, 'lostpointercapture', 100);
+    drag(track, 'pointermove', 180);
+    drag(track, 'pointerup', 180);
+    expect(track.getAttribute('aria-valuenow')).toBe('50');
+    drag(track, 'pointerdown', 100);
+    drag(track, 'pointercancel', 100);
+    drag(track, 'pointerup', 100);
+    expect(send).not.toHaveBeenCalled();
+    expect(heard).toEqual([]);
+  });
+
+  it('ignores a second pointer while one drags', () => {
+    const { client, send } = fakeClient();
+    const node = renderRating(rating(), { reducedMotion: false, responses: { client, taleId: 't1' } }) as HTMLElement;
+    const track = sized(slider(node));
+    drag(track, 'pointerdown', 60, 1);
+    drag(track, 'pointerdown', 180, 2);
+    expect(track.getAttribute('aria-valuenow')).toBe('30');
+    drag(track, 'pointermove', 190, 2);
+    drag(track, 'pointerup', 190, 2);
+    expect(send).not.toHaveBeenCalled();
+    drag(track, 'pointermove', 140, 1);
+    drag(track, 'pointerup', 140, 1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith('t1', ratingId, '70');
   });
 
   it('follows a drag by pointer or touch and posts on release, marking the average', async () => {
@@ -284,6 +346,18 @@ describe('TaleViewer with a Rating (R5, C7)', () => {
     expect(fake.send).toHaveBeenCalledWith('t1', ratingId, '5');
   });
 
+  it('once rated, lets the arrow keys step the tale again', async () => {
+    vi.useRealTimers();
+    const slider = track();
+    slider.focus();
+    press(slider, 'Enter');
+    await flush();
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+    const before = where();
+    expect(press(slider, 'ArrowRight').defaultPrevented).toBe(true);
+    expect(where()).not.toBe(before);
+  });
+
   it('pauses while the slider has focus, and its arrow keys move the emoji, never the tale', () => {
     const before = where();
     const slider = track();
@@ -296,6 +370,14 @@ describe('TaleViewer with a Rating (R5, C7)', () => {
     expect(where()).toBe(before);
     press(slider, 'Enter');
     expect(fake.send).toHaveBeenCalledWith('t1', ratingId, '10');
+    // Space on the slider is the slider's, as on a poll's option: it does not toggle the pause.
+    const space = press(slider, ' ');
+    expect(space.defaultPrevented).toBe(false);
+    slider.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true }));
+    expect(dialog().hasAttribute('data-paused')).toBe(true);
+    slider.blur();
+    expect(dialog().hasAttribute('data-paused')).toBe(false);
+    slider.focus();
     // Escape still closes the viewer from the slider.
     press(slider, 'Escape');
     expect(dialog()?.open ?? false).toBe(false);
