@@ -129,6 +129,63 @@ describe('SiteKeyCard: the Install tab (epic UX rework R3, R13; stories 8.6, 8.1
     expect((dialog()?.querySelector('#site-key-value') as HTMLInputElement).value).toBe(issued.key);
   });
 
+  describe('when the zone page moves to a zone of another project (its route is reused, as on Back)', () => {
+    const otherUrl = `${API_BASE}/projects/p2/site-key`;
+
+    async function moveToOtherProject(): Promise<void> {
+      fixture.componentRef.setInput('projectId', 'p2');
+      fixture.componentRef.setInput('zoneSlug', 'globex-top');
+      await settle(fixture);
+    }
+
+    it("closes an open rotate confirmation, so it cannot rotate the other project's key", async () => {
+      await open(info);
+      button('site-key-rotate')?.click();
+      await settle(fixture);
+      expect(dialog()).not.toBeNull();
+      await moveToOtherProject();
+      http.expectOne(otherUrl).flush({ prefix: 'tas_globex', createdAt: info.createdAt });
+      await settle(fixture);
+      expect(dialog()).toBeNull();
+      expect(text()).toContain('tas_globex…');
+      // Nothing was rotated, on either project.
+      http.expectNone((r) => r.method === 'POST');
+    });
+
+    it('drops an issue answered after the move: no key of the first project shows with the other zone', async () => {
+      await open(null);
+      button('site-key-issue')?.click();
+      await settle(fixture);
+      const issue = http.expectOne((r) => r.url === url && r.method === 'POST');
+      await moveToOtherProject();
+      http.expectOne(otherUrl).flush(null);
+      await settle(fixture);
+      issue.flush(issued);
+      await settle(fixture);
+      expect(dialog()).toBeNull();
+      expect(document.body.textContent).not.toContain(issued.key);
+      expect(text()).not.toContain('tas_abcdef');
+      expect(text()).toContain('No site key yet');
+      // The first project's zones are installed now: the dashboard still reads them again.
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops a revocation answered after the move: the other project still shows its key', async () => {
+      await open(info);
+      button('site-key-revoke')?.click();
+      await settle(fixture);
+      await submit();
+      const revoke = http.expectOne((r) => r.url === url && r.method === 'DELETE');
+      await moveToOtherProject();
+      http.expectOne(otherUrl).flush({ prefix: 'tas_globex', createdAt: info.createdAt });
+      await settle(fixture);
+      revoke.flush(null, { status: 204, statusText: 'No Content' });
+      await settle(fixture);
+      expect(text()).toContain('tas_globex…');
+      expect(button('site-key-rotate')).not.toBeNull();
+    });
+  });
+
   it('offers Retry, never Issue, when the site key cannot be read', async () => {
     fixture = TestBed.createComponent(SiteKeyCard);
     fixture.componentRef.setInput('projectId', 'p1');

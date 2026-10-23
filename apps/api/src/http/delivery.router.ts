@@ -1,5 +1,6 @@
 import {
   ErrorCodes,
+  isZoneSlug,
   mediaKind,
   publicMediaUrl,
   resolveDocumentMedia,
@@ -29,10 +30,11 @@ function bearerKey(header: string | undefined): string | undefined {
   return match?.[1];
 }
 
-// The `zone` query parameter: the slug. A missing, repeated or non-text value is not a slug, so it
-// reads as the empty slug, which no zone has.
+// The `zone` query parameter: the slug. A missing, repeated or non-text value, or text no slug can
+// be (a NUL byte, which PostgreSQL refuses with an error, or a megabyte of text), reads as the
+// empty slug, which no zone has: still looked up, so it is refused like any other.
 function slugParam(value: unknown): string {
-  return typeof value === 'string' ? value : '';
+  return isZoneSlug(value) ? value : '';
 }
 
 /** Answers the 401 of a refused request; every refusal has the same body. */

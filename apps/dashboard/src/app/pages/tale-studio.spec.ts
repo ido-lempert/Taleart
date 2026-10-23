@@ -1991,58 +1991,81 @@ describe('TaleStudioPage', () => {
 
     describe('with autosave timing', () => {
       beforeEach(() => Object.assign(timing, { debounceMs: 20, maxWaitMs: 200, retryDelaysMs: [40] }));
-      afterEach(() => Object.assign(timing, WAIT_FOR_TEST));
-      const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      afterEach(() => {
+        vi.useRealTimers();
+        Object.assign(timing, WAIT_FOR_TEST);
+      });
+
+      // Autosave's timers run on a fake clock here (and Date, for "Trying again in N s"): each step
+      // moves it by exactly the time it names. On the real clock a busy machine could let the 20 ms
+      // debounce or the 40 ms retry fire between two checks, so "Unsaved changes" or "Not saved" read
+      // "Saving…" (the flaky autosave-timing test of the story 7.12 report).
+      async function openOnClock(read: Parameters<typeof draftRead>[0]): Promise<void> {
+        await open(read);
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      }
+      // Moves the fake clock by `ms`, running the timers that fall due and the promises after them, then renders.
+      async function advance(ms: number): Promise<void> {
+        await vi.advanceTimersByTimeAsync(ms);
+        fixture.detectChanges();
+      }
 
       it('saves by itself after a pause, one save at a time, and shows saving and saved', async () => {
-        await open({ document: three, revision: 1 });
+        await openOnClock({ document: three, revision: 1 });
         expect(status()).toBe('All changes saved');
         key(canvasEl(1), 'ArrowDown');
-        await settle(fixture);
+        await advance(0);
         expect(status()).toBe('Unsaved changes');
-        await wait(40);
-        fixture.detectChanges();
+        // The save starts exactly when the debounce ends, and not a millisecond before.
+        await advance(19);
+        expect(status()).toBe('Unsaved changes');
+        http.expectNone(url);
+        await advance(1);
         expect(status()).toBe('Saving…');
         const first = http.expectOne(url);
         expect((first.request.body as { revision: number }).revision).toBe(1);
         key(canvasEl(1), 'ArrowDown');
-        await wait(40);
+        await advance(40);
         // No second save while the first is on its way.
         http.expectNone(url);
         first.flush({ document: three, revision: 2 });
-        await settle(fixture);
+        await advance(0);
         const second = http.expectOne(url);
         expect((second.request.body as { revision: number }).revision).toBe(2);
         expect(JSON.stringify((second.request.body as { document: TaleDocument }).document)).toBe(docNow());
         second.flush({ document: three, revision: 3 });
-        await settle(fixture);
+        await advance(0);
         expect(status()).toBe('All changes saved');
       });
 
       it('shows a failed save, retries it by itself, and says when everything is saved again', async () => {
-        await open({ document: three, revision: 1 });
+        await openOnClock({ document: three, revision: 1 });
         key(canvasEl(1), 'ArrowDown');
-        await wait(40);
+        await advance(40);
         http.expectOne(url).error(new ProgressEvent('error'));
-        await settle(fixture);
+        await advance(0);
         expect(status()).toBe('Not saved');
         expect(alertText()).toContain('the connection failed. Trying again automatically.');
         expect(buttonNamed(root, 'Retry now')).toBeTruthy();
-        await wait(60);
+        // The retry goes out after its 40 ms delay, not before.
+        await advance(39);
+        http.expectNone(url);
+        expect(status()).toBe('Not saved');
+        await advance(1);
         http.expectOne(url).flush({ document: three, revision: 2 });
-        await settle(fixture);
-        await settle(fixture);
+        await advance(0);
+        await advance(0);
         expect(status()).toBe('All changes saved');
         expect(alertText()).toBe('');
         expect(live()).toBe('All changes saved');
       });
 
       it('keeps one failure block and one announcement through the retries, with Retry now staying put', async () => {
-        await open({ document: three, revision: 1 });
+        await openOnClock({ document: three, revision: 1 });
         key(canvasEl(1), 'ArrowDown');
-        await wait(40);
+        await advance(40);
         http.expectOne(url).error(new ProgressEvent('error'));
-        await settle(fixture);
+        await advance(0);
         const retry = root.querySelector('#studio-retry') as HTMLButtonElement;
         const alertRegion = () => root.querySelector('p.visually-hidden[role=alert]')?.textContent?.trim();
         const first = alertRegion();
@@ -2050,8 +2073,7 @@ describe('TaleStudioPage', () => {
         expect(root.querySelector('#studio-save-problem')?.hasAttribute('role')).toBe(false);
         expect(root.querySelector('.studio-retry')?.textContent).toMatch(/Trying again (in \d+ s|now)/);
         retry.focus();
-        await wait(60);
-        fixture.detectChanges();
+        await advance(40);
         // The retry is on its way: the same button, kept focused, and not pressable.
         expect(root.querySelector('#studio-retry')).toBe(retry);
         expect(retry.getAttribute('aria-disabled')).toBe('true');
@@ -2059,27 +2081,27 @@ describe('TaleStudioPage', () => {
         http
           .expectOne(url)
           .flush({ error: { code: 'internal_error', message: 'x' } }, { status: 503, statusText: 'Down' });
-        await settle(fixture);
+        await advance(0);
         expect(root.querySelector('#studio-retry')).toBe(retry);
         expect(alertRegion()).toBe(first);
-        await wait(60);
+        await advance(60);
         http.expectOne(url).flush(draftRead({ document: three, revision: 2 }));
-        await settle(fixture);
-        await settle(fixture);
+        await advance(0);
+        await advance(0);
         expect(alertRegion()).toBe('');
         expect(root.querySelector('#studio-retry')).toBeNull();
         expect(live()).toBe('All changes saved');
       });
 
       it('retries at once when the browser is back online', async () => {
-        await open({ document: three, revision: 1 });
+        await openOnClock({ document: three, revision: 1 });
         key(canvasEl(1), 'ArrowDown');
-        await wait(40);
+        await advance(40);
         http.expectOne(url).error(new ProgressEvent('error'));
-        await settle(fixture);
+        await advance(0);
         window.dispatchEvent(new Event('online'));
         http.expectOne(url).flush({ document: three, revision: 2 });
-        await settle(fixture);
+        await advance(0);
         expect(status()).toBe('All changes saved');
       });
     });
