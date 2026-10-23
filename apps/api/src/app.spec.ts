@@ -4855,6 +4855,9 @@ describe('Management API v1: projects and zones', () => {
           await expectRefused(await deliverSlug(key, ''));
           await expectRefused(await deliverSlug(key, [zone.slug, zone.slug]));
           await expectRefused(await deliverSlug(key, 'Home Top'));
+          // Text PostgreSQL cannot hold (a NUL byte): the same refusal, never a 500.
+          await expectRefused(await deliverSlug(key, `${zone.slug}\u0000`));
+          await expectRefused(await deliverSlug(key, '\u0000'));
           // A bracketed parameter reads as an object, which is no slug.
           await expectRefused(await deliverQuery(key, `zone[${zone.slug}]=${zone.slug}`));
           await expectRefused(await deliverQuery(key, `zone[x]=y`));
