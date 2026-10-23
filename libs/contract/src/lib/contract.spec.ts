@@ -108,7 +108,7 @@ describe('delivery fonts (story 9.8)', () => {
     const spec = readFileSync(join(__dirname, '../../openapi/openapi.yaml'), 'utf8');
     const block = spec.slice(spec.indexOf('    DeliveryFont:'), spec.indexOf('    DeliveryTaleDocument:'));
     expect(block).toContain('required: [id, family, url, weight, style]');
-    expect(block).toMatch(/\n        family:\n          type: string\n/);
+    expect(block).toContain('\n        family:\n          type: string\n');
     const font: DeliveryFont = {
       id: '0f0e0d0c-0000-4000-8000-00000000000a',
       family: 'Brand Sans',
