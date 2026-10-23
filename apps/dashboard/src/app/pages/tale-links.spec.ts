@@ -10,6 +10,7 @@ import { AUTOSAVE_TIMING } from './tale-autosave';
 import { hrefMessage, needsLinkUrl } from './tale-links';
 import { linkView } from './tale-canvas-view';
 import { TaleStudioPage } from './tale-studio';
+import { settle, WAIT_FOR_TEST } from './tale-studio.testing';
 
 // Tale Studio story 7.7 (epic Tale Studio R7, R12, R13, R14): buttons, image buttons and the swipe-up link.
 const url = `${API_BASE}/tales/t1/document`;
@@ -39,13 +40,6 @@ const media = (key: string, contentType: ProjectMedia['contentType']): ProjectMe
   sizeBytes: 100,
 });
 const empty: TaleDocument = { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] };
-const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
-
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
-  await fixture.whenStable();
-  await new Promise((resolve) => setTimeout(resolve));
-  fixture.detectChanges();
-}
 
 describe('link helpers', () => {
   it('says why an address is refused, with the rule the server applies', () => {
