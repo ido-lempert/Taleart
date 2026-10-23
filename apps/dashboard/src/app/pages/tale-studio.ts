@@ -73,6 +73,7 @@ import {
   type TaleElement,
   type TaleElementBox,
   type TaleElementType,
+  UNKNOWN_MEDIA_REASON,
 } from '@taleart/contract/tale-document';
 import {
   isSmallTarget,
@@ -1027,9 +1028,11 @@ export class TaleStudioPage implements OnChanges {
             this.selectOnly(element.id);
           }
           this.error.set(
-            element && /\/a11y\/label$/.test(result.pointer)
-              ? `The tale could not be updated. ${result.message} It is selected.`
-              : 'The tale could not be updated because something in it is not valid. Fix it, then try again.',
+            missingMedia(result.message)
+              ? `${missingMediaMessage(element ? kindName(element).toLowerCase() : 'background', 'updated')}${element ? ' It is selected.' : ''}`
+              : element && /\/a11y\/label$/.test(result.pointer)
+                ? `The tale could not be updated. ${result.message} It is selected.`
+                : 'The tale could not be updated because something in it is not valid. Fix it, then try again.',
           );
         } else if (result.code === ErrorCodes.nothingToPublish) {
           this.error.set('There is nothing to update yet: change the tale first.');
@@ -2543,15 +2546,18 @@ export class TaleStudioPage implements OnChanges {
     if (result.code === ErrorCodes.invalidTaleDocument) {
       const index = /^\/elements\/(\d+)/.exec(result.pointer)?.[1];
       const element = index === undefined ? undefined : this.doc()?.elements[Number(index)];
+      const gone = missingMedia(result.message);
       if (element) {
         this.invalidId.set(element.id);
         this.selectOnly(element.id);
+        if (gone) return `${missingMediaMessage(kindName(element).toLowerCase(), 'saved')} It is selected on the canvas.`;
         if (element.type !== 'text') {
           const kind = kindName(element).toLowerCase();
           return `This ${kind} could not be saved: ${result.message}. It is selected on the canvas.`;
         }
         return 'A text could not be saved: it is too long or holds something a text cannot. It is selected on the canvas.';
       }
+      if (gone) return missingMediaMessage('background', 'saved');
       return 'The tale could not be saved because something in it is not valid. Reload the page and try again.';
     }
     return `Your latest changes are not saved. ${result.message}`;
@@ -2569,4 +2575,18 @@ export class TaleStudioPage implements OnChanges {
       this.focusSoon('studio-canvas');
     }
   }
+}
+
+// True for a refusal of media the project does not have (any more): an unknown key, or the file of
+// a deleted tale that this tale's draft still shows (story 8.20).
+function missingMedia(message: string): boolean {
+  return message.endsWith(UNKNOWN_MEDIA_REASON);
+}
+
+// What to do about media that no longer exists, for the element kind (or the background) using it.
+function missingMediaMessage(subject: string, what: 'saved' | 'updated'): string {
+  return (
+    `The tale could not be ${what}: this ${subject} uses a media file that no longer exists, ` +
+    'perhaps because the tale it came from was deleted. Pick other media for it, or remove it.'
+  );
 }

@@ -1370,6 +1370,64 @@ export async function duplicateTale(
   });
 }
 
+/** What {@link deleteTale} removed: the tale's group and project, and the storage keys it referenced. */
+export interface DeletedTale {
+  taleId: string;
+  taleGroupId: string;
+  projectId: string;
+  /**
+   * The storage keys the tale referenced (its media and its documents' media), for the caller to
+   * delete each file through {@link withMediaKeyDeletionGuard}, only when nothing references it
+   * any more: copies share keys (AD-14) and a project's uploads stay in its media.
+   */
+  mediaKeys: string[];
+}
+
+/**
+ * Deletes a tale (epic UX rework R11, story 8.20) in one transaction: the tale row with its
+ * documents, its `tale_media` and `tale_fonts` rows (their foreign keys cascade), and the group's
+ * remaining tales renumbered 0..n-1. The group row is locked first, then the tale's, the order
+ * {@link createTale}, {@link orderTales} and {@link duplicateTale} (the target group, then the
+ * source tale) take, so a delete and an add, an order or a duplicate apply one after the other: a
+ * duplicate that comes first records the copy's references (its files stay), one that comes after
+ * finds no tale. No file is deleted here, and project fonts stay (they are the project's).
+ * Throws {@link TaleNotFoundError}.
+ */
+export async function deleteTale(db: TransactionalDb, taleId: string): Promise<DeletedTale> {
+  if (!UUID.test(taleId)) throw new TaleNotFoundError(taleId);
+
+  return inTransaction(db, async (tx) => {
+    const of = await tx.query<{ groupId: string }>('SELECT tale_group_id AS "groupId" FROM tales WHERE id = $1', [
+      taleId,
+    ]);
+    if (of.rows.length === 0) throw new TaleNotFoundError(taleId);
+    // A tale never moves to another group, so its group read before the lock is still its group.
+    const { groupId } = of.rows[0];
+    await tx.query('SELECT 1 FROM tale_groups WHERE id = $1 FOR UPDATE', [groupId]);
+    const tale = await tx.query<{ projectId: string; mediaKey: string | null }>(
+      'SELECT project_id AS "projectId", media_key AS "mediaKey" FROM tales WHERE id = $1 FOR UPDATE',
+      [taleId],
+    );
+    if (tale.rows.length === 0) throw new TaleNotFoundError(taleId);
+    const { projectId, mediaKey } = tale.rows[0];
+    // Read under the tale's lock: a document write recording more keys went first, or finds no tale.
+    const media = await tx.query<{ key: string }>(
+      'SELECT DISTINCT storage_key AS key FROM tale_media WHERE tale_id = $1',
+      [taleId],
+    );
+    await tx.query('DELETE FROM tales WHERE id = $1', [taleId]);
+    await tx.query(
+      `UPDATE tales SET position = dense.idx - 1
+       FROM (SELECT id, row_number() OVER (ORDER BY position, id) AS idx FROM tales WHERE tale_group_id = $1) dense
+       WHERE tales.id = dense.id AND tales.position <> dense.idx - 1`,
+      [groupId],
+    );
+    const keys = new Set(media.rows.map((r) => r.key));
+    if (mediaKey !== null) keys.add(mediaKey);
+    return { taleId: taleId.toLowerCase(), taleGroupId: groupId, projectId, mediaKeys: [...keys].sort() };
+  });
+}
+
 /** A tale group's name, or null when it does not exist. Ids that are not UUIDs never match. */
 export async function taleGroupName(db: Db, taleGroupId: string): Promise<string | null> {
   if (!UUID.test(taleGroupId)) return null;
@@ -1774,6 +1832,42 @@ export async function isMediaKeyInUse(db: Db, key: string): Promise<boolean> {
     [key],
   );
   return rows.length > 0;
+}
+
+/** Tale media files younger than this are left alone: an upload may be about to point its tale at one. */
+export const TALE_MEDIA_SWEEP_MIN_AGE_MS = 60 * 60_000;
+
+// A tale media file a person uploaded (`tales/<uuid>.<ext>`, the tales route's key); imported files
+// (`tales/imported-…`) are the importer's to sweep, since its records may still hold them.
+const UPLOADED_TALE_MEDIA_KEY = /^tales\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/;
+
+/**
+ * Deletes uploaded tale media files (`tales/<uuid>.<ext>`) older than
+ * {@link TALE_MEDIA_SWEEP_MIN_AGE_MS} that nothing references (story 8.20): what a deleted tale,
+ * a replaced media file or an upload left when deleting its file failed or its process stopped.
+ * Each is decided and deleted under {@link withMediaKeyDeletionGuard}, so a file a document write
+ * is about to reference, or any tale, copy, cover or the project's media still holds, is kept.
+ * Returns how many it removed. The import worker runs it when it starts.
+ */
+export async function sweepUnusedTaleMediaFiles(
+  db: TransactionalDb,
+  storage: {
+    listKeys(folder: string): Promise<{ key: string; modifiedAt: Date }[]>;
+    delete(key: string): Promise<void>;
+  },
+  now = Date.now(),
+): Promise<number> {
+  let removed = 0;
+  for (const { key, modifiedAt } of await storage.listKeys('tales')) {
+    if (!UPLOADED_TALE_MEDIA_KEY.test(key) || now - modifiedAt.getTime() < TALE_MEDIA_SWEEP_MIN_AGE_MS) continue;
+    const deleted = await withMediaKeyDeletionGuard(db, key, async (inUse) => {
+      if (inUse) return false;
+      await storage.delete(key);
+      return true;
+    });
+    if (deleted) removed++;
+  }
+  return removed;
 }
 
 /**
