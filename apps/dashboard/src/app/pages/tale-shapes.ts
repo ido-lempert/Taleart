@@ -16,6 +16,7 @@ import {
 } from '@taleart/contract/tale-document';
 import { Drawer } from '../drawer';
 import { parseHexColor } from './tale-text-style';
+import { percent } from './tale-layers';
 
 /** One emoji the picker offers, with its Unicode (CLDR) name, the accessible name it starts with. */
 export interface EmojiChoice {
@@ -340,8 +341,6 @@ export interface ElementChange {
 
 /** The names people read for each shape, from the contract. */
 export { SHAPE_NAMES };
-
-const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 
 // One line of label text, without the characters a label may not hold, within its limit.
 const cleanLabel = (value: string) =>

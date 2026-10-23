@@ -148,6 +148,7 @@ import {
   layerSpokenName,
   layerShortcut,
   moveBox,
+  percent,
   reorder,
   round,
   snap,
@@ -1247,9 +1248,7 @@ export class TaleStudioPage implements OnChanges {
     return projectId ? projectMediaSrc(projectId, key) : '';
   }
 
-  protected percent(value: number): number {
-    return Math.round(value * 1000) / 10;
-  }
+  protected readonly percent = percent;
 
   protected maxPercent(size: number): number {
     return this.percent(1 - size);
