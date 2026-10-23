@@ -12,6 +12,7 @@ export default [
             '{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}',
             '{projectRoot}/vite.config.{js,ts,mjs,mts}',
             '{projectRoot}/src/**/*.spec-d.ts',
+            '{projectRoot}/tests/**',
           ],
           // The published package has no dependencies: the few runtime values the SDK
           // takes from the contract (`cleanText`, `ELEMENT_TEXT_RULE`,

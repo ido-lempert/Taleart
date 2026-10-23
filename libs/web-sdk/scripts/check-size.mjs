@@ -1,16 +1,19 @@
-// Fails when the gzipped ES bundle of the Web SDK exceeds its budget (NFR-006: 50 KB).
-// Run through `nx run web-sdk:size`, which builds first.
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { gzipSync } from 'node:zlib';
+// Checks the built Web SDK against its size budget (NFR-006; epic Tale Studio R15, AD-16): all its ES
+// chunks at most 50 KB gzipped, and the chunk the page loads at most 40 KB (past that, the viewer and
+// renderers move to a chunk loaded on first open). Reports every chunk, and, while the SDK is one
+// chunk, what that split would move. See size-budget.mjs.
+// Run through `nx run web-sdk:size`, which builds first. The argument is the build folder (or its index.js).
+import { statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { judge, readChunks } from './size-budget.mjs';
 
-const LIMIT_BYTES = 50 * 1024;
-const file = resolve(process.argv[2] ?? 'dist/libs/web-sdk/index.js');
-const gzipped = gzipSync(readFileSync(file), { level: 9 }).length;
-const kb = (bytes) => `${(bytes / 1024).toFixed(2)} KB`;
+const arg = resolve(process.argv[2] ?? 'dist/libs/web-sdk');
+const dir = statSync(arg).isDirectory() ? arg : dirname(arg);
+const { lines, failures } = judge(readChunks(dir));
 
-if (gzipped > LIMIT_BYTES) {
-  console.error(`Web SDK bundle ${file} is ${kb(gzipped)} gzipped, over the ${kb(LIMIT_BYTES)} budget.`);
+console.log(`Web SDK in ${dir}:`);
+for (const line of lines) console.log(line);
+if (failures.length) {
+  for (const failure of failures) console.error(`FAIL: ${failure}`);
   process.exit(1);
 }
-console.log(`Web SDK bundle ${file} is ${kb(gzipped)} gzipped (budget ${kb(LIMIT_BYTES)}).`);

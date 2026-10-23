@@ -6,13 +6,21 @@
 // throttled to Fast 4G with a 4x slower CPU. Each load reads the `taleart:first-content` performance
 // mark the Web SDK sets once the first frame is on the page with the covers in view loaded. Prints
 // every run, p50, p75 and max for cold loads (empty cache) and warm loads (a reload), and the SDK's
-// gzipped size. Exits 1 when cold p75 is over the budget, the bundle over 50 KB gzipped, or the page
-// (whose tales use no project font) requests a font file (epic Tale Studio R15).
+// gzipped size. Exits 1 when cold p75 is over the budget, the SDK over its size budget (all chunks
+// 50 KB gzipped, the page's chunk 40 KB: libs/web-sdk/scripts/size-budget.mjs), or the page (whose
+// tales use no project font) requests a font file (epic Tale Studio R15).
 //
-// A second zone holds a text tale of 20 elements in a project font (story 7.17): its page must
-// request no font until the tale opens; then the first tale frame (all 20 texts on the stage, in
-// their fallback) and the font swap are timed from the tap. Exits 1 when the font is requested
-// before the tale opens, or p75 first tale frame is over FRAME_BUDGET_MS.
+// A second zone holds a composed tale of 20 elements (14 texts, every other one in a project font,
+// 4 shapes, an emoji and a button; stories 7.14, 7.17): its page must request no font until the tale
+// opens; then the first tale frame (all 20 elements on the stage, the texts in their fallback) and
+// the font swap are timed from the tap. Exits 1 when the font is requested before the tale opens,
+// or p75 first tale frame is over FRAME_BUDGET_MS. A few more runs hold the font's response back
+// FONT_HOLD_MS: exits 1 when the first frame then comes late (it waited for the font) or paints
+// with a project font face already loaded. Each gate's margin is printed.
+//
+// The same zone is also loaded from the API's own test page, which loads the SDK as a host page does
+// from `<api>/sdk/v1/taleart.js` (epic UX rework R13): cold p75 first content there must be within
+// the budget too, with the SDK sent gzipped.
 //
 // Run through `nx run sdk-sample:perf`, which builds the API and the SDK first.
 // Environment: TEST_DATABASE_URL (a database whose name ends in _test; the rows the run adds are
@@ -23,19 +31,19 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { gzipSync } from 'node:zlib';
 import pg from 'pg';
 import { parse as parseConnectionString } from 'pg-connection-string';
 import { chromium } from 'playwright';
+import { BUNDLE_LIMIT_BYTES, judge, kb, readChunks, SPLIT_AT_BYTES } from '../../libs/web-sdk/scripts/size-budget.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const API_MAIN = join(ROOT, 'dist/apps/api/main.js');
-const SDK_BUNDLE = join(ROOT, 'dist/libs/web-sdk/index.js');
+const SDK_DIR = join(ROOT, 'dist/libs/web-sdk');
+const SDK_BUNDLE = join(SDK_DIR, 'index.js');
 const RUNS = Math.max(1, Number(process.env.PERF_RUNS) || 10);
 const BUDGET_MS = Number(process.env.PERF_BUDGET_MS) || 1500;
-const BUNDLE_LIMIT_BYTES = 50 * 1024;
 const MARK = 'taleart:first-content';
-// The first tale frame's budget (epic Tale Studio R15; a starting value, tuned by story 7.14).
+// The first tale frame's budget (epic Tale Studio R15; a starting value, kept by story 7.14).
 const FRAME_BUDGET_MS = Number(process.env.PERF_FRAME_BUDGET_MS) || 1000;
 // A WOFF2 font the workspace already has, uploaded as the project font.
 const FONT_FILE = join(ROOT, 'node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2');
@@ -301,7 +309,7 @@ async function seed(apiUrl, cookie, media, seeded) {
     await call('PUT', `/tale-groups/${group.id}/status`, { status: 'live' });
   }
 
-  // A second zone, with one group whose tale is 20 texts, every other one in the project font.
+  // A second zone, with one group whose tale is the composed tale of TALE_ELEMENTS elements.
   const font = await call(
     'POST',
     `/projects/${project.id}/fonts?family=Brand%20Sans&weight=400&style=normal&fallback=sans&licence=confirmed`,
@@ -312,20 +320,7 @@ async function seed(apiUrl, cookie, media, seeded) {
   await call('POST', `/zones/${fontZone.id}/frame`, { type: 'bar', settings: {} });
   const group = await call('POST', `/zones/${fontZone.id}/tale-groups`, { name: 'Brand' });
   const tale = await call('POST', `/tale-groups/${group.id}/tales`, { title: 'Brand story' });
-  const elements = Array.from({ length: 20 }, (_, i) => ({
-    id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`,
-    type: 'text',
-    box: { x: 0.08, y: 0.12 + i * 0.037, w: 0.84, h: 0.035, rotation: 0 },
-    hidden: false,
-    locked: false,
-    a11y: {},
-    props: {
-      text: `Line ${i + 1}: new arrivals this week`,
-      size: 0.025,
-      ...(i % 2 === 0 && { font: { source: 'project', fontId: font.id }, fallback: 'sans' }),
-    },
-  }));
-  const document = { version: 1, canvas: { background: { type: 'color', color: '#1f3a5f' } }, elements };
+  const document = { version: 1, canvas: { background: { type: 'color', color: '#1f3a5f' } }, elements: composedTale(font.id) };
   const saved = await call('PUT', `/tales/${tale.id}/document`, { document, revision: 0 });
   // A new tale is already shown (AD-6 amended), so the saved draft shows once it is published.
   await call('POST', `/tales/${tale.id}/document/publish`, { revision: saved.revision, publishedRevision: saved.published.revision });
@@ -333,6 +328,41 @@ async function seed(apiUrl, cookie, media, seeded) {
   // One site key for the project places both zones by their slugs (epic UX rework R3).
   const siteKey = (await call('POST', `/projects/${project.id}/site-key`)).key;
   return { siteKey, slug: zone.slug, fontSlug: fontZone.slug };
+}
+
+// The composed tale (story 7.14): TALE_ELEMENTS elements, of which 14 texts (every other one in the
+// project font `fontId`), 4 shapes behind them, an emoji and a button.
+export const TALE_ELEMENTS = 20;
+export function composedTale(fontId) {
+  const element = (i, type, box, props, a11y = {}) => ({
+    id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`,
+    type,
+    box: { ...box, rotation: 0 },
+    hidden: false,
+    locked: false,
+    a11y,
+    props,
+  });
+  const shapes = [0, 1, 2, 3].map((i) =>
+    element(i, 'shape', { x: 0.05, y: 0.12 + i * 0.16, w: 0.9, h: 0.14 }, { shape: 'rectangle', fill: '#2b4c7e', radius: 0.02 }, { decorative: true }),
+  );
+  const texts = Array.from({ length: 14 }, (_, i) =>
+    element(4 + i, 'text', { x: 0.08, y: 0.13 + i * 0.044, w: 0.84, h: 0.04 }, {
+      text: `Line ${i + 1}: new arrivals this week`,
+      size: 0.025,
+      ...(i % 2 === 0 && { font: { source: 'project', fontId }, fallback: 'sans' }),
+    }),
+  );
+  const emoji = element(18, 'emoji', { x: 0.4, y: 0.75, w: 0.2, h: 0.06 }, { emoji: '🎉' }, { label: 'party' });
+  const button = element(19, 'button', { x: 0.2, y: 0.8, w: 0.6, h: 0.05 }, {
+    label: 'Shop now',
+    variant: 'filled',
+    color: '#111827',
+    fill: '#ffffff',
+    radius: 0.02,
+    href: 'https://example.com/shop',
+  });
+  return [...shapes, ...texts, emoji, button];
 }
 
 // One load of the sample page in a fresh, throttled context: a cold load, then a warm reload.
@@ -393,9 +423,15 @@ async function measure(browser, url) {
   }
 }
 
+// How long a held run holds the font response back (see measureFontTale).
+export const FONT_HOLD_MS = 1500;
+
 // The font zone in a fresh, throttled context: no font before the tale opens; then, from the tap on
-// its bar item, the first tale frame (20 texts on the stage) and the moment the project font is in use.
-async function measureFontTale(browser, url) {
+// its bar item, the first tale frame (all its elements on the open viewer's card, painted) and the
+// moment the project font is in use. With `holdMs`, the font's response is held back that long, so
+// a first frame that waited for the font would come after it; `fontAtFrame` says whether a project
+// font face was loaded when the frame painted (the texts must still be in their fallback).
+async function measureFontTale(browser, url, holdMs = 0) {
   const context = await browser.newContext(DEVICE);
   try {
     const page = await context.newPage();
@@ -405,41 +441,86 @@ async function measureFontTale(browser, url) {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU_SLOWDOWN });
     const fontRequests = [];
     page.on('request', (req) => isFontRequest(req.url()) && fontRequests.push(req.url()));
+    if (holdMs > 0) {
+      await page.route(
+        (u) => isFontRequest(u.href),
+        async (route) => {
+          await new Promise((done) => setTimeout(done, holdMs));
+          await route.continue();
+        },
+      );
+    }
     const errors = [];
     page.on('pageerror', (err) => errors.push(String(err)));
     await page.goto(url, { waitUntil: 'commit' });
     await page.waitForFunction((mark) => performance.getEntriesByName(mark).length > 0, MARK, { timeout: 20_000 });
     await page.waitForTimeout(1000);
     const beforeOpen = fontRequests.length;
-    await page.evaluate(() => {
+    await page.evaluate((count) => {
       const host = document.querySelector('taleart-view');
-      const times = (window.__taleartFont = { start: 0, frame: NaN, font: NaN });
+      const times = (window.__taleartFont = { start: 0, frame: NaN, font: NaN, fontAtFrame: null });
+      const fontLoaded = () => [...document.fonts].some((f) => f.family.includes('taleart-font-') && f.status === 'loaded');
       host.addEventListener('click', () => (times.start = performance.now()), { capture: true, once: true });
       let painting = false;
       const check = () => {
         if (times.start) {
-          const texts = host.shadowRoot.querySelectorAll('dialog[open] .ta-text');
-          if (!painting && texts.length >= 20) {
+          // The open viewer's card only (the frame), never a side card of the deck.
+          const placed = host.shadowRoot.querySelectorAll('dialog[open] .frame > .ta-area > .ta-canvas > .ta-el');
+          if (!painting && placed.length >= count) {
             // Painted on the next frame.
             painting = true;
-            requestAnimationFrame(() => (times.frame = performance.now() - times.start));
+            requestAnimationFrame(() => {
+              times.frame = performance.now() - times.start;
+              times.fontAtFrame = fontLoaded();
+            });
           }
-          const loaded = [...document.fonts].some((f) => f.family.includes('taleart-font-') && f.status === 'loaded');
-          if (Number.isNaN(times.font) && loaded) times.font = performance.now() - times.start;
+          if (Number.isNaN(times.font) && fontLoaded()) times.font = performance.now() - times.start;
         }
         if (Number.isNaN(times.frame) || Number.isNaN(times.font)) requestAnimationFrame(check);
       };
       requestAnimationFrame(check);
-    });
+    }, TALE_ELEMENTS);
     await page.locator('taleart-view button.item').first().click();
     await page.waitForFunction(
       () => !Number.isNaN(window.__taleartFont.frame) && !Number.isNaN(window.__taleartFont.font),
       null,
       { timeout: 20_000, polling: 50 },
     );
-    const { frame, font } = await page.evaluate(() => window.__taleartFont);
+    const { frame, font, fontAtFrame } = await page.evaluate(() => window.__taleartFont);
     if (errors.length) throw new Error(`The page logged errors: ${errors.join('; ')}`);
-    return { beforeOpen, afterOpen: fontRequests.length, frame, font };
+    return { beforeOpen, afterOpen: fontRequests.length, frame, font, fontAtFrame };
+  } finally {
+    await context.close();
+  }
+}
+
+// A cold load of the API's test page (`/sdk/v1/test-page`, which loads `/sdk/v1/taleart.js` as a host
+// page does), throttled the same way: first content, and how the SDK came over the wire.
+async function measureServed(browser, url) {
+  const context = await browser.newContext(DEVICE);
+  try {
+    const page = await context.newPage();
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', FAST_4G);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU_SLOWDOWN });
+    const errors = [];
+    page.on('pageerror', (err) => errors.push(String(err)));
+    // How the SDK came over the wire: its content encoding and body bytes.
+    let sdk = null;
+    page.on('response', (res) => {
+      if (!new URL(res.url()).pathname.endsWith('/sdk/v1/taleart.js')) return;
+      sdk = Promise.all([res.allHeaders(), res.request().sizes()]).then(([headers, sizes]) => ({
+        encoding: headers['content-encoding'] ?? 'none',
+        bytes: sizes.responseBodySize,
+      }));
+    });
+    await page.goto(url, { waitUntil: 'commit' });
+    await page.waitForFunction((mark) => performance.getEntriesByName(mark).length > 0, MARK, { timeout: 20_000, polling: 50 });
+    const firstContent = await page.evaluate((mark) => performance.getEntriesByName(mark)[0].startTime, MARK);
+    if (errors.length) throw new Error(`The test page logged errors: ${errors.join('; ')}`);
+    if (!sdk) throw new Error('The test page did not load /sdk/v1/taleart.js');
+    return { firstContent, ...(await sdk) };
   } finally {
     await context.close();
   }
@@ -455,7 +536,7 @@ async function main() {
     if (!existsSync(file)) throw new Error(`${file} is missing; run through nx run sdk-sample:perf, which builds it`);
   }
   const databaseUrl = testDatabaseUrl();
-  const gzipped = gzipSync(readFileSync(SDK_BUNDLE), { level: 9 }).length;
+  const size = judge(readChunks(SDK_DIR));
   const [apiPort, samplePort] = [await freePort(), await freePort()];
   const apiUrl = `http://127.0.0.1:${apiPort}`;
   // Everything the run starts or adds, undone by one cleanup: on success, on failure and on SIGINT/SIGTERM.
@@ -491,6 +572,8 @@ async function main() {
         PUBLIC_API_URL: apiUrl,
         MEDIA_DIR: mediaDir,
         IMPORT_TOKEN_KEY: '',
+        // The SDK just built, served at /sdk/v1/taleart.js.
+        WEB_SDK_FILE: SDK_BUNDLE,
       },
       'Delivery API at',
     );
@@ -502,9 +585,9 @@ async function main() {
       'SDK sample at',
     );
     const media = await makeMedia(browser, GROUPS.length);
-    const kb = (b) => `${Math.round(b.length / 1024)} KB`;
+    const sizeOf = (b) => `${Math.round(b.length / 1024)} KB`;
     console.log(
-      `Seeded media: tale images ${media.tales.map(kb).join(', ')}; still covers ~${kb(media.covers[1])}; animated cover ${kb(media.animated)}`,
+      `Seeded media: tale images ${media.tales.map(sizeOf).join(', ')}; still covers ~${sizeOf(media.covers[1])}; animated cover ${sizeOf(media.animated)}`,
     );
     const { siteKey, slug, fontSlug } = await seed(apiUrl, await signIn(databaseUrl, seeded), media, seeded);
     const sample = (zone) =>
@@ -548,18 +631,71 @@ async function main() {
       fetchedFonts += result.afterOpen - result.beforeOpen;
       const r = (v) => Math.round(v);
       console.log(
-        `font tale run ${run}: font requests before opening ${result.beforeOpen}, after ${result.afterOpen}; ` +
+        `composed tale run ${run}: font requests before opening ${result.beforeOpen}, after ${result.afterOpen}; ` +
           `first tale frame ${r(result.frame)} ms, project font in use ${r(result.font)} ms after the tap`,
       );
     }
-    console.log(summary('First tale frame (20 texts, project font)', frames));
+    console.log(summary(`First tale frame (${TALE_ELEMENTS} elements, project font)`, frames));
     console.log(summary('Project font swapped in', swaps));
-    console.log(`Web SDK bundle: ${(gzipped / 1024).toFixed(2)} KB gzipped (budget 50 KB)`);
+
+    // The first frame never waits for the font: with the font's response held back FONT_HOLD_MS, the
+    // frame still paints within the frame budget, before the font arrives, with no project font face loaded.
+    const HELD_RUNS = Math.min(RUNS, 3);
+    const held = [];
+    for (let run = 1; run <= HELD_RUNS; run++) {
+      const result = await measureFontTale(browser, fontUrl, FONT_HOLD_MS);
+      held.push(result);
+      console.log(
+        `font held ${FONT_HOLD_MS} ms, run ${run}: first tale frame ${Math.round(result.frame)} ms ` +
+          `(project font loaded then: ${result.fontAtFrame ? 'yes' : 'no'}), project font in use ${Math.round(result.font)} ms`,
+      );
+    }
+    const heldFrameMax = Math.max(...held.map((r) => r.frame));
+
+    // The SDK as the API serves it (epic UX rework R13), on the API's test page.
+    const served = [];
+    const servedUrl = `${apiUrl}/sdk/v1/test-page?zone=${encodeURIComponent(slug)}#siteKey=${encodeURIComponent(siteKey)}`;
+    let servedSdk = null;
+    for (let run = 1; run <= RUNS; run++) {
+      const result = await measureServed(browser, servedUrl);
+      served.push(result.firstContent);
+      servedSdk ??= result;
+      console.log(`served run ${run}: cold ${Math.round(result.firstContent)} ms`);
+    }
+    console.log(summary('First content, cold, SDK from /sdk/v1/taleart.js', served));
+    console.log(`/sdk/v1/taleart.js over the wire: ${kb(servedSdk.bytes)} (content-encoding ${servedSdk.encoding})`);
+
+    console.log('Web SDK size:');
+    for (const line of size.lines) console.log(line);
     const p75 = percentile(cold, 75);
     const frameP75 = percentile(frames, 75);
-    const failures = [];
+    const servedP75 = percentile(served, 75);
+    const failures = [...size.failures];
+    // Each timed gate with its margin (limit minus measured; negative is over).
+    const heldLimit = Math.min(FRAME_BUDGET_MS, FONT_HOLD_MS);
+    const gates = [
+      ['SDK, all chunks gzipped', size.total / 1024, BUNDLE_LIMIT_BYTES / 1024, 'KB'],
+      ["SDK, the page's chunk gzipped", size.entry / 1024, SPLIT_AT_BYTES / 1024, 'KB'],
+      ['cold p75 first content (sample page)', p75, BUDGET_MS, 'ms'],
+      ['cold p75 first content (API-served SDK)', servedP75, BUDGET_MS, 'ms'],
+      [`p75 first tale frame (${TALE_ELEMENTS} elements, project font)`, frameP75, FRAME_BUDGET_MS, 'ms'],
+      [`slowest first tale frame with the font held ${FONT_HOLD_MS} ms`, heldFrameMax, heldLimit, 'ms'],
+    ];
+    console.log('Gates (margin = limit - measured):');
+    for (const [name, value, limit, unit] of gates) {
+      const f = (v) => (unit === 'KB' ? v.toFixed(2) : String(Math.round(v)));
+      console.log(`  ${value <= limit ? 'ok  ' : 'OVER'} ${name}: ${f(value)} ${unit} of ${f(limit)} ${unit}, margin ${f(limit - value)} ${unit}`);
+    }
     if (!(p75 <= BUDGET_MS)) failures.push(`cold p75 first content ${Math.round(p75)} ms is over ${BUDGET_MS} ms`);
-    if (gzipped > BUNDLE_LIMIT_BYTES) failures.push('the bundle is over 50 KB gzipped');
+    if (!(servedP75 <= BUDGET_MS)) {
+      failures.push(`cold p75 first content with the API-served SDK ${Math.round(servedP75)} ms is over ${BUDGET_MS} ms`);
+    }
+    if (servedSdk.encoding !== 'gzip') failures.push(`the API sent the SDK with content-encoding ${servedSdk.encoding}, not gzip`);
+    if (!(heldFrameMax <= heldLimit)) {
+      failures.push(`with the font held ${FONT_HOLD_MS} ms, a first tale frame took ${Math.round(heldFrameMax)} ms (it waited for the font)`);
+    }
+    if (held.some((r) => r.fontAtFrame)) failures.push('a project font face was loaded at the first tale frame of a held run');
+    if (held.some((r) => !(r.font >= FONT_HOLD_MS))) failures.push('a held run had its project font in use before the font response was sent');
     if (fontRequests.length > 0) failures.push(`a page whose tales use no project font requested ${fontRequests[0]}`);
     if (earlyFonts > 0) failures.push('the font zone requested its font before the tale opened');
     if (fetchedFonts < RUNS) failures.push('opening the font tale did not request its font');
@@ -571,8 +707,9 @@ async function main() {
       process.exitCode = 1;
     } else {
       console.log(
-        `PASS: cold p75 first content ${Math.round(p75)} ms <= ${BUDGET_MS} ms; no font request without a project ` +
-          `font; p75 first tale frame ${Math.round(frameP75)} ms <= ${FRAME_BUDGET_MS} ms`,
+        `PASS: SDK ${kb(size.total)} gzipped <= 50 KB; cold p75 first content ${Math.round(p75)} ms ` +
+          `(API-served SDK ${Math.round(servedP75)} ms) <= ${BUDGET_MS} ms; no font request without a project font; ` +
+          `p75 first tale frame ${Math.round(frameP75)} ms <= ${FRAME_BUDGET_MS} ms, the font swapping in after it`,
       );
     }
   } finally {
