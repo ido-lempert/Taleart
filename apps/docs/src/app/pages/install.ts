@@ -102,19 +102,26 @@ import {
       cached for {{ pinnedCacheText }}. The zone page's Install tab shows the URL and its integrity value under
       <em>Pin this SDK version</em>, each with a Copy button, and <em>Copy pinned script tag</em> copies the whole tag.
       (<code>&lt;api&gt;/api/v1/install</code>, opened where you are signed in to the dashboard, gives them as
-      <code>sdkPinnedUrl</code> and <code>sdkIntegrity</code>.)
+      <code>sdkPinnedUrl</code> and <code>sdkIntegrity</code>, with <code>sdkBuildsKept</code>.)
     </p>
     <pre tabindex="0" role="region" aria-label="Pinned script tag"><code>{{ pinned }}</code></pre>
     <p>
-      The browser then refuses any other file. The API keeps the last {{ buildsKept }} builds it served at their pinned
-      URLs, the current one included, so a pinned page keeps working through the next {{ buildsKept - 1 }} releases:
-      update the pin before then. An older or unknown hash answers 404.
+      The browser then refuses any other file. By default the API keeps the last {{ buildsKept }} SDK builds this
+      server served at their pinned URLs, the current one included, so a pinned page keeps working through the next
+      {{ buildsKept - 1 }} SDK builds the server serves: update the pin before then. The Install tab says the server's
+      own number; when it keeps only the current build, a pinned URL stops working at the next SDK build. An older or
+      unknown hash answers 404, which no cache keeps.
     </p>
     <p>
-      For the people who run TaleArt: the API writes each build it serves, at start and whenever the bundle changes,
-      to the folder <code>SDK_BUILDS_DIR</code> names (default <code>.data/sdk-builds</code>, outside the build output),
-      and keeps the newest <code>SDK_BUILDS_KEPT</code> ({{ buildsKept }} by default). API processes that serve the
-      same URLs share that folder; <code>SDK_BUILDS_DIR=off</code> keeps only the current build.
+      For the people who run TaleArt: the API writes each build it serves, at start and once the bundle has not
+      changed for a second, to the folder <code>SDK_BUILDS_DIR</code> names (unset or empty:
+      <code>.data/sdk-builds</code>, outside the build output), and keeps the newest <code>SDK_BUILDS_KEPT</code>
+      ({{ buildsKept }} by default, at least 2: during a rolling deploy an old and a new process each keep their
+      build). The folder must persist across deploys (a volume, in a container) and be shared by every API process
+      that serves the same URLs, on hosts with synchronised clocks; in production the API warns at start when it holds
+      no build. <code>SDK_BUILDS_DIR=off</code> (or <code>false</code>, <code>none</code>, <code>no</code>,
+      <code>0</code>) keeps only the current build. Deploy a new SDK file atomically: write it elsewhere on the same
+      disk, then rename it into place.
     </p>
 
     <h2 id="test-page">The test page</h2>

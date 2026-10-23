@@ -128,6 +128,8 @@ test.describe.serial('pinned SDK URLs keep working after a release (story 8.21)'
     first = await readInstallTab();
     expect(first.url).toMatch(/\/sdk\/v1\/taleart\.[\w-]{16}\.js$/);
     expect(first.integrity).toMatch(/^sha384-[A-Za-z0-9+/]+=*$/);
+    // The e2e API keeps the default number of builds, and the tab says so.
+    await expect(page.locator('#pinned-sdk-hint')).toContainText('keeps the last 5 SDK builds it served');
     expect(first.tag).toBe(`<script type="module" src="${first.url}" integrity="${first.integrity}" crossorigin="anonymous"></script>`);
     await page.getByRole('button', { name: 'Copy URL' }).click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(first.url);

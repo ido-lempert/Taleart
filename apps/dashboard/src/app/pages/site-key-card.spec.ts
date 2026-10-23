@@ -341,26 +341,67 @@ describe('SiteKeyCard: the pinned SDK version (story 8.21)', () => {
     document.body.replaceChildren();
   });
 
-  it('shows the pinned URL and its integrity, to everyone, with how many releases it keeps working', async () => {
-    await open({ ...install, sdkPinnedUrl: pinnedUrl, sdkIntegrity: integrity });
+  const pinned = (kept: unknown) => ({ ...install, sdkPinnedUrl: pinnedUrl, sdkIntegrity: integrity, sdkBuildsKept: kept });
+  const hint = () => root().querySelector('#pinned-sdk-hint')?.textContent?.replace(/\s+/g, ' ') ?? '';
+  // A copy is announced after a short pause (so the same one twice is announced twice).
+  const click = async (id: string) => {
+    root().querySelector<HTMLButtonElement>(`#${id}`)?.click();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle(fixture);
+  };
+
+  it('shows the pinned URL and its integrity, to everyone, with how many builds it keeps working', async () => {
+    await open(pinned(5));
     expect(root().querySelector<HTMLInputElement>('#pinned-sdk-url')?.value).toBe(pinnedUrl);
     expect(root().querySelector<HTMLInputElement>('#pinned-sdk-integrity')?.value).toBe(integrity);
     expect(root().querySelector('label[for="pinned-sdk-url"]')?.textContent?.trim()).toBe('Pinned URL');
     expect(root().querySelector('label[for="pinned-sdk-integrity"]')?.textContent?.trim()).toBe('Integrity');
     expect(root().querySelector<HTMLInputElement>('#pinned-sdk-url')?.readOnly).toBe(true);
-    const hint = root().querySelector('#pinned-sdk-hint')?.textContent?.replace(/\s+/g, ' ') ?? '';
-    expect(hint).toContain('TaleArt keeps the last 5 builds at their pinned URLs');
-    expect(hint).toContain('keeps working through the next 4 releases');
+    for (const id of ['pinned-sdk-url', 'pinned-sdk-integrity']) {
+      expect(root().querySelector(`#${id}`)?.getAttribute('aria-describedby'), id).toBe('pinned-sdk-hint');
+    }
+    expect(hint()).toContain('This server keeps the last 5 SDK builds it served at their pinned URLs, this one included');
+    expect(hint()).toContain('this URL keeps working through the next 4 SDK builds this server serves');
+    expect(hint()).not.toContain('release');
     // The snippet keeps the stable URL.
     expect(root().querySelector('#install-snippet')?.textContent).toBe(placeholderSnippet);
   });
 
+  it('says how long the URL keeps working from the number of builds this server keeps', async () => {
+    await open(pinned(12));
+    expect(hint()).toContain('keeps the last 12 SDK builds');
+    expect(hint()).toContain('through the next 11 SDK builds');
+    document.body.replaceChildren();
+    await open(pinned(2));
+    expect(hint()).toContain('through the next 1 SDK build this server serves');
+  });
+
+  it('says the URL stops working at the next build when the server keeps only the current one', async () => {
+    await open(pinned(1));
+    expect(hint()).toContain('This server keeps only its current SDK build, so this URL stops working at the next SDK build.');
+    expect(hint()).not.toContain('keeps the last');
+    // An older API that does not say counts as keeping only the current build.
+    document.body.replaceChildren();
+    await open(pinned(undefined));
+    expect(hint()).toContain('stops working at the next SDK build');
+  });
+
+  it('announces the same copy again', async () => {
+    await open(pinned(5));
+    const status = () => root().querySelector('app-pinned-sdk [role="status"]');
+    await click('pinned-sdk-copy-url');
+    expect(status()?.textContent?.trim()).toBe('Pinned URL copied');
+    root().querySelector<HTMLButtonElement>('#pinned-sdk-copy-url')?.click();
+    await settle(fixture);
+    // Emptied first, then said again.
+    expect(status()?.textContent?.trim()).toBe('');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle(fixture);
+    expect(status()?.textContent?.trim()).toBe('Pinned URL copied');
+  });
+
   it('copies the URL, the integrity and the pinned script tag, and says so when copying fails', async () => {
-    await open({ ...install, sdkPinnedUrl: pinnedUrl, sdkIntegrity: integrity });
-    const click = async (id: string) => {
-      root().querySelector<HTMLButtonElement>(`#${id}`)?.click();
-      await settle(fixture);
-    };
+    await open(pinned(5));
     await click('pinned-sdk-copy-url');
     expect(writeText).toHaveBeenLastCalledWith(pinnedUrl);
     expect(statuses()).toContain('Pinned URL copied');

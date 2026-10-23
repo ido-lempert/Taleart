@@ -89,6 +89,9 @@ deferred: []
 
 ## Plan Change Log
 
+- **Review fixes (2026-10-23).** Contract first: `InstallInfo.sdkBuildsKept` (integer ≥ 1; 1 when `SDK_BUILDS_DIR` is off); the card, docs and README use it and say "SDK builds this server served", never "releases"; with 1 the card says the URL stops working at the next SDK build. `servedFile` stats before and after each read and keeps a read only when size, mtime and length agree (three tries, else the last whole read); a build is recorded only once its file has held still for 1 s (`SDK_STABLE_MS`, a timer records it later), and `current()` no longer awaits the record. Pinned 404s are `no-store`. `SDK_BUILDS_DIR` off values `off`/`false`/`none`/`no`/`0` in any case; empty means the default. `SDK_BUILDS_KEPT` is 2–100 with a folder (two processes during a rolling deploy). The readers map is capped at `keep` (least recently read out) and drops misses. Production start warns when the folder holds no build (`hasKeptBuilds`). Card copies are announced after 100 ms so the same copy is announced again; the integrity field is described by the hint. Docs/README/`.env.example`: volume, shared folder, clock sync, atomic deploys (write elsewhere, rename). New tests: encoded and traversal names, 15/17-character hashes, trailing slash, symlinks (404 unless the bytes match), stale vs fresh temporary files, two instances pruning at once, short and concurrently rewritten reads, deferred recording, pinned 404 headers, env off/min, card with 12, 2, 1 and missing.
+- **Results.** Full run: only the known clock test fails (api 617 of 618); dashboard 662, docs 28, contract 391. `api:check-sdk-assets` pass; `web-sdk:size` 24.30 KB; `sdk-sample:perf` PASS (cold p75 1269 ms, API-served 1340 ms); dashboard initial 394.57 kB; `dashboard-e2e:e2e` 10 passed.
+
 ## Review Triage Log
 
 ## Verification

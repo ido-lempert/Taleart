@@ -209,8 +209,8 @@ export const SDK_PINNED_CACHE_SECONDS = 31_536_000;
 
 /**
  * How many SDK builds the API keeps serving at their pinned URLs unless SDK_BUILDS_KEPT says
- * otherwise, the current one included (story 8.21): a pinned page keeps working for this many
- * releases less one.
+ * otherwise, the current one included (story 8.21): a pinned page keeps working through this many
+ * SDK builds the server serves, less one. `InstallInfo.sdkBuildsKept` gives the server's own number.
  */
 export const DEFAULT_SDK_BUILDS_KEPT = 5;
 
