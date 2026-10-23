@@ -1,1 +1,181 @@
-/* You can add global styles to this file, and also import other style files */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --surface: #f7f7f9;
+  --text: #1c1d21;
+  --muted: #555a64;
+  --line: #dcdee3;
+  --hover: #eceef2;
+  --accent: #4b3bd6;
+  --accent-soft: #ecebfd;
+  --accent-text: #3326b0;
+  --code-bg: #f1f2f5;
+  --note-bg: #fff7e0;
+  --note-line: #e2b33c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131418;
+    --surface: #1b1c21;
+    --text: #ececf1;
+    --muted: #a7abb5;
+    --line: #33353d;
+    --hover: #262830;
+    --accent: #a59cff;
+    --accent-soft: #2a2652;
+    --accent-text: #cdc8ff;
+    --code-bg: #1e2026;
+    --note-bg: #2e2716;
+    --note-line: #b48a22;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+a {
+  color: var(--accent-text);
+}
+
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+  margin: 0 0 0.75rem;
+}
+
+h2 {
+  font-size: 1.375rem;
+  margin: 2.25rem 0 0.5rem;
+}
+
+h3 {
+  font-size: 1.0625rem;
+  margin: 1.5rem 0 0.25rem;
+}
+
+.lede {
+  font-size: 1.125rem;
+  color: var(--muted);
+  margin-top: 0;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: var(--code-bg);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  overflow-wrap: normal;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+}
+
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  padding: 0.5rem 0.625rem;
+}
+
+th {
+  font-weight: 600;
+}
+
+.note {
+  background: var(--note-bg);
+  border-left: 4px solid var(--note-line);
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+
+.note > :first-child {
+  margin-top: 0;
+}
+
+.note > :last-child {
+  margin-bottom: 0;
+}
+
+.steps li {
+  margin-bottom: 0.5rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  background: var(--surface);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  z-index: 1;
+}
+
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+caption {
+  caption-side: top;
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.25rem;
+}
+
+ul.plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+h1:focus {
+  outline: none;
+}
+
+.table-wrap:focus-visible,
+pre:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

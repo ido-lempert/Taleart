@@ -4,12 +4,35 @@ The TaleArt Web SDK: a `<taleart-view>` custom element that renders a zone's dis
 tale groups in a full-screen viewer, reading published content from the Delivery API with the project's site key and
 the zone's slug.
 
+## Terms
+
+These are the words the dashboard and the docs app use (the UX review's glossary):
+
+| Term | Meaning |
+| --- | --- |
+| Project | Your app or site: its zones, tale groups, theme, fonts and site key. |
+| Zone | One spot in your app or site where tales appear, named on a page by its slug (`home-top`). |
+| Display | How a zone looks: a bar or a banner, plus its settings. One per zone (the API and code call it a frame). |
+| Template | A preset picked when a zone is created (Stories bar, Promo banner, Blank). It sets the display once. |
+| Tale group | A set of tales shown as one item: one circle in a bar or one slide in a banner. On or Off. |
+| Tale | One full-screen page of a group, made in Tale Studio. Shown or Hidden. |
+| Theme | Colours, rings and fonts for every zone of the project. |
+| Site key | The project's one key for host pages (`tas_…`). |
+
 ## Placing a zone
+
+The zone page's Install tab in the dashboard gives this snippet for its zone, with the API URL and the zone's slug
+filled in (and the site key, right after it is issued):
 
 ```html
 <script type="module" src="https://api.example.com/sdk/v1/taleart.js"></script>
-<taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-top"></taleart-view>
-<taleart-view api-url="https://api.example.com" site-key="tas_…" zone="home-promo"></taleart-view>
+<taleart-view api-url="https://api.example.com" site-key="YOUR_SITE_KEY" zone="home-top"></taleart-view>
+```
+
+Several zones of a project go on one page with one script tag and one element per zone, all with the same site key:
+
+```html
+<taleart-view api-url="https://api.example.com" site-key="YOUR_SITE_KEY" zone="home-promo"></taleart-view>
 ```
 
 A project has one site key (`tas_…`), issued in the dashboard; every zone of the project is placed with it and its
@@ -19,8 +42,7 @@ Rotating the site key affects every zone of the project: update every page that 
 not a secret once it is in a page's HTML: anyone who sees it can read every zone of the project that has a display and
 visible content, by its slug.
 
-The zone page's Install tab in the dashboard gives this snippet for its zone, with the API URL filled in, and an
-"Open test page" link.
+The Install tab also has a Copy button and an "Open test page" link (below).
 
 - **Where the SDK comes from.** The TaleArt API serves this package's ES build at `<api-url>/sdk/v1/taleart.js`: the
   API build copies `dist/libs/web-sdk/index.js` next to its `main.js` (`WEB_SDK_FILE` names another file). The `v1`
@@ -28,8 +50,9 @@ The zone page's Install tab in the dashboard gives this snippet for its zone, wi
   URL; it is cached for five minutes, and a running API serves a rebuilt file at once. A site may also host the file
   itself, or install the npm package.
 - **Pinning it.** The same build is also served at a URL pinned to its content, `<api-url>/sdk/v1/taleart.<hash>.js`,
-  cached for a year. `GET /api/v1/install` gives it (`sdkPinnedUrl`) with its Subresource Integrity value
-  (`sdkIntegrity`), for a page that wants the browser to refuse any other file:
+  cached for a year. Open `<api-url>/api/v1/install` in a browser where you are signed in to the dashboard: it gives
+  that URL (`sdkPinnedUrl`) with its Subresource Integrity value (`sdkIntegrity`), for a page that wants the browser
+  to refuse any other file:
   `<script type="module" src="…/taleart.<hash>.js" integrity="sha384-…" crossorigin="anonymous">`. A pinned URL is gone
   with the next build, so a page that pins it updates it on each release.
 - **The test page.** `<api-url>/sdk/v1/test-page?zone=<slug>` renders one zone with this SDK. It reads the site key
@@ -38,8 +61,26 @@ The zone page's Install tab in the dashboard gives this snippet for its zone, wi
   Delivery API. It is served with a strict Content Security Policy (scripts from the API only), `noindex` and no
   referrer.
 
-An element renders only with both a site key and a slug. Zone keys and the `stage` attribute of
-earlier builds are gone.
+An element renders only with both a site key and a slug. Put the key only in `site-key` (or `siteKey`), never in a
+query string: the SDK sends it only in the `Authorization` header. Slugs are not access control (they are often easy
+to guess), so treat what a visible zone shows as public. The Delivery API limits how often one address may ask (by
+default bursts of 600, then 20 a second); over the limit it answers 429, and the element renders nothing and logs one
+console error.
+
+<!-- docs-check:removed -->
+### Removed: zone keys and the `stage` attribute
+
+Builds before the zone rework placed a zone with its own zone key (`tak_…`, the `zone-key` attribute or `zoneKey`
+property) and picked one of its stages with `stage="…"`. They were removed in the zone rework (story 8.7, owner
+decision 2026-10-22): such an element renders nothing. The `zone-key` attribute logs one console warning per element;
+the `zoneKey` property, the `stage` attribute and `configureZone` with a zone key are ignored without a word. The
+upgrade (story 8.5) turned every stage, and every frame beyond a zone's first, into a zone of its own with one display
+and a copy of the zone's tale groups. A stage's key became its zone's slug (with a `-2`, `-3` suffix where another zone
+already had it); a zone made from a frame took the original zone's new slug plus `-<type>-<n>`, counting that zone's
+frames of the type oldest first (`top-bar-2` for the second bar of a zone that became `top`). To move a page, issue the project's site key and replace the
+element with the Install tab's snippet for the zone that came from the stage. The docs app's "Stages and zone keys"
+page has the details.
+<!-- /docs-check:removed -->
 
 Loading the SDK registers `<taleart-view>`. The ES build exports the API below; the UMD build puts the same exports on
 `window.TaleartWebSdk`.
@@ -54,15 +95,18 @@ Loading the SDK registers `<taleart-view>`. The ES build exports the API below; 
 ## Theme
 
 The project's theme, set in the dashboard, styles the zone's display and the viewer. A host page can override any of its fields
-for a zone, or for one element. There is no theme per frame. Each field resolves, in order, from:
+for a zone, or for one element. There is no theme per display. Each field resolves, in order, from:
 
 1. the element's `theme` property or attribute,
 2. the zone's `configureZone(zone, { theme })` option, where `zone` is the zone's slug,
 3. the project's theme,
 4. TaleArt's default.
 
+Import `configureZone` from exactly the URL of the page's script tag (the pinned one, if the page pins it): another
+URL loads a second copy of the SDK, whose settings the elements never read.
+
 ```js
-import { configureZone } from 'https://your-cdn.example/taleart/index.js';
+import { configureZone } from 'https://api.example.com/sdk/v1/taleart.js';
 
 // Every <taleart-view> with zone="home-top"; other zones keep the project's theme.
 configureZone('home-top', { theme: { ringStyle: 'solid', ringColors: ['#0055ff'] } });
@@ -81,7 +125,7 @@ document.querySelector('taleart-view').theme = { cornerRadius: 0 };
 | `ringColors` | 1–3 colours, `#rrggbb` |
 | `seenRingColor` | `#rrggbb` |
 | `ringWidth` | integer 1–4 (px) |
-| `cornerRadius` | integer 0–32 (px), or `null` for the frame's own |
+| `cornerRadius` | integer 0–32 (px), or `null` for the display's own |
 | `fontFamily` | a CSS font-family list (names, quoted or bare; the host page loads the font), or `null` for the host page's |
 | `titleColor` | `#rrggbb`, or `null` for the host page's text colour |
 | `backgroundColor` | `#rrggbb` or `"transparent"` |
@@ -119,7 +163,7 @@ the SDK at most 50 KB gzipped. What the SDK does:
 - The Delivery API answers `Cache-Control: private, no-cache` with an ETag: a repeat visit revalidates the zone and
   gets 304 while it is unchanged, and a paused or unpublished group still disappears at once.
 - Performance marks, for your own monitoring, each once per element: `taleart:zone` when the zone first arrives, and
-  `taleart:first-content` when the element's first frame is on the page with its covers in view loaded (a render
+  `taleart:first-content` when the element's display is first on the page with its covers in view loaded (a render
   replaced or removed before that never marks). With several elements, the earliest is the page's first zone content.
 
 ```js
@@ -133,12 +177,12 @@ What the host page does:
 ```html
 <head>
   <!-- Fetch the SDK early. -->
-  <link rel="modulepreload" href="https://your-cdn.example/taleart/index.js" />
+  <link rel="modulepreload" href="https://api.example.com/sdk/v1/taleart.js" />
   <!-- Connect to the API early: once for the Delivery API call (CORS, no credentials), once for media. -->
   <link rel="preconnect" href="https://api.example.com" crossorigin />
   <link rel="preconnect" href="https://api.example.com" />
   <style>
-    /* Reserve the frame's height, so the page does not shift when it renders: 94 px for the default bar. */
+    /* Reserve the display's height, so the page does not shift when it renders: 94 px for the default bar. */
     taleart-view { display: block; min-height: 94px; }
   </style>
 </head>
@@ -193,7 +237,7 @@ and when the tale goes (by a key or the arrows) focus returns to the viewer.
 ### Measuring
 
 `nx run sdk-sample:perf` builds the API and the SDK, starts the API on `TEST_DATABASE_URL` (a database whose name
-ends in `_test`, as pg resolves the connection string), seeds a zone with a bar and a banner frame and eight tale
+ends in `_test`, as pg resolves the connection string), seeds a zone with a bar display and eight tale
 groups (an animated cover first, a group without a cover third, still covers for the rest; three 1080 x 1920 JPEG
 tales each), serves the sample page and loads it in headless Chromium with Chrome DevTools' Fast 4G (165 ms latency,
 9 Mbps x 0.9 down, 1.5 Mbps x 0.9 up), a 4x slower CPU and a 412 x 823 phone screen. Each run is a cold load (empty

@@ -63,10 +63,11 @@ const BACKGROUND_NAMES: Readonly<Record<TextBackground, string>> = {
   box: 'Solid box',
   highlight: 'Highlight behind each line',
 };
-const AGAINST: Readonly<Record<'box' | 'highlight' | 'canvas', string>> = {
+const AGAINST: Readonly<Record<'box' | 'highlight' | 'canvas' | 'media', string>> = {
   box: 'its box',
   highlight: 'its highlight',
   canvas: 'the canvas colour',
+  media: 'the media behind it',
 };
 
 /**
@@ -91,14 +92,29 @@ export function ratioText(ratio: number): string {
  * What a contrast check says (epic Tale Studio R12): a warning only, never a block. Null when the
  * contrast is enough.
  */
-export function contrastWarning(check: TextContrast): string | null {
+export function contrastWarning(check: TextContrast, backdrop?: TextBackdrop): string | null {
+  // Over media, the colours behind it are still being read (they load with the media).
+  if (check.kind === 'unknown' && backdrop?.overMedia && backdrop.samples === undefined) {
+    return 'Checking the contrast against the media behind it…';
+  }
+  // Wholly off the canvas, no one sees it: nothing to warn about.
+  if (check.kind === 'unknown' && check.reason === 'off-canvas') return null;
   if (check.kind === 'unknown') {
     return (
-      "Contrast can't be checked over media or the layers below the text. Give the text a solid box or highlight, " +
-      'or check it on the preview.'
+      "Contrast can't be checked over media or the layers below the text: the media did not load, or cannot be " +
+      'read here. Give the text a solid box or highlight, or check it on the preview.'
     );
   }
   if (check.kind === 'ok') return null;
+  // Over media the ratio is an estimate from the picture's pixels (the worst strip of the text's
+  // box), not a WCAG measurement: a photo has no single background colour.
+  if (check.against === 'media') {
+    return (
+      `Low contrast: about ${ratioText(check.ratio)}:1 against the media behind it, so the text may be hard to ` +
+      'read. This is an estimate from the picture: check it on the preview, or give the text a solid box or ' +
+      'highlight. You can still save and update the tale.'
+    );
+  }
   return (
     `Low contrast: ${ratioText(check.ratio)}:1 against ${AGAINST[check.against]}, below the ` +
     `${check.minimum}:1 that WCAG 2.2 AA asks for text this size. You can still save and update the tale.`
@@ -499,10 +515,14 @@ export class TaleTextStyle {
       : `The project theme's font: ${font}.`;
   });
   private readonly contrast = computed(() => textContrast(this.look(), this.backdrop()));
-  protected readonly warning = computed(() => contrastWarning(this.contrast()));
+  protected readonly warning = computed(() => contrastWarning(this.contrast(), this.backdrop()));
   protected readonly contrastNote = computed(() => {
     const check = this.contrast();
-    return check.kind === 'ok' ? `Contrast ${ratioText(check.ratio)}:1 against ${AGAINST[check.against]}.` : '';
+    if (check.kind === 'unknown') return check.reason === 'off-canvas' ? 'The text is outside the canvas: no one sees it.' : '';
+    if (check.kind !== 'ok') return '';
+    return check.against === 'media'
+      ? `Contrast about ${ratioText(check.ratio)}:1 against the media behind it (an estimate from the picture).`
+      : `Contrast ${ratioText(check.ratio)}:1 against ${AGAINST[check.against]}.`;
   });
 
   constructor() {

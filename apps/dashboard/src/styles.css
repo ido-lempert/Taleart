@@ -1486,6 +1486,12 @@ select {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.layer__order {
+  flex: none;
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
 .layer__state {
   display: flex;
   flex-wrap: wrap;
