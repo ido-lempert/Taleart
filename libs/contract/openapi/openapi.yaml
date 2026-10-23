@@ -425,7 +425,7 @@ paths:
       description: >-
         The group starts Off (`draft`) with no tales and no placement; it can
         be shown in a zone later. Unknown project 404 `project_not_found`. A
-        project holds at most 500 tale groups, archived ones included: 409
+        project holds at most 500 tale groups that are not archived: 409
         `tale_group_limit_reached`, and nothing is created.
       requestBody:
         required: true
@@ -1421,8 +1421,8 @@ paths:
       summary: Create a tale group and place it in a zone, after the zone's existing groups.
       description: >-
         The tale group belongs to the zone's project and gets one placement, at
-        the end of this zone. A project holds at most 500 tale groups,
-        archived ones included: 409 `tale_group_limit_reached`, and nothing is
+        the end of this zone. A project holds at most 500 tale groups that
+        are not archived: 409 `tale_group_limit_reached`, and nothing is
         created.
       requestBody:
         required: true
@@ -1606,8 +1606,8 @@ paths:
         project and to the target zone's project (403 `forbidden`). Unknown
         tale group: 404 `tale_group_not_found`; missing `zoneId`: 400
         `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts
-        against the target zone's project, which holds at most 500 tale groups,
-        archived ones included: 409 `tale_group_limit_reached`, and nothing is
+        against the target zone's project, which holds at most 500 tale groups
+        that are not archived: 409 `tale_group_limit_reached`, and nothing is
         copied.
       requestBody:
         required: true
@@ -1647,7 +1647,9 @@ paths:
         `draft` or `paused` (publish); `paused` from `live` (pause) or from
         `archived` (restore); `archived` from `draft`, `live` or `paused`
         (archive). Setting the current status again changes nothing. Any
-        other change: 409 `invalid_status_transition`. A status other than
+        other change: 409 `invalid_status_transition`. A restore in a project
+        that already has 500 tale groups that are not archived: 409
+        `tale_group_limit_reached`. A status other than
         `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale
         group: 404 `tale_group_not_found`. Only `live` groups reach the
         Delivery API; the `live` tales of a `draft` or `paused` group read

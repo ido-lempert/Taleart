@@ -339,9 +339,11 @@ describe('App', () => {
   }
 
   // A full project's refusal (epic UX rework R14, story 8.22) and the message the drawers show for it.
-  const groupLimit = { error: { code: 'tale_group_limit_reached', message: 'A project holds at most 500 tale groups' } };
-  const fullAcme =
-    'Acme already has 500 tale groups, the most a project can hold. Archived tale groups count too, so archiving one does not make room.';
+  const fullCreate =
+    'This project already has 500 tale groups that are not archived, the most it can hold. Archive a tale group to make room.';
+  const fullCopy =
+    'The project of that zone already has 500 tale groups that are not archived, the most it can hold. Archive a tale group there to make room.';
+  const groupLimit = (message: string) => ({ error: { code: 'tale_group_limit_reached', message } });
 
   async function refuse(fixture: ComponentFixture<unknown>, url: string, code: string, message: string) {
     http.expectOne(url).flush({ error: { code, message } }, { status: 400, statusText: 'Bad Request' });
@@ -1267,10 +1269,11 @@ describe('App', () => {
       type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush(groupLimit, { status: 409, statusText: 'Conflict' });
+      http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush(groupLimit(fullCreate), { status: 409, statusText: 'Conflict' });
       await settle(fixture);
 
-      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullAcme);
+      // The server's message, as it says it.
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCreate);
       expect(buttonNamed(drawer() as HTMLElement, 'Create')).toBeTruthy();
     });
 
@@ -2378,7 +2381,7 @@ describe('App', () => {
       expect(buttonNamed(drawer() as HTMLElement, 'Copy')).toBeTruthy();
     });
 
-    it('names the full target project when a copy is refused at the cap', async () => {
+    it("shows the server's message when a copy is refused at the cap", async () => {
       const theirs = { id: 'g8', projectId: 'p2', name: 'Elsewhere', position: 0, zoneIds: ['z2'], tales: [], tags: [] };
       const { fixture, root } = await open('/zones/z2', { ...twoZones, groups: { z2: [theirs] } });
 
@@ -2390,10 +2393,10 @@ describe('App', () => {
       await settle(fixture);
       buttonNamed(drawer() as HTMLElement, 'Copy').click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/tale-groups/g8/copy`).flush(groupLimit, { status: 409, statusText: 'Conflict' });
+      http.expectOne(`${API_BASE}/tale-groups/g8/copy`).flush(groupLimit(fullCopy), { status: 409, statusText: 'Conflict' });
       await settle(fixture);
 
-      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullAcme);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCopy);
     });
 
     it('offers "Copy to zone" on the Tale groups page, also for a group in no zone', async () => {
@@ -5392,9 +5395,10 @@ describe('App', () => {
       type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Loose ends');
       buttonNamed(drawer() as HTMLElement, 'Create').click();
       await settle(fixture);
-      http.expectOne(`${API_BASE}/projects/p1/tale-groups`).flush(groupLimit, { status: 409, statusText: 'Conflict' });
+      // Without the server's message, the client's own wording.
+      http.expectOne(`${API_BASE}/projects/p1/tale-groups`).flush(groupLimit(''), { status: 409, statusText: 'Conflict' });
       await settle(fixture);
-      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullAcme);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullCreate);
     });
 
     it('creates a tale group in no zone with its tales from files (story 8.13)', async () => {

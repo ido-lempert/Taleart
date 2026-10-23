@@ -327,8 +327,8 @@ export function uniqueZoneSlug(base: string, taken: (slug: string) => boolean): 
 export const MAX_TALES_PER_GROUP = 100;
 
 /**
- * The most tale groups one project holds (epic UX rework R14), archived ones included: an archived
- * group can be restored and no group is ever deleted, so archiving frees no place.
+ * The most tale groups that are not archived one project holds (epic UX rework R14). Archived groups
+ * do not count: archiving one frees a place, and restoring one needs a free place.
  */
 export const MAX_TALE_GROUPS_PER_PROJECT = 500;
 

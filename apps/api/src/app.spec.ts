@@ -2464,104 +2464,147 @@ describe('Management API v1: projects and zones', () => {
     });
   });
 
-  describe('a project holds at most 500 tale groups (epic UX rework R14, story 8.22)', () => {
-    // Fills the project with `n` tale groups straight in the database, every other one archived.
-    async function fill(projectId: string, n: number): Promise<void> {
+  describe('a project holds at most 500 tale groups that are not archived (epic UX rework R14, story 8.22)', () => {
+    const FULL = `already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups that are not archived, the most it can hold.`;
+    const messages = {
+      create: `This project ${FULL} Archive a tale group to make room.`,
+      copy: `The project of that zone ${FULL} Archive a tale group there to make room.`,
+      restore: `This project ${FULL} Restoring a tale group needs a free place: archive another tale group first.`,
+    };
+
+    // Fills the project with `active` groups that are not archived (half Off, half paused) and
+    // `archived` archived ones, straight in the database.
+    async function fill(projectId: string, active: number, archived = 0): Promise<void> {
       await pool.query(
         `INSERT INTO tale_groups (project_id, name, status)
-         SELECT $1, 'Filler ' || g, CASE WHEN g % 2 = 0 THEN 'archived' ELSE 'draft' END FROM generate_series(1, $2) g`,
-        [projectId, n],
+         SELECT $1, 'Filler ' || g, CASE WHEN g > $2::int THEN 'archived' WHEN g % 2 = 0 THEN 'paused' ELSE 'draft' END
+         FROM generate_series(1, $2::int + $3::int) g`,
+        [projectId, active, archived],
       );
     }
 
+    // The project's groups that are not archived, which the cap counts.
     async function groupCount(projectId: string): Promise<number> {
-      const { rows } = await pool.query('SELECT count(*)::int AS n FROM tale_groups WHERE project_id = $1', [projectId]);
+      const { rows } = await pool.query(
+        "SELECT count(*)::int AS n FROM tale_groups WHERE project_id = $1 AND status <> 'archived'",
+        [projectId],
+      );
       return rows[0].n;
     }
 
-    async function refused(res: Response): Promise<void> {
+    async function refused(res: Response, message = messages.create): Promise<void> {
       expect(res.status).toBe(409);
-      expect(await res.json()).toEqual({
-        error: {
-          code: 'tale_group_limit_reached',
-          message: `A project holds at most ${MAX_TALE_GROUPS_PER_PROJECT} tale groups, archived ones included, and this one is full.`,
-        },
-      });
+      expect(await res.json()).toEqual({ error: { code: 'tale_group_limit_reached', message } });
     }
 
-    it('refuses New tale group in a zone and in no zone, and Copy to zone, at the cap, archived groups counted', async () => {
+    async function zoneIn(projectId: string, name: string): Promise<{ id: string }> {
+      return (await post('/zones', { name, projectId })).json();
+    }
+
+    async function groupIn(zoneId: string, name: string): Promise<{ id: string }> {
+      return (await post(`/zones/${zoneId}/tale-groups`, { name })).json();
+    }
+
+    it('refuses New tale group in a zone and in no zone, and Copy to zone, at the cap, writing nothing', async () => {
       expect(MAX_TALE_GROUPS_PER_PROJECT).toBe(500);
       const project = await createProject('Full');
-      const zone = (await (await post('/zones', { name: 'Home', projectId: project.id })).json()) as { id: string };
-      const source = (await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Source' })).json()) as { id: string };
+      const zone = await zoneIn(project.id, 'Home');
+      const source = await groupIn(zone.id, 'Source');
       await post(`/tale-groups/${source.id}/tales`, { title: 'One' });
-      await fill(project.id, MAX_TALE_GROUPS_PER_PROJECT - 1);
+      // 499 more that are not archived, and 20 archived ones that do not count.
+      await fill(project.id, MAX_TALE_GROUPS_PER_PROJECT - 1, 20);
       expect(await groupCount(project.id)).toBe(500);
-      const before = await pool.query('SELECT count(*)::int AS n FROM zone_tale_groups');
-      const tales = await pool.query('SELECT count(*)::int AS n FROM tales');
+      const totals = async () =>
+        (
+          await pool.query(
+            `SELECT (SELECT count(*) FROM tale_groups)::int AS groups, (SELECT count(*) FROM zone_tale_groups)::int AS placements,
+                    (SELECT count(*) FROM tales)::int AS tales`,
+          )
+        ).rows[0];
+      const before = await totals();
 
       await refused(await post(`/zones/${zone.id}/tale-groups`, { name: 'In a zone' }));
       await refused(await post(`/projects/${project.id}/tale-groups`, { name: 'In no zone' }));
-      await refused(await post(`/tale-groups/${source.id}/copy`, { zoneId: zone.id }));
+      await refused(await post(`/tale-groups/${source.id}/copy`, { zoneId: zone.id }), messages.copy);
 
-      // Nothing was written: no group, placement or tale.
-      expect(await groupCount(project.id)).toBe(500);
-      expect((await pool.query('SELECT count(*)::int AS n FROM zone_tale_groups')).rows[0].n).toBe(before.rows[0].n);
-      expect((await pool.query('SELECT count(*)::int AS n FROM tales')).rows[0].n).toBe(tales.rows[0].n);
+      expect(await totals()).toEqual(before);
+    });
+
+    it('does not count archived groups: archiving frees a place, and a restore needs one', async () => {
+      const project = await createProject('Nearly');
+      const zone = await zoneIn(project.id, 'Home');
+      const a = await groupIn(zone.id, 'A');
+      // A and 498 more not archived, 30 archived: one place is free.
+      await fill(project.id, MAX_TALE_GROUPS_PER_PROJECT - 2, 30);
+      expect((await post(`/projects/${project.id}/tale-groups`, { name: 'Last' })).status).toBe(201);
+      await refused(await post(`/projects/${project.id}/tale-groups`, { name: 'One too many' }));
+
+      // Archiving A frees its place, and a new group takes it.
+      expect((await setStatus('tale-groups', a.id, 'archived')).status).toBe(200);
+      expect((await post(`/zones/${zone.id}/tale-groups`, { name: 'In its place' })).status).toBe(201);
+
+      // Restoring A now has no place: refused, and A stays archived.
+      await refused(await setStatus('tale-groups', a.id, 'paused'), messages.restore);
+      const status = async (id: string) =>
+        (await pool.query('SELECT status FROM tale_groups WHERE id = $1', [id])).rows[0].status;
+      expect(await status(a.id)).toBe('archived');
+      // Archive another group: then A can come back.
+      const { rows } = await pool.query("SELECT id FROM tale_groups WHERE project_id = $1 AND name = 'Filler 1'", [
+        project.id,
+      ]);
+      expect((await setStatus('tale-groups', rows[0].id, 'archived')).status).toBe(200);
+      expect((await setStatus('tale-groups', a.id, 'paused')).status).toBe(200);
+      expect(await status(a.id)).toBe('paused');
+      expect(await groupCount(project.id)).toBe(MAX_TALE_GROUPS_PER_PROJECT);
+      // Publishing and pausing a group that is not archived are not refused at the cap.
+      expect((await setStatus('tale-groups', a.id, 'live')).status).toBe(200);
+      expect((await setStatus('tale-groups', a.id, 'paused')).status).toBe(200);
     });
 
     it('counts a copy against the target project: from a full project into one with room, and the reverse', async () => {
       const full = await createProject('Full');
-      const fullZone = (await (await post('/zones', { name: 'Home', projectId: full.id })).json()) as { id: string };
-      const fullGroup = (await (await post(`/zones/${fullZone.id}/tale-groups`, { name: 'G' })).json()) as { id: string };
+      const fullZone = await zoneIn(full.id, 'Home');
+      const fullGroup = await groupIn(fullZone.id, 'G');
       await fill(full.id, MAX_TALE_GROUPS_PER_PROJECT - 1);
       const roomy = await createProject('Roomy');
-      const roomyZone = (await (await post('/zones', { name: 'Home', projectId: roomy.id })).json()) as { id: string };
-      const roomyGroup = (await (await post(`/zones/${roomyZone.id}/tale-groups`, { name: 'H' })).json()) as { id: string };
+      const roomyZone = await zoneIn(roomy.id, 'Home');
+      const roomyGroup = await groupIn(roomyZone.id, 'H');
 
       expect((await post(`/tale-groups/${fullGroup.id}/copy`, { zoneId: roomyZone.id })).status).toBe(201);
-      await refused(await post(`/tale-groups/${roomyGroup.id}/copy`, { zoneId: fullZone.id }));
+      await refused(await post(`/tale-groups/${roomyGroup.id}/copy`, { zoneId: fullZone.id }), messages.copy);
       expect([await groupCount(full.id), await groupCount(roomy.id)]).toEqual([500, 2]);
     });
 
-    it('takes the last place, then refuses; restoring an archived group is not refused', async () => {
-      const project = await createProject('Nearly');
-      await fill(project.id, MAX_TALE_GROUPS_PER_PROJECT - 1);
-      expect((await post(`/projects/${project.id}/tale-groups`, { name: 'Last' })).status).toBe(201);
-      await refused(await post(`/projects/${project.id}/tale-groups`, { name: 'One too many' }));
-      const { rows } = await pool.query(
-        "SELECT id FROM tale_groups WHERE project_id = $1 AND status = 'archived' LIMIT 1",
-        [project.id],
-      );
-      expect((await setStatus('tale-groups', rows[0].id, 'paused')).status).toBe(200);
-      expect(await groupCount(project.id)).toBe(500);
-    });
-
-    it('never goes over the cap under concurrent creates on every path', async () => {
+    it('never goes over the cap under concurrent creates, copies and restores', async () => {
       const project = await createProject('Busy');
-      const zoneA = (await (await post('/zones', { name: 'A', projectId: project.id })).json()) as { id: string };
-      const zoneB = (await (await post('/zones', { name: 'B', projectId: project.id })).json()) as { id: string };
-      const source = (await (await post(`/zones/${zoneA.id}/tale-groups`, { name: 'Source' })).json()) as { id: string };
+      const zoneA = await zoneIn(project.id, 'A');
+      const zoneB = await zoneIn(project.id, 'B');
+      const source = await groupIn(zoneA.id, 'Source');
       // Another project's group, copied in: it counts against this project.
       const other = await createProject('Other');
-      const otherZone = (await (await post('/zones', { name: 'O', projectId: other.id })).json()) as { id: string };
-      const foreign = (await (await post(`/zones/${otherZone.id}/tale-groups`, { name: 'F' })).json()) as { id: string };
-      await fill(project.id, MAX_TALE_GROUPS_PER_PROJECT - 3);
-      const requests = Array.from({ length: 12 }, (_, i) => {
-        switch (i % 4) {
+      const foreign = await groupIn((await zoneIn(other.id, 'O')).id, 'F');
+      // Source and 496 more not archived (3 places), and 3 archived groups to restore.
+      await fill(project.id, MAX_TALE_GROUPS_PER_PROJECT - 4, 3);
+      const archived = (
+        await pool.query("SELECT id FROM tale_groups WHERE project_id = $1 AND status = 'archived'", [project.id])
+      ).rows.map((r) => r.id as string);
+      const requests = Array.from({ length: 15 }, (_, i) => {
+        switch (i % 5) {
           case 0:
             return post(`/zones/${zoneA.id}/tale-groups`, { name: `A${i}` });
           case 1:
             return post(`/zones/${zoneB.id}/tale-groups`, { name: `B${i}` });
           case 2:
             return post(`/projects/${project.id}/tale-groups`, { name: `P${i}` });
+          case 3:
+            return post(`/tale-groups/${i % 2 ? source.id : foreign.id}/copy`, { zoneId: zoneB.id });
           default:
-            return post(`/tale-groups/${i % 8 === 3 ? source.id : foreign.id}/copy`, { zoneId: zoneB.id });
+            return setStatus('tale-groups', archived[(i - 4) / 5], 'paused');
         }
       });
       const statuses = (await Promise.all(requests)).map((r) => r.status);
-      expect(statuses.filter((s) => s === 201)).toHaveLength(2);
-      expect(statuses.filter((s) => s === 409)).toHaveLength(10);
+      expect(statuses.filter((s) => s === 200 || s === 201)).toHaveLength(3);
+      expect(statuses.filter((s) => s === 409)).toHaveLength(12);
       expect(await groupCount(project.id)).toBe(MAX_TALE_GROUPS_PER_PROJECT);
       expect(await groupCount(other.id)).toBe(1);
     });
@@ -11579,23 +11622,26 @@ describe('Management API v1: projects and zones', () => {
 
     it('skips with a report note the new groups a full project cannot take, and goes on (R14)', async () => {
       const project = await createProject();
-      // The demo app has 6 story groups: 4 places are left.
+      // The demo app has 6 story groups: 4 places are left. Archived groups do not count.
       await pool.query(
         `INSERT INTO tale_groups (project_id, name, status)
-         SELECT $1, 'Filler ' || g, 'archived' FROM generate_series(1, $2) g`,
+         SELECT $1, 'Filler ' || g, CASE WHEN g > $2::int THEN 'archived' ELSE 'draft' END FROM generate_series(1, $2 + 10) g`,
         [project.id, MAX_TALE_GROUPS_PER_PROJECT - 4],
       );
       startWorker();
       const job = await importOnce(project.id);
       expect(job['status']).toBe('done');
       expect(job['report']).toMatchObject({ taleGroups: { source: 6, imported: 4, skipped: 2 } });
-      const notes = (job['report'] as { notes: string[] }).notes.filter((n) =>
-        n.endsWith(`: the project already holds ${MAX_TALE_GROUPS_PER_PROJECT} tale groups`),
-      );
+      const ending = `: the project already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups that are not archived`;
+      const notes = (job['report'] as { notes: string[] }).notes.filter((n) => n.endsWith(ending));
       expect(notes).toHaveLength(2);
-      expect(notes[0]).toMatch(/^Tale group ".+": the project already holds 500 tale groups$/);
+      expect(notes[0]).toMatch(/^Tale group ".+": the project already has 500 tale groups that are not archived$/);
       const count = async () =>
-        (await pool.query('SELECT count(*)::int AS n FROM tale_groups WHERE project_id = $1', [project.id])).rows[0].n;
+        (
+          await pool.query("SELECT count(*)::int AS n FROM tale_groups WHERE project_id = $1 AND status <> 'archived'", [
+            project.id,
+          ])
+        ).rows[0].n;
       expect(await count()).toBe(MAX_TALE_GROUPS_PER_PROJECT);
       // A re-import updates the 4 groups it brought and still skips the other 2, with the note.
       const again = await importOnce(project.id);
@@ -11603,6 +11649,34 @@ describe('Management API v1: projects and zones', () => {
       expect(again['report']).toMatchObject({ taleGroups: { source: 6, imported: 4, skipped: 2 } });
       expect((again['report'] as { notes: string[] }).notes).toEqual(expect.arrayContaining(notes));
       expect(await count()).toBe(MAX_TALE_GROUPS_PER_PROJECT);
+    });
+
+    it('never goes over the cap when an import and dashboard creates race for the last places (R14)', async () => {
+      const project = await createProject();
+      const mine: { id: string } = await (await send('POST', '/zones', { name: 'Mine', projectId: project.id })).json();
+      // 5 places left; the import wants 6 and the dashboard 6.
+      await pool.query(
+        `INSERT INTO tale_groups (project_id, name) SELECT $1, 'Filler ' || g FROM generate_series(1, $2) g`,
+        [project.id, MAX_TALE_GROUPS_PER_PROJECT - 5],
+      );
+      startWorker();
+      const started = await start(project.id);
+      const creates = await Promise.all(
+        Array.from({ length: 6 }, async (_, i) => {
+          // Spread over the import's run.
+          await new Promise((resolve) => setTimeout(resolve, i * 15));
+          return (await send('POST', `/zones/${mine.id}/tale-groups`, { name: `Mine ${i}` })).status;
+        }),
+      );
+      const job = await waitForEnd(project.id, started.id);
+      expect(job['status']).toBe('done');
+      const imported = (job['report'] as { taleGroups: { imported: number; skipped: number } }).taleGroups;
+      const created = creates.filter((s) => s === 201).length;
+      expect(creates.filter((s) => s !== 201).every((s) => s === 409)).toBe(true);
+      expect(imported.imported + created).toBe(5);
+      expect(imported.imported + imported.skipped).toBe(6);
+      const { rows } = await pool.query('SELECT count(*)::int AS n FROM tale_groups WHERE project_id = $1', [project.id]);
+      expect(rows[0].n).toBe(MAX_TALE_GROUPS_PER_PROJECT);
     });
 
     it("skips an instance's story groups and stories when its zone is not imported", async () => {
@@ -11665,9 +11739,11 @@ describe('Management API v1: projects and zones', () => {
         await post('/zones', { name: 'Elsewhere', projectId: project.id })
       ).json();
       const linkKey = `${project.id}:another tool:story_group:3002`;
-      // The other import's group. It is made before the link lock is taken: an import creates its
-      // group under the project's group lock first, then takes the link lock (story 8.22), and the
-      // worker below holds that project lock while it waits on the link lock.
+      // The other import's group, made before the link lock is taken. A real import takes the project's
+      // group lock (story 8.22) before the link lock, so it never holds the link lock while waiting
+      // to create a group; making the group here while holding the link lock would wait on the
+      // worker below, which holds that project lock while it waits on the link lock. The case that
+      // test once covered (the other side creating its group under the link lock) is now theoretical.
       const winner: { id: string } = await (
         await send('POST', `/zones/${otherZone.id}/tale-groups`, { name: 'New arrivals' })
       ).json();

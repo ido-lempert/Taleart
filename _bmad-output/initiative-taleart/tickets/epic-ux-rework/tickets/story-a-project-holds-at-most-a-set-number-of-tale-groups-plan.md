@@ -31,25 +31,27 @@ deferred: []
 ## Boundaries & Constraints
 
 **Always:**
-- Every group counts, archived ones included: an archived group can be restored, and groups are never deleted, so archiving frees no place. The message says so.
-- One lock, `pg_advisory_xact_lock(hashtextextended('project_tale_groups:' || projectId, 0))`, taken first in the creating transaction, before the zone lock (and so before the importer's link lock): lock order project → zone → source group / link. No other path takes it.
+- Archived groups do not count (coordinator's decision at review; the owner may change it): the cap is on groups that are not archived. Archiving frees a place; restoring takes one, so a restore is checked under the same lock. The messages say so.
+- One lock, `pg_advisory_xact_lock(hashtextextended('project_tale_groups:' || projectId, 0))`, taken first in the transaction: project → zone → source group (row, tales, fonts) / link on creates and copies; project → group row on a status change to anything but archived.
 - Refused creates write nothing (no group, no placement, no link, no tags).
 - Copy counts against the target zone's project.
 - The importer skips a new group it cannot create, with a report note, and goes on; groups it already imported (found by link) update as before.
 - Dashboard: the API refusal shows in the create and copy drawers as a plain message; no other dashboard change (8.19 owns the Tale groups page).
 
-**Never:** a configurable cap per project; disabling buttons at the cap; changing what Archive or Restore do.
+**Never:** a configurable cap per project; disabling buttons at the cap; changing what Archive does.
 
 ## I/O & Edge-Case Matrix
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
 | Under the cap | 499 groups | create, project create or copy succeeds (500) | — |
-| At the cap | 500 groups (some archived) | each path refused | 409 `tale_group_limit_reached`, nothing created |
+| At the cap | 500 groups not archived (plus archived ones) | each path refused | 409 `tale_group_limit_reached`, nothing created |
+| Archive at the cap | archive one group | a create succeeds again | — |
+| Restore at the cap | restore an archived group | refused, stays archived | 409 `tale_group_limit_reached`, restore message |
 | Concurrent creates | 498 groups, 10 creates at once over the three paths | exactly 2 succeed; count 500 | the others 409 |
-| Import at the cap | 496 groups, import of 6 new | 4 imported, 2 skipped, a note each, job done | note `Tale group "<name>": the project already holds 500 tale groups` |
+| Import at the cap | 496 groups, import of 6 new | 4 imported, 2 skipped, a note each, job done | note `Tale group "<name>": the project already has 500 tale groups that are not archived` |
 | Re-import at the cap | the 4 imported groups exist | updated; the 2 still skipped with the note | — |
-| Dashboard | create or copy refused | drawer shows the message | — |
+| Dashboard | create or copy refused | drawer shows the server's message | client wording only if the message is missing |
 
 </intent-contract>
 
@@ -90,9 +92,23 @@ deferred: []
 - `api:import-scale`: pass.
 - Browser (`shots-8.22/`, ports 3422/4422, own `_test` DB): 6 checks passed; the message in New tale group on the zone page, on the Tale groups page (no zone), and Copy to zone at 390 px with no horizontal scroll; still 500 groups after.
 
+## Review fixes (2026-10-23)
+
+- **Archived groups do not count** (supersedes the note above that they count; the owner may revisit). `checkGroupLimit` counts `status <> 'archived'`. `setTaleGroupStatus` to anything but `archived` reads the group's project, takes `lockProjectGroups`, then the row's `FOR UPDATE`; from `archived` it checks the cap (`TaleGroupLimitError` with reason `restore`). Archiving takes no project lock.
+- **Messages** (API, shown as is by the dashboard): create "This project already has 500 tale groups that are not archived, the most it can hold. Archive a tale group to make room."; copy "The project of that zone already has … Archive a tale group there to make room."; restore "This project already has … Restoring a tale group needs a free place: archive another tale group first." Importer note: `Tale group "<name>": the project already has 500 tale groups that are not archived`.
+- **Dashboard** shows the server's message (`taleGroupCreateMessage`); the client constant is only the wording when the 409 carries no message. The project-name lookup is gone.
+- **Importer race:** `importLinked` re-reads the link on `TaleGroupLimitError`; when another import linked the same record meanwhile (taking the last place), it uses that record instead of skipping.
+- **Index:** `tale_groups_project_id_idx ON tale_groups (project_id)` in `migrateTales` (forward only).
+- **Tests added:** restore refused at the cap and stays archived, archiving frees a place, restore allowed after archiving another; a concurrent mix of creates, copies and restores (3 places, 15 requests: exactly 3 succeed; with the lock disabled 8 did); an import racing dashboard creates for the last 5 places (never over the cap, imported + created = 5); the importer link re-read on the limit (unit); the project lock first in a copy, before the zone lock, the source row and tales share locks and the font locks (unit); restore lock order and count (unit). The import race test also passes with the lock disabled (the import's creates are sequential and the timing rarely overlaps); it guards the invariant, the 15-request test proves the lock.
+- **Reordered test's comment** (`rolls back a tale group another import linked first`) now says the case it once covered is theoretical.
+
 ## Plan Change Log
 
+- Review 1: archived groups no longer count (Boundaries, I/O matrix amended); restore checked under the project lock; server message shown by the dashboard. Avoids a cap that archiving cannot relieve. KEEP: lock taken first in every transaction that adds to the count.
+
 ## Review Triage Log
+
+- Review 1 (coordinator): no deadlock or bypass found. 6 items, all patched: archived decision (1), importer limit race (2), project_id index (3), test comment (4), concurrency and lock-order tests (5), server message in the dashboard (6).
 
 ## Verification
 

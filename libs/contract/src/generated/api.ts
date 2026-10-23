@@ -303,7 +303,7 @@ export interface paths {
         put?: never;
         /**
          * Create a tale group in a project, placed in no zone (epic UX rework R14).
-         * @description The group starts Off (`draft`) with no tales and no placement; it can be shown in a zone later. Unknown project 404 `project_not_found`. A project holds at most 500 tale groups, archived ones included: 409 `tale_group_limit_reached`, and nothing is created.
+         * @description The group starts Off (`draft`) with no tales and no placement; it can be shown in a zone later. Unknown project 404 `project_not_found`. A project holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is created.
          */
         post: operations["createProjectTaleGroup"];
         delete?: never;
@@ -743,7 +743,7 @@ export interface paths {
         put?: never;
         /**
          * Create a tale group and place it in a zone, after the zone's existing groups.
-         * @description The tale group belongs to the zone's project and gets one placement, at the end of this zone. A project holds at most 500 tale groups, archived ones included: 409 `tale_group_limit_reached`, and nothing is created.
+         * @description The tale group belongs to the zone's project and gets one placement, at the end of this zone. A project holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is created.
          */
         post: operations["createZoneTaleGroup"];
         delete?: never;
@@ -836,7 +836,7 @@ export interface paths {
         put?: never;
         /**
          * Copy a tale group into a zone, as an independent group.
-         * @description Creates a new tale group in the target zone's project, with the same name, placed after the zone's groups (AD-14). Its tales are new rows with the same titles, positions and media; media files are not duplicated, the copy shares their storage keys (AD-11). For each of the source's tags, a tag of the target project with the same name, ignoring case, is reused, else created. Copy and source are independent afterwards. The caller needs access to the source group's project and to the target zone's project (403 `forbidden`). Unknown tale group: 404 `tale_group_not_found`; missing `zoneId`: 400 `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts against the target zone's project, which holds at most 500 tale groups, archived ones included: 409 `tale_group_limit_reached`, and nothing is copied.
+         * @description Creates a new tale group in the target zone's project, with the same name, placed after the zone's groups (AD-14). Its tales are new rows with the same titles, positions and media; media files are not duplicated, the copy shares their storage keys (AD-11). For each of the source's tags, a tag of the target project with the same name, ignoring case, is reused, else created. Copy and source are independent afterwards. The caller needs access to the source group's project and to the target zone's project (403 `forbidden`). Unknown tale group: 404 `tale_group_not_found`; missing `zoneId`: 400 `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts against the target zone's project, which holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is copied.
          */
         post: operations["copyTaleGroup"];
         delete?: never;
@@ -857,7 +857,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale group.
-         * @description Sets the group's stored status key (AD-6). Allowed: `live` from `draft` or `paused` (publish); `paused` from `live` (pause) or from `archived` (restore); `archived` from `draft`, `live` or `paused` (archive). Setting the current status again changes nothing. Any other change: 409 `invalid_status_transition`. A status other than `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`. Only `live` groups reach the Delivery API; the `live` tales of a `draft` or `paused` group read `blocked-by-group`. The dashboard shows `live` as On and `draft` or `paused` as Off (`groupShownStatus`); its switch sets `live` (On) or `paused` (Off).
+         * @description Sets the group's stored status key (AD-6). Allowed: `live` from `draft` or `paused` (publish); `paused` from `live` (pause) or from `archived` (restore); `archived` from `draft`, `live` or `paused` (archive). Setting the current status again changes nothing. Any other change: 409 `invalid_status_transition`. A restore in a project that already has 500 tale groups that are not archived: 409 `tale_group_limit_reached`. A status other than `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`. Only `live` groups reach the Delivery API; the `live` tales of a `draft` or `paused` group read `blocked-by-group`. The dashboard shows `live` as On and `draft` or `paused` as Off (`groupShownStatus`); its switch sets `live` (On) or `paused` (Off).
          */
         put: operations["setTaleGroupStatus"];
         post?: never;
