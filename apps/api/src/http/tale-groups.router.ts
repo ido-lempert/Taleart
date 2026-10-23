@@ -155,6 +155,16 @@ export function taleGroupsRouter(pool: Pool): Router {
   const router = Router();
   const groupAccess = authorizeParam(pool, 'taleGroup', 'taleGroupId');
 
+  // One group with its tales, placed in a zone or not: the dashboard opens a group in no zone with it (story 8.19).
+  router.get('/:taleGroupId', groupAccess, async (req, res, next) => {
+    try {
+      const [body] = await withTags(pool, [await getTaleGroup(pool, req.params.taleGroupId)]);
+      res.json(body satisfies TaleGroup);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.patch('/:taleGroupId', groupAccess, async (req, res, next) => {
     try {
       // Tale group first (404), then the body (400).

@@ -99,6 +99,8 @@ interface Data {
   tags?: Record<string, unknown[]>;
   /** Each project's tale groups (the Tale groups page), keyed by project id. */
   projectGroups?: Record<string, unknown[]>;
+  /** Tale groups read on their own with their tales (`GET /tale-groups/{id}`, story 8.19), keyed by id; 404 when missing. */
+  readGroups?: Record<string, unknown>;
 }
 
 const oneZone: Data = { projects: [acme], zones: [zone] };
@@ -244,9 +246,19 @@ describe('App', () => {
     }
   }
 
+  // A tale group read on its own (story 8.19), when a page opens it: answers every such read waiting now.
+  function flushReadGroups(data: Data = lastData): void {
+    for (const req of http.match((r) => r.method === 'GET' && /\/v1\/tale-groups\/[^/]+$/.test(r.url))) {
+      const found = data.readGroups?.[req.request.url.split('/').at(-1) ?? ''];
+      if (found) req.flush(found);
+      else req.flush({ error: { code: 'tale_group_not_found', message: 'No tale group' } }, { status: 404, statusText: 'Not Found' });
+    }
+  }
+
   afterEach(() => {
     flushSiteKeys();
     flushProjectGroups({});
+    flushReadGroups({});
     lastData = {};
     http.verify();
   });
@@ -276,8 +288,11 @@ describe('App', () => {
     await settle(fixture);
     flushProjectGroups(data);
     await settle(fixture);
+    flushReadGroups(data);
+    await settle(fixture);
     flushSiteKeys();
     flushProjectGroups(data);
+    flushReadGroups(data);
     await settle(fixture);
   }
 
@@ -5248,9 +5263,14 @@ describe('App', () => {
       ]);
       expect(row('Ends later').querySelector('.window-chip')?.textContent).toContain('Ends');
       expect(row('Draft loose').querySelector('.group-row__count')?.textContent).toContain('No tales yet');
-      // The name opens the group view in the first zone the group is in (R11); a group in no zone has none.
-      expect(visible.querySelector('h3 a')?.getAttribute('href')).toBe('/zones/z1?group=g7');
-      expect(row('Draft loose').querySelector('h3 a')).toBeNull();
+      // The name opens the group view on this page (story 8.19), placed in a zone or not.
+      for (const name of ['Visible now', 'Draft loose']) {
+        const button = row(name).querySelector('h3 button.group-row__open');
+        expect(button?.textContent?.trim()).toBe(name);
+        expect(button?.getAttribute('aria-haspopup')).toBe('dialog');
+        expect(button?.getAttribute('aria-expanded')).toBe('false');
+        expect(row(name).querySelector('h3 a')).toBeNull();
+      }
     });
 
     it('keeps "Show in another zone" for an archived group, disabled with its reason, and offers Restore', async () => {
@@ -5434,6 +5454,242 @@ describe('App', () => {
       expect(cards[0].querySelector('.zone-card__summary')?.getAttribute('aria-label')).toBe('Summary of Home bar');
       expect(text(cards[0].querySelector('app-visibility .visibility__line'))).toBe('Visible on site');
       expect(text(cards[1].querySelector('app-visibility .visibility__line'))).toBe('Not visible: zone not installed');
+    });
+  });
+
+  describe('a tale group in no zone can get tales (story 8.19)', () => {
+    const notInZone = (subject = 'group') => ({ visible: false, reasons: [{ code: 'not-in-any-zone', subject }] });
+    const VISIBLE = { visible: true, reasons: [] };
+    const looseTales = ['Beach', 'Pool'].map((title, i) => ({
+      ...taleA,
+      id: `l${i + 1}`,
+      taleGroupId: 'g2',
+      title,
+      position: i,
+      visibility: notInZone(),
+    }));
+    // The group as GET /tale-groups/{id} sends it: with its tales, read in any zone.
+    const loose = {
+      id: 'g2',
+      projectId: 'p1',
+      name: 'Loose',
+      status: 'draft',
+      storedStatus: 'draft',
+      startsAt: null,
+      endsAt: null,
+      cover: null,
+      tags: [],
+      zoneIds: [] as string[],
+      visibility: notInZone(),
+      tales: looseTales,
+    };
+    const placed = { ...group, cover: null, visibility: VISIBLE, tales: [{ ...taleA, visibility: VISIBLE }] };
+    const data: Data = {
+      ...oneZone,
+      displays: { z1: frameBar },
+      groups: { z1: [placed] },
+      projectGroups: {
+        p1: [
+          projectGroup({ id: 'g2', name: 'Loose', tales: looseTales, visibility: notInZone() }),
+          projectGroup({ id: 'g1', name: 'Summer', status: 'live', zoneIds: ['z1'], visibility: VISIBLE }, 1),
+        ],
+      },
+      readGroups: { g2: loose, g1: { ...placed, position: undefined } },
+    };
+    const url = () => TestBed.inject(Router).url;
+    const nameButton = (root: HTMLElement, name: string) =>
+      [...root.querySelectorAll<HTMLButtonElement>('.group-items .group-row__open')].find((b) => b.textContent?.trim() === name) as HTMLButtonElement;
+    const cards = () => [...(groupView()?.querySelectorAll('.tale-card__name') ?? [])].map((n) => n.textContent);
+    const cardOf = (title: string) =>
+      groupView()?.querySelector(`[aria-label="More for ${title}"]`)?.closest<HTMLElement>('.tale-card') as HTMLElement;
+
+    // Opens the Tale groups page and the group `name` in its view, answering the group's read.
+    async function openLoose(name = 'Loose', given: Data = data) {
+      const opened = await open('/tale-groups', given);
+      const button = nameButton(opened.root, name);
+      button.focus();
+      button.click();
+      await settle(opened.fixture);
+      flushReadGroups(given);
+      await settle(opened.fixture);
+      return { ...opened, button };
+    }
+
+    it('opens a group in no zone in the group view, read with its tales, and closes back to its name', async () => {
+      const { fixture, root, button } = await openLoose();
+      const view = groupView() as HTMLElement;
+      expect(view.querySelector(`#${view.getAttribute('aria-labelledby')}`)?.textContent?.trim()).toBe('Loose');
+      expect(url()).toBe('/tale-groups?group=g2');
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      expect(button.getAttribute('aria-controls')).toBe(view.id);
+      expect(cards()).toEqual(['Beach', 'Pool']);
+      expect(view.querySelector('.group__zones')?.textContent?.trim()).toBe(
+        'Not in a zone. Show it in a zone from the ⋯ menu to put it on the site.',
+      );
+      // The head's ⋯ is the Tale groups page's: no "Remove from this zone".
+      expect(menuItems(view, 'More for Loose').map((item) => item.label)).toEqual([
+        'Rename', 'Cover', 'Tags', 'Schedule', 'Show in another zone', 'Copy to zone', 'Archive',
+      ]);
+      expect(view.querySelector('.group-view__count')?.textContent).toContain('2 of 2 shown');
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(document.activeElement).toBe(nameButton(root, 'Loose'));
+      for (let i = 0; i < 20 && url() !== '/tale-groups'; i++) await settle(fixture);
+      expect(url()).toBe('/tale-groups');
+      // Closed, the group is no longer kept: a refresh does not read it.
+      expect(TestBed.inject(DashboardStore).readGroups()).toEqual({});
+    });
+
+    it('opens a placed group here too, saying the zones it is in, and a row click opens it', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+      const row = nameButton(root, 'Summer').closest('app-group-row') as HTMLElement;
+      (row.querySelector('.group-row__count') as HTMLElement).click();
+      await settle(fixture);
+      flushReadGroups(data);
+      await settle(fixture);
+      expect(url()).toBe('/tale-groups?group=g1');
+      expect(groupView()?.querySelector('.group__zones')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('In: Home bar');
+      // The view holds the group's tales, read on their own.
+      expect(cards()).toEqual(['A']);
+    });
+
+    it('adds a tale to the group in no zone; the new tale shows in the view', async () => {
+      const { fixture } = await openLoose();
+      const add = groupView()?.querySelector<HTMLButtonElement>('#group-view-add-tale') as HTMLButtonElement;
+      add.click();
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('In tale group Loose');
+      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Dunes');
+      buttonNamed(drawer() as HTMLElement, 'Add').click();
+      await settle(fixture);
+      const dunes = { ...looseTales[0], id: 'l3', title: 'Dunes', position: 2 };
+      const req = http.expectOne(`${API_BASE}/tale-groups/g2/tales`);
+      expect(req.request.body).toEqual({ title: 'Dunes' });
+      req.flush(dunes);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, readGroups: { g2: { ...loose, tales: [...looseTales, dunes] } } });
+      await settle(fixture);
+      expect(cards()).toEqual(['Beach', 'Pool', 'Dunes']);
+    });
+
+    it('hides a tale of the group in no zone from its card, at once, and opens the tale drawer for it', async () => {
+      const { fixture, root } = await openLoose();
+      const toggle = () => cardOf('Pool').querySelector<HTMLButtonElement>('[role=switch]') as HTMLButtonElement;
+      toggle().click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tales/l2/status`);
+      expect(req.request.body).toEqual({ status: 'paused' });
+      req.flush({ ...looseTales[1], status: 'paused', storedStatus: 'paused' });
+      await settle(fixture);
+      // Shown at once from the answer, before the refresh.
+      expect(toggle().getAttribute('aria-checked')).toBe('false');
+      expect(groupView()?.querySelector('.group-view__count')?.textContent).toContain('1 of 2 shown');
+      const hidden = { ...looseTales[1], status: 'paused', storedStatus: 'paused' };
+      await flushRefresh(fixture, { ...data, readGroups: { g2: { ...loose, tales: [looseTales[0], hidden] } } });
+      await settle(fixture);
+      expect(toggle().getAttribute('aria-checked')).toBe('false');
+      expect(announced(root)).toContain('Pool is now hidden');
+
+      // The tale drawer finds the tale, though no zone lists it.
+      cardOf('Beach').querySelector<HTMLButtonElement>('.tale-card__open')?.click();
+      await settle(fixture);
+      expect(drawer()?.textContent).toContain('Beach');
+      expect(drawer()?.textContent).toContain('In tale group Loose');
+      expect(drawer()?.querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('reorders the tales of a group in no zone through the group, and rolls a refusal back', async () => {
+      const { fixture, root } = await openLoose();
+      const later = cardOf('Beach').querySelector<HTMLButtonElement>('[aria-label="Move Beach later"]') as HTMLButtonElement;
+      later.focus();
+      later.click();
+      await settle(fixture);
+      expect(cards()).toEqual(['Pool', 'Beach']);
+      expect(announced(root)).toBe('Beach moved to position 2 of 2');
+      const req = http.expectOne(`${API_BASE}/tale-groups/g2/tales/order`);
+      expect(req.request.body).toEqual({ taleIds: ['l2', 'l1'] });
+      req.flush([looseTales[1], looseTales[0]].map((tale, position) => ({ ...tale, position })));
+      await settle(fixture);
+      expect(cards()).toEqual(['Pool', 'Beach']);
+      expect(groupView()?.querySelector('.tale-card__badge')?.textContent).toBe('1');
+
+      (cardOf('Pool').querySelector('[aria-label="Move Pool later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(cards()).toEqual(['Beach', 'Pool']);
+      http
+        .expectOne(`${API_BASE}/tale-groups/g2/tales/order`)
+        .flush({ error: { code: 'order_mismatch', message: 'The order changed elsewhere' } }, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      expect(cards()).toEqual(['Pool', 'Beach']);
+      expect(groupView()?.querySelector('[role=alert]')?.textContent).toContain('The order changed elsewhere');
+    });
+
+    it('keeps a pending tale order through a refresh, then reads the group again once it is saved', async () => {
+      const { fixture } = await openLoose();
+      (cardOf('Beach').querySelector('[aria-label="Move Beach later"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      const order = http.expectOne(`${API_BASE}/tale-groups/g2/tales/order`);
+      void TestBed.inject(DashboardStore).refresh();
+      await flushRefresh(fixture, data);
+      await settle(fixture);
+      expect(cards()).toEqual(['Pool', 'Beach']);
+      const moved = [looseTales[1], looseTales[0]].map((tale, position) => ({ ...tale, position }));
+      order.flush(moved);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, readGroups: { g2: { ...loose, tales: moved } } });
+      await settle(fixture);
+      expect(cards()).toEqual(['Pool', 'Beach']);
+    });
+
+    it('opens from a deep link, and drops a ?group= that names no group of the project', async () => {
+      const { fixture } = await open('/tale-groups?group=g2', data);
+      flushReadGroups(data);
+      await settle(fixture);
+      expect(cards()).toEqual(['Beach', 'Pool']);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle(fixture);
+      expect(url()).toBe('/tale-groups');
+
+      await TestBed.inject(Router).navigateByUrl('/tale-groups?group=nope&filter=off');
+      await settle(fixture);
+      flushReadGroups(data);
+      await settle(fixture);
+      expect(groupView()).toBeNull();
+      expect(url()).toBe('/tale-groups?filter=off');
+    });
+
+    it('opens Edit in Tale Studio from a card with the way back to the Tale groups page', async () => {
+      const { fixture } = await openLoose();
+      pickMenuItem(groupView() as HTMLElement, 'More for Beach', 'Edit in Tale Studio');
+      await settle(fixture);
+      expect(url()).toBe('/tales/l1/studio?from=tale-groups');
+      // The studio's own reads; not what this checks.
+      for (const req of http.match((r) => r.method === 'GET' && /\/tales\/l1(\/document)?$/.test(r.url))) {
+        req.flush({ error: { code: 'tale_not_found', message: 'gone' } }, { status: 404, statusText: 'Not Found' });
+      }
+      await settle(fixture);
+      for (const req of http.match((r) => r.method === 'GET' && /\/projects\/p1\/(theme|fonts)$/.test(r.url))) req.flush(null);
+    });
+
+    it('turns the group in no zone On from its view, which stays open', async () => {
+      const { fixture } = await openLoose();
+      groupView()?.querySelector<HTMLButtonElement>('[role=switch][aria-label="Loose on site"]')?.click();
+      await settle(fixture);
+      const req = http.expectOne(`${API_BASE}/tale-groups/g2/status`);
+      expect(req.request.body).toEqual({ status: 'live' });
+      req.flush({ ...loose, status: 'live', storedStatus: 'live' });
+      await settle(fixture);
+      const on = { ...loose, status: 'live', storedStatus: 'live' };
+      await flushRefresh(fixture, {
+        ...data,
+        projectGroups: { p1: [projectGroup({ ...on, tales: looseTales }), ...(data.projectGroups?.['p1'] ?? []).slice(1)] },
+        readGroups: { g2: on },
+      });
+      await settle(fixture);
+      expect(groupView()?.querySelector('[role=switch][aria-label="Loose on site"]')?.getAttribute('aria-checked')).toBe('true');
+      expect(announced(fixture.nativeElement as HTMLElement)).toContain('Loose is now');
     });
   });
 

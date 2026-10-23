@@ -29,7 +29,7 @@ import {
 import { AuthStore } from '../auth';
 import { compareTags, DashboardStore } from '../dashboard.store';
 import { Icon } from '../icon';
-import { GroupRow } from '../group-row';
+import { GroupRow, opensFromRowClick } from '../group-row';
 import type { MenuItem, MenuPick } from '../menu-button';
 import { describeSettings, type Settings } from '../settings-form';
 import { statusActions, statusLabel } from '../status';
@@ -697,26 +697,10 @@ export class ZoneDetailPage {
     };
   });
 
-  /**
-   * A click on the row opens the group, as its name does, unless it was on one of the row's own
-   * controls (switch, ⋯ and its menu, move buttons, handle, indicator, links) or ended a text
-   * selection.
-   */
+  /** A click on the row opens the group, as its name does, unless it was on one of the row's own controls. */
   protected rowClick(group: TaleGroup, event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (
-      !target ||
-      target.closest(
-        'button, a, input, select, label, [role=menu], .menu-button, .group-row__reorder, .status-badge, app-visibility',
-      )
-    ) {
-      return;
-    }
-    if ((globalThis.getSelection?.()?.toString() ?? '') !== '') return;
-    this.openGroup(group);
+    if (opensFromRowClick(event)) this.openGroup(group);
   }
-
-  /** "3 of 4 shown": the group's tales that are Shown, of all its tales. */
 
   /** The project's groups that "Add existing group" can place here. */
   protected readonly addableGroups = computed(() => addableGroups(this.store, this.zoneId()));
