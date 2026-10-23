@@ -74,6 +74,7 @@ import {
   type TaleDocument,
   type TaleElement,
   type TaleElementBox,
+  type TaleElementType,
 } from '@taleart/contract/tale-document';
 import {
   isSmallTarget,
@@ -1183,7 +1184,7 @@ export class TaleStudioPage implements OnChanges {
     return layerSpokenName(element, this.doc()?.elements ?? [element]).spoken;
   }
 
-  protected kind(element: { type: TaleElement['type'] }): string {
+  protected kind(element: { type: TaleElementType }): string {
     return kindName(element);
   }
 

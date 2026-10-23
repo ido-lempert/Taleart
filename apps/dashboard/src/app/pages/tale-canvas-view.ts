@@ -10,8 +10,8 @@ import {
   SWIPE_UP_FONT_SIZE,
   TALE_ELEMENT_TYPE_REGISTRY,
   type ShapeKind,
-  type TaleElement,
   type TaleElementBox,
+  type TaleElementType,
   type TextElementProps,
 } from '@taleart/contract/tale-document';
 import {
@@ -30,7 +30,7 @@ import { SHAPE_NAMES } from './tale-shapes';
 // The name people read for each registered type: its registry label ("Text", "Swipe-up link"), R8.
 const KIND_NAMES: ReadonlyMap<string, string> = new Map(TALE_ELEMENT_TYPE_REGISTRY.map((t) => [t.key, t.label]));
 /** How people read an element's type: "Text", "Image", "Video", "Emoji", "Sticker", or a shape's ("Ellipse"). */
-export const kindName = (element: { type: TaleElement['type']; props?: unknown }): string => {
+export const kindName = (element: { type: TaleElementType; props?: unknown }): string => {
   const shape = element.type === 'shape' ? (element.props as { shape?: ShapeKind } | undefined)?.shape : undefined;
   return (shape && SHAPE_NAMES[shape]) || KIND_NAMES.get(element.type) || elementTypeLabel(element.type) || 'Layer';
 };
