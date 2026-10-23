@@ -7,7 +7,7 @@
     "dashboard",
     "api"
   ],
-  "// targets": "e2e starts its own API (built) and dashboard; set E2E_DATABASE_URL to a database ending in _e2e_test (dropped and created again). See playwright.config.mts.",
+  "// targets": "e2e and a11y start their own API (built) and dashboard; set E2E_DATABASE_URL to a database ending in _e2e_test (dropped and created again). See playwright.config.mts. a11y is the WCAG 2.2 AA scan of the dashboard (story 8.17, src/a11y.spec.ts); E2E_A11Y_REPORT=<file> writes its findings as JSON.",
   "targets": {
     "e2e": {
       "cache": false,
@@ -21,13 +21,29 @@
       ],
       "options": {
         "cwd": "apps/dashboard-e2e",
-        "command": "playwright test"
+        "command": "playwright test --grep-invert @a11y"
+      }
+    },
+    "a11y": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": [
+        {
+          "projects": [
+            "api"
+          ],
+          "target": "build"
+        }
+      ],
+      "options": {
+        "cwd": "apps/dashboard-e2e",
+        "command": "playwright test --grep @a11y"
       }
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "node --test apps/dashboard-e2e/scripts/e2e-database.test.mjs"
+        "command": "node --test apps/dashboard-e2e/scripts/e2e-database.test.mjs apps/dashboard-e2e/scripts/dashboard-a11y-css.test.mjs"
       }
     }
   }

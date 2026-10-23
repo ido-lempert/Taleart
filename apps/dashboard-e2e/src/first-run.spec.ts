@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { axeViolations } from './axe';
+import { drawPngs } from './media';
 
 /**
  * The first run (epic UX rework, Done when; story 8.13): a new user goes from sign-up to a tale
@@ -22,33 +23,6 @@ async function shot(page: Page, name: string): Promise<void> {
   // Past the drawers' and the viewer's opening transitions.
   await new Promise((resolve) => setTimeout(resolve, 700));
   await page.screenshot({ path: join(shots, `${name}.png`) });
-}
-
-// Two small PNGs, drawn in the browser: the media the user picks.
-async function drawPngs(page: Page): Promise<{ name: string; mimeType: string; buffer: Buffer }[]> {
-  const drawn = await page.evaluate(async () => {
-    const out: string[] = [];
-    for (const [top, bottom] of [
-      ['#f97316', '#7c2d12'],
-      ['#14b8a6', '#134e4a'],
-    ]) {
-      const canvas = new OffscreenCanvas(360, 640);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('no 2d context');
-      const fill = ctx.createLinearGradient(0, 0, 0, 640);
-      fill.addColorStop(0, top);
-      fill.addColorStop(1, bottom);
-      ctx.fillStyle = fill;
-      ctx.fillRect(0, 0, 360, 640);
-      const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
-      out.push(btoa(String.fromCharCode(...bytes)));
-    }
-    return out;
-  });
-  return [
-    { name: 'beach_day.png', mimeType: 'image/png', buffer: Buffer.from(drawn[0], 'base64') },
-    { name: 'pool.png', mimeType: 'image/png', buffer: Buffer.from(drawn[1], 'base64') },
-  ];
 }
 
 // The tale group's items on a page that places the zone (bar items, in the SDK's Shadow DOM).
