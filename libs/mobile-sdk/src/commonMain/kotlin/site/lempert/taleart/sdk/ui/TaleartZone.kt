@@ -2,6 +2,8 @@ package site.lempert.taleart.sdk.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
@@ -98,35 +100,47 @@ fun TaleartZone(
     titleStyle: TextStyle = TextStyle.Default,
     opensViewer: Boolean = true,
 ) {
-    var open by remember(zone) { mutableStateOf<String?>(null) }
-    val frame = zone.frame ?: return
-    if (frame.type != BAR_FRAME_TYPE) return
-    val settings = remember(frame) { BarSettings.read(frame.settings) }
-    val theme = remember(zone.theme) { TaleartTheme.read(zone.theme) }
-    TaleartBar(
-        groups = zone.taleGroups,
-        settings = settings,
-        theme = theme,
-        seen = seenGroups.ids,
-        onGroupClick = { group ->
-            onGroupClick(group)
-            if (opensViewer && group.tales.isNotEmpty()) open = group.id
-        },
-        modifier = modifier,
-        titleStyle = titleStyle,
-    )
-    open?.let { groupId -> ViewerOverlay(zone, groupId, seenGroups, theme) { open = null } }
+    // The viewer open now, if any. It holds the groups and theme it opened with for its whole life,
+    // so a zone read again (a reload, a refresh) never closes or reshuffles it under the person.
+    var open by remember { mutableStateOf<ViewerRequest?>(null) }
+    var requests by remember { mutableIntStateOf(0) }
+    // A host that takes taps back (or a view that left its window) closes the viewer.
+    if (!opensViewer && open != null) SideEffect { open = null }
+    val frame = zone.frame
+    if (frame != null && frame.type == BAR_FRAME_TYPE) {
+        val settings = remember(frame) { BarSettings.read(frame.settings) }
+        val theme = remember(zone.theme) { TaleartTheme.read(zone.theme) }
+        TaleartBar(
+            groups = zone.taleGroups,
+            settings = settings,
+            theme = theme,
+            seen = seenGroups.ids,
+            onGroupClick = { group ->
+                onGroupClick(group)
+                if (opensViewer && group.tales.isNotEmpty()) open = ViewerRequest(++requests, group.id, zone.taleGroups, theme)
+            },
+            modifier = modifier,
+            titleStyle = titleStyle,
+        )
+    }
+    // After the bar, so a viewer shown in place (tests) lies over it.
+    open?.takeIf { opensViewer }?.let { request ->
+        key(request.id) { ViewerOverlay(request, seenGroups) { if (open?.id == request.id) open = null } }
+    }
 }
+
+// One opening of the viewer: the groups and theme as they were when the group was tapped.
+private class ViewerRequest(val id: Int, val groupId: String, val groups: List<DeliveryTaleGroup>, val theme: TaleartTheme)
 
 // The viewer over the app (or in place, in tests), with the SDK's own image loader and video player.
 @Composable
-private fun ViewerOverlay(zone: DeliveryZone, groupId: String, seenGroups: SeenGroups, theme: TaleartTheme, onClose: () -> Unit) {
+private fun ViewerOverlay(request: ViewerRequest, seenGroups: SeenGroups, onClose: () -> Unit) {
     val loader = LocalCoverImageLoader.current
     val player = LocalTaleVideoPlayer.current
     val viewer = @Composable {
         CompositionLocalProvider(LocalCoverImageLoader provides loader, LocalTaleVideoPlayer provides player) {
-            TaleartViewer(zone.taleGroups, groupId, onClose = { onClose() }, seenGroups = seenGroups, theme = theme)
+            TaleartViewer(request.groups, request.groupId, onClose = { onClose() }, seenGroups = seenGroups, theme = request.theme)
         }
     }
-    if (LocalViewerInPlace.current) viewer() else FullScreenViewer(onDismissRequest = onClose, content = viewer)
+    if (LocalViewerInPlace.current) viewer() else FullScreenViewer(request.id, onDismissRequest = onClose, content = viewer)
 }

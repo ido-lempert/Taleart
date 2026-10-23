@@ -9,6 +9,11 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
@@ -130,10 +135,12 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         groups: List<DeliveryTaleGroup> = zone.taleGroups,
         reduced: Boolean = false,
         lifecycle: LifecycleOwner? = null,
+        direction: LayoutDirection = LayoutDirection.Ltr,
     ) {
         mainClock.autoAdvance = false
         setContent {
             Fakes(lifecycle) {
+                CompositionLocalProvider(LocalLayoutDirection provides direction) {
                 TaleartViewer(
                     groups,
                     group,
@@ -142,6 +149,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
                     onGroupShown = { shown += it },
                     reducedMotion = reduced,
                 )
+                }
             }
         }
         frame()
@@ -183,10 +191,10 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         assertEquals("$winter/0", tale())
         assertEquals(2, fills().size, "segments ${fills()}")
         assertEquals("Winter tales, tale 1 of 2", announcement())
-        onNodeWithContentDescription("Close").assertExistsLabel()
-        onNodeWithContentDescription("Pause").assertExistsLabel()
-        onNodeWithContentDescription("Next tale").assertExistsLabel()
-        onNodeWithContentDescription("Previous tale").assertExistsLabel()
+        onNodeWithContentDescription("Close").assertExists()
+        onNodeWithContentDescription("Pause").assertExists()
+        onNodeWithContentDescription("Next tale").assertExists()
+        onNodeWithContentDescription("Previous tale").assertExists()
     }
 
     @Test
@@ -437,7 +445,7 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         frame()
         assertEquals("clips/0", tale())
         assertFalse(video.playing)
-        onNodeWithContentDescription("Play").assertExistsLabel()
+        onNodeWithContentDescription("Play").assertExists()
     }
 
     @Test
@@ -453,6 +461,9 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
             }
         }
         frame()
+        // Unseen until the viewer shows the group.
+        onNodeWithContentDescription("Winter tales").assertExists()
+        assertEquals(emptySet(), zoneSeen.ids)
         onNodeWithContentDescription("Winter tales").performClick()
         frame()
         assertEquals(listOf(winter), clicked)
@@ -460,8 +471,8 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         onNodeWithContentDescription("Close").performClick()
         frame()
         assertEquals(null, tale())
-        onNodeWithContentDescription("Winter tales, seen").assertExistsLabel()
-        onNodeWithContentDescription("Summer trips").assertExistsLabel()
+        onNodeWithContentDescription("Winter tales, seen").assertExists()
+        onNodeWithContentDescription("Summer trips").assertExists()
     }
 
     @Test
@@ -481,6 +492,138 @@ class TaleartViewerUiTest : ComposeUiTestBase() {
         assertEquals(null, tale())
         assertEquals(emptySet(), zoneSeen.ids)
     }
-}
 
-private fun androidx.compose.ui.test.SemanticsNodeInteraction.assertExistsLabel() = assertExists()
+    @Test
+    fun rightToLeftTheRightThirdStepsBackAndTheRestForward() = runComposeUiTest {
+        open(summer, direction = LayoutDirection.Rtl)
+
+        tap(0.2f)
+        assertEquals("$summer/1", tale())
+        tap(0.5f)
+        assertEquals("$summer/2", tale())
+        tap(0.9f)
+        assertEquals("$summer/1", tale())
+    }
+
+    @Test
+    fun rightToLeftASwipeTowardTheRightShowsTheNextGroup() = runComposeUiTest {
+        open(summer, direction = LayoutDirection.Rtl)
+
+        onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeRight() }
+        frame()
+        assertEquals("$winter/0", tale())
+        onNodeWithTag(VIEWER_STAGE_TAG).performTouchInput { swipeLeft() }
+        frame()
+        assertEquals("$summer/0", tale())
+    }
+
+    @Test
+    fun rightToLeftTheZonesLieMirroredAndEachDoesWhatItSays() = runComposeUiTest {
+        open(summer, direction = LayoutDirection.Rtl)
+
+        val stage = onNodeWithTag(VIEWER_STAGE_TAG).fetchSemanticsNode().boundsInRoot
+        val previous = onNodeWithContentDescription("Previous tale").fetchSemanticsNode().boundsInRoot
+        val next = onNodeWithContentDescription("Next tale").fetchSemanticsNode().boundsInRoot
+        // Previous is the right third, Next the left two thirds.
+        assertEquals(stage.right, previous.right, 1f)
+        assertEquals(stage.left, next.left, 1f)
+        assertTrue(previous.width < next.width)
+        onNodeWithContentDescription("Next tale").performClick()
+        frame()
+        assertEquals("$summer/1", tale())
+        onNodeWithContentDescription("Previous tale").performClick()
+        frame()
+        assertEquals("$summer/0", tale())
+    }
+
+    @Test
+    fun aLateCallFromAnEarlierTalesPlayerChangesNothing() = runComposeUiTest {
+        open("clips", groups = clips)
+
+        val old = videos.instances.single()
+        tap(0.9f)
+        assertEquals("clips/1", tale())
+        // The first tale's player reports after its tale has gone: ignored.
+        old.progress(4_000, 8_000)
+        old.ended()
+        old.error()
+        frame()
+        assertEquals("clips/1", tale())
+        assertTrue(fills()[1] < 0.1f, "fills ${fills()}")
+        advance(2_500)
+        assertTrue(fills()[1] in 0.4f..0.6f, "fills ${fills()}")
+    }
+
+    @Test
+    fun underReducedMotionPlayAfterAVideoEndsPlaysItAgainFromTheStart() = runComposeUiTest {
+        open("clips", groups = clips, reduced = true)
+
+        onNodeWithContentDescription("Play").performClick()
+        frame()
+        val first = videos.instances.single()
+        first.progress(8_000, 8_000)
+        first.ended()
+        frame()
+        assertEquals(1f, fills()[0])
+        onNodeWithContentDescription("Play").performClick()
+        frame()
+        // A new player from the start: the old one is gone, and its late calls change nothing.
+        assertEquals(2, videos.instances.size)
+        val again = videos.instances.last()
+        assertTrue(first.disposed)
+        assertTrue(again.playing)
+        assertEquals(0f, fills()[0])
+        first.ended()
+        frame()
+        assertTrue(again.playing)
+        again.progress(2_000, 8_000)
+        frame()
+        assertEquals(0.25f, fills()[0])
+    }
+
+    @Test
+    fun anAppNotInTheForegroundAsTheViewerOpensWaitsUntilItIs() = runComposeUiTest {
+        val owner = object : LifecycleOwner {
+            val registry = LifecycleRegistry.createUnsafe(this)
+            override val lifecycle: Lifecycle get() = registry
+        }
+        owner.registry.currentState = Lifecycle.State.STARTED
+        open(summer, lifecycle = owner)
+
+        advance(8_000)
+        assertEquals("$summer/0", tale())
+        assertEquals(0f, fills()[0])
+        owner.registry.currentState = Lifecycle.State.RESUMED
+        frame()
+        advance(5_100)
+        assertEquals("$summer/1", tale())
+    }
+
+    @Test
+    fun theOpenViewerKeepsItsGroupsWhenTheZoneIsReadAgain() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        var current by mutableStateOf(zone)
+        val zoneSeen = SeenGroups(InMemoryKeyValueStore())
+        setContent {
+            Fakes {
+                Box(Modifier.fillMaxSize()) { TaleartZone(current, seenGroups = zoneSeen) }
+            }
+        }
+        frame()
+        onNodeWithContentDescription("Summer trips").performClick()
+        frame()
+        tap(0.9f)
+        assertEquals("$summer/1", tale())
+        // A reload brings a new zone: Summer trips lost a tale and the groups swapped places.
+        current = zone.copy(
+            taleGroups = listOf(zone.taleGroups[1], zone.taleGroups[0].copy(tales = zone.taleGroups[0].tales.take(1))),
+        )
+        frame()
+        assertEquals("$summer/1", tale())
+        assertEquals(3, fills().size)
+        tap(0.9f)
+        tap(0.9f)
+        // The groups as they were when the viewer opened: Winter tales still follows.
+        assertEquals("$winter/0", tale())
+    }
+}

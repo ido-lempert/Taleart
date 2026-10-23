@@ -123,13 +123,10 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
 fun TaleartViewController(apiUrl: String, siteKey: String, zone: String): UIViewController =
     TaleartZoneView(apiUrl, siteKey, zone).viewController
 
-/** A view controller showing the zone with slug [zone], calling [onGroupClick] with each tapped group instead of opening the viewer. */
+/** A view controller showing the zone with slug [zone], calling [onGroupClick] with each tapped group before the viewer opens. */
 fun TaleartViewController(
     apiUrl: String,
     siteKey: String,
     zone: String,
     onGroupClick: (DeliveryTaleGroup) -> Unit,
-): UIViewController = TaleartZoneView(apiUrl, siteKey, zone).also {
-    it.onGroupClick = onGroupClick
-    it.opensViewer = false
-}.viewController
+): UIViewController = TaleartZoneView(apiUrl, siteKey, zone).also { it.onGroupClick = onGroupClick }.viewController

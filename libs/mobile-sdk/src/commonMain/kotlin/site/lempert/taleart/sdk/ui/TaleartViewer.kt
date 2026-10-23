@@ -193,6 +193,8 @@ fun TaleartViewer(
     // The tale waits while the app is in the background, and goes on when it comes back.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, state) {
+        // An app that is not in the foreground as the viewer opens: the tale waits from the start.
+        state.inBackground = !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
@@ -318,9 +320,9 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean) {
         }
         // The tap zones, for screen readers: the gestures above handle touch; these name the parts.
         Row(Modifier.matchParentSize()) {
-            val (first, second) = if (rtl) Pair(2f, 1f) else Pair(1f, 2f)
-            Zone(if (rtl) "Next tale" else "Previous tale", first) { if (rtl) state.next() else state.previous() }
-            Zone(if (rtl) "Previous tale" else "Next tale", second) { if (rtl) state.previous() else state.next() }
+            // The Row mirrors right to left by itself: Previous is then the right third.
+            Zone("Previous tale", 1f) { state.previous() }
+            Zone("Next tale", 2f) { state.next() }
         }
     }
 }
@@ -366,17 +368,22 @@ internal fun TalePage(
             is StageMedia.Image -> MediaImage(media, loader, Modifier.fillMaxSize())
             is StageMedia.Video -> {
                 val player = LocalTaleVideoPlayer.current ?: remember { platformTaleVideoPlayer() }
-                player.Video(
-                    url = media.url,
-                    fit = media.fit,
-                    // Under reduced motion the tale starts paused: the video waits for Play.
-                    playing = !state.stopped && state.isOpen && !state.timed,
-                    muted = false,
-                    onProgress = state::videoProgress,
-                    onEnded = state::videoEnded,
-                    onError = state::videoFailed,
-                    modifier = Modifier.fillMaxSize().mediaSemantics(media.label),
-                )
+                // One player per show and run: its callbacks name them, so a late call from an earlier one is ignored.
+                val show = state.shows
+                val run = state.videoRuns
+                key(run) {
+                    player.Video(
+                        url = media.url,
+                        fit = media.fit,
+                        // Under reduced motion the tale starts paused: the video waits for Play.
+                        playing = !state.stopped && state.isOpen && !state.timed,
+                        muted = false,
+                        onProgress = { position, duration -> state.videoProgress(show, run, position, duration) },
+                        onEnded = { state.videoEnded(show, run) },
+                        onError = { state.videoFailed(show, run) },
+                        modifier = Modifier.fillMaxSize().mediaSemantics(media.label),
+                    )
+                }
             }
             is StageMedia.Placeholder -> Box(
                 Modifier
