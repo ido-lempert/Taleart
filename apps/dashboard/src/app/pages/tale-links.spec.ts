@@ -8,7 +8,8 @@ import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { hrefMessage, needsLinkUrl } from './tale-links';
-import { linkView, TaleStudioPage } from './tale-studio';
+import { linkView } from './tale-canvas-view';
+import { TaleStudioPage } from './tale-studio';
 
 // Tale Studio story 7.7 (epic Tale Studio R7, R12, R13, R14): buttons, image buttons and the swipe-up link.
 const url = `${API_BASE}/tales/t1/document`;

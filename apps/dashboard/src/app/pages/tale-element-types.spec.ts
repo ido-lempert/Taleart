@@ -22,7 +22,8 @@ import {
 } from './tale-element-types';
 import { TaleFieldsInspector } from './tale-fields-inspector';
 import type { ElementChange } from './tale-shapes';
-import { kindName, TaleStudioPage } from './tale-studio';
+import { kindName } from './tale-canvas-view';
+import { TaleStudioPage } from './tale-studio';
 
 // Tale Studio story 7.8 (epic Tale Studio R8): the Add menu and the inspector come from the
 // element-type registry; a test-only type registered by configuration goes end to end.
