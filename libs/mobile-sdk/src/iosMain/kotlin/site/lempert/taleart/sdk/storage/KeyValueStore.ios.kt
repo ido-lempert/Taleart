@@ -13,7 +13,7 @@ class UserDefaultsKeyValueStore(
     }
 }
 
-/** The NSUserDefaults suite the SDK keeps its own state in (the seen tale groups), apart from the app's. */
+/** The NSUserDefaults suite the SDK keeps its own state in (the seen tale groups and the visitor id), apart from the app's. */
 const val SDK_DEFAULTS_SUITE = "taleart-sdk"
 
 /** The SDK's own store, one per process: the [SDK_DEFAULTS_SUITE] NSUserDefaults suite. */
@@ -23,3 +23,5 @@ val deviceKeyValueStore: KeyValueStore by lazy {
 
 @Composable
 actual fun rememberDeviceKeyValueStore(): KeyValueStore = deviceKeyValueStore
+
+internal actual fun deviceKeyValueStoreOrNull(): KeyValueStore? = deviceKeyValueStore
