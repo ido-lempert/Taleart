@@ -465,7 +465,7 @@ export class TaleGroupsPage {
       menus.set(group.id, [
         { id: 'rename', label: 'Rename' },
         { id: 'cover', label: 'Cover' },
-        { id: 'tags', label: 'Tags' },
+        { id: 'tags', label: 'Audience' },
         { id: 'schedule', label: 'Schedule' },
         placeReason
           ? { id: 'place', label: 'Show in another zone', disabledReason: placeReason }

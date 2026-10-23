@@ -1,4 +1,4 @@
-import { normalizeTagName, type Tag, type TaleGroupTag } from '@taleart/contract';
+import { DEFAULT_TAG_MATCH, normalizeTagName, type Tag, type TagMatch, type TaleGroupTag } from '@taleart/contract';
 import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
 import { taleGroupProjectId, TaleGroupNotFoundError } from '@taleart/server-tales';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError, TagProjectNotFoundError } from './errors';
@@ -67,16 +67,73 @@ export async function tagsForTaleGroups(db: Db, taleGroupIds: readonly string[])
 }
 
 /**
+ * Each tale group's tag match mode (epic targeting R1), keyed by group id as
+ * given. Every id has an entry: {@link DEFAULT_TAG_MATCH} when none is stored.
+ */
+export async function tagMatchesForTaleGroups(db: Db, taleGroupIds: readonly string[]): Promise<Map<string, TagMatch>> {
+  const stored = new Map<string, TagMatch>();
+  const ids = taleGroupIds.filter((id) => UUID.test(id));
+  if (ids.length > 0) {
+    const { rows } = await db.query<{ taleGroupId: string; tagMatch: TagMatch }>(
+      `SELECT tale_group_id AS "taleGroupId", tag_match AS "tagMatch"
+       FROM tale_group_tag_matches WHERE tale_group_id = ANY($1::uuid[])`,
+      [ids],
+    );
+    for (const row of rows) stored.set(row.taleGroupId, row.tagMatch);
+  }
+  return new Map(taleGroupIds.map((id) => [id, stored.get(id.toLowerCase()) ?? DEFAULT_TAG_MATCH]));
+}
+
+/** A tale group's targeting as the Delivery API sends it: its tag names, by name, and how they combine. */
+export interface TaleGroupTagRule {
+  tags: string[];
+  tagMatch: TagMatch;
+}
+
+/**
+ * Each tale group's tag rule for the Delivery API (epic targeting R2), keyed by
+ * group id as given: the names of its tags, by name ignoring case, and its
+ * match mode. One query for both; every id has an entry.
+ */
+export async function tagRulesForTaleGroups(
+  db: Db,
+  taleGroupIds: readonly string[],
+): Promise<Map<string, TaleGroupTagRule>> {
+  const byGroup = new Map<string, TaleGroupTagRule>();
+  const ids = taleGroupIds.filter((id) => UUID.test(id));
+  if (ids.length > 0) {
+    const { rows } = await db.query<{ taleGroupId: string; tags: string[] | null; tagMatch: TagMatch | null }>(
+      `SELECT g.id AS "taleGroupId",
+         (SELECT array_agg(tags.name ORDER BY ${BY_NAME})
+            FROM tale_group_tags links JOIN tags ON tags.id = links.tag_id
+            WHERE links.tale_group_id = g.id) AS tags,
+         (SELECT tag_match FROM tale_group_tag_matches m WHERE m.tale_group_id = g.id) AS "tagMatch"
+       FROM unnest($1::uuid[]) AS g(id)`,
+      [ids],
+    );
+    for (const row of rows) {
+      byGroup.set(row.taleGroupId, { tags: row.tags ?? [], tagMatch: row.tagMatch ?? DEFAULT_TAG_MATCH });
+    }
+  }
+  return new Map(
+    taleGroupIds.map((id) => [id, byGroup.get(id.toLowerCase()) ?? { tags: [], tagMatch: DEFAULT_TAG_MATCH }]),
+  );
+}
+
+/**
  * Replaces a tale group's tags with `tagIds` in one transaction; repeated ids
  * count once and an empty list clears them. Every id must name a tag of the
- * group's project, else {@link TagNotFoundError} and nothing changes. Throws
- * {@link TaleGroupNotFoundError} for an unknown group. Returns the new tags by name.
+ * group's project, else {@link TagNotFoundError} and nothing changes. With
+ * `tagMatch`, the group's match mode is set in the same transaction; without
+ * it, the group keeps its mode. Throws {@link TaleGroupNotFoundError} for an
+ * unknown group. Returns the new tags by name and the group's match mode.
  */
 export async function setTaleGroupTags(
   db: TransactionalDb,
   groupId: string,
   tagIds: readonly string[],
-): Promise<TaleGroupTag[]> {
+  tagMatch?: TagMatch,
+): Promise<{ tags: TaleGroupTag[]; tagMatch: TagMatch }> {
   // One case for the lock key and the rows, so ids differing only in case share a lock.
   const taleGroupId = groupId.toLowerCase();
   // Reads the group's project through the tales module's public interface (AD-1).
@@ -107,21 +164,35 @@ export async function setTaleGroupTags(
         [taleGroupId, projectId, unique],
       );
     }
-    return (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [];
+    if (tagMatch !== undefined) await storeTagMatch(tx, taleGroupId, projectId, tagMatch);
+    return {
+      tags: (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [],
+      tagMatch: (await tagMatchesForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? DEFAULT_TAG_MATCH,
+    };
   });
 }
 
+// Stores a group's match mode, replacing the one it had.
+async function storeTagMatch(tx: Db, taleGroupId: string, projectId: string, tagMatch: TagMatch): Promise<void> {
+  await tx.query(
+    `INSERT INTO tale_group_tag_matches (tale_group_id, project_id, tag_match) VALUES ($1, $2, $3)
+     ON CONFLICT (tale_group_id) DO UPDATE SET tag_match = EXCLUDED.tag_match, updated_at = now()`,
+    [taleGroupId, projectId, tagMatch],
+  );
+}
+
 /**
- * Gives a copied tale group its source's tags, in the copy's project (AD-14):
- * for each source tag, the project's tag with the same name, ignoring case, is
- * reused, else created. Runs on the caller's transaction, so the copy and its
- * tags commit together. Both groups must exist; the caller authorized both
- * projects. Returns the copy's tags by name.
+ * Gives a copied tale group its source's tags and match mode, in the copy's
+ * project (AD-14, epic targeting R1): for each source tag, the project's tag
+ * with the same name, ignoring case, is reused, else created. Runs on the
+ * caller's transaction, so the copy and its tags commit together. Both groups
+ * must exist; the caller authorized both projects. Returns the copy's tags by
+ * name and its match mode.
  */
 export async function copyTaleGroupTags(
   tx: Db,
   input: { sourceTaleGroupId: string; taleGroupId: string; projectId: string },
-): Promise<TaleGroupTag[]> {
+): Promise<{ tags: TaleGroupTag[]; tagMatch: TagMatch }> {
   const taleGroupId = input.taleGroupId.toLowerCase();
   const source = await tx.query<{ name: string }>(
     `SELECT tags.name FROM tale_group_tags links JOIN tags ON tags.id = links.tag_id
@@ -141,7 +212,13 @@ export async function copyTaleGroupTags(
       [taleGroupId, input.projectId, names],
     );
   }
-  return (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [];
+  const tags = (await tagsForTaleGroups(tx, [taleGroupId])).get(taleGroupId) ?? [];
+  const tagMatch = (await tagMatchesForTaleGroups(tx, [input.sourceTaleGroupId])).get(input.sourceTaleGroupId);
+  // Only a mode other than the default needs a row.
+  if (tagMatch !== undefined && tagMatch !== DEFAULT_TAG_MATCH) {
+    await storeTagMatch(tx, taleGroupId, input.projectId, tagMatch);
+  }
+  return { tags, tagMatch: tagMatch ?? DEFAULT_TAG_MATCH };
 }
 
 /**

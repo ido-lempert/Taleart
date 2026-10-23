@@ -357,3 +357,7 @@ Merged into `autopilot/foundation`. Every story got an agent review (risky ones 
 ## 2026-10-23 — UX rework 8.23 (owner decision)
 
 - **8.23 visitor id per device** (merge 16f0bda): the Web SDK (localStorage `taleart.visitor`, per page when storage is blocked) and the native SDK (device store; `TaleartSdk.init(context)` / `DeliveryClient(context)` on Android before Compose) send a random UUID v4 as `X-TaleArt-Visitor`. Delivery limits per visitor (burst 600, 20/s) with a per-address backstop of 10x (IPv4 address or IPv6 /48); requests without a valid id use the address bucket. Docs say what the id is, that backups restore it, that hosts cover it in their privacy notice, and that TRUST_PROXY must be right. Verification green except the known clock-skew test.
+
+## 2026-10-24 — Targeting 5.1
+
+- **5.1 tags combine with All or Any** (merge f1330a0): `tagMatch` (any/all, default any) per group in the targeting module (forward-only migration, copied with the group), Management API and contract; Delivery sends tag names and the mode; the Web SDK's page-wide `setTags()` filters groups without a request (keeps an open viewer whose group still matches). Tags are NFC-normalised, trimmed and lower-cased, accents not folded; a shared JSON case table for the native port. Dashboard: the group's "Audience" drawer with Any/All and a note that tag names are public (also on the another tool import page). Verification: green except the clock-skew test; two API tests timed out once under heavy machine load and passed in isolation.

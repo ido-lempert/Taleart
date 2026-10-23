@@ -23,7 +23,7 @@ import { onTop, scan, settle, type ScanOptions } from './wcag';
  *    tale with each kind selected, the shortcuts panel, the layer menu, the duplicate drawer, the
  *    preview, a phone width.
  * 3. The web-zones dashboard screens 3.12 left to this story that 8.17 did not scan: the project
- *    list, theme, fonts and import pages, and a group's Rename, Cover, Tags and Schedule drawers.
+ *    list, theme, fonts and import pages, and a group's Rename, Cover, Audience and Schedule drawers.
  *
  * It signs in with a session written to the database and empties the install at the end.
  * E2E_SCREENSHOTS and E2E_A11Y_REPORT work as in `a11y.spec.ts` (the report goes to
@@ -525,7 +525,7 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await page.goto(`/zones/${zoneId}`);
     const more = page.getByRole('button', { name: 'More for Autumn' }).first();
     await expect(more).toBeVisible();
-    for (const item of ['Rename', 'Cover', 'Tags', 'Schedule']) {
+    for (const item of ['Rename', 'Cover', 'Audience', 'Schedule']) {
       await tabTo(more, 'More for Autumn');
       await page.keyboard.press('Enter');
       await menuTo(item);
