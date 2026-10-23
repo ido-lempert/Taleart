@@ -84,7 +84,7 @@ const groups = (names = ['Summer sale', 'New arrivals', 'Stories']) => [
     tales: [textTale('c1', 'מבצע קיץ', ['מבצע קיץ: 50% off on all shoes!', 'Free shipping — משלוח חינם'])],
   },
 ];
-// The page under review. A zone has one display (AD-17), so `frames` here lists the displays the
+// The page under review. A zone has one display (AD-17), so `displays` here lists the displays the
 // page shows: one zone per entry, each with its own slug and its own <taleart-view>, in this order,
 // all showing the same tale groups (see `zonesOf`).
 const zone = (overrides = {}) => ({
@@ -92,7 +92,7 @@ const zone = (overrides = {}) => ({
   name: 'Home',
   slug: 'home',
   theme: DEFAULT_THEME,
-  frames: [
+  displays: [
     { id: 'f1', type: 'bar', settings: {} },
     { id: 'f2', type: 'banner', settings: { intervalSeconds: 3 } },
   ],
@@ -106,9 +106,9 @@ const SITE_KEY = 'tas_review';
 // The zones a page fixture stands for, keyed by their slugs: one zone per display, as the Delivery
 // API sends it (`frame`).
 function zonesOf(page) {
-  const { frames = [], ...rest } = page;
+  const { displays = [], ...rest } = page;
   return Object.fromEntries(
-    frames.map((frame, i) => {
+    displays.map((frame, i) => {
       const slug = i === 0 ? rest.slug : `${rest.slug}-${i + 1}`;
       return [slug, { ...rest, id: i === 0 ? rest.id : `${rest.id}-${i + 1}`, slug, frame }];
     }),
@@ -166,11 +166,11 @@ async function axe(page, label) {
     `axe WCAG 2.2 AA: ${label}${violations.length ? ` (${violations.map((v) => v.id).join(', ')})` : ''}`,
   );
 }
-// A screenshot of the page (the open viewer fills it), or with `frames` of the SDK element only.
-async function shot(page, name, { frames = false } = {}) {
+// A screenshot of the page (the open viewer fills it), or with `views` only the zones' SDK elements.
+async function shot(page, name, { views = false } = {}) {
   if (!shotsDir) return;
   const path = resolve(shotsDir, `${name}.png`);
-  if (frames) await page.locator('#views').screenshot({ path });
+  if (views) await page.locator('#views').screenshot({ path });
   else await page.screenshot({ path });
 }
 
@@ -401,7 +401,7 @@ try {
     const page = await openSample(context);
     await page.mouse.move(1, 1);
     await axe(page, 'bar and rotating banner (default theme)');
-    await shot(page, '01-bar-and-banner-default', { frames: true });
+    await shot(page, '01-bar-and-banner-default', { views: true });
 
     // The accessibility tree of the bar and banner (names, roles, states).
     const tree = await view(page).ariaSnapshot();
@@ -482,7 +482,7 @@ try {
       names[6] === 'Start automatic slide show',
       'focus entering the banner stops autoplay (the rotation button then offers Start)',
     );
-    await shot(page, '02-focus-banner-dot', { frames: true });
+    await shot(page, '02-focus-banner-dot', { views: true });
 
     // Operate the banner by keyboard: rotation button, dots, previous and next, then the slide opens the viewer.
     const slide = () =>
@@ -831,7 +831,7 @@ try {
     const stoppedAt = await index();
     await page.waitForTimeout(3400);
     check('2.2.2', (await index()) === stoppedAt, 'the rotation button stops autoplay for good');
-    await shot(page, '06-banner-stopped', { frames: true });
+    await shot(page, '06-banner-stopped', { views: true });
     await context.close();
 
     const reduced = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
@@ -883,7 +883,7 @@ try {
       `${label}: the last bar item scrolls into view when focused (the bar scrolls within itself)`,
     );
     await axe(page, `bar and banner at ${label}`);
-    if (label === '400 %') await shot(page, '07-reflow-400-bar-banner', { frames: true });
+    if (label === '400 %') await shot(page, '07-reflow-400-bar-banner', { views: true });
     await view(page).locator('button.item').first().click();
     const dialog = dialogOf(page);
     await dialog.waitFor();
@@ -940,7 +940,7 @@ try {
       lost.length === 0 && clipped.every((t) => t.tall),
       `bar titles that fit still fit with text spacing${lost.length ? `: ${lost.map((t) => t.name).join(', ')} truncated` : ''}`,
     );
-    await shot(page, '09-text-spacing-bar', { frames: true });
+    await shot(page, '09-text-spacing-bar', { views: true });
     await view(page).locator('button.item').first().click();
     const dialog = dialogOf(page);
     await dialog.waitFor();
@@ -967,7 +967,7 @@ try {
     await context.close();
   }
 
-  // 5. Orientation (1.3.4): the viewer and frames work in landscape.
+  // 5. Orientation (1.3.4): the viewer and the displays work in landscape.
   {
     const context = await browser.newContext({ viewport: { width: 844, height: 390 } });
     const page = await openSample(context);
@@ -1011,7 +1011,7 @@ try {
       !!ring && /255, 255, 255/.test(ring['box-shadow']),
       'dark host: the bar focus ring’s white inner ring shows on the dark page',
     );
-    await shot(page, '11-dark-host', { frames: true });
+    await shot(page, '11-dark-host', { views: true });
     await context.close();
   }
 
@@ -1032,7 +1032,7 @@ try {
     const page = await openSample(context, {
       zone: zone({
         theme,
-        frames: [
+        displays: [
           { id: 'f1', type: 'bar', settings: { shape: 'rounded-square' } },
           { id: 'f2', type: 'banner', settings: { autoplay: false } },
         ],
@@ -1044,7 +1044,7 @@ try {
       (await shadowStyle(page, '.b-dot:not([aria-current])', ['border-top-color'], '::before'))['border-top-color'],
     );
     check('1.4.11', contrast(dot, BG) >= 3, `themed dots on the theme background: ${contrast(dot, BG).toFixed(2)}:1`);
-    await shot(page, '12-themed', { frames: true });
+    await shot(page, '12-themed', { views: true });
     await view(page).locator('button.item').first().click();
     await dialogOf(page).waitFor();
     await page.keyboard.press(' ');
@@ -1101,7 +1101,7 @@ try {
     await view(page).locator('button.item').first().focus();
     const ring = await focusInfo(page);
     check('2.4.7', ring.outline.startsWith('solid'), 'forced colours: the focus outline shows');
-    await shot(page, '13-forced-colors', { frames: true });
+    await shot(page, '13-forced-colors', { views: true });
     await view(page).locator('button.item').first().press('Enter');
     const dialog = dialogOf(page);
     await dialog.waitFor();
@@ -1169,7 +1169,7 @@ try {
       flips.next !== 'none' && flips.rotate === 'none',
       'RTL: the chevrons point the other way; the play/pause icon does not',
     );
-    await shot(page, '15-rtl-bar-banner', { frames: true });
+    await shot(page, '15-rtl-bar-banner', { views: true });
     const titleDir = await page.evaluate(
       () => getComputedStyle(__taOne('.title')).direction,
     );
@@ -1251,7 +1251,7 @@ try {
   {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const z = zone({
-      frames: [
+      displays: [
         { id: 'f1', type: 'bar', settings: { shape: 'circle' } },
         { id: 'f2', type: 'banner', settings: { autoplay: false } },
       ],
@@ -1465,7 +1465,7 @@ try {
       },
     };
     const z = zone({
-      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      displays: [{ id: 'f1', type: 'bar', settings: {} }],
       taleGroups: [
         { id: 'gp', name: 'Plain', cover: null, tales: [textTale('p1', 'Plain', ['No project font'])] },
         {
@@ -1584,7 +1584,7 @@ try {
       props: { fit: 'cover', ...props },
     });
     const z = zone({
-      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      displays: [{ id: 'f1', type: 'bar', settings: {} }],
       taleGroups: [
         {
           id: 'gm',
@@ -1705,7 +1705,7 @@ try {
       props,
     });
     const z = zone({
-      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      displays: [{ id: 'f1', type: 'bar', settings: {} }],
       taleGroups: [
         {
           id: 'gs',
@@ -1891,7 +1891,7 @@ try {
       props,
     });
     const z = zone({
-      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      displays: [{ id: 'f1', type: 'bar', settings: {} }],
       taleGroups: [
         {
           id: 'gl',
@@ -2070,7 +2070,7 @@ try {
     // The viewer on one tale, drawn by this SDK, its controls hidden.
     async function viewerShot(name, viewport, tale) {
       const z = zone({
-        frames: [{ id: 'f1', type: 'bar', settings: {} }],
+        displays: [{ id: 'f1', type: 'bar', settings: {} }],
         taleGroups: [{ id: 'gl', name: 'Legacy', cover: null, tales: [{ id: `t-${name}`, title: 'Legacy', ...tale }] }],
       });
       const context = await browser.newContext({
@@ -2134,7 +2134,7 @@ try {
     {
       const entry = fixture.tales.find((t) => t.name === 'image');
       const z = zone({
-        frames: [{ id: 'f1', type: 'bar', settings: {} }],
+        displays: [{ id: 'f1', type: 'bar', settings: {} }],
         taleGroups: [
           {
             id: 'gl',
@@ -2161,7 +2161,7 @@ try {
     // The bar's default cover (R16): the lowest media element of the first tale with media, as before;
     // a group with no media at all shows its first tale's colour.
     const coverZone = zone({
-      frames: [{ id: 'f1', type: 'bar', settings: {} }],
+      displays: [{ id: 'f1', type: 'bar', settings: {} }],
       taleGroups: [
         { id: 'gt', name: 'Opening hours', cover: null, tales: [textTale('t1', 'Hours', ['Open every day'])] },
         { id: 'gm', name: 'Beach', cover: null, tales: [mediaTale('m1', 'Beach', media('image', 'm1'))] },
@@ -2201,7 +2201,7 @@ try {
       'each bar item is named by its group',
     );
     await axe(page, 'bar with a colour cover');
-    await shot(page, 'colour-cover', { frames: true });
+    await shot(page, 'colour-cover', { views: true });
     await context.close();
   }
 } finally {

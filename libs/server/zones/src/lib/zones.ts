@@ -22,7 +22,7 @@ const FIRST_VISIBLE_AT = `to_char(zones.first_visible_at AT TIME ZONE 'UTC', 'YY
 export const ZONE_COLUMNS = `zones.id, zones.name, zones.slug, zones.project_id AS "projectId",
   zones.playbook_key AS "createdFromTemplate", ${FIRST_VISIBLE_AT},
   (SELECT json_build_object('id', f.id, 'zoneId', f.zone_id, 'projectId', f.project_id, 'type', f.type, 'settings', f.settings)
-   FROM frames f WHERE f.zone_id = zones.id ORDER BY f.created_at, f.id LIMIT 1) AS frame`;
+   FROM frames f WHERE f.zone_id = zones.id) AS frame`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

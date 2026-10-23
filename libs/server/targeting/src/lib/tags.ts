@@ -1,5 +1,5 @@
 import { normalizeTagName, type Tag, type TaleGroupTag } from '@taleart/contract';
-import type { Db, TransactionalDb } from '@taleart/server-access';
+import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
 import { taleGroupProjectId, TaleGroupNotFoundError } from '@taleart/server-tales';
 import { InvalidTagNameError, TagExistsError, TagNotFoundError, TagProjectNotFoundError } from './errors';
 
@@ -8,27 +8,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TAG_COLUMNS = 'id, project_id AS "projectId", name';
 // Tags read by name ignoring case, then by name and id so the order is stable.
 const BY_NAME = 'lower(tags.name), tags.name, tags.id';
-
-// Runs `work` in one transaction on one connection; rolls back on any error.
-async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
-  const tx = await db.connect();
-  try {
-    await tx.query('BEGIN');
-    const result = await work(tx);
-    await tx.query('COMMIT');
-    tx.release();
-    return result;
-  } catch (err) {
-    try {
-      await tx.query('ROLLBACK');
-      tx.release();
-    } catch (rollbackErr) {
-      // A connection that cannot roll back is not returned to the pool.
-      tx.release(rollbackErr as Error);
-    }
-    throw err;
-  }
-}
 
 /**
  * Creates a tag in a project. The name is trimmed and must hold 1 to 40
