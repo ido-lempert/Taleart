@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, input, signal, untracked } from '@angular/core';
 import {
   installSnippet,
   isErrorBody,
@@ -313,6 +313,8 @@ export class SiteKeyCard {
   protected returnFocus: HTMLElement | null = null;
   // Bumped per read, so an older answer for another project writes nothing.
   private reads = 0;
+  // Bumped when the project changes, so an issue, rotation or revocation answered after it writes nothing here.
+  private projectRun = 0;
 
   /** The snippet and test page link for this zone, with a key or the placeholder. */
   protected readonly snippet = (urls: InstallInfo, key: string | null) => installSnippet(urls, this.slug(), key);
@@ -324,7 +326,22 @@ export class SiteKeyCard {
   }
 
   constructor() {
-    effect(() => void this.read(this.projectId()));
+    effect(() => {
+      const projectId = this.projectId();
+      untracked(() => {
+        // The card stays when the zone page shows a zone of another project (its route is reused, as
+        // on Back): a drawer left open would rotate or revoke that project's key, and an answer for
+        // the first project would show its key with the other zone's slug. Close it and start over.
+        this.projectRun++;
+        this.action.set(null);
+        this.issued.set(null);
+        this.saving.set(false);
+        this.error.set('');
+        this.copyStatus.set('');
+        this.foundActive.set(false);
+        void this.read(projectId);
+      });
+    });
     void this.readInstall();
   }
 
@@ -431,9 +448,13 @@ export class SiteKeyCard {
     this.saving.set(true);
     this.error.set('');
     const url = `${API_BASE}/projects/${encodeURIComponent(this.projectId())}/site-key`;
+    const run = this.projectRun;
+    // The card now shows another project: nothing of this answer belongs on it.
+    const moved = () => run !== this.projectRun;
     try {
       if (action === 'revoke') {
         await firstValueFrom(this.http.delete<void>(url));
+        if (moved()) return void this.store.refresh();
         this.info.set(null);
         this.saving.set(false);
         this.announcement.set('Site key revoked.');
@@ -443,12 +464,14 @@ export class SiteKeyCard {
         // replaces the active key, after its confirmation.
         const body: IssueSiteKeyRequest = action === 'issue' ? { ifNone: true } : {};
         const key = await firstValueFrom(this.http.post<IssuedSiteKey>(url, body));
+        if (moved()) return void this.store.refresh();
         this.info.set({ prefix: key.prefix, createdAt: key.createdAt });
         this.issued.set(key);
         this.saving.set(false);
         this.announcement.set(action === 'rotate' ? 'Site key rotated.' : 'Site key issued.');
       }
     } catch (err) {
+      if (moved()) return;
       this.saving.set(false);
       // Someone issued a key meanwhile: show it, and offer to rotate it with the usual warning.
       if (action === 'issue' && err instanceof HttpErrorResponse && err.status === 409) {
