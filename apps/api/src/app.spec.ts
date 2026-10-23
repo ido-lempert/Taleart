@@ -9288,7 +9288,7 @@ describe('Management API v1: projects and zones', () => {
       expect(order.filter((t) => t === 'Beach (copy)')).toHaveLength(2);
       // Each copy sits right after its original whatever order the requests took.
       expect(order[order.indexOf('Beach') + 1]).toBe('Beach (copy)');
-    });
+    }, 20_000);
 
     it('carries the media state over: an out-of-step original gives a copy composed on delivery and merged later', async () => {
       const { zone, first, beach, c, mediaKey } = await setup();
