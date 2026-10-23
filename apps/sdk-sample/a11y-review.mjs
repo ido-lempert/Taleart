@@ -968,39 +968,56 @@ try {
   }
 
   // 5. Orientation (1.3.4): the viewer and the displays work in landscape.
-  {
-    const context = await browser.newContext({ viewport: { width: 844, height: 390 } });
+  // Since the wide-screen deck (f752d74) a landscape phone this wide (844 × 390) shows the tale as
+  // the deck's card, 88 % of the height, not at full height: the check asks for the whole tale,
+  // centred, in 9:16, at least 85 % of the height (story 7.15). With motion the card shuffles in
+  // (scale and fade): it is measured, and axe run, once that has finished; mid-way the card was 0.92
+  // of its size and its text 1.14:1 (the two failures 7.15 found). Reduced motion: no shuffle.
+  for (const reduced of [false, true]) {
+    const label = reduced ? 'landscape, reduced motion' : 'landscape';
+    const context = await browser.newContext({
+      viewport: { width: 844, height: 390 },
+      reducedMotion: reduced ? 'reduce' : 'no-preference',
+    });
     const page = await openSample(context);
-    check('1.3.4', await noHorizontalScroll(page), 'landscape: the page does not scroll sideways');
+    check('1.3.4', await noHorizontalScroll(page), `${label}: the page does not scroll sideways`);
     await view(page).locator('button.item').first().click();
     const dialog = dialogOf(page);
     await dialog.waitFor();
-    // On a screen this wide the viewer is the wide-screen deck: the card shuffles in (scale and
-    // fade), so the card is measured, and axe run, once that has finished; before, its text is
-    // still faint (the 3.12-era check measured the shuffle mid-way: 0.92 of the card, 1.14:1).
-    await page.waitForFunction(() =>
-      __taOne('dialog .frame')
-        .getAnimations()
-        .every((a) => a.playState !== 'running'),
-    );
-    const frame = await page.evaluate(() => {
-      const box = __taOne('dialog .frame').getBoundingClientRect().toJSON();
-      return { ...box, wide: matchMedia('(min-width: 768px) and (min-aspect-ratio: 1/1)').matches };
+    // Two frames for the shuffle to start, then every finite animation in the viewer to finish
+    // (the progress bar's fill runs for the tale's duration and is left alone).
+    await page.evaluate(async () => {
+      const frame = () => new Promise((done) => requestAnimationFrame(() => done()));
+      await frame();
+      await frame();
+      const finite = __taOne('dialog')
+        .getAnimations({ subtree: true })
+        .filter(
+          (a) =>
+            !a.effect?.target?.classList?.contains('fill') &&
+            Number.isFinite(a.effect?.getComputedTiming().endTime ?? Infinity),
+        );
+      await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
     });
-    // Phone layout: the full height. Wide-screen deck: the card is 88 % of the height (or 36 % of
-    // the width, whichever is smaller), whole and centred, never cut by the window.
-    const card = Math.min(390 * 0.88, ((844 * 0.36) * 16) / 9);
-    const whole = frame.wide
-      ? Math.abs(frame.height - card) < 1 && Math.abs(frame.top - (390 - frame.bottom)) < 1 && frame.top >= 0
-      : frame.height === 390;
+    const frame = await page.evaluate(() => ({
+      ...__taOne('dialog .frame').getBoundingClientRect().toJSON(),
+      vw: innerWidth,
+      vh: innerHeight,
+    }));
+    const inView = frame.top >= 0 && frame.left >= 0 && frame.bottom <= frame.vh && frame.right <= frame.vw;
+    const centred =
+      Math.abs((frame.left + frame.right) / 2 - frame.vw / 2) < 1 &&
+      Math.abs((frame.top + frame.bottom) / 2 - frame.vh / 2) < 1;
+    const portrait = frame.height > 0 && Math.abs(frame.width / frame.height - 9 / 16) < 0.01;
+    const tall = frame.height >= frame.vh * 0.85;
     check(
       '1.3.4',
-      whole && frame.width > 0 && frame.width <= 844,
-      `landscape: the viewer shows the whole tale at ${frame.wide ? 'the deck card’s full size, centred' : 'full height'}`,
+      inView && centred && portrait && tall,
+      `${label}: the viewer shows the whole tale, centred, 9:16, at least 85 % of the height (the deck card, 88 %)`,
     );
-    if (!whole) console.error(`landscape frame: ${JSON.stringify(frame)}`);
-    await shot(page, '18-landscape-viewer');
-    await axe(page, 'viewer in landscape');
+    if (!(inView && centred && portrait && tall)) console.error(`${label} frame: ${JSON.stringify(frame)}`);
+    await shot(page, reduced ? '18-landscape-viewer-reduced-motion' : '18-landscape-viewer');
+    await axe(page, `viewer in ${label}`);
     await context.close();
   }
 

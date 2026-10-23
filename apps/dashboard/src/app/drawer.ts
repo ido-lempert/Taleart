@@ -19,10 +19,17 @@ const FOCUSABLE =
  * Matches FOCUSABLE, is a Tab stop and is not under a `hidden` attribute (such as a file input opened
  * by its button). A control taken out of the Tab order with `tabindex="-1"` (the emoji picker's grid,
  * one Tab stop with the arrows inside, story 7.15) is not one: were it the last, Tab from the real last
- * stop would leave the drawer, and Shift+Tab from the first would land on it.
+ * stop would leave the drawer, and Shift+Tab from the first would land on it. A group of radio
+ * buttons is one Tab stop, as browsers make it: the checked one, or the first when none is checked
+ * (the template picker's radios, for instance).
  */
 export function reachable(el: HTMLElement): boolean {
-  return el.tabIndex >= 0 && !el.closest('[hidden]');
+  if (el.tabIndex < 0 || el.closest('[hidden]')) return false;
+  if (!(el instanceof HTMLInputElement) || el.type !== 'radio' || !el.name || el.checked) return true;
+  const group = [...el.ownerDocument.querySelectorAll<HTMLInputElement>('input[type=radio]')].filter(
+    (r) => r.name === el.name && r.form === el.form && !r.disabled,
+  );
+  return !group.some((r) => r.checked) && group[0] === el;
 }
 
 /**

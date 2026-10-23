@@ -2,6 +2,7 @@ import type { TaleElement, TextElement } from '@taleart/contract/tale-document';
 import {
   clampMove,
   duplicateElement,
+  hiddenUnder,
   historyKeyShortcuts,
   historyLabel,
   historyShortcut,
@@ -60,6 +61,19 @@ describe('reorder', () => {
     expect(reorder(abcd, pick('a'), 'backward')).toBe(abcd);
     expect(reorder(abcd, pick('a', 'b'), 'back')).toBe(abcd);
     expect(reorder(abcd, pick(), 'front')).toBe(abcd);
+  });
+});
+
+describe('hiddenUnder (story 7.15)', () => {
+  it('is hidden only when a higher layer lies at every sampled point', () => {
+    // Layer 1 under layer 3 everywhere: hidden.
+    expect(hiddenUnder([[0, 1, 3], [1, 3], [3]], 1)).toBe(true);
+    // One point where nothing above it lies: it shows there.
+    expect(hiddenUnder([[0, 1, 3], [1]], 1)).toBe(false);
+    // Lower layers only: it is on top.
+    expect(hiddenUnder([[0, 2], [2]], 2)).toBe(false);
+    // No point on screen: nothing to judge, not raised.
+    expect(hiddenUnder([], 1)).toBe(false);
   });
 });
 

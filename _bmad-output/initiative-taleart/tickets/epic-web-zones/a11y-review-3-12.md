@@ -73,7 +73,7 @@ or viewer it applies to. Needs human = only a person can judge it, or it depends
 | 1.3.1 Info and relationships | Pass | Bar is a list of buttons; banner a region "Banner" (carousel) with slide groups "N of M"; viewer a labelled modal dialog. |
 | 1.3.2 Meaningful sequence | **Fixed** | RTL banner showed an empty slide after Next; controls, tap zones and swipes were not mirrored; mixed-direction text took the page's direction. |
 | 1.3.3 Sensory characteristics | N/A | No instructions. |
-| 1.3.4 Orientation | Pass | Landscape: viewer at full height, page does not scroll sideways. |
+| 1.3.4 Orientation | Pass | Landscape: the whole tale shows, centred, in 9:16 — at full height in the phone layout, and since the wide-screen deck (f752d74) as the deck card at 88 % of the height on screens 768 px or wider (844 × 390 is one; checked after the card has shuffled in, with and without reduced motion, story 7.15); the page does not scroll sideways. |
 | 1.3.5 Identify input purpose | N/A | No inputs. |
 | 1.4.1 Use of colour | Pass | Seen state is in the name ("…, seen"); the current dot is larger, also in forced colours. |
 | 1.4.2 Audio control | Pass | A video tale's sound stops with Pause (button or Space). |

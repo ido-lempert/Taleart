@@ -301,3 +301,13 @@ export function shortcutLabel(command: LayerCommand, apple = isApple()): string 
  */
 export const LAYER_KEYSHORTCUTS =
   'Alt+ArrowUp Alt+ArrowDown Alt+Shift+ArrowUp Alt+Shift+ArrowDown H L D Delete Control+A Meta+A';
+
+/**
+ * Whether a canvas layer is wholly under higher layers (WCAG 2.4.11, story 7.15), from the layers
+ * hit at points sampled inside it: each stack lists the layer indices found at one point (the
+ * document's order, bottom first). Hidden when there is at least one point and, at every point, a
+ * layer above `index` was hit.
+ */
+export function hiddenUnder(stacks: readonly (readonly number[])[], index: number): boolean {
+  return stacks.length > 0 && stacks.every((stack) => stack.some((i) => i > index));
+}

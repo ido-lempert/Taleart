@@ -40,6 +40,18 @@ describe('Drawer Tab trap', () => {
     expect(reachable(el('<div hidden><button>a</button></div>').firstElementChild as HTMLElement)).toBe(false);
   });
 
+  it('treats a radio group as one Tab stop: the checked radio, else the first', () => {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <input type="radio" name="t" id="r1" /><input type="radio" name="t" id="r2" checked /><input type="radio" name="t" id="r3" />
+      <input type="radio" name="u" id="u1" /><input type="radio" name="u" id="u2" />`;
+    document.body.append(div);
+    const r = (id: string) => div.querySelector<HTMLElement>(`#${id}`) as HTMLElement;
+    expect(['r1', 'r2', 'r3'].map((id) => reachable(r(id)))).toEqual([false, true, false]);
+    expect(['u1', 'u2'].map((id) => reachable(r(id)))).toEqual([true, false]);
+    div.remove();
+  });
+
   it('wraps Tab from the grid’s one Tab stop to Close, and Shift+Tab from Close back to it', async () => {
     const fixture = TestBed.createComponent(Host);
     document.body.append(fixture.nativeElement);

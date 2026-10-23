@@ -8,10 +8,10 @@ baseline_revision: 'd41c883'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
+review: 'quick'
+review_source: 'pinned'
 lenses_ran: []
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/initiative-taleart/tickets/epic-tale-studio/epic-tale-studio.md'
@@ -80,6 +80,20 @@ deferred: []
 - axe's `target-size` flagged overlapping canvas layers; they are exempt under 2.5.8's "equivalent" exception (each has its layers-grid row, ≥ 24 px). The targeted 2.5.8 check of `wcag.ts` still runs on them.
 - The focus walk ended early at a `datetime-local` field (its parts keep focus over several Tabs): it now passes through up to ten repeats of one control.
 - Merged `autopilot/foundation` at ce14153 (7.14) before the final verification.
+
+## Review Triage Log
+
+Review 1 (coordinator), all patched:
+- MUST 1 — in-place text field hidden under a higher layer: `.el-edit { z-index: 99 }`, no inline z-index; CSS check; spec: Enter and F2 on the text wholly under the picture, field on top.
+- 2 — raising the focused layer changed its stacking: the ring is now an overlay (`.focus-frame`, the layer's box and rotation, no pointer events, z-index 98 under the guides); the layer is raised only while wholly under higher layers (`hiddenUnder`, nine points by layer order, re-read after each change); spec checks a partly covered layer is not raised and a keyboard reorder keeps its stacking.
+- 3 — every `tabTo` target (Shift+Tab paths included) and every control focus lands on is checked on screen and on top.
+- 4 — the axe `target-size` exemption needs every related node to be a canvas layer too; the phone state checks the layers grid is on the page.
+- 5 — landscape: docs (7.15 and 3.12) say the expectation changed to the deck card at 88 %; the check waits two frames and for finite animations' `finished`, asks for in view, centred, 9:16, ≥ 85 % of the height; reduced-motion variant (220 checks).
+- 6 — drawer trap: of a radio group only the checked radio (else the first) is a stop.
+- 7 — walk 3.8: one studio menu, never the browser's, for Shift+F10 and the Windows menu key.
+- 8 — unused `row.name` removed.
+- 9 — walk rows added: edit in place under a picture, Delete, duplicate layer, Shift+Space multi-select and group move, moving a locked layer, H on the canvas, inspector style controls, emoji name and replace, Decorative, reduced motion in the viewer, serving the sample page for part 8, time per platform.
+- 10 — spec: no script focus (menus by arrows, rows by the grid), exact live-region text, replay and the preview link asserted, state count `toBe(22)`, movement checked on the canvas style and the fields; walk 3.10 records 2.1.2.
 
 ## Verification
 
