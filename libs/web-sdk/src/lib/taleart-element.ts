@@ -1,4 +1,4 @@
-import type { DeliveryFrame, DeliveryZone } from '@taleart/contract';
+import type { DeliveryZone } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
@@ -69,14 +69,8 @@ function zoneRequest(element: TaleartElement): { request: ZoneRequest; configNam
   return siteKey && zone ? { request: { key: siteKey, zone }, configName: zone } : null;
 }
 
-interface FocusTarget {
-  groupId: string;
-  frameId: string | null;
-}
-
-// A rendered frame: its element, and how it takes focus back for a group (its first item for null).
-interface FrameView {
-  readonly frameId: string;
+// The rendered display: its element, and how it takes focus back for a group (its first item for null).
+interface DisplayView {
   readonly element: HTMLElement;
   focus(groupId: string | null): boolean;
   destroy?(): void;
@@ -93,7 +87,7 @@ interface FrameView {
  * network failure renders nothing and logs one console error. Activating a bar item or a
  * banner slide opens its tale group in the full-screen viewer; groups this
  * browser has viewed show the seen ring in the bar. The zone's project theme
- * (R9) styles the frames and the viewer through CSS custom properties on a
+ * (R9) styles the display and the viewer through CSS custom properties on a
  * wrapper inside the Shadow DOM; each theme field set in the SDK
  * configuration wins over it: the element's `theme` property (or `theme`
  * attribute, JSON), then the zone's {@link configureZone} option.
@@ -108,11 +102,9 @@ export class TaleartElement extends HTMLElement {
   private loadId = 0;
   private scheduled = false;
   private viewer: TaleViewer | null = null;
-  private views: FrameView[] = [];
-  // The group, and the frame that opened the viewer, that take focus after a reload that closed an open viewer.
-  private pendingFocus: FocusTarget | null = null;
-  // The frame whose item or slide opened the viewer, kept across reloads.
-  private openerFrameId: string | null = null;
+  private view: DisplayView | null = null;
+  // The group that takes focus after a reload that closed an open viewer.
+  private pendingFocus: string | null = null;
   // The visitor's reduced-motion setting, watched while connected so animated covers follow it (R11, R12).
   private motionQuery: MediaQueryList | null = null;
   private readonly onMotionChange = (event: MediaQueryListEvent): void => {
@@ -247,7 +239,7 @@ export class TaleartElement extends HTMLElement {
     // Held pictures of the render stay held: a removed element starts no downloads.
     this.stopFirstContent();
     this.closeViewer();
-    this.destroyViews();
+    this.destroyView();
   }
 
   // Animated covers that move (no reduced motion) stop on their first frame after COVER_MOTION_MS.
@@ -269,13 +261,13 @@ export class TaleartElement extends HTMLElement {
     this.renderAbort = null;
   }
 
-  // Closes the viewer; returns the group it showed and the frame that opened it, or null when it was not open.
-  private closeViewer(): FocusTarget | null {
+  // Closes the viewer; returns the group it showed, or null when it was not open.
+  private closeViewer(): string | null {
     const viewer = this.viewer;
     this.viewer = null;
     const groupId = viewer?.groupId ?? null;
     viewer?.close();
-    return groupId === null ? null : { groupId, frameId: this.openerFrameId };
+    return groupId;
   }
 
   // Setting both attributes in one task loads once.
@@ -292,11 +284,11 @@ export class TaleartElement extends HTMLElement {
     const id = ++this.loadId;
     const { apiUrl } = this;
     const named = zoneRequest(this);
-    // A reload while the viewer is open puts focus back on the opening frame once it renders.
+    // A reload while the viewer is open puts focus back on the display once it renders.
     const focusGroup = this.closeViewer() ?? this.pendingFocus;
     this.pendingFocus = focusGroup;
     this.stopFirstContent();
-    this.destroyViews();
+    this.destroyView();
     this.root.replaceChildren();
     this.themed = null;
     if (!apiUrl || !named || !this.isConnected) return;
@@ -317,111 +309,91 @@ export class TaleartElement extends HTMLElement {
   }
 
   // Renders the zone's display (AD-17) when the SDK knows its type; unknown types are skipped (AD-5).
-  private render(zone: DeliveryZone, focusTarget: FocusTarget | null, configName: string): void {
+  private render(zone: DeliveryZone, focusGroup: string | null, configName: string): void {
     this.pendingFocus = null;
     // The response is untrusted: anything but an object reads as no display.
-    const frames: DeliveryFrame[] = typeof zone.frame === 'object' && zone.frame !== null ? [zone.frame] : [];
+    const frame = typeof zone.frame === 'object' && zone.frame !== null ? zone.frame : null;
     const names = new Map(zone.taleGroups.map((group) => [group.id, group.name]));
     const seen = seenGroupIds();
-    const views: FrameView[] = [];
-    // Holds the frames and the viewer, so both inherit the theme's custom properties.
+    // Holds the display and the viewer, so both inherit the theme's custom properties.
     const themed = document.createElement('div');
     themed.className = 'taleart';
     this.themed = { element: themed, configName, theme: zone.theme };
     this.retheme();
-    const barItems: Map<string, HTMLButtonElement>[] = [];
-    // The frame whose bar item or slide opened the viewer takes focus back when it closes.
-    let opener: FrameView | null = null;
+    let barItems: Map<string, HTMLButtonElement> | null = null;
+    // The display's item or slide of the group shown last takes focus back when the viewer closes.
+    let view: DisplayView | null = null;
     const viewer = new TaleViewer(themed, zone.taleGroups, {
       onGroupShown: (groupId) => {
         markGroupSeen(groupId);
-        for (const items of barItems) {
-          const item = items.get(groupId);
-          if (item) setItemSeen(item, names.get(groupId) ?? '', true);
-        }
+        const item = barItems?.get(groupId);
+        if (item) setItemSeen(item, names.get(groupId) ?? '', true);
       },
-      // Focus goes back to the opening frame's item or slide of the group shown last.
-      onClose: (groupId) => opener?.focus(groupId),
+      onClose: (groupId) => view?.focus(groupId),
     });
-    const openFrom = (view: FrameView, groupId: string) => {
-      if (this.viewer === viewer && viewer.open(groupId)) {
-        opener = view;
-        this.openerFrameId = view.frameId;
-      }
+    const open = (groupId: string) => {
+      if (this.viewer === viewer) viewer.open(groupId);
     };
 
-    for (const frame of frames) {
-      if (frame.type === BAR_FRAME_TYPE) {
-        // Cover pictures are held until the first content is laid out (loadFirstContent).
-        const bar = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings));
-        const items = new Map<string, HTMLButtonElement>();
-        for (const button of bar.querySelectorAll<HTMLButtonElement>('button.item')) {
-          items.set(button.dataset['taleGroupId'] ?? '', button);
-        }
-        const view: FrameView = {
-          frameId: frame.id,
-          element: bar,
-          focus: (groupId) => {
-            const item = groupId === null ? bar.querySelector<HTMLButtonElement>('button.item') : items.get(groupId);
-            item?.focus();
-            return !!item;
-          },
+    if (frame?.type === BAR_FRAME_TYPE) {
+      // Cover pictures are held until the first content is laid out (loadFirstContent).
+      const bar = holdMedia(() => renderBar(zone.taleGroups, seen, frame.settings));
+      const items = new Map<string, HTMLButtonElement>();
+      for (const button of bar.querySelectorAll<HTMLButtonElement>('button.item')) {
+        items.set(button.dataset['taleGroupId'] ?? '', button);
+      }
+      barItems = items;
+      view = {
+        element: bar,
+        focus: (groupId) => {
+          const item = groupId === null ? bar.querySelector<HTMLButtonElement>('button.item') : items.get(groupId);
+          item?.focus();
+          return !!item;
+        },
+      };
+      bar.addEventListener('click', (e) => {
+        const item = (e.target as Element | null)?.closest<HTMLButtonElement>('button.item');
+        if (item) open(item.dataset['taleGroupId'] ?? '');
+      });
+    } else if (frame?.type === BANNER_FRAME_TYPE) {
+      const banner = holdMedia(() =>
+        renderBanner(zone.taleGroups, frame.settings, (groupId) => {
+          if (view) open(groupId);
+        }),
+      );
+      if (banner) {
+        view = {
+          element: banner.element,
+          focus: (groupId) => banner.focus(groupId),
+          destroy: () => banner.destroy(),
         };
-        bar.addEventListener('click', (e) => {
-          const item = (e.target as Element | null)?.closest<HTMLButtonElement>('button.item');
-          if (item) openFrom(view, item.dataset['taleGroupId'] ?? '');
-        });
-        barItems.push(items);
-        views.push(view);
-      } else if (frame.type === BANNER_FRAME_TYPE) {
-        let view: FrameView | null = null;
-        const banner = holdMedia(() =>
-          renderBanner(zone.taleGroups, frame.settings, (groupId) => {
-            if (view) openFrom(view, groupId);
-          }),
-        );
-        if (banner) {
-          view = {
-            frameId: frame.id,
-            element: banner.element,
-            focus: (groupId) => banner.focus(groupId),
-            destroy: () => banner.destroy(),
-          };
-          views.push(view);
-        }
       }
     }
-    this.views = views;
-    if (views.length === 0) return;
+    this.view = view;
+    if (!view) return;
     const style = document.createElement('style');
     style.textContent = BAR_STYLES + BANNER_STYLES + VIEWER_STYLES;
     this.viewer = viewer;
-    themed.replaceChildren(...views.map((view) => view.element));
+    themed.replaceChildren(view.element);
     this.root.replaceChildren(style, themed);
     this.limitCoverMotion();
-    // The first frame's covers in view load first, then the rest of this render's pictures; the
+    // The display's covers in view load first, then the rest of this render's pictures; the
     // first zone content this element shows is marked once, when it is on the page (NFR-006).
     const abort = new AbortController();
     this.renderAbort = abort;
-    void loadFirstContent(themed, coversInView(views[0].element), abort.signal, () => {
+    void loadFirstContent(themed, coversInView(view.element), abort.signal, () => {
       if (this.marked) return;
       this.marked = true;
       mark(FIRST_CONTENT_MARK);
     });
-    if (focusTarget) {
-      // The frame that opened the viewer first, then any frame with the group, then the opener's (or the first) frame as it is.
-      const { groupId, frameId } = focusTarget;
-      const preferred = views.find((view) => view.frameId === frameId);
-      if (!preferred?.focus(groupId) && !views.some((view) => view !== preferred && view.focus(groupId))) {
-        (preferred ?? views[0]).focus(null);
-      }
-    }
+    // The group's item or slide, or else the display's first one.
+    if (focusGroup !== null && !view.focus(focusGroup)) view.focus(null);
   }
 
-  // Stops the timers of the rendered frames.
-  private destroyViews(): void {
-    for (const view of this.views) view.destroy?.();
-    this.views = [];
+  // Stops the timers of the rendered display.
+  private destroyView(): void {
+    this.view?.destroy?.();
+    this.view = null;
   }
 }
 
