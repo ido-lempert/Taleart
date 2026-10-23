@@ -41,12 +41,20 @@ covers = ["R13", "R2", "R10"]
 after = [{ epic = 1, needs = "only the foundation stories each story lists in its own after (media upload 1.12, dashboard shell 1.14)" }, { epic = 3, needs = "the viewer (3.2), the project theme (3.8) and the tale group cover (3.14), per story" }, { epic = 2, needs = "the difference report and re-import (2.6, 2.7) for story 13 only" }, { epic = 8, needs = "the UX rework's status model (8.1), Update tale wording (8.4), SDK zone and key changes (8.7) and accessibility review (8.17), per story: 7.7 onward runs after them" }]
 
 [[epic]]
+id = 9
+slug = "epic-native-mobile"
+title = "Native mobile"
+description = "The Taller sample app and the mobile SDK, generated from the KMP wizard with package site.lempert.taleart and one shared Compose UI, show a zone's bar or banner and its tales on Android and iOS from the same Delivery API (owner direction 2026-10-23)."
+covers = ["R9", "R11", "R13"]
+after = [{ epic = 3, needs = "the Delivery API zone query by site key and slug (8.7)" }, { epic = 7, needs = "the tale document and registry (story 5 only)" }]
+
+[[epic]]
 id = 4
 slug = "epic-interactive-components"
 title = "Interactive components"
-description = "Authors add poll, quiz, emoji reaction, countdown, product pins, promo code and Rating to a tale, and viewers respond on the Web SDK."
-covers = ["R4"]
-after = [{ epic = 1, needs = "the data model and API" }, { epic = 7, needs = "the element-type registry (Tale Studio story 7.8), so each component is an element type in the tale document (AD-15)" }]
+description = "Authors add poll, quiz, emoji reaction, countdown, product pins, promo code and Rating to a tale in Tale Studio; visitors respond on the Web SDK and in the native SDK, each response is recorded by an interactive module through the Delivery API, and the studio shows the counts."
+covers = ["R4", "R10", "R7"]
+after = [{ epic = 7, needs = "the element-type registry (Tale Studio story 7.8) and the preview (7.9), so each component is an element type in the tale document (AD-15)" }, { epic = 8, needs = "the visibility function (8.2), site key and zone slug (8.7), tale deletion (8.20) and the device visitor id (8.23), per story" }, { epic = 9, needs = "the native document renderer (9.5) for stories 10 and 11 only" }]
 
 [[epic]]
 id = 5
@@ -63,11 +71,3 @@ title = "Analytics"
 description = "Per-widget and per-content metrics (Reach, Impression, Click, Engagement Rate, CTR) are recorded and shown, with published definitions."
 covers = ["R7"]
 after = [{ epic = 3, needs = "widgets emitting events" }, { epic = 4, needs = "interactive events" }]
-
-[[epic]]
-id = 9
-slug = "epic-native-mobile"
-title = "Native mobile"
-description = "The Taller sample app and the mobile SDK, generated from the KMP wizard with package site.lempert.taleart and one shared Compose UI, show a zone's bar or banner and its tales on Android and iOS from the same Delivery API (owner direction 2026-10-23)."
-covers = ["R9", "R11", "R13"]
-after = [{ epic = 3, needs = "the Delivery API zone query by site key and slug (8.7)" }, { epic = 7, needs = "the tale document and registry (story 5 only)" }]
