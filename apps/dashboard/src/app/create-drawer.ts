@@ -328,8 +328,12 @@ export class CreateDrawer implements OnInit {
    */
   protected requestDelete(tale: Tale): void {
     if (this.saving() || this.upload()) return;
+    if (!this.store.groupViewOpen(tale.taleGroupId)) {
+      this.error.set('Open the tale group to delete this tale.');
+      return;
+    }
     this.close();
-    this.store.taleDeletionRequest.set(tale.id);
+    this.store.requestTaleDeletion(tale.id, tale.taleGroupId);
   }
 
   // What each field showed when loaded, with the stored ISO time behind it. The field holds minutes only,

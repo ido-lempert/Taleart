@@ -245,15 +245,23 @@ export class GroupView implements OnDestroy {
     );
   };
 
+  // Says to the store which group this view shows, so a deletion request for it is answered here.
+  private readonly registers = effect((onCleanup) => {
+    const groupId = this.group().id;
+    untracked(() => this.store.groupViewOpened(groupId));
+    onCleanup(() => this.store.groupViewClosed(groupId));
+  });
+
   // "Delete tale…" in the tale drawer asks here, where the confirmation and the focus after it live.
+  // A request for a tale this group no longer holds (deleted or gone meanwhile) is dropped.
   private readonly deletionRequests = effect(() => {
-    const taleId = this.store.taleDeletionRequest();
-    if (taleId === null) return;
-    const tale = this.group().tales.find((t) => t.id === taleId);
-    if (!tale) return;
+    const request = this.store.taleDeletionRequest();
+    if (request === null || request.taleGroupId !== this.group().id) return;
+    const tale = this.group().tales.find((t) => t.id === request.taleId);
     untracked(() => {
       this.store.taleDeletionRequest.set(null);
-      const card = this.host.nativeElement.querySelector<HTMLElement>(`[data-tale-id="${taleId}"] .tale-card__open`);
+      if (!tale) return;
+      const card = this.host.nativeElement.querySelector<HTMLElement>(`[data-tale-id="${tale.id}"] .tale-card__open`);
       this.askDelete(tale, card);
     });
   });

@@ -33,6 +33,8 @@ export {
   setTaleGroupCover,
   isMediaKeyInUse,
   withMediaKeyDeletionGuard,
+  sweepUnusedTaleMediaFiles,
+  TALE_MEDIA_SWEEP_MIN_AGE_MS,
   orderTaleGroups,
   copyZonePlacements,
   orderTales,

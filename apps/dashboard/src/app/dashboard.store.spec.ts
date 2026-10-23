@@ -32,6 +32,23 @@ describe('DashboardStore', () => {
     await tick();
   }
 
+  it('answers a tale deletion request only while a view shows its group, and drops it when the last one closes (story 8.20)', () => {
+    expect(store.requestTaleDeletion('t1', 'g1')).toBe(false);
+    expect(store.taleDeletionRequest()).toBeNull();
+    store.groupViewOpened('g1');
+    store.groupViewOpened('g1');
+    expect(store.requestTaleDeletion('t1', 'g1')).toBe(true);
+    expect(store.taleDeletionRequest()).toEqual({ taleId: 't1', taleGroupId: 'g1' });
+    // Another group's view closing leaves it; one of the two views of g1 closing leaves it too.
+    store.groupViewOpened('g2');
+    store.groupViewClosed('g2');
+    store.groupViewClosed('g1');
+    expect(store.taleDeletionRequest()).not.toBeNull();
+    store.groupViewClosed('g1');
+    expect(store.taleDeletionRequest()).toBeNull();
+    expect(store.groupViewOpen('g1')).toBe(false);
+  });
+
   it('resolves a superseded refresh only once the newest one is done, with its answers (story 8.4)', async () => {
     let olderDone = false;
     const older = store.refresh().then(() => (olderDone = true));

@@ -930,10 +930,42 @@ export class DashboardStore {
   }
 
   /**
-   * A tale whose deletion was asked for outside the group view (the tale drawer's "Delete tale…"):
-   * the group view showing its group opens the confirmation, then clears it (story 8.20).
+   * A tale whose deletion was asked for outside the group view (the tale drawer's "Delete tale…"),
+   * with its group: the group view showing that group opens the confirmation and clears it, or clears
+   * it when the tale is gone; a view of that group closing clears it too (story 8.20).
    */
-  readonly taleDeletionRequest = signal<string | null>(null);
+  readonly taleDeletionRequest = signal<{ taleId: string; taleGroupId: string } | null>(null);
+  /** How many group views show each group now, by group id: who can answer a deletion request. */
+  private readonly groupViews = signal<Record<string, number>>({});
+
+  /** True while a group view shows the group, so a deletion request for one of its tales is answered. */
+  groupViewOpen(taleGroupId: string): boolean {
+    return (this.groupViews()[taleGroupId] ?? 0) > 0;
+  }
+
+  /** A group view started showing a group. */
+  groupViewOpened(taleGroupId: string): void {
+    this.groupViews.update((views) => ({ ...views, [taleGroupId]: (views[taleGroupId] ?? 0) + 1 }));
+  }
+
+  /** A group view stopped showing a group; with none left, a deletion request for it is dropped. */
+  groupViewClosed(taleGroupId: string): void {
+    const left = (this.groupViews()[taleGroupId] ?? 1) - 1;
+    this.groupViews.update((views) => {
+      const next = { ...views };
+      if (left > 0) next[taleGroupId] = left;
+      else delete next[taleGroupId];
+      return next;
+    });
+    if (left <= 0 && this.taleDeletionRequest()?.taleGroupId === taleGroupId) this.taleDeletionRequest.set(null);
+  }
+
+  /** Asks the group view showing the tale's group to confirm its deletion; false when none shows it. */
+  requestTaleDeletion(taleId: string, taleGroupId: string): boolean {
+    if (!this.groupViewOpen(taleGroupId)) return false;
+    this.taleDeletionRequest.set({ taleId, taleGroupId });
+    return true;
+  }
 
   /**
    * Deletes a tale for good (story 8.20). A tale order of its group still being saved goes first,

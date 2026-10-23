@@ -19,6 +19,7 @@ import {
   IMPORTED_MEDIA_PREFIX,
   MEDIA_SWEEP_MIN_AGE_MS,
   sweepImportedMedia,
+  sweepImportMediaOfDeletedTales,
   claimNextJob,
   recoverStaleJobs,
   runImportJob,
@@ -45,6 +46,9 @@ import {
   setImportedButtonWhen,
   setTestElementTypesEnabled,
   sweepUnusedProjectMediaFiles,
+  sweepUnusedTaleMediaFiles,
+  taleExists,
+  TALE_MEDIA_SWEEP_MIN_AGE_MS,
 } from '@taleart/server-tales';
 import { ensureTags } from '@taleart/server-targeting';
 import {
@@ -9646,6 +9650,48 @@ describe('Management API v1: projects and zones', () => {
         expect((await pool.query('SELECT 1 FROM tales WHERE id = $1', [c.id])).rowCount).toBe(1);
       });
 
+      it('answers 204 when deleting its file fails, logs it, and the start-up sweep removes the file later', async () => {
+        const { a, beach, taleMediaKey } = await setup();
+        await putTaleMedia(a.id, 'image/png', png);
+        const { rows } = await pool.query<{ key: string }>('SELECT media_key AS key FROM tales WHERE id = $1', [a.id]);
+        const kept = rows[0].key;
+        const failing = vi.spyOn(LocalDiskStorage.prototype, 'delete').mockRejectedValueOnce(new Error('disk unavailable'));
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        try {
+          expect((await remove(beach.id)).status).toBe(204);
+          expect(failing).toHaveBeenCalledWith(taleMediaKey);
+          expect(log.mock.calls.map((c) => String(c[0])).join('\n')).toContain('could not delete the media of a deleted tale');
+        } finally {
+          failing.mockRestore();
+          log.mockRestore();
+        }
+        expect((await pool.query('SELECT 1 FROM tales WHERE id = $1', [beach.id])).rowCount).toBe(0);
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(true);
+
+        const storage = new LocalDiskStorage(mediaDir);
+        // Young files wait: an upload may be about to point its tale at one.
+        await sweepUnusedTaleMediaFiles(pool, storage);
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(true);
+        // Earlier tests' unreferenced files in the shared folder go too.
+        const later = Date.now() + TALE_MEDIA_SWEEP_MIN_AGE_MS + 60_000;
+        expect(await sweepUnusedTaleMediaFiles(pool, storage, later)).toBeGreaterThanOrEqual(1);
+        expect(existsSync(join(mediaDir, taleMediaKey))).toBe(false);
+        // A file a tale still uses stays.
+        expect(existsSync(join(mediaDir, kept))).toBe(true);
+        expect(await sweepUnusedTaleMediaFiles(pool, storage, later)).toBe(0);
+      });
+
+      it('deletes an archived tale and a tale of an archived group', async () => {
+        const { first, second, beach } = await setup();
+        expect((await setStatus('tales', beach.id, 'archived')).status).toBe(200);
+        expect((await remove(beach.id)).status).toBe(204);
+        const snow = await (await post(`/tale-groups/${second.id}/tales`, { title: 'Snow' })).json();
+        expect((await setStatus('tale-groups', second.id, 'archived')).status).toBe(200);
+        expect((await remove(snow.id)).status).toBe(204);
+        expect(await titles(first.id)).toEqual(['Arrival', 'Cliffs']);
+        expect(await titles(second.id)).toEqual([]);
+      });
+
       it('applies deletes racing duplicates, reorders, adds, saves and status changes one after the other, without a deadlock', async () => {
         const { zone, first, second, a, beach, c, mediaKey, taleMediaKey } = await setup();
         const { revision } = await state(beach.id);
@@ -11996,6 +12042,87 @@ describe('Management API v1: projects and zones', () => {
       );
       expect(await contentCounts(project.id)).toEqual({ groups: 5, placements: 5, tales: 12, links: 24 });
       expect(await target('story_group', '3006')).toBe(groupId);
+    });
+
+    // The TaleArt tale an import made of a story, and the media file it stored on it.
+    async function importedTale(projectId: string, storyId: string): Promise<{ id: string; key: string }> {
+      const { rows } = await pool.query<{ id: string; key: string }>(
+        `SELECT t.id, t.media_key AS key FROM import_links l JOIN tales t ON t.id = l.target_id
+         WHERE l.project_id = $1 AND l.source_type = 'story' AND l.source_id = $2`,
+        [projectId, storyId],
+      );
+      return rows[0];
+    }
+
+    it('removes an imported media file no other tale uses, and keeps one a duplicate shares (story 8.20)', async () => {
+      const project = await createProject();
+      startWorker();
+      await importOnce(project.id);
+      const alone = await importedTale(project.id, '4001');
+      const shared = await importedTale(project.id, '4002');
+      expect(alone.key).toMatch(/^tales\/imported-/);
+      expect(existsSync(join(mediaDir, alone.key))).toBe(true);
+      const copy = await (await post(`/tales/${shared.id}/duplicate`, {})).json();
+
+      expect((await fetch(`${base}/tales/${alone.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect(existsSync(join(mediaDir, alone.key))).toBe(false);
+      expect((await fetch(`${base}/tales/${shared.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect(existsSync(join(mediaDir, shared.key))).toBe(true);
+      expect((await fetch(`${base}/tales/${copy.id}/media`)).status).toBe(200);
+      expect((await pool.query('SELECT 1 FROM import_media WHERE tale_id = ANY($1::uuid[])', [[alone.id, shared.id]])).rowCount).toBe(0);
+    });
+
+    it("the start-up sweep forgets a deleted tale's imported media record, then its file (story 8.20)", async () => {
+      const project = await createProject();
+      startWorker();
+      await importOnce(project.id);
+      const tale = await importedTale(project.id, '4001');
+      // Deleted without the clean-up that follows a delete (as when it failed).
+      await pool.query('DELETE FROM tales WHERE id = $1', [tale.id]);
+      expect((await pool.query('SELECT 1 FROM import_media WHERE tale_id = $1', [tale.id])).rowCount).toBe(1);
+      expect(await sweepImportMediaOfDeletedTales(pool, (id) => taleExists(pool, id))).toBe(1);
+      expect((await pool.query('SELECT 1 FROM import_media WHERE tale_id = $1', [tale.id])).rowCount).toBe(0);
+      expect(await sweepImportMediaOfDeletedTales(pool, (id) => taleExists(pool, id))).toBe(0);
+      const swept = await sweepImportedMedia(pool, new LocalDiskStorage(mediaDir), Date.now() + MEDIA_SWEEP_MIN_AGE_MS + 60_000);
+      expect(swept.imported).toBeGreaterThanOrEqual(1);
+      expect(existsSync(join(mediaDir, tale.key))).toBe(false);
+      // The other tales' imported files stay.
+      expect(existsSync(join(mediaDir, (await importedTale(project.id, '4002')).key))).toBe(true);
+    });
+
+    it('notes a tale a person deleted while an import was updating it, and counts it skipped (story 8.20)', async () => {
+      const project = await createProject();
+      startWorker();
+      await importOnce(project.id);
+      const tale = await importedTale(project.id, '4001');
+      // Holds the tale's import lock, so the next run waits right before it updates the tale.
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query("SELECT pg_advisory_xact_lock(hashtextextended('import_records:' || $1, 0))", [`tale:${tale.id}`]);
+        const job = await start(project.id);
+        for (const until = Date.now() + 10_000; ; ) {
+          const { rows } = await pool.query("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted");
+          if (rows.length > 0) break;
+          if (Date.now() > until) throw new Error('The import did not reach the tale');
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        // A person deletes it meanwhile: the delete does not wait for the import.
+        expect((await fetch(`${base}/tales/${tale.id}`, { method: 'DELETE' })).status).toBe(204);
+        await holder.query('COMMIT');
+        const done = await waitForEnd(project.id, job.id);
+        expect(done['status']).toBe('done');
+        const report = done['report'] as ImportReport & { notes: string[] };
+        expect(report.tales).toEqual({ source: 15, imported: 14, skipped: 1 });
+        expect(report.notes).toContain(
+          'Tale "Up to 50% off" in "Summer sale": it was deleted during the import, so it was not updated',
+        );
+        expect(report.notes.filter((n) => n.includes('Up to 50% off'))).toHaveLength(1);
+        expect((await pool.query('SELECT 1 FROM tales WHERE id = $1', [tale.id])).rowCount).toBe(0);
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined);
+        holder.release();
+      }
     });
 
     it('does not bring back a tale a person deleted, keeping its link and forgetting its baseline (story 8.20)', async () => {

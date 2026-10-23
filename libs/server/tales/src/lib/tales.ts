@@ -1834,6 +1834,42 @@ export async function isMediaKeyInUse(db: Db, key: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** Tale media files younger than this are left alone: an upload may be about to point its tale at one. */
+export const TALE_MEDIA_SWEEP_MIN_AGE_MS = 60 * 60_000;
+
+// A tale media file a person uploaded (`tales/<uuid>.<ext>`, the tales route's key); imported files
+// (`tales/imported-…`) are the importer's to sweep, since its records may still hold them.
+const UPLOADED_TALE_MEDIA_KEY = /^tales\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/;
+
+/**
+ * Deletes uploaded tale media files (`tales/<uuid>.<ext>`) older than
+ * {@link TALE_MEDIA_SWEEP_MIN_AGE_MS} that nothing references (story 8.20): what a deleted tale,
+ * a replaced media file or an upload left when deleting its file failed or its process stopped.
+ * Each is decided and deleted under {@link withMediaKeyDeletionGuard}, so a file a document write
+ * is about to reference, or any tale, copy, cover or the project's media still holds, is kept.
+ * Returns how many it removed. The import worker runs it when it starts.
+ */
+export async function sweepUnusedTaleMediaFiles(
+  db: TransactionalDb,
+  storage: {
+    listKeys(folder: string): Promise<{ key: string; modifiedAt: Date }[]>;
+    delete(key: string): Promise<void>;
+  },
+  now = Date.now(),
+): Promise<number> {
+  let removed = 0;
+  for (const { key, modifiedAt } of await storage.listKeys('tales')) {
+    if (!UPLOADED_TALE_MEDIA_KEY.test(key) || now - modifiedAt.getTime() < TALE_MEDIA_SWEEP_MIN_AGE_MS) continue;
+    const deleted = await withMediaKeyDeletionGuard(db, key, async (inUse) => {
+      if (inUse) return false;
+      await storage.delete(key);
+      return true;
+    });
+    if (deleted) removed++;
+  }
+  return removed;
+}
+
 /**
  * Decides, and carries out, whether a replaced or removed file may be deleted
  * (AD-11, AD-14, R5): in one transaction on one connection, it takes the key's

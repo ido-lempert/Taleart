@@ -24,6 +24,7 @@ import {
   missingAltTextMessage,
   elementName,
   documentMediaRefs,
+  UNKNOWN_MEDIA_REASON,
   projectFontIds,
   projectFontRefs,
   TALE_DOCUMENT_VERSION,
@@ -472,7 +473,7 @@ export async function checkDocumentMedia(db: Db, projectId: string, document: un
     refs.map((r) => r.key),
   );
   for (const ref of refs) {
-    if (!known.has(ref.key)) throw new InvalidTaleDocumentError(ref.pointer, "is not media of this tale's project");
+    if (!known.has(ref.key)) throw new InvalidTaleDocumentError(ref.pointer, UNKNOWN_MEDIA_REASON);
     const isVideo = /\.(mp4|webm)$/.test(ref.key);
     if (isVideo !== (ref.kind === 'video')) {
       throw new InvalidTaleDocumentError(ref.pointer, ref.kind === 'video' ? 'must be a video' : 'must be an image');
