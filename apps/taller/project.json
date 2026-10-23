@@ -4,17 +4,28 @@
   "projectType": "application",
   "tags": ["type:app", "scope:taller"],
   "targets": {
-    "ios-xcodeproj": {
+    "build-android": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "xcodegen generate --spec apps/taller/iosApp/project.yml"
+        "command": "./gradlew :taller-android:assembleDebug --console=plain"
       }
     },
     "build-ios": {
       "executor": "nx:run-commands",
-      "dependsOn": ["ios-xcodeproj"],
       "options": {
-        "command": "xcodebuild -project apps/taller/iosApp/Taller.xcodeproj -scheme Taller -sdk iphonesimulator -configuration Debug -derivedDataPath apps/taller/iosApp/build build"
+        "command": "xcodebuild -project apps/taller/iosApp/iosApp.xcodeproj -scheme iosApp -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath apps/taller/iosApp/build CODE_SIGNING_ALLOWED=NO build"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "./gradlew :taller:testAndroidHostTest --console=plain"
+      }
+    },
+    "test-ios": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "./gradlew :taller:iosSimulatorArm64Test --console=plain"
       }
     }
   }
