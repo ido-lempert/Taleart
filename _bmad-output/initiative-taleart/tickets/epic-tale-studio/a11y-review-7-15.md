@@ -49,7 +49,13 @@ findings to `<file>` and the studio's (findings, Tab stops, keyboard steps) to `
 
 Before the fixes the studio and web-zones scan found 5 issues and the keyboard walk 2 more; the sample-page review had
 its 2 known landscape failures. After the fixes **all 22 studio and web-zones states pass, every keyboard step passes, and the
-sample-page review passes 217 of 217 checks** (`sdk-sample:a11y` passes too). 8.17's 27 states still pass.
+sample-page review passes 220 of 220 checks** (`sdk-sample:a11y` passes too). 8.17's 27 states still pass.
+
+Review fixes (same day): the in-place text field stays above every layer; the focused layer keeps its stacking and its
+ring is drawn in an overlay above the layers, the layer itself raised only while wholly under others; the drawer trap
+treats a radio group as one stop; the axe exemption is narrower; the landscape check asks for the deck card by its
+shape, with a reduced-motion variant; the spec checks every control it reaches is on top, reaches nothing by script,
+and checks the live region's exact words.
 
 | State (studio spec) | Tab stops | | State | Tab stops |
 |---|---|---|---|---|
@@ -70,27 +76,30 @@ sample-page review passes 217 of 217 checks** (`sdk-sample:a11y` passes too). 8.
 | # | Criterion | Where | Finding | Fix |
 |---|---|---|---|---|
 | 1 | 1.4.10 Reflow | Layers list at 320 px | A layer's name was one line with an ellipsis: "Autumn sale" was cut at 320 px, whole at full width. | Names wrap (`overflow-wrap: anywhere`); they are short (the contract's `elementName`, 40 characters) (`styles.css`). |
-| 2 | 2.4.3 Focus order, 2.1.2 | Emoji picker (and any drawer with a roving grid) | The drawer's Tab trap counted the grid's `tabindex="-1"` emoji as stops: Tab from the grid (the real last stop) left the drawer, and Shift+Tab from Close landed on the last emoji, off the Tab order. The walk found 1 stop. | The trap counts only Tab stops (`tabIndex >= 0`) (`drawer.ts`). Now 3 stops: Close, search, grid. |
-| 3 | 2.4.11 Focus not obscured | Canvas | A layer under another (the text under the picture added after it) took focus unseen. | A layer focused by keyboard (`:focus-visible`) comes above the others while it has focus, below the guides and snap lines; a click keeps the stacking (`tale-studio.ts`). |
+| 2 | 2.4.3 Focus order, 2.1.2 | Emoji picker (and any drawer with a roving grid or radios) | The drawer's Tab trap counted the grid's `tabindex="-1"` emoji as stops: Tab from the grid (the real last stop) left the drawer, and Shift+Tab from Close landed on the last emoji, off the Tab order. The walk found 1 stop. | The trap counts only Tab stops: `tabIndex >= 0`, and of a radio group only the checked radio, or the first when none is (`drawer.ts`). Now 3 stops: Close, search, grid. |
+| 3 | 2.4.11 Focus not obscured, 2.4.7 | Canvas | A layer under another (the text under the picture added after it) took focus unseen; typing in place in such a text was hidden too. | The keyboard focus ring is drawn again in an overlay above every layer (`.focus-frame`: the layer's box and rotation, no pointer events, below the guides), so the layers keep their stacking and a keyboard reorder stays visible. A layer is raised above the others only while it is wholly under higher layers (read at nine points by the layers' own order). The in-place text field is always above the layers (`tale-studio.ts`). |
 | 4 | 2.1.1 Keyboard | Canvas and layers grid | The layer menu opened only from a `contextmenu` event. Browsers send one for Shift+F10 or the context-menu key on Windows and Linux, not on a Mac, where the canvas then had no keyboard way to the menu (the help text promises Shift+F10). | The studio answers Shift+F10 and the context-menu key itself and stops their default, so the menu opens once on every system (`tale-studio.ts`). |
 | 5 | 4.1.2 / 2.5.3 (good practice) | Canvas and layers grid | An emoji's name included its glyph ("Emoji: 😀 grinning face"); a screen reader reads the glyph as its name, so it was said twice. | Spoken names drop the leading glyph ("Emoji: grinning face", "More actions for grinning face"); the row still shows it, hidden from screen readers (`layerSpokenName`, `tale-studio.ts`). |
 | 6 | 4.1.3 Status messages (good practice) | Live region | A change and a contrast verdict ran together: "Layer moved to the front "Autumn sale" has enough contrast now." | Two sentences: "Layer moved to the front. "Autumn sale" has enough contrast now." (`say`, `tale-studio.ts`). |
 | 7 | 1.4.12 Text spacing, 1.4.10 | Projects page, a long project name | The name's button shrank under the actions (Theme, Fonts, Invite, Import from Storyly): "Northwind Traders International Marketing" ran beneath the buttons, and with text spacing "1 zone" overlapped "Import from Storyly". Seen only with 8.17's long name in the same run. | The card wraps: the actions go below the name when both do not fit, and the name breaks where it must (`projects.ts`). |
-| 8 | 1.3.4 Orientation, 1.4.3 (axe) | Sample page, 844 × 390 | The 2 known failures: "the viewer shows the tale at full height" and "axe: viewer in landscape (color-contrast)". Cause: at 844 px wide the viewer is the wide-screen deck (f752d74); the review measured and scanned the card while it shuffled in (scale 0.92 → 315.7 px tall; opacity rising, so its text read 1.14:1). Not an SDK fault. | The review waits for the card's animations, then expects the deck card whole and centred (88 % of the height, 343 px) on a wide screen, full height in the phone layout; axe runs after. Both pass (`a11y-review.mjs`). |
+| 8 | 1.3.4 Orientation, 1.4.3 (axe) | Sample page, 844 × 390 | The 2 known failures: "the viewer shows the tale at full height" and "axe: viewer in landscape (color-contrast)". Cause: at 844 px wide the viewer is the wide-screen deck (f752d74); the review measured and scanned the card while it shuffled in (scale 0.92 → 315.7 px tall; opacity rising, so its text read 1.14:1). Not an SDK fault. | **The expectation changed:** since the deck, a landscape screen this wide shows the tale as the **deck card at 88 % of the height**, not at full height. The review waits two frames, then for every finite animation in the viewer to finish, and asks for the whole tale in view, centred, in 9:16, at least 85 % of the height; axe runs after. A reduced-motion variant (no shuffle) checks the same. All pass (`a11y-review.mjs`, 220 checks). |
 
 Harness changes (not product fixes):
 - axe's `target-size` rule flagged canvas layers that overlap (the rectangle under the emoji). Where a layer sits and
   how big it is is the tale's content; 2.5.8's **equivalent** exception covers it: each layer has its row in the
-  layers grid (≥ 24 px), which selects it, and its fields. The exemption is in `axe.ts`, for `#studio-el-*` only;
-  `wcag.ts`'s own 2.5.8 check still runs on the canvas.
+  layers grid on the same page (≥ 24 px, there at 390 px too, which the spec checks), which selects it, and its
+  fields. The exemption in `axe.ts` drops a finding only when the target is a canvas layer (`#studio-el-*`) **and
+  every node it is too small or too close because of is a canvas layer as well**; a layer too close to a toolbar
+  button or a field is still reported. `wcag.ts`'s own 2.5.8 check still runs on the canvas.
 - The scan starts each studio state from the top of the page: a control scrolled under the sticky top bar was
   judged covered by axe (Update tale, once).
 - The focus walk ended at a date and time field (its parts keep focus over several Tabs). It now passes through up to
   ten repeats of one control; the Schedule drawer walks 5 stops, and the spec reaches End time by Tab.
 
 Unit checks:
-- 1, 3 and 7: `apps/dashboard-e2e/scripts/dashboard-a11y-css.test.mjs` (`dashboard-e2e:test`);
-- 2: `apps/dashboard/src/app/drawer.spec.ts`;
+- 1, 3 and 7: `apps/dashboard-e2e/scripts/dashboard-a11y-css.test.mjs` (`dashboard-e2e:test`); 3 also
+  `tale-layers.spec.ts` (`hiddenUnder`) and, in the browser, the spec's "a text under the picture" test;
+- 2: `apps/dashboard/src/app/drawer.spec.ts` (roving grid and radio groups);
 - 4: `tale-studio.spec.ts` ("opens the actions menu by the Shift+F10 and context-menu keys themselves");
 - 5: `tale-layers.spec.ts` (`layerSpokenName`) and `tale-shapes.spec.ts`;
 - 6: `tale-shapes.spec.ts`;
@@ -106,16 +115,20 @@ Unit checks:
 | Add an emoji | Tab to Add emoji, Enter; type "face" in the search; Tab to the grid; arrows; Enter | Pass: "Emoji added: grinning face…"; focus on it |
 | Add a button | Tab to Add button, Enter; type the web address; Tab to Label, type | Pass: "Button added. Give it a web address…"; focus on Web address |
 | Select | Tab to the layers grid (one stop); Ctrl/Cmd+Home, Down through every layer, Right, End, Home, Enter | Pass: rows in top-first order; Enter selects; the inspector shows "Selected text" |
-| Move | On the canvas: ArrowRight, Shift+ArrowDown | Pass: 1 % and 10 % steps; "Text moved to left 11%, top 52%"; focus stays |
-| Resize, rotate, place | Width, Height, Rotation and Left fields: type and Tab | Pass: 70 %, 9 %, −5°, 8 % applied and announced |
-| Reorder | Alt+↑ and Alt+Shift+↓ on the canvas; Alt+Shift+↑ in the grid | Pass: "Layer brought forward", "Layer moved to the back", "Layer moved to the front"; focus stays |
-| Hide, lock | H and L in the grid | Pass: "Layer hidden", "Layer locked"; `aria-pressed` follows |
-| Layer menu | Shift+F10 on a row; ArrowDown; Escape | Pass: opens on its first item; Escape returns focus |
+| Move | On the canvas: ArrowRight, Shift+ArrowDown | Pass: 1 % and 10 % steps on the canvas and in the fields; "Text moved to left 11%, top 42%", "… top 52%"; focus stays |
+| Resize, rotate, place | Width, Height, Rotation, Left and Top fields: type and Tab | Pass: "Text width set to 70%", "Text height set to 9%", "Text rotated to -5°", "Text moved to left 15%", "Text moved to top 40%" |
+| Edit in place under a picture | Shift+Tab to the text (wholly under the picture); Enter, then F2; Escape each time | Pass: the focused text is raised; the text field is on top; Escape returns focus |
+| Reorder | Alt+↑ and Alt+Shift+↓ on the canvas; Alt+Shift+↑ in the grid | Pass: "Layer brought forward" (the layer's stacking follows: not raised), "Layer moved to the back", "Layer moved to the front. …"; focus stays |
+| Hide, lock | H and L in the grid, twice each | Pass: "Layer hidden", "Layer shown", "Layer locked", "Layer unlocked"; `aria-pressed` follows |
+| Layer menu | Shift+F10 on a row; the context-menu key on the canvas; ArrowDown; Escape | Pass: one menu, the studio's, on its first item; Escape returns focus |
 | Undo, redo | Ctrl+Z / Ctrl+Shift+Z (⌘Z / ⇧⌘Z on a Mac); the Undo and Redo buttons by Enter | Pass: "Undone: Layer sent backward", "Redone: …"; focus stays on the button |
 | Shortcuts panel | Enter on Keyboard shortcuts; Escape | Pass: opens, closes, focus back |
 | Duplicate | Enter on Duplicate; Escape | Pass: drawer opens; Escape returns focus |
 | Update tale | Shift+Tab to Update tale, Enter | Pass: "Tale updated. Not visible: group is off." |
-| Preview | Enter on Preview; Tab into the pane to Play from the start, Enter; back to Preview, Enter | Pass: opens and closes, focus back on Preview |
+| Preview | Enter on Preview; Tab into the pane to Play from the start, Enter; Tab to the tale's link; back to Preview, Enter | Pass: replay keeps focus and shows no end screen; the link "Shop now" is reached; the pane closes, focus back on Preview |
+
+Every control reached is checked to have focus, be on screen and be at least partly on top (2.4.11). Nothing is
+clicked or focused by script: menus are walked with the arrow keys, the layers grid with Ctrl+Home and the arrows.
 
 Observations (not WCAG AA failures, for the walk to judge):
 - The preview pane comes after the whole inspector in the Tab order: from the Preview button it is about 50 Tabs to
@@ -141,7 +154,9 @@ Observations (not WCAG AA failures, for the walk to judge):
 
 ## Keyboard and screen-reader walk
 
-For one person, about 60 minutes. Use **only the keyboard** — no mouse, trackpad or touch — with a screen reader on:
+For one person. Use **only the keyboard** — no mouse, trackpad or touch — with a screen reader on. Time: about 15
+minutes to set up; parts 1 to 7 about 60 minutes on one desktop platform (add about 40 for the second one); part 8
+about 30 minutes, of which about 10 on each phone (iOS, Android).
 
 - **macOS:** VoiceOver (Cmd+F5) with Safari. Turn on Safari › Settings › Advanced › "Press Tab to highlight each item
   on a webpage". VO = Control+Option.
@@ -193,6 +208,9 @@ differ by screen reader; record differences in meaning, not punctuation.
 | 2.9 | Shift+Tab from the grid to Close and Tab back (before 2.8's Enter, in a reopened picker). | Tab and Shift+Tab stay inside the dialog: Close → search → grid → Close (fix 2). | | |
 | 2.10 | Tab to "Add button", Enter. | "Button added. Give it a web address before updating the tale."; focus on "Web address". | | |
 | 2.11 | Type `https://example.com/shop`, Tab to "Label", replace it with "Shop now", Tab. | The address and label hints are read; the canvas button becomes "Button: Shop now". | | |
+| 2.12 | On the emoji, Tab to its inspector: its name field ("Emoji name" or similar); change it; then "Choose another emoji", pick one by keyboard. | The name is editable and announced as the emoji's name; replacing says "Emoji replaced by …" and focus returns to the emoji on the canvas. | | |
+| 2.13 | On the image: Tab to "Decorative" (or the alt text's decorative mark), turn it on, then off again. | The alt text field and the mark are announced with their state; the layer row's "Needs alt text" comes and goes as expected. | | |
+| 2.14 | On the text: the inspector's style controls (font, size, weight, italic, colour and hex, alignment, direction, background). | Each control is named and operable with the keyboard (selects with arrows, radio groups with arrows, the colour by its hex field); changes are visible on the canvas. | | |
 
 ### 3. Select, move, resize and reorder
 
@@ -202,11 +220,18 @@ differ by screen reader; record differences in meaning, not punctuation.
 | 3.2 | Down and Up through the rows; Right and Left across a row; Ctrl+Home / Ctrl+End (VoiceOver: Cmd+Home may be taken; use Up and Down). | Each row's kind, name, reading order and state ("Hidden", "Low contrast", "Needs alt text", …); the Hide, Lock and "More actions for …" buttons with their pressed state. | | |
 | 3.3 | On "Autumn sale", press Enter. | It is selected; the inspector "Selected text" follows it. | | |
 | 3.4 | Shift+Tab back to the text on the canvas (or find it with the screen reader's form-controls list); press Right arrow, then Shift+Down. | "Text moved to left …%, top …%" each time; focus stays on it. With VoiceOver, use VO+Shift+Down first if the arrows read instead of moving (interact). A text under the picture shows above it while focused (fix 3). | | |
+| 3.4a | Put the text under the picture (Left 15, Top 40 in the fields), Tab to it on the canvas, press Enter (or F2), type, Escape. | Focused, the text is shown above the picture with its ring; the text field you type in is above every layer; Escape returns focus to the text (fix 3). | | |
+| 3.4b | Shift+Space on two layers in the grid (or on the canvas), then an arrow key on one of them. | "Added to the selection, 2 selected"; both move together and the move is announced. Escape or Enter on one row selects it alone again. | | |
+| 3.4c | Lock a layer (L), then press an arrow key on it. | It does not move; "This layer is locked. Unlock it in the layers list to move or edit it." is announced. Unlock it (L). | | |
 | 3.5 | Tab to Width, type 70, Tab; Height 9; Rotation −5; Left 8. | Each is read with its label and unit; "Text width set to 70%", …, "Text rotated" (or similar). | | |
 | 3.6 | Back on a layer (canvas or grid): Alt+Up (Option+Up), Alt+Shift+Down. | "Layer brought forward", "Layer moved to the back"; the grid order follows; focus stays. A contrast verdict that turns is said as a second sentence (fix 6). | | |
 | 3.7 | In the grid: H, then H; L, then L. | "Layer hidden" / "shown"; "Layer locked" / "unlocked"; the Hide and Lock buttons' pressed state follows. | | |
-| 3.8 | Shift+F10 (on a Mac too) or the context-menu key on a row; arrows; Escape. | "Menu" with Bring forward … Delete, each with its shortcut; Escape closes it and focus is back on the row (fix 4). | | |
+| 3.7a | On the canvas (not the grid): H on a layer, then find it in the grid and H again. | "Layer hidden"; it leaves the canvas and focus goes to a sensible place (record where); H in the grid shows it again. | | |
+| 3.7b | D on a layer. | "Layer duplicated"; focus on the copy; the grid has one more row. | | |
+| 3.7c | Delete (⌫ on a Mac) on the copy. | The deletion is announced with how to undo it; focus goes to the next layer or the canvas; undo brings it back. | | |
+| 3.8 | Shift+F10 (on a Mac too) on a row; arrows; Escape. On Windows also the menu key (≣) on a row and on a canvas layer. | Each time exactly **one** menu opens, the studio's ("Menu" with Bring forward … Delete, each with its shortcut), never the browser's own context menu as well; Escape closes it and focus is back where it was (fix 4). | | |
 | 3.9 | Ctrl+Z / ⌘Z outside a text field; then Ctrl+Shift+Z / ⇧⌘Z. | "Undone: …", "Redone: …"; focus stays. In a text field the browser's own undo works instead. | | |
+| 3.10 | Throughout parts 2 to 4: from the canvas, the grid, every field and every dialog, Tab and Shift+Tab always move on, and Escape closes a dialog or menu. | No keyboard trap (2.1.2): focus never sticks on one control or loops inside a part of the page you cannot leave. Note any place where it does. | | |
 
 ### 4. Check, update and preview
 
@@ -232,6 +257,7 @@ asked). It is the sample page with this zone.
 | 5.3 | Tab through the viewer. | Previous tale, Next tale, Pause, Close and the link "Shop now" in reading order; the tale waits while the link has focus. | | |
 | 5.4 | Enter on "Shop now". | The link opens (in a new tab only if set so, and then its name says "(opens in a new tab)"). | | |
 | 5.5 | Escape. | The viewer closes; focus is back on "Autumn". | | |
+| 5.6 | Turn on reduced motion (macOS: Accessibility › Display › Reduce motion; Windows: Settings › Accessibility › Visual effects › Animation effects off) and open the tale again. | The viewer opens without the card's slide or shuffle and the tale does not advance by itself (it opens paused); everything is announced as before. | | |
 
 ### 6. Web-zones screens (short)
 
@@ -245,12 +271,21 @@ asked). It is the sample page with this zone.
 | # | Do | Expect | Result | Notes |
 |---|---|---|---|---|
 | 7.1 | Zoom the studio to 400 % (Cmd/Ctrl +). | Nothing scrolls sideways but the canvas; layer names wrap rather than being cut (fix 1); focused controls are not under the top bar. | | |
-| 7.2 | On a phone in landscape (or a window about 844 × 390), open the sample page's viewer. | The tale shows whole as a centred card (wide-screen deck) or at full height (phone layout); nothing is cut. | | |
+| 7.2 | On a phone in landscape (or a window about 844 × 390), open the sample page's viewer. | The tale shows whole: as a centred card at 88 % of the height when the window is 768 px or wider (wide-screen deck), at full height in the phone layout; nothing is cut. | | |
 
 ### 8. The viewer, left open by web zones 3.12
 
-3.12's manual checklist, unchanged in substance, on the sample page with an image, a video and a text tale (the
-fixture of `sdk-sample:a11y-review`, or the zone above with more tales).
+3.12's manual checklist, unchanged in substance, on the sample page with an image, a video and a text tale. Add to
+the walk's zone a second group with an image tale, a video tale and a text-only tale (a Hebrew line in one text, for
+8.8), turn it On, and serve the sample page against the walk's API, in a third terminal:
+
+```sh
+NX_DAEMON=false node_modules/.bin/nx run web-sdk:build
+PORT=4314 node apps/sdk-sample/serve.mjs
+```
+
+Open `http://localhost:4314/?zones=<zone slug>&api=http://localhost:3413#siteKey=<site key>` (the slug and a site
+key from the zone's Install tab). On a phone, use the computer's address on the same network instead of `localhost`.
 
 **Screen readers** (VoiceOver + Safari on macOS and iOS; NVDA + Firefox or Chrome on Windows; TalkBack + Chrome on
 Android):

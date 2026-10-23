@@ -119,9 +119,25 @@ test('a layer name wraps instead of being cut at 320 px (1.4.10, story 7.15)', (
   assert.doesNotMatch(name, /white-space:nowrap|text-overflow:ellipsis|overflow:hidden/);
 });
 
-test('a canvas layer focused by keyboard comes above the others, below the guides (2.4.11, story 7.15)', () => {
-  assert.match(rule(studio, '.el:focus-visible'), /z-index:99 !important/);
+test('the keyboard focus ring is drawn above the layers, which keep their stacking (2.4.7, 2.4.11, story 7.15)', () => {
+  // The focused layer itself is not raised by CSS (a keyboard reorder stays visible) …
+  assert.doesNotMatch(rule(studio, '.el:focus-visible'), /z-index/);
+  // … its ring is drawn again in an overlay above every layer (z-index at most 61), below the guides.
+  const frame = rule(studio, '.focus-frame');
+  assert.match(frame, /position:absolute/);
+  assert.match(frame, /z-index:98/);
+  assert.match(frame, /pointer-events:none/);
   assert.match(rule(studio, '.guides,.snap-line'), /z-index:100/);
+});
+
+test('typing in place stays above every layer (2.4.11, story 7.15)', () => {
+  assert.match(studio, /\.el-edit\{z-index:99;/);
+  // The text field takes no inline z-index of its layer's place.
+  const start = studio.indexOf('<textarea class="el-edit"');
+  assert.ok(start >= 0, 'the in-place text field is there');
+  const textarea = studio.slice(start, studio.indexOf('</textarea>', start));
+  assert.match(textarea, /studio-edit-/);
+  assert.doesNotMatch(textarea, /style\.z-index/);
 });
 
 test('a project card puts its actions below a long name instead of over it (1.4.10, 1.4.12, story 7.15)', () => {

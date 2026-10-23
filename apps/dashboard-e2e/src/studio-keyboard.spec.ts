@@ -3,18 +3,21 @@ import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { drawPngs } from './media';
 import { emptyInstall, signIn } from './session';
-import { scan, settle, type ScanOptions } from './wcag';
+import { onTop, scan, settle, type ScanOptions } from './wcag';
 
 /**
  * Tale Studio's accessibility review (epic Tale Studio R12 and R13, story 7.15), run with
  * `nx run dashboard-e2e:a11y` after the dashboard scan (`a11y.spec.ts`).
  *
- * 1. Keyboard operability: a tale is composed with the keyboard only, every control reached with
- *    Tab (never clicked, never focused by script): text, an image from the project's media, a
- *    rectangle, an emoji from the picker and a button, each named and announced; selecting from the
- *    layers grid; moving with the arrow keys (Shift for larger steps); resizing and rotating through
- *    the numeric fields; reordering, hiding and locking with the layer shortcuts; the context menu
- *    by Shift+F10; undo and redo; Update tale; the preview pane.
+ * 1. Keyboard operability: a tale is composed with the keyboard only. Every control is reached with
+ *    Tab or Shift+Tab, or with the arrow keys inside a grid or a menu; nothing is clicked or focused
+ *    by script, and every control reached is checked to be on screen and on top (2.4.11): text, an
+ *    image from the project's media, a rectangle, an emoji from the picker and a button, each named
+ *    and announced (the live region's exact words); selecting from the layers grid; moving with
+ *    the arrow keys (Shift for larger steps); resizing and rotating through the numeric fields;
+ *    editing a text in place while it lies under a picture; reordering, hiding and locking with the
+ *    layer shortcuts; the layer menu by Shift+F10 and the context-menu key; undo and redo; Update
+ *    tale; the preview pane, its replay and the tale's link.
  * 2. The WCAG 2.2 AA scan of `wcag.ts` (axe plus 2.4.7, 2.4.11, 2.5.8, and 1.4.10 and 1.4.12 once
  *    per screen) of each studio state on the way: empty, the media and emoji pickers, the composed
  *    tale with each kind selected, the shortcuts panel, the layer menu, the duplicate drawer, the
@@ -30,6 +33,8 @@ import { scan, settle, type ScanOptions } from './wcag';
 const shots = process.env['E2E_SCREENSHOTS'];
 if (shots) mkdirSync(shots, { recursive: true });
 const API = '/api/v1';
+/** The scanned states, all named in the review (`a11y-review-7-15.md`). */
+const STATES = 22;
 
 test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7.15) @a11y', () => {
   let context: BrowserContext;
@@ -74,14 +79,23 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
       return active === el;
     });
 
+  /** The focused control is on screen and at least partly the topmost thing there (2.4.11). */
+  async function seen(target: Locator, what: string): Promise<void> {
+    await expect(target, `${what} has focus`).toBeFocused();
+    await settle(page);
+    await expect(target, `${what} is on screen`).toBeInViewport();
+    expect(await onTop(target), `${what}: on top when focused`).toBe(true);
+  }
+
   /**
-   * Presses Tab (or Shift+Tab) until `target` has focus, as a person would: it must be reachable.
-   * Returns the number of presses; fails past `max`.
+   * Presses Tab (or Shift+Tab) until `target` has focus, as a person would: it must be reachable,
+   * and be seen once it has focus. Returns the number of presses; fails past `max`.
    */
   async function tabTo(target: Locator, what: string, { back = false, max = 120 } = {}): Promise<number> {
     await expect(target, `${what} is there`).toHaveCount(1);
     for (let n = 0; n <= max; n++) {
       if (await focused(target)) {
+        await seen(target, what);
         keyboard.push(`${what}: reached with ${n} ${back ? 'Shift+Tab' : 'Tab'}`);
         return n;
       }
@@ -90,13 +104,39 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     throw new Error(`${what}: not reached with ${max} ${back ? 'Shift+Tab' : 'Tab'} presses`);
   }
 
+  /** In an open menu, moves with ArrowDown to the item named `name`. */
+  async function menuTo(name: string): Promise<void> {
+    const item = page.getByRole('menuitem', { name, exact: true });
+    for (let n = 0; n < 12 && !(await focused(item)); n++) await page.keyboard.press('ArrowDown');
+    await expect(item).toBeFocused();
+  }
+
+  /** Selects the layer `id` alone from the layers grid: Tab to the grid, Ctrl+Home, Down to its row, Enter. */
+  async function selectInGrid(id: string, what: string): Promise<void> {
+    await tabTo(page.locator('.layers [role=gridcell][tabindex="0"]'), 'layers grid');
+    await page.keyboard.press('ControlOrMeta+Home');
+    const row = page.locator(`#layer-${id}`);
+    for (let n = 0; n < 10 && !(await focused(row)); n++) await page.keyboard.press('ArrowDown');
+    await seen(row, `${what} row`);
+    await page.keyboard.press('Enter');
+    await expect(canvasEl(id)).toHaveAttribute('aria-pressed', 'true');
+  }
+
   /** The id of the element with focus. */
   const activeId = () => page.evaluate(() => document.activeElement?.id ?? '');
   /** The studio's live region. */
   const live = () => page.locator('section.card > p.visually-hidden[aria-live="polite"]');
+  /** The live region says exactly `text`; recorded for the report. */
+  async function said(text: string, what: string): Promise<void> {
+    await expect(live(), what).toHaveText(text, { timeout: 15_000 });
+    keyboard.push(`${what}: announced "${text}"`);
+  }
   const canvasEl = (id: string) => page.locator(`#studio-el-${id}`);
   const layerOrder = () =>
     page.locator('.layers [role=row] [id^="layer-"][role=gridcell]').evaluateAll((cells) => cells.map((c) => c.id.slice(6)));
+  /** A canvas layer's inline style value, read again until it settles. */
+  const styleOf = (id: string, prop: 'left' | 'top' | 'width' | 'height' | 'transform' | 'zIndex') =>
+    canvasEl(id).evaluate((el, p) => (el as HTMLElement).style[p], prop);
   /** Selects all of a field's text and types `value` over it, then leaves it with Tab. */
   async function typeOver(value: string): Promise<void> {
     await page.keyboard.press('ControlOrMeta+A');
@@ -153,20 +193,18 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
   });
 
   test('adds a text by keyboard and types it in place', async () => {
-    await page.locator('body').focus();
     await tabTo(page.locator('#studio-add'), 'Add text');
     await page.keyboard.press('Enter');
-    await expect(live()).toHaveText('Text added');
-    // Typing in place: a text field on the canvas, with the new text selected or empty.
+    await said('Text added', 'text');
+    // Typing in place: a text field on the canvas.
     const editing = page.locator('textarea.el-edit');
-    await expect(editing).toBeFocused();
+    await seen(editing, 'the text field on the canvas');
     ids.text = (await activeId()).replace('studio-edit-', '');
     await page.keyboard.press('ControlOrMeta+A');
     await page.keyboard.type('Autumn sale');
     await page.keyboard.press('Escape');
     await expect(canvasEl(ids.text)).toHaveAttribute('aria-label', 'Text: Autumn sale');
-    await expect(canvasEl(ids.text)).toBeFocused();
-    keyboard.push('text: added, typed in place, Escape returns focus to it on the canvas');
+    await seen(canvasEl(ids.text), 'the text after Escape');
   });
 
   test('adds an image from the media picker by keyboard and gives it alt text', async () => {
@@ -179,23 +217,23 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await tabTo(picker.getByRole('button', { name: /^Use / }), 'media picker: the picture', { max: 20 });
     await page.keyboard.press('Enter');
     await expect(picker).toBeHidden();
-    await expect(live()).toContainText('Image added');
+    await said('Image added. Give it alt text, or mark it decorative, before updating the tale.', 'image');
     // Focus goes to the alt text field, which the image needs before the tale can be updated.
-    await expect(page.locator('textarea[id^="media-alt-"]')).toBeFocused();
+    const alt = page.locator('textarea[id^="media-alt-"]');
+    await seen(alt, 'Alt text');
     ids.image = (await activeId()).replace('media-alt-', '');
     await page.keyboard.type('An orange sky');
     await page.keyboard.press('Tab');
-    await expect(canvasEl(ids.image)).toHaveAttribute('aria-label', /An orange sky/);
-    keyboard.push('image: picked from the media picker by Enter, alt text typed');
+    await expect(canvasEl(ids.image)).toHaveAttribute('aria-label', 'Image: An orange sky');
   });
 
   test('adds a rectangle by keyboard', async () => {
     await tabTo(page.locator('#studio-add-rectangle'), 'Add rectangle');
     await page.keyboard.press('Enter');
-    await expect(live()).toContainText('Rectangle added. It is decorative');
+    await said('Rectangle added. It is decorative: screen readers skip it.', 'rectangle');
     await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     ids.shape = (await activeId()).replace('studio-el-', '');
-    keyboard.push('rectangle: added, focus on it on the canvas');
+    await seen(canvasEl(ids.shape), 'the rectangle');
   });
 
   test('adds an emoji from the picker by keyboard: search, arrows and Enter', async () => {
@@ -213,51 +251,47 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     expect(await activeId(), 'ArrowRight moves in the grid').not.toBe(first);
     await page.keyboard.press('ArrowLeft');
     expect(await activeId()).toBe(first);
-    const name = await page.locator(`#${first}`).getAttribute('aria-label');
+    // Tab from the grid, the last stop, wraps to Close; Shift+Tab comes back (2.1.2, 2.4.3).
+    await page.keyboard.press('Tab');
+    await seen(picker.getByRole('button', { name: 'Close' }), 'emoji picker: Close after the grid');
+    await page.keyboard.press('Shift+Tab');
+    await seen(page.locator(`#${first}`), 'emoji grid again');
+    const name = (await page.locator(`#${first}`).getAttribute('aria-label')) ?? '';
     await page.keyboard.press('Enter');
     await expect(picker).toBeHidden();
-    await expect(live()).toContainText(`Emoji added: ${name}`);
+    await said(`Emoji added: ${name}. Screen readers announce it by this name, which you can edit.`, 'emoji');
     await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     ids.emoji = (await activeId()).replace('studio-el-', '');
     await expect(canvasEl(ids.emoji)).toHaveAttribute('aria-label', `Emoji: ${name}`);
-    keyboard.push(`emoji: searched "face", arrows in the grid, Enter added "${name}"`);
   });
 
   test('adds a button by keyboard and gives it a web address and a label', async () => {
     await tabTo(page.locator('#studio-add-button'), 'Add button');
     await page.keyboard.press('Enter');
-    await expect(live()).toContainText('Button added');
+    await said('Button added. Give it a web address before updating the tale.', 'button');
     await expect(page.locator('[id^="link-href-"]:focus')).toHaveCount(1);
     ids.button = (await activeId()).replace('link-href-', '');
     await page.keyboard.type('https://example.com/shop');
     await page.keyboard.press('Tab');
     await tabTo(page.locator(`#link-label-${ids.button}`), 'button label field', { max: 20 });
     await typeOver('Shop now');
-    await expect(canvasEl(ids.button)).toHaveAttribute('aria-label', /Shop now/);
-    keyboard.push('button: web address and label typed in the inspector');
+    await expect(canvasEl(ids.button)).toHaveAttribute('aria-label', 'Button: Shop now');
   });
 
   test('the composed tale, with each kind selected', async () => {
     for (const [name, id] of Object.entries(ids)) {
-      await canvasEl(id).focus();
-      await page.keyboard.press('Shift+Space');
-      // Shift+Space toggles the selection: make it this one only, from the layers grid.
-      await page.locator(`#layer-${id}`).focus();
-      await page.keyboard.press('Enter');
-      await expect(canvasEl(id)).toHaveAttribute('aria-pressed', 'true');
+      await selectInGrid(id, name);
       await check(`composed-${name}-selected`, { layout: name === 'text' });
     }
   });
 
   test('selects from the layers grid with the arrow keys', async () => {
-    await page.locator('body').focus();
     // The grid is one Tab stop; the arrows go from layer to layer.
     await tabTo(page.locator('.layers [role=gridcell][tabindex="0"]'), 'layers grid');
     await page.keyboard.press('ControlOrMeta+Home');
-    const order = await layerOrder();
-    expect(order).toHaveLength(5);
     // Top layer first: the button, the emoji, the rectangle, the image, the text.
-    expect(order).toEqual([ids.button, ids.emoji, ids.shape, ids.image, ids.text]);
+    const order = [ids.button, ids.emoji, ids.shape, ids.image, ids.text];
+    expect(await layerOrder()).toEqual(order);
     await expect(page.locator(`#layer-${ids.button}`)).toBeFocused();
     for (const id of order.slice(1)) {
       await page.keyboard.press('ArrowDown');
@@ -275,85 +309,125 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
   });
 
   test('moves with the arrow keys, Shift for larger steps, and resizes and rotates in the fields', async () => {
-    const x = page.locator('#studio-x');
-    const y = page.locator('#studio-y');
-    const x0 = Number(await x.inputValue());
-    const y0 = Number(await y.inputValue());
+    const x0 = Number(await page.locator('#studio-x').inputValue());
+    const y0 = Number(await page.locator('#studio-y').inputValue());
     await tabTo(canvasEl(ids.text), 'the text on the canvas', { back: true });
+    const left0 = parseFloat(await styleOf(ids.text, 'left'));
+    const top0 = parseFloat(await styleOf(ids.text, 'top'));
     await page.keyboard.press('ArrowRight');
-    await expect(x).toHaveValue(String(x0 + 1));
-    await expect(live()).toContainText(/moved/i);
+    await said(`Text moved to left ${x0 + 1}%, top ${y0}%`, 'move: ArrowRight');
+    await expect.poll(async () => parseFloat(await styleOf(ids.text, 'left')) - left0).toBeCloseTo(1, 5);
     await page.keyboard.press('Shift+ArrowDown');
-    await expect(y).toHaveValue(String(y0 + 10));
-    await expect(canvasEl(ids.text)).toBeFocused();
-    keyboard.push(`move: ArrowRight 1 %, Shift+ArrowDown 10 %; announced "${await live().textContent()}"`);
+    await said(`Text moved to left ${x0 + 1}%, top ${y0 + 10}%`, 'move: Shift+ArrowDown');
+    await expect.poll(async () => parseFloat(await styleOf(ids.text, 'top')) - top0).toBeCloseTo(10, 5);
+    await expect(page.locator('#studio-x')).toHaveValue(String(x0 + 1));
+    await expect(page.locator('#studio-y')).toHaveValue(String(y0 + 10));
+    await seen(canvasEl(ids.text), 'the text after moving');
 
+    // Width, height, rotation; then left and top put it wholly under the picture (10 to 90 % across,
+    // 30 to 70 % down), for the next test.
     await tabTo(page.locator('#studio-w'), 'Width field');
     await typeOver('70');
-    await expect(live()).toContainText('width set to 70%');
-    await expect.poll(() => canvasEl(ids.text).evaluate((el) => (el as HTMLElement).style.width)).toBe('70%');
-    await tabTo(page.locator('#studio-h'), 'Height field', { max: 3 });
+    await said('Text width set to 70%', 'width field');
+    await expect.poll(() => styleOf(ids.text, 'width')).toBe('70%');
+    await seen(page.locator('#studio-h'), 'Height field');
     await typeOver('9');
-    await expect(live()).toContainText('height set to 9%');
-    await expect.poll(() => canvasEl(ids.text).evaluate((el) => (el as HTMLElement).style.height)).toBe('9%');
-    await tabTo(page.locator('#studio-rotation'), 'Rotation field', { max: 3 });
+    await said('Text height set to 9%', 'height field');
+    await expect.poll(() => styleOf(ids.text, 'height')).toBe('9%');
+    await seen(page.locator('#studio-rotation'), 'Rotation field');
     await typeOver('-5');
-    await expect.poll(() => canvasEl(ids.text).evaluate((el) => (el as HTMLElement).style.transform)).toBe('rotate(-5deg)');
+    await said('Text rotated to -5°', 'rotation field');
+    await expect.poll(() => styleOf(ids.text, 'transform')).toBe('rotate(-5deg)');
     await tabTo(page.locator('#studio-x'), 'Left field', { back: true, max: 10 });
-    await typeOver('8');
-    await expect.poll(() => canvasEl(ids.text).evaluate((el) => (el as HTMLElement).style.left)).toBe('8%');
-    keyboard.push(`resize and rotate: width 70 %, height 9 %, rotation -5°, left 8 % in the fields; announced "${await live().textContent()}"`);
+    await typeOver('15');
+    await said('Text moved to left 15%', 'left field');
+    await expect.poll(() => styleOf(ids.text, 'left')).toBe('15%');
+    await seen(page.locator('#studio-y'), 'Top field');
+    await typeOver('40');
+    await said('Text moved to top 40%', 'top field');
+    await expect.poll(() => styleOf(ids.text, 'top')).toBe('40%');
+  });
+
+  test('a text under the picture: focused, it is raised; edited in place, the field is on top', async () => {
+    // The text lies wholly under the picture: focused by keyboard it comes above (2.4.11) …
+    await tabTo(canvasEl(ids.text), 'the text under the picture', { back: true });
+    await expect.poll(() => styleOf(ids.text, 'zIndex')).toBe('99');
+    for (const key of ['Enter', 'F2']) {
+      await page.keyboard.press(key);
+      const editing = page.locator(`#studio-edit-${ids.text}`);
+      await seen(editing, `the text field opened by ${key}, under the picture`);
+      await page.keyboard.press('Escape');
+      await seen(canvasEl(ids.text), `the text after Escape (${key})`);
+    }
+    // … while a layer only partly under another keeps its place, with its ring drawn above.
+    await tabTo(canvasEl(ids.shape), 'the rectangle, partly under the emoji', { back: true });
+    await expect(page.locator('.focus-frame')).toBeVisible();
+    expect(await styleOf(ids.shape, 'zIndex')).not.toBe('99');
+    keyboard.push('a text wholly under the picture is raised while focused; Enter and F2 edit it on top');
   });
 
   test('reorders, hides and locks with the layer shortcuts, on the canvas and in the grid', async () => {
-    await tabTo(canvasEl(ids.shape), 'the rectangle on the canvas', { back: true });
+    await expect(canvasEl(ids.shape)).toBeFocused();
     await page.keyboard.press('Alt+ArrowUp');
-    await expect(live()).not.toBeEmpty();
+    await said('Layer brought forward', 'reorder: Alt+ArrowUp on the canvas');
     await expect.poll(async () => (await layerOrder()).indexOf(ids.shape), 'brought forward').toBe(1);
-    keyboard.push(`reorder: Alt+ArrowUp on the canvas, announced "${await live().textContent()}"`);
+    // The layer keeps its new place on the canvas (no raise): its stacking follows the list.
+    await expect.poll(() => styleOf(ids.shape, 'zIndex')).toBe('4');
     await expect(canvasEl(ids.shape)).toBeFocused();
     await page.keyboard.press('Alt+Shift+ArrowDown');
+    await said('Layer moved to the back', 'reorder: Alt+Shift+ArrowDown');
     await expect.poll(async () => (await layerOrder()).at(-1), 'sent to the back').toBe(ids.shape);
-    keyboard.push(`reorder: Alt+Shift+ArrowDown, announced "${await live().textContent()}"`);
-    // In the grid: to the front and back again.
-    await page.locator('body').focus();
+    // In the grid: to the front.
     await tabTo(page.locator('.layers [role=gridcell][tabindex="0"]'), 'layers grid');
     await page.keyboard.press('ControlOrMeta+End');
     await expect(page.locator(`#layer-${ids.shape}`)).toBeFocused();
     await page.keyboard.press('Alt+Shift+ArrowUp');
     await expect.poll(async () => (await layerOrder())[0], 'to the front from the grid').toBe(ids.shape);
-    await expect(page.locator(`#layer-${ids.shape}`)).toBeFocused();
-    keyboard.push(`reorder in the grid: Alt+Shift+ArrowUp, focus stays on the row, announced "${await live().textContent()}"`);
+    await expect(live()).toHaveText(/^Layer moved to the front\b/);
+    keyboard.push(`reorder in the grid: Alt+Shift+ArrowUp, announced "${await live().textContent()}"`);
+    await seen(page.locator(`#layer-${ids.shape}`), 'the rectangle row after reordering');
 
     await page.keyboard.press('h');
+    await said('Layer hidden', 'hide: H');
     await expect(page.locator(`#layer-hide-${ids.shape}`)).toHaveAttribute('aria-pressed', 'true');
     await expect(canvasEl(ids.shape)).toHaveCount(0);
-    keyboard.push(`hide: H, announced "${await live().textContent()}"`);
     await page.keyboard.press('h');
+    await said('Layer shown', 'show: H');
     await expect(canvasEl(ids.shape)).toHaveCount(1);
     await page.keyboard.press('l');
+    await said('Layer locked', 'lock: L');
     await expect(page.locator(`#layer-lock-${ids.shape}`)).toHaveAttribute('aria-pressed', 'true');
-    keyboard.push(`lock: L, announced "${await live().textContent()}"`);
     await page.keyboard.press('l');
+    await said('Layer unlocked', 'unlock: L');
     await expect(page.locator(`#layer-lock-${ids.shape}`)).toHaveAttribute('aria-pressed', 'false');
     // Back to where it was: below the button.
     await page.keyboard.press('Alt+ArrowDown');
     await expect.poll(async () => (await layerOrder())[1]).toBe(ids.shape);
+    await expect(live()).toHaveText(/^Layer sent backward\b/);
   });
 
-  test('opens the layer menu with Shift+F10 and closes it with Escape', async () => {
-    await expect(page.locator(`#layer-${ids.shape}`)).toBeFocused();
-    await page.keyboard.press('Shift+F10');
+  test('opens the layer menu with Shift+F10 and the context-menu key, and closes it with Escape', async () => {
+    const row = page.locator(`#layer-${ids.shape}`);
+    await expect(row).toBeFocused();
     const menu = page.getByRole('menu');
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('Shift+F10');
+    await expect(menu).toHaveCount(1);
+    await seen(menu.getByRole('menuitem').first(), 'the layer menu’s first item');
     await check('layer-menu', { walk: false });
     await page.keyboard.press('ArrowDown');
     await expect(menu.getByRole('menuitem').nth(1)).toBeFocused();
     await page.keyboard.press('Escape');
-    await expect(menu).toBeHidden();
-    await expect(page.locator(`#layer-${ids.shape}`)).toBeFocused();
-    keyboard.push('layer menu: Shift+F10 opens on its first item, ArrowDown, Escape returns focus');
+    await expect(menu).toHaveCount(0);
+    await seen(row, 'the row after the menu');
+    // The context-menu key on the canvas: one menu, the studio's.
+    await tabTo(canvasEl(ids.shape), 'the rectangle on the canvas', { back: true });
+    await page.keyboard.press('ContextMenu');
+    await expect(menu).toHaveCount(1);
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await seen(canvasEl(ids.shape), 'the rectangle after the menu');
+    keyboard.push('layer menu: Shift+F10 on a row and the context-menu key on the canvas open it on its first item; Escape returns focus');
   });
 
   test('undoes and redoes by keyboard and announces it', async () => {
@@ -362,21 +436,19 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     expect(undo).toMatch(/^(Meta|Control)\+Z$/);
     // The last change put the rectangle back below the button; undo brings it to the front again.
     await page.keyboard.press(undo);
-    await expect(live()).toContainText(/^Undo/i);
+    await said('Undone: Layer sent backward', `undo: ${undo}`);
     await expect.poll(async () => (await layerOrder())[0]).toBe(ids.shape);
-    keyboard.push(`undo: ${undo}, announced "${await live().textContent()}"`);
     await page.keyboard.press(redo);
-    await expect(live()).toContainText(/^Redo/i);
+    await said('Redone: Layer sent backward', `redo: ${redo}`);
     await expect.poll(async () => (await layerOrder())[1]).toBe(ids.shape);
-    keyboard.push(`redo: ${redo}, announced "${await live().textContent()}"`);
-    // The Undo button too, by Enter.
+    // The Undo and Redo buttons too, by Enter; focus stays on each.
     await tabTo(page.locator('#studio-undo'), 'Undo button', { back: true });
     await page.keyboard.press('Enter');
-    await expect(live()).toContainText(/^Undo/i);
-    await expect(page.locator('#studio-undo')).toBeFocused();
+    await said('Undone: Layer sent backward', 'Undo button');
+    await seen(page.locator('#studio-undo'), 'Undo button after Enter');
     await tabTo(page.locator('#studio-redo'), 'Redo button', { max: 2 });
     await page.keyboard.press('Enter');
-    await expect(live()).toContainText(/^Redo/i);
+    await said('Redone: Layer sent backward', 'Redo button');
   });
 
   test('the shortcuts panel and the duplicate drawer', async () => {
@@ -386,7 +458,7 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await check('shortcuts-open', { walk: false });
     await page.keyboard.press('Escape');
     await expect(page.locator('#studio-keys')).toBeHidden();
-    await expect(page.locator('#studio-help-button')).toBeFocused();
+    await seen(page.locator('#studio-help-button'), 'Keyboard shortcuts after Escape');
 
     await tabTo(page.locator('#studio-duplicate'), 'Duplicate', { max: 10 });
     await page.keyboard.press('Enter');
@@ -395,7 +467,7 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await check('duplicate-drawer', { layout: true, maxStops: 30 });
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();
-    await expect(page.locator('#studio-duplicate')).toBeFocused();
+    await seen(page.locator('#studio-duplicate'), 'Duplicate after Escape');
     keyboard.push('shortcuts panel: Enter opens, Escape closes; Duplicate drawer: Enter opens, Escape returns focus');
   });
 
@@ -403,12 +475,11 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await tabTo(page.locator('#studio-update'), 'Update tale', { back: true, max: 10 });
     await expect(page.locator('#studio-update')).not.toHaveAttribute('aria-disabled', 'true', { timeout: 10_000 });
     await page.keyboard.press('Enter');
-    await expect(live()).toContainText('Tale updated', { timeout: 15_000 });
-    keyboard.push(`Update tale: Enter, announced "${await live().textContent()}"`);
+    await said('Tale updated. Not visible: group is off.', 'Update tale');
     await check('updated');
   });
 
-  test('opens the preview pane by keyboard and walks into it', async () => {
+  test('opens the preview pane by keyboard, replays it and reaches its link', async () => {
     await tabTo(page.locator('#studio-preview'), 'Preview', { back: true });
     await page.keyboard.press('Enter');
     await expect(page.locator('#studio-preview')).toHaveAttribute('aria-expanded', 'true');
@@ -416,16 +487,22 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await check('preview', { maxStops: 100 });
     await tabTo(page.locator('#preview-replay'), 'Play from the start');
     await page.keyboard.press('Enter');
-    // The tale's button is a link in the preview, reachable by Tab.
-    keyboard.push('preview: Enter opens it; its controls are reached by Tab');
+    // The replay keeps focus and starts the tale again: no "Play again" end screen.
+    await seen(page.locator('#preview-replay'), 'Play from the start after Enter');
+    await expect(page.locator('#preview-play-again')).toHaveCount(0);
+    // The tale's button is a link in the preview, reached by Tab.
+    await tabTo(page.locator('#preview-host').getByRole('link', { name: /Shop now/ }), 'the tale’s link in the preview');
     await tabTo(page.locator('#studio-preview'), 'Preview toggle', { back: true });
     await page.keyboard.press('Enter');
     await expect(page.locator('#studio-preview-pane')).toHaveCount(0);
-    await expect(page.locator('#studio-preview')).toBeFocused();
+    await seen(page.locator('#studio-preview'), 'Preview after closing');
   });
 
   test('the studio on a phone', async () => {
     await page.setViewportSize({ width: 390, height: 844 });
+    // The layers grid, each canvas layer's equivalent target (2.5.8), is on the same page there.
+    await expect(page.locator('.layers [role=gridcell][id^="layer-"]')).toHaveCount(5);
+    await expect(page.locator('.layers')).toBeVisible();
     await check('composed-phone');
     expect(walked['composed-phone'].length).toBeGreaterThan(0);
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -449,28 +526,28 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     const more = page.getByRole('button', { name: 'More for Autumn' }).first();
     await expect(more).toBeVisible();
     for (const item of ['Rename', 'Cover', 'Tags', 'Schedule']) {
-      await more.focus();
+      await tabTo(more, 'More for Autumn');
       await page.keyboard.press('Enter');
-      await page.getByRole('menuitem', { name: item }).focus();
+      await menuTo(item);
       await page.keyboard.press('Enter');
       const drawer = page.getByRole('dialog');
       await expect(drawer).toBeVisible();
       await check(`group-${item.toLowerCase()}-drawer`, { layout: true, maxStops: 40 });
       await page.keyboard.press('Escape');
       await expect(drawer).toBeHidden();
-      await expect(more).toBeFocused();
+      await seen(more, `More for Autumn after ${item}`);
     }
     // Each date and time field takes several Tabs (its day, month, year, … parts); both are reached.
     await page.keyboard.press('Enter');
-    await page.getByRole('menuitem', { name: 'Schedule' }).focus();
+    await menuTo('Schedule');
     await page.keyboard.press('Enter');
     await tabTo(page.locator('#schedule-end'), 'Schedule: End time', { max: 30 });
     await page.keyboard.press('Escape');
-    await expect(more).toBeFocused();
+    await seen(more, 'More for Autumn after Schedule');
   });
 
   test('every state has no WCAG 2.2 AA finding', () => {
-    expect(Object.keys(results).length).toBeGreaterThanOrEqual(20);
+    expect(Object.keys(results).length).toBe(STATES);
     for (const [state, findings] of Object.entries(results)) expect.soft(findings, state).toEqual([]);
   });
 });

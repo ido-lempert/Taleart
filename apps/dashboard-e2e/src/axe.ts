@@ -55,20 +55,27 @@ export async function axeViolations(page: Page): Promise<string[]> {
   const axe = await loadAxe();
   if (!(await page.evaluate(() => 'axe' in window))) await page.evaluate(axe);
   const violations = await page.evaluate(async (tags) => {
+    type Check = { relatedNodes?: { target: string[] }[] };
+    type Node = { target: string[]; any?: Check[]; all?: Check[]; none?: Check[] };
     type Axe = {
-      run: (c: Document, o: object) => Promise<{ violations: { id: string; nodes: { target: string[] }[] }[] }>;
+      run: (c: Document, o: object) => Promise<{ violations: { id: string; nodes: Node[] }[] }>;
     };
     const result = await (window as unknown as { axe: Axe }).axe.run(document, {
       runOnly: { type: 'tag', values: tags },
     });
+    const layer = (target: string[]) => /^#studio-el-/.test(target.join(' '));
+    // Tale Studio's canvas layers (story 7.15): where they sit and how big they are is the tale's
+    // content, and layers overlap by design. 2.5.8's "equivalent" exception covers a layer whose
+    // target is too small or too close only because of other canvas layers: each has its row in the
+    // layers grid on the same page (a 24 px target or more), which selects it, and its fields. A
+    // layer too close to any other control (a toolbar button, a field) is still reported.
+    const exempt = (n: Node) =>
+      layer(n.target) &&
+      [...(n.any ?? []), ...(n.all ?? []), ...(n.none ?? [])]
+        .flatMap((c) => c.relatedNodes ?? [])
+        .every((r) => layer(r.target));
     return result.violations
-      .map((v) => ({
-        id: v.id,
-        // Tale Studio's canvas layers (story 7.15): where they sit and how big they are is the tale's
-        // content, and layers overlap by design. 2.5.8's "equivalent" exception covers them: each has
-        // its row in the layers grid (a 24 px target or more), which selects it, and its fields.
-        nodes: v.id === 'target-size' ? v.nodes.filter((n) => !/^#studio-el-/.test(n.target.join(' '))) : v.nodes,
-      }))
+      .map((v) => ({ id: v.id, nodes: v.id === 'target-size' ? v.nodes.filter((n) => !exempt(n)) : v.nodes }))
       .filter((v) => v.nodes.length > 0)
       .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
   }, AXE_TAGS);
