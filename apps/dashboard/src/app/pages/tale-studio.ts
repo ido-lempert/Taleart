@@ -555,12 +555,15 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
     .el.is-locked {
       cursor: default;
     }
-    /* A low-contrast label (R12): a warning badge in the element's top corner, legible on any backdrop. */
+    /*
+     * A low-contrast label (R12): a warning badge in the element's top corner, legible on any backdrop;
+     * above the inner focus ring (.el:focus-visible::after, z-index 0).
+     */
     .el__warn {
       position: absolute;
       top: 2px;
       inset-inline-end: 2px;
-      z-index: 1;
+      z-index: 2;
       display: grid;
       place-items: center;
       width: 18px;
@@ -602,10 +605,30 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
       right: 0;
       height: 1px;
     }
+    /*
+     * The ring outside, and again inside: an element that fills the canvas has its outer ring cut
+     * off by the canvas edge (WCAG 2.4.7). The inner ring sits over the element's media (z-index 0)
+     * and under its badges (z-index 1 and up); on a tiny element it is thinner, to leave it visible.
+     */
     .el:focus-visible {
       outline: 3px solid #fff;
       outline-offset: 1px;
       box-shadow: 0 0 0 5px var(--ink);
+    }
+    .el:focus-visible::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      box-shadow:
+        inset 0 0 0 2px var(--ink),
+        inset 0 0 0 5px #fff;
+    }
+    .el--tiny:focus-visible::after {
+      box-shadow:
+        inset 0 0 0 1px var(--ink),
+        inset 0 0 0 2px #fff;
     }
     .el-edit {
       resize: none;
@@ -883,6 +906,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     class="el"
                     [id]="'studio-el-' + el.id"
                     [class.is-selected]="isSelected(el.id)"
+                    [class.el--tiny]="isTiny(el)"
                     [class.is-locked]="el.locked"
                     [attr.aria-pressed]="isSelected(el.id)"
                     [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
@@ -1016,6 +1040,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     class="el"
                     [id]="'studio-el-' + el.id"
                     [class.is-selected]="isSelected(el.id)"
+                    [class.el--tiny]="isTiny(el)"
                     [class.is-locked]="el.locked"
                     [attr.aria-pressed]="isSelected(el.id)"
                     [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
@@ -2728,6 +2753,11 @@ export class TaleStudioPage implements OnChanges {
 
   protected isSelected(id: string): boolean {
     return this.selectedSet().has(id);
+  }
+
+  /** An element about 30 px or less across on the canvas: its inner focus ring is thinner. */
+  protected isTiny(el: { box: { w: number; h: number } }): boolean {
+    return el.box.w < 0.1 || el.box.h < 0.06;
   }
 
   /** The layers list is one tab stop: the cell last focused, else the top layer's name. */

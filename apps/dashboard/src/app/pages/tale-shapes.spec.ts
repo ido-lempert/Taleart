@@ -309,6 +309,31 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     expect(root.querySelector(`#shape-radius-${locked.id}`)).toBeNull();
   });
 
+  it('marks a tiny element, whose inner focus ring is thinner (story 8.17, WCAG 2.4.7)', async () => {
+    const shape = (id: string, w: number, h: number): TaleElement => ({
+      id,
+      type: 'shape',
+      box: { x: 0.1, y: 0.1, w, h, rotation: 0 },
+      hidden: false,
+      locked: false,
+      a11y: { decorative: true },
+      props: { shape: 'rectangle', fill: '#00ff00' },
+    });
+    await open(
+      {
+        ...empty,
+        elements: [
+          shape('00000000-0000-4000-8000-000000000001', 0.5, 0.3),
+          shape('00000000-0000-4000-8000-000000000002', 0.05, 0.3),
+          shape('00000000-0000-4000-8000-000000000003', 0.5, 0.03),
+        ],
+      },
+      1,
+    );
+    const tiny = [...root.querySelectorAll('button.el')].map((el) => el.classList.contains('el--tiny'));
+    expect(tiny).toEqual([false, true, true]);
+  });
+
   it('lays the picker out as one WAI-ARIA grid per group, and announces search results, clearing too', async () => {
     await open();
     q<HTMLButtonElement>('#studio-add-emoji').click();

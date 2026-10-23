@@ -921,5 +921,16 @@ export class CreateDrawer implements OnInit {
     this.saving.set(false);
     this.error.set(message);
     if (!message) this.close();
+    // A refused zone puts focus on the field the error is about, so the error is read with it (WCAG 3.3.1).
+    else if (request.kind === 'zone' || request.kind === 'editZone')
+      this.refocus(ZONE_FIELDS[this.errorField() ?? 'name'], false);
   }
 }
+
+/** The control of each zone field a refusal can be about. */
+const ZONE_FIELDS: Record<Exclude<ZoneField, null>, string> = {
+  name: '#create-text',
+  slug: '#create-slug',
+  template: 'input[name=template]:checked',
+  project: '#create-project',
+};
