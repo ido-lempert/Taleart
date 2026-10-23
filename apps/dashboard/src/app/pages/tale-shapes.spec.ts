@@ -9,7 +9,8 @@ import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { layerName } from './tale-layers';
 import { EMOJI_COLUMNS, EMOJI_GROUPS, emojiGridMove, emojiLayout, emojiName, searchEmoji } from './tale-shapes';
-import { shapeView, TaleStudioPage } from './tale-studio';
+import { shapeView } from './tale-canvas-view';
+import { TaleStudioPage } from './tale-studio';
 
 // Tale Studio story 7.6 (epic Tale Studio R6, R12, R13): shapes, emoji and image stickers.
 const url = `${API_BASE}/tales/t1/document`;
