@@ -97,7 +97,7 @@ export function reorder<T extends { id: string }>(
 }
 
 /** How far a duplicate sits from its original, as a fraction of the canvas, so both can be seen. */
-export const DUPLICATE_OFFSET = 0.02;
+const DUPLICATE_OFFSET = 0.02;
 
 // The offset start: `offset` further on, or back the other way when the canvas has no room for it.
 function shifted(start: number, size: number, offset: number): number {

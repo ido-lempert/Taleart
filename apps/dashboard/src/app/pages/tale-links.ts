@@ -31,10 +31,10 @@ import { contrastWarning, parseHexColor } from './tale-text-style';
 import { percent } from './tale-layers';
 
 /** How people read each button style. */
-export const VARIANT_NAMES: Readonly<Record<ButtonVariant, string>> = { filled: 'Filled', outline: 'Outline' };
+const VARIANT_NAMES: Readonly<Record<ButtonVariant, string>> = { filled: 'Filled', outline: 'Outline' };
 
 /** How people read each link type. */
-export const LINK_KIND_NAMES: Readonly<Record<LinkElement['type'], string>> = {
+const LINK_KIND_NAMES: Readonly<Record<LinkElement['type'], string>> = {
   button: 'Button',
   'image-button': 'Image button',
   'swipe-up': 'Swipe-up link',

@@ -163,10 +163,10 @@ import {
 } from './tale-layers';
 
 /** How far an arrow key moves an element, as a fraction of the canvas; Shift moves ten times as far. */
-export const MOVE_STEP = 0.01;
+const MOVE_STEP = 0.01;
 
 /** How long leaving the studio waits for unsaved changes to save before it asks (ms). */
-export const LEAVE_WAIT_MS = 5000;
+const LEAVE_WAIT_MS = 5000;
 
 /** How often, at most, coming back to the page reads the tale again (ms). */
 export const BACK_TO_PAGE_INTERVAL_MS = 15_000;
