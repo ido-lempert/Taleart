@@ -1,0 +1,80 @@
+# Breakdown for epic-native-mobile, vertical slices in build order.
+# Each entry is a flow a person reviews on an Android emulator and an iOS simulator running Taller.
+# Table order is build order; id is permanent.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: Taller from the KMP wizard runs on Android and iOS with shared Compose UI"
+description = "Regenerates apps/taller from the latest KMP wizard (Android + iOS, iOS UI in Compose, tests included) or the JetBrains compose-multiplatform template, package site.lempert.taleart.taller, and moves libs/mobile-sdk, libs/android-sdk and libs/ios-sdk to site.lempert.taleart.sdk. Keeps the workspace's single Gradle build (settings.gradle.kts, gradle/libs.versions.toml at the wizard's versions) and Nx projects: taller gets build-android, build-ios and test targets; mobile-sdk gets test. The shared screen says TaleArt and the SDK version."
+verify = "nx run taller:build-android and taller:build-ios succeed; nx run mobile-sdk:test and taller:test pass; the app launches on an Android emulator and an iOS simulator and shows the same shared screen (screenshots of both)."
+covers = ["R9"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 2
+type = "story"
+title = "The shared SDK reads a zone from the Delivery API"
+description = "libs/mobile-sdk gets a Delivery client (Ktor, kotlinx.serialization) that calls GET /delivery/v1/zone?zone=<slug> with the project's site key, exactly as libs/web-sdk/src/lib/delivery-client.ts does, and models for the zone, its display, tale groups and tales generated from or checked against libs/contract. Errors (bad key, unknown zone, rate limit, offline) become typed results. Taller takes the API URL, site key and zone from a debug settings screen."
+verify = "Unit tests run the client against a fake server for every response the web client handles; against the local API, Taller's debug screen lists the same group and tale titles the sample page shows for that zone, on Android and iOS."
+covers = ["R9", "R11"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "A zone's bar display shows its tale groups in shared Compose"
+description = "A TaleartZone composable in libs/mobile-sdk renders a zone with a bar display: group covers in circles with titles and a seen ring, using the display's settings and the project theme as the Web SDK does; Android TaleartView and an iOS UIViewController wrap it. Taller shows it at the top of its home screen."
+verify = "For a zone with three On groups, Taller on Android and iOS shows the three covers in the order the sample page shows; turning a group Off in the dashboard and reopening removes it; screenshots beside the web bar."
+covers = ["R9", "R11"]
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Tapping a group opens the tale viewer"
+description = "A full-screen viewer in shared Compose: the group's shown tales in order, progress bars, tap right and left for next and back, swipe between groups, swipe down or close to exit, image and video media, seen state kept on the device. Matches the Web SDK viewer's behaviour."
+verify = "Open a group of three tales on Android and iOS: progress advances, taps move forward and back, the last tale moves to the next group, closing returns to the bar with the ring marked seen."
+covers = ["R11"]
+after = [3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "The viewer renders Tale Studio documents"
+description = "Renders the published tale document (AD-15) elements of registry.json — text, media, shapes, stickers, calls to action — on the 9:16 canvas in shared Compose, with reading direction and safe areas as the Web SDK does; unknown element types are skipped."
+verify = "A tale built in Tale Studio with one of each element type looks the same on Android, iOS and the sample page (side-by-side screenshots); a call to action opens its link."
+covers = ["R13"]
+after = [4]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 6
+type = "story"
+title = "A zone's banner display"
+description = "Renders the banner display type with its settings in shared Compose, like the Web SDK banner."
+verify = "Switch a zone's display from bar to banner in the dashboard: Taller shows the banner on Android and iOS after reopening; screenshots beside the web banner."
+covers = ["R9"]
+after = [4]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Accessibility review on TalkBack and VoiceOver"
+description = "The owner walks the bar, banner and viewer with TalkBack and VoiceOver using a checklist the autopilot writes; findings become fixes."
+verify = "The checklist is signed off by the owner."
+covers = ["R11"]
+after = [5, 6]
+hitl = true
+risk = "low"
