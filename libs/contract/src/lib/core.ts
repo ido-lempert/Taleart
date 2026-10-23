@@ -326,6 +326,12 @@ export function uniqueZoneSlug(base: string, taken: (slug: string) => boolean): 
 /** The most tales one tale group holds (FR-010). */
 export const MAX_TALES_PER_GROUP = 100;
 
+/**
+ * The most tale groups one project holds (epic UX rework R14), archived ones included: an archived
+ * group can be restored and no group is ever deleted, so archiving frees no place.
+ */
+export const MAX_TALE_GROUPS_PER_PROJECT = 500;
+
 /** Every content type a tale's media may have. */
 export const MEDIA_CONTENT_TYPES: readonly MediaContentType[] = mediaContentTypeValues;
 
@@ -617,6 +623,7 @@ export const ErrorCodes = {
   slugTaken: 'slug_taken',
   taleGroupNotFound: 'tale_group_not_found',
   taleGroupFull: 'tale_group_full',
+  taleGroupLimitReached: 'tale_group_limit_reached',
   taleNotFound: 'tale_not_found',
   orderMismatch: 'order_mismatch',
   mediaNotFound: 'media_not_found',

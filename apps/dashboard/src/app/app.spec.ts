@@ -338,6 +338,11 @@ describe('App', () => {
     await settle(fixture);
   }
 
+  // A full project's refusal (epic UX rework R14, story 8.22) and the message the drawers show for it.
+  const groupLimit = { error: { code: 'tale_group_limit_reached', message: 'A project holds at most 500 tale groups' } };
+  const fullAcme =
+    'Acme already has 500 tale groups, the most a project can hold. Archived tale groups count too, so archiving one does not make room.';
+
   async function refuse(fixture: ComponentFixture<unknown>, url: string, code: string, message: string) {
     http.expectOne(url).flush({ error: { code, message } }, { status: 400, statusText: 'Bad Request' });
     await settle(fixture);
@@ -1252,6 +1257,21 @@ describe('App', () => {
       await refuse(fixture, `${API_BASE}/zones/z1/tale-groups`, 'validation_failed', 'name is required');
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('name is required');
+    });
+
+    it('says plainly that the project is full when a new tale group is refused at the cap', async () => {
+      const { fixture, root } = await open('/zones/z1', oneZone);
+
+      buttonNamed(root.querySelector('.topbar') as HTMLElement, 'New tale group').click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('input[name=text]') ?? null, 'Summer');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/zones/z1/tale-groups`).flush(groupLimit, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullAcme);
+      expect(buttonNamed(drawer() as HTMLElement, 'Create')).toBeTruthy();
     });
 
     it('shows the API message in the tale drawer when a tale is refused', async () => {
@@ -2356,6 +2376,24 @@ describe('App', () => {
 
       expect(drawer()?.querySelector('[role=alert]')?.textContent).toContain('You do not have access to this project');
       expect(buttonNamed(drawer() as HTMLElement, 'Copy')).toBeTruthy();
+    });
+
+    it('names the full target project when a copy is refused at the cap', async () => {
+      const theirs = { id: 'g8', projectId: 'p2', name: 'Elsewhere', position: 0, zoneIds: ['z2'], tales: [], tags: [] };
+      const { fixture, root } = await open('/zones/z2', { ...twoZones, groups: { z2: [theirs] } });
+
+      pickMenuItem(groupRow(root, 'Elsewhere'), 'More for Elsewhere', 'Copy to zone');
+      await settle(fixture);
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyProject]') ?? null, 'p1');
+      await settle(fixture);
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z3');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/tale-groups/g8/copy`).flush(groupLimit, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullAcme);
     });
 
     it('offers "Copy to zone" on the Tale groups page, also for a group in no zone', async () => {
@@ -5345,6 +5383,18 @@ describe('App', () => {
       expect(url()).toBe('/tale-groups');
       expect(names(root)).toContain('Loose ends');
       expect(live(root)).toBe('Loose ends created. Showing all tale groups.');
+    });
+
+    it('says plainly that the project is full when a group in no zone is refused at the cap', async () => {
+      const { fixture, root } = await open('/tale-groups', data);
+      buttonNamed(root, 'New tale group').click();
+      await settle(fixture);
+      type(drawer()?.querySelector<HTMLInputElement>('#create-text') ?? null, 'Loose ends');
+      buttonNamed(drawer() as HTMLElement, 'Create').click();
+      await settle(fixture);
+      http.expectOne(`${API_BASE}/projects/p1/tale-groups`).flush(groupLimit, { status: 409, statusText: 'Conflict' });
+      await settle(fixture);
+      expect(drawer()?.querySelector('[role=alert]')?.textContent?.trim()).toBe(fullAcme);
     });
 
     it('creates a tale group in no zone with its tales from files (story 8.13)', async () => {

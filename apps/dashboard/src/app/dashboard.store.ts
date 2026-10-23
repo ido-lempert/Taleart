@@ -2,7 +2,9 @@ import { computed, inject, Injectable, PLATFORM_ID, signal } from '@angular/core
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient, HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import {
+  ErrorCodes,
   isErrorBody,
+  MAX_TALE_GROUPS_PER_PROJECT,
   type Frame,
   type FrameType,
   type Invitation,
@@ -91,6 +93,22 @@ export function compareTags(a: { id: string; name: string }, b: { id: string; na
 // The API's own message when it sent the standard error body, else the fallback.
 function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof HttpErrorResponse && isErrorBody(err.error) ? err.error.error.message : fallback;
+}
+
+// A refused tale group create or copy: for a full project (epic UX rework R14), a plain message
+// naming it; otherwise as apiErrorMessage.
+function taleGroupCreateMessage(err: unknown, projectName: string | null, fallback: string): string {
+  if (
+    err instanceof HttpErrorResponse &&
+    isErrorBody(err.error) &&
+    err.error.error.code === ErrorCodes.taleGroupLimitReached
+  ) {
+    return (
+      `${projectName ?? 'This project'} already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups, the most a project can hold. ` +
+      'Archived tale groups count too, so archiving one does not make room.'
+    );
+  }
+  return apiErrorMessage(err, fallback);
 }
 
 /** The control a refusal of a zone change is about; null when it names none. */
@@ -213,6 +231,11 @@ export class DashboardStore {
 
   projectName(projectId: string): string {
     return this.projects().find((p) => p.id === projectId)?.name ?? 'Unknown project';
+  }
+
+  // The project's name, or null when it is not known here.
+  private knownProjectName(projectId: string | undefined): string | null {
+    return this.projects().find((p) => p.id === projectId)?.name ?? null;
   }
 
   // A type missing from the registry is shown by its raw key; the dashboard does not fail on it (AD-5).
@@ -540,7 +563,11 @@ export class DashboardStore {
     try {
       created = await firstValueFrom(this.http.post<ZoneTaleGroup>(`${API_BASE}/zones/${zoneId}/tale-groups`, { name }));
     } catch (err) {
-      return apiErrorMessage(err, 'Tale group was not saved. Try again.');
+      return taleGroupCreateMessage(
+        err,
+        this.knownProjectName(this.zone(zoneId)?.projectId),
+        'Tale group was not saved. Try again.',
+      );
     }
     this.createdTaleGroupId.set(created.id);
     await this.refresh();
@@ -555,7 +582,7 @@ export class DashboardStore {
         this.http.post<ProjectTaleGroup>(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tale-groups`, { name }),
       );
     } catch (err) {
-      return apiErrorMessage(err, 'Tale group was not saved. Try again.');
+      return taleGroupCreateMessage(err, this.knownProjectName(projectId), 'Tale group was not saved. Try again.');
     }
     this.createdTaleGroupId.set(created.id);
     await this.refresh();
@@ -603,7 +630,11 @@ export class DashboardStore {
         this.http.post<ZoneTaleGroup>(`${API_BASE}/tale-groups/${encodeURIComponent(taleGroupId)}/copy`, { zoneId }),
       );
     } catch (err) {
-      return { copy: null, message: apiErrorMessage(err, 'The tale group was not copied. Try again.') };
+      const projectName = this.knownProjectName(this.zone(zoneId)?.projectId);
+      return {
+        copy: null,
+        message: taleGroupCreateMessage(err, projectName, 'The tale group was not copied. Try again.'),
+      };
     }
     await this.refresh();
     return { copy, message: '' };
