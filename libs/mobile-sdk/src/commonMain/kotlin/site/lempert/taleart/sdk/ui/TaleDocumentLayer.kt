@@ -221,18 +221,20 @@ internal fun stackFamily(stack: FontStack): FontFamily = when (stack) {
 }
 
 /**
- * The font a text draws in (`textFontFamily`): a system stack's family; the theme's or a named
- * font list's first generic family, as a native app cannot load the host page's fonts; a project
- * font once its file has loaded ([ProjectFonts]); else the text's fallback stack.
+ * The font a text draws in (`textFontFamily`): a system stack's family; for the theme's font or a
+ * named font list, the first entry the app has ([TaleartFonts]: a registered family, a font the
+ * host app installed, a generic family), as a browser picks from `font-family`; else the text's
+ * fallback stack. A project font (uploaded to the project as WOFF2, R18) is not downloaded on mobile
+ * (owner decision 2026-10-23): its text draws in its fallback stack.
  */
 @Composable
 internal fun textFontFamily(look: TextLook, themeFont: String?): FontFamily {
     val fallback = stackFamily(look.fallback)
     return when (val font = look.font) {
         is TextFont.System -> stackFamily(font.stack)
-        is TextFont.Theme -> fontFamilyOf(themeFont?.takeIf(::isFontFamily)) ?: fallback
-        is TextFont.Name -> fontFamilyOf(font.family) ?: fallback
-        is TextFont.Project -> ProjectFonts.family(font.fontId) ?: fallback
+        is TextFont.Theme -> rememberFontFamily(themeFont?.takeIf(::isFontFamily)) ?: fallback
+        is TextFont.Name -> rememberFontFamily(font.family) ?: fallback
+        is TextFont.Project -> fallback
     }
 }
 
@@ -486,7 +488,7 @@ private fun ButtonElement(element: DocumentElement.Button, canvas: CanvasMetrics
     ) {
         BasicText(
             element.label,
-            style = linkTextStyle(look.color, fontPx, canvas, themeFont),
+            style = linkTextStyle(look.color, fontPx, canvas, linkFontFamily(themeFont)),
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
@@ -494,12 +496,16 @@ private fun ButtonElement(element: DocumentElement.Button, canvas: CanvasMetrics
     }
 }
 
-// The label of a link: bold, line height 1.2, in the theme's font (the viewer's own).
-private fun linkTextStyle(color: String, fontPx: Float, canvas: CanvasMetrics, themeFont: String?) = TextStyle(
+// The theme's font for a link's label (the viewer's own), else the system font.
+@Composable
+private fun linkFontFamily(themeFont: String?): FontFamily = rememberFontFamily(themeFont?.takeIf(::isFontFamily)) ?: FontFamily.Default
+
+// The label of a link: bold, line height 1.2, in [family].
+private fun linkTextStyle(color: String, fontPx: Float, canvas: CanvasMetrics, family: FontFamily) = TextStyle(
     color = parseHexColor(color) ?: Color.White,
     fontSize = canvas.sp(fontPx),
     fontWeight = FontWeight.Bold,
-    fontFamily = fontFamilyOf(themeFont?.takeIf(::isFontFamily)) ?: FontFamily.Default,
+    fontFamily = family,
     lineHeight = 1.2.em,
     lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
     textAlign = TextAlign.Center,
@@ -550,7 +556,7 @@ private fun SwipeUpElement(element: DocumentElement.SwipeUp, canvas: CanvasMetri
             }
             BasicText(
                 element.label,
-                style = linkTextStyle(element.color, fontPx, canvas, themeFont),
+                style = linkTextStyle(element.color, fontPx, canvas, linkFontFamily(themeFont)),
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,

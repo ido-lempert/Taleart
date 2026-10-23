@@ -253,7 +253,7 @@ fun TaleartViewer(
 
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val accent = parseHexColor(theme.accentColor) ?: Color.White
-    val font = fontFamilyOf(theme.fontFamily)
+    val font = rememberFontFamily(theme.fontFamily)
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
@@ -400,7 +400,7 @@ private fun androidx.compose.foundation.layout.RowScope.Zone(label: String, weig
 /**
  * One tale: its stage media full-bleed over the stage colour, and its document's 9:16 canvas over
  * that, inside the screen's safe area: the canvas's background, then the document's elements
- * (story 9.5), drawn in [elementLayer]. The tale's project fonts start loading as it shows.
+ * (story 9.5), drawn in [elementLayer].
  */
 @Composable
 internal fun TalePage(
@@ -410,10 +410,6 @@ internal fun TalePage(
 ) {
     val view = state.view
     val loader = rememberCoverImageLoader()
-    val fonts = state.group.tales.getOrNull(state.taleIndex)?.fonts.orEmpty()
-    // Its project fonts load now that it shows (R18); its text shows the fallback stack until then.
-    val fontClient = LocalFontHttpClient.current
-    LaunchedEffect(fonts) { if (fonts.isNotEmpty() && view.canvas != null) ProjectFonts.load(fonts, fontClient) }
     Box(
         Modifier
             .fillMaxSize()
