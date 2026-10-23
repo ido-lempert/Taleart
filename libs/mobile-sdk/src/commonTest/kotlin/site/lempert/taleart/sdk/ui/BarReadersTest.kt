@@ -137,7 +137,7 @@ class BarReadersTest {
                 {"id":"a","name":"A","cover":{"kind":"video","url":"https://cdn.test/c.mp4"},
                  "tales":[{"id":"t","document":{"elements":[
                    {"type":"video","props":{"url":"https://cdn.test/t.mp4"}},
-                   {"type":"sticker","props":{"url":"https://cdn.test/s.png"}}]}}]},
+                   {"type":"sticker","box":{"x":0,"y":0,"w":0.5,"h":0.5,"rotation":0},"props":{"url":"https://cdn.test/s.png"}}]}}]},
                 {"id":"b","name":"B","tales":[
                   {"id":"t1","media":{"kind":"video","url":"https://cdn.test/v.mp4"}},
                   {"id":"t2","media":{"kind":"image","url":"https://cdn.test/i.png"}}]},

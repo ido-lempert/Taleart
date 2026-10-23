@@ -59,12 +59,15 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.paneTitle
@@ -93,6 +96,15 @@ const val VIEWER_SEGMENT_TAG = "taleart-viewer-segment"
 /** Test tag of the stage, where taps, holds and swipes land. */
 const val VIEWER_STAGE_TAG = "taleart-viewer-stage"
 
+/**
+ * How far the top bar reaches below the safe area, where the canvas starts: 8 dp padding, the 3 dp
+ * progress, 8 dp, the 44 dp controls and 8 dp padding, rounded up.
+ */
+internal val VIEWER_TOP_BAR_HEIGHT = 72.dp
+
+/** Test tag of the current tale's 9:16 canvas. */
+const val VIEWER_CANVAS_TAG = "taleart-viewer-canvas"
+
 /** Test tag of the current tale's page. */
 const val VIEWER_PAGE_TAG = "taleart-viewer-page"
 
@@ -106,6 +118,23 @@ private var SemanticsPropertyReceiver.viewerTale by ViewerTale
 
 /** Travel that makes a press a swipe: sideways between groups, down to close (`SWIPE_MIN_PX` in the Web SDK). */
 const val SWIPE_MIN_DP = 50
+
+/**
+ * A swipe up opens the tale's swipe-up link (R7) when it is a flick: released within
+ * [SWIPE_UP_MAX_MS], travelling at least [SWIPE_UP_MIN_DP] or [SWIPE_UP_MIN_SHARE] of the stage's
+ * height, and more up than sideways (`SWIPE_UP_MAX_MS`, `SWIPE_UP_MIN_PX`, `SWIPE_UP_MIN_SHARE`).
+ */
+const val SWIPE_UP_MAX_MS = 500L
+const val SWIPE_UP_MIN_DP = SWIPE_MIN_DP
+const val SWIPE_UP_MIN_SHARE = 0.08f
+
+/**
+ * The most one frame moves the tale's timer on: a safety net only. The tale waits while the app is
+ * in the background (its lifecycle stops the timer); should frames still stop for long without a
+ * lifecycle event (a window hidden some other way), the first frame after does not count the whole
+ * time away as play and skip the tale.
+ */
+internal const val MAX_FRAME_STEP_MS = 1_000L
 
 /** A press at least this long is a hold (pause), not a tap (step) (`HOLD_MIN_MS`). */
 const val HOLD_MIN_MS = 250L
@@ -186,7 +215,20 @@ fun TaleartViewer(
         var last = withFrameMillis { it }
         while (state.isOpen) {
             val now = withFrameMillis { it }
-            state.tick(now - last)
+            state.tick((now - last).coerceAtMost(MAX_FRAME_STEP_MS))
+            last = now
+        }
+    }
+    // The stall check of a document's own video (R5): frame by frame while it should play; each
+    // start (a new tale, run or resume) gives it a fresh VIDEO_STALL_MS, as the web's watchdog.
+    // A finger held on the stage only suspends the count (stallTick skips while held); it does not restart it.
+    LaunchedEffect(state.shows, state.videoRuns, state.capped, state.paused, state.inBackground) {
+        if (!state.capped || state.paused || state.inBackground || state.reducedMotion) return@LaunchedEffect
+        state.restartStallCheck()
+        var last = withFrameMillis { it }
+        while (state.isOpen) {
+            val now = withFrameMillis { it }
+            state.stallTick((now - last).coerceAtMost(MAX_FRAME_STEP_MS))
             last = now
         }
     }
@@ -243,7 +285,7 @@ fun TaleartViewer(
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val width = if (maxWidth < maxHeight * 9f / 16f) maxWidth else maxHeight * 9f / 16f
             Box(Modifier.width(width).fillMaxHeight()) {
-                Stage(state, rtl)
+                Stage(state, rtl, theme.fontFamily)
                 TopBar(state, accent, font)
                 // The live region (`.sr-only` in the Web SDK): says which tale shows.
                 Box(
@@ -261,18 +303,22 @@ fun TaleartViewer(
 
 // The stage: the tale's page, the tap zones, and the gestures over both.
 @Composable
-private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean) {
+private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean, themeFont: String?) {
     var dragDown by remember { mutableFloatStateOf(0f) }
+    val uri = LocalUriHandler.current
     Box(
         Modifier
             .matchParentSize()
             .testTag(VIEWER_STAGE_TAG)
-            .pointerInput(state, rtl) {
+            .pointerInput(state, rtl, uri) {
                 val swipe = SWIPE_MIN_DP.dp.toPx()
+                val swipeUp = maxOf(SWIPE_UP_MIN_DP.dp.toPx(), SWIPE_UP_MIN_SHARE * size.height)
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     state.held = true
                     var joined = false
+                    // A tap a link took (a call to action on the canvas): it opens the link and does not step.
+                    var linkTapped = false
                     var released: Pair<Float, Float>? = null
                     var releasedAt = down.uptimeMillis
                     try {
@@ -282,6 +328,7 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean) {
                             if (event.changes.any { it.id != down.id && it.pressed }) joined = true
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) {
+                                linkTapped = change.isConsumed
                                 released = change.position.x - down.position.x to change.position.y - down.position.y
                                 releasedAt = change.uptimeMillis
                                 break
@@ -295,8 +342,12 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean) {
                         dragDown = 0f
                     }
                     val (dx, dy) = released ?: return@awaitEachGesture
-                    if (joined) return@awaitEachGesture
+                    if (joined || linkTapped) return@awaitEachGesture
+                    val swipeUpHref = state.view.swipeUpHref
                     when {
+                        // A flick up opens the tale's swipe-up link, when it has one (R7).
+                        swipeUpHref != null && releasedAt - down.uptimeMillis < SWIPE_UP_MAX_MS && -dy >= swipeUp && -dy > abs(dx) ->
+                            runCatching { uri.openUri(swipeUpHref) }
                         // A swipe toward the start of the line (left, or right in right to left) shows the next group.
                         abs(dx) >= swipe && abs(dx) > abs(dy) -> if (if (rtl) dx > 0 else dx < 0) state.nextGroup() else state.previousGroup()
                         dy >= swipe && dy > abs(dx) -> state.close()
@@ -310,19 +361,21 @@ private fun BoxScope.Stage(state: TaleViewerState, rtl: Boolean) {
                 }
             },
     ) {
+        // The tap zones, for screen readers: the gestures over the stage handle touch; these name the
+        // parts. They lie under the tale and come first in the reading order, so the tale's links,
+        // drawn over them, are what touch exploration finds where they are.
+        Row(Modifier.matchParentSize().semantics { isTraversalGroup = true; traversalIndex = -1f }) {
+            // The Row mirrors right to left by itself: Previous is then the right third.
+            Zone("Previous tale", 1f) { state.previous() }
+            Zone("Next tale", 2f) { state.next() }
+        }
         Box(
             Modifier.matchParentSize().graphicsLayer {
                 // A swipe down drags the tale with the finger, unless the person prefers reduced motion.
                 if (!state.reducedMotion) translationY = dragDown
             },
         ) {
-            key(state.shows) { TalePage(state) }
-        }
-        // The tap zones, for screen readers: the gestures above handle touch; these name the parts.
-        Row(Modifier.matchParentSize()) {
-            // The Row mirrors right to left by itself: Previous is then the right third.
-            Zone("Previous tale", 1f) { state.previous() }
-            Zone("Next tale", 2f) { state.next() }
+            key(state.shows) { TalePage(state, themeFont = themeFont) }
         }
     }
 }
@@ -346,16 +399,21 @@ private fun androidx.compose.foundation.layout.RowScope.Zone(label: String, weig
 
 /**
  * One tale: its stage media full-bleed over the stage colour, and its document's 9:16 canvas over
- * that. The canvas holds the document's background now; the document's elements (story 9.5) are
- * drawn in [elementLayer], inside the canvas.
+ * that, inside the screen's safe area: the canvas's background, then the document's elements
+ * (story 9.5), drawn in [elementLayer]. The tale's project fonts start loading as it shows.
  */
 @Composable
 internal fun TalePage(
     state: TaleViewerState,
-    elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit = {},
+    themeFont: String? = null,
+    elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit = { canvas -> DocumentElementsLayer(canvas.layer, themeFont = themeFont, video = documentVideoPlayback(state), topChrome = VIEWER_TOP_BAR_HEIGHT) },
 ) {
     val view = state.view
     val loader = rememberCoverImageLoader()
+    val fonts = state.group.tales.getOrNull(state.taleIndex)?.fonts.orEmpty()
+    // Its project fonts load now that it shows (R18); its text shows the fallback stack until then.
+    val fontClient = LocalFontHttpClient.current
+    LaunchedEffect(fonts) { if (fonts.isNotEmpty() && view.canvas != null) ProjectFonts.load(fonts, fontClient) }
     Box(
         Modifier
             .fillMaxSize()
@@ -400,10 +458,30 @@ internal fun TalePage(
     }
 }
 
-// The document's canvas: 9:16, as large as fits, centred (`.ta-canvas`), named by the tale.
+/**
+ * How the viewer plays the document's own video (R5): as the tale's clock when the stage has no
+ * video (playing with the tale, its progress, end and failure going to [state]), or else looping
+ * beside the stage's video, playing while the tale plays.
+ */
+internal fun documentVideoPlayback(state: TaleViewerState): DocumentVideoPlayback {
+    val clock = state.view.documentVideo != null
+    val show = state.shows
+    val run = state.videoRuns
+    return DocumentVideoPlayback(
+        playing = !state.stopped && state.isOpen && (!clock || !state.timed),
+        clock = clock,
+        run = run,
+        onProgress = { position, duration -> state.videoProgress(show, run, position, duration) },
+        onEnded = { state.videoEnded(show, run) },
+        onError = { state.videoFailed(show, run) },
+    )
+}
+
+// The document's canvas: 9:16, as large as fits inside the screen's safe area, centred
+// (`.ta-area` inside `env(safe-area-inset-*)`, `.ta-canvas`), named by the tale.
 @Composable
 private fun CanvasBox(canvas: TaleCanvas, loader: ImageLoader, elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.Center) {
         val w = if (maxWidth * 16f / 9f <= maxHeight) maxWidth else maxHeight * 9f / 16f
         Box(
             Modifier
@@ -411,7 +489,11 @@ private fun CanvasBox(canvas: TaleCanvas, loader: ImageLoader, elementLayer: @Co
                 .height(w * 16f / 9f)
                 .clip(RoundedCornerShape(0.dp))
                 .then(canvas.color?.let(::parseHexColor)?.let { Modifier.background(it) } ?: Modifier)
-                .semantics { contentDescription = canvas.label },
+                .testTag(VIEWER_CANVAS_TAG)
+                .semantics {
+                    contentDescription = canvas.label
+                    isTraversalGroup = true
+                },
         ) {
             canvas.background?.let { MediaImage(it, loader, Modifier.matchParentSize()) }
             elementLayer(canvas)
@@ -470,7 +552,7 @@ private fun BoxScope.TopBar(state: TaleViewerState, accent: Color, font: android
                 )
             }
             // Under reduced motion the Pause button shows only for a video, which plays from it.
-            if (!state.reducedMotion || state.view.video != null) {
+            if (!state.reducedMotion || state.view.runsOnVideo) {
                 Control(if (state.paused) "Play" else "Pause", if (state.paused) Icons.PLAY else Icons.PAUSE, accent) { state.togglePause() }
                 Spacer(Modifier.width(8.dp))
             }
