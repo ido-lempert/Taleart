@@ -279,6 +279,8 @@ export async function migrateTales(db: DbConnection): Promise<void> {
     `CREATE INDEX IF NOT EXISTS tales_media_out_of_step_idx ON tales (id)
      WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key`,
   );
+  // The tale group cap counts a project's groups (epic UX rework R14, story 8.22).
+  await db.query('CREATE INDEX IF NOT EXISTS tale_groups_project_id_idx ON tale_groups (project_id)');
   // Before the media step below, so the tales it makes live get their published media document there.
   await migrateShownStatus(db);
   await migrateTaleMediaDocuments(db);

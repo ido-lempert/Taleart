@@ -714,7 +714,7 @@ describe('importContent: tale groups and tales', () => {
     const report = await importContent(fake.db, projectId, home, source(twoGroups, twoStories));
     expect(report.taleGroups).toEqual({ source: 2, imported: 1, skipped: 1 });
     expect(report.tales).toEqual({ source: 2, imported: 1, skipped: 1 });
-    const note = `Tale group "Late": the project already holds ${MAX_TALE_GROUPS_PER_PROJECT} tale groups`;
+    const note = `Tale group "Late": the project already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups that are not archived`;
     expect(report.notes).toContain(note);
     expect(fake.zoneContent('Home page')).toEqual([{ name: 'Kept', tales: ['A'] }]);
     expect(fake.links.has('story_group:g2')).toBe(false);
@@ -724,6 +724,29 @@ describe('importContent: tale groups and tales', () => {
     expect(again.taleGroups).toEqual({ source: 2, imported: 1, skipped: 1 });
     expect(again.notes).toContain(note);
     expect(fake.zoneContent('Home page')).toEqual([{ name: 'Kept', tales: ['A', 'C'] }]);
+  });
+
+  it('uses the other import\'s group when that import took the last place for the same record (R14)', async () => {
+    const fake = contentDb();
+    const otherId = '00000000-0000-4000-8000-0000000000ee';
+    fake.state.otherGroups = MAX_TALE_GROUPS_PER_PROJECT;
+    let reads = 0;
+    fake.setOnLinkRead((key) => {
+      // The read after the refusal: the other import created and linked g1 meanwhile, filling the project.
+      if (key === 'story_group:g1' && ++reads === 2) {
+        fake.links.set(key, otherId);
+        fake.groups.set(otherId, { name: 'Kept', zoneId: 'elsewhere', position: 0 });
+      }
+    });
+    const report = await importContent(
+      fake.db,
+      projectId,
+      home,
+      source({ '2001': [{ id: 'g1', name: 'Kept', sortOrder: 0 }] }, { g1: [{ id: 's1', name: 'A', sortOrder: 0 }] }),
+    );
+    expect(report.taleGroups).toEqual({ source: 1, imported: 1, skipped: 0 });
+    expect(report.notes.some((n) => n.includes('not archived'))).toBe(false);
+    expect([...fake.tales.values()]).toEqual([{ groupId: otherId, title: 'A', position: 0 }]);
   });
 
   it('rolls its creation back and uses the other link when another import linked the record meanwhile', async () => {

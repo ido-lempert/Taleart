@@ -154,7 +154,7 @@ describe('tale groups', () => {
 });
 
 describe('tale group cap (R14)', () => {
-  it('refuses a group in a zone of a project at the cap, archived groups counted, inserting nothing', async () => {
+  it('refuses a group in a zone of a project at the cap of groups not archived, inserting nothing', async () => {
     const { db, query, statements } = fakeDb([
       { rows: [{ project_id: projectId }] },
       { rows: [{}] },
@@ -163,9 +163,9 @@ describe('tale group cap (R14)', () => {
     ]);
     const withGroup = vi.fn();
     await expect(createTaleGroup(db, { zoneId, name: 'A' }, withGroup)).rejects.toBeInstanceOf(TaleGroupLimitError);
-    // Every group of the project counts: no status filter.
+    // Archived groups do not count.
     const count = query.mock.calls.find((c) => /count\(\*\)/.test(c[0] as string));
-    expect(count?.[0]).not.toMatch(/status/);
+    expect(count?.[0]).toMatch(/WHERE project_id = \$1 AND status <> 'archived'/);
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
     expect(statements()).toContain('ROLLBACK');
     expect(withGroup).not.toHaveBeenCalled();
@@ -174,7 +174,7 @@ describe('tale group cap (R14)', () => {
   it('refuses a group in no zone of a project at the cap, and takes one under it', async () => {
     const full = fakeDb([{ rows: [{}] }, { rows: [{ count: MAX_TALE_GROUPS_PER_PROJECT + 3 }] }]);
     await expect(createProjectTaleGroup(full.db, { projectId, name: 'A' })).rejects.toThrow(
-      `A project holds at most ${MAX_TALE_GROUPS_PER_PROJECT} tale groups`,
+      `This project already has ${MAX_TALE_GROUPS_PER_PROJECT} tale groups that are not archived, the most it can hold. Archive a tale group to make room.`,
     );
     expect(full.statements().some((s) => /INSERT/.test(s))).toBe(false);
     expect(full.statements()).toContain('ROLLBACK');
@@ -1041,6 +1041,15 @@ describe('copy to zone', () => {
     const lock = order.findIndex((s) => /FROM project_fonts f[\s\S]*FROM tale_fonts tf[\s\S]*FOR SHARE/.test(s));
     expect(lock).toBeGreaterThan(-1);
     expect(lock).toBeLessThan(order.findIndex((s) => /INSERT INTO tales/.test(s)));
+    // The project's group lock comes first of all: before the zone lock, the source row and tales
+    // share locks and the font locks (R14), so no copy holds those while waiting on it.
+    const projectLock = order.findIndex((s) => /'project_tale_groups:'/.test(s));
+    expect(projectLock).toBe(order.indexOf('BEGIN') + 1);
+    const later = order.slice(projectLock + 1);
+    expect(later.some((s) => /'project_tale_groups:'/.test(s))).toBe(false);
+    for (const other of [/'tale_groups:'/, /FROM tale_groups WHERE id = \$1 FOR SHARE/, /FROM tales WHERE tale_group_id = \$1 FOR SHARE/, /FROM project_fonts f/]) {
+      expect(order.findIndex((s) => other.test(s))).toBeGreaterThan(projectLock);
+    }
     const recorded = query.mock.calls.filter((c) => /^INSERT INTO tale_fonts/.test(c[0] as string)).map((c) => c[1]);
     expect(recorded).toEqual([
       ['t9', 'draft', [fontId], [false]],
@@ -1078,6 +1087,7 @@ describe('copy to zone', () => {
     const refused = copyTaleGroup(db, { taleGroupId: groupId, zoneId });
     await expect(refused).rejects.toBeInstanceOf(TaleGroupLimitError);
     await expect(refused).rejects.toMatchObject({ code: 'tale_group_limit_reached', projectId });
+    await expect(refused).rejects.toThrow('The project of that zone already has 500 tale groups that are not archived');
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
     expect(statements()).toContain('ROLLBACK');
   });
@@ -1128,13 +1138,17 @@ describe('status', () => {
 
   it('publishes a draft group under a row lock and returns it with its tales and zones', async () => {
     const { db, query, statements, release } = fakeDb([
-      { rows: [{ status: 'draft' }] },
+      { rows: [{ projectId }] },
+      { rows: [{}] },
+      { rows: [{ status: 'draft', projectId }] },
       { rows: [row] },
       { rows: [] },
       { rows: [] },
     ]);
     expect(await setTaleGroupStatus(db, groupId, 'live')).toEqual({ ...row, status: 'live', ...NO_WINDOW, cover: null, zoneIds: [], tales: [], ...VIS });
-    expect(statements()).toContain('SELECT status FROM tale_groups WHERE id = $1 FOR UPDATE');
+    expect(statements()).toContain('SELECT status, project_id AS "projectId" FROM tale_groups WHERE id = $1 FOR UPDATE');
+    // Not a restore: the cap is not counted.
+    expect(statements().some((s) => /count\(\*\)/.test(s))).toBe(false);
     const update = query.mock.calls.find((c) => /UPDATE tale_groups SET status/.test(c[0] as string));
     expect(update?.[1]).toEqual([groupId, 'live']);
     expect(statements()).toContain('COMMIT');
@@ -1142,7 +1156,12 @@ describe('status', () => {
   });
 
   it('changes nothing when the group already has the status', async () => {
-    const { db, statements } = fakeDb([{ rows: [{ status: 'paused' }] }, { rows: [{ ...row, storedStatus: 'paused' }] }]);
+    const { db, statements } = fakeDb([
+      { rows: [{ projectId }] },
+      { rows: [{}] },
+      { rows: [{ status: 'paused', projectId }] },
+      { rows: [{ ...row, storedStatus: 'paused' }] },
+    ]);
     expect((await setTaleGroupStatus(db, groupId, 'paused')).status).toBe('paused');
     expect(statements().some((s) => /^UPDATE/.test(s))).toBe(false);
   });
@@ -1153,13 +1172,46 @@ describe('status', () => {
       ['archived', 'live'],
       ['processing', 'paused'],
     ] as const) {
-      const { db, statements } = fakeDb([{ rows: [{ status: from }] }]);
+      const { db, statements } = fakeDb([{ rows: [{ projectId }] }, { rows: [{}] }, { rows: [{ status: from, projectId }] }]);
       const err = await setTaleGroupStatus(db, groupId, to).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(InvalidStatusTransitionError);
       expect(err).toMatchObject({ code: 'invalid_status_transition', from, to });
       expect(statements().some((s) => /^UPDATE/.test(s))).toBe(false);
       expect(statements()).toContain('ROLLBACK');
     }
+  });
+
+  it('restores an archived group only with a free place, under the project lock taken before the row lock (R14)', async () => {
+    const restore = (count: number) =>
+      fakeDb([
+        { rows: [{ projectId }] },
+        { rows: [{}] },
+        { rows: [{ status: 'archived', projectId }] },
+        { rows: [{ count }] },
+        { rows: [{ ...row, storedStatus: 'paused' }] },
+      ]);
+    const full = restore(MAX_TALE_GROUPS_PER_PROJECT);
+    const refused = setTaleGroupStatus(full.db, groupId, 'paused');
+    await expect(refused).rejects.toBeInstanceOf(TaleGroupLimitError);
+    await expect(refused).rejects.toThrow('Restoring a tale group needs a free place: archive another tale group first.');
+    expect(full.statements().some((s) => /^UPDATE/.test(s))).toBe(false);
+    expect(full.statements()).toContain('ROLLBACK');
+    const order = full.statements();
+    const lock = order.findIndex((s) => /'project_tale_groups:'/.test(s));
+    expect(full.query.mock.calls.find((c) => /'project_tale_groups:'/.test(c[0] as string))?.[1]).toEqual([projectId]);
+    expect(lock).toBeGreaterThan(-1);
+    expect(lock).toBeLessThan(order.findIndex((s) => /FOR UPDATE/.test(s)));
+    expect(order.find((s) => /count\(\*\)/.test(s))).toMatch(/status <> 'archived'/);
+
+    const room = restore(MAX_TALE_GROUPS_PER_PROJECT - 1);
+    expect((await setTaleGroupStatus(room.db, groupId, 'paused')).status).toBe('paused');
+    expect(room.statements()).toContain('COMMIT');
+  });
+
+  it('archives without the project lock or a count: archiving frees a place (R14)', async () => {
+    const { db, statements } = fakeDb([{ rows: [{ status: 'live', projectId }] }, { rows: [{ ...row, storedStatus: 'archived' }] }]);
+    expect((await setTaleGroupStatus(db, groupId, 'archived')).status).toBe('archived');
+    expect(statements().some((s) => /project_tale_groups|count\(\*\)/.test(s))).toBe(false);
   });
 
   it('refuses an unknown group, and does not query for an id that is not a UUID', async () => {
