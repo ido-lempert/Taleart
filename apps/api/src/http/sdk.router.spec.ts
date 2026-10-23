@@ -1,16 +1,17 @@
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { get, type Server } from 'node:http';
+import { get, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../app';
-import { installInfo, servedFile, testPageCsp, webSdkFileFromEnv } from './sdk.router';
+import { gzipCache, installInfo, servedFile, testPageCsp, webSdkFileFromEnv } from './sdk.router';
 
 // These routes touch neither the database nor storage: the app gets stand-ins that fail if used.
 const unused = new Proxy({}, { get: () => () => Promise.reject(new Error('not used')) });
@@ -57,12 +58,108 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
     expect(etag).toMatch(/^"[\w-]+"$/);
     // node:http, since fetch adds Cache-Control: no-cache to a conditional request.
     const status = await new Promise<number | undefined>((resolve, reject) =>
-      get(`${origin}/sdk/v1/taleart.js`, { headers: { 'If-None-Match': etag } }, (r) => {
+      get(`${origin}/sdk/v1/taleart.js`, { headers: { 'If-None-Match': etag, 'Accept-Encoding': 'gzip' } }, (r) => {
         r.resume();
         resolve(r.statusCode);
       }).on('error', reject),
     );
     expect(status).toBe(304);
+  });
+
+  describe('gzip (epic Tale Studio R15)', () => {
+    const BODY = 'export const sdk = "bundle";\n';
+    // node:http, since fetch always asks for gzip and decodes it.
+    const raw = (path: string, headers: Record<string, string> = {}, method = 'GET') =>
+      new Promise<{ status: number | undefined; headers: Record<string, string | string[] | undefined>; body: Buffer }>(
+        (resolve, reject) =>
+          request(`${origin}/sdk/v1/${path}`, { method, headers }, (r) => {
+            const chunks: Buffer[] = [];
+            r.on('data', (c: Buffer) => chunks.push(c));
+            r.on('end', () => resolve({ status: r.statusCode, headers: r.headers, body: Buffer.concat(chunks) }));
+          })
+            .on('error', reject)
+            .end(),
+      );
+
+    it('sends the bundle gzipped to a client that accepts gzip, and as is otherwise, with an ETag per encoding', async () => {
+      const zipped = await raw('taleart.js', { 'Accept-Encoding': 'gzip, deflate, br' });
+      expect(zipped.headers['content-encoding']).toBe('gzip');
+      expect(zipped.headers['vary']).toMatch(/Accept-Encoding/);
+      expect(gunzipSync(zipped.body).toString()).toBe(BODY);
+      const plain = await raw('taleart.js');
+      expect(plain.headers['content-encoding']).toBeUndefined();
+      expect(plain.headers['vary']).toMatch(/Accept-Encoding/);
+      expect(plain.body.toString()).toBe(BODY);
+      expect(zipped.headers['etag']).not.toBe(plain.headers['etag']);
+      expect((await raw('taleart.js', { 'Accept-Encoding': 'identity' })).headers['content-encoding']).toBeUndefined();
+    });
+
+    it('honours gzip;q=0 and *', async () => {
+      const refused = await raw('taleart.js', { 'Accept-Encoding': 'gzip;q=0, identity' });
+      expect(refused.headers['content-encoding']).toBeUndefined();
+      expect(refused.body.toString()).toBe(BODY);
+      const any = await raw('taleart.js', { 'Accept-Encoding': '*' });
+      expect(any.headers['content-encoding']).toBe('gzip');
+      expect(gunzipSync(any.body).toString()).toBe(BODY);
+    });
+
+    it('answers HEAD with the gzipped length and no body', async () => {
+      const get = await raw('taleart.js', { 'Accept-Encoding': 'gzip' });
+      const head = await raw('taleart.js', { 'Accept-Encoding': 'gzip' }, 'HEAD');
+      expect(head.status).toBe(200);
+      expect(head.headers['content-encoding']).toBe('gzip');
+      expect(head.headers['content-length']).toBe(String(get.body.length));
+      expect(head.body.length).toBe(0);
+    });
+
+    it('sends the pinned bundle gzipped too, immutable', async () => {
+      const pinned = new URL(installInfo('http://x', await servedFile(bundleFile)()).sdkPinnedUrl ?? '').pathname;
+      const res = await raw(pinned.slice('/sdk/v1/'.length), { 'Accept-Encoding': 'gzip' });
+      expect(res.status).toBe(200);
+      expect(res.headers['content-encoding']).toBe('gzip');
+      expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+      expect(gunzipSync(res.body).toString()).toBe(BODY);
+    });
+
+    it('answers 304 without Content-Encoding to its own encoding validator, and 200 to the other one', async () => {
+      const zipped = await raw('taleart.js', { 'Accept-Encoding': 'gzip' });
+      const plain = await raw('taleart.js');
+      const zipEtag = String(zipped.headers['etag']);
+      const plainEtag = String(plain.headers['etag']);
+      const fresh = await raw('taleart.js', { 'Accept-Encoding': 'gzip', 'If-None-Match': zipEtag });
+      expect(fresh.status).toBe(304);
+      expect(fresh.headers['content-encoding']).toBeUndefined();
+      expect(fresh.body.length).toBe(0);
+      expect((await raw('taleart.js', { 'If-None-Match': plainEtag })).status).toBe(304);
+      // The other encoding's validator does not match: the full body.
+      const crossed = await raw('taleart.js', { 'Accept-Encoding': 'gzip', 'If-None-Match': plainEtag });
+      expect(crossed.status).toBe(200);
+      expect(gunzipSync(crossed.body).toString()).toBe(BODY);
+      const back = await raw('taleart.js', { 'If-None-Match': zipEtag });
+      expect(back.status).toBe(200);
+      expect(back.body.toString()).toBe(BODY);
+    });
+
+    it('leaves the test page and its files uncompressed, with their CSP', async () => {
+      for (const path of ['test-page', 'test-page.js', 'test-page.css']) {
+        const res = await raw(path, { 'Accept-Encoding': 'gzip' });
+        expect(res.status, path).toBe(200);
+        expect(res.headers['content-encoding'], path).toBeUndefined();
+        expect(res.headers['content-security-policy'], path).toContain("default-src 'none'");
+      }
+    });
+
+    it('gzips a rebuilt bundle again (size or modification time changed)', async () => {
+      const before = await raw('taleart.js', { 'Accept-Encoding': 'gzip' });
+      writeFileSync(bundleFile, 'export const sdk = "rebuilt for gzip";\n');
+      try {
+        const after = await raw('taleart.js', { 'Accept-Encoding': 'gzip' });
+        expect(gunzipSync(after.body).toString()).toBe('export const sdk = "rebuilt for gzip";\n');
+        expect(after.headers['etag']).not.toBe(before.headers['etag']);
+      } finally {
+        writeFileSync(bundleFile, BODY);
+      }
+    });
   });
 
   it('answers 404 when the bundle was not built', async () => {
@@ -175,6 +272,19 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
       const res = await fetch(`${origin}/sdk/v1/${path}`);
       expect(res.status, path).toBe(404);
     }
+  });
+});
+
+describe('gzipCache', () => {
+  it('compresses a file once, sharing the one in flight, and a rebuilt file again', async () => {
+    const zip = gzipCache();
+    const file = { body: Buffer.from('a'.repeat(1000)), etag: '"a"', hash: 'a', integrity: 'a' };
+    const first = zip(file);
+    expect(zip(file)).toBe(first);
+    expect(gunzipSync(await first).toString()).toBe('a'.repeat(1000));
+    const rebuilt = { ...file, body: Buffer.from('b') };
+    expect(zip(rebuilt)).not.toBe(first);
+    expect(gunzipSync(await zip(rebuilt)).toString()).toBe('b');
   });
 });
 
