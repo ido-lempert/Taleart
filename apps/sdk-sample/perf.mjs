@@ -574,6 +574,8 @@ async function main() {
         IMPORT_TOKEN_KEY: '',
         // The SDK just built, served at /sdk/v1/taleart.js.
         WEB_SDK_FILE: SDK_BUNDLE,
+        // No folder of earlier builds for pinned URLs: the run uses the stable URL only.
+        SDK_BUILDS_DIR: 'off',
       },
       'Delivery API at',
     );
