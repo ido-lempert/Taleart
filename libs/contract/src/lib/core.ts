@@ -121,6 +121,7 @@ export type ProjectTheme = Omit<Schemas['ProjectTheme'], 'theme'> & { theme: The
 
 export * from './templates';
 export * from './visibility';
+export * from './targeting';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;

@@ -1,4 +1,5 @@
 import {
+  DEFAULT_TAG_MATCH,
   ErrorCodes,
   isZoneSlug,
   mediaKind,
@@ -9,6 +10,7 @@ import {
 } from '@taleart/contract';
 import { projectForSiteKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
+import { tagRulesForTaleGroups } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
 import { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
@@ -124,6 +126,11 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         listDeliveryTaleGroups(pool, zoneId),
         getProjectTheme(pool, zone.projectId),
       ]);
+      // Each group's tag rule, the same for every viewer: the SDK matches the viewer's tags (AD-13).
+      const tagRules = await tagRulesForTaleGroups(
+        pool,
+        taleGroups.map((group) => group.id),
+      );
       // No project id, user data or storage key leaves here except inside a public media URL (AD-11, AD-13).
       const body: DeliveryZone = {
         id: zone.id,
@@ -140,6 +147,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
         taleGroups: taleGroups.map((group) => ({
           id: group.id,
           name: group.name,
+          tags: tagRules.get(group.id)?.tags ?? [],
+          tagMatch: tagRules.get(group.id)?.tagMatch ?? DEFAULT_TAG_MATCH,
           cover: group.cover && {
             kind: mediaKind(group.cover.contentType),
             contentType: group.cover.contentType,

@@ -37,6 +37,8 @@
         background: #fff;
       }
       code { background: #f3f4f6; padding: 0 4px; border-radius: 4px; }
+      #viewer-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      #viewer-tags p { flex-basis: 100%; margin: 0; }
     </style>
   </head>
   <body>
@@ -60,9 +62,22 @@
 
     <div id="views"><taleart-view id="zone"></taleart-view></div>
 
+    <p>
+      Add <code>&amp;tags=summer,vip</code> to pass the viewer's targeting tags with <code>setTags(tags)</code>, or set
+      them below: each element then shows only the tale groups whose tags match (Any or All, set in the group's
+      Audience), and every group without tags. Without tags, every group shows.
+    </p>
+    <form id="viewer-tags">
+      <label for="viewer-tags-input">Viewer tags, separated by commas</label>
+      <input id="viewer-tags-input" name="tags" autocomplete="off" placeholder="summer, vip" />
+      <button type="submit">Set tags</button>
+      <button type="button" id="viewer-tags-clear">No tags</button>
+      <p id="viewer-tags-status" role="status">No viewer tags: every group shows.</p>
+    </form>
+
     <!-- The built SDK, served from dist/libs/web-sdk. Loading it registers <taleart-view>. -->
     <script type="module">
-      import { configureZone } from '/sdk/index.js';
+      import { configureZone, setTags } from '/sdk/index.js';
 
       const params = new URLSearchParams(location.search);
       // Keys are read from the fragment first (never sent to a server or in a Referer), then from the query.
@@ -92,6 +107,28 @@
           console.warn('Sample page: the theme parameter is not valid JSON; it is ignored');
         }
       }
+      // The viewer's targeting tags (epic targeting R2), as typed: the SDK ignores case and surrounding spaces.
+      const tagsInput = document.getElementById('viewer-tags-input');
+      const tagsStatus = document.getElementById('viewer-tags-status');
+      const applyTags = (value) => {
+        const tags = value === null ? null : value.split(',').filter((tag) => tag.trim());
+        setTags(tags);
+        tagsStatus.textContent = tags?.length
+          ? `Viewer tags: ${tags.map((tag) => JSON.stringify(tag)).join(', ')}.`
+          : 'No viewer tags: every group shows.';
+      };
+      if (params.has('tags')) {
+        tagsInput.value = params.get('tags');
+        applyTags(params.get('tags'));
+      }
+      document.getElementById('viewer-tags').addEventListener('submit', (event) => {
+        event.preventDefault();
+        applyTags(tagsInput.value);
+      });
+      document.getElementById('viewer-tags-clear').addEventListener('click', () => {
+        tagsInput.value = '';
+        applyTags(null);
+      });
       // One element per slug, each under its own heading; without any, the page keeps its empty element.
       if (placements.length > 0) {
         const sections = placements.map((zone) => {

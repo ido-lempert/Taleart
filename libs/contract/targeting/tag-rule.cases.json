@@ -1,0 +1,25 @@
+{
+  "$comment": "The tag rule's test table (epic targeting R2). Every SDK and the dashboard preview run it: viewerTags null means the page never called setTags. A case holds when tagRulePasses({ tags: groupTags, tagMatch }, viewerTags) equals passes.",
+  "cases": [
+    { "name": "no group tags, no setTags call", "groupTags": [], "tagMatch": "any", "viewerTags": null, "passes": true },
+    { "name": "no group tags, viewer tags", "groupTags": [], "tagMatch": "any", "viewerTags": ["summer"], "passes": true },
+    { "name": "no group tags with All, viewer tags", "groupTags": [], "tagMatch": "all", "viewerTags": ["summer"], "passes": true },
+    { "name": "Any, no setTags call", "groupTags": ["summer"], "tagMatch": "any", "viewerTags": null, "passes": true },
+    { "name": "All, no setTags call", "groupTags": ["summer", "vip"], "tagMatch": "all", "viewerTags": null, "passes": true },
+    { "name": "Any, empty viewer tags", "groupTags": ["summer"], "tagMatch": "any", "viewerTags": [], "passes": true },
+    { "name": "All, only blank viewer tags", "groupTags": ["summer", "vip"], "tagMatch": "all", "viewerTags": ["", "  "], "passes": true },
+    { "name": "Any, one of two matching", "groupTags": ["summer", "vip"], "tagMatch": "any", "viewerTags": ["vip"], "passes": true },
+    { "name": "Any, none matching", "groupTags": ["summer", "vip"], "tagMatch": "any", "viewerTags": ["winter"], "passes": false },
+    { "name": "Any, all matching", "groupTags": ["summer", "vip"], "tagMatch": "any", "viewerTags": ["vip", "summer"], "passes": true },
+    { "name": "All, one missing", "groupTags": ["summer", "vip"], "tagMatch": "all", "viewerTags": ["summer"], "passes": false },
+    { "name": "All, all present", "groupTags": ["summer", "vip"], "tagMatch": "all", "viewerTags": ["vip", "summer"], "passes": true },
+    { "name": "All, all present among others", "groupTags": ["summer", "vip"], "tagMatch": "all", "viewerTags": ["winter", "vip", "summer"], "passes": true },
+    { "name": "All, one group tag present", "groupTags": ["vip"], "tagMatch": "all", "viewerTags": ["vip"], "passes": true },
+    { "name": "Any, case differs", "groupTags": ["Summer"], "tagMatch": "any", "viewerTags": ["SUMMER"], "passes": true },
+    { "name": "Any, surrounding spaces", "groupTags": ["summer"], "tagMatch": "any", "viewerTags": ["  summer "], "passes": true },
+    { "name": "All, case and spaces differ", "groupTags": ["summer", "VIP"], "tagMatch": "all", "viewerTags": ["SUMMER ", " vip"], "passes": true },
+    { "name": "Any, inner spaces still count", "groupTags": ["summer sale"], "tagMatch": "any", "viewerTags": ["summersale"], "passes": false },
+    { "name": "Any, repeated viewer tags none matching", "groupTags": ["summer"], "tagMatch": "any", "viewerTags": ["winter", "winter"], "passes": false },
+    { "name": "unknown match mode reads as Any", "groupTags": ["summer", "vip"], "tagMatch": "some", "viewerTags": ["vip"], "passes": true }
+  ]
+}

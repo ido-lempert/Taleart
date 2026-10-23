@@ -840,7 +840,7 @@ export interface paths {
         put?: never;
         /**
          * Copy a tale group into a zone, as an independent group.
-         * @description Creates a new tale group in the target zone's project, with the same name, placed after the zone's groups (AD-14). Its tales are new rows with the same titles, positions and media; media files are not duplicated, the copy shares their storage keys (AD-11). For each of the source's tags, a tag of the target project with the same name, ignoring case, is reused, else created. Copy and source are independent afterwards. The caller needs access to the source group's project and to the target zone's project (403 `forbidden`). Unknown tale group: 404 `tale_group_not_found`; missing `zoneId`: 400 `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts against the target zone's project, which holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is copied.
+         * @description Creates a new tale group in the target zone's project, with the same name, placed after the zone's groups (AD-14). Its tales are new rows with the same titles, positions and media; media files are not duplicated, the copy shares their storage keys (AD-11). For each of the source's tags, a tag of the target project with the same name, ignoring case, is reused, else created; the copy keeps the source's `tagMatch`. Copy and source are independent afterwards. The caller needs access to the source group's project and to the target zone's project (403 `forbidden`). Unknown tale group: 404 `tale_group_not_found`; missing `zoneId`: 400 `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts against the target zone's project, which holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is copied.
          */
         post: operations["copyTaleGroup"];
         delete?: never;
@@ -979,7 +979,7 @@ export interface paths {
         get?: never;
         /**
          * Replace the tags of a tale group.
-         * @description The list becomes the group's full set of tags; an empty list clears them, and repeated ids count once. Every id must name a tag of the group's own project; otherwise nothing changes and the answer is 400 `tag_not_found`. Unknown tale group: 404 `tale_group_not_found`.
+         * @description The list becomes the group's full set of tags; an empty list clears them, and repeated ids count once. Every id must name a tag of the group's own project; otherwise nothing changes and the answer is 400 `tag_not_found`. `tagMatch`, when given, sets how the tags combine (`any` or `all`); a value that is neither is 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`.
          */
         put: operations["setTaleGroupTags"];
         post?: never;
@@ -1321,6 +1321,7 @@ export interface components {
             tales: components["schemas"]["Tale"][];
             /** @description The group's tags, by name ignoring case. */
             tags: components["schemas"]["TaleGroupTag"][];
+            tagMatch: components["schemas"]["TagMatch"];
         };
         /** @description A tale group as a zone lists it, with its position in that zone. */
         ZoneTaleGroup: components["schemas"]["TaleGroup"] & {
@@ -1356,6 +1357,7 @@ export interface components {
             zoneIds: string[];
             /** @description The group's tags, by name ignoring case. */
             tags: components["schemas"]["TaleGroupTag"][];
+            tagMatch: components["schemas"]["TagMatch"];
             taleCount: number;
             /** @description The group's tales that are Shown (stored `live`, AD-6 amended). */
             shownTaleCount: number;
@@ -1380,7 +1382,14 @@ export interface components {
         SetTaleGroupTagsRequest: {
             /** @description The ids of the group's new tags, all of the group's project. Repeats count once. */
             tagIds: string[];
+            /** @description How the tags combine (epic targeting R1); left out, the group keeps its match mode. */
+            tagMatch?: components["schemas"]["TagMatch"];
         };
+        /**
+         * @description How a tale group's targeting tags combine (epic targeting R1, R2): `any` (the default) shows the group to a viewer with at least one of its tags, `all` only to a viewer with every one of them. A group with no tags, or a viewer whose page passed no tags, always passes. The SDK decides (AD-13), with `tagRulePasses` from the contract.
+         * @enum {string}
+         */
+        TagMatch: "any" | "all";
         CreateTaleGroupRequest: {
             /** @description Trimmed before it is checked and stored; at most 100 characters. */
             name: string;
@@ -1624,6 +1633,9 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
+            /** @description The names of the group's targeting tags, ignoring case by name (epic targeting R2); empty when the group has none. The SDK compares them with the viewer's tags (AD-13); every viewer gets the same list. */
+            tags: string[];
+            tagMatch: components["schemas"]["TagMatch"];
             /** @description The group's cover, or null when it has none; the bar then shows its first tale's lowest media element (the document's media background, else its first image or video element), or, when that tale has no media, its canvas colour (epic Tale Studio R16). */
             cover: components["schemas"]["DeliveryCover"] | null;
             /** @description The group's published tales by position. */
@@ -4495,6 +4507,7 @@ export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: Readonly
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
 export const createZoneRequestTemplateValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["CreateZoneRequest"]["template"]> = ["stories-bar", "promo-banner", "blank"];
+export const tagMatchValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TagMatch"]> = ["any", "all"];
 export const visibilityReasonSubjectValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReason"]["subject"]> = ["zone", "group", "tale"];
 export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet", "no-visible-groups", "no-tale-groups"];
 export const contentStatusValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ContentStatus"]> = ["draft", "live", "scheduled", "processing", "invalid-media", "paused", "blocked-by-group", "expired", "quota-reached", "archived"];
