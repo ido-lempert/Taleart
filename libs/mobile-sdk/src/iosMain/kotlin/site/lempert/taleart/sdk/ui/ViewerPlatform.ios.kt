@@ -1,11 +1,13 @@
 package site.lempert.taleart.sdk.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSBundle
@@ -39,16 +41,19 @@ import platform.UIKit.didMoveToParentViewController
 internal class ViewerModalController(
     private val content: UIViewController,
     private val onDismissedFromOutside: () -> Unit,
+    private val onAppeared: () -> Unit = {},
 ) : UIViewController(nibName = null, bundle = null) {
     /** True once the viewer itself asked for the dismissal. */
     var dismissing = false
 
     override fun viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor.blackColor
-        // Compose clears its canvas over a native view (the video), showing the view controller's own
-        // background there, white by default: black, as the viewer is.
-        content.view.backgroundColor = UIColor.blackColor
+        // Clear: the viewer draws its own black backdrop, fading in and out over the app (story 9.9).
+        // Where Compose clears its canvas over a native view (a video), the video's own view shows:
+        // the stage's video letterboxes on black.
+        view.backgroundColor = UIColor.clearColor
+        content.view.backgroundColor = UIColor.clearColor
+        content.view.opaque = false
         addChildViewController(content)
         content.view.setFrame(view.bounds)
         content.view.autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
@@ -64,6 +69,12 @@ internal class ViewerModalController(
 
     override fun preferredStatusBarStyle(): UIStatusBarStyle = UIStatusBarStyleLightContent
 
+    // On screen: the viewer may start its opening motion and its tale.
+    override fun viewDidAppear(animated: Boolean) {
+        super.viewDidAppear(animated)
+        onAppeared()
+    }
+
     override fun viewDidDisappear(animated: Boolean) {
         super.viewDidDisappear(animated)
         if (!dismissing && presentingViewController == null) onDismissedFromOutside()
@@ -74,11 +85,14 @@ internal class ViewerModalController(
 // the bar sits (a child view controller, a SwiftUI representable, a whole Compose screen). When it
 // cannot be presented (no window, the top controller busy presenting or dismissing, UIKit refusing)
 // or UIKit dismisses it from outside, the viewer is asked to close, so the zone's state matches.
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, onBack: () -> Unit, content: @Composable () -> Unit) {
     val current by rememberUpdatedState(content)
     val dismiss by rememberUpdatedState(onDismissRequest)
-    val reduced = rememberPrefersReducedMotion()
+    // The modal's view takes a moment to reach the screen (Compose sets up its canvas first): the
+    // viewer waits for it before it opens and its tale starts.
+    val appeared = remember(requestKey) { mutableStateOf(false) }
     DisposableEffect(requestKey) {
         var disposed = false
         val failed = { if (!disposed) dismiss() }
@@ -87,12 +101,17 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
             failed()
             return@DisposableEffect onDispose { disposed = true }
         }
-        val modal = ViewerModalController(ComposeUIViewController { current() }, onDismissedFromOutside = failed)
+        // A transparent Compose view over a clear modal: the viewer draws its own backdrop and opens and
+        // closes with its own motion over the app (story 9.9), so UIKit presents it without a transition.
+        val compose = ComposeUIViewController(configure = { opaque = false }) {
+            CompositionLocalProvider(LocalViewerAppeared provides appeared) { current() }
+        }
+        val modal = ViewerModalController(compose, onDismissedFromOutside = failed, onAppeared = { appeared.value = true })
         modal.modalPresentationStyle = UIModalPresentationOverFullScreen
         modal.modalTransitionStyle = UIModalTransitionStyleCrossDissolve
         // The viewer sets the status bar's look while it covers the app.
         modal.modalPresentationCapturesStatusBarAppearance = true
-        host.presentViewController(modal, animated = !reduced) {
+        host.presentViewController(modal, animated = false) {
             // UIKit refuses some presentations without an error: the modal then has no presenter.
             if (modal.presentingViewController == null) failed()
         }
@@ -100,7 +119,7 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
         onDispose {
             disposed = true
             modal.dismissing = true
-            if (modal.presentingViewController != null) modal.dismissViewControllerAnimated(!reduced, completion = null)
+            if (modal.presentingViewController != null) modal.dismissViewControllerAnimated(false, completion = null)
         }
     }
 }
