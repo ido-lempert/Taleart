@@ -105,7 +105,8 @@ internal class DocumentVideoPlayback(
  * order. Sizes are fractions of the canvas height, as the web's `cqh`, so a tale scales with its
  * canvas on every screen. Links open in the system browser through [LocalUriHandler], or go
  * nowhere with [inertLinks] (a preview of a draft). [themeFont] is the project theme's font list,
- * for texts that take the theme font.
+ * for texts that take the theme font. [topChrome] is how far down the canvas the host's controls
+ * reach (the viewer's top bar), which a native video view must not cover.
  */
 @Composable
 internal fun DocumentElementsLayer(
@@ -115,6 +116,7 @@ internal fun DocumentElementsLayer(
     imageLoader: ImageLoader = rememberCoverImageLoader(),
     video: DocumentVideoPlayback? = null,
     inertLinks: Boolean = false,
+    topChrome: Dp = 0.dp,
 ) {
     // Boxes are placed from the canvas's left edge whatever the host's layout direction, as the
     // web's `left:`; each text keeps its own direction (`TextStyle.textDirection`).
@@ -127,7 +129,7 @@ internal fun DocumentElementsLayer(
             val canvas = CanvasMetrics(width, height, density)
             layer.elements.forEachIndexed { index, element ->
                 key(element.id, index) {
-                    Element(element, index, canvas, themeFont, imageLoader, video, inertLinks, layer.elements.filter { it.layer > element.layer })
+                    Element(element, index, canvas, themeFont, imageLoader, video, inertLinks, layer.elements.filter { it.layer > element.layer }, topChrome)
                 }
             }
         }
@@ -173,6 +175,7 @@ private fun Element(
     video: DocumentVideoPlayback?,
     inertLinks: Boolean,
     above: List<DocumentElement>,
+    topChrome: Dp,
 ) {
     val player = LocalTaleVideoPlayer.current ?: remember { platformTaleVideoPlayer() }
     // A native video view that draws its own look takes no Compose rotation.
@@ -191,7 +194,7 @@ private fun Element(
                 .mediaLook(element.radius, element.opacity, canvas)
                 .then(if (element.alt == null) Modifier.clearAndSetSemantics { } else Modifier),
         )
-        is DocumentElement.Video -> VideoElement(element, canvas, video, player, above, placed)
+        is DocumentElement.Video -> VideoElement(element, canvas, video, player, above, topChrome, placed)
         is DocumentElement.Shape -> ShapeElement(element, canvas, placed.then(hidden))
         is DocumentElement.Emoji -> EmojiElement(element, canvas, placed)
         is DocumentElement.Button -> ButtonElement(element, canvas, themeFont, inertLinks, placed)
@@ -409,10 +412,14 @@ private fun VideoElement(
     playback: DocumentVideoPlayback?,
     player: TaleVideoPlayer,
     above: List<DocumentElement>,
+    topChrome: Dp,
     modifier: Modifier,
 ) {
     val bounds = elementBounds(element.box)
     val nothingAbove = above.none { overlaps(elementBounds(it.box), bounds) }
+    val inside = bounds.x >= 0.0 && bounds.y >= 0.0 && bounds.x + bounds.w <= 1.0 && bounds.y + bounds.h <= 1.0
+    val clearOfChrome = bounds.y * canvas.height >= with(canvas.density) { topChrome.toPx() }
+    val overlay = nothingAbove && inside && clearOfChrome
     val named = element.alt?.let { alt -> Modifier.semantics { contentDescription = alt; role = Role.Image } }
         ?: Modifier.clearAndSetSemantics { }
     val clock = playback?.clock == true
@@ -423,7 +430,7 @@ private fun VideoElement(
             playing = playback?.playing == true,
             // A video beside the stage's video loops in place.
             loop = !clock,
-            look = DocumentVideoLook(canvas.dp(canvas.h(element.radius)), element.box.rotation.toFloat(), element.opacity.toFloat(), nothingAbove),
+            look = DocumentVideoLook(canvas.dp(canvas.h(element.radius)), element.box.rotation.toFloat(), element.opacity.toFloat(), overlay),
             onProgress = { position, duration -> if (clock) playback?.onProgress?.invoke(position, duration) },
             onEnded = { if (clock) playback?.onEnded?.invoke() },
             onError = { if (clock) playback?.onError?.invoke() },

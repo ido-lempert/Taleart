@@ -273,7 +273,7 @@ internal class Placed(val json: JsonObject, val type: String, val props: JsonObj
 // A box inside the schema's ranges (`Box` in tale-document/v1.schema.json): x and y from 0 to 1, w and
 // h above 0 up to 1, rotation from -180 to 180. The server refuses any other; one that comes anyway
 // is not laid out, so no element is drawn huge or far off the canvas.
-private fun readBox(box: JsonObject?): ElementBox? {
+internal fun readBox(box: JsonObject?): ElementBox? {
     if (box == null) return null
     fun n(key: String) = box.number(key)
     val x = n("x")?.takeIf { it in 0.0..1.0 } ?: return null
@@ -526,7 +526,8 @@ fun isLinkUrl(value: String?): Boolean {
 private fun isUrlCharacter(c: Char): Boolean =
     c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c in "-._~:/?#[]@!$&'()*+,;=%"
 
-private val HOST = Regex("^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\\.?|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?$")
+private val HOST = Regex("^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\\.?|\\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*\\])(?::([0-9]{1,5}))?$")
+private val BAD_PERCENT = Regex("%(?![0-9A-Fa-f]{2})")
 
 /**
  * A link's destination as the SDK opens it, or null (`linkHref`): it passes [isLinkUrl] and is
@@ -539,9 +540,16 @@ private val HOST = Regex("^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Z
 fun linkHref(value: String?): String? {
     if (!isLinkUrl(value)) return null
     val scheme = value!!.substringBefore("://").lowercase()
-    val rest = value.substring(scheme.length + 3).replace('\\', '/')
+    val after = value.substring(scheme.length + 3)
+    // Before the query or fragment a backslash is a slash, as browsers read it; after it, it is
+    // data, percent-encoded below.
+    val end = after.indexOfFirst { it == '?' || it == '#' }.let { if (it < 0) after.length else it }
+    val rest = after.substring(0, end).replace('\\', '/') + after.substring(end)
     val authority = rest.split('/', '?', '#').first()
-    if (!HOST.matches(authority)) return null
+    val host = HOST.matchEntire(authority) ?: return null
+    // A port is at most 65535; a percent sign starts an escape of two hex digits.
+    if ((host.groupValues[1].toIntOrNull() ?: 0) > 65535) return null
+    if (BAD_PERCENT.containsMatchIn(rest)) return null
     val out = StringBuilder("$scheme://$authority")
     // Each character, a surrogate pair as one, kept or percent-encoded.
     for (c in codePoints(rest.substring(authority.length))) {

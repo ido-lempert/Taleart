@@ -96,6 +96,12 @@ const val VIEWER_SEGMENT_TAG = "taleart-viewer-segment"
 /** Test tag of the stage, where taps, holds and swipes land. */
 const val VIEWER_STAGE_TAG = "taleart-viewer-stage"
 
+/**
+ * How far the top bar reaches below the safe area, where the canvas starts: 8 dp padding, the 3 dp
+ * progress, 8 dp, the 44 dp controls and 8 dp padding, rounded up.
+ */
+internal val VIEWER_TOP_BAR_HEIGHT = 72.dp
+
 /** Test tag of the current tale's 9:16 canvas. */
 const val VIEWER_CANVAS_TAG = "taleart-viewer-canvas"
 
@@ -400,7 +406,7 @@ private fun androidx.compose.foundation.layout.RowScope.Zone(label: String, weig
 internal fun TalePage(
     state: TaleViewerState,
     themeFont: String? = null,
-    elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit = { canvas -> DocumentElementsLayer(canvas.layer, themeFont = themeFont, video = documentVideoPlayback(state)) },
+    elementLayer: @Composable BoxScope.(TaleCanvas) -> Unit = { canvas -> DocumentElementsLayer(canvas.layer, themeFont = themeFont, video = documentVideoPlayback(state), topChrome = VIEWER_TOP_BAR_HEIGHT) },
 ) {
     val view = state.view
     val loader = rememberCoverImageLoader()
