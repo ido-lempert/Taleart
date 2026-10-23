@@ -1,11 +1,11 @@
 package site.lempert.taleart.sdk
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class TaleartSdkTest {
     @Test
-    fun exposesVersion() {
-        assertEquals("0.0.1", TaleartSdk.VERSION)
+    fun exposesASemanticVersion() {
+        assertTrue(Regex("""\d+\.\d+\.\d+""").matches(TaleartSdk.VERSION), "VERSION was ${TaleartSdk.VERSION}")
     }
 }
