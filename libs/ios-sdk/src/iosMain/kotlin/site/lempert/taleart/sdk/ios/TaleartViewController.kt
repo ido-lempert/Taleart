@@ -4,6 +4,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -20,16 +22,24 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  * TaleArt API at [apiUrl] with the project's [siteKey], shown by [viewController] through the
  * shared [TaleartZone] composable. Embed [viewController] as a child view controller (or in SwiftUI
  * through `UIViewControllerRepresentable`). Keep this object for as long as the view controller:
- * its inputs can change at any time, and [reload] reads the zone again, keeping the bar on screen
- * until the new zone arrives.
+ * its inputs can change at any time, and [reload] reads the zone again, keeping the display on
+ * screen until the new zone arrives.
  *
- * The bar fills the width it is given and scrolls sideways. Its height is 8 points of padding plus
- * the cover size (48, 64 or 80), plus, when titles show, 6 and one or two 16-point title lines: at
- * most 126 points. [height] holds its current height (0 while there is nothing to show) and
- * [onHeightChange] reports each change, so a host can size its container to fit.
+ * The zone shows its display, a bar or a banner, as its frame type says; the display can change
+ * from one to the other when the zone is read again. Either fills the width it is given:
+ * - The bar scrolls sideways. Its height is 8 points of padding plus the cover size (48, 64 or 80),
+ *   plus, when titles show, 6 and one or two 16-point title lines: at most 126 points.
+ * - The banner's height follows its width: 16 points (8 above, 8 below) plus the width divided by
+ *   its aspect ratio (16:9, 3:1 or 1:1), plus, with two or more slides showing dots or autoplaying,
+ *   4 and a 44-point row (with the autoplay button) or a 24-point row (dots only). At 393 points
+ *   wide and 16:9, with autoplay: 16 + 221 + 48 = 285 points.
  *
- * A tap on a group opens the full-screen tale viewer, presented modally over the app's top view
- * controller wherever the bar is embedded; its Close or a swipe down dismisses it. Set
+ * [height] holds the display's current height (0 while there is nothing to show), measured
+ * whatever height the container gives it, and [onHeightChange] reports each change, so a host can
+ * size its container to fit; with a banner, give the container its width first.
+ *
+ * A tap on a group (a bar item or a banner slide) opens the full-screen tale viewer, presented
+ * modally over the app's top view controller wherever the display is embedded; its Close or a swipe down dismisses it. Set
  * [opensViewer] to false to handle taps yourself.
  *
  * From Swift: `let zone = TaleartZoneView(apiUrl: url, siteKey: key, zone: "home-top")`, then
@@ -53,10 +63,10 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
         get() = controller.onError
         set(value) { controller.onError = value }
 
-    /** Called with the bar's new height in points. */
+    /** Called with the display's new height in points (bar or banner). */
     var onHeightChange: ((Double) -> Unit)? = null
 
-    /** The bar's current height in points; 0 while there is nothing to show. */
+    /** The display's current height in points (bar or banner); 0 while there is nothing to show. */
     var height: Double by mutableStateOf(0.0)
         private set
 
@@ -105,7 +115,8 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
             SideEffect { if (empty) reportHeight(0.0) }
             TaleartZone(
                 controller,
-                modifier = Modifier.onSizeChanged { size -> reportHeight(with(density) { size.height.toDp().value.toDouble() }) },
+                // The display's own height, even in a container still shorter than it.
+                modifier = Modifier.wrapContentHeight(Alignment.Top, unbounded = true).onSizeChanged { size -> reportHeight(with(density) { size.height.toDp().value.toDouble() }) },
                 onGroupClick = { group -> onGroupClick?.invoke(group) },
                 opensViewer = opensViewer,
             )
