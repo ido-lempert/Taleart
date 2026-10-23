@@ -55,6 +55,9 @@ class TaleartView @JvmOverloads constructor(
      */
     var opensViewer: Boolean by mutableStateOf(true)
 
+    // The viewer shows only while the view is in a window: detached, its dialog closes and its video stops.
+    private var inWindow by mutableStateOf(false)
+
     /** Called with each failed read (a refused key, an unknown slug, a network failure); the view then shows nothing. */
     var onErrorListener: ((ZoneResult.Failure) -> Unit)?
         get() = controller.onError
@@ -110,9 +113,15 @@ class TaleartView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        inWindow = true
         // The ComposeView is made after the first attach completes, once the window's lifecycle
         // owner is known (a child added during the attach would be attached twice).
         if (composeView == null) post { if (isAttachedToWindow) addComposeView() }
+    }
+
+    override fun onDetachedFromWindow() {
+        inWindow = false
+        super.onDetachedFromWindow()
     }
 
     private fun addComposeView() {
@@ -124,7 +133,7 @@ class TaleartView @JvmOverloads constructor(
         val view = ComposeView(context).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                TaleartZone(controller, onGroupClick = { group -> onGroupClickListener?.invoke(group) }, opensViewer = opensViewer)
+                TaleartZone(controller, onGroupClick = { group -> onGroupClickListener?.invoke(group) }, opensViewer = opensViewer && inWindow)
             }
         }
         composeView = view

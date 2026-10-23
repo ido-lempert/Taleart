@@ -16,7 +16,7 @@ import androidx.core.view.WindowCompat
 // A full-screen dialog window over the activity, edge to edge on black: it works wherever the bar
 // sits (a ComposeView in any host layout), and Back closes it.
 @Composable
-internal actual fun FullScreenViewer(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(

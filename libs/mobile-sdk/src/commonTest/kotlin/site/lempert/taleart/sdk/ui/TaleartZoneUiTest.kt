@@ -141,7 +141,7 @@ class TaleartZoneUiTest : ComposeUiTestBase() {
     }
 
     @Test
-    fun aTapCallsBackAndMarksNothingUntilTheViewerShowsTheGroup() = runComposeUiTest {
+    fun aHostHandlingTapsIsCalledBackAndTheRingStaysUnseenUntilAViewerShowsTheGroup() = runComposeUiTest {
         val store = InMemoryKeyValueStore()
         val seenGroups = SeenGroups(store)
         val clicked = mutableListOf<DeliveryTaleGroup>()

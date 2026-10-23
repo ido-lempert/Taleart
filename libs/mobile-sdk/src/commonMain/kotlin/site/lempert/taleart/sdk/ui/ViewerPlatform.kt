@@ -7,10 +7,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * Shows [content] full screen over the host app, whatever layout the zone sits in: a full-screen
  * dialog window on Android, a modal view controller over the app's top view controller on iOS.
  * [onDismissRequest] is called for the platform's own dismissal (Android's Back) and when the
- * viewer cannot be shown; leaving the composition removes it.
+ * viewer cannot be shown or is dismissed from outside; leaving the composition removes it. Each
+ * new [requestKey] is a new presentation.
  */
 @Composable
-internal expect fun FullScreenViewer(onDismissRequest: () -> Unit, content: @Composable () -> Unit)
+internal expect fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Unit, content: @Composable () -> Unit)
 
 /**
  * True when the person asks for less motion: Android's "Remove animations" (animator duration scale

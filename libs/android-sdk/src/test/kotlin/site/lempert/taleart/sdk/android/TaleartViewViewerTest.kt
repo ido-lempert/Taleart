@@ -63,7 +63,7 @@ class TaleartViewViewerTest {
             host.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 140))
             activity.setContentView(host)
         }
-        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Summer").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Summer", substring = true).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(0, compose.onAllNodesWithTag(VIEWER_TAG).fetchSemanticsNodes().size)
 
         // The viewer runs on the test's clock from here on.
@@ -89,6 +89,50 @@ class TaleartViewViewerTest {
     }
 
     @Test
+    fun aViewDetachedFromItsWindowClosesItsViewer() {
+        lateinit var host: FrameLayout
+        lateinit var view: TaleartView
+        compose.runOnUiThread {
+            view = TaleartView(compose.activity).apply {
+                client = client()
+                configure("http://api.test", "tas_key", "home-top")
+            }
+            host = FrameLayout(compose.activity)
+            host.addView(view)
+            compose.activity.setContentView(host)
+        }
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Winter", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithContentDescription("Winter", substring = true).performClick()
+        frames()
+        val dialog = assertNotNull(ShadowDialog.getLatestDialog())
+        assertTrue(dialog.isShowing)
+
+        compose.runOnUiThread { host.removeView(view) }
+        frames()
+        assertFalse(dialog.isShowing)
+    }
+
+    @Test
+    fun aHostListenerIsCalledAndTheViewerStillOpens() {
+        val tapped = mutableListOf<String>()
+        compose.runOnUiThread {
+            val view = TaleartView(compose.activity).apply {
+                client = client()
+                onGroupClickListener = { tapped += it.id }
+                configure("http://api.test", "tas_key", "home-top")
+            }
+            compose.activity.setContentView(view)
+        }
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Winter", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithContentDescription("Winter", substring = true).performClick()
+        frames()
+        assertEquals(listOf("winter"), tapped)
+        compose.onNodeWithTag(VIEWER_TAG).assertExists()
+    }
+
+    @Test
     fun aHostThatHandlesTapsGetsTheGroupAndNoViewer() {
         val tapped = mutableListOf<String>()
         compose.runOnUiThread {
@@ -100,8 +144,8 @@ class TaleartViewViewerTest {
             }
             compose.activity.setContentView(view)
         }
-        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Winter").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("Winter").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Winter", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Winter", substring = true).performClick()
         compose.waitForIdle()
         assertEquals(listOf("winter"), tapped)
         assertEquals(0, compose.onAllNodesWithTag(VIEWER_TAG).fetchSemanticsNodes().size)

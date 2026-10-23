@@ -12,6 +12,9 @@ import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.readValue
 import kotlinx.coroutines.delay
+import platform.AVFAudio.AVAudioSession
+import platform.AVFAudio.AVAudioSessionCategoryPlayback
+import platform.AVFAudio.setActive
 import platform.AVFoundation.AVLayerVideoGravityResizeAspect
 import platform.AVFoundation.AVLayerVideoGravityResizeAspectFill
 import platform.AVFoundation.AVPlayer
@@ -26,6 +29,7 @@ import platform.AVFoundation.duration
 import platform.AVFoundation.muted
 import platform.AVFoundation.pause
 import platform.AVFoundation.play
+import platform.AVFoundation.replaceCurrentItemWithPlayerItem
 import platform.CoreGraphics.CGRectZero
 import platform.CoreMedia.CMTimeGetSeconds
 import platform.Foundation.NSNotificationCenter
@@ -40,7 +44,7 @@ internal actual fun platformTaleVideoPlayer(): TaleVideoPlayer = AvTaleVideoPlay
 @OptIn(ExperimentalForeignApi::class)
 private class PlayerView(val playerLayer: AVPlayerLayer) : UIView(frame = CGRectZero.readValue()) {
     init {
-        backgroundColor = UIColor.clearColor
+        backgroundColor = UIColor.blackColor
         layer.addSublayer(playerLayer)
     }
 
@@ -80,10 +84,19 @@ private object AvTaleVideoPlayer : TaleVideoPlayer {
             val fail = center.addObserverForName(AVPlayerItemFailedToPlayToEndTimeNotification, item, NSOperationQueue.mainQueue) { _ ->
                 failed()
             }
+            // Sound as the web plays it: the playback category, not mixed with other audio, even with
+            // the silent switch on; the app's own category comes back when the video goes.
+            val session = AVAudioSession.sharedInstance()
+            val previousCategory = session.category
+            val previousOptions = session.categoryOptions
+            session.setCategory(AVAudioSessionCategoryPlayback, 0uL, null)
+            session.setActive(true, null)
             onDispose {
                 center.removeObserver(end)
                 center.removeObserver(fail)
                 player.pause()
+                player.replaceCurrentItemWithPlayerItem(null)
+                if (previousCategory != null) session.setCategory(previousCategory, previousOptions, null)
             }
         }
         LaunchedEffect(player, muted) { player.muted = muted }
