@@ -34,13 +34,11 @@ import {
   emojiFontSize,
   emptyTaleDocument,
   elementBounds,
-  elementName,
   hasAltText,
   hasVideoElement,
   isLinkElement,
   isMediaElement,
   isSwipeUpBox,
-  isOffCanvas,
   isOutsideSafeArea,
   readingOrder,
   isTaleMediaElement,
@@ -79,7 +77,6 @@ import {
 import {
   isSmallTarget,
   resolveTextStyle,
-  textBackdropAt,
   textContrast,
   type TextBackdrop,
 } from '@taleart/contract/text-style';
@@ -93,11 +90,8 @@ import { ThemeService } from '../theme.service';
 import { TaleTextStyle, type TextStyleChange } from './tale-text-style';
 import {
   BackdropReads,
-  backdropKey,
-  hasLabel,
   TaleBackdropSampler,
   type BackdropResults,
-  type WantedRead,
 } from './tale-backdrop';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 import { AUTOSAVE_TIMING, TaleAutosaver, type AutosaveState } from './tale-autosave';
@@ -113,9 +107,9 @@ import {
   type StudioElementType,
 } from './tale-element-types';
 import { TaleFieldsInspector } from './tale-fields-inspector';
+import { contrastChange, isLowContrast, labelBackdrop, wantedReads, type SampleLookup } from './tale-contrast';
 import {
   kindName,
-  labelStyleOf,
   linkView,
   newTextProps,
   shapeView,
@@ -468,6 +462,8 @@ export class TaleStudioPage implements OnChanges {
    * (`backdropKey`); null when they cannot be read. A label whose key is missing is being read.
    */
   private readonly samples = signal<BackdropResults>(new Map());
+  /** The colours read behind the label with this key (read where needed, so only labels over media track them). */
+  private readonly sample: SampleLookup = (key) => this.samples().get(key);
   private readonly sampler = inject(TaleBackdropSampler);
   private readonly reads = new BackdropReads(
     (doc, index) => {
@@ -505,7 +501,7 @@ export class TaleStudioPage implements OnChanges {
         // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design, as the
         // swipe-up link sits in the bottom safe area (R7).
         outside: el !== this.stageMedia() && el.type !== 'swipe-up' && isOutsideSafeArea(el.box),
-        lowContrast: this.isLowContrast(this.doc(), i, this.backdrop()),
+        lowContrast: isLowContrast(this.doc(), i, this.backdrop(), this.sample),
         // An image, video or sticker without alt text or the decorative mark, or an image button
         // without alt text, keeps the tale from being updated (R12).
         missingAlt: isMediaElement({ type: el.type }) && !el.hidden && !hasAltText(el),
@@ -1197,33 +1193,14 @@ export class TaleStudioPage implements OnChanges {
   protected backdropOf(id: string): TextBackdrop {
     const doc = this.doc();
     const index = doc?.elements.findIndex((e) => e.id === id) ?? -1;
-    return doc ? this.labelBackdrop(doc, index, this.backdrop()) : this.backdrop();
-  }
-
-  /**
-   * What lies behind the label at `index` of `doc` (R12): the contract's colour when it can work
-   * one out, else the colours read from the layers below it (see `TaleBackdropSampler`).
-   */
-  private labelBackdrop(doc: TaleDocument, index: number, base: TextBackdrop): TextBackdrop {
-    const backdrop = textBackdropAt(doc.elements, index, base);
-    const label = doc.elements[index];
-    // Wholly off the canvas, no one sees it: nothing to judge.
-    if (label && isOffCanvas(label.box)) return { ...backdrop, offCanvas: true };
-    return backdrop.overMedia ? { ...backdrop, samples: this.samples().get(backdropKey(doc, index)) } : backdrop;
+    return doc ? labelBackdrop(doc, index, this.backdrop(), this.sample) : this.backdrop();
   }
 
   /** Asks for the colours behind each label over media, for what lies behind it now (see `BackdropReads`). */
   private requestReads(): void {
     const doc = this.doc();
     if (!doc || !this.projectId()) return;
-    const base = this.backdrop();
-    const wanted: WantedRead[] = [];
-    doc.elements.forEach((element, index) => {
-      if (element.hidden || !hasLabel(element) || isOffCanvas(element.box)) return;
-      if (!textBackdropAt(doc.elements, index, base).overMedia) return;
-      wanted.push({ key: backdropKey(doc, index), index });
-    });
-    this.reads.update(doc, wanted);
+    this.reads.update(doc, wantedReads(doc, this.backdrop()));
   }
 
   /** How the canvas draws a shape, kept per props object. */
@@ -1305,42 +1282,6 @@ export class TaleStudioPage implements OnChanges {
     setTimeout(() => this.announcement.set(said), 0);
   }
 
-  /** True when the label of the element at `index` (a text, a button or the swipe-up link) has low contrast (R7, R12). */
-  private isLowContrast(doc: TaleDocument | null, index: number, base: TextBackdrop): boolean {
-    const element = doc?.elements[index];
-    const style = element ? labelStyleOf(element) : null;
-    return !!doc && style !== null && textContrast(style, this.labelBackdrop(doc, index, base)).kind === 'low';
-  }
-
-  /** The ids of the texts and links of `doc` with low contrast against what lies behind each (R7, R12). */
-  private lowContrastIds(doc: TaleDocument): Set<string> {
-    const base: TextBackdrop = {
-      canvasColor: doc.canvas.background.color,
-      // The tale's own media (R16) is an element, which `textBackdropAt` meets on its way down.
-      overMedia: doc.canvas.background.type === 'media',
-    };
-    const low = new Set<string>();
-    doc.elements.forEach((e, i) => {
-      if (!e.hidden && this.isLowContrast(doc, i, base)) low.add(e.id);
-    });
-    return low;
-  }
-
-  // What a change did to the contrast of texts other than the one being restyled (which says it
-  // itself): a move, reorder, hide or restyle of another layer can turn a text's verdict (R12).
-  private contrastChange(before: TaleDocument, next: TaleDocument): string {
-    const was = this.lowContrastIds(before);
-    const now = this.lowContrastIds(next);
-    const notes: string[] = [];
-    next.elements.forEach((e, i) => {
-      if (labelStyleOf(e) === null || e.id === this.restylingId || was.has(e.id) === now.has(e.id)) return;
-      if (!now.has(e.id) && !before.elements.some((b) => b.id === e.id)) return;
-      const name = elementName(next.elements, i);
-      notes.push(now.has(e.id) ? `"${name}" now has low contrast.` : `"${name}" has enough contrast now.`);
-    });
-    return notes.join(' ');
-  }
-
   // When the tale's own media (R16) stops or starts being drawn full-bleed, what that does to how it
   // plays, said with the change (the choice in the plan: restyling keeps nothing implicit).
   private stageMediaChange(before: TaleDocument, next: TaleDocument): string {
@@ -1391,7 +1332,7 @@ export class TaleStudioPage implements OnChanges {
       return false;
     }
     this.history.record(label, before, next, mergeKey);
-    this.contrastNote = [this.contrastChange(before, next), this.stageMediaChange(before, next)]
+    this.contrastNote = [contrastChange(before, next, this.restylingId, this.sample), this.stageMediaChange(before, next)]
       .filter(Boolean)
       .join(' ');
     // Said with the change's own announcement; alone when the change says nothing.
