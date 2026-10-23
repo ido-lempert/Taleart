@@ -4,10 +4,12 @@ import {
   computed,
   DestroyRef,
   DOCUMENT,
+  effect,
   ElementRef,
   inject,
   input,
   signal,
+  untracked,
   viewChild,
   ViewEncapsulation,
 } from '@angular/core';
@@ -318,6 +320,12 @@ export class VisibilityIndicator {
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.hide());
+    // The line stops being a button while its tip is open (a group's last tag removed, or it turned
+    // visible with no audience): the tip went with it, so it is closed here, or `open` would stay
+    // true and the next one would never show.
+    effect(() => {
+      if (!this.interactive() && untracked(this.open)) untracked(() => this.hide());
+    });
   }
 
   protected hoverIn(): void {

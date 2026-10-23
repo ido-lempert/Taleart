@@ -5509,6 +5509,58 @@ describe('App', () => {
       expect(document.activeElement).toBe(radio(root, 'all'));
     });
 
+    it('says so when no group is targeted, under Targeted (epic targeting R7)', async () => {
+      const { root } = await open('/tale-groups?filter=targeted', { ...data, projectGroups: { p1: [states[1], states[3]] } });
+      expect(names(root)).toEqual([]);
+      expect(root.querySelector('.empty__title')?.textContent).toContain('No tale groups match this filter');
+      expect(root.querySelector('.empty__text')?.textContent?.trim()).toBe(
+        "No tale group is targeted. Add targeting tags in a group's Audience.",
+      );
+    });
+
+    it('announces a group its last tag left out of Targeted, and moves focus to the row in its place', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=targeted', {
+        ...data,
+        tags: { p1: [{ id: 't1', name: 'summer' }, { id: 't2', name: 'vip' }] },
+      });
+      expect(names(root)).toEqual(['Ends later', 'Paused here']);
+      pickMenuItem(root, 'More for Paused here', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const vip = [...panel.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].find(
+        (box) => box.closest('label')?.textContent?.trim() === 'vip',
+      ) as HTMLInputElement;
+      expect(vip.checked).toBe(true);
+      vip.click();
+      await settle(fixture);
+      buttonNamed(panel, 'Save').click();
+      const save = http.expectOne(`${API_BASE}/tale-groups/g5/tags`);
+      expect(save.request.body).toEqual({ tagIds: [], tagMatch: 'all' });
+      save.flush({ ...states[4], tales: [], tags: [], tagMatch: 'all' });
+      await settle(fixture);
+      await settle(fixture);
+      expect(drawer()).toBeNull();
+      expect(names(root)).toEqual(['Ends later']);
+      expect(live(root)).toBe('Paused here is not targeted now. It is listed under Off.');
+      // The row before it, as when a status change takes a row out: its switch.
+      const endsLater = [...root.querySelectorAll<HTMLElement>('.group-items > li')][0];
+      expect(document.activeElement).toBe(endsLater.querySelector('[role=switch]'));
+    });
+
+    it('says nothing when the Audience drawer is closed with the group still targeted', async () => {
+      const { fixture, root } = await open('/tale-groups?filter=targeted', {
+        ...data,
+        tags: { p1: [{ id: 't1', name: 'summer' }, { id: 't2', name: 'vip' }] },
+      });
+      pickMenuItem(root, 'More for Paused here', 'Audience');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Save').click();
+      http.expectOne(`${API_BASE}/tale-groups/g5/tags`).flush({ ...states[4], tales: [] });
+      await settle(fixture);
+      expect(names(root)).toEqual(['Ends later', 'Paused here']);
+      expect(live(root)).toBe('');
+    });
+
     it("shows the zone page's row with the zones each group is in, and a menu without Remove from this zone", async () => {
       const { root } = await open('/tale-groups', data);
       const row = (name: string) =>
