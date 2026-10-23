@@ -334,7 +334,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -2831,7 +2831,7 @@ describe('Management API v1: projects and zones', () => {
     });
 
     it('refuses an unknown element type', async () => {
-      await expectRefused(doc([text(1), { ...text(2), type: 'poll' }]), '/elements/1/type');
+      await expectRefused(doc([text(1), { ...text(2), type: 'future-widget' }]), '/elements/1/type');
     });
 
     it('refuses out-of-range boxes', async () => {
@@ -3311,7 +3311,7 @@ describe('Management API v1: projects and zones', () => {
 
       it('checks the document as a save does, and needs one', async () => {
         const tale = await createTale();
-        const refused = await keep(tale.id, { document: doc([text(1), { ...text(2), type: 'poll' }]) });
+        const refused = await keep(tale.id, { document: doc([text(1), { ...text(2), type: 'future-widget' }]) });
         expect(refused.status).toBe(400);
         expect((await refused.json()).error).toEqual({
           code: 'invalid_tale_document',
@@ -13495,6 +13495,452 @@ describe('Management API v1: projects and zones', () => {
           [id],
         );
         expect(report.elapsedSeconds).toBe(Math.round(Number(times[0].seconds)));
+      });
+    });
+  });
+
+  describe('polls and their responses (epic interactive components, story 4.1)', () => {
+    const pollId = '00000000-0000-4000-8000-0000000000aa';
+    const textId = '00000000-0000-4000-8000-0000000000bb';
+    const visitorA = '11111111-1111-4111-8111-111111111111';
+    const visitorB = '22222222-2222-4222-8222-222222222222';
+
+    function pollElement(extra: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
+      return {
+        id: pollId,
+        type: 'poll',
+        box: { x: 0.1, y: 0.4, w: 0.8, h: 0.25, rotation: 0 },
+        hidden: false,
+        locked: false,
+        a11y: {},
+        props: {
+          question: 'Tea or coffee?',
+          theme: 'light',
+          options: [
+            { id: 'tea', label: 'Tea' },
+            { id: 'coffee', label: 'Coffee' },
+          ],
+          ...props,
+        },
+        ...extra,
+      };
+    }
+
+    function textElement() {
+      return {
+        id: textId,
+        type: 'text',
+        box: { x: 0.1, y: 0.1, w: 0.8, h: 0.1, rotation: 0 },
+        hidden: false,
+        locked: false,
+        a11y: {},
+        props: { text: 'Morning' },
+      };
+    }
+
+    function pollDoc(elements: unknown[] = [textElement(), pollElement()]) {
+      return { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements };
+    }
+
+    function saveDoc(taleId: string, document: unknown, revision: number): Promise<Response> {
+      return fetch(`${base}/tales/${taleId}/document`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document, revision }),
+      });
+    }
+
+    // A zone installed with its project's site key, holding a live group with one shown tale whose
+    // published document holds `elements`.
+    async function livePoll(elements?: unknown[]) {
+      const zone = await createZone();
+      const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+      const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json();
+      expect((await saveDoc(tale.id, pollDoc(elements), 0)).status).toBe(200);
+      expect((await post(`/tales/${tale.id}/document/publish`, { revision: 1, publishedRevision: 0 })).status).toBe(200);
+      await publish('tale-groups', group.id);
+      const handle = await installZone(zone.id);
+      return { zone, group, tale, handle };
+    }
+
+    // Posts a response as the Web SDK does: site key, slug, visitor id and a JSON body.
+    function respond(handle: string, body: unknown, visitor: string | null = visitorA, headers: Record<string, string> = {}) {
+      const [key, slug = ''] = handle.split('|');
+      return globalThis.fetch(`${origin}/delivery/v1/responses?zone=${encodeURIComponent(slug)}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          ...(visitor !== null && { 'X-TaleArt-Visitor': visitor }),
+          ...headers,
+        },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+    }
+
+    function vote(handle: string, taleId: string, value: unknown, visitor: string | null = visitorA) {
+      return respond(handle, { taleId, elementId: pollId, value }, visitor);
+    }
+
+    async function rows() {
+      return (
+        await pool.query(
+          `SELECT project_id AS "projectId", zone_id AS "zoneId", frame_id AS "frameId", tale_group_id AS "taleGroupId",
+             tale_id AS "taleId", element_id AS "elementId", element_type AS "elementType", interaction, value,
+             visitor_id AS "visitorId", client_at AS "clientAt", created_at AS "createdAt"
+           FROM interactive_responses ORDER BY created_at, visitor_id`,
+        )
+      ).rows;
+    }
+
+    describe('the poll element type', () => {
+      async function newTale() {
+        const zone = await createZone();
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+        return (await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json()) as { id: string };
+      }
+
+      async function refusedAt(document: unknown): Promise<string> {
+        const tale = await newTale();
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error.code).toBe('invalid_tale_document');
+        return body.error.pointer;
+      }
+
+      it('saves a poll and reads it back', async () => {
+        const tale = await newTale();
+        const document = pollDoc([pollElement({}, { title: 'Morning' })]);
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document).toEqual(document);
+      });
+
+      it('refuses a second poll in one tale, hidden or not', async () => {
+        const second = { ...pollElement({ hidden: true }), id: '00000000-0000-4000-8000-0000000000cc' };
+        expect(await refusedAt(pollDoc([pollElement(), second]))).toBe('/elements/1/type');
+      });
+
+      it('refuses options with the same id, blank text, a line feed, three options and unknown props', async () => {
+        const same = [
+          { id: 'tea', label: 'Tea' },
+          { id: 'tea', label: 'Coffee' },
+        ];
+        expect(await refusedAt(pollDoc([pollElement({}, { options: same })]))).toBe('/elements/0/props/options/1/id');
+        expect(await refusedAt(pollDoc([pollElement({}, { question: '   ' })]))).toBe('/elements/0/props/question');
+        expect(await refusedAt(pollDoc([pollElement({}, { question: 'Tea\nor coffee?' })]))).toBe(
+          '/elements/0/props/question',
+        );
+        const three = [...same.slice(0, 1), { id: 'b', label: 'B' }, { id: 'c', label: 'C' }];
+        expect(await refusedAt(pollDoc([pollElement({}, { options: three })]))).toBe('/elements/0/props/options');
+        expect(await refusedAt(pollDoc([pollElement({}, { html: '<b>' })]))).toBe('/elements/0/props/html');
+      });
+
+      it('keeps markup in a question as plain text', async () => {
+        const tale = await newTale();
+        const document = pollDoc([pollElement({}, { question: '<img src=x onerror=alert(1)>' })]);
+        expect((await saveDoc(tale.id, document, 0)).status).toBe(200);
+      });
+    });
+
+    describe('POST /delivery/v1/responses', () => {
+      it('records a vote with the AD-10 keys and answers the counts and percentages', async () => {
+        const { zone, group, tale, handle } = await livePoll();
+        const res = await respond(handle, {
+          taleId: tale.id,
+          elementId: pollId,
+          value: 'tea',
+          clientAt: '2026-10-23T10:00:00.000Z',
+        });
+        expect(res.status).toBe(201);
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        expect(res.headers.get('access-control-allow-origin')).toBe('*');
+        expect(await res.json()).toEqual({
+          elementId: pollId,
+          value: 'tea',
+          recorded: true,
+          result: {
+            total: 1,
+            choices: [
+              { id: 'tea', count: 1, percent: 100 },
+              { id: 'coffee', count: 0, percent: 0 },
+            ],
+          },
+        });
+        const frameId = (await pool.query('SELECT id FROM frames WHERE zone_id = $1', [zone.id])).rows[0].id;
+        expect(await rows()).toEqual([
+          {
+            projectId: zone.projectId,
+            zoneId: zone.id,
+            frameId,
+            taleGroupId: group.id,
+            taleId: tale.id,
+            elementId: pollId,
+            elementType: 'poll',
+            interaction: 'vote',
+            value: 'tea',
+            visitorId: visitorA,
+            clientAt: new Date('2026-10-23T10:00:00.000Z'),
+            createdAt: expect.any(Date),
+          },
+        ]);
+      });
+
+      it('keeps the first vote: a repeat answers 200 with the stored one (C9)', async () => {
+        const { tale, handle } = await livePoll();
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(201);
+        const repeat = await vote(handle, tale.id, 'coffee');
+        expect(repeat.status).toBe(200);
+        expect(await repeat.json()).toMatchObject({ value: 'tea', recorded: false, result: { total: 1 } });
+        // The same id in uppercase is the same visitor.
+        expect((await vote(handle, tale.id, 'coffee', visitorA.toUpperCase())).status).toBe(200);
+        const other = await vote(handle, tale.id, 'coffee', visitorB);
+        expect(other.status).toBe(201);
+        expect((await other.json()).result).toEqual({
+          total: 2,
+          choices: [
+            { id: 'tea', count: 1, percent: 50 },
+            { id: 'coffee', count: 1, percent: 50 },
+          ],
+        });
+        expect((await rows()).map((r) => [r.visitorId, r.value])).toEqual([
+          [visitorA, 'tea'],
+          [visitorB, 'coffee'],
+        ]);
+      });
+
+      it('refuses a missing or invalid visitor id with 400 visitor_id_required', async () => {
+        const { tale, handle } = await livePoll();
+        for (const visitor of [null, 'not-a-uuid', '11111111-1111-1111-8111-111111111111', 'Aa111111-1111-4111-8111-111111111111']) {
+          const res = await vote(handle, tale.id, 'tea', visitor);
+          expect(res.status).toBe(400);
+          expect((await res.json()).error.code).toBe('visitor_id_required');
+        }
+        expect(await rows()).toEqual([]);
+      });
+
+      it('refuses an unknown element, an element that is no poll and an option id the poll lacks', async () => {
+        const { tale, handle } = await livePoll();
+        const unknown = await respond(handle, { taleId: tale.id, elementId: '00000000-0000-4000-8000-0000000000ff', value: 'tea' });
+        expect(unknown.status).toBe(404);
+        expect((await unknown.json()).error.code).toBe('response_target_not_found');
+        const notPoll = await respond(handle, { taleId: tale.id, elementId: textId, value: 'tea' });
+        expect(notPoll.status).toBe(404);
+        for (const value of ['milk', 'Tea', '', 7, null]) {
+          const res = await vote(handle, tale.id, value);
+          expect(res.status).toBe(422);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+        expect(await rows()).toEqual([]);
+      });
+
+      it('refuses a malformed body with 400', async () => {
+        const { tale, handle } = await livePoll();
+        for (const body of [
+          '{not json',
+          [],
+          { elementId: pollId, value: 'tea' },
+          { taleId: tale.id, elementId: pollId },
+          { taleId: tale.id, elementId: pollId, value: 'tea', extra: 1 },
+          { taleId: tale.id, elementId: pollId, value: 'tea', clientAt: 'yesterday' },
+        ]) {
+          const res = await respond(handle, body);
+          expect(res.status).toBe(400);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+      });
+
+      it('refuses a hidden tale, a group turned off, and a poll only in the draft', async () => {
+        const { group, tale, handle } = await livePoll();
+        expect((await setStatus('tales', tale.id, 'paused')).status).toBe(200);
+        const hidden = await vote(handle, tale.id, 'tea');
+        expect(hidden.status).toBe(404);
+        expect((await hidden.json()).error.code).toBe('response_target_not_found');
+        await publish('tales', tale.id);
+        expect((await setStatus('tale-groups', group.id, 'paused')).status).toBe(200);
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(404);
+        await publish('tale-groups', group.id);
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(201);
+
+        // A poll added to the draft is not on the site until the tale is updated.
+        const draftOnly = await livePoll([textElement()]);
+        expect((await saveDoc(draftOnly.tale.id, pollDoc(), 1)).status).toBe(200);
+        expect((await vote(draftOnly.handle, draftOnly.tale.id, 'tea')).status).toBe(404);
+        // A poll the published document hides is not shown either.
+        const hiddenPoll = await livePoll([pollElement({ hidden: true })]);
+        expect((await vote(hiddenPoll.handle, hiddenPoll.tale.id, 'tea')).status).toBe(404);
+      });
+
+      it("refuses another project's site key, and a tale of another project", async () => {
+        const first = await livePoll();
+        const second = await livePoll();
+        const [firstKey] = first.handle.split('|');
+        const [secondKey] = second.handle.split('|');
+        // Both zones were made with the same slug; the first one's becomes its own.
+        await pool.query("UPDATE zones SET slug = 'first-bar' WHERE id = $1", [first.zone.id]);
+        const firstSlug = 'first-bar';
+        // The second project's key with the first's zone: the slug is not one of its zones.
+        const wrongKey = await vote(`${secondKey}|${firstSlug}`, first.tale.id, 'tea');
+        expect(wrongKey.status).toBe(401);
+        expect((await wrongKey.json()).error.code).toBe('invalid_site_key');
+        // The first project's key and zone, naming the second project's tale.
+        const otherTale = await vote(`${firstKey}|${firstSlug}`, second.tale.id, 'tea');
+        expect(otherTale.status).toBe(404);
+        expect(await rows()).toEqual([]);
+      });
+
+      it('allows the POST and the visitor header in a preflight', async () => {
+        const { handle } = await livePoll();
+        const slug = handle.split('|')[1];
+        const res = await globalThis.fetch(`${origin}/delivery/v1/responses?zone=${slug}`, {
+          method: 'OPTIONS',
+          headers: { Origin: 'https://shop.example', 'Access-Control-Request-Method': 'POST' },
+        });
+        expect(res.status).toBe(204);
+        expect(res.headers.get('access-control-allow-methods')).toContain('POST');
+        expect(res.headers.get('access-control-allow-headers')).toContain('X-TaleArt-Visitor');
+      });
+
+      it("deletes a tale's responses with the tale", async () => {
+        const { tale, handle } = await livePoll();
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(201);
+        expect((await fetch(`${base}/tales/${tale.id}`, { method: 'DELETE' })).status).toBe(204);
+        expect(await rows()).toEqual([]);
+      });
+
+      it('keeps one row when the same visitor votes twice at once, and answers both alike', async () => {
+        const { tale, handle } = await livePoll();
+        const [first, second] = await Promise.all([vote(handle, tale.id, 'tea'), vote(handle, tale.id, 'coffee')]);
+        expect([first.status, second.status].sort()).toEqual([200, 201]);
+        const [a, b] = [await first.json(), await second.json()];
+        expect(a.value).toBe(b.value);
+        expect(a.result).toEqual(b.result);
+        expect(a.result.total).toBe(1);
+        expect((await rows()).map((r) => r.value)).toEqual([a.value]);
+      });
+
+      it('refuses a tale outside its window, an archived tale and a group not placed in the named zone', async () => {
+        const ended = await livePoll();
+        // Times from this process's clock, which the API compares with (the database's may differ).
+        const hour = 60 * 60 * 1000;
+        await pool.query('UPDATE tales SET ends_at = $2 WHERE id = $1', [ended.tale.id, new Date(Date.now() - hour)]);
+        const late = await vote(ended.handle, ended.tale.id, 'tea');
+        expect(late.status).toBe(404);
+        expect((await late.json()).error.code).toBe('response_target_not_found');
+        await pool.query('UPDATE tales SET ends_at = NULL, starts_at = $2 WHERE id = $1', [
+          ended.tale.id,
+          new Date(Date.now() + hour),
+        ]);
+        expect((await vote(ended.handle, ended.tale.id, 'tea')).status).toBe(404);
+
+        const archived = await livePoll();
+        expect((await setStatus('tales', archived.tale.id, 'archived')).status).toBe(200);
+        expect((await vote(archived.handle, archived.tale.id, 'tea')).status).toBe(404);
+
+        // Another zone of the same project, installed, where the poll's group is not placed.
+        const placed = await livePoll();
+        const other = await (await post('/zones', { name: 'Footer', projectId: placed.zone.projectId })).json();
+        const otherHandle = await installZone(other.id);
+        expect(otherHandle.split('|')[0]).toBe(placed.handle.split('|')[0]);
+        const elsewhere = await vote(otherHandle, placed.tale.id, 'tea');
+        expect(elsewhere.status).toBe(404);
+        expect((await elsewhere.json()).error.code).toBe('response_target_not_found');
+        expect((await vote(placed.handle, placed.tale.id, 'tea')).status).toBe(201);
+        expect(await rows()).toHaveLength(1);
+      });
+
+      it('refuses a body over 4 KB and a malformed one before the key check, with the Delivery CORS headers', async () => {
+        const { tale, handle } = await livePoll();
+        const big = await respond(handle, { taleId: tale.id, elementId: pollId, value: 'tea', clientAt: 'x'.repeat(5000) });
+        expect(big.status).toBe(413);
+        expect(big.headers.get('access-control-allow-origin')).toBe('*');
+        expect((await big.json()).error.code).toBe('validation_failed');
+        // Even with no key: the body is refused before the key lookups.
+        const keyless = await respond(`nope|${handle.split('|')[1]}`, 'x'.repeat(5000));
+        expect(keyless.status).toBe(413);
+        const garbled = await respond(handle, '{not json');
+        expect(garbled.status).toBe(400);
+        expect(garbled.headers.get('access-control-allow-origin')).toBe('*');
+        expect((await garbled.json()).error.code).toBe('validation_failed');
+        // Just under the limit is read, and refused only for what it says.
+        const fits = await respond(handle, { taleId: tale.id, elementId: pollId, value: 'tea', clientAt: 'x'.repeat(3500) });
+        expect(fits.status).toBe(400);
+        expect(await rows()).toEqual([]);
+      });
+
+      it('limits writes per visitor more strictly than reads', async () => {
+        const limited = createApp(
+          pool,
+          loadFrameTypeRegistry(frameTypesDir),
+          new LocalDiskStorage(mediaDir),
+          { verifier: fakeVerifier },
+          { publicApiUrl },
+          undefined,
+          undefined,
+          { rateLimit: { burst: 100, perSecond: 1 }, responseRateLimit: { burst: 2, perSecond: 0.01 } },
+        ).listen(0);
+        await new Promise<void>((resolve) => limited.once('listening', () => resolve()));
+        try {
+          const { tale, handle } = await livePoll();
+          const [key, slug] = handle.split('|');
+          const url = `http://127.0.0.1:${(limited.address() as AddressInfo).port}/delivery/v1/responses?zone=${slug}`;
+          const send = (visitor: string) =>
+            globalThis.fetch(url, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-TaleArt-Visitor': visitor },
+              body: JSON.stringify({ taleId: tale.id, elementId: pollId, value: 'tea' }),
+            });
+          expect((await send(visitorA)).status).toBe(201);
+          expect((await send(visitorA)).status).toBe(200);
+          const third = await send(visitorA);
+          expect(third.status).toBe(429);
+          expect((await third.json()).error.code).toBe('rate_limited');
+          expect(third.headers.get('retry-after')).toMatch(/^\d+$/);
+          // Another visitor has its own allowance; reading the zone is not limited by votes.
+          expect((await send(visitorB)).status).toBe(201);
+          const zone = await globalThis.fetch(url.replace('/responses', '/zone'), {
+            headers: { Authorization: `Bearer ${key}`, 'X-TaleArt-Visitor': visitorA },
+          });
+          expect(zone.status).toBe(200);
+        } finally {
+          await new Promise<void>((resolve) => limited.close(() => resolve()));
+        }
+      });
+    });
+
+    describe('GET /api/v1/tales/{taleId}/responses', () => {
+      it('counts the responses per poll and option for the studio', async () => {
+        const { tale, handle } = await livePoll();
+        let res = await fetch(`${base}/tales/${tale.id}/responses`);
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ elements: [] });
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(201);
+        res = await fetch(`${base}/tales/${tale.id}/responses`);
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        expect(await res.json()).toEqual({
+          elements: [{ elementId: pollId, elementType: 'poll', total: 1, values: [{ value: 'tea', count: 1 }] }],
+        });
+      });
+
+      it('keeps an option count when its label is edited', async () => {
+        const { tale, handle } = await livePoll();
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(201);
+        const renamed = pollDoc([textElement(), pollElement({}, { options: [{ id: 'tea', label: 'Green tea' }, { id: 'coffee', label: 'Coffee' }] })]);
+        expect((await saveDoc(tale.id, renamed, 1)).status).toBe(200);
+        expect((await post(`/tales/${tale.id}/document/publish`, { revision: 2, publishedRevision: 1 })).status).toBe(200);
+        const res = await vote(handle, tale.id, 'tea', visitorB);
+        expect((await res.json()).result.choices[0]).toEqual({ id: 'tea', count: 2, percent: 100 });
+      });
+
+      it('answers 404 for an unknown tale and 403 for a tale of a project the caller cannot access', async () => {
+        const { tale } = await livePoll();
+        expect((await fetch(`${base}/tales/00000000-0000-4000-8000-000000000000/responses`)).status).toBe(404);
+        const user = await createUser(pool, { name: 'Cy Content', email: 'cy@example.com', role: 'content_manager' });
+        sessionCookie = `taleart_session=${(await createSession(pool, user.id)).token}`;
+        const res = await fetch(`${base}/tales/${tale.id}/responses`);
+        expect(res.status).toBe(403);
+        expect((await res.json()).error.code).toBe('forbidden');
       });
     });
   });

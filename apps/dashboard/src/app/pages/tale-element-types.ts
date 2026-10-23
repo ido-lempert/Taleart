@@ -4,6 +4,9 @@
 // descriptor without a registered type is never shown. Lazy: only the studio imports this file.
 import { InjectionToken } from '@angular/core';
 import {
+  ELEMENT_TYPE_LIMITS,
+  hasDisallowedCharacter,
+  LABEL_TEXT_RULE,
   limitedVideoCount,
   MAX_SWIPE_UP_ELEMENTS,
   MAX_VIDEO_ELEMENTS,
@@ -68,9 +71,27 @@ export interface InspectorField {
   hint?: string;
 }
 
+/**
+ * A fixed list of choices, each `{ id, label }` (epic interactive components R1): the inspector edits
+ * each label as a text field; ids stay as made, so a choice's count survives an edit to its text.
+ * Its prop is an array with as many items at least as at most (adding and removing choices comes
+ * with the quiz's list field).
+ */
+export interface ChoicesField {
+  /** The array prop. */
+  prop: string;
+  /** The group's name, such as "Options". */
+  label: string;
+  /** The name of the choice at `index` (from 0), such as "Option 1". */
+  itemLabel(index: number): string;
+  hint?: string;
+}
+
 /** A new type's inspector: its fields, in order, checked against its props schema as people edit. */
 export interface FieldsInspector {
   fields: readonly InspectorField[];
+  /** Its choices, after the fields. */
+  choices?: ChoicesField;
 }
 
 /** The inspector of each built-in type, or a new type's fields. */
@@ -109,6 +130,20 @@ const entry = (
   action: AddAction,
   extra: Partial<AddMenuEntry> = {},
 ): AddMenuEntry => ({ id, label, icon, row, small: row > 0, needsProject: false, action, ...extra });
+
+// The poll's rules its schema cannot state, as the server's `PROPS_RULES` holds them: its text shows
+// on one line, and its option ids differ (epic interactive components R2).
+function checkPollProps(props: Readonly<Record<string, unknown>>): string | null {
+  const options = Array.isArray(props['options']) ? (props['options'] as { id?: unknown; label?: unknown }[]) : [];
+  const texts = [props['question'], props['title'], ...options.map((o) => o?.label)];
+  for (const text of texts) {
+    if (typeof text !== 'string') continue;
+    if (text.trim() === '') return 'Enter some text.';
+    if (hasDisallowedCharacter(text, LABEL_TEXT_RULE) || text.includes('\n')) return 'Use one line of plain text.';
+  }
+  if (new Set(options.map((o) => o?.id)).size !== options.length) return 'Each option needs its own id.';
+  return null;
+}
 
 /** The descriptors of the registry's types, keyed by registry key (R8). */
 export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescriptor>> = {
@@ -150,6 +185,53 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
       }),
     ],
     inspector: 'link',
+  },
+  poll: {
+    add: [
+      entry('studio-add-poll', 'Add poll', 'poll', 3, { kind: 'configured' }, {
+        limit: {
+          hintId: 'studio-poll-hint',
+          hintOrder: 2,
+          hint: 'A tale holds one poll. Delete it to add another.',
+          reached: (doc) => (doc?.elements.filter((e) => e.type === 'poll').length ?? 0) >= ELEMENT_TYPE_LIMITS['poll'],
+        },
+      }),
+    ],
+    inspector: {
+      fields: [
+        { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
+        { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
+        {
+          prop: 'theme',
+          label: 'Theme',
+          control: 'select',
+          options: [
+            { value: 'light', label: 'Light' },
+            { value: 'dark', label: 'Dark' },
+          ],
+        },
+      ],
+      choices: {
+        prop: 'options',
+        label: 'Options',
+        itemLabel: (index) => `Option ${index + 1}`,
+        hint: 'Up to 60 characters each. Votes stay with an option when its text changes.',
+      },
+    },
+    create: {
+      box: { x: 0.1, y: 0.36, w: 0.8, h: 0.28, rotation: 0 },
+      props: () => ({
+        question: 'Ask a question',
+        theme: 'light',
+        options: [
+          { id: crypto.randomUUID(), label: 'Yes' },
+          { id: crypto.randomUUID(), label: 'No' },
+        ],
+      }),
+    },
+    // The canvas shows its question; the preview pane draws it as visitors see it (AD-16).
+    preview: (props) => (typeof props['question'] === 'string' ? props['question'] : ''),
+    check: checkPollProps,
   },
   'swipe-up': {
     add: [
@@ -245,7 +327,9 @@ function checkFieldsInspector(type: ElementTypeEntry, inspector: FieldsInspector
     if (!FIELDS_SCHEMA_KEYWORDS.includes(keyword)) fail(`its schema uses "${keyword}", which the fields inspector does not check`);
   }
   const properties = (type.schema['properties'] ?? {}) as Record<string, Record<string, unknown>>;
+  const choices = inspector.choices;
   for (const [name, prop] of Object.entries(properties)) {
+    if (name === choices?.prop) continue;
     for (const keyword of Object.keys(prop)) {
       if (!FIELDS_PROP_KEYWORDS.includes(keyword)) fail(`"${name}" uses "${keyword}", which the fields inspector does not check`);
     }
@@ -265,6 +349,45 @@ function checkFieldsInspector(type: ElementTypeEntry, inspector: FieldsInspector
     }
     if (field.control === 'color' && schema.pattern !== HEX_COLOR_PATTERN) {
       fail(`"${field.prop}" is a colour field, so its pattern must be ${HEX_COLOR_PATTERN}`);
+    }
+  }
+  if (choices) checkChoicesField(properties, choices.prop, fail);
+}
+
+/** The JSON Schema keywords a choices field's array prop may use. */
+export const CHOICES_PROP_KEYWORDS: readonly string[] = ['title', 'description', 'type', 'minItems', 'maxItems', 'items'];
+
+// A choices field edits a fixed number of closed `{ id, label }` items whose id and label use only
+// what `propValueProblem` checks, and whose label is text.
+function checkChoicesField(
+  properties: Record<string, Record<string, unknown>>,
+  name: string,
+  fail: (why: string) => void,
+): void {
+  const prop = Object.prototype.hasOwnProperty.call(properties, name) ? properties[name] : undefined;
+  if (!prop) return fail(`the inspector edits choices "${name}", which its schema lacks`);
+  for (const keyword of Object.keys(prop)) {
+    if (!CHOICES_PROP_KEYWORDS.includes(keyword)) fail(`"${name}" uses "${keyword}", which the choices field does not check`);
+  }
+  if (prop['type'] !== 'array' || prop['minItems'] === undefined || prop['minItems'] !== prop['maxItems']) {
+    fail(`"${name}" must be an array with as many items at least as at most`);
+  }
+  const items = (prop['items'] ?? {}) as Record<string, unknown>;
+  const itemProps = (items['properties'] ?? {}) as Record<string, Record<string, unknown>>;
+  const required = Array.isArray(items['required']) ? (items['required'] as unknown[]) : [];
+  if (
+    items['type'] !== 'object' ||
+    items['additionalProperties'] !== false ||
+    Object.keys(itemProps).sort().join() !== 'id,label' ||
+    !required.includes('id') ||
+    !required.includes('label')
+  ) {
+    fail(`the items of "${name}" must be closed objects with a required id and label`);
+  }
+  for (const [itemName, itemProp] of Object.entries(itemProps)) {
+    if (itemProp['type'] !== 'string') fail(`"${name}" items' "${itemName}" must be a string`);
+    for (const keyword of Object.keys(itemProp)) {
+      if (!FIELDS_PROP_KEYWORDS.includes(keyword)) fail(`"${name}" items' "${itemName}" uses "${keyword}", which the fields inspector does not check`);
     }
   }
 }

@@ -1,4 +1,5 @@
 import type { DeliveryTaleElement } from '@taleart/contract';
+import type { ResponseClient } from '../responses';
 
 /** What a renderer knows about where it renders. */
 export interface RenderContext {
@@ -6,6 +7,12 @@ export interface RenderContext {
   reducedMotion: boolean;
   /** Links render without a destination (the Tale Studio preview of a draft): they look the same and go nowhere. */
   inertLinks?: boolean;
+  /**
+   * Where an interactive component sends the visitor's response (epic interactive components R9):
+   * the zone's client and the tale being shown. None in the Tale Studio preview and on side cards,
+   * which record nothing.
+   */
+  responses?: { client: ResponseClient; taleId: string };
 }
 
 /** Images that may move: a GIF, an animated WebP, an APNG or an animated AVIF. Under reduced motion they are drawn once. */

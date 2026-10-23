@@ -11,6 +11,7 @@ import {
   setItemSeen,
 } from './bar';
 import { fetchZone, type ZoneRequest } from './delivery-client';
+import { responseClient } from './responses';
 import { coversInView, FIRST_CONTENT_MARK, holdMedia, loadFirstContent, mark, ZONE_MARK } from './first-content';
 import type { Theme } from './public-types';
 import { markGroupSeen, seenGroupIds } from './seen';
@@ -135,6 +136,8 @@ export class TaleartElement extends HTMLElement {
   private loadId = 0;
   private scheduled = false;
   private viewer: TaleViewer | null = null;
+  // Where the viewer's interactive components send responses: the zone last read.
+  private responses: ReturnType<typeof responseClient> | null = null;
   private view: DisplayView | null = null;
   // The group that takes focus after a reload that closed an open viewer.
   private pendingFocus: string | null = null;
@@ -350,6 +353,7 @@ export class TaleartElement extends HTMLElement {
     try {
       const zone = await fetchZone(apiUrl, named.request);
       if (id !== this.loadId) return;
+      this.responses = responseClient(apiUrl, named.request);
       if (!this.zoneMarked) {
         this.zoneMarked = true;
         mark(ZONE_MARK);
@@ -410,6 +414,8 @@ export class TaleartElement extends HTMLElement {
         }
         view?.focus(groupId);
       },
+      // Votes go to the zone this element read (epic interactive components R9).
+      responses: this.responses ?? undefined,
     });
     const open = (groupId: string) => {
       if (this.viewer === viewer) viewer.open(groupId);

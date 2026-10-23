@@ -19,6 +19,7 @@ import { projectTaleGroupsRouter, taleGroupsRouter, zoneTaleGroupsRouter } from 
 import { projectTagsRouter } from './http/tags.router';
 import { projectThemeRouter } from './http/theme.router';
 import { talesRouter } from './http/tales.router';
+import { taleResponsesRouter } from './http/responses.router';
 import type { RateLimitOptions } from './http/rate-limit';
 import {
   defaultSdkFiles,
@@ -52,6 +53,8 @@ export interface AppAuth {
 export interface AppDelivery {
   /** The per-visitor request limit of `/delivery/v1` (with a per-address backstop); the default when left out, off when null. */
   rateLimit?: RateLimitOptions | null;
+  /** The stricter per-visitor limit of `POST /delivery/v1/responses`; its default when left out, off when null. */
+  responseRateLimit?: RateLimitOptions | null;
 }
 
 /** Where the API is reached from outside. */
@@ -99,7 +102,13 @@ export function createApp(
   app.post(`${MANAGEMENT_API_BASE}/tales/:taleId/document/copy`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
   // A font or media upload's body is the file, whatever type it declares (R18, R5): its route reads it raw.
   const json = express.json();
-  app.use((req, res, next) => (req.method === 'POST' && UPLOAD_PATH.test(req.path) ? next() : json(req, res, next)));
+  // The Delivery API reads its own small bodies, after its CORS headers, so a refused body still
+  // reaches the browser as the API's error (epic interactive components R9).
+  app.use((req, res, next) =>
+    (req.method === 'POST' && UPLOAD_PATH.test(req.path)) || req.path.startsWith(`${DELIVERY_API_BASE}/`)
+      ? next()
+      : json(req, res, next),
+  );
 
   // The dashboard reaches the API through its dev proxy, on its own origin, so
   // cookies are same-origin. CORS stays open for other callers, never with credentials.
@@ -135,6 +144,7 @@ export function createApp(
   v1.use('/tale-groups', taleGroupsRouter(pool));
   v1.use('/tale-groups', coversRouter(pool, storage));
   v1.use('/tales', talesRouter(pool, storage));
+  v1.use('/tales', taleResponsesRouter(pool));
   app.use(MANAGEMENT_API_BASE, v1);
 
   // The Delivery API serves SDKs with site keys only (AD-2): its own open CORS
@@ -143,6 +153,7 @@ export function createApp(
       publicApiUrl,
       frameTypes,
       rateLimit: delivery.rateLimit,
+      responseRateLimit: delivery.responseRateLimit,
     }));
 
   // Published media is public at unguessable URLs (AD-11): no session, no site key.

@@ -12,10 +12,16 @@ import { projectForSiteKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
 import { tagRulesForTaleGroups } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
-import { Router, type RequestHandler, type Response } from 'express';
+import express, { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
 import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, VISITOR_HEADER, type RateLimitOptions } from './rate-limit';
+import {
+  DEFAULT_RESPONSE_RATE_LIMIT,
+  DELIVERY_BODY_LIMIT_BYTES,
+  deliveryResponsesRouter,
+  responseRateLimit,
+} from './responses.router';
 
 // One message for every refusal (epic UX rework R3): a missing, unknown or revoked site key and a
 // missing or unknown slug answer alike, so a caller cannot tell a slug from a key.
@@ -84,6 +90,12 @@ export interface DeliveryOptions {
    * {@link DEFAULT_DELIVERY_RATE_LIMIT} when left out, and null turns it off.
    */
   rateLimit?: RateLimitOptions | null;
+  /**
+   * The stricter per-visitor limit of `POST /responses` (epic interactive components R9), on top of
+   * the one above: {@link DEFAULT_RESPONSE_RATE_LIMIT} when left out (off while the Delivery limit is
+   * off), and null turns it off.
+   */
+  responseRateLimit?: RateLimitOptions | null;
 }
 
 /**
@@ -98,7 +110,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
     res.setHeader('Access-Control-Allow-Origin', '*');
     // The SDKs send the device's visitor id (epic UX rework 8.23), so a preflight must allow it.
     res.setHeader('Access-Control-Allow-Headers', `Authorization, Content-Type, ${VISITOR_HEADER}`);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    // GET reads a zone; POST records a visitor's response (epic interactive components R9).
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     // A client script may read when to try again after a 429.
     res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
     res.removeHeader('Access-Control-Allow-Credentials');
@@ -111,7 +124,13 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
   const limit = options.rateLimit === undefined ? DEFAULT_DELIVERY_RATE_LIMIT : options.rateLimit;
   // Before the key lookups, so a flood of guesses costs no queries.
   if (limit) router.use(rateLimit(limit));
+  const responseLimit =
+    options.responseRateLimit === undefined ? (limit ? DEFAULT_RESPONSE_RATE_LIMIT : null) : options.responseRateLimit;
+  router.use('/responses', responseRateLimit(responseLimit));
+  // A small JSON body, parsed here (not by the app's parser) so its refusals carry the CORS headers above.
+  router.use(express.json({ limit: DELIVERY_BODY_LIMIT_BYTES }));
   router.use(requireDeliveryKey(pool));
+  router.use(deliveryResponsesRouter(pool));
 
   router.get('/zone', async (_req, res, next) => {
     try {

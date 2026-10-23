@@ -836,6 +836,91 @@ try {
   check(gif?.join() === 'CANVAS,img', 'under reduced motion the GIF is drawn still and keeps its alt text');
   violations += await scan(stillTale.view, 'composed tale, reduced motion', axe);
   await stillTale.context.close();
+
+  // A poll (epic interactive components story 4.1, R2, R10): named controls, answered by keyboard
+  // with Enter, the result announced, the tale paused while it has focus and never stepped by it;
+  // scanned before and after the vote, in its light and its dark theme.
+  const pollElement = (theme) => ({
+    id: '00000000-0000-4000-8000-0000000000aa',
+    type: 'poll',
+    box: { x: 0.1, y: 0.36, w: 0.8, h: 0.3, rotation: 0 },
+    a11y: {},
+    props: {
+      title: 'Morning poll',
+      question: 'Tea or coffee?',
+      theme,
+      options: [
+        { id: 'tea', label: 'Tea' },
+        { id: 'coffee', label: 'Coffee' },
+      ],
+    },
+  });
+  const pollZone = (theme) => ({
+    ...ZONE,
+    id: 'zp',
+    slug: 'polled',
+    taleGroups: [
+      {
+        id: 'gp',
+        name: 'Breakfast',
+        cover: null,
+        tales: [
+          {
+            id: 'tp1',
+            title: 'Poll',
+            media: null,
+            document: { version: 1, canvas: { background: { type: 'color', color: '#1f2937' } }, elements: [pollElement(theme)] },
+          },
+          { id: 'tp2', title: 'After', media: null, document: { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [] } },
+        ],
+      },
+    ],
+  });
+  for (const theme of ['light', 'dark']) {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const view = await context.newPage();
+    const errors = [];
+    view.on('pageerror', (err) => errors.push(String(err)));
+    view.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()));
+    await serve(view, { polled: pollZone(theme) });
+    const posted = [];
+    await view.route(
+      (url) => url.href.startsWith(`${API}/delivery/v1/responses?`),
+      (route) => {
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { ...CORS, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-TaleArt-Visitor' } });
+        posted.push({ body: route.request().postDataJSON(), visitor: route.request().headers()['x-taleart-visitor'] });
+        return route.fulfill({
+          status: 201,
+          headers: CORS,
+          json: {
+            elementId: '00000000-0000-4000-8000-0000000000aa',
+            value: 'tea',
+            recorded: true,
+            result: { total: 4, choices: [{ id: 'tea', count: 3, percent: 75 }, { id: 'coffee', count: 1, percent: 25 }] },
+          },
+        });
+      },
+    );
+    await view.goto(pageUrl(port, ['polled']));
+    const host = view.locator('taleart-view');
+    await host.locator('button.item').first().click();
+    const tea = host.locator('dialog .ta-poll button').first();
+    await tea.waitFor();
+    check((await host.locator('dialog [role="group"][aria-label="Tea or coffee?"]').count()) === 1, `the ${theme} poll is a group named by its question`);
+    await tea.focus();
+    check((await host.locator('dialog[data-paused]').count()) === 1, `focus inside the ${theme} poll pauses the tale`);
+    violations += await scan(view, `${theme} poll before the vote`, axe);
+    await view.keyboard.press('Enter');
+    await host.locator('dialog .ta-poll-pct').first().waitFor();
+    const said = await host.locator('dialog .ta-poll [aria-live="polite"]').textContent();
+    check(said === 'You voted Tea. Tea 75%, Coffee 25%', `the ${theme} poll announces the result (${said})`);
+    check(posted.length === 1 && posted[0].body.value === 'tea' && /^[0-9a-f-]{36}$/.test(posted[0].visitor ?? ''), 'the vote is posted once with the visitor id');
+    check((await host.locator('dialog .segment.done').count()) === 0, `voting on the ${theme} poll does not step the tale`);
+    if (process.env.A11Y_SHOTS) await view.screenshot({ path: `${process.env.A11Y_SHOTS}/sample-poll-${theme}.png` });
+    violations += await scan(view, `${theme} poll after the vote`, axe);
+    check(errors.length === 0, `no console errors with the ${theme} poll${errors.length ? `: ${errors.join('; ')}` : ''}`);
+    await context.close();
+  }
 } finally {
   await browser.close();
   server.kill();

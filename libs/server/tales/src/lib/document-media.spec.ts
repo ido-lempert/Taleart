@@ -513,7 +513,7 @@ describe('document writes with media', () => {
     expect(draftProblem(at('/durationMs'), value)).toBe('Its duration is not between 3 and 15 seconds.');
     expect(draftProblem(at('/canvas/background/color'), value)).toBe('Its background has a setting that is not valid.');
     expect(draftProblem(at('/elements/7/type'), value)).toBe('Something in it is not valid.');
-    expect(draftProblem(at('/elements/0/type'), doc([{ type: 'poll' }]))).toBe(
+    expect(draftProblem(at('/elements/0/type'), doc([{ type: 'future-widget' }]))).toBe(
       'Layer 1 has a setting that is not valid.',
     );
     expect(draftProblem(new TaleDocumentTooLargeError(), value)).toBe('The draft is larger than 128 KB.');

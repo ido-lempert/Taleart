@@ -735,6 +735,10 @@
                   [locked]="el.locked"
                   (changed)="restyleElement(el.id, $event)"
                 />
+                @if (isInteractive(el)) {
+                  <!-- Its votes from the site (epic interactive components R11). -->
+                  <app-tale-responses [taleId]="taleId()" [element]="el" />
+                }
               } @else if (el.type === 'emoji') {
                 <app-tale-emoji-style
                   [element]="el"

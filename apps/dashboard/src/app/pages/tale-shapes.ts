@@ -333,6 +333,11 @@ export class TaleEmojiPicker {
 export interface ElementChange {
   label: string;
   props?: Readonly<Record<string, unknown>>;
+  /**
+   * One choice's new label (epic interactive components R1), applied by the studio to the element's
+   * props as they are when the change lands, never to a copy the inspector held.
+   */
+  choice?: { prop: string; index: number; label: string };
   a11y?: TaleElementA11y;
   said: string;
 }
