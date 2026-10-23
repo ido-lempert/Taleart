@@ -72,3 +72,5 @@ export {
   type CopiedMedia,
   type TaleMediaImport,
 } from './lib/media-copy';
+// A tale a person deleted: its baseline and imported-media record go, its link stays (story 8.20).
+export { forgetImportedTale } from './lib/reimport';

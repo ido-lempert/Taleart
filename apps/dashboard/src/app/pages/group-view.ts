@@ -6,6 +6,7 @@ import {
   Component,
   computed,
   Directive,
+  effect,
   ElementRef,
   inject,
   Injector,
@@ -13,6 +14,7 @@ import {
   OnDestroy,
   output,
   signal,
+  untracked,
   ViewEncapsulation,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
@@ -36,6 +38,7 @@ import { MenuButton, type MenuItem, type MenuPick } from '../menu-button';
 import { describeWindow, windowChip } from '../schedule';
 import { needsBadge, ShowSwitch, StatusBadge, statusActions, statusLabel, type StatusKind } from '../status';
 import { visibilityLine, VisibilityIndicator } from '../visibility';
+import { DeleteTale, deletedMessage, type DeletedTale } from './delete-tale';
 import { DuplicateTale, duplicatedMessage, type DuplicatedTale } from './duplicate-tale';
 
 const TONES = 6;
@@ -89,7 +92,8 @@ export class PlayWhenVisible implements OnDestroy {
  * has the group's On/Off switch, indicator (R7), ⋯ menu (the row's), counts, schedule chip, tags and
  * the other zones it is in; its body the tale cards and "Add tale". Each card has a Shown/Hidden
  * switch that saves at once (one action, announced), the indicator dot, and a ⋯ menu: Edit in Tale
- * Studio, Replace media, Schedule, Duplicate, Archive (Restore when archived). Tales reorder by
+ * Studio, Replace media, Schedule, Duplicate, Archive (Restore when archived), Delete (asked first,
+ * story 8.20). Tales reorder by
  * drag, or by their move earlier and later buttons (WCAG 2.2 SC 2.5.7), each move announced.
  *
  * The zone page owns the group's own status and menu (as on the row) and the live region's text;
@@ -116,6 +120,7 @@ export class PlayWhenVisible implements OnDestroy {
     CdkDragHandle,
     CdkScrollable,
     DuplicateTale,
+    DeleteTale,
     PlayWhenVisible,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -218,6 +223,40 @@ export class GroupView implements OnDestroy {
   protected readonly saving = signal<ReadonlySet<string>>(new Set());
   /** The tale whose Duplicate drawer is open, with the button that opened it. */
   protected readonly duplicating = signal<{ tale: Tale; opener: HTMLElement | null } | null>(null);
+  /**
+   * The tale whose Delete confirmation is open, with the button that opened it and the tale whose
+   * card takes focus once it is deleted (the next one, else the one before; none: Add tale).
+   */
+  protected readonly deleting = signal<{ tale: Tale; opener: HTMLElement | null; neighbor: string | null } | null>(null);
+  /** Set once a delete is done: focus goes to the neighbouring card's ⋯ instead of the opener. */
+  private deletedNeighbor: string | null | undefined = undefined;
+  /** The control that opened the Delete confirmation, kept for when it closes. */
+  private deleteOpener: HTMLElement | null = null;
+
+  /** Where the Delete confirmation returns focus: its opener, or after a delete the neighbouring card. */
+  protected readonly deleteFocus = (): HTMLElement | null => {
+    const host = this.host.nativeElement;
+    if (this.deletedNeighbor === undefined) return this.deleteOpener;
+    const neighbor = this.deletedNeighbor;
+    this.deletedNeighbor = undefined;
+    return (
+      (neighbor && host.querySelector<HTMLElement>(`[data-tale-id="${neighbor}"] .menu-button__trigger`)) ||
+      host.querySelector<HTMLElement>('#group-view-add-tale')
+    );
+  };
+
+  // "Delete tale…" in the tale drawer asks here, where the confirmation and the focus after it live.
+  private readonly deletionRequests = effect(() => {
+    const taleId = this.store.taleDeletionRequest();
+    if (taleId === null) return;
+    const tale = this.group().tales.find((t) => t.id === taleId);
+    if (!tale) return;
+    untracked(() => {
+      this.store.taleDeletionRequest.set(null);
+      const card = this.host.nativeElement.querySelector<HTMLElement>(`[data-tale-id="${taleId}"] .tale-card__open`);
+      this.askDelete(tale, card);
+    });
+  });
 
   /**
    * Each tale card's ⋯ menu, by tale id (epic UX rework R8, R11): one computed map, so an open
@@ -239,6 +278,7 @@ export class GroupView implements OnDestroy {
         { id: 'schedule', label: 'Schedule' },
         { id: 'duplicate', label: 'Duplicate' },
         ...(statusItem ? [statusItem] : []),
+        { id: 'delete', label: 'Delete' },
       ]);
     }
     return menus;
@@ -264,6 +304,9 @@ export class GroupView implements OnDestroy {
         return this.store.openDrawer({ kind: 'schedule', target: 'tale', id: tale.id }, pick.opener);
       case 'duplicate':
         this.duplicating.set({ tale, opener: pick.opener });
+        return;
+      case 'delete':
+        this.askDelete(tale, pick.opener);
         return;
       default: {
         const action = statusActions(tale.storedStatus).find((a) => `status:${a.status}` === pick.id);
@@ -326,6 +369,23 @@ export class GroupView implements OnDestroy {
     void this.store.orderTales(group.id, ids).then((message) => {
       if (message) this.error.set(message);
     });
+  }
+
+  /** Opens the Delete confirmation for a tale. */
+  private askDelete(tale: Tale, opener: HTMLElement | null): void {
+    const tales = this.group().tales;
+    const at = tales.findIndex((t) => t.id === tale.id);
+    const neighbor = tales[at + 1]?.id ?? tales[at - 1]?.id ?? null;
+    this.deletedNeighbor = undefined;
+    this.deleteOpener = opener;
+    this.deleting.set({ tale, opener, neighbor });
+  }
+
+  /** Closes the Delete confirmation, says what was deleted and what the group now holds, and moves focus on. */
+  protected deletedTale(result: DeletedTale): void {
+    this.deletedNeighbor = this.deleting()?.neighbor ?? null;
+    this.deleting.set(null);
+    this.announce.emit(`${deletedMessage(result)} ${shownCount(this.group())}.`);
   }
 
   /** Closes the Duplicate drawer and says where the copy went; the new card shows Hidden. */

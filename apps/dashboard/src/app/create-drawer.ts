@@ -322,6 +322,16 @@ export class CreateDrawer implements OnInit {
     this.loadSchedule(tale);
   }
 
+  /**
+   * "Delete tale…": the group view showing the tale asks first (story 8.20). This drawer closes,
+   * focus goes back to the tale's card, and the confirmation opens from there.
+   */
+  protected requestDelete(tale: Tale): void {
+    if (this.saving() || this.upload()) return;
+    this.close();
+    this.store.taleDeletionRequest.set(tale.id);
+  }
+
   // What each field showed when loaded, with the stored ISO time behind it. The field holds minutes only,
   // so an untouched field sends its stored time unchanged, seconds included.
   private loadedStart = { text: '', iso: null as string | null };

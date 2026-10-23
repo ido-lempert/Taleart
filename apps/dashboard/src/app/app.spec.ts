@@ -3051,7 +3051,7 @@ describe('App', () => {
       expect(cardOf('A').querySelector('[role=switch]')?.getAttribute('aria-checked')).toBe('true');
     });
 
-    it("offers every tale ⋯ item: Edit in Tale Studio, Replace media, Schedule, Duplicate, Archive", async () => {
+    it("offers every tale ⋯ item: Edit in Tale Studio, Replace media, Schedule, Duplicate, Archive, Delete", async () => {
       const { fixture } = await open('/zones/z1', data);
       const view = () => groupView() as HTMLElement;
       expect(menuItems(view(), 'More for A').map((item) => item.label)).toEqual([
@@ -3060,6 +3060,7 @@ describe('App', () => {
         'Schedule',
         'Duplicate',
         'Archive',
+        'Delete',
       ]);
 
       // Edit in Tale Studio: the studio, which links back to this zone.
@@ -3109,8 +3110,119 @@ describe('App', () => {
       await settle(fixture);
       expect(cardOf('A').querySelector('[role=switch]')).toBeNull();
       expect(cardOf('A').querySelector('.status-badge')?.textContent).toContain('Archived');
-      expect(menuItems(view(), 'More for A').at(-1)?.label).toBe('Restore');
+      expect(menuItems(view(), 'More for A').at(-2)?.label).toBe('Restore');
       expect(announced(groupView() as HTMLElement)).toContain('A is now archived');
+    });
+
+    describe('delete a tale (story 8.20)', () => {
+      const confirmation = () => document.querySelector<HTMLElement>('[role=alertdialog]');
+      const deleteRequest = (taleId: string) =>
+        http.expectOne((req) => req.method === 'DELETE' && req.url === `${API_BASE}/tales/${taleId}`);
+
+      it('asks first, naming the tale, with focus on Cancel; Cancel deletes nothing and returns focus', async () => {
+        const { fixture } = await open('/zones/z1', data);
+        pickMenuItem(groupView() as HTMLElement, 'More for B', 'Delete');
+        await settle(fixture);
+        const dialog = confirmation() as HTMLElement;
+        expect(dialog.getAttribute('aria-modal')).toBe('true');
+        expect(dialog.querySelector(`#${dialog.getAttribute('aria-labelledby')}`)?.textContent?.trim()).toBe('Delete tale');
+        const text = dialog.querySelector(`#${dialog.getAttribute('aria-describedby')}`)?.textContent?.replace(/\s+/g, ' ');
+        expect(text).toContain('Delete B from Summer?');
+        expect(text).toContain('This cannot be undone.');
+        expect(document.activeElement?.id).toBe('delete-tale-cancel');
+
+        buttonNamed(dialog, 'Cancel').click();
+        await settle(fixture);
+        expect(confirmation()).toBeNull();
+        expect(document.activeElement?.getAttribute('aria-label')).toBe('More for B');
+        http.expectNone((req) => req.method === 'DELETE');
+        expect(groupView()).not.toBeNull();
+      });
+
+      it('deletes it at once from every list, announces it with the new count and moves focus to the next card', async () => {
+        const projectGroups = { p1: [{ ...summer, zoneIds: ['z1'], taleCount: 4, shownTaleCount: 4 }] };
+        const { fixture } = await open('/zones/z1', { ...data, projectGroups });
+        const store = TestBed.inject(DashboardStore);
+        store.ensureProjectTaleGroups('p1');
+        await settle(fixture);
+        pickMenuItem(groupView() as HTMLElement, 'More for B', 'Delete');
+        await settle(fixture);
+        buttonNamed(confirmation() as HTMLElement, 'Delete tale').click();
+        await settle(fixture);
+        expect(buttonNamed(confirmation() as HTMLElement, 'Deleting…').disabled).toBe(true);
+        deleteRequest('t2').flush(null, { status: 204, statusText: 'No Content' });
+        await settle(fixture);
+        // Gone at once, the others closing up; the project list counts one fewer.
+        expect([...(groupView() as HTMLElement).querySelectorAll('.tale-card__name')].map((n) => n.textContent)).toEqual(['A', 'C', 'D']);
+        expect(store.taleGroup('g1')?.tales.map((t) => t.position)).toEqual([0, 1, 2]);
+        expect(store.projectTaleGroup('g1')).toMatchObject({ taleCount: 3, shownTaleCount: 3 });
+        const rest = four.filter((t) => t.id !== 't2').map((t, position) => ({ ...t, position }));
+        await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: rest }, winter] }, projectGroups });
+        await settle(fixture);
+        expect(confirmation()).toBeNull();
+        expect(groupView()?.querySelector('.group-view__count')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('3 of 3 shown · max 100');
+        expect(announced(groupView() as HTMLElement)).toBe('B deleted from Summer. 3 of 3 shown.');
+        expect(document.activeElement?.getAttribute('aria-label')).toBe('More for C');
+      });
+
+      it('moves focus to Add tale once the last tale is deleted, and to the card before when the last card goes', async () => {
+        const two = four.slice(0, 2);
+        const { fixture } = await open('/zones/z1', { ...data, groups: { z1: [{ ...summer, tales: two }, winter] } });
+        pickMenuItem(groupView() as HTMLElement, 'More for B', 'Delete');
+        await settle(fixture);
+        buttonNamed(confirmation() as HTMLElement, 'Delete tale').click();
+        await settle(fixture);
+        deleteRequest('t2').flush(null, { status: 204, statusText: 'No Content' });
+        await settle(fixture);
+        await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [two[0]] }, winter] } });
+        await settle(fixture);
+        expect(document.activeElement?.getAttribute('aria-label')).toBe('More for A');
+
+        pickMenuItem(groupView() as HTMLElement, 'More for A', 'Delete');
+        await settle(fixture);
+        buttonNamed(confirmation() as HTMLElement, 'Delete tale').click();
+        await settle(fixture);
+        deleteRequest('t1').flush(null, { status: 204, statusText: 'No Content' });
+        await settle(fixture);
+        await flushRefresh(fixture, { ...data, groups: { z1: [{ ...summer, tales: [] }, winter] } });
+        await settle(fixture);
+        expect(document.activeElement?.id).toBe('group-view-add-tale');
+        expect(announced(groupView() as HTMLElement)).toBe('A deleted from Summer. No tales yet.');
+      });
+
+      it('shows a refusal in the confirmation, announced, and keeps the tale', async () => {
+        const { fixture } = await open('/zones/z1', data);
+        pickMenuItem(groupView() as HTMLElement, 'More for C', 'Delete');
+        await settle(fixture);
+        buttonNamed(confirmation() as HTMLElement, 'Delete tale').click();
+        await settle(fixture);
+        deleteRequest('t3').flush(
+          { error: { code: 'forbidden', message: 'You do not have access to this project' } },
+          { status: 403, statusText: 'Forbidden' },
+        );
+        await settle(fixture);
+        const alert = confirmation()?.querySelector('[role=alert]');
+        expect(alert?.textContent?.trim()).toBe('You do not have access to this project');
+        expect(cardOf('C')).toBeTruthy();
+        expect(buttonNamed(confirmation() as HTMLElement, 'Delete tale').disabled).toBe(false);
+      });
+
+      it('"Delete tale…" in the tale drawer closes it and asks in the group view; Escape returns to the card', async () => {
+        const { fixture } = await open('/zones/z1', data);
+        (groupView() as HTMLElement).querySelector<HTMLButtonElement>('[aria-label="Open tale A"]')?.click();
+        await settle(fixture);
+        buttonNamed(drawer() as HTMLElement, 'Delete tale…').click();
+        await settle(fixture);
+        expect(drawer()).toBeNull();
+        expect(confirmation()?.textContent).toContain('Delete A from Summer?');
+        expect(document.activeElement?.id).toBe('delete-tale-cancel');
+        expect(TestBed.inject(DashboardStore).taleDeletionRequest()).toBeNull();
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        await settle(fixture);
+        expect(confirmation()).toBeNull();
+        expect(groupView()).not.toBeNull();
+        expect(document.activeElement?.getAttribute('aria-label')).toBe('Open tale A');
+      });
     });
 
     it('moves a tale by keyboard inside the view, keeping focus and announcing it', async () => {
@@ -3666,7 +3778,7 @@ describe('App', () => {
       const controls = [...body.querySelectorAll<HTMLElement>('button, a[href]')].map(
         (c) => c.getAttribute('aria-label') ?? c.textContent?.trim(),
       );
-      expect(controls).toEqual(['Show A', 'Archive', 'Edit in Tale Studio', 'Add media']);
+      expect(controls).toEqual(['Show A', 'Archive', 'Delete tale…', 'Edit in Tale Studio', 'Add media']);
       expect(document.activeElement?.getAttribute('aria-label')).toBe('Show A');
       // No title field: titles change in Tale Studio, so Done has no typed edit to lose.
       expect(body.querySelector('input:not([type=file]), textarea')).toBeNull();

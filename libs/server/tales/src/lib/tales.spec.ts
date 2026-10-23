@@ -3,6 +3,7 @@ import {
   copyTaleWithDocument,
   createTale,
   createTaleGroup,
+  deleteTale,
   InvalidScheduleError,
   InvalidStatusTransitionError,
   isMediaKeyInUse,
@@ -1649,5 +1650,46 @@ describe('conditional updates (importer re-runs)', () => {
     await expect(
       replaceTaleMediaIf(fakeDb([{ rowCount: 0 }, { rows: [] }]).db, taleId, 'k', media),
     ).rejects.toBeInstanceOf(TaleNotFoundError);
+  });
+});
+
+describe('deleteTale (story 8.20)', () => {
+  const taleId = '00000000-0000-4000-8000-000000000004';
+
+  it('locks the group, then the tale, deletes it, renumbers the group and answers the keys it referenced', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{ groupId }] },
+      { rows: [{}] },
+      { rows: [{ projectId, mediaKey: 'tales/a.png' }] },
+      { rows: [{ key: 'media/b.png' }, { key: 'tales/a.png' }] },
+      { rows: [], rowCount: 1 },
+      { rows: [] },
+    ]);
+    expect(await deleteTale(db, taleId)).toEqual({
+      taleId,
+      taleGroupId: groupId,
+      projectId,
+      mediaKeys: ['media/b.png', 'tales/a.png'],
+    });
+    const sql = statements();
+    const groupLock = sql.findIndex((s) => /FROM tale_groups WHERE id = \$1 FOR UPDATE/.test(s));
+    const taleLock = sql.findIndex((s) => /FROM tales WHERE id = \$1 FOR UPDATE/.test(s));
+    const removed = sql.findIndex((s) => /DELETE FROM tales WHERE id = \$1/.test(s));
+    const renumber = sql.findIndex((s) => /row_number\(\)/.test(s));
+    expect(groupLock).toBeGreaterThan(0);
+    expect([groupLock < taleLock, taleLock < removed, removed < renumber]).toEqual([true, true, true]);
+    expect(query.mock.calls[renumber][1]).toEqual([groupId]);
+    expect(sql).toContain('COMMIT');
+  });
+
+  it('refuses an unknown tale, and a tale deleted while it waited for the lock, without deleting', async () => {
+    const unknown = fakeDb([{ rows: [] }]);
+    await expect(deleteTale(unknown.db, taleId)).rejects.toBeInstanceOf(TaleNotFoundError);
+    const raced = fakeDb([{ rows: [{ groupId }] }, { rows: [{}] }, { rows: [] }]);
+    await expect(deleteTale(raced.db, taleId)).rejects.toBeInstanceOf(TaleNotFoundError);
+    expect(raced.statements().some((s) => /DELETE/.test(s))).toBe(false);
+    const notUuid = fakeDb([]);
+    await expect(deleteTale(notUuid.db, 'nope')).rejects.toBeInstanceOf(TaleNotFoundError);
+    expect(notUuid.query).not.toHaveBeenCalled();
   });
 });

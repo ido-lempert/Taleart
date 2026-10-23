@@ -203,6 +203,17 @@ export async function deleteRecord(tx: Db, type: RecordType, targetId: string): 
   await tx.query('DELETE FROM import_records WHERE target_type = $1 AND target_id = $2', [type, targetId]);
 }
 
+/**
+ * Forgets what imports recorded about a tale a person deleted (story 8.20): its baseline and which
+ * media file an import put on it. Its link stays (AD-7), so a later import finds the tale gone and
+ * does not create it again: a person's deletion wins. Run after the delete commits, on its own: it
+ * takes only these rows' locks, so it never waits in a cycle with an import updating the tale.
+ */
+export async function forgetImportedTale(db: Db, taleId: string): Promise<void> {
+  await db.query("DELETE FROM import_records WHERE target_type = 'tale' AND target_id = $1", [taleId]);
+  await db.query('DELETE FROM import_media WHERE tale_id = $1', [taleId]);
+}
+
 /** How many baselines a sweep reads at a time. */
 const SWEEP_BATCH = 500;
 
