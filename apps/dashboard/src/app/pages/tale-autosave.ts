@@ -14,7 +14,7 @@ export interface AutosaveTiming {
   retryDelaysMs: readonly number[];
 }
 
-export const DEFAULT_AUTOSAVE_TIMING: AutosaveTiming = {
+const DEFAULT_AUTOSAVE_TIMING: AutosaveTiming = {
   debounceMs: 1000,
   maxWaitMs: 5000,
   retryDelaysMs: [2000, 4000, 8000, 16000, 30000],

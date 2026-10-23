@@ -9,6 +9,7 @@ import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { backdropKey, layersBehind, TaleBackdropSampler } from './tale-backdrop';
 import { TaleStudioPage } from './tale-studio';
+import { WAIT_FOR_TEST } from './tale-studio.testing';
 
 // Tale Studio story 7.10 (epic Tale Studio R12): contrast warnings on the element and its layer row,
 // against the canvas, a shape, or the colours read behind a label over media.
@@ -26,7 +27,6 @@ const tale = {
   media: null,
 };
 const group = { id: 'g1', name: 'Summer', projectId: 'p1', tales: [tale] } as unknown as ZoneTaleGroup;
-const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
 const box = (x: number, y: number, w = 0.8, h = 0.1, rotation = 0) => ({ x, y, w, h, rotation });
 let n = 0;
 const element = (type: string, b: TaleElement['box'], props: Record<string, unknown>, extra = {}): TaleElement =>

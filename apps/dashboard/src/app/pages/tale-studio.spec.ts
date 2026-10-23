@@ -12,6 +12,7 @@ import { appRoutes } from '../app.routes';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import { BACK_TO_PAGE_INTERVAL_MS, TaleStudioPage } from './tale-studio';
 import { ratioText } from './tale-text-style';
+import { settle, WAIT_FOR_TEST } from './tale-studio.testing';
 
 // The documents here hold text only, typed so, which keeps a text's props a text's.
 type TaleDocument = Omit<AnyTaleDocument, 'elements'> & { elements: TextElement[] };
@@ -66,12 +67,6 @@ function draftRead(read: {
   return { ...read, published: read.published ?? { document: read.document, revision: read.revision } };
 }
 
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
-  await fixture.whenStable();
-  await new Promise((resolve) => setTimeout(resolve));
-  fixture.detectChanges();
-}
-
 function buttonNamed(root: ParentNode, name: string): HTMLButtonElement {
   const button = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === name);
   if (!button) throw new Error(`No ${name} button`);
@@ -82,8 +77,6 @@ function key(target: Element, k: string, init: KeyboardEventInit = {}): void {
   target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
 }
 
-// Autosave waits for the test to ask; tests of its timing shorten it.
-const WAIT_FOR_TEST = { debounceMs: 3_600_000, maxWaitMs: 3_600_000, retryDelaysMs: [3_600_000] };
 const timing = { ...WAIT_FOR_TEST };
 
 describe('TaleStudioPage', () => {

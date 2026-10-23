@@ -60,9 +60,11 @@ export function propSchema(
 
 /**
  * Why `value` breaks the prop's schema, in words for the person editing it, or null when it passes:
- * the keywords type, enum, minLength, maxLength (in code points, as JSON Schema counts them),
- * pattern, minimum and maximum. An editor checks a new type's props with it as they are typed; the
- * server checks the whole schema again on every write (R8, R14). `undefined` is a missing value.
+ * the keywords type (string, integer, number, boolean), enum, minLength, maxLength (in code points,
+ * as JSON Schema counts them), pattern (a `u` regular expression) and minimum and maximum. An
+ * editor checks a new type's props with it as they are typed; the server checks the whole schema
+ * again with Ajv on every write (R8, R14), and `element-types.spec.ts` checks that the two agree on
+ * the test badge's props. `undefined` is a missing value.
  */
 export function propValueProblem(schema: PropSchema, value: unknown, required: boolean): string | null {
   if (value === undefined) return required ? 'This is required.' : null;
