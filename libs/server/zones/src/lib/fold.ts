@@ -133,24 +133,25 @@ async function fold(db: Db, options: FoldOptions): Promise<FoldReport> {
   const framesOf = group(frames, (f) => f.zoneId);
   const stagesOf = group(stages, (s) => s.zoneId);
   // Each original zone's oldest stage: its name, and its key when that is a slug.
-  const kept = new Map<string, { name: string; stageKey: string | null }>();
-  const created: NewZone[] = [];
+  const oldestStage = new Map<string, { name: string; stageKey: string | null }>();
+  const newZones: NewZone[] = [];
 
   for (const zone of zones) {
     const zoneFrames = framesOf.get(zone.id) ?? [];
-    const byId = new Map(zoneFrames.map((f) => [f.id, f]));
+    const frameById = new Map(zoneFrames.map((f) => [f.id, f]));
     const shown = new Set<string>();
-    let first = true;
+    // True until the original zone has its display: its oldest stage's frame, or else its first frame.
+    let needsDisplay = true;
     for (const stage of stagesOf.get(zone.id) ?? []) {
-      const frame = byId.get(stage.frameId);
+      const frame = frameById.get(stage.frameId);
       if (!frame) continue;
       const copyFrame = shown.has(frame.id);
       shown.add(frame.id);
-      if (first) {
-        kept.set(zone.id, { name: stage.name, stageKey: validKey(stage.key) });
-        first = false;
+      if (needsDisplay) {
+        oldestStage.set(zone.id, { name: stage.name, stageKey: validKey(stage.key) });
+        needsDisplay = false;
       } else {
-        created.push({ from: zone, name: stage.name, stageKey: validKey(stage.key), type: frame.type, n: 0, frame, copyFrame });
+        newZones.push({ from: zone, name: stage.name, stageKey: validKey(stage.key), type: frame.type, n: 0, frame, copyFrame });
       }
     }
     // The frames no stage shows; a zone without stages keeps its first one.
@@ -159,11 +160,11 @@ async function fold(db: Db, options: FoldOptions): Promise<FoldReport> {
       const n = (ordinal.get(frame.type) ?? 0) + 1;
       ordinal.set(frame.type, n);
       if (shown.has(frame.id)) continue;
-      if (first) {
-        first = false;
+      if (needsDisplay) {
+        needsDisplay = false;
         continue;
       }
-      created.push({
+      newZones.push({
         from: zone,
         name: `${zone.name} – ${typeName(frame.type)} ${n}`,
         stageKey: null,
@@ -184,95 +185,95 @@ async function fold(db: Db, options: FoldOptions): Promise<FoldReport> {
   };
   for (const zone of zones) if (zone.slug !== null) takenIn(zone.projectId).add(zone.slug);
   const pick = (projectId: string, base: string): string => {
-    const set = takenIn(projectId);
-    const slug = uniqueZoneSlug(base, (s) => set.has(s));
-    set.add(slug);
+    const slugs = takenIn(projectId);
+    const slug = uniqueZoneSlug(base, (s) => slugs.has(s));
+    slugs.add(slug);
     return slug;
   };
-  const createdOf = group(created, (z) => z.from.id);
+  const newZonesOf = group(newZones, (z) => z.from.id);
   // The slug each original zone without one gets.
-  const filled = new Map<string, string>();
+  const filledSlugs = new Map<string, string>();
   const renamedStageKeys: FoldReport['renamedStageKeys'] = [];
   // 1. Stage keys, which pages named: every key that is free keeps it, then the keys another zone
   // already took get a suffix, oldest zone first.
-  const clashing: (() => void)[] = [];
+  const clashingKeys: (() => void)[] = [];
   for (const zone of zones) {
-    const set = takenIn(zone.projectId);
-    const stageKey = kept.get(zone.id)?.stageKey;
+    const slugs = takenIn(zone.projectId);
+    const stageKey = oldestStage.get(zone.id)?.stageKey;
     if (zone.slug === null && stageKey) {
-      if (!set.has(stageKey)) filled.set(zone.id, pick(zone.projectId, stageKey));
+      if (!slugs.has(stageKey)) filledSlugs.set(zone.id, pick(zone.projectId, stageKey));
       else
-        clashing.push(() => {
+        clashingKeys.push(() => {
           const slug = pick(zone.projectId, stageKey);
-          filled.set(zone.id, slug);
+          filledSlugs.set(zone.id, slug);
           renamedStageKeys.push({ zoneId: zone.id, key: stageKey, slug });
         });
     }
-    for (const next of createdOf.get(zone.id) ?? []) {
-      const key = next.stageKey;
+    for (const newZone of newZonesOf.get(zone.id) ?? []) {
+      const key = newZone.stageKey;
       if (!key) continue;
-      if (!set.has(key)) next.slug = pick(zone.projectId, key);
+      if (!slugs.has(key)) newZone.slug = pick(zone.projectId, key);
       else
-        clashing.push(() => {
-          next.slug = pick(zone.projectId, key);
-          next.renamedKey = key;
+        clashingKeys.push(() => {
+          newZone.slug = pick(zone.projectId, key);
+          newZone.renamedKey = key;
         });
     }
   }
-  for (const assign of clashing) assign();
+  for (const assign of clashingKeys) assign();
   // 2. The original zones' names.
   for (const zone of zones) {
-    if (zone.slug === null && !filled.has(zone.id)) {
-      filled.set(zone.id, pick(zone.projectId, zoneSlugFromName(kept.get(zone.id)?.name ?? zone.name)));
+    if (zone.slug === null && !filledSlugs.has(zone.id)) {
+      filledSlugs.set(zone.id, pick(zone.projectId, zoneSlugFromName(oldestStage.get(zone.id)?.name ?? zone.name)));
     }
   }
   // 3. The zones made from frames, from the original zone's own (unique) slug, and the zones of
   // stages whose key is not a slug. The original's slug is cut so the type and number always fit.
-  const after = (original: string, suffix: string): string =>
+  const withSuffix = (original: string, suffix: string): string =>
     `${original.slice(0, MAX_ZONE_SLUG_LENGTH - suffix.length).replace(/-+$/, '')}${suffix}`;
   for (const zone of zones) {
-    const original = zone.slug ?? (filled.get(zone.id) as string);
-    for (const next of createdOf.get(zone.id) ?? []) {
-      if (next.slug) continue;
-      next.slug = pick(
+    const original = zone.slug ?? (filledSlugs.get(zone.id) as string);
+    for (const newZone of newZonesOf.get(zone.id) ?? []) {
+      if (newZone.slug) continue;
+      newZone.slug = pick(
         zone.projectId,
-        next.n > 0
-          ? after(original, `-${next.type}-${next.n}`)
-          : zoneSlugFromName(next.name) || after(original, `-${next.type}`),
+        newZone.n > 0
+          ? withSuffix(original, `-${newZone.type}-${newZone.n}`)
+          : zoneSlugFromName(newZone.name) || withSuffix(original, `-${newZone.type}`),
       );
     }
   }
 
   for (const zone of zones) {
-    const change = kept.get(zone.id);
-    const slug = filled.get(zone.id);
-    if (slug !== undefined || change) {
+    const stage = oldestStage.get(zone.id);
+    const slug = filledSlugs.get(zone.id);
+    if (slug !== undefined || stage) {
       await db.query('UPDATE zones SET slug = COALESCE($2, slug), name = $3 WHERE id = $1', [
         zone.id,
         slug ?? null,
-        change?.name ?? zone.name,
+        stage?.name ?? zone.name,
       ]);
     }
     let offset = 0;
-    for (const next of createdOf.get(zone.id) ?? []) {
+    for (const newZone of newZonesOf.get(zone.id) ?? []) {
       offset++;
       const { rows } = await db.query<{ id: string }>(
         `INSERT INTO zones (project_id, name, slug, playbook_key, created_at)
          VALUES ($1, $2, $3, $4, (SELECT created_at FROM zones WHERE id = $5) + $6 * interval '1 microsecond')
          RETURNING id`,
         // Read in SQL: a JS Date would drop the microseconds and sort the new zone before its original.
-        [zone.projectId, next.name, next.slug, zone.playbookKey, zone.id, offset],
+        [zone.projectId, newZone.name, newZone.slug, zone.playbookKey, zone.id, offset],
       );
       const zoneId = rows[0].id;
-      if (next.renamedKey) renamedStageKeys.push({ zoneId, key: next.renamedKey, slug: next.slug as string });
-      if (next.copyFrame) {
+      if (newZone.renamedKey) renamedStageKeys.push({ zoneId, key: newZone.renamedKey, slug: newZone.slug as string });
+      if (newZone.copyFrame) {
         await db.query(
           `INSERT INTO frames (zone_id, project_id, type, settings, created_at)
            SELECT $2, project_id, type, settings, created_at FROM frames WHERE id = $1`,
-          [next.frame.id, zoneId],
+          [newZone.frame.id, zoneId],
         );
       } else {
-        await db.query('UPDATE frames SET zone_id = $2 WHERE id = $1', [next.frame.id, zoneId]);
+        await db.query('UPDATE frames SET zone_id = $2 WHERE id = $1', [newZone.frame.id, zoneId]);
       }
       await options.copyPlacements(db, zone.id, zoneId);
     }
@@ -289,7 +290,7 @@ async function fold(db: Db, options: FoldOptions): Promise<FoldReport> {
   await db.query('CREATE UNIQUE INDEX IF NOT EXISTS frames_zone_id_key ON frames (zone_id)');
   await db.query('DROP INDEX IF EXISTS frames_zone_id_idx');
   await db.query('DROP INDEX IF EXISTS frames_id_zone_id_key');
-  return { zonesCreated: created.length, slugsFilled: filled.size, renamedStageKeys };
+  return { zonesCreated: newZones.length, slugsFilled: filledSlugs.size, renamedStageKeys };
 }
 
 function group<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {

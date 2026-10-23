@@ -57,8 +57,9 @@ export {
   type StoredWindow,
   type StoredZoneTaleGroup,
   type StoredProjectTaleGroup,
-  type TransactionalDb,
 } from './lib/tales';
+// Kept for the module's users; the one transaction helper lives in the access module.
+export type { TransactionalDb } from '@taleart/server-access';
 
 // A change that can make a project font or a document's media public or private: once it is done
 // (or failed), this process forgets its public answers (R18, R5), so the public route sees it at once.

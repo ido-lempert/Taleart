@@ -1,4 +1,5 @@
 import { afterNextRender, ChangeDetectionStrategy, Component, ElementRef, inject, input, output } from '@angular/core';
+import { isOutside } from '../top-layer';
 import type { LayerCommand } from './tale-layers';
 
 /** One entry of the layer actions menu. */
@@ -86,7 +87,7 @@ export class TaleLayerMenu {
     const target = event.target as Element | null;
     const anchor = this.anchorId() ? document.getElementById(this.anchorId()) : null;
     if (anchor && target && anchor.contains(target)) return;
-    if (menu && !menu.contains(target)) this.closed.emit(false);
+    if (menu && isOutside(menu, event)) this.closed.emit(false);
   }
 
   protected onKey(event: KeyboardEvent): void {
