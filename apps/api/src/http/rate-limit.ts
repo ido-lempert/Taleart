@@ -12,15 +12,33 @@ export interface RateLimitOptions {
 }
 
 /**
- * The Delivery API's default (epic UX rework story 8.6 review): generous, since many visitors can
- * share one address behind a NAT and every page view asks once per zone. Set with
- * DELIVERY_RATE_LIMIT_BURST and DELIVERY_RATE_LIMIT_PER_SECOND; a burst of 0 turns it off. The limit
- * is per API process: with several processes, a client gets that many times the limit.
+ * The Delivery API's default (epic UX rework stories 8.6 and 8.23): the allowance of one visitor (a
+ * device, named by its `X-TaleArt-Visitor` id), and of one address for requests that carry no
+ * valid id. Generous, since every page view asks once per zone. Set with DELIVERY_RATE_LIMIT_BURST
+ * and DELIVERY_RATE_LIMIT_PER_SECOND; a burst of 0 turns the whole limit off. The limit is per API
+ * process: with several processes, a client gets that many times the limit.
  */
 export const DEFAULT_DELIVERY_RATE_LIMIT: RateLimitOptions = { burst: 600, perSecond: 20 };
 
-/** The most client buckets kept; beyond it, the least recently seen client is forgotten. */
+/**
+ * How many visitors' allowance one address (an IPv4 address or an IPv6 /48) gets in all, whatever
+ * ids its requests carry: the backstop against a client that invents a new id for every request.
+ * With the default limit that is 6,000 at once and 200 per second. Ten keeps a home, an office or a
+ * school behind one NAT clear of it in practice (they rarely all load pages in the same second),
+ * while a client rotating ids gets no more than ten devices would. The other side: a flood from one
+ * device behind a shared NAT can use up the backstop for everyone behind that address. And behind a
+ * proxy, TRUST_PROXY must name it ({@link trustProxyFromEnv}), or every client is the proxy's address.
+ */
+export const ADDRESS_BACKSTOP_FACTOR = 10;
+
+/** The header a visitor's id comes in: a UUID v4 the SDK generates once per device. */
+export const VISITOR_HEADER = 'X-TaleArt-Visitor';
+
+/** The most address buckets kept (each kind); beyond it, the least recently seen address is forgotten. */
 export const RATE_LIMIT_MAX_CLIENTS = 10_000;
+
+/** The most visitor buckets kept; beyond it, the least recently seen visitor is forgotten. */
+export const RATE_LIMIT_MAX_VISITORS = 50_000;
 
 /** How often, at most, the buckets that are full again (idle clients) are dropped, in ms. */
 export const RATE_LIMIT_PRUNE_INTERVAL_MS = 60_000;
@@ -63,9 +81,9 @@ function ipv6Groups(address: string): number[] | null {
 }
 
 /**
- * The client a request is counted as: an IPv4 address as it is (an IPv4-mapped IPv6 address,
- * `::ffff:a.b.c.d`, as that IPv4 address), and an IPv6 address by its /64, which one host or home
- * network usually holds whole.
+ * The address a request is counted as: an IPv4 address as it is (an IPv4-mapped IPv6 address,
+ * `::ffff:a.b.c.d`, as that IPv4 address), and an IPv6 address by its /48, the block one site
+ * (a home or an office) is usually given, so a client cannot dodge the limit by moving within it.
  */
 export function rateLimitClient(address: string | undefined): string {
   if (!address) return 'unknown';
@@ -76,29 +94,92 @@ export function rateLimitClient(address: string | undefined): string {
     return [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join('.');
   }
   return `${groups
-    .slice(0, 4)
+    .slice(0, 3)
     .map((g) => g.toString(16))
-    .join(':')}::/64`;
+    .join(':')}::/48`;
+}
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/**
+ * The visitor id of an `X-TaleArt-Visitor` header in lowercase, or null when it is missing,
+ * repeated or not a UUID v4 written all in lowercase or all in uppercase.
+ */
+export function visitorId(header: string | string[] | undefined): string | null {
+  if (typeof header !== 'string') return null;
+  const lower = header.toLowerCase();
+  if (header !== lower && header !== header.toUpperCase()) return null;
+  return UUID_V4.test(lower) ? lower : null;
 }
 
 /**
- * Limits requests per client ({@link rateLimitClient} of `req.ip`, which follows Express's
- * `trust proxy`) with a token bucket kept in this process. A client over its limit gets 429
- * `rate_limited` with `Retry-After` (whole seconds until a token is back) and
- * `Cache-Control: no-store`. Preflight requests are not counted.
+ * Token buckets by key, least recently seen first, at most `max` of them: a new key beyond it
+ * forgets the oldest. Buckets that are full again are dropped at most once per
+ * {@link RATE_LIMIT_PRUNE_INTERVAL_MS}, so no request scans them all.
+ */
+class Buckets {
+  private readonly map = new Map<string, Bucket>();
+  private prunedAt: number;
+
+  constructor(
+    private readonly options: RateLimitOptions,
+    private readonly max: number,
+    t: number,
+  ) {
+    this.prunedAt = t;
+  }
+
+  // Tokens a bucket holds at `t`; a clock that went back refills nothing.
+  private level(bucket: Bucket, t: number): number {
+    return Math.min(this.options.burst, bucket.tokens + (Math.max(0, t - bucket.at) / 1000) * this.options.perSecond);
+  }
+
+  /** The key's bucket brought up to `t`, now the most recently seen. */
+  get(key: string, t: number): Bucket {
+    if (t - this.prunedAt >= RATE_LIMIT_PRUNE_INTERVAL_MS || t < this.prunedAt) {
+      this.prunedAt = t;
+      for (const [k, b] of this.map) if (this.level(b, t) >= this.options.burst) this.map.delete(k);
+    }
+    const bucket = this.map.get(key) ?? { tokens: this.options.burst, at: t };
+    // Re-inserted on every request, so the Map's first key is the least recently seen.
+    this.map.delete(key);
+    this.map.set(key, bucket);
+    if (this.map.size > this.max) this.map.delete(this.map.keys().next().value as string);
+    bucket.tokens = this.level(bucket, t);
+    bucket.at = Math.max(bucket.at, t);
+    return bucket;
+  }
+
+  /** Whole seconds until the bucket holds a token again. */
+  wait(bucket: Bucket): number {
+    return Math.max(1, Math.ceil((1 - bucket.tokens) / this.options.perSecond));
+  }
+}
+
+/**
+ * Limits requests with token buckets kept in this process (epic UX rework 8.23). A request with a
+ * valid visitor id ({@link visitorId} of `X-TaleArt-Visitor`) counts against that visitor's bucket;
+ * one without counts against its address's bucket of the same size, as before visitor ids. Every
+ * request also counts against its address's backstop, {@link ADDRESS_BACKSTOP_FACTOR} times larger,
+ * so inventing ids gains little. The address is {@link rateLimitClient} of `req.ip`, which follows
+ * Express's `trust proxy`. A request goes on only when both of its buckets hold a token, and then
+ * takes one from each; otherwise it gets 429 `rate_limited` with `Retry-After` (whole seconds until
+ * both have one) and `Cache-Control: no-store`. Preflight requests are not counted.
  *
- * Memory is bounded: the buckets are kept least recently seen first, and a new client beyond
- * {@link RATE_LIMIT_MAX_CLIENTS} forgets the oldest. Buckets that are full again are dropped at most
- * once per {@link RATE_LIMIT_PRUNE_INTERVAL_MS}, so no request scans them all.
+ * Memory is bounded: at most {@link RATE_LIMIT_MAX_VISITORS} visitor buckets and
+ * {@link RATE_LIMIT_MAX_CLIENTS} buckets of each address kind, the least recently seen forgotten
+ * first. A client rotating ids churns only the visitor buckets, never the backstop.
  */
 export function rateLimit(options: RateLimitOptions, now: () => number = Date.now): RequestHandler {
   const { burst, perSecond } = checkRateLimit(options);
-  const buckets = new Map<string, Bucket>();
-  let prunedAt = now();
-
-  // Tokens a bucket holds at `t`; a clock that went back refills nothing.
-  const level = (bucket: Bucket, t: number) =>
-    Math.min(burst, bucket.tokens + (Math.max(0, t - bucket.at) / 1000) * perSecond);
+  const t0 = now();
+  const visitors = new Buckets({ burst, perSecond }, RATE_LIMIT_MAX_VISITORS, t0);
+  const anonymous = new Buckets({ burst, perSecond }, RATE_LIMIT_MAX_CLIENTS, t0);
+  const backstop = new Buckets(
+    { burst: burst * ADDRESS_BACKSTOP_FACTOR, perSecond: perSecond * ADDRESS_BACKSTOP_FACTOR },
+    RATE_LIMIT_MAX_CLIENTS,
+    t0,
+  );
 
   return (req, res, next) => {
     if (req.method === 'OPTIONS') {
@@ -106,24 +187,22 @@ export function rateLimit(options: RateLimitOptions, now: () => number = Date.no
       return;
     }
     const t = now();
-    if (t - prunedAt >= RATE_LIMIT_PRUNE_INTERVAL_MS || t < prunedAt) {
-      prunedAt = t;
-      for (const [client, bucket] of buckets) if (level(bucket, t) >= burst) buckets.delete(client);
-    }
-    const client = rateLimitClient(req.ip ?? req.socket.remoteAddress);
-    const bucket = buckets.get(client) ?? { tokens: burst, at: t };
-    // Re-inserted on every request, so the Map's first key is the least recently seen client.
-    buckets.delete(client);
-    buckets.set(client, bucket);
-    if (buckets.size > RATE_LIMIT_MAX_CLIENTS) buckets.delete(buckets.keys().next().value as string);
-    bucket.tokens = level(bucket, t);
-    bucket.at = Math.max(bucket.at, t);
-    if (bucket.tokens >= 1) {
-      bucket.tokens -= 1;
+    const address = rateLimitClient(req.ip ?? req.socket.remoteAddress);
+    const visitor = visitorId(req.headers[VISITOR_HEADER.toLowerCase()]);
+    const own = visitor === null ? anonymous : visitors;
+    const ownBucket = own.get(visitor ?? address, t);
+    const addressBucket = backstop.get(address, t);
+    if (ownBucket.tokens >= 1 && addressBucket.tokens >= 1) {
+      ownBucket.tokens -= 1;
+      addressBucket.tokens -= 1;
       next();
       return;
     }
-    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((1 - bucket.tokens) / perSecond))));
+    const wait = Math.max(
+      ownBucket.tokens >= 1 ? 0 : own.wait(ownBucket),
+      addressBucket.tokens >= 1 ? 0 : backstop.wait(addressBucket),
+    );
+    res.setHeader('Retry-After', String(wait));
     res.setHeader('Cache-Control', 'no-store');
     res.status(429).json(errorBody(ErrorCodes.rateLimited, 'Too many requests. Try again later.'));
   };

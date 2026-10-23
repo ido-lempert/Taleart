@@ -23,3 +23,9 @@ class InMemoryKeyValueStore(initial: Map<String, String> = emptyMap()) : KeyValu
 /** The SDK's own store on this device: the `taleart-sdk` SharedPreferences on Android, the standard NSUserDefaults on iOS. */
 @Composable
 expect fun rememberDeviceKeyValueStore(): KeyValueStore
+
+/**
+ * The SDK's own store on this device without a composition, or null while there is none yet: on
+ * Android it exists once a composable has asked for it (it needs the app's Context), on iOS always.
+ */
+internal expect fun deviceKeyValueStoreOrNull(): KeyValueStore?

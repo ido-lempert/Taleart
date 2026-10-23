@@ -1,0 +1,156 @@
+# Breakdown for epic-interactive-components, vertical slices in build order.
+# Each entry is a flow a person reviews in Tale Studio and on the sample host page that loads the Web SDK
+# (stories 10 and 11: in Taller on an Android emulator and an iOS simulator).
+# Table order is build order; id is permanent.
+#
+# Lanes once story 1 is done:
+#   Web component lane (registry, studio descriptors, SDK renderer table, interactive module): 2 -> 3 -> 4 -> 5 -> 6 -> 7
+#   Then 8 (component events, after 7) and 9 (SDK budget, after 8).
+#   Native lane (libs/mobile-sdk, after 9.5): 10 (after 4) -> 11 (after 7 and 10).
+# Then 12 (accessibility review, hitl), 13 (sweep).
+# Importer story 2.13 waits on 7 (every component type exists).
+
+[[entry]]
+id = 1
+type = "story"
+title = "Tracer: add a poll to a tale and see a visitor's vote counted"
+description = "Adds the `poll` element type per epic R1 and R2: a props schema in libs/contract (optional title, question, two options each with a stable id and a label, light or dark theme; plain text with stated limits) and its registry entry, openapi props and union member; a server rule in the tales module (at most one poll per tale); a studio descriptor (Add menu, inspector fields, create, preview). The Web SDK gets a poll renderer: options are buttons, a tap or press never steps the tale, keyboard focus inside the poll pauses the tale (decision C7, to confirm), results are announced in a live region, text only as text nodes and styles only through CSSOM (AD-16). The SDK posts the vote to a new Delivery endpoint with the site key, the zone slug and the device's visitor id from story 8.23 (C2). A new libs/server/interactive module (own migration, public interface) keeps one response per visitor, element and interaction kind (first wins, C9; a poll has one kind, a product pin two) after checking that the tale is visible in that zone (the AD-6 visibility function), the element is a poll in the published document and the value is one of its option ids; each row carries the AD-10 keys, element id and type, value, visitor id and both timestamps; it answers with per-option counts and percentages, which the poll shows with the visitor's choice marked and keeps locally for a return visit (C11). Deleting a tale deletes its responses. The studio preview records nothing. Tale Studio's inspector shows the selected poll's counts per option from a new Management API read, and says when a poll with responses is being edited."
+verify = "In Tale Studio add a poll 'Tea or coffee?' to a visible tale, update it, and on the sample page vote 'Tea' by keyboard: the poll shows the percentages with Tea marked and the tale did not step; reload: the choice and percentages show and no second vote is possible; vote in the studio preview: no row is written; the inspector shows Tea 1, Coffee 0; API tests refuse a vote for an unknown element, an option id the poll lacks, a hidden tale and another project's site key, and a repeat vote returns the first; the bundle stays within the size check."
+covers = ["R1", "R2", "R9", "R10", "R11", "R15"]
+after = ["7.8", "7.9", "8.2", "8.7", "8.20", "8.23"]
+hitl = false
+risk = "high"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-10", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-13", "_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-15", "libs/contract/README.md"]
+
+[[entry]]
+id = 2
+type = "story"
+title = "Rate with an emoji slider"
+description = "Adds the `rating` element type per epic R5: question, one RGI emoji (checked as the emoji type checks it), light or dark theme; at most one per tale. The studio's configured inspector gains an emoji field that reuses the emoji picker from story 7.6. The SDK renders a slider from 0 to 100 with the emoji as its thumb (role slider, arrow keys in steps of 10, Home and End); a drag on the slider never swipes between tales or groups, and the value is recorded on release or on Enter through the response endpoint from story 1. The server answers and the Rating shows the count and average; the inspector shows them too."
+verify = "Add a Rating with a heart emoji; on the sample page drag it to about 80: the average shows and the viewer stayed on the same tale and group; on another browser set 40 with arrow keys and Enter: the average reads 60 and the inspector shows 2 ratings averaging 60; saving a Rating whose emoji is 'ab' is refused."
+covers = ["R1", "R5", "R9", "R10", "R11", "R15"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Answer a quiz, with or without a correct answer"
+description = "Adds the `quiz` element type per epic R3: question, two to four answers with stable ids, an optional correct answer id (delivered with the document, C10), light or dark theme; at most one per tale. The studio's configured inspector gains a list field (add, remove and reorder 2 to 4 items by keyboard) with a pick for the correct answer. The SDK renders the answers as buttons; after answering it marks right or wrong and the correct answer when one is set, and shows per-answer percentages from the server's answer. The inspector shows counts per answer and keeps them when an answer's text is edited."
+verify = "Add a four-answer quiz with answer B correct; on the sample page answer C: C is marked wrong, B right, and percentages show; a quiz without a correct answer shows only percentages; edit B's text in the studio: its count is unchanged; remove answer D: its count no longer shows; saving five answers or a correct id that is not an answer is refused."
+covers = ["R1", "R3", "R9", "R10", "R11"]
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "React with one of three to five emoji"
+description = "Adds the `emoji-reaction` element type per epic R4: three to five RGI emoji with stable ids in a horizontal or vertical bar, light or dark theme, at most one per tale, edited with the list field and the emoji picker. The SDK renders each emoji as a button named by its accessible name; picking one marks it with a short animation (none under reduced motion) and records it; visitors see no counts (C5). The inspector shows counts per emoji."
+verify = "Add a vertical emoji reaction with four emoji; on the sample page pick the second by keyboard: it is marked and, with reduced motion on, nothing animates; the inspector shows 1 for that emoji; saving two emoji or a letter is refused."
+covers = ["R1", "R4", "R9", "R10", "R11", "R15"]
+after = [3]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Count down to a time and offer a reminder"
+description = "Adds the `countdown` element type per epic R6: title, end time (UTC, entered in the author's time zone through a new date-time inspector field), ended text, and an optional reminder with its own text and time; at most one per tale. The SDK shows days, hours, minutes and seconds left in the visitor's locale, without announcing every tick (the remaining time is read when focused), and the ended text after the end time. Remind me builds a calendar file (.ics, text escaped, no HTML) in the browser for the visitor to save and records the press as the countdown's response (C6); a countdown without a reminder records nothing. The inspector shows the reminder count."
+verify = "Add a countdown ending two minutes ahead with a reminder; on the sample page it counts down and then shows the ended text; Remind me downloads a calendar file whose event has the reminder's text and time and that a calendar app opens; the inspector shows 1 reminder; a screen reader reads the time left on focus and is silent between ticks."
+covers = ["R1", "R6", "R9", "R10", "R11"]
+after = [4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Copy a promo code with one press"
+description = "Adds the `promo-code` element type per epic R7: a code (letters, digits and hyphens, up to 32 characters), a label, light or dark theme; at most one per tale. Pressing it in the SDK copies the code with the asynchronous clipboard API, says 'Copied' in the live region, and records the copy once per visitor; where the clipboard is not available, the code text is selected for a manual copy. The inspector shows the copy count."
+verify = "Add a promo code SPRING-10; on the sample page press it by pointer and by keyboard: 'Copied' shows and pasting gives SPRING-10; on a page served over plain http (no clipboard) the code is selected instead; the inspector shows 1 copy for one visitor who pressed twice."
+covers = ["R1", "R7", "R9", "R10", "R11"]
+after = [5]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Pin products on a tale and open their cards"
+description = "Adds the `product-pin` element type per epic R8 (up to 10 per tale, C3): a marker placed on the canvas with a title, an optional price as text, an optional image from the project's media (alt text or decorative), a destination URL (absolute http or https up to 2,048 characters, checked by the server and again by the SDK) with same-tab or new-tab with noopener, and pin and card colours. Product data is entered by hand (C4). The studio reuses the media picker (7.5) and link fields (7.7). In the SDK a pin is a button that opens a product card; the card's link is an <a>; opening the card and following the link are each recorded once per visitor, as two interaction kinds of the response table from story 1. The server refuses media keys of another project. The inspector shows card opens and link clicks per pin."
+verify = "Put three pins on a tale; on the sample page open each card by pointer and by keyboard and follow one link: it opens its URL, a new-tab pin without opener access; the inspector shows the opens and the click; an eleventh pin, a javascript: URL and another project's media key are refused on save."
+covers = ["R1", "R8", "R9", "R10", "R11", "R15"]
+after = [6]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Hosts receive component events"
+description = "Defines the component event names in libs/contract per epic R12 (component_responded, promo_code_copied, product_pin_opened, product_pin_clicked, countdown_reminder_set) with their payload type, and makes <taleart-view> dispatch each as a DOM event carrying the zone slug, tale group id, tale id, element id, element type and value, never user data (AD-13). The web-sdk README documents them for hosts; epic-analytics posts the same events to its store later."
+verify = "On the sample page a listener logs one event per interaction with each of the seven components, with the listed fields and no visitor id; a contract test checks that every dispatched name is in libs/contract."
+covers = ["R12"]
+after = [7]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 9
+type = "story"
+title = "Keep the Web SDK within budget with the components"
+description = "Re-runs the size check and `nx run sdk-sample:perf` with a zone whose tales carry all seven components and makes the SDK meet the budgets of epic R13: at most 50 KB gzipped and p75 first zone content at most 1.5 s on Fast 4G. If the bundle passes 40 KB gzipped, the viewer and the document and component renderers move to a chunk loaded on first open (AD-16), served by the API beside the main bundle, and the size check reports both chunks."
+verify = "The size check passes and reports the gzipped size; the perf target reports p75 first content at or under 1.5 s for the components zone; if a split was made, the network log shows the viewer chunk loaded only when a group opens."
+covers = ["R13"]
+after = [8]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-taleart/architecture-taleart/architecture-taleart.md#ad-16"]
+
+[[entry]]
+id = 10
+type = "story"
+title = "Native: answer a poll, quiz, emoji reaction and Rating in Taller"
+description = "Per epic R14 and decision C1 (to confirm). libs/mobile-sdk learns the poll, quiz, emoji-reaction and rating types in its document renderer, in shared Compose with the Web SDK's layout, results and rules: a tap never steps the tale, the Rating's drag never swipes between groups, and each control has a TalkBack and VoiceOver label. A Delivery client call posts responses to the endpoint of story 1 with the device's visitor id from story 8.23, and shows the server's result."
+verify = "In Taller on Android and iOS, answer a poll, a quiz, an emoji reaction and a Rating on the sample tale: each shows the same result as the sample page, and the studio's counts include the app's responses; unit tests run the response call against a fake server."
+covers = ["R14", "R9"]
+after = [4, "9.5", "8.23"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Native: countdown, promo code and product pins in Taller"
+description = "Per epic R14 and decision C1 (to confirm). libs/mobile-sdk renders the countdown (with Remind me adding a calendar event through the platform's calendar intent or sheet), the promo code (copied to the system clipboard with a confirmation), and product pins (card and link opened in the system browser, URL scheme checked again), each recording through the response call of story 10."
+verify = "In Taller on Android and iOS, a countdown counts down and Remind me offers a calendar event; pressing the promo code puts it on the clipboard; a product pin opens its card and its link opens the browser; the studio counts each."
+covers = ["R14", "R9"]
+after = [7, 10]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 12
+type = "story"
+title = "Accessibility review of the components"
+description = "Re-runs the automated WCAG 2.2 AA scans of Tale Studio and of the sample page with a tale holding all seven components, and fixes what they find; a person then adds and edits each component with only the keyboard and a screen reader, answers each on the sample page with VoiceOver or NVDA, and walks them in Taller with TalkBack and VoiceOver, using a checklist the autopilot writes; the walk is recorded and its issues are fixed."
+verify = "Both scans report no WCAG 2.2 AA violations, and the owner signs off the walk record covering every component in the studio, on the sample page and in Taller."
+covers = ["R10"]
+after = [9, 11]
+hitl = true # a person does the keyboard and screen-reader walk
+risk = "medium"
+
+[[entry]]
+id = 13
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped at start from plans and review findings this epic deferred."
+verify = "The full test suite passes and Tale Studio, the sample page and Taller behave as before, with no behavior change."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+hitl = false
+risk = "low"

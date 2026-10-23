@@ -1291,10 +1291,15 @@ paths:
         the key's project has) answers the same 401 `invalid_site_key` body,
         so a caller cannot tell an unknown slug from a refused key. A 401 is sent with
         `Cache-Control: no-store`. Every Delivery API request counts against
-        a per-address token bucket (by default 600 at once, 20 per second);
-        over it the API answers 429 `rate_limited` with `Retry-After`.
-        CORS is open to any origin,
-        without credentials. Tale groups and their tales come in dashboard
+        its visitor's token bucket (by default 600 at once, 20 per second),
+        the visitor named by the `X-TaleArt-Visitor` header; a request
+        without a valid visitor id counts against a bucket of the same size
+        for its address (an IPv4 address or an IPv6 /48). Every request also
+        counts against its address's backstop, ten times that size, so a
+        client inventing ids gains no more than ten visitors' allowance (epic
+        UX rework 8.23). Over either the API answers 429 `rate_limited` with
+        `Retry-After`. CORS is open to any origin, without credentials, and
+        allows the `X-TaleArt-Visitor` header. Tale groups and their tales come in dashboard
         order; only `live` groups and tales whose start and end times, and
         their group's, contain the current time are listed (AD-6); each
         tale's media URL is absolute and public (AD-11). The zone is cached
@@ -1312,6 +1317,19 @@ paths:
             the project's site key, as a host page names it in `zone="..."`.
           schema:
             type: string
+        - name: X-TaleArt-Visitor
+          in: header
+          required: false
+          description: >-
+            The visitor id: a random UUID v4 the SDK generates once per device
+            and keeps there (the Web SDK in localStorage, the native SDK in its
+            device store), with no personal data. Written all in lowercase or
+            all in uppercase; anything else counts as no id. It is used only to
+            rate limit per visitor.
+          schema:
+            type: string
+            format: uuid
+            pattern: '^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12})$'
       responses:
         '200':
           description: The zone, its display, and its tale groups by position.
