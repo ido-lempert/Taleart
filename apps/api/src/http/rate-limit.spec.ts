@@ -147,10 +147,11 @@ describe('Delivery API rate limit (story 8.6 review)', () => {
       const refused = hit(limiter, '203.0.113.7', 'GET', A);
       expect(refused.status).toBe(429);
       expect(refused.headers['retry-after']).toBe('1000');
-      // The other device behind the same address is not affected, and neither the uppercase form
-      // of the first id nor a request without an id spends the first visitor's tokens.
+      // The other device behind the same address is not affected.
       expect(hit(limiter, '203.0.113.7', 'GET', B).passed).toBe(true);
+      // The uppercase form of the first id is the same visitor: its bucket is already empty.
       expect(hit(limiter, '203.0.113.7', 'GET', A.toUpperCase()).passed).toBe(false);
+      // A request without an id has the address's own bucket.
       expect(hit(limiter, '203.0.113.7').passed).toBe(true);
       // One visitor on another address keeps its own count: an id is not tied to its address.
       expect(hit(limiter, '198.51.100.1', 'GET', A).passed).toBe(false);

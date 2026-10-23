@@ -42,6 +42,7 @@ async function start(): Promise<void> {
   const rateLimit = deliveryRateLimitFromEnv(process.env);
   // Behind reverse proxies, TRUST_PROXY makes the limit count the visitor's address rather than the
   // proxy's. Set exactly the proxies in front of the API: their number, or their addresses and ranges.
+  // Left unset behind a proxy, every client is counted as the proxy's address and shares one backstop.
   const trustProxy = trustProxyFromEnv(process.env['TRUST_PROXY']);
   // The Web SDK bundle served at /sdk/v1/taleart.js: WEB_SDK_FILE, a .js file, else the one the build
   // copied next to main.js.

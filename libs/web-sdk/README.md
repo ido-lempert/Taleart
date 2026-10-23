@@ -77,14 +77,23 @@ An element renders only with both a site key and a slug. Put the key only in `si
 query string: the SDK sends it only in the `Authorization` header. Slugs are not access control (they are often easy
 to guess), so treat what a visible zone shows as public. The Delivery API limits how often one visitor may ask (by
 default bursts of 600, then 20 a second), and one address ten times that in all; over the limit it answers 429, and
-the element renders nothing and logs one console error.
+the element renders nothing and logs one console error. A flood from one device behind a shared network (a NAT, such
+as an office or a mobile carrier) can use up that address's allowance for everyone behind it. Whoever runs the API must
+set `TRUST_PROXY` to exactly the proxies in front of it: otherwise every client is counted as the proxy's address and
+they all share one allowance.
 
 **The visitor id.** Each browser gets a visitor id: a random UUID v4 the SDK makes once and keeps in the host page's
-local storage under `taleart.visitor`. It holds no personal data and is tied to no account; the SDK sends it only to the
-Delivery API, in the `X-TaleArt-Visitor` header, which limits requests per visitor rather than per address, so many
-visitors behind one network each get their own allowance. Clearing the site's data makes a new one. Where local storage
-is blocked, the id lasts one page load; a request without an id is limited by its address. The native SDKs keep the same
-kind of id in the SDK's own device store, where it lasts until the app is reinstalled or its data is cleared.
+local storage under `taleart.visitor`. It is random, not derived from the person or the device, and tied to no account,
+but it is a stable identifier of a browser, so cover it in your privacy notice and in your consent setup like other
+local storage. The SDK sends it only to the Delivery API, in the `X-TaleArt-Visitor` header, which limits requests per
+visitor rather than per address, so many visitors behind one network each get their own allowance; proxies, CDNs and
+access logs in front of the API can see the header too. Clearing the site's data makes a new one, and Safari may clear
+script-written storage after seven days without a visit. Where local storage is blocked, the id lasts one page load; a
+request without an id is limited by its address. The native SDKs keep the same kind of id in the SDK's own device store
+(the `taleart-sdk` SharedPreferences on Android, the `taleart-sdk` NSUserDefaults suite on iOS). Clearing the app's
+data makes a new one, and so does a reinstall, unless a device backup restores it: Android Auto Backup and iOS backups
+restore that store, so an app that wants a fresh id after a reinstall excludes `sharedpref/taleart-sdk.xml` in its
+Android backup rules (`android:fullBackupContent` and `android:dataExtractionRules`).
 
 <!-- docs-check:removed -->
 ### Removed: zone keys and the `stage` attribute

@@ -4824,7 +4824,8 @@ describe('Management API v1: projects and zones', () => {
             { publicApiUrl },
             undefined,
             undefined,
-            { rateLimit: { burst: 2, perSecond: 0.01 } },
+            // So slow a refill that no run, however slow, gets a token back.
+            { rateLimit: { burst: 2, perSecond: 0.0001 } },
           ).listen(0);
           await new Promise<void>((resolve) => limited.once('listening', () => resolve()));
           const at = `http://127.0.0.1:${(limited.address() as AddressInfo).port}/delivery/v1/zone?zone=${zone.slug}`;
