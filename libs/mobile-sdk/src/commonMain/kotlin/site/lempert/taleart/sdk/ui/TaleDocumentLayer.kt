@@ -27,6 +27,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -106,7 +107,8 @@ internal class DocumentVideoPlayback(
  * canvas on every screen. Links open in the system browser through [LocalUriHandler], or go
  * nowhere with [inertLinks] (a preview of a draft). [themeFont] is the project theme's font list,
  * for texts that take the theme font. [topChrome] is how far down the canvas the host's controls
- * reach (the viewer's top bar), which a native video view must not cover.
+ * reach (the viewer's top bar), which a native video view must not cover. [projectFonts] names the
+ * family of each project font the text uses, by font id ([TaleCanvas.projectFonts]).
  */
 @Composable
 internal fun DocumentElementsLayer(
@@ -117,10 +119,11 @@ internal fun DocumentElementsLayer(
     video: DocumentVideoPlayback? = null,
     inertLinks: Boolean = false,
     topChrome: Dp = 0.dp,
+    projectFonts: Map<String, String> = emptyMap(),
 ) {
     // Boxes are placed from the canvas's left edge whatever the host's layout direction, as the
     // web's `left:`; each text keeps its own direction (`TextStyle.textDirection`).
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr, LocalProjectFonts provides projectFonts) {
         BoxWithConstraints(modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
             val density = LocalDensity.current
             val width = constraints.maxWidth.toFloat()
@@ -225,7 +228,8 @@ internal fun stackFamily(stack: FontStack): FontFamily = when (stack) {
  * named font list, the first entry the app has ([TaleartFonts]: a registered family, a font the
  * host app installed, a generic family), as a browser picks from `font-family`; else the text's
  * fallback stack. A project font (uploaded to the project as WOFF2, R18) is not downloaded on mobile
- * (owner decision 2026-10-23): its text draws in its fallback stack.
+ * (owner decision 2026-10-23): its text draws in the font the host app installed under the
+ * project font's family name ([LocalProjectFonts]), else in its fallback stack.
  */
 @Composable
 internal fun textFontFamily(look: TextLook, themeFont: String?): FontFamily {
@@ -234,9 +238,12 @@ internal fun textFontFamily(look: TextLook, themeFont: String?): FontFamily {
         is TextFont.System -> stackFamily(font.stack)
         is TextFont.Theme -> rememberFontFamily(themeFont?.takeIf(::isFontFamily)) ?: fallback
         is TextFont.Name -> rememberFontFamily(font.family) ?: fallback
-        is TextFont.Project -> fallback
+        is TextFont.Project -> rememberNamedFontFamily(LocalProjectFonts.current[font.fontId]) ?: fallback
     }
 }
+
+/** The family name of each project font, by font id in lower case: the tale's ([TaleCanvas.projectFonts]). */
+internal val LocalProjectFonts = staticCompositionLocalOf<Map<String, String>> { emptyMap() }
 
 /**
  * A text element (`renderText`): its plain text in its box, lines centred vertically and wrapped

@@ -112,6 +112,7 @@ class DeliveryClientTest {
         assertEquals(true, group.cover?.animated)
         assertEquals("Beach", group.tales.single().title)
         assertEquals(700, group.tales.single().fonts.single().weight)
+        assertEquals("X", group.tales.single().fonts.single().family)
     }
 
     @Test
@@ -332,6 +333,8 @@ class DeliveryClientTest {
         assertNull(beach.media)
         assertIs<JsonArray>(beach.document)
         assertEquals(400, beach.fonts.single().weight)
+        // A server from before story 9.8 sends no family.
+        assertEquals("", beach.fonts.single().family)
         assertEquals("", group.tales[1].title)
     }
 

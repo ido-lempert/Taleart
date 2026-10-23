@@ -2,6 +2,7 @@ package site.lempert.taleart.sdk.ui
 
 import android.graphics.Color as AndroidColor
 import android.database.ContentObserver
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -49,6 +50,8 @@ internal actual fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
                 it.setDimAmount(0f)
                 @Suppress("DEPRECATION")
                 it.statusBarColor = AndroidColor.TRANSPARENT
+                // No scrim of the system's behind the navigation bar over the transparent window.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) it.isNavigationBarContrastEnforced = false
                 // Light icons on the viewer's black.
                 WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars = false
                 WindowCompat.getInsetsController(it, view).isAppearanceLightNavigationBars = false

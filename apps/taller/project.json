@@ -19,7 +19,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "./gradlew :taller:testAndroidHostTest --console=plain"
+        "command": "./gradlew :taller:testAndroidHostTest :taller-android:testDebugUnitTest --console=plain"
       }
     },
     "test-ios": {

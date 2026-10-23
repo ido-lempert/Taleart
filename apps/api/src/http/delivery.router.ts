@@ -177,6 +177,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
             ...(tale.fonts.length > 0 && {
               fonts: tale.fonts.map((font) => ({
                 id: font.id,
+                // Native SDKs draw the text in a host font of this family name (story 9.8).
+                family: font.family,
                 url: publicMediaUrl(options.publicApiUrl, font.key),
                 weight: font.weight,
                 style: font.style,

@@ -3425,12 +3425,19 @@ components:
             $ref: '#/components/schemas/DeliveryFont'
     DeliveryFont:
       type: object
-      required: [id, url, weight, style]
+      required: [id, family, url, weight, style]
       properties:
         id:
           type: string
           format: uuid
           description: The font id a text's `font.fontId` names.
+        family:
+          type: string
+          description: >-
+            The face's family name as the project stores it (spaces collapsed). The
+            Web SDK draws the face under its id's alias and does not use it; native
+            SDKs, which do not download project fonts, draw the text in a font the
+            host app installed under this family name, else its fallback stack.
         url:
           type: string
           format: uri

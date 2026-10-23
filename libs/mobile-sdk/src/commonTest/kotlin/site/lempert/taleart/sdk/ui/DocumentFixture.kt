@@ -368,6 +368,7 @@ internal const val STUDIO_ZONE_JSON = """
           "fonts": [
             {
               "id": "1c995f2c-1030-44ac-ba00-0557054c54b2",
+              "family": "Inter",
               "url": "http://localhost:3595/media/fonts/f1ce90c4-fd2c-4d59-b583-e7b182f02533.woff2",
               "weight": 700,
               "style": "normal"

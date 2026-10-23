@@ -171,6 +171,14 @@ private fun ViewerOverlay(request: ViewerRequest, seenGroups: SeenGroups, onClos
     val reduced = rememberPrefersReducedMotion()
     val last = remember(request) { arrayOfNulls<String>(1) }
     val state = remember(request) { TaleViewerState(request.groups, request.groupId, reduced, onClosed = { last[0] = it }) }
+    // The zone is told once, with the group shown last, whichever way the viewer goes.
+    val reported = remember(request) { BooleanArray(1) }
+    val report = { group: String? ->
+        if (!reported[0]) {
+            reported[0] = true
+            onClose(group)
+        }
+    }
     val viewer = @Composable {
         CompositionLocalProvider(LocalCoverImageLoader provides loader, LocalTaleVideoPlayer provides player) {
             ViewerContent(
@@ -180,7 +188,7 @@ private fun ViewerOverlay(request: ViewerRequest, seenGroups: SeenGroups, onClos
                 request.theme,
                 onGroupShown = {},
                 reducedMotion = rememberPrefersReducedMotion(),
-                onExited = { onClose(last[0]) },
+                onExited = { report(last[0]) },
             )
         }
     }
@@ -189,8 +197,9 @@ private fun ViewerOverlay(request: ViewerRequest, seenGroups: SeenGroups, onClos
     } else {
         FullScreenViewer(
             request.id,
-            onDismissRequest = { onClose(null) },
-            onBack = { if (state.isOpen) state.close() else onClose(null) },
+            onDismissRequest = { report(last[0]) },
+            // Back closes with the fade; a second Back while it fades removes it at once, keeping the group shown last.
+            onBack = { if (state.isOpen) state.close() else report(last[0]) },
             content = viewer,
         )
     }
