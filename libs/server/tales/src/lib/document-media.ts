@@ -16,8 +16,8 @@ import {
   type MediaContentType,
   type ProjectMedia,
 } from '@taleart/contract';
-import type { Db } from '@taleart/server-access';
-import { deliveredGroup, deliveredTale, inTransaction, type TransactionalDb } from './tales';
+import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
+import { deliveredGroup, deliveredTale } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

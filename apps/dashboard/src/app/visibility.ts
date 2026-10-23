@@ -19,6 +19,7 @@ import {
   type VisibilitySubject,
 } from '@taleart/contract/core';
 import { formatLocal } from './schedule';
+import { hideFromTopLayer, isOutside, placeAt, PopupListeners, showInTopLayer, viewportSize } from './top-layer';
 
 let nextId = 0;
 
@@ -276,10 +277,16 @@ export class VisibilityIndicator {
     this.hide();
   };
   private readonly onPointerdown = (event: Event) => {
-    if (!this.host.nativeElement.contains(event.target as Node)) this.hide();
+    if (isOutside(this.host.nativeElement, event)) this.hide();
   };
   // Follows what it belongs to when the page scrolls or resizes.
   private readonly onScroll = () => this.place();
+  private readonly listeners = new PopupListeners(this.document, [
+    { on: 'document', type: 'keydown', listener: this.onKeydown, capture: true },
+    { on: 'document', type: 'pointerdown', listener: this.onPointerdown, capture: true },
+    { on: 'window', type: 'scroll', listener: this.onScroll, capture: true },
+    { on: 'window', type: 'resize', listener: this.onScroll },
+  ]);
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.hide());
@@ -314,13 +321,9 @@ export class VisibilityIndicator {
   show(): void {
     if (!this.interactive() || this.open()) return;
     this.open.set(true);
-    const tip = this.tip()?.nativeElement;
-    if (tip && typeof tip.showPopover === 'function') tip.showPopover();
+    showInTopLayer(this.tip()?.nativeElement);
     this.place();
-    this.document.addEventListener('keydown', this.onKeydown, true);
-    this.document.addEventListener('pointerdown', this.onPointerdown, true);
-    this.document.defaultView?.addEventListener('scroll', this.onScroll, true);
-    this.document.defaultView?.addEventListener('resize', this.onScroll);
+    this.listeners.add();
   }
 
   // Puts the open tip beside the tale card or below the line.
@@ -328,35 +331,23 @@ export class VisibilityIndicator {
     const tip = this.tip()?.nativeElement;
     const trigger = this.trigger()?.nativeElement;
     if (tip && trigger) {
-      const view = this.document.defaultView;
       const card = this.compact() ? trigger.closest('.tale-card') : null;
       const at = tipPosition(
         trigger.getBoundingClientRect(),
         card ? card.getBoundingClientRect() : null,
         { width: tip.offsetWidth, height: tip.offsetHeight },
-        { width: view?.innerWidth ?? 1024, height: view?.innerHeight ?? 768 },
+        viewportSize(this.document.defaultView),
       );
-      tip.style.left = `${at.left}px`;
-      tip.style.top = `${at.top}px`;
+      placeAt(tip, at);
     }
   }
 
   /** Hides the reasons. */
   hide(): void {
     clearTimeout(this.hideTimer);
-    this.document.removeEventListener('keydown', this.onKeydown, true);
-    this.document.removeEventListener('pointerdown', this.onPointerdown, true);
-    this.document.defaultView?.removeEventListener('scroll', this.onScroll, true);
-    this.document.defaultView?.removeEventListener('resize', this.onScroll);
+    this.listeners.remove();
     if (!this.open()) return;
     this.open.set(false);
-    const tip = this.tip()?.nativeElement;
-    if (tip && typeof tip.hidePopover === 'function') {
-      try {
-        tip.hidePopover();
-      } catch {
-        // Already closed, as when the page removed it.
-      }
-    }
+    hideFromTopLayer(this.tip()?.nativeElement);
   }
 }
