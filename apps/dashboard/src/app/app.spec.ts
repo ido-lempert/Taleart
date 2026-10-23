@@ -265,11 +265,14 @@ describe('App', () => {
 
   // Answers one full refresh: projects, zones (each with its slug and display), frame types, each zone's tale
   // groups, each project's tags and tale groups, then the site key card's own request.
-  async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data): Promise<void> {
+  // `projectsRead: false` when the test answered the projects read itself.
+  async function flushRefresh(fixture: ComponentFixture<unknown>, data: Data, { projectsRead = true } = {}): Promise<void> {
     lastData = data;
     const zones = data.zones ?? [];
-    http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
-    await settle(fixture);
+    if (projectsRead) {
+      http.expectOne(`${API_BASE}/projects`).flush(data.projects ?? []);
+      await settle(fixture);
+    }
     http.expectOne(`${API_BASE}/zones`).flush(
       zones.map((z) => ({
         slug: z.id,
@@ -6364,9 +6367,19 @@ describe('App', () => {
       expect(created.request.body).toEqual({ name: 'Acme shop' });
       created.flush({ id: 'p1', name: 'Acme shop' }, { status: 201, statusText: 'Created' });
       await signedInTick(fixture);
-      await flushRefresh(fixture, oneZone);
+      // The sign-in's load read the projects before the POST: it answers with none, and the store
+      // reads them again before the zones page opens (the first run's race, after story 8.13).
+      const reads = http.match(`${API_BASE}/projects`);
+      expect(reads.length).toBe(2);
+      reads[0].flush([]);
+      await signedInTick(fixture);
+      expect(router.url).toBe('/setup?returnUrl=%2Fzones');
+      reads[1].flush([acme]);
+      await settle(fixture);
+      await flushRefresh(fixture, oneZone, { projectsRead: false });
 
       expect(router.url).toBe('/zones');
+      expect(root.querySelector('#empty-projects')).toBeNull();
       expect(root.querySelector('h1')?.textContent).toContain('Zones');
       expect(root.querySelector('.user-menu')?.textContent).toContain('Ada Admin');
     });

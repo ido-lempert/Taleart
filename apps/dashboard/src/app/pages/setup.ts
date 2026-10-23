@@ -136,6 +136,9 @@ export class SetupPage {
     // The admin is signed in. A refused project leaves the zones page's "Create your first project".
     try {
       await firstValueFrom(this.http.post(`${API_BASE}/projects`, { name: project.join('') }));
+      // The sign-in's data load may have read the projects before this one existed; read them again
+      // before the zones page opens, or it shows "Create your first project" with the project made.
+      await this.store.refresh();
     } catch (err) {
       // Nothing to undo: the passkey and the account are made. The zones page says why.
       this.store.firstProjectRefusal.set(
