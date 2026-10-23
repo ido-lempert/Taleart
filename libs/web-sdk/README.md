@@ -188,7 +188,8 @@ What the host page does:
 </head>
 ```
 
-- Serve the SDK compressed (gzip or brotli), as any CDN does.
+- Serve the SDK compressed (gzip or brotli), as any CDN does. The API's `/sdk/v1/taleart.js` sends it gzipped to
+  a browser that accepts gzip.
 - Give tale groups a cover in the dashboard: a still cover is a 320 px JPEG of about 20 KB, while a group without one
   shows its first tale's lowest media element (its full-size image, often 300 KB or more) in the bar, or that tale's
   background colour when it has no media.
@@ -234,6 +235,25 @@ link a vertical drag stays a tap, and the viewer's taps, sideways swipes and hol
 opens a new tab says "(opens in a new tab)" in its accessible name. While a link has keyboard focus the tale waits,
 and when the tale goes (by a key or the arrows) focus returns to the viewer.
 
+### Budgets
+
+The Web SDK's budgets (NFR-006; epic Tale Studio R15) on a mid-tier phone over Fast 4G, checked by the two targets
+below:
+
+| Budget | Limit | Checked by |
+| --- | --- | --- |
+| The SDK's ES chunks together, gzipped | at most 50 KB | `web-sdk:size`, `sdk-sample:perf` |
+| The chunk the page loads (`index.js`), gzipped | at most 40 KB, else the viewer splits out | `web-sdk:size`, `sdk-sample:perf` |
+| First zone content, cold, p75 | at most 1.5 s | `sdk-sample:perf` |
+| First tale frame of a 20-element tale with a project font, from the tap, p75 | at most 1 s | `sdk-sample:perf` |
+| Font requests by a page whose tales use no project font | none | `sdk-sample:perf` |
+| Project font | after the first tale frame, only when its tale opens | `sdk-sample:perf` |
+
+Past 40 KB gzipped, the viewer and the document renderers move to a chunk the SDK loads when the viewer first opens
+(AD-16), and `web-sdk:size` reports both chunks. Until then the SDK is one chunk, and the check reports what that split
+would move (from `dist/libs/web-sdk-modules.json`, the module report the build writes beside the package; it is not
+published). The split also needs the API to serve the second chunk under `/sdk/v1` and the UMD build to keep working.
+
 ### Measuring
 
 `nx run sdk-sample:perf` builds the API and the SDK, starts the API on `TEST_DATABASE_URL` (a database whose name
@@ -242,10 +262,13 @@ groups (an animated cover first, a group without a cover third, still covers for
 tales each), serves the sample page and loads it in headless Chromium with Chrome DevTools' Fast 4G (165 ms latency,
 9 Mbps x 0.9 down, 1.5 Mbps x 0.9 up), a 4x slower CPU and a 412 x 823 phone screen. Each run is a cold load (empty
 cache) and a warm reload; it reads `taleart:first-content` and prints every run, p50, p75 and max, layout shift and
-the SDK's gzipped size. It fails when cold p75 is over 1.5 s, the SDK over 50 KB gzipped, or that page requests a
-font file. A second zone holds one tale of 20 texts, half in a project font: the run checks that its page requests no
-font before the tale opens, then times the first tale frame and the font swap from the tap on its bar item, and fails
-when p75 first tale frame is over 1 s. `PERF_RUNS` (default 10), `PERF_BUDGET_MS` (default 1500),
+the SDK's size per chunk. It fails when cold p75 is over 1.5 s, the SDK over its size budget, or that page requests a
+font file. A second zone holds one composed tale of 20 elements (14 texts, every other one in a project font, 4 shapes,
+an emoji and a button): the run checks that its page requests no font before the tale opens, then times the first tale
+frame (all 20 elements placed and painted, the texts in their fallback) and the font swap from the tap on its bar item,
+and fails when p75 first tale frame is over 1 s or the font is in use before the first frame. Last, it loads the first
+zone from the API's test page, which loads the SDK from `/sdk/v1/taleart.js` as a host page does, and fails when cold
+p75 there is over 1.5 s or the SDK did not come gzipped. `PERF_RUNS` (default 10), `PERF_BUDGET_MS` (default 1500),
 `PERF_FRAME_BUDGET_MS` (default 1000) and `PERF_DEBUG=1` (the first load's requests) tune it.
 
 What a run adds to the database, and deletes again at the end (also when it fails or gets SIGINT/SIGTERM): an admin
@@ -281,7 +304,8 @@ page's viewer pixel by pixel at 390 × 844, in a phone-sized window and inside a
 
 ## Building
 
-Run `nx build web-sdk` to build the library, and `nx run web-sdk:size` to check the 50 KB gzip budget.
+Run `nx build web-sdk` to build the library, and `nx run web-sdk:size` to check the size budget (all chunks at most
+50 KB gzipped, the page's chunk at most 40 KB; see "Budgets").
 
 ## Running unit tests
 

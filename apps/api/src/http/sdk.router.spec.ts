@@ -4,6 +4,7 @@ import { get, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
@@ -57,12 +58,35 @@ describe('/sdk/v1: the Web SDK bundle and the test page (epic UX rework R13)', (
     expect(etag).toMatch(/^"[\w-]+"$/);
     // node:http, since fetch adds Cache-Control: no-cache to a conditional request.
     const status = await new Promise<number | undefined>((resolve, reject) =>
-      get(`${origin}/sdk/v1/taleart.js`, { headers: { 'If-None-Match': etag } }, (r) => {
+      get(`${origin}/sdk/v1/taleart.js`, { headers: { 'If-None-Match': etag, 'Accept-Encoding': 'gzip' } }, (r) => {
         r.resume();
         resolve(r.statusCode);
       }).on('error', reject),
     );
     expect(status).toBe(304);
+  });
+
+  it('sends the bundle gzipped to a client that accepts gzip, and as is otherwise, with an ETag per encoding', async () => {
+    // node:http, since fetch always asks for gzip and decodes it.
+    const raw = (encoding?: string) =>
+      new Promise<{ headers: Record<string, string | string[] | undefined>; body: Buffer }>((resolve, reject) =>
+        get(`${origin}/sdk/v1/taleart.js`, { headers: encoding ? { 'Accept-Encoding': encoding } : {} }, (r) => {
+          const chunks: Buffer[] = [];
+          r.on('data', (c: Buffer) => chunks.push(c));
+          r.on('end', () => resolve({ headers: r.headers, body: Buffer.concat(chunks) }));
+        }).on('error', reject),
+      );
+    const zipped = await raw('gzip, deflate, br');
+    expect(zipped.headers['content-encoding']).toBe('gzip');
+    expect(zipped.headers['vary']).toContain('Accept-Encoding');
+    expect(gunzipSync(zipped.body).toString()).toBe('export const sdk = "bundle";\n');
+    const plain = await raw();
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    expect(plain.headers['vary']).toContain('Accept-Encoding');
+    expect(plain.body.toString()).toBe('export const sdk = "bundle";\n');
+    expect(zipped.headers['etag']).not.toBe(plain.headers['etag']);
+    const identity = await raw('identity');
+    expect(identity.headers['content-encoding']).toBeUndefined();
   });
 
   it('answers 404 when the bundle was not built', async () => {
@@ -187,7 +211,7 @@ describe('the install URLs and the test page CSP', () => {
       sdkIntegrity: null,
       testPageUrl: 'https://api.example.com/sdk/v1/test-page',
     });
-    const bundle = { body: Buffer.from(''), etag: '"x"', hash: 'abcdefghijklmnop', integrity: 'sha384-x' };
+    const bundle = { body: Buffer.from(''), gzip: Buffer.from(''), etag: '"x"', hash: 'abcdefghijklmnop', integrity: 'sha384-x' };
     expect(installInfo('https://api.example.com', bundle)).toMatchObject({
       sdkPinnedUrl: 'https://api.example.com/sdk/v1/taleart.abcdefghijklmnop.js',
       sdkIntegrity: 'sha384-x',
