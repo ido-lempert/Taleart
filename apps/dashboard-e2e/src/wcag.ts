@@ -231,6 +231,8 @@ export async function focusWalk(page: Page, max = 60, stops: string[] = [], evid
   await prepare(page);
   const findings: string[] = [];
   const seen = new Set<string>();
+  let last = '';
+  let repeats = 0;
   // On a page (no modal dialog open), walk from the top: focus a mark at the start of the body.
   await page.evaluate(() => {
     const open = [...document.querySelectorAll('[role=dialog][aria-modal=true]')].some(
@@ -290,8 +292,14 @@ export async function focusWalk(page: Page, max = 60, stops: string[] = [], evid
       }
       return { key: path.join('/'), name: w.__a11yDescribe(el), shown: w.__a11yOnTop(el), areas };
     }, pad);
+    // A control with fields of its own (a date and time input: day, month, year, …) keeps focus over
+    // several Tabs: the same control again at once is still the walk going on, not a cycle (7.15).
+    // Ten times running it is the only stop there is (a dialog with one control): the walk is over.
+    if (stop && stop.key === last && ++repeats < 10) return false;
     if (!stop || seen.has(stop.key)) return true;
     seen.add(stop.key);
+    last = stop.key;
+    repeats = 0;
     stops.push(stop.name);
     if (!stop.shown) {
       findings.push(`2.4.11 focus obscured: ${stop.name}`);

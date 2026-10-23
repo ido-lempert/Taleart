@@ -15,9 +15,14 @@ let nextId = 0;
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** Matches FOCUSABLE and is not under a `hidden` attribute (such as a file input opened by its button). */
-function reachable(el: HTMLElement): boolean {
-  return !el.closest('[hidden]');
+/**
+ * Matches FOCUSABLE, is a Tab stop and is not under a `hidden` attribute (such as a file input opened
+ * by its button). A control taken out of the Tab order with `tabindex="-1"` (the emoji picker's grid,
+ * one Tab stop with the arrows inside, story 7.15) is not one: were it the last, Tab from the real last
+ * stop would leave the drawer, and Shift+Tab from the first would land on it.
+ */
+export function reachable(el: HTMLElement): boolean {
+  return el.tabIndex >= 0 && !el.closest('[hidden]');
 }
 
 /**

@@ -204,3 +204,5 @@ User decisions recorded with the sign-off:
 - Animated tale group covers stop on their first frame after 5 s (WCAG 2.2.2). Visitors who prefer reduced motion see a still cover.
 - Captions for video tales (WebVTT) and a language setting for tales and text are post-MVP. Until then, 1.2.x and 3.1.2 stay open, as recorded above.
 - The WCAG scan of this epic's dashboard screens moves to Tale Studio story 7.15, the accessibility review, together with the studio screens.
+
+2026-10-23 (Tale Studio 7.15): the manual checklist above is folded into the 7.15 walk ([`a11y-review-7-15.md`](../epic-tale-studio/a11y-review-7-15.md), part 8); record its results there. The dashboard scan of this epic's screens ran in 8.17 and 7.15. The two landscape failures of `sdk-sample:a11y-review` (1.3.4 and axe in landscape) were the review measuring the wide-screen deck card mid-way through its shuffle-in; fixed in 7.15.

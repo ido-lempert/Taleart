@@ -8,6 +8,7 @@ import {
   isTextEntry,
   layerName,
   layerShortcut,
+  layerSpokenName,
   moveBox,
   reorder,
   shortcutLabel,
@@ -59,6 +60,27 @@ describe('reorder', () => {
     expect(reorder(abcd, pick('a'), 'backward')).toBe(abcd);
     expect(reorder(abcd, pick('a', 'b'), 'back')).toBe(abcd);
     expect(reorder(abcd, pick(), 'front')).toBe(abcd);
+  });
+});
+
+describe('layerSpokenName (story 7.15)', () => {
+  const emoji = (label?: string) =>
+    ({
+      ...text('e'),
+      type: 'emoji',
+      a11y: label === undefined ? {} : { label },
+      props: { emoji: '🎉' },
+    }) as unknown as TaleElement;
+
+  it('says an emoji by its name only, with the glyph shown apart', () => {
+    expect(layerName(emoji('party popper'))).toBe('🎉 party popper');
+    expect(layerSpokenName(emoji('party popper'))).toEqual({ glyph: '🎉', spoken: 'party popper' });
+  });
+
+  it('keeps the glyph as the name of an emoji without a label, and every other layer whole', () => {
+    expect(layerSpokenName(emoji())).toEqual({ glyph: '', spoken: '🎉' });
+    expect(layerSpokenName(emoji('  '))).toEqual({ glyph: '', spoken: '🎉' });
+    expect(layerSpokenName(text('t', '🎉 Launch'))).toEqual({ glyph: '', spoken: '🎉 Launch' });
   });
 });
 

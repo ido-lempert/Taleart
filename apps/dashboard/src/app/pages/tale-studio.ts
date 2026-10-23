@@ -150,6 +150,7 @@ import {
   isTextEntry,
   LAYER_KEYSHORTCUTS,
   layerName,
+  layerSpokenName,
   layerShortcut,
   moveBox,
   reorder,
@@ -610,7 +611,14 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
      * off by the canvas edge (WCAG 2.4.7). The inner ring sits over the element's media (z-index 0)
      * and under its badges (z-index 1 and up); on a tiny element it is thinner, to leave it visible.
      */
+    /*
+     * A layer focused by keyboard comes above the others until it loses focus (WCAG 2.4.11, story
+     * 7.15): a text under a picture would otherwise take focus unseen. Its own z-index is inline (its
+     * place in the layers), hence !important; it stays below the guides and snap lines (100). A click
+     * does not show focus, so the canvas keeps its stacking for the pointer.
+     */
     .el:focus-visible {
+      z-index: 99 !important;
       outline: 3px solid #fff;
       outline-offset: 1px;
       box-shadow: 0 0 0 5px var(--ink);
@@ -910,7 +918,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                     [class.is-locked]="el.locked"
                     [attr.aria-pressed]="isSelected(el.id)"
                     [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
-                    [attr.aria-label]="kind(el) + ': ' + name(el)"
+                    [attr.aria-label]="kind(el) + ': ' + spokenName(el)"
                     [attr.aria-describedby]="'layer-state-' + el.id"
                     [attr.aria-keyshortcuts]="keyShortcuts"
                     [style.left.%]="el.box.x * 100"
@@ -1170,7 +1178,9 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                           <span class="layer__line">
                             <app-icon [name]="row.el.type" />
                             <span class="visually-hidden">{{ kind(row.el) }}: </span>
-                            <span class="layer__name">{{ row.name }}</span>
+                            <span class="layer__name"
+                              >@if (row.glyph) {<span aria-hidden="true">{{ row.glyph }} </span>}{{ row.spoken }}</span
+                            >
                             @if (row.order) {
                               <!-- Where screen readers and Tab meet it on the sample page (AD-15, R12). -->
                               <span class="layer__order" title="Reading order"
@@ -1211,7 +1221,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             class="btn btn--ghost layer__toggle"
                             [id]="'layer-hide-' + row.el.id"
                             [attr.tabindex]="tabIndex(row.el.id, 1)"
-                            [attr.aria-label]="'Hide ' + row.name"
+                            [attr.aria-label]="'Hide ' + row.spoken"
                             [attr.aria-pressed]="row.el.hidden"
                             aria-keyshortcuts="H"
                             (click)="run('hide', 'list', 'layer-hide-' + row.el.id, row.el.id)"
@@ -1228,7 +1238,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             class="btn btn--ghost layer__toggle"
                             [id]="'layer-lock-' + row.el.id"
                             [attr.tabindex]="tabIndex(row.el.id, 2)"
-                            [attr.aria-label]="'Lock ' + row.name"
+                            [attr.aria-label]="'Lock ' + row.spoken"
                             [attr.aria-pressed]="row.el.locked"
                             aria-keyshortcuts="L"
                             (click)="run('lock', 'list', 'layer-lock-' + row.el.id, row.el.id)"
@@ -1245,7 +1255,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
                             class="btn btn--ghost layer__toggle"
                             [id]="'layer-more-' + row.el.id"
                             [attr.tabindex]="tabIndex(row.el.id, 3)"
-                            [attr.aria-label]="'More actions for ' + row.name"
+                            [attr.aria-label]="'More actions for ' + row.spoken"
                             aria-haspopup="menu"
                             [attr.aria-expanded]="menu()?.returnId === 'layer-more-' + row.el.id"
                             (click)="openMenuFrom($any($event.currentTarget), row.el)"
@@ -1843,6 +1853,8 @@ export class TaleStudioPage implements OnChanges {
         el,
         order: this.readingIndex().get(el.id) ?? null,
         name: layerName(el, this.doc()?.elements ?? [el]),
+        // Said without an emoji's glyph, which a screen reader would read as a second name (7.15).
+        ...layerSpokenName(el, this.doc()?.elements ?? [el]),
         // The tale's own media, drawn full-bleed as before (R16), fills the canvas by design, as the
         // swipe-up link sits in the bottom safe area (R7).
         outside: el !== this.stageMedia() && el.type !== 'swipe-up' && isOutsideSafeArea(el.box),
@@ -2518,6 +2530,11 @@ export class TaleStudioPage implements OnChanges {
     return layerName(element, this.doc()?.elements ?? [element]);
   }
 
+  /** The layer's name as screen readers are given it: an emoji's without its glyph (see `layerSpokenName`). */
+  protected spokenName(element: TaleElement): string {
+    return layerSpokenName(element, this.doc()?.elements ?? [element]).spoken;
+  }
+
   protected kind(element: { type: TaleElement['type'] }): string {
     return kindName(element);
   }
@@ -2629,7 +2646,8 @@ export class TaleStudioPage implements OnChanges {
     // A text whose contrast verdict the last change turned is named once, with what the change says.
     const note = this.contrastNote;
     this.contrastNote = '';
-    const said = note ? `${text} ${note}`.trim() : text;
+    // Two sentences, so a screen reader pauses between them ("Layer hidden. "Sale" has …", story 7.15).
+    const said = note ? `${/[.!?…]$/.test(text.trim()) || !text.trim() ? text : `${text.trim()}.`} ${note}`.trim() : text;
     // Cleared first, so the same message twice is announced twice.
     this.announcement.set('');
     setTimeout(() => this.announcement.set(said), 0);
@@ -3040,7 +3058,24 @@ export class TaleStudioPage implements OnChanges {
     return true;
   }
 
+  /**
+   * Shift+F10 or the context-menu key opens the layer actions below the control; true when it was
+   * one. Browsers turn these keys into a `contextmenu` event only on some systems (not on a Mac), so
+   * the studio answers the keys itself (WCAG 2.1.1, story 7.15); handled here, no event follows.
+   */
+  private menuKey(event: KeyboardEvent, element: TaleElement, origin: Origin): boolean {
+    const shiftF10 = event.key === 'F10' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+    if (!shiftF10 && event.key !== 'ContextMenu') return false;
+    event.preventDefault();
+    if (!this.isSelected(element.id)) this.selectOnly(element.id);
+    const control = event.currentTarget as HTMLElement;
+    const rect = control.getBoundingClientRect();
+    this.openMenu(rect.left, rect.bottom, origin, control.id);
+    return true;
+  }
+
   protected onKey(event: KeyboardEvent, element: TaleElement): void {
+    if (this.menuKey(event, element, 'canvas')) return;
     if (this.shortcut(event, element, 'canvas') || this.selectionKey(event, element.id)) return;
     const step = event.shiftKey ? MOVE_STEP * 10 : MOVE_STEP;
     const moves: Record<string, [number, number]> = {
@@ -3068,7 +3103,7 @@ export class TaleStudioPage implements OnChanges {
    * first and last, Ctrl+Home and Ctrl+End to the top and bottom layers.
    */
   protected onCellKey(event: KeyboardEvent, element: TaleElement, col: number): void {
-    if (this.shortcut(event, element, 'list')) return;
+    if (this.menuKey(event, element, 'list') || this.shortcut(event, element, 'list')) return;
     if (col === 0 && this.selectionKey(event, element.id)) return;
     if (
       col === 0 &&

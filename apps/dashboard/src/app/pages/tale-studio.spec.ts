@@ -829,6 +829,43 @@ describe('TaleStudioPage', () => {
       expect(live()).toBe('A tale holds at most 60 layers');
     });
 
+    it('opens the actions menu by the Shift+F10 and context-menu keys themselves, on any system (story 7.15)', async () => {
+      await open({ document: three, revision: 1 });
+      const menu = () => root.querySelector('[role=menu]') as HTMLElement | null;
+      const first = () => menu()?.querySelector<HTMLElement>('[role=menuitem]') ?? null;
+      // Shift+F10 on a canvas element: the studio's menu opens (no contextmenu event is needed, as on
+      // a Mac), the key's default is stopped, and Escape brings focus back.
+      const el = canvasEl(1) as HTMLButtonElement;
+      el.focus();
+      const shiftF10 = new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true });
+      el.dispatchEvent(shiftF10);
+      await settle(fixture);
+      expect(shiftF10.defaultPrevented).toBe(true);
+      expect(menu()).not.toBeNull();
+      expect(document.activeElement).toBe(first());
+      expect(el.getAttribute('aria-pressed')).toBe('true');
+      key(first() as HTMLElement, 'Escape');
+      await settle(fixture);
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(el);
+      // The context-menu key on a layer row.
+      row(2).focus();
+      const menuKey = new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true });
+      row(2).dispatchEvent(menuKey);
+      await settle(fixture);
+      expect(menuKey.defaultPrevented).toBe(true);
+      expect(menu()).not.toBeNull();
+      key(first() as HTMLElement, 'Escape');
+      await settle(fixture);
+      expect(document.activeElement).toBe(row(2));
+      // F10 alone is not one.
+      const f10 = new KeyboardEvent('keydown', { key: 'F10', bubbles: true, cancelable: true });
+      row(2).dispatchEvent(f10);
+      await settle(fixture);
+      expect(f10.defaultPrevented).toBe(false);
+      expect(menu()).toBeNull();
+    });
+
     it('opens the actions menu from a row, by Shift+F10 and by right-click, and returns focus when it closes', async () => {
       await open({ document: three, revision: 1 });
       const more = root.querySelector(`#layer-more-${ID(2)}`) as HTMLButtonElement;
