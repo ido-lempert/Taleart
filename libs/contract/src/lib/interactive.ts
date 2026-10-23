@@ -9,6 +9,10 @@ type Schemas = components['schemas'];
 export type ChoiceCount = Schemas['ChoiceCount'];
 /** A choice component's result: its votes in all and per choice, as the visitor and the studio see them. */
 export type ChoiceResult = Schemas['ChoiceResult'];
+/** A Rating's result: how many visitors rated it, and their average from 0 to 100. */
+export type RatingResult = Schemas['RatingResult'];
+/** Any interactive component's result, as `POST /delivery/v1/responses` answers it. */
+export type ResponseResult = ChoiceResult | RatingResult;
 /** What the Web SDK posts to `POST /delivery/v1/responses`. */
 export type InteractiveResponseRequest = Schemas['InteractiveResponseRequest'];
 /** What `POST /delivery/v1/responses` answers: the visitor's stored response and the current result. */
@@ -25,13 +29,13 @@ export const RESPONSES_PATH = '/responses';
  * The most elements of a type one tale holds (C3), for each type that has a limit: one of each
  * interactive component. The server refuses a document over it, and Tale Studio's Add menu says so.
  */
-export const ELEMENT_TYPE_LIMITS: Readonly<Record<string, number>> = { poll: 1 };
+export const ELEMENT_TYPE_LIMITS: Readonly<Record<string, number>> = { poll: 1, rating: 1 };
 
 /**
  * The interaction kinds each interactive component records, its first the default. A visitor has
  * one response per component and kind (R9): a poll has one kind; a product pin will have two.
  */
-export const INTERACTIONS: Readonly<Record<string, readonly string[]>> = { poll: ['vote'] };
+export const INTERACTIONS: Readonly<Record<string, readonly string[]>> = { poll: ['vote'], rating: ['rate'] };
 
 /** True for an element type a visitor responds to. */
 export function isInteractiveElementType(type: unknown): type is string {
@@ -71,4 +75,41 @@ export function choiceResult(choiceIds: readonly string[], counts: ReadonlyMap<s
     left -= 1;
   }
   return { total, choices: raw.map((c, i) => ({ ...c, percent: percents[i] })) };
+}
+
+/** True for a choice component's result (a poll's), as opposed to a Rating's. */
+export function isChoiceResult(result: ResponseResult): result is ChoiceResult {
+  return Array.isArray((result as Partial<ChoiceResult>).choices);
+}
+
+/** The lowest value of a Rating's scale. */
+export const RATING_MIN = 0;
+/** The highest value of a Rating's scale. */
+export const RATING_MAX = 100;
+/** How far one arrow key moves a Rating's slider (epic interactive components R5). */
+export const RATING_STEP = 10;
+
+/**
+ * A Rating's value as a number, from the decimal string it is sent and stored as: a whole number from
+ * {@link RATING_MIN} to {@link RATING_MAX} written plainly (`"0"`, `"80"`, `"100"`; never `"080"`,
+ * `"8.0"` or `" 8"`), so one rating has one spelling. Null for anything else.
+ */
+export function ratingValue(value: unknown): number | null {
+  return typeof value === 'string' && /^(?:100|[1-9]?[0-9])$/.test(value) ? Number(value) : null;
+}
+
+/**
+ * A Rating's result from its stored values' counts: the number of ratings and their mean, rounded
+ * half up to a whole number; 0 without a rating. Values that are no rating are left out.
+ */
+export function ratingResult(counts: ReadonlyMap<string, number>): RatingResult {
+  let total = 0;
+  let sum = 0;
+  for (const [value, count] of counts) {
+    const rating = ratingValue(value);
+    if (rating === null || !Number.isSafeInteger(count) || count <= 0) continue;
+    total += count;
+    sum += rating * count;
+  }
+  return { total, average: total === 0 ? 0 : Math.round(sum / total) };
 }

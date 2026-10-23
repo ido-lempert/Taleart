@@ -1,6 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
-import { pollOptionIds, type ElementResponseCounts, type TaleResponses } from '@taleart/contract/tale-document';
+import {
+  pollOptionIds,
+  ratingResult,
+  type ElementResponseCounts,
+  type TaleResponses,
+} from '@taleart/contract/tale-document';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE } from '../dashboard.store';
 
@@ -11,14 +16,39 @@ interface ChoiceCountView {
   count: number;
 }
 
+/** How the panel names one kind of component's responses. */
+interface ResponseWords {
+  /** The panel's heading, such as "Votes". */
+  heading: string;
+  one: string;
+  many: string;
+  /** What it says while the component has responses, before its props are edited. */
+  note: string;
+}
+
+const POLL_WORDS: ResponseWords = {
+  heading: 'Votes',
+  one: 'vote',
+  many: 'votes',
+  note: "This poll already has votes. Editing an option's text keeps its count; votes stay with the option.",
+};
+
+const RATING_WORDS: ResponseWords = {
+  heading: 'Ratings',
+  one: 'rating',
+  many: 'ratings',
+  note: 'This rating already has ratings. Editing its question or emoji keeps them.',
+};
+
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en')} ${n === 1 ? one : many}`;
 
 /**
- * The responses of the selected interactive component (epic interactive components R11, C8): for a
- * poll, its votes per option as the site recorded them, read from the Management API for the tale.
- * Options are listed as the draft holds them now, so an edited label keeps its count and a removed
- * option drops out. While the component has responses it says so, before its choices are edited.
- * The studio preview records none. Read when the component is selected, and again on Refresh.
+ * The responses of the selected interactive component (epic interactive components R11, C8), read
+ * from the Management API for the tale: for a poll, its votes per option as the site recorded them,
+ * listed as the draft holds the options now, so an edited label keeps its count and a removed option
+ * drops out; for a Rating (story 4.2), how many rated it and their average. While the component has
+ * responses it says so, before it is edited. The studio preview records none. Read when the
+ * component is selected, and again on Refresh.
  */
 @Component({
   selector: 'app-tale-responses',
@@ -35,31 +65,31 @@ const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en
   template: `
     <section class="responses" aria-labelledby="studio-responses-title">
       <div class="responses__head">
-        <h3 class="responses__title" id="studio-responses-title">Votes</h3>
+        <h3 class="responses__title" id="studio-responses-title">{{ words().heading }}</h3>
         <button type="button" class="btn btn--ghost btn--sm" id="studio-responses-refresh" (click)="reload()">Refresh</button>
       </div>
       <span class="visually-hidden" aria-live="polite">{{ status() }}</span>
       @if (failed()) {
-        <p class="field__error responses__note">Could not read the votes. Try Refresh.</p>
+        <p class="field__error responses__note">Could not read the {{ words().many }}. Try Refresh.</p>
       } @else if (counts(); as view) {
-        <ul class="responses__list" id="studio-responses">
-          @for (choice of view.choices; track choice.id) {
-            <li class="responses__item">
-              <span>{{ choice.label }}</span>
-              <span class="responses__count">{{ choice.count }}</span>
-            </li>
-          }
-        </ul>
-        <p class="muted responses__note">{{ view.total }}</p>
+        @if (view.choices.length) {
+          <ul class="responses__list" id="studio-responses">
+            @for (choice of view.choices; track choice.id) {
+              <li class="responses__item">
+                <span>{{ choice.label }}</span>
+                <span class="responses__count">{{ choice.count }}</span>
+              </li>
+            }
+          </ul>
+        }
+        <p class="muted responses__note" id="studio-responses-total">{{ view.total }}</p>
         @if (view.hasResponses) {
-          <p class="field__hint responses__note" id="studio-responses-note" role="note">
-            This poll already has votes. Editing an option's text keeps its count; votes stay with the option.
-          </p>
+          <p class="field__hint responses__note" id="studio-responses-note" role="note">{{ words().note }}</p>
         }
       } @else {
-        <p class="muted responses__note">Reading votes…</p>
+        <p class="muted responses__note">Reading {{ words().many }}…</p>
       }
-      <p class="field__hint responses__note">Votes come from the site only: the preview records none.</p>
+      <p class="field__hint responses__note">{{ words().heading }} come from the site only: the preview records none.</p>
     </section>
   `,
 })
@@ -76,6 +106,7 @@ export class TaleResponsesPanel {
   private generation = 0;
   // The selected component's id: an edit to its props does not read the counts again.
   private readonly elementId = computed(() => this.element().id);
+  protected readonly words = computed(() => (this.element().type === 'rating' ? RATING_WORDS : POLL_WORDS));
 
   constructor() {
     // Read again whenever another component, or another tale, is selected.
@@ -100,7 +131,7 @@ export class TaleResponsesPanel {
       );
       if (generation !== this.generation) return;
       this.read.set({ taleId, elementId, responses });
-      if (announce) this.status.set(`Votes updated: ${this.counts()?.total ?? ''}`);
+      if (announce) this.status.set(`${this.words().heading} updated: ${this.counts()?.total ?? ''}`);
     } catch {
       if (generation !== this.generation) return;
       this.read.set(null);
@@ -114,6 +145,16 @@ export class TaleResponsesPanel {
     if (!read || read.taleId !== this.taleId() || read.elementId !== element.id) return null;
     const recorded: ElementResponseCounts | undefined = read.responses.elements.find((e) => e.elementId === element.id);
     const byValue = new Map((recorded?.values ?? []).map((v) => [v.value, v.count]));
+    const hasResponses = (recorded?.total ?? 0) > 0;
+    if (element.type === 'rating') {
+      // A Rating's count and average, as visitors see them (R5).
+      const result = ratingResult(byValue);
+      return {
+        choices: [] as ChoiceCountView[],
+        total: result.total ? `${plural(result.total, 'rating', 'ratings')}, average ${result.average}` : '0 ratings',
+        hasResponses,
+      };
+    }
     const labels = new Map(
       (((element.props as { options?: unknown } | null)?.options ?? []) as { id?: unknown; label?: unknown }[]).map(
         (o) => [o?.id, typeof o?.label === 'string' ? o.label : ''],
@@ -125,10 +166,6 @@ export class TaleResponsesPanel {
       count: byValue.get(id) ?? 0,
     }));
     const total = choices.reduce((sum, c) => sum + c.count, 0);
-    return {
-      choices,
-      total: plural(total, 'vote', 'votes'),
-      hasResponses: (recorded?.total ?? 0) > 0,
-    };
+    return { choices, total: plural(total, 'vote', 'votes'), hasResponses };
   });
 }

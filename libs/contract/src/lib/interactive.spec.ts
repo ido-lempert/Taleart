@@ -5,8 +5,11 @@ import {
   elementName,
   elementTypeEntry,
   INTERACTIONS,
+  isChoiceResult,
   isInteractiveElementType,
   pollOptionIds,
+  ratingResult,
+  ratingValue,
   TALE_ELEMENT_TYPE_REGISTRY,
 } from '../index';
 
@@ -105,5 +108,62 @@ describe('choiceResult', () => {
     const result = choiceResult(['a', 'b'], new Map([['a', 1], ['removed', 5]]));
     expect(result.total).toBe(1);
     expect(result.choices.map((c) => c.percent)).toEqual([100, 0]);
+  });
+});
+
+describe('rating element type (epic interactive components R1, R5)', () => {
+  const rating = elementTypeEntry('rating');
+  const validate = new Ajv2020().compile(rating?.schema ?? {});
+  const valid = { question: 'How was it?', emoji: '❤️', theme: 'dark' };
+
+  it('is registered, interactive, rated once and limited to one per tale', () => {
+    expect(rating?.label).toBe('Rating');
+    expect(isInteractiveElementType('rating')).toBe(true);
+    expect(INTERACTIONS['rating']).toEqual(['rate']);
+    expect(ELEMENT_TYPE_LIMITS['rating']).toBe(1);
+  });
+
+  it('accepts a question, an emoji and a theme, with an optional title', () => {
+    expect(validate(valid)).toBe(true);
+    expect(validate({ ...valid, title: 'Quick one' })).toBe(true);
+  });
+
+  it('refuses missing or unknown props, long text and another theme', () => {
+    expect(validate({ question: 'Q', theme: 'light' })).toBe(false);
+    expect(validate({ ...valid, value: 50 })).toBe(false);
+    expect(validate({ ...valid, question: 'x'.repeat(201) })).toBe(false);
+    expect(validate({ ...valid, emoji: '' })).toBe(false);
+    expect(validate({ ...valid, theme: 'blue' })).toBe(false);
+    expect(validate({ ...valid, question: 'a\u0007b' })).toBe(false);
+  });
+
+  it('is named by its question in the layers list', () => {
+    const element = { id: 'r', type: 'rating', box: { x: 0, y: 0, w: 1, h: 1, rotation: 0 }, a11y: {}, props: valid };
+    expect(elementName([element] as never, 0)).toBe('How was it?');
+  });
+});
+
+describe('ratingValue and ratingResult (epic interactive components R5)', () => {
+  it('takes whole numbers from 0 to 100 written plainly', () => {
+    expect(['0', '7', '40', '80', '100'].map(ratingValue)).toEqual([0, 7, 40, 80, 100]);
+    for (const bad of ['', '-1', '101', '080', '8.0', ' 8', '1e1', 'abc', '00', 80, null]) {
+      expect(ratingValue(bad)).toBeNull();
+    }
+  });
+
+  it('counts the ratings and rounds their average half up', () => {
+    expect(ratingResult(new Map())).toEqual({ total: 0, average: 0 });
+    expect(ratingResult(new Map([['80', 1], ['40', 1]]))).toEqual({ total: 2, average: 60 });
+    expect(ratingResult(new Map([['0', 1], ['1', 1]]))).toEqual({ total: 2, average: 1 });
+    expect(ratingResult(new Map([['100', 3], ['0', 1]]))).toEqual({ total: 4, average: 75 });
+  });
+
+  it('leaves out values that are no rating', () => {
+    expect(ratingResult(new Map([['80', 1], ['tea', 4], ['50', 0]]))).toEqual({ total: 1, average: 80 });
+  });
+
+  it('tells a choice result from a rating result', () => {
+    expect(isChoiceResult({ total: 0, choices: [] })).toBe(true);
+    expect(isChoiceResult({ total: 0, average: 0 })).toBe(false);
   });
 });

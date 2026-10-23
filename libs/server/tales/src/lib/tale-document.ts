@@ -227,6 +227,12 @@ const PROPS_RULES: Readonly<Record<string, PropsRule>> = {
     checkHref(props, pointer);
   },
   poll: checkPoll,
+  // A Rating (epic interactive components R5, R15): text that shows, and one RGI emoji on its slider.
+  rating: (props, pointer) => {
+    checkLineText(props['title'], `${pointer}/title`);
+    checkLineText(props['question'], `${pointer}/question`);
+    if (!isEmojiGlyph(props['emoji'])) throw new InvalidTaleDocumentError(`${pointer}/emoji`, 'must be one emoji');
+  },
 };
 
 interface Validators {
@@ -463,8 +469,8 @@ export function checkPublishableDocument(value: unknown): TaleDocument {
 
 // The element with its label, a text element's text and a link's label in Unicode NFC, so equal
 // text is stored equally; a project font's id in lower case, as the database spells a uuid.
-// A poll's title, question and option labels in Unicode NFC, as text and labels are.
-function normalizedPoll<P>(props: P): P {
+// A poll's or a Rating's title, question and option labels in Unicode NFC, as text and labels are.
+function normalizedComponent<P>(props: P): P {
   const nfc = (value: unknown) => (typeof value === 'string' ? value.normalize('NFC') : value);
   const poll = props as { title?: unknown; question?: unknown; options?: unknown };
   const next: Record<string, unknown> = { ...poll };
@@ -487,7 +493,7 @@ function normalized(element: TaleDocument['elements'][number]): TaleDocument['el
   let props = typeof text === 'string' ? { ...element.props, text: text.normalize('NFC') } : element.props;
   const linkText = isLinkElement(element) ? (props as { label?: unknown }).label : undefined;
   if (typeof linkText === 'string') props = { ...props, label: linkText.normalize('NFC') } as typeof props;
-  if (element.type === 'poll') props = normalizedPoll(props);
+  if (element.type === 'poll' || element.type === 'rating') props = normalizedComponent(props);
   const font = (props as { font?: { source?: unknown; fontId?: unknown } } | null)?.font;
   if (font?.source === 'project' && typeof font.fontId === 'string') {
     props = { ...props, font: { ...font, fontId: font.fontId.toLowerCase() } } as typeof props;

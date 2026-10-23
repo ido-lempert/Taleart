@@ -1,4 +1,4 @@
-import type { ChoiceResult, DeliveryTaleElement } from '@taleart/contract';
+import type { ChoiceResult, DeliveryTaleElement, ResponseResult } from '@taleart/contract';
 import type { StoredResponse } from '../responses';
 import type { RenderContext } from './media';
 
@@ -86,8 +86,9 @@ export function resultMessage(options: readonly PollOption[], response: StoredRe
   return `${mine ? `You voted ${mine.label}. ` : ''}${shares}`;
 }
 
-function percentOf(result: ChoiceResult, id: string): number {
-  const percent = result.choices.find((c) => c.id === id)?.percent;
+// The option's share; 0 for a result that is no choice result (never a poll's).
+function percentOf(result: ResponseResult, id: string): number {
+  const percent = (result as Partial<ChoiceResult>).choices?.find((c) => c.id === id)?.percent;
   return typeof percent === 'number' && Number.isFinite(percent) ? Math.min(100, Math.max(0, Math.round(percent))) : 0;
 }
 
@@ -131,7 +132,7 @@ export function renderPoll(element: DeliveryTaleElement, context: RenderContext)
   let busy = false;
 
   // Marks the visitor's choice and, with a result, every option's share; no further vote.
-  const show = (value: string, result: ChoiceResult | null) => {
+  const show = (value: string, result: ResponseResult | null) => {
     answered = true;
     for (const { option, button, fill } of buttons) {
       const mine = option.id === value;
