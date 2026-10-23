@@ -315,15 +315,119 @@ export function cleanText(text: string, rule: TextRule): string {
   return clean;
 }
 
+/** The direction a row of a tale is read in: left to right, or right to left (AD-15). */
+export type ReadingDirection = 'ltr' | 'rtl';
+
+// Letters of the scripts written right to left (bidi class R or AL): Hebrew, Arabic, Syriac,
+// Thaana, NKo, Samaritan, Mandaic and the Arabic presentation forms, plus Adlam and Hanifi Rohingya.
+const RTL_LETTER = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]|\p{Script=Adlam}|\p{Script=Hanifi_Rohingya}/u;
+const LETTER = /\p{L}/u;
+
 /**
- * Elements in reading order (AD-15): top to bottom, then left to right, by their box; elements
- * at the same place keep their z-order. Screen readers meet them in this order.
+ * The direction of a text's first strong character, as `dir="auto"` takes it (a letter: right to
+ * left for the scripts written that way, else left to right); null when it has no letter.
  */
-export function readingOrder<T extends { box: { x: number; y: number } }>(elements: readonly T[]): T[] {
-  return elements
-    .map((element, index) => ({ element, index }))
-    .sort((a, b) => a.element.box.y - b.element.box.y || a.element.box.x - b.element.box.x || a.index - b.index)
-    .map(({ element }) => element);
+export function firstStrongDirection(text: string): ReadingDirection | null {
+  for (const char of text) {
+    if (LETTER.test(char)) return RTL_LETTER.test(char) ? 'rtl' : 'ltr';
+  }
+  return null;
+}
+
+/**
+ * The direction a tale is read in (AD-15, epic Tale Studio R12): the tale's own, never the host
+ * page's. Each visible text counts with its direction, set (`rtl` or `ltr`) or, with `auto`, its
+ * first strong character, as Tale Studio and the SDK draw it; right to left when more texts read
+ * right to left than left to right; on a tie, the first text in the canvas (top, then left) decides;
+ * left to right when no text has a direction.
+ */
+export function taleReadingDirection(
+  elements: readonly { type?: string; hidden?: boolean; box: { x: number; y: number }; props?: unknown }[],
+): ReadingDirection {
+  let rtl = 0;
+  let ltr = 0;
+  let first: { y: number; x: number; dir: ReadingDirection } | null = null;
+  for (const element of elements) {
+    if (element.type !== 'text' || element.hidden === true) continue;
+    const props = (element.props ?? {}) as { text?: unknown; direction?: unknown };
+    const dir =
+      props.direction === 'rtl' || props.direction === 'ltr'
+        ? props.direction
+        : typeof props.text === 'string'
+          ? firstStrongDirection(props.text)
+          : null;
+    if (dir === null) continue;
+    if (dir === 'rtl') rtl++;
+    else ltr++;
+    const { x, y } = element.box;
+    if (!first || y < first.y || (y === first.y && x < first.x)) first = { y, x, dir };
+  }
+  if (rtl !== ltr) return rtl > ltr ? 'rtl' : 'ltr';
+  return first?.dir ?? 'ltr';
+}
+
+// Where an element shows: the swipe-up link is pinned to its box whatever it stores (R7), and a
+// rotated box shows as its upright bounds.
+function shownBounds(element: { type?: string; box: { x: number; y: number; w?: number; h?: number; rotation?: number } }) {
+  if (element.type === 'swipe-up') return SWIPE_UP_BOX;
+  const { x, y, w, h, rotation } = element.box;
+  if (typeof rotation === 'number' && rotation !== 0 && typeof w === 'number' && typeof h === 'number') {
+    return elementBounds({ x, y, w, h, rotation });
+  }
+  return { x, y, w: w ?? 0, h: h ?? 0 };
+}
+
+/**
+ * The tallest element, as a fraction of the canvas height, that takes others into its reading
+ * row. A taller one (a backdrop, a full-bleed photo) would hold every element beside it in one row,
+ * so it reads as a row of its own, at its top.
+ */
+export const READING_ROW_MAX_HEIGHT = 0.5;
+
+/**
+ * True when `item` reads in the same row as the row's first element, `anchor`: its vertical centre
+ * lies within the anchor's top and bottom, or the two overlap vertically by at least half the
+ * smaller one's height. Neither may be taller than {@link READING_ROW_MAX_HEIGHT}.
+ */
+export function sameReadingRow(anchor: { y: number; h: number }, item: { y: number; h: number }): boolean {
+  if (anchor.h > READING_ROW_MAX_HEIGHT || item.h > READING_ROW_MAX_HEIGHT) return false;
+  const centre = item.y + item.h / 2;
+  if (centre >= anchor.y && centre <= anchor.y + anchor.h) return true;
+  const overlap = Math.min(anchor.y + anchor.h, item.y + item.h) - Math.max(anchor.y, item.y);
+  return overlap > 0 && overlap >= Math.min(anchor.h, item.h) / 2;
+}
+
+/**
+ * Elements in reading order (AD-15, epic Tale Studio R12), the one rule the SDK follows for screen
+ * readers and focus: visual position, top to bottom, then along each row in the tale's direction.
+ * Positions are where the elements show (a rotated box by its upright bounds, the swipe-up link in
+ * the bottom safe area). Rows: taken from the top, each element joins the latest row whose first
+ * element it shares the row with ({@link sameReadingRow}), else starts a row; an element taller
+ * than half the canvas is a row of its own. A row reads left to
+ * right by left edge, or right to left by right edge when the tale reads right to left
+ * ({@link taleReadingDirection}, unless `direction` is given); then by top; ties (the same place)
+ * keep the z-order, bottom first.
+ */
+export function readingOrder<
+  T extends { type?: string; hidden?: boolean; box: { x: number; y: number; w?: number; h?: number; rotation?: number }; props?: unknown },
+>(elements: readonly T[], direction: ReadingDirection = taleReadingDirection(elements)): T[] {
+  const items = elements
+    .map((element, index) => ({ element, index, at: shownBounds(element) }))
+    .sort((a, b) => a.at.y - b.at.y || a.index - b.index);
+  const rows: (typeof items)[] = [];
+  for (const item of items) {
+    const row = [...rows].reverse().find((r) => sameReadingRow(r[0].at, item.at));
+    if (row) row.push(item);
+    else rows.push([item]);
+  }
+  type Item = (typeof items)[number];
+  const across =
+    direction === 'rtl'
+      ? (a: Item, b: Item) => b.at.x + b.at.w - (a.at.x + a.at.w)
+      : (a: Item, b: Item) => a.at.x - b.at.x;
+  return rows.flatMap((row) =>
+    row.sort((a, b) => across(a, b) || a.at.y - b.at.y || a.index - b.index).map(({ element }) => element),
+  );
 }
 
 /** A rectangle on the canvas as fractions of its width (`x`, `w`) and height (`y`, `h`). */
@@ -356,6 +460,12 @@ export function elementBounds(box: TaleElementBox): CanvasRect {
   const w = (2 * (cos * halfW + sin * halfH)) / width;
   const h = (2 * (sin * halfW + cos * halfH)) / height;
   return { x: box.x + box.w / 2 - w / 2, y: box.y + box.h / 2 - h / 2, w, h };
+}
+
+/** True when no part of the element, rotation included, lies on the canvas: no one sees it. */
+export function isOffCanvas(box: TaleElementBox): boolean {
+  const b = elementBounds(box);
+  return b.x >= 1 || b.y >= 1 || b.x + b.w <= 0 || b.y + b.h <= 0;
 }
 
 /**

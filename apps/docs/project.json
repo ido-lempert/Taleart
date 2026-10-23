@@ -27,7 +27,9 @@
         ],
         "styles": [
           "apps/docs/src/styles.css"
-        ]
+        ],
+        "server": "apps/docs/src/main.server.ts",
+        "outputMode": "static"
       },
       "configurations": {
         "production": {
@@ -71,6 +73,14 @@
     },
     "test": {
       "executor": "@angular/build:unit-test",
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/libs/web-sdk/README.md",
+        "{workspaceRoot}/apps/dashboard/src/app/**/*.html",
+        "{workspaceRoot}/apps/dashboard/src/app/**/*.ts",
+        "{workspaceRoot}/apps/api/src/app.spec.ts"
+      ],
       "options": {
         "watch": false
       }

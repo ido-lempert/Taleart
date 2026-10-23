@@ -112,7 +112,7 @@ R16 (parent R9; report §6 #13, #15 to #18): **Copy and small fixes**
    Verify: stop the API: the banner shows the new text; Tale Studio opens with the help closed and the back link names the group.
 
 R17 (parent R9, R10; report §3): **Docs say site key and zone, and explain the move**
-   The Web SDK README, the docs app and the dashboard's terms use Zone, Display, Template, Tale group, Tale and Theme as the report's glossary defines them. The docs show the `site-key` and `zone` snippet, list the old `zone-key` and `stage` attributes as still supported, and explain what the migration did to stages and frames.
+   The Web SDK README, the docs app and the dashboard's terms use Zone, Display, Template, Tale group, Tale and Theme as the report's glossary defines them. The docs show the `site-key` and `zone` snippet, say that the old `zone-key` and `stage` attributes were removed in story 8.7 (owner decision 2026-10-22, R4 retired) and how to move a page to the site key and the zone's slug, and explain what the migration did to stages and frames.
    Verify: the README and docs pages contain no instruction to create a stage or apply a playbook, and the snippet in the docs renders a zone when pasted into the sample page.
 
 R18 (parent R9; architecture Quality Targets, NFR-007): **Accessible rework**

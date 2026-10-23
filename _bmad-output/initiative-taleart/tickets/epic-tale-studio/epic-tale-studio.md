@@ -117,7 +117,7 @@ R11 (parent R13; PRD FR-012; digest: story actions): **Duplicate a tale**
 R12 (parent R13; NFR-007; digest: accessibility): **Accessibility of tales**
    - Every image, video, image sticker and image button has alt text or is marked decorative. Publishing a tale that breaks this rule is refused.
    - Text and button labels get a contrast check against what lies behind them. A ratio below 4.5:1, or below 3:1 for large text, shows a warning in the studio but does not block publishing (user decision, 2026-10-21).
-   - Reading order is visual, top to bottom and then left to right (AD-15).
+   - Reading order is visual, top to bottom and then left to right, or right to left in a tale whose texts read right to left (AD-15, amended 2026-10-23).
    - The SDK names each element for screen readers, and buttons and links are focusable in reading order.
    - Animated content respects reduced motion. Video autoplays muted.
    Verify: an automated WCAG 2.2 AA scan of the sample page showing a composed tale reports no violations; a screen reader reads the tale's text, image alt text and button in reading order.
