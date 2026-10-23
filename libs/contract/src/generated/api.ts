@@ -1005,7 +1005,11 @@ export interface paths {
         get: operations["getTale"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a tale.
+         * @description Deletes the tale for good (epic UX rework R11): its draft and published documents, and its references to media and project fonts. The group's remaining tales keep their order, numbered from the start again. A file the tale used is deleted only when nothing references it any more: a copy of the tale (AD-14), another tale, a tale group cover or the project's uploaded media keeps it (AD-11). Project fonts stay in the project. Once deleted, the tale is no longer delivered and its media's public URL answers 404 unless a delivered tale or cover still uses that file. A tale that came from an import is not created again by a later import of the same source: a person's deletion wins (AD-7). Events already recorded keep the tale's id (AD-10). Any member with access to the tale's project may delete it (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         */
+        delete: operations["deleteTale"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4138,6 +4142,29 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Tale"];
                 };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteTale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tale was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];

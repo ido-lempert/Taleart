@@ -1781,13 +1781,15 @@ describe('importContent: re-import updates (AD-7)', () => {
     expect(fake.records.get(`tale:${taleIdOf(fake, 'D')}`)).toEqual({ name: 'D2', group: groupIdOf(fake, 'New') });
   });
 
-  it('leaves a record deleted before its update uncounted as changed, without failing', async () => {
+  it('counts a record deleted before its update as skipped with a note, not as unchanged, without failing (story 8.20)', async () => {
     const fake = contentDb();
     await run(fake);
     fake.state.talesGoneForUpdate = true;
     const retitled = { ...stories, g2: [{ id: 's4', name: 'D2', sortOrder: 0 }] };
     const report = await run(fake, groups, retitled);
-    expect(report.changes?.tales).toMatchObject({ updated: 0, unchanged: 4 });
+    expect(report.changes?.tales).toMatchObject({ created: 0, updated: 0, unchanged: 0 });
+    expect(report.tales).toMatchObject({ imported: 0, skipped: 4 });
+    expect(report.notes.filter((n) => n.endsWith('it was deleted during the import, so it was not updated'))).toHaveLength(4);
     expect(taleIdOf(fake, 'D')).toBeDefined();
     // The tale was gone when its update read it: what the import recorded about it is gone too, no empty row stays.
     expect(fake.records.has(`tale:${taleIdOf(fake, 'D')}`)).toBe(false);

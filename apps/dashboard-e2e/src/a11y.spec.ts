@@ -303,6 +303,16 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     await page.keyboard.press('Escape');
     await expect(view).toBeVisible();
 
+    // A tale's Delete asks first (story 8.20); cancelled here, so the tale stays for the states after.
+    await view.getByRole('button', { name: /^More for / }).nth(1).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+    const confirmDelete = page.getByRole('alertdialog', { name: 'Delete tale' });
+    await expect(confirmDelete.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await check('delete-tale-confirmation', { layout: true });
+    await page.keyboard.press('Escape');
+    await expect(confirmDelete).toBeHidden();
+    await expect(view).toBeVisible();
+
     await page.setViewportSize({ width: 390, height: 844 });
     await check('group-view-phone');
     await page.keyboard.press('Escape');

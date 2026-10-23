@@ -32,6 +32,7 @@ import {
   type ImportedButtonSkip,
   sweepUnusedFontFiles,
   sweepUnusedProjectMediaFiles,
+  sweepUnusedTaleMediaFiles,
   taleExists,
   taleGroupExists,
   taleGroupName,
@@ -71,6 +72,7 @@ import {
   mergeValue,
   recordNames,
   saveRecord,
+  sweepImportMediaOfDeletedTales,
   sweepImportRecords,
   type FieldMerge,
   type RecordFields,
@@ -1183,9 +1185,12 @@ async function importContentWith(
             return { fields, update: { written, kept } };
           });
           if (update === null) {
-            // Deleted since it was found: it counts as imported, as when it was read, with nothing changed.
+            // A person deleted it after it was found (story 8.20): their deletion wins. It is skipped and
+            // said so, not counted as imported with nothing changed; its media is not copied.
             taleGone = true;
-            countChange(changes.tales, 'unchanged', false);
+            report.tales.imported--;
+            report.tales.skipped++;
+            note(`Tale "${text(title)}" in "${text(name)}": it was deleted during the import, so it was not updated`);
           } else {
             countChange(changes.tales, update.written ? 'updated' : 'unchanged', update.kept.length > 0);
             for (const field of update.kept) {
@@ -1230,7 +1235,7 @@ async function importContentWith(
             note(`${where}: its button label was cut to ${MAX_LINK_LABEL_LENGTH} characters`);
           }
         }
-        if (options.media && report.media && changes.media) {
+        if (!taleGone && options.media && report.media && changes.media) {
           // Copied in the media pool while the import goes on; its outcome is applied in reading order.
           const media = options.media;
           const counts = report.media;
@@ -1734,6 +1739,13 @@ export function startImportWorker(db: TransactionalDb, options: ImportWorkerOpti
     } catch (err) {
       log('error', 'Import worker could not sweep import baselines', err);
     }
+    // What imports recorded about the media of tales deleted since (story 8.20), so their files can go below.
+    try {
+      const rows = await sweepImportMediaOfDeletedTales(db, (id) => taleExists(db, id));
+      if (rows > 0) log('info', `Removed ${rows} imported media record(s) of deleted tales`);
+    } catch (err) {
+      log('error', 'Import worker could not sweep imported media records', err);
+    }
     if (!isSweepable(options.storage)) return;
     try {
       const swept = await sweepImportedMedia(db, options.storage);
@@ -1756,6 +1768,13 @@ export function startImportWorker(db: TransactionalDb, options: ImportWorkerOpti
       if (media > 0) log('info', `Removed ${media} uploaded media file(s) no project media row names`);
     } catch (err) {
       log('error', 'Import worker could not sweep unused uploaded media files', err);
+    }
+    // Uploaded tale media nothing references, such as a deleted tale's file whose delete failed (story 8.20).
+    try {
+      const tales = await sweepUnusedTaleMediaFiles(db, options.storage);
+      if (tales > 0) log('info', `Removed ${tales} tale media file(s) nothing references`);
+    } catch (err) {
+      log('error', 'Import worker could not sweep unused tale media files', err);
     }
   };
 

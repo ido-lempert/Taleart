@@ -526,6 +526,18 @@
                     {{ action.label }}
                   </button>
                 }
+                <!-- Asked in the group view showing the tale's group, where focus goes after (story 8.20). -->
+                @if (store.groupViewOpen(tale.taleGroupId)) {
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    id="tale-drawer-delete"
+                    [attr.aria-disabled]="saving() || !!upload() || null"
+                    (click)="requestDelete(tale)"
+                  >
+                    Delete tale…
+                  </button>
+                }
               </div>
               @if (tale.status === 'blocked-by-group') {
                 <p class="field__hint">This tale is shown, but its tale group is off, so it does not show on the site.</p>

@@ -1988,6 +1988,32 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteTale
+      summary: Delete a tale.
+      description: >-
+        Deletes the tale for good (epic UX rework R11): its draft and
+        published documents, and its references to media and project fonts.
+        The group's remaining tales keep their order, numbered from the start
+        again. A file the tale used is deleted only when nothing references
+        it any more: a copy of the tale (AD-14), another tale, a tale group
+        cover or the project's uploaded media keeps it (AD-11). Project fonts
+        stay in the project. Once deleted, the tale is no longer delivered and
+        its media's public URL answers 404 unless a delivered tale or cover
+        still uses that file. A tale that came from an import is not created
+        again by a later import of the same source: a person's deletion wins
+        (AD-7). Events already recorded keep the tale's id (AD-10). Any member
+        with access to the tale's project may delete it (403 `forbidden`
+        otherwise). Unknown tale: 404 `tale_not_found`.
+      responses:
+        '204':
+          description: The tale was deleted.
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /tales/{taleId}/status:
     parameters:
       - name: taleId
