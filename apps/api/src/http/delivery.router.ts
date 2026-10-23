@@ -15,7 +15,7 @@ import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from 
 import { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
 import { errorBody } from './errors';
-import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, type RateLimitOptions } from './rate-limit';
+import { DEFAULT_DELIVERY_RATE_LIMIT, rateLimit, VISITOR_HEADER, type RateLimitOptions } from './rate-limit';
 
 // One message for every refusal (epic UX rework R3): a missing, unknown or revoked site key and a
 // missing or unknown slug answer alike, so a caller cannot tell a slug from a key.
@@ -79,8 +79,9 @@ export interface DeliveryOptions {
   /** The frame types, whose schema defaults fill each frame's missing settings (AD-5). */
   frameTypes: FrameTypeRegistry;
   /**
-   * The per-address limit of the Delivery API ({@link DEFAULT_DELIVERY_RATE_LIMIT} when left
-   * out); null turns it off.
+   * The per-visitor limit of the Delivery API, also the per-address limit of requests without a
+   * visitor id, with a per-address backstop above it ({@link rateLimit});
+   * {@link DEFAULT_DELIVERY_RATE_LIMIT} when left out, and null turns it off.
    */
   rateLimit?: RateLimitOptions | null;
 }
@@ -95,7 +96,8 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
 
   router.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    // The SDKs send the device's visitor id (epic UX rework 8.23), so a preflight must allow it.
+    res.setHeader('Access-Control-Allow-Headers', `Authorization, Content-Type, ${VISITOR_HEADER}`);
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     // A client script may read when to try again after a 429.
     res.setHeader('Access-Control-Expose-Headers', 'Retry-After');

@@ -695,7 +695,7 @@ export interface paths {
         };
         /**
          * A zone, named by site key and slug, with its display and tale groups (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts only the project's site key (`tas_...`) in `Authorization: Bearer <key>`, never a session, and answers the project's zone whose slug the `zone` query parameter names (epic UX rework R3). Every refusal (a missing, unknown or revoked site key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against a per-address token bucket (by default 600 at once, 20 per second); over it the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed (AD-6); each tale's media URL is absolute and public (AD-11). The zone is cached as `private, no-cache`, varies by `Authorization` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once (NFR-006).
+         * @description Served under `/delivery/v1`. Accepts only the project's site key (`tas_...`) in `Authorization: Bearer <key>`, never a session, and answers the project's zone whose slug the `zone` query parameter names (epic UX rework R3). Every refusal (a missing, unknown or revoked site key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against its visitor's token bucket (by default 600 at once, 20 per second), the visitor named by the `X-TaleArt-Visitor` header; a request without a valid visitor id counts against a bucket of the same size for its address (an IPv4 address or an IPv6 /48). Every request also counts against its address's backstop, ten times that size, so a client inventing ids gains no more than ten visitors' allowance (epic UX rework 8.23). Over either the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials, and allows the `X-TaleArt-Visitor` header. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed (AD-6); each tale's media URL is absolute and public (AD-11). The zone is cached as `private, no-cache`, varies by `Authorization` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once (NFR-006).
          */
         get: operations["getDeliveryZone"];
         put?: never;
@@ -3577,7 +3577,10 @@ export interface operations {
                 /** @description The zone's slug (lowercase letters, digits and hyphens), sent with the project's site key, as a host page names it in `zone="..."`. */
                 zone: string;
             };
-            header?: never;
+            header?: {
+                /** @description The visitor id: a random UUID v4 the SDK generates once per device and keeps there (the Web SDK in localStorage, the native SDK in its device store), with no personal data. Written all in lowercase or all in uppercase; anything else counts as no id. It is used only to rate limit per visitor. */
+                "X-TaleArt-Visitor"?: string;
+            };
             path?: never;
             cookie?: never;
         };
