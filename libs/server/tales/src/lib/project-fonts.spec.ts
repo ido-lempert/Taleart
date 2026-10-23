@@ -17,7 +17,7 @@ import {
   withoutProjectFonts,
   type NewProjectFont,
 } from './project-fonts';
-import type { TransactionalDb } from './tales';
+import type { TransactionalDb } from '@taleart/server-access';
 
 const projectId = '00000000-0000-4000-8000-000000000002';
 const taleId = '00000000-0000-4000-8000-000000000010';

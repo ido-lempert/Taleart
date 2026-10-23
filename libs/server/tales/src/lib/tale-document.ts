@@ -34,7 +34,7 @@ import {
   type TaleDocument,
   type TaleDocumentRevision,
 } from '@taleart/contract';
-import type { Db } from '@taleart/server-access';
+import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020';
 import { clearPublicMediaCache, lockMediaKeys, projectMediaKeys, recordTaleMedia, usesMedia } from './document-media';
 import { clearPublicFontCache, knownProjectFontIds, recordTaleFonts } from './project-fonts';
@@ -45,7 +45,7 @@ import {
   withOutOfStepMedia,
   withoutStaleTaleMedia,
 } from './tale-media-document';
-import { inTransaction, TaleNotFoundError, type TransactionalDb } from './tales';
+import { TaleNotFoundError } from './tales';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
