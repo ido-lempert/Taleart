@@ -16,7 +16,16 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
@@ -174,6 +183,12 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
             it[SemanticsProperties.ContentDescription].joinToString() to it[SemanticsProperties.StateDescription]
         }
 
+    private fun ComposeUiTest.viewport() = onNodeWithTag(BANNER_VIEWPORT_TAG).getUnclippedBoundsInRoot()
+
+    private fun ComposeUiTest.slideBounds() = onNodeWithTag(BANNER_SLIDE_TAG).getUnclippedBoundsInRoot()
+
+    private fun ComposeUiTest.slideNode() = onAllNodesWithTag(BANNER_SLIDE_TAG).fetchSemanticsNodes().single()
+
     private fun ComposeUiTest.tale(): String? =
         onAllNodes(SemanticsMatcher.keyIsDefined(ViewerTale)).fetchSemanticsNodes().singleOrNull()?.config?.get(ViewerTale)
 
@@ -229,7 +244,6 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
         onNodeWithTag(BANNER_VIEWPORT_TAG).performTouchInput { swipeRight() }
         advance(1_000)
         assertEquals("c", shown())
-        // A swipe never opens a slide.
         assertEquals(emptyList(), clicked)
     }
 
@@ -287,10 +301,24 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
         assertEquals(0, onAllNodesWithContentDescription("Start automatic slide show").fetchSemanticsNodes().size)
         advance(20_000)
         assertEquals("a", shown())
-        // The person still moves it, at once.
+        // The person still moves it, and the track snaps there on the next frame, with no slide.
         onNodeWithContentDescription("Next slide").performClick()
         frame()
         assertEquals("b", shown())
+        assertEquals(viewport().left, slideBounds().left)
+    }
+
+    @Test
+    fun withoutReducedMotionTheTrackSlidesOverSeveralFrames() = runComposeUiTest {
+        show(zone(zoneJson(banner(), groupsJson("A", "B"))), reduced = false)
+
+        onNodeWithContentDescription("Next slide").performClick()
+        frame()
+        assertEquals("b", shown())
+        // Mid-slide: the next slide comes in from the end of the line (the right).
+        assertTrue(slideBounds().left > viewport().left, "${slideBounds()} in ${viewport()}")
+        advance(1_000)
+        assertEquals(viewport().left, slideBounds().left)
     }
 
     @Test
@@ -356,6 +384,174 @@ class TaleartBannerUiTest : ComposeUiTestBase() {
         assertEquals(null, tale())
         assertEquals(winter, shown())
         assertEquals(setOf(summer, winter), seen.ids)
+    }
+
+    @Test
+    fun withAKeyboardFocusReturnsToTheSlideOfTheGroupTheViewerShowedLast() = runComposeUiTest {
+        // Keyboard input mode, driven through semantics actions (a touch would switch to touch mode,
+        // where Android moves no focus).
+        mainClock.autoAdvance = false
+        setContent {
+            val inputMode = LocalInputModeManager.current
+            LaunchedEffect(Unit) { inputMode.requestInputMode(InputMode.Keyboard) }
+            Fakes { TaleartZone(zone(homeTopBanner), seenGroups = seen) }
+        }
+        frame()
+        onNodeWithTag(BANNER_SLIDE_TAG).performSemanticsAction(SemanticsActions.OnClick)
+        frame()
+        repeat(3) { onNodeWithContentDescription("Next tale").performSemanticsAction(SemanticsActions.OnClick) }
+        frame()
+        assertEquals("$winter/0", tale())
+        onNodeWithContentDescription("Close").performSemanticsAction(SemanticsActions.OnClick)
+        advance(500)
+        assertEquals(winter, shown())
+        onNodeWithTag(BANNER_SLIDE_TAG).assertIsFocused()
+        onNodeWithContentDescription("Winter tales").assertIsFocused()
+        // Focus the SDK moves itself is not an interaction: autoplay was stopped by the tap, not by it.
+        onNodeWithContentDescription("Start automatic slide show").assertExists()
+    }
+
+    @Test
+    fun aDragOnTheSlideItselfIsASwipeNotATap() = runComposeUiTest {
+        show(zone(zoneJson(banner(), groupsJson("A", "B", "C"))))
+
+        // A press on the slide's own button that drags 80dp sideways: the swipe takes the tap from it.
+        onNodeWithTag(BANNER_SLIDE_TAG).performTouchInput {
+            down(center)
+            moveBy(Offset(-80.dp.toPx(), 0f))
+            moveBy(Offset(-10.dp.toPx(), 0f))
+            up()
+        }
+        advance(1_000)
+        assertEquals("b", shown())
+        assertEquals(emptyList(), clicked)
+
+        // A press that moves less than a swipe is still a tap: it opens the slide.
+        onNodeWithTag(BANNER_SLIDE_TAG).performTouchInput {
+            down(center)
+            moveBy(Offset(-4f, 0f))
+            up()
+        }
+        frame()
+        assertEquals(listOf("b"), clicked)
+    }
+
+    @Test
+    fun aVerticalScrollStartingOnTheBannerLeavesAutoplayRunning() = runComposeUiTest {
+        show(zone(zoneJson(banner(), groupsJson("A", "B", "C"))))
+
+        onNodeWithTag(BANNER_VIEWPORT_TAG).performTouchInput {
+            down(center)
+            moveBy(Offset(0f, -60.dp.toPx()))
+            moveBy(Offset(2f, -60.dp.toPx()))
+            up()
+        }
+        frame()
+        assertTrue(rotating())
+        assertEquals("a", shown())
+        assertEquals(emptyList(), clicked)
+        // A sideways drag, even short of a swipe, stops it.
+        onNodeWithTag(BANNER_VIEWPORT_TAG).performTouchInput {
+            down(center)
+            moveBy(Offset(-30.dp.toPx(), 0f))
+            up()
+        }
+        frame()
+        assertEquals(false, rotating())
+        assertEquals("a", shown())
+    }
+
+    @Test
+    fun theShownSlideIsAPoliteLiveRegionUnlessItRotates() = runComposeUiTest {
+        show(zone(zoneJson(banner(), groupsJson("A", "B"))))
+
+        // While autoplay runs, slide changes are not announced.
+        assertEquals(false, slideNode().config.contains(SemanticsProperties.LiveRegion))
+        onNodeWithContentDescription("Next slide").performClick()
+        frame()
+        assertEquals(LiveRegionMode.Polite, slideNode().config[SemanticsProperties.LiveRegion])
+        assertEquals("B", slideNode().config[SemanticsProperties.ContentDescription].joinToString())
+    }
+
+    @Test
+    fun aReloadWithOtherOrFewerGroupsStartsAgainAtTheFirstSlide() = runComposeUiTest {
+        var json by mutableStateOf(zoneJson(banner(), groupsJson("A", "B", "C")))
+        mainClock.autoAdvance = false
+        setContent { Fakes { TaleartZone(zone(json), seenGroups = seen) } }
+        frame()
+        onNodeWithContentDescription("Show C").performClick()
+        frame()
+        assertEquals("c", shown())
+
+        json = zoneJson(banner(), groupsJson("A", "B"))
+        frame()
+        assertEquals("a", shown())
+        onNodeWithContentDescription("Show B").performClick()
+        frame()
+        assertEquals("b", shown())
+
+        json = zoneJson(banner(), groupsJson("D", "E", "F"))
+        frame()
+        assertEquals("d", shown())
+        assertEquals(listOf("Show D", "Show E", "Show F"), dots())
+    }
+
+    @Test
+    fun aViewerClosedOnAGroupDoesNotMoveABannerMadeAfterIt() = runComposeUiTest {
+        // The viewer opened from the bar and closed on Winter tales; then the zone becomes a banner.
+        var json by mutableStateOf(HOME_TOP_ZONE_JSON)
+        mainClock.autoAdvance = false
+        setContent { Fakes { TaleartZone(zone(json), seenGroups = seen) } }
+        frame()
+        onNodeWithContentDescription("Winter tales").performClick()
+        frame()
+        assertEquals("$winter/0", tale())
+        onNodeWithContentDescription("Close").performClick()
+        frame()
+        assertEquals(null, tale())
+
+        json = homeTopBanner
+        frame()
+        frame()
+        assertEquals(summer, shown())
+
+        // Nor does it move a banner made later still, after the banner closed a viewer on a group.
+        onNodeWithTag(BANNER_SLIDE_TAG).performClick()
+        frame()
+        repeat(3) { onNodeWithContentDescription("Next tale").performClick() }
+        frame()
+        onNodeWithContentDescription("Close").performClick()
+        frame()
+        frame()
+        assertEquals(winter, shown())
+        json = zoneJson(banner(), groupsJson("A", "B"))
+        frame()
+        json = homeTopBanner
+        frame()
+        frame()
+        assertEquals(summer, shown())
+    }
+
+    @Test
+    fun rightToLeftThePreviousButtonIsOnTheRightAndTheSlidesRunLeftwards() = runComposeUiTest {
+        show(zone(zoneJson(banner(), groupsJson("A", "B", "C"))), reduced = false, direction = LayoutDirection.Rtl)
+
+        val view = viewport()
+        val previous = onNodeWithContentDescription("Previous slide").getUnclippedBoundsInRoot()
+        val next = onNodeWithContentDescription("Next slide").getUnclippedBoundsInRoot()
+        assertTrue(previous.left > view.left + (view.right - view.left) / 2, "previous $previous in $view")
+        assertTrue(next.right < view.left + (view.right - view.left) / 2, "next $next in $view")
+        // The dots run right to left too: the first slide's dot is the rightmost.
+        val dotsX = onAllNodesWithTag(BANNER_DOT_TAG).fetchSemanticsNodes().map { it.boundsInRoot.left }
+        assertEquals(dotsX.sortedDescending(), dotsX)
+
+        onNodeWithContentDescription("Next slide").performClick()
+        frame()
+        assertEquals("b", shown())
+        // Mid-slide: the next slide comes in from the left.
+        assertTrue(slideBounds().left < view.left, "${slideBounds()} in $view")
+        advance(1_000)
+        assertEquals(view.left, slideBounds().left)
     }
 
     @Test

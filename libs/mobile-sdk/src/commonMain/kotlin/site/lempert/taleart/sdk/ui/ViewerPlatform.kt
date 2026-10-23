@@ -16,7 +16,8 @@ internal expect fun FullScreenViewer(requestKey: Any, onDismissRequest: () -> Un
 /**
  * True when the person asks for less motion: Android's "Remove animations" (animator duration scale
  * 0), iOS's Reduce Motion. The viewer then never plays or advances by itself, as the Web SDK under
- * `prefers-reduced-motion: reduce`.
+ * `prefers-reduced-motion: reduce`. The value follows the setting while composed, as the web's
+ * media query does; an open viewer keeps the value it opened with.
  */
 @Composable
 internal expect fun rememberPrefersReducedMotion(): Boolean

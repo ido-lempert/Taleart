@@ -1,9 +1,10 @@
 package site.lempert.taleart.sdk.ios
 
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +35,8 @@ import site.lempert.taleart.sdk.ui.TaleartZoneController
  *   4 and a 44-point row (with the autoplay button) or a 24-point row (dots only). At 393 points
  *   wide and 16:9, with autoplay: 16 + 221 + 48 = 285 points.
  *
- * [height] holds the display's current height (0 while there is nothing to show), measured
+ * [height] holds the display's current height (0 whenever nothing shows: before the zone loads,
+ * or with no display, a display type the SDK does not know, or a banner without tales), measured
  * whatever height the container gives it, and [onHeightChange] reports each change, so a host can
  * size its container to fit; with a banner, give the container its width first.
  *
@@ -111,15 +113,21 @@ class TaleartZoneView(apiUrl: String, siteKey: String, zone: String) {
     val viewController: UIViewController by lazy {
         ComposeUIViewController {
             val density = LocalDensity.current
-            val empty = controller.zone == null
-            SideEffect { if (empty) reportHeight(0.0) }
-            TaleartZone(
-                controller,
-                // The display's own height, even in a container still shorter than it.
-                modifier = Modifier.wrapContentHeight(Alignment.Top, unbounded = true).onSizeChanged { size -> reportHeight(with(density) { size.height.toDp().value.toDouble() }) },
-                onGroupClick = { group -> onGroupClick?.invoke(group) },
-                opensViewer = opensViewer,
-            )
+            // The display's own height, even in a container still shorter than it; 0 whenever nothing
+            // renders (no zone yet, no display, an unknown type, a banner without tales), as the box is
+            // then empty.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(Alignment.Top, unbounded = true)
+                    .onSizeChanged { size -> reportHeight(with(density) { size.height.toDp().value.toDouble() }) },
+            ) {
+                TaleartZone(
+                    controller,
+                    onGroupClick = { group -> onGroupClick?.invoke(group) },
+                    opensViewer = opensViewer,
+                )
+            }
         }
     }
 
