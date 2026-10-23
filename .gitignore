@@ -59,7 +59,15 @@ build/
 local.properties
 *.iml
 xcuserdata/
-apps/taller/iosApp/Taller.xcodeproj
+apps/taller/androidApp/captures/
+.externalNativeBuild
+.cxx
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
 apps/taller/iosApp/build
 
 # Local agent tooling and generated BMad renders (machine-specific paths)
