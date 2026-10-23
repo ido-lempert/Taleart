@@ -18,6 +18,7 @@ import {
 } from '@taleart/contract/tale-document';
 import { Drawer } from '../drawer';
 import { ProjectMediaService, projectMediaSrc } from '../project-media.service';
+import { percent } from './tale-layers';
 
 /** The names people read for each fit. */
 export const FIT_NAMES: Readonly<Record<MediaFit, string>> = {
@@ -255,8 +256,6 @@ export interface MediaChange {
   a11y?: TaleElementA11y;
   said: string;
 }
-
-const percent = (fraction: number) => Math.round(fraction * 1000) / 10;
 
 /**
  * The inspector of a selected image, video or image sticker (R5, R6, R12): its alt text or the

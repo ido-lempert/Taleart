@@ -27,6 +27,8 @@ export type ReorderCommand = 'forward' | 'backward' | 'front' | 'back';
 // Box values are kept to 4 decimals, so moves do not pile up floating-point noise.
 export const round = (value: number): number => Math.round(value * 10000) / 10000;
 export const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+/** A canvas fraction as the percent the inspector fields show, to one decimal (0.125 → 12.5). */
+export const percent = (fraction: number): number => Math.round(fraction * 1000) / 10;
 
 /**
  * A short name for a layer, from its content, as the contract's `elementName` gives it (shared with
