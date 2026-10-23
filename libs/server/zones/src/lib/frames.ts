@@ -140,7 +140,7 @@ export async function updateDisplay(
   if (input.type === undefined && input.settings === undefined) throw new EmptyDisplayChangeError();
   for (let attempt = 1; attempt <= 2; attempt++) {
     const found = await db.query<{ id: string; type: string }>(
-      'SELECT id, type FROM frames WHERE zone_id = $1 ORDER BY created_at, id LIMIT 1',
+      'SELECT id, type FROM frames WHERE zone_id = $1',
       [input.zoneId],
     );
     const display = found.rows[0];
