@@ -20,6 +20,8 @@ import site.lempert.taleart.sdk.TaleartSdk
 import site.lempert.taleart.sdk.delivery.DeliveryClient
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import site.lempert.taleart.sdk.ui.BAR_ITEM_TAG
 
 @OptIn(ExperimentalTestApi::class)
 class AppUiTest : ComposeUiTestBase() {
@@ -77,6 +79,18 @@ class AppUiTest : ComposeUiTestBase() {
         assertEquals(listOf("Summer trips", "Winter tales"), texts("group"))
         assertEquals(listOf("Beach day", "City night", "First snow"), texts("tale"))
         assertEquals("Bearer tas_key", requests.single().headers[HttpHeaders.Authorization])
+    }
+
+    @Test
+    fun showsTheZonesBarAboveTheListAndReportsATap() = runComposeUiTest {
+        setContent { App(store = InMemoryStore(saved), client = client(HttpStatusCode.OK, zone)) }
+
+        waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(BAR_ITEM_TAG).fetchSemanticsNodes().size == 2 }
+        val barTop = onNodeWithTag("zone-display").fetchSemanticsNode().boundsInRoot.top
+        val listTop = onNodeWithTag("groups").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(barTop < listTop)
+        onAllNodesWithTag(BAR_ITEM_TAG)[1].performClick()
+        onNodeWithTag("tapped").assertTextEquals("Tapped: Winter tales")
     }
 
     @Test

@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.androidLibrary)
+    alias(libs.plugins.composeCompiler)
 }
 
 android {
@@ -12,6 +13,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    buildFeatures {
+        compose = true
+    }
 }
 
 kotlin {
@@ -21,5 +25,6 @@ kotlin {
 }
 
 dependencies {
+    // The shared SDK brings the Compose UI (ComposeView) that TaleartView hosts.
     api(project(":mobile-sdk"))
 }
