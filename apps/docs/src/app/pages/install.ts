@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DEFAULT_SDK_BUILDS_KEPT } from '@taleart/contract/core';
 import {
   DOCS_PINNED_SCRIPT,
   DOCS_SNIPPET,
@@ -98,14 +99,22 @@ import {
     <h3 id="pinned">Pinning it with Subresource Integrity</h3>
     <p>
       The same build is also served at a URL pinned to its content, <code>/sdk/v1/taleart.&lt;hash&gt;.js</code>,
-      cached for {{ pinnedCacheText }}. To get it, open <code>&lt;api&gt;/api/v1/install</code> in a browser where you
-      are signed in to the dashboard: <code>sdkPinnedUrl</code> is the URL and <code>sdkIntegrity</code> its
-      integrity value.
+      cached for {{ pinnedCacheText }}. The zone page's Install tab shows the URL and its integrity value under
+      <em>Pin this SDK version</em>, each with a Copy button, and <em>Copy pinned script tag</em> copies the whole tag.
+      (<code>&lt;api&gt;/api/v1/install</code>, opened where you are signed in to the dashboard, gives them as
+      <code>sdkPinnedUrl</code> and <code>sdkIntegrity</code>.)
     </p>
     <pre tabindex="0" role="region" aria-label="Pinned script tag"><code>{{ pinned }}</code></pre>
     <p>
-      The browser then refuses any other file. A pinned URL is gone with the next build, so a page that pins it
-      updates it on each release.
+      The browser then refuses any other file. The API keeps the last {{ buildsKept }} builds it served at their pinned
+      URLs, the current one included, so a pinned page keeps working through the next {{ buildsKept - 1 }} releases:
+      update the pin before then. An older or unknown hash answers 404.
+    </p>
+    <p>
+      For the people who run TaleArt: the API writes each build it serves, at start and whenever the bundle changes,
+      to the folder <code>SDK_BUILDS_DIR</code> names (default <code>.data/sdk-builds</code>, outside the build output),
+      and keeps the newest <code>SDK_BUILDS_KEPT</code> ({{ buildsKept }} by default). API processes that serve the
+      same URLs share that folder; <code>SDK_BUILDS_DIR=off</code> keeps only the current build.
     </p>
 
     <h2 id="test-page">The test page</h2>
@@ -160,6 +169,7 @@ export class InstallPage {
   protected readonly sdkUrl = EXAMPLE_INSTALL.sdkUrl;
   protected readonly cacheText = SDK_CACHE_TEXT;
   protected readonly pinnedCacheText = SDK_PINNED_CACHE_TEXT;
+  protected readonly buildsKept = DEFAULT_SDK_BUILDS_KEPT;
   protected readonly pinned = DOCS_PINNED_SCRIPT;
   protected readonly testPage = DOCS_TEST_PAGE;
   protected readonly testPageWithKey = DOCS_TEST_PAGE_WITH_KEY;
