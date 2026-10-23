@@ -10,6 +10,8 @@ import {
   ensureTags,
   listTags,
   setTaleGroupTags,
+  tagMatchesForTaleGroups,
+  tagRulesForTaleGroups,
   tagsForTaleGroups,
 } from './tags';
 
@@ -45,6 +47,53 @@ describe('migration', () => {
     expect(sql).toMatch(/ON tags \(project_id, lower\(name\)\)/);
     expect(sql).toMatch(/FOREIGN KEY \(tale_group_id, project_id\) REFERENCES tale_groups \(id, project_id\)/);
     expect(sql).toMatch(/FOREIGN KEY \(tag_id, project_id\) REFERENCES tags \(id, project_id\)/);
+  });
+
+  it('stores a match mode per group, any or all, removed with the group (epic targeting R1)', async () => {
+    const { db, statements } = fakeDb([]);
+    await migrateTargeting(db);
+    const table = statements().find((s) => /CREATE TABLE IF NOT EXISTS tale_group_tag_matches/.test(s)) ?? '';
+    expect(table).toMatch(/tale_group_id uuid PRIMARY KEY/);
+    expect(table).toMatch(/project_id uuid NOT NULL REFERENCES projects\(id\)/);
+    expect(table).toMatch(/CHECK \(tag_match IN \('any', 'all'\)\)/);
+    expect(table).toMatch(/REFERENCES tale_groups \(id, project_id\) ON DELETE CASCADE/);
+  });
+});
+
+describe('tagMatchesForTaleGroups', () => {
+  it('reads Any for a group without a stored mode, keyed by the id as given', async () => {
+    const other = '00000000-0000-4000-8000-000000000004';
+    const { db, query } = fakeDb([{ rows: [{ taleGroupId: groupId, tagMatch: 'all' }] }]);
+    const modes = await tagMatchesForTaleGroups(db, [groupId.toUpperCase(), other, 'nope']);
+    expect(modes.get(groupId.toUpperCase())).toBe('all');
+    expect(modes.get(other)).toBe('any');
+    expect(modes.get('nope')).toBe('any');
+    expect(query.mock.calls[0][1]).toEqual([[groupId.toUpperCase(), other]]);
+  });
+
+  it('asks nothing for no ids', async () => {
+    const { db, query } = fakeDb([]);
+    expect(await tagMatchesForTaleGroups(db, [])).toEqual(new Map());
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('tagRulesForTaleGroups', () => {
+  it("returns each group's tag names and mode in one query", async () => {
+    const other = '00000000-0000-4000-8000-000000000004';
+    const { db, query } = fakeDb([
+      {
+        rows: [
+          { taleGroupId: groupId, tags: ['summer', 'vip'], tagMatch: 'all' },
+          { taleGroupId: other, tags: null, tagMatch: null },
+        ],
+      },
+    ]);
+    const rules = await tagRulesForTaleGroups(db, [groupId, other]);
+    expect(rules.get(groupId)).toEqual({ tags: ['summer', 'vip'], tagMatch: 'all' });
+    expect(rules.get(other)).toEqual({ tags: [], tagMatch: 'any' });
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0][0]).toMatch(/array_agg\(tags.name ORDER BY lower\(tags.name\)/);
   });
 });
 
@@ -137,9 +186,11 @@ describe('setTaleGroupTags', () => {
       { rows: [] },
       { rows: [{ taleGroupId: groupId, id: tagA, name: 'a' }] },
     ]);
-    expect(await setTaleGroupTags(db, groupId.toUpperCase(), [tagA, tagA.toUpperCase()])).toEqual([
-      { id: tagA, name: 'a' },
-    ]);
+    expect(await setTaleGroupTags(db, groupId.toUpperCase(), [tagA, tagA.toUpperCase()])).toEqual({
+      tags: [{ id: tagA, name: 'a' }],
+      tagMatch: 'any',
+    });
+    expect(statements().some((s) => /tale_group_tag_matches \(/.test(s))).toBe(false);
     const lock = query.mock.calls.find((c) => /pg_advisory_xact_lock/.test(c[0] as string));
     expect(lock?.[1]).toEqual([groupId]);
     const insert = query.mock.calls.find((c) => /INSERT/.test(c[0] as string));
@@ -149,9 +200,31 @@ describe('setTaleGroupTags', () => {
     expect(order).toContain('COMMIT');
   });
 
+  it('sets the match mode in the same transaction when one is given', async () => {
+    const { db, query, statements } = fakeDb([
+      { rows: [{ project_id: projectId }] },
+      { rows: [{}] },
+      { rows: [{ id: tagA }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ taleGroupId: groupId, id: tagA, name: 'a' }] },
+      { rows: [{ taleGroupId: groupId, tagMatch: 'all' }] },
+    ]);
+    expect(await setTaleGroupTags(db, groupId, [tagA], 'all')).toEqual({
+      tags: [{ id: tagA, name: 'a' }],
+      tagMatch: 'all',
+    });
+    const store = query.mock.calls.find((c) => /INSERT INTO tale_group_tag_matches/.test(c[0] as string));
+    expect(store?.[0]).toMatch(/ON CONFLICT \(tale_group_id\) DO UPDATE SET tag_match = EXCLUDED.tag_match/);
+    expect(store?.[1]).toEqual([groupId, projectId, 'all']);
+    const order = statements();
+    expect(order.indexOf(store?.[0] as string)).toBeLessThan(order.indexOf('COMMIT'));
+  });
+
   it('clears the tags for an empty list', async () => {
     const { db, statements } = fakeDb([{ rows: [{ project_id: projectId }] }]);
-    expect(await setTaleGroupTags(db, groupId, [])).toEqual([]);
+    expect(await setTaleGroupTags(db, groupId, [])).toEqual({ tags: [], tagMatch: 'any' });
     expect(statements().some((s) => /DELETE FROM tale_group_tags/.test(s))).toBe(true);
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
   });
@@ -168,10 +241,13 @@ describe('copyTaleGroupTags', () => {
       { rows: [] },
       { rows: [{ taleGroupId: copyId, id: tagA, name: 'sale' }, { taleGroupId: copyId, id: tagB, name: 'summer' }] },
     ]);
-    expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual([
-      { id: tagA, name: 'sale' },
-      { id: tagB, name: 'summer' },
-    ]);
+    expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual({
+      tags: [
+        { id: tagA, name: 'sale' },
+        { id: tagB, name: 'summer' },
+      ],
+      tagMatch: 'any',
+    });
     const [read, create, link] = query.mock.calls;
     expect(read[1]).toEqual([groupId]);
     expect(create[0]).toMatch(/ON CONFLICT \(project_id, lower\(name\)\) DO NOTHING/);
@@ -183,8 +259,27 @@ describe('copyTaleGroupTags', () => {
 
   it('writes nothing when the source has no tags', async () => {
     const { db, statements } = fakeDb([{ rows: [] }, { rows: [] }]);
-    expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual([]);
+    expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual({
+      tags: [],
+      tagMatch: 'any',
+    });
     expect(statements().some((s) => /INSERT/.test(s))).toBe(false);
+  });
+
+  it("keeps the source's All on the copy, in the copy's project", async () => {
+    const { db, query } = fakeDb([
+      { rows: [{ name: 'summer' }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [{ taleGroupId: copyId, id: tagA, name: 'summer' }] },
+      { rows: [{ taleGroupId: groupId, tagMatch: 'all' }] },
+    ]);
+    expect(await copyTaleGroupTags(db, { sourceTaleGroupId: groupId, taleGroupId: copyId, projectId: target })).toEqual({
+      tags: [{ id: tagA, name: 'summer' }],
+      tagMatch: 'all',
+    });
+    const store = query.mock.calls.find((c) => /INSERT INTO tale_group_tag_matches/.test(c[0] as string));
+    expect(store?.[1]).toEqual([copyId, target, 'all']);
   });
 });
 

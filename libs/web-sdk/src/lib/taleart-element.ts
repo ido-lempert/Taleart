@@ -1,4 +1,4 @@
-import type { DeliveryZone } from '@taleart/contract';
+import { tagRulePasses, viewerTagSet, type DeliveryZone } from '@taleart/contract';
 import { BANNER_FRAME_TYPE, BANNER_STYLES, renderBanner } from './banner';
 import {
   applyCoverMotion,
@@ -61,6 +61,39 @@ export function configureZone(zone: string, options?: ZoneOptions | null): void 
   if (Object.keys(theme).length) zoneThemes.set(zone, theme);
   else zoneThemes.delete(zone);
   for (const element of connected) element.retheme();
+}
+
+// The viewer's tags set with setTags, as the tag rule compares them; null until a page sets some.
+let viewerTags: ReadonlySet<string> | null = null;
+
+/**
+ * Tells the SDK the viewer's tags, for every `<taleart-view>` on the page, now
+ * and later (epic targeting R2). A tale group with targeting tags shows only
+ * when its rule passes: with Any, one of its tags is among these; with All,
+ * every one is. Case and surrounding spaces are ignored. A group without tags
+ * always shows, and so does every group while no tags are set: before any
+ * call, after `setTags(null)` or `setTags([])`. Calling again replaces the
+ * tags; rendered elements show the matching groups at once, without a new
+ * request. The tags stay in the browser: they are never sent to TaleArt
+ * (AD-13). A value that is not an array is ignored with one console warning.
+ */
+export function setTags(tags: readonly string[] | null): void {
+  if (tags != null && !Array.isArray(tags)) {
+    console.warn('TaleArt: setTags needs an array of tag names, or null; the tags are ignored');
+    return;
+  }
+  viewerTags = viewerTagSet(tags);
+  for (const element of connected) element.retarget();
+}
+
+// The zone with only the tale groups whose tag rule passes for the viewer's tags.
+function targeted(zone: DeliveryZone): DeliveryZone {
+  return { ...zone, taleGroups: zone.taleGroups.filter((group) => tagRulePasses(group, viewerTags)) };
+}
+
+// The ids of a zone's groups, as one string, to tell whether a render would change.
+function groupKey(zone: DeliveryZone): string {
+  return zone.taleGroups.map((group) => group.id).join('\n');
 }
 
 // What an element asks the Delivery API for, and the name its zone configuration is set under
@@ -129,6 +162,12 @@ export class TaleartElement extends HTMLElement {
   private marked = false;
   // Aborts the current render's first-content work (loadFirstContent).
   private renderAbort: AbortController | null = null;
+  // The last zone the Delivery API sent, with its configuration name, so new viewer tags render
+  // without a new request; and the groups rendered from it.
+  private loaded: { zone: DeliveryZone; configName: string } | null = null;
+  private renderedKey: string | null = null;
+  // True while new viewer tags wait for the open viewer to close: its group still matches them.
+  private retargetOnClose = false;
 
   constructor() {
     super();
@@ -159,6 +198,26 @@ export class TaleartElement extends HTMLElement {
   set theme(value: Partial<Theme> | null) {
     this.themeOverride = readThemeOverride(value, "the element's theme");
     this.retheme();
+  }
+
+  /** Shows the groups that match the viewer's tags again (setTags), without a new request. */
+  retarget(): void {
+    const loaded = this.loaded;
+    if (!loaded || !this.isConnected) return;
+    const zone = targeted(loaded.zone);
+    // The same groups: the display, and an open viewer, stay as they are.
+    if (groupKey(zone) === this.renderedKey) {
+      this.retargetOnClose = false;
+      return;
+    }
+    // An open viewer whose group still matches stays open; the display follows when it closes.
+    // One whose group no longer matches closes, and focus goes to the display.
+    const open = this.viewer?.groupId ?? null;
+    if (open !== null && zone.taleGroups.some((group) => group.id === open)) {
+      this.retargetOnClose = true;
+      return;
+    }
+    this.render(zone, this.clear(), loaded.configName);
   }
 
   /** Applies the theme again with the current SDK configuration, without a new request. */
@@ -287,13 +346,8 @@ export class TaleartElement extends HTMLElement {
     const id = ++this.loadId;
     const { apiUrl } = this;
     const named = zoneRequest(this);
-    // A reload while the viewer is open puts focus back on the display once it renders.
-    const focusGroup = this.closeViewer() ?? this.pendingFocus;
-    this.pendingFocus = focusGroup;
-    this.stopFirstContent();
-    this.destroyView();
-    this.root.replaceChildren();
-    this.themed = null;
+    this.loaded = null;
+    const focusGroup = this.clear();
     if (!apiUrl || !named || !this.isConnected) return;
     // Nothing escapes as an unhandled rejection: any failure renders nothing and logs once.
     try {
@@ -304,7 +358,8 @@ export class TaleartElement extends HTMLElement {
         this.zoneMarked = true;
         mark(ZONE_MARK);
       }
-      this.render(zone, focusGroup, named.configName);
+      this.loaded = { zone, configName: named.configName };
+      this.render(targeted(zone), focusGroup, named.configName);
     } catch (err) {
       if (id !== this.loadId) return;
       this.root.replaceChildren();
@@ -312,9 +367,24 @@ export class TaleartElement extends HTMLElement {
     }
   }
 
+  // Takes the rendered display and viewer off; returns the group that takes focus once the next
+  // render is on the page (a reload or new tags while the viewer is open put focus back on the display).
+  private clear(): string | null {
+    const focusGroup = this.closeViewer() ?? this.pendingFocus;
+    this.pendingFocus = focusGroup;
+    this.stopFirstContent();
+    this.destroyView();
+    this.root.replaceChildren();
+    this.themed = null;
+    this.renderedKey = null;
+    this.retargetOnClose = false;
+    return focusGroup;
+  }
+
   // Renders the zone's display (AD-17) when the SDK knows its type; unknown types are skipped (AD-5).
   private render(zone: DeliveryZone, focusGroup: string | null, configName: string): void {
     this.pendingFocus = null;
+    this.renderedKey = groupKey(zone);
     // The response is untrusted: anything but an object reads as no display.
     const frame = typeof zone.frame === 'object' && zone.frame !== null ? zone.frame : null;
     const names = new Map(zone.taleGroups.map((group) => [group.id, group.name]));
@@ -333,7 +403,17 @@ export class TaleartElement extends HTMLElement {
         const item = barItems?.get(groupId);
         if (item) setItemSeen(item, names.get(groupId) ?? '', true);
       },
-      onClose: (groupId) => view?.focus(groupId),
+      onClose: (groupId) => {
+        // New viewer tags arrived while it was open: show the matching groups now, focus on this one.
+        if (this.retargetOnClose && this.viewer === viewer) {
+          this.retargetOnClose = false;
+          this.viewer = null;
+          this.pendingFocus = groupId;
+          this.retarget();
+          return;
+        }
+        view?.focus(groupId);
+      },
       // Votes go to the zone this element read (epic interactive components R9).
       responses: this.responses ?? undefined,
     });
