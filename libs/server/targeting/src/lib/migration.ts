@@ -1,4 +1,4 @@
-import { MAX_TAG_NAME_LENGTH } from '@taleart/contract';
+import { MAX_TAG_NAME_LENGTH, MAX_USER_LIST_NAME_LENGTH } from '@taleart/contract';
 import type { Db } from '@taleart/server-access';
 
 /**
@@ -46,6 +46,50 @@ export async function migrateTargeting(db: Db): Promise<void> {
       tag_match text NOT NULL DEFAULT 'any' CHECK (tag_match IN ('any', 'all')),
       updated_at timestamptz NOT NULL DEFAULT now(),
       FOREIGN KEY (tale_group_id, project_id) REFERENCES tale_groups (id, project_id) ON DELETE CASCADE
+    );
+  `);
+
+  await migrateUserLists(db);
+}
+
+/**
+ * User lists (epic targeting R3, R5). External user IDs are stored only as HMAC-SHA-256 under a
+ * random secret per project; every table goes with its project (ON DELETE CASCADE), and a list's
+ * hashes go with the list, so deletes are hard deletes.
+ */
+async function migrateUserLists(db: Db): Promise<void> {
+  // The project's hashing secret: 32 random bytes, created with its first list, never returned.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS user_list_secrets (
+      project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      secret bytea NOT NULL CHECK (octet_length(secret) = 32),
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS user_lists (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND ${MAX_USER_LIST_NAME_LENGTH} AND name = btrim(name)),
+      id_count integer NOT NULL DEFAULT 0 CHECK (id_count >= 0),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  // Names are unique per project, ignoring case.
+  await db.query(
+    'CREATE UNIQUE INDEX IF NOT EXISTS user_lists_project_id_lower_name_key ON user_lists (project_id, lower(name))',
+  );
+  // Lets the hashes reference (list, project) together.
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS user_lists_id_project_id_key ON user_lists (id, project_id)');
+  // A list's IDs, each once, as a 32-byte keyed hash; never in clear.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS user_list_ids (
+      user_list_id uuid NOT NULL,
+      project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      id_hash bytea NOT NULL CHECK (octet_length(id_hash) = 32),
+      PRIMARY KEY (user_list_id, id_hash),
+      FOREIGN KEY (user_list_id, project_id) REFERENCES user_lists (id, project_id) ON DELETE CASCADE
     );
   `);
 }

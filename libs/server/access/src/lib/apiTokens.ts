@@ -99,8 +99,8 @@ function toApiToken(row: TokenRow): ApiToken {
 
 /**
  * Creates an API token for the user. The token is returned once; only its hash is stored. A user
- * holds at most {@link MAX_API_TOKENS_PER_USER} active tokens ({@link ApiTokenLimitError}), counted
- * under a per-user lock so two creates at once cannot both pass.
+ * holds at most {@link MAX_API_TOKENS_PER_USER} active tokens ({@link ApiTokenLimitError}): not
+ * revoked and not expired, counted under a per-user lock so two creates at once cannot both pass.
  */
 export async function createApiToken(db: TransactionalDb, input: NewApiToken): Promise<IssuedApiToken> {
   const token = newApiToken();
@@ -108,7 +108,8 @@ export async function createApiToken(db: TransactionalDb, input: NewApiToken): P
   return inTransaction(db, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext('api_tokens:' || $1))", [input.userId]);
     const { rows: counted } = await tx.query<{ n: number }>(
-      'SELECT count(*)::int AS n FROM api_tokens WHERE user_id = $1 AND revoked_at IS NULL',
+      `SELECT count(*)::int AS n FROM api_tokens
+       WHERE user_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`,
       [input.userId],
     );
     if ((counted[0]?.n ?? 0) >= MAX_API_TOKENS_PER_USER) throw new ApiTokenLimitError();
@@ -171,6 +172,21 @@ export async function revokeApiToken(db: Db, userId: string, tokenId: string): P
     [tokenId, userId],
   );
   if (!rowCount) throw new ApiTokenNotFoundError();
+}
+
+/**
+ * Revokes every active token of a user (an admin's action, for a lost laptop or a person leaving):
+ * the number revoked, or null when no user has this id. Nothing is deleted.
+ */
+export async function revokeUserApiTokens(db: Db, userId: string): Promise<number | null> {
+  if (!UUID.test(userId)) return null;
+  const { rowCount: exists } = await db.query('SELECT 1 FROM users WHERE id = $1', [userId]);
+  if (!exists) return null;
+  const { rowCount } = await db.query(
+    'UPDATE api_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+    [userId],
+  );
+  return rowCount ?? 0;
 }
 
 /** A token that authenticated: its user (read now, with their current role) and its scope. */

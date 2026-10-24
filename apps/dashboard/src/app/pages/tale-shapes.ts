@@ -15,6 +15,7 @@ import {
 import { Drawer } from '../drawer';
 import { parseHexColor } from './tale-text-style';
 import { cleanLabel, percent } from './tale-layers';
+import type { ChoiceEdit } from './tale-element-types';
 
 /** One emoji the picker offers, with its Unicode (CLDR) name, the accessible name it starts with. */
 export interface EmojiChoice {
@@ -334,10 +335,11 @@ export interface ElementChange {
   label: string;
   props?: Readonly<Record<string, unknown>>;
   /**
-   * One choice's new label (epic interactive components R1), applied by the studio to the element's
-   * props as they are when the change lands, never to a copy the inspector held.
+   * An edit to a list of choices (epic interactive components R1): a new label, or a choice added,
+   * removed or moved (story 4.3), applied by the studio to the element's props as they are when the
+   * change lands, never to a copy the inspector held.
    */
-  choice?: { prop: string; index: number; label: string };
+  choice?: ChoiceEdit;
   a11y?: TaleElementA11y;
   said: string;
 }

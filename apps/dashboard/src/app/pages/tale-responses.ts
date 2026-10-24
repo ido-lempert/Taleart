@@ -1,7 +1,9 @@
 import { HttpClient } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import {
-  pollOptionIds,
+  CHOICE_PROPS,
+  choiceIds,
+  quizCorrectAnswerId,
   ratingResult,
   type ElementResponseCounts,
   type TaleResponses,
@@ -14,6 +16,8 @@ interface ChoiceCountView {
   id: string;
   label: string;
   count: number;
+  /** The quiz's correct answer (story 4.3). */
+  correct: boolean;
 }
 
 /** How the panel names one kind of component's responses. */
@@ -33,6 +37,15 @@ const POLL_WORDS: ResponseWords = {
   note: "This poll already has votes. Editing an option's text keeps its count; votes stay with the option.",
 };
 
+const QUIZ_WORDS: ResponseWords = {
+  heading: 'Answers',
+  one: 'answer',
+  many: 'answers',
+  note: "This quiz already has answers. Editing an answer's text or moving it keeps its count; removing an answer drops its count.",
+};
+
+const WORDS: Readonly<Record<string, ResponseWords>> = { poll: POLL_WORDS, quiz: QUIZ_WORDS };
+
 const RATING_WORDS: ResponseWords = {
   heading: 'Ratings',
   one: 'rating',
@@ -46,7 +59,7 @@ const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en
  * The responses of the selected interactive component (epic interactive components R11, C8), read
  * from the Management API for the tale: for a poll, its votes per option as the site recorded them,
  * listed as the draft holds the options now, so an edited label keeps its count and a removed option
- * drops out; for a Rating (story 4.2), how many rated it and their average. While the component has
+ * drops out; for a quiz (story 4.3) the same per answer, with the correct one named; for a Rating (story 4.2), how many rated it and their average. While the component has
  * responses it says so, before it is edited. The studio preview records none. Read when the
  * component is selected, and again on Refresh.
  */
@@ -61,6 +74,7 @@ const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en
     .responses__item { display: flex; justify-content: space-between; gap: 12px; }
     .responses__count { font-variant-numeric: tabular-nums; font-weight: 600; }
     .responses__note { margin: 0; }
+    .responses__correct { font-weight: 600; }
   `,
   template: `
     <section class="responses" aria-labelledby="studio-responses-title">
@@ -76,7 +90,7 @@ const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en
           <ul class="responses__list" id="studio-responses">
             @for (choice of view.choices; track choice.id) {
               <li class="responses__item">
-                <span>{{ choice.label }}</span>
+                <span>{{ choice.label }}@if (choice.correct) {<span class="responses__correct"> (correct)</span>}</span>
                 <span class="responses__count">{{ choice.count }}</span>
               </li>
             }
@@ -106,7 +120,11 @@ export class TaleResponsesPanel {
   private generation = 0;
   // The selected component's id: an edit to its props does not read the counts again.
   private readonly elementId = computed(() => this.element().id);
-  protected readonly words = computed(() => (this.element().type === 'rating' ? RATING_WORDS : POLL_WORDS));
+  protected readonly words = computed(() => {
+    const type = this.element().type;
+    if (type === 'rating') return RATING_WORDS;
+    return Object.prototype.hasOwnProperty.call(WORDS, type) ? WORDS[type] : POLL_WORDS;
+  });
 
   constructor() {
     // Read again whenever another component, or another tale, is selected.
@@ -155,17 +173,24 @@ export class TaleResponsesPanel {
         hasResponses,
       };
     }
+    // A poll's options or a quiz's answers, as the draft holds them now: a removed one drops out.
+    const prop = CHOICE_PROPS[element.type] ?? 'options';
+    const list = (element.props as Record<string, unknown> | null)?.[prop];
     const labels = new Map(
-      (((element.props as { options?: unknown } | null)?.options ?? []) as { id?: unknown; label?: unknown }[]).map(
-        (o) => [o?.id, typeof o?.label === 'string' ? o.label : ''],
-      ),
+      (Array.isArray(list) ? (list as { id?: unknown; label?: unknown }[]) : []).map((o) => [
+        o?.id,
+        typeof o?.label === 'string' ? o.label : '',
+      ]),
     );
-    const choices: ChoiceCountView[] = pollOptionIds(element.props).map((id) => ({
+    const correct = element.type === 'quiz' ? quizCorrectAnswerId(element.props) : null;
+    const choices: ChoiceCountView[] = choiceIds(element.type, element.props).map((id) => ({
       id,
       label: labels.get(id) || id,
       count: byValue.get(id) ?? 0,
+      correct: id === correct,
     }));
     const total = choices.reduce((sum, c) => sum + c.count, 0);
-    return { choices, total: plural(total, 'vote', 'votes'), hasResponses };
+    const words = this.words();
+    return { choices, total: plural(total, words.one, words.many), hasResponses };
   });
 }

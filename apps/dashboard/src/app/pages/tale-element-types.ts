@@ -77,10 +77,11 @@ export interface InspectorField {
 }
 
 /**
- * A fixed list of choices, each `{ id, label }` (epic interactive components R1): the inspector edits
- * each label as a text field; ids stay as made, so a choice's count survives an edit to its text.
- * Its prop is an array with as many items at least as at most (adding and removing choices comes
- * with the quiz's list field).
+ * A list of choices, each `{ id, label }` (epic interactive components R1): the inspector edits each
+ * label as a text field; ids stay as made, so a choice's count survives an edit to its text. When
+ * its array prop allows fewer items than it holds at most (a quiz's two to four answers, story 4.3),
+ * it is a list field: choices are added, removed and moved up or down, each by id. It may also pick
+ * one choice as the correct one.
  */
 export interface ChoicesField {
   /** The array prop. */
@@ -89,7 +90,60 @@ export interface ChoicesField {
   label: string;
   /** The name of the choice at `index` (from 0), such as "Option 1". */
   itemLabel(index: number): string;
+  /** For a list field: the label a choice added at `index` starts with, unlike the labels `taken`. */
+  newLabel?(index: number, taken: readonly string[]): string;
+  /** The Add button's text, such as "Add answer". */
+  addLabel?: string;
   hint?: string;
+  /**
+   * An optional string prop holding the id of the correct choice (a quiz's `correctAnswerId`):
+   * picked from the choices, or none. Removing that choice clears it.
+   */
+  correct?: { prop: string; label: string; none: string; hint?: string };
+}
+
+/**
+ * One edit to a list of choices, applied by the studio to the element's props as they are when it
+ * lands, never to a copy the inspector held (epic interactive components R1): a choice's new label
+ * by its index; a choice added at the end, up to `max`; a choice removed by id, down to `min`,
+ * clearing `clears` when that prop held its id; a choice moved one place up or down by id.
+ */
+export type ChoiceEdit =
+  | { prop: string; index: number; label: string }
+  | { prop: string; add: { id: string; label: string }; max: number }
+  | { prop: string; remove: string; min: number; clears?: string }
+  | { prop: string; move: string; by: -1 | 1 };
+
+/** The props with `edit` applied, or null when it changes nothing (an id gone, a limit reached, an end). */
+export function applyChoiceEdit(
+  props: Readonly<Record<string, unknown>>,
+  edit: ChoiceEdit,
+): Record<string, unknown> | null {
+  const items = props[edit.prop];
+  if (!Array.isArray(items)) return null;
+  const list = items as readonly Record<string, unknown>[];
+  const at = (id: string) => list.findIndex((item) => item?.['id'] === id);
+  if ('label' in edit) {
+    if (edit.index < 0 || edit.index >= list.length) return null;
+    return { ...props, [edit.prop]: list.map((item, i) => (i === edit.index ? { ...item, label: edit.label } : item)) };
+  }
+  if ('add' in edit) {
+    if (list.length >= edit.max || at(edit.add.id) !== -1) return null;
+    return { ...props, [edit.prop]: [...list, { ...edit.add }] };
+  }
+  if ('remove' in edit) {
+    const index = at(edit.remove);
+    if (index === -1 || list.length <= edit.min) return null;
+    const next: Record<string, unknown> = { ...props, [edit.prop]: list.filter((_, i) => i !== index) };
+    if (edit.clears && next[edit.clears] === edit.remove) delete next[edit.clears];
+    return next;
+  }
+  const index = at(edit.move);
+  const to = index + edit.by;
+  if (index === -1 || to < 0 || to >= list.length) return null;
+  const moved = [...list];
+  [moved[index], moved[to]] = [moved[to], moved[index]];
+  return { ...props, [edit.prop]: moved };
 }
 
 /** A new type's inspector: its fields, in order, checked against its props schema as people edit. */
@@ -153,6 +207,19 @@ function lineTextProblem(texts: readonly unknown[]): string | null {
     if (text.trim() === '') return 'Enter some text.';
     if (hasDisallowedCharacter(text, LABEL_TEXT_RULE) || text.includes('\n')) return 'Use one line of plain text.';
   }
+  return null;
+}
+
+// A quiz's rules its schema cannot state, as the server's `PROPS_RULES` holds them: its text shows on
+// one line, its answer ids differ, and its correct answer, when set, is one of them (epic
+// interactive components R3).
+function checkQuizProps(props: Readonly<Record<string, unknown>>): string | null {
+  const answers = Array.isArray(props['answers']) ? (props['answers'] as { id?: unknown; label?: unknown }[]) : [];
+  const problem = lineTextProblem([props['question'], props['title'], ...answers.map((a) => a?.label)]);
+  if (problem) return problem;
+  if (new Set(answers.map((a) => a?.id)).size !== answers.length) return 'Each answer needs its own id.';
+  const correct = props['correctAnswerId'];
+  if (correct !== undefined && !answers.some((a) => a?.id === correct)) return 'Pick one of the answers, or none.';
   return null;
 }
 
@@ -287,6 +354,53 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
       [props['emoji'], props['question']].filter((part): part is string => typeof part === 'string').join(' '),
     check: checkRatingProps,
   },
+  quiz: {
+    add: [
+      entry('studio-add-quiz', 'Add quiz', 'quiz', 3, { kind: 'configured' }, {
+        limit: oneOf('quiz', 'studio-quiz-hint', 4, 'A tale holds one quiz. Delete it to add another.'),
+      }),
+    ],
+    inspector: {
+      fields: [
+        { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
+        { prop: 'title', label: 'Title', control: 'text', hint: 'Optional, up to 80 characters.' },
+        THEME_FIELD,
+      ],
+      choices: {
+        prop: 'answers',
+        label: 'Answers',
+        itemLabel: (index) => `Answer ${index + 1}`,
+        newLabel: (index, taken) => {
+          // "Answer N" from its place, or the next N no other answer is labelled with.
+          let n = index + 1;
+          while (taken.includes(`Answer ${n}`)) n += 1;
+          return `Answer ${n}`;
+        },
+        addLabel: 'Add answer',
+        hint: 'Two to four, up to 60 characters each. Answers keep their count when their text changes or they move.',
+        correct: {
+          prop: 'correctAnswerId',
+          label: 'Correct answer',
+          none: 'None: show only the percentages',
+          hint: 'Visitors see if they were right once they answer. The correct answer is public, so a quiz is not a secure test.',
+        },
+      },
+    },
+    create: {
+      box: { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 },
+      props: () => ({
+        question: 'Ask a question',
+        theme: 'light',
+        answers: [
+          { id: crypto.randomUUID(), label: 'Answer 1' },
+          { id: crypto.randomUUID(), label: 'Answer 2' },
+        ],
+      }),
+    },
+    // The canvas shows its question; the preview pane draws it as visitors see it (AD-16).
+    preview: (props) => (typeof props['question'] === 'string' ? props['question'] : ''),
+    check: checkQuizProps,
+  },
   'swipe-up': {
     add: [
       entry('studio-add-swipe-up', 'Add swipe-up link', 'swipe-up', 2, { kind: 'swipe-up' }, {
@@ -383,6 +497,7 @@ function checkFieldsInspector(type: ElementTypeEntry, inspector: FieldsInspector
   }
   const properties = (type.schema['properties'] ?? {}) as Record<string, Record<string, unknown>>;
   const choices = inspector.choices;
+  const required = Array.isArray(type.schema['required']) ? (type.schema['required'] as unknown[]) : [];
   for (const [name, prop] of Object.entries(properties)) {
     if (name === choices?.prop) continue;
     for (const keyword of Object.keys(prop)) {
@@ -406,26 +521,41 @@ function checkFieldsInspector(type: ElementTypeEntry, inspector: FieldsInspector
       fail(`"${field.prop}" is a colour field, so its pattern must be ${HEX_COLOR_PATTERN}`);
     }
   }
-  if (choices) checkChoicesField(properties, choices.prop, fail);
+  if (choices) checkChoicesField(properties, required, choices, fail);
 }
 
 /** The JSON Schema keywords a choices field's array prop may use. */
 export const CHOICES_PROP_KEYWORDS: readonly string[] = ['title', 'description', 'type', 'minItems', 'maxItems', 'items'];
 
-// A choices field edits a fixed number of closed `{ id, label }` items whose id and label use only
-// what `propValueProblem` checks, and whose label is text.
+// A choices field edits closed `{ id, label }` items whose id and label use only what
+// `propValueProblem` checks, and whose label is text: a fixed number of them, or a list of
+// `minItems` to `maxItems` (at least one) that a descriptor offering new ones names. Its correct
+// pick, if any, is an optional prop of the schema holding a string.
 function checkChoicesField(
   properties: Record<string, Record<string, unknown>>,
-  name: string,
+  requiredProps: readonly unknown[],
+  choices: ChoicesField,
   fail: (why: string) => void,
 ): void {
+  const name = choices.prop;
   const prop = Object.prototype.hasOwnProperty.call(properties, name) ? properties[name] : undefined;
   if (!prop) return fail(`the inspector edits choices "${name}", which its schema lacks`);
   for (const keyword of Object.keys(prop)) {
     if (!CHOICES_PROP_KEYWORDS.includes(keyword)) fail(`"${name}" uses "${keyword}", which the choices field does not check`);
   }
-  if (prop['type'] !== 'array' || prop['minItems'] === undefined || prop['minItems'] !== prop['maxItems']) {
-    fail(`"${name}" must be an array with as many items at least as at most`);
+  const min = prop['minItems'];
+  const max = prop['maxItems'];
+  if (prop['type'] !== 'array' || typeof min !== 'number' || typeof max !== 'number' || min < 1 || min > max) {
+    fail(`"${name}" must be an array with a number of items at least and at most`);
+  }
+  if (min !== max && (!choices.newLabel || !choices.addLabel)) {
+    fail(`"${name}" holds ${min} to ${max} items, so the inspector must say how a new one is labelled`);
+  }
+  if (choices.correct) {
+    const correct = Object.prototype.hasOwnProperty.call(properties, choices.correct.prop) ? properties[choices.correct.prop] : undefined;
+    if (!correct || correct['type'] !== 'string' || requiredProps.includes(choices.correct.prop)) {
+      fail(`the correct choice "${choices.correct.prop}" must be an optional string prop of its schema`);
+    }
   }
   const items = (prop['items'] ?? {}) as Record<string, unknown>;
   const itemProps = (items['properties'] ?? {}) as Record<string, Record<string, unknown>>;

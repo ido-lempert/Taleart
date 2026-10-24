@@ -225,7 +225,7 @@ export interface paths {
         put?: never;
         /**
          * Create an API token for the signed-in user (shown only once).
-         * @description The token (`tat_` and 32 random bytes in base64url) appears only in this response, sent with `Cache-Control: no-store`; only its SHA-256 hash and its prefix are stored. It acts as the user, limited to `projectIds` (or, when null, to every project the user can access at the time of each request) and, when `readOnly`, to GET requests. The user's own access is read on every request, so a project the user loses is lost to the token too. Every listed project must exist (else 400 `project_not_found`) and be one the user can access (else 403 `forbidden`). A user holds at most 50 active tokens (409 `api_token_limit_reached`). A passkey session only: an API token gets 403 `forbidden`.
+         * @description The token (`tat_` and 32 random bytes in base64url) appears only in this response, sent with `Cache-Control: no-store`; only its SHA-256 hash and its prefix are stored. It acts as the user, limited to `projectIds` (or, when null, to every project the user can access at the time of each request) and, when `readOnly`, to GET requests. The user's own access is read on every request, so a project the user loses is lost to the token too. Every listed project must exist (else 400 `project_not_found`) and be one the user can access (else 403 `forbidden`). A user holds at most 50 active tokens, expired ones not counted (409 `api_token_limit_reached`). A passkey session only: an API token gets 403 `forbidden`.
          */
         post: operations["createApiToken"];
         delete?: never;
@@ -251,6 +251,28 @@ export interface paths {
          * @description The token stops working at once: its next request answers 401 `unauthenticated`. Another user's token, an unknown or an already revoked one answers 404 `api_token_not_found`. A passkey session only: an API token gets 403 `forbidden`.
          */
         delete: operations["revokeApiToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke every API token of a user (admins only).
+         * @description For a lost laptop or a person leaving: every active token of the user stops working at once. A content manager gets 403 `forbidden`; an unknown user 404 `not_found`. A passkey session only: an API token gets 403 `forbidden`.
+         */
+        delete: operations["revokeUserApiTokens"];
         options?: never;
         head?: never;
         patch?: never;
@@ -527,6 +549,85 @@ export interface paths {
          * @description The name is trimmed and holds 1 to 40 characters and no control characters (400 `validation_failed` otherwise). Names are unique per project ignoring case; a taken name answers 409 `tag_exists`. Unknown project 404 `project_not_found`.
          */
         post: operations["createTag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/user-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * A project's user lists (epic targeting R3), by name.
+         * @description Each list with its name, how many external user IDs it holds and when it last changed. The IDs themselves are never returned: they are stored only as keyed hashes (epic targeting R5). Unknown project 404 `project_not_found`.
+         */
+        get: operations["listUserLists"];
+        put?: never;
+        /**
+         * Create an empty user list in a project.
+         * @description Admins and content managers create lists. The name is trimmed and holds 1 to 100 characters and no control characters (400 `validation_failed`); names are unique per project ignoring case (409 `user_list_exists`); a project holds at most 100 lists (409 `user_list_limit_reached`). Unknown project 404 `project_not_found`.
+         */
+        post: operations["createUserList"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/user-lists/{userListId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                userListId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a user list and every ID it holds, for good.
+         * @description A hard delete in one transaction: the list and all its hashes go, with no soft delete (epic targeting R5). When it was the project's last list, the project's hashing secret goes too, so the next list gets a new one. Admins and content managers delete. 404 `user_list_not_found` for a list of another project, or none.
+         */
+        delete: operations["deleteUserList"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a user list.
+         * @description Same name rules as creating one. A list of another project, or none, 404 `user_list_not_found`.
+         */
+        patch: operations["renameUserList"];
+        trace?: never;
+    };
+    "/projects/{projectId}/user-lists/{userListId}/ids": {
+        parameters: {
+            query?: {
+                /** @description `true` when the first row is a header, which is skipped; any other value reads every row. */
+                header?: string;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+                userListId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add the external user IDs of a single-column CSV to a user list.
+         * @description The body is the CSV, UTF-8 (a byte order mark is skipped), one ID per row, read as a stream and not kept. Each non-empty row, trimmed (and unquoted when it is a quoted field), is one ID of at most 256 ASCII characters with no control characters; matching is exact (case-sensitive, no Unicode normalization). Each ID is stored only as HMAC-SHA-256 under the project's secret (epic targeting R5); no ID is ever returned, logged or kept. Rows already in the list, or earlier in the file, count as already present; refused rows are counted and the first 10 named by line number and reason. The upload is all or nothing. Admins and content managers upload. An upload that sends no byte for 30 s, or takes more than 280 s in all (a 50 MB file needs about 190 KB/s), is ended with nothing added (408 `validation_failed`, often on a closed connection). Checked before the body is read (with `Connection: close`): too many uploads at once 429 `upload_busy`; unknown project 404 `project_not_found`; unknown list 404 `user_list_not_found`; a type other than `text/csv` or `text/plain` 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over 50 MB 413 `user_list_file_too_large`. While it streams: over 1,000,000 rows 413 `user_list_file_too_large`, not UTF-8 or a body other than its declared length 400 `validation_failed`; nothing is added in either case.
+         */
+        post: operations["addUserListIds"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1256,7 +1357,7 @@ export interface paths {
         };
         /**
          * Read the responses to a tale's interactive components.
-         * @description The visitors' responses to the tale's interactive components (epic interactive components R11), as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id, a Rating's value from 0 to 100), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         * @description The visitors' responses to the tale's interactive components (epic interactive components R11), as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id, a quiz's answer id, a Rating's value from 0 to 100), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTaleResponses"];
         put?: never;
@@ -1278,7 +1379,7 @@ export interface paths {
         put?: never;
         /**
          * Record a visitor's response to an interactive component (Delivery API).
-         * @description Served under `/delivery/v1` (epic interactive components R9). Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule of AD-6: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a Rating's whole number from 0 to 100, written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's counts and percentages per option, a Rating's count and average). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times (AD-10); no user data (AD-13). Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
+         * @description Served under `/delivery/v1` (epic interactive components R9). Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule of AD-6: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a quiz's answer id; a Rating's whole number from 0 to 100, written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's or a quiz's counts and percentages per option or answer, a Rating's count and average). A quiz's correct answer is not in the answer: it is in the published document (C10). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times (AD-10); no user data (AD-13). Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
          */
         post: operations["postDeliveryResponse"];
         delete?: never;
@@ -1466,6 +1567,59 @@ export interface components {
         CreateTagRequest: {
             /** @description Trimmed before it is checked and stored; unique in the project ignoring case. */
             name: string;
+        };
+        /** @description A project's list of external user IDs (epic targeting R3). It tells how many IDs it holds, never which: they are stored only as keyed hashes (R5). */
+        UserList: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            name: string;
+            /** @description How many distinct external user IDs the list holds. */
+            idCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When the list was created, renamed or last had IDs added.
+             */
+            updatedAt: string;
+        };
+        CreateUserListRequest: {
+            /** @description Trimmed before it is checked and stored; unique in the project ignoring case. */
+            name: string;
+        };
+        RenameUserListRequest: {
+            /** @description Trimmed before it is checked and stored; unique in the project ignoring case. */
+            name: string;
+        };
+        /** @description A refused row, by its line number in the file (from 1), never by its value. */
+        UserListRefusedRow: {
+            line: number;
+            reason: components["schemas"]["UserListRefusal"];
+        };
+        /**
+         * @description Why a row was refused: longer than 256 characters, holding a control character, holding a character outside ASCII (only ASCII IDs are supported until the Delivery header's encoding is defined, epic targeting story 4), or more than one field (an unquoted comma or quote, or a broken quoted field).
+         * @enum {string}
+         */
+        UserListRefusal: "too-long" | "control-character" | "not-ascii" | "not-one-column";
+        /** @description What an upload did, in counts only (epic targeting R3, R5). It never holds an uploaded value. */
+        UserListUploadReport: {
+            /** @description IDs added to the list. */
+            added: number;
+            /** @description Rows whose ID the list already held, or an earlier row of the file held. */
+            alreadyPresent: number;
+            refused: number;
+            /** @description The first refused rows, by line number. */
+            refusedRows: components["schemas"]["UserListRefusedRow"][];
+            /** @description Blank rows, skipped. */
+            emptyRows: number;
+            /** @description Accepted rows that look like an email address. */
+            emailLike: number;
+            /** @description Accepted rows that look like a phone number. */
+            phoneLike: number;
+            /** @description How many IDs the list holds now. */
+            idCount: number;
         };
         SetTaleGroupTagsRequest: {
             /** @description The ids of the group's new tags, all of the group's project. Repeats count once. */
@@ -1662,6 +1816,10 @@ export interface components {
              */
             expiresAt?: string | null;
         };
+        RevokedApiTokens: {
+            /** @description How many active tokens were revoked. */
+            revoked: number;
+        };
         IssuedApiToken: components["schemas"]["ApiToken"] & {
             /** @description The secret token, `tat_` and 32 random bytes in base64url. Shown only once. */
             token: string;
@@ -1809,7 +1967,7 @@ export interface components {
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll` or `rating`. */
+            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll`, `rating` or `quiz`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
@@ -1828,8 +1986,9 @@ export interface components {
         SwipeUpElementProps: components["schemas"]["swipe-up.schema"];
         PollElementProps: components["schemas"]["poll.schema"];
         RatingElementProps: components["schemas"]["rating.schema"];
+        QuizElementProps: components["schemas"]["quiz.schema"];
         ChoiceCount: {
-            /** @description The choice's id (a poll's option id). */
+            /** @description The choice's id (a poll's option id, a quiz's answer id). */
             id: string;
             count: number;
             /** @description The choice's share of the votes as a whole percentage; the shares add up to 100 when there is a vote, and are 0 without one. */
@@ -1851,7 +2010,7 @@ export interface components {
             taleId: string;
             /** Format: uuid */
             elementId: string;
-            /** @description The response, such as a poll's option id or a Rating's whole number from 0 to 100 (`80`). */
+            /** @description The response, such as a poll's option id, a quiz's answer id or a Rating's whole number from 0 to 100 (`80`). */
             value: string;
             /**
              * Format: date-time
@@ -1866,7 +2025,7 @@ export interface components {
             value: string;
             /** @description True when this request recorded it; false for a repeat. */
             recorded: boolean;
-            /** @description The component's result now: a poll's counts and percentages per option, or a Rating's count and average. */
+            /** @description The component's result now: a poll's or a quiz's counts and percentages per choice, or a Rating's count and average. */
             result: components["schemas"]["ChoiceResult"] | components["schemas"]["RatingResult"];
         };
         ElementResponseCounts: {
@@ -2321,7 +2480,7 @@ export interface components {
             finishedAt: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "internal_error";
+        ErrorCode: "validation_failed" | "project_not_found" | "not_found" | "zone_not_found" | "unknown_frame_type" | "invalid_frame_settings" | "invalid_theme" | "display_not_found" | "display_exists" | "slug_taken" | "tale_group_not_found" | "tale_group_full" | "tale_group_limit_reached" | "tale_not_found" | "order_mismatch" | "media_not_found" | "unsupported_media_type" | "media_too_large" | "unauthenticated" | "setup_closed" | "passkey_failed" | "forbidden" | "invitation_invalid" | "email_taken" | "tag_exists" | "tag_not_found" | "site_key_not_found" | "site_key_exists" | "invalid_site_key" | "api_token_not_found" | "api_token_limit_reached" | "rate_limited" | "another tool_token_invalid" | "another tool_unavailable" | "importer_not_configured" | "import_selection_invalid" | "preview_busy" | "invalid_status_transition" | "tale_group_archived" | "unknown_template" | "concurrent_change" | "invalid_tale_document" | "tale_document_too_large" | "stale_revision" | "nothing_to_publish" | "font_not_found" | "font_exists" | "font_in_use" | "font_limit_reached" | "font_storage_full" | "media_limit_reached" | "media_storage_full" | "upload_busy" | "length_required" | "response_target_not_found" | "visitor_id_required" | "user_list_not_found" | "user_list_exists" | "user_list_limit_reached" | "user_list_file_too_large" | "internal_error";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
@@ -2637,6 +2796,30 @@ export interface components {
             question: string;
             /** @description The emoji on the slider's thumb: one RGI emoji, drawn as text. */
             emoji: string;
+            /**
+             * @description `light` draws dark text on a light card; `dark` light text on a dark card.
+             * @enum {string}
+             */
+            theme: "light" | "dark";
+        };
+        /**
+         * QuizElementProps
+         * @description The props of a quiz (epic interactive components R1, R3): an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.
+         */
+        "quiz.schema": {
+            /** @description A short heading above the question; none when left out. */
+            title?: string;
+            /** @description The question visitors answer. */
+            question: string;
+            /** @description The two to four answers, in the order they show. */
+            answers: {
+                /** @description The answer's id, unique in the quiz and kept when its text changes or it moves: answers are counted by it. */
+                id: string;
+                /** @description The answer as visitors read it: its accessible name. */
+                label: string;
+            }[];
+            /** @description The id of the correct answer, one of `answers`; when left out the quiz works as a survey. */
+            correctAnswerId?: string;
             /**
              * @description `light` draws dark text on a light card; `dark` light text on a dark card.
              * @enum {string}
@@ -2980,6 +3163,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    revokeUserApiTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many tokens were revoked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokedApiTokens"];
+                };
             };
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
@@ -3535,6 +3743,158 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listUserLists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's user lists, by name ignoring case. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"][];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createUserList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserListRequest"];
+            };
+        };
+        responses: {
+            /** @description The created list, holding no ID. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteUserList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                userListId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    renameUserList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                userListId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameUserListRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    addUserListIds: {
+        parameters: {
+            query?: {
+                /** @description `true` when the first row is a header, which is skipped; any other value reads every row. */
+                header?: string;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+                userListId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "text/csv": string;
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description What the upload did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserListUploadReport"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            408: components["responses"]["Error"];
+            411: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            429: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };
@@ -4880,6 +5240,7 @@ export const pathsProjectsProjectIdFontsPostParametersQueryStyleValues: Readonly
 export const pathsProjectsProjectIdFontsPostParametersQueryFallbackValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["fallback"]> = ["sans", "serif", "rounded", "monospace"];
 export const pathsProjectsProjectIdFontsPostParametersQueryLicenceValues: ReadonlyArray<FlattenedDeepRequired<paths>["/projects/{projectId}/fonts"]["post"]["parameters"]["query"]["licence"]> = ["confirmed"];
 export const createZoneRequestTemplateValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["CreateZoneRequest"]["template"]> = ["stories-bar", "promo-banner", "blank"];
+export const userListRefusalValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["UserListRefusal"]> = ["too-long", "control-character", "not-ascii", "not-one-column"];
 export const tagMatchValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["TagMatch"]> = ["any", "all"];
 export const visibilityReasonSubjectValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReason"]["subject"]> = ["zone", "group", "tale"];
 export const visibilityReasonCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["VisibilityReasonCode"]> = ["group-off", "tale-hidden", "group-blocked", "archived", "no-shown-tales", "not-in-any-zone", "starts-at", "ended-at", "zone-no-display", "zone-not-installed", "media-processing", "media-problem", "not-updated-yet", "no-visible-groups", "no-tale-groups"];
@@ -4903,7 +5264,7 @@ export const importDifferenceKindValues: ReadonlyArray<FlattenedDeepRequired<com
 export const importLinkFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportLinkFailure"]> = ["scheme", "tooLong", "characters", "invalid", "credentials"];
 export const importTagFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportTagFailure"]> = ["blank", "tooLong", "notText", "invalidCharacters"];
 export const importMediaFailureValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ImportMediaFailure"]> = ["invalidUrl", "blockedAddress", "unreachable", "timeout", "tooManyRedirects", "httpError", "tooLarge", "unsupportedType", "jobBudgetExceeded"];
-export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "internal_error"];
+export const errorCodeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["ErrorCode"]> = ["validation_failed", "project_not_found", "not_found", "zone_not_found", "unknown_frame_type", "invalid_frame_settings", "invalid_theme", "display_not_found", "display_exists", "slug_taken", "tale_group_not_found", "tale_group_full", "tale_group_limit_reached", "tale_not_found", "order_mismatch", "media_not_found", "unsupported_media_type", "media_too_large", "unauthenticated", "setup_closed", "passkey_failed", "forbidden", "invitation_invalid", "email_taken", "tag_exists", "tag_not_found", "site_key_not_found", "site_key_exists", "invalid_site_key", "api_token_not_found", "api_token_limit_reached", "rate_limited", "another tool_token_invalid", "another tool_unavailable", "importer_not_configured", "import_selection_invalid", "preview_busy", "invalid_status_transition", "tale_group_archived", "unknown_template", "concurrent_change", "invalid_tale_document", "tale_document_too_large", "stale_revision", "nothing_to_publish", "font_not_found", "font_exists", "font_in_use", "font_limit_reached", "font_storage_full", "media_limit_reached", "media_storage_full", "upload_busy", "length_required", "response_target_not_found", "visitor_id_required", "user_list_not_found", "user_list_exists", "user_list_limit_reached", "user_list_file_too_large", "internal_error"];
 export const v1Schema$defsMediaBackgroundFitValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["v1.schema"]["$defs"]["MediaBackground"]["fit"]> = ["cover", "contain"];
 export const textSchemaFontSourceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["source"]> = ["system", "theme", "name", "project"];
 export const textSchemaFontStackValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["text.schema"]["font"]["stack"]> = ["sans", "serif", "rounded", "monospace"];
@@ -4918,3 +5279,4 @@ export const shapeSchemaShapeValues: ReadonlyArray<FlattenedDeepRequired<compone
 export const buttonSchemaVariantValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["button.schema"]["variant"]> = ["filled", "outline"];
 export const pollSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["poll.schema"]["theme"]> = ["light", "dark"];
 export const ratingSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["rating.schema"]["theme"]> = ["light", "dark"];
+export const quizSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["quiz.schema"]["theme"]> = ["light", "dark"];

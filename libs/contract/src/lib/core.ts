@@ -72,6 +72,7 @@ export type ApiToken = Schemas['ApiToken'];
 export type CreateApiTokenRequest = Schemas['CreateApiTokenRequest'];
 /** A newly created API token, the only time the token itself is shown. */
 export type IssuedApiToken = Schemas['IssuedApiToken'];
+export type RevokedApiTokens = Schemas['RevokedApiTokens'];
 export type DeliveryFrame = Schemas['DeliveryFrame'];
 export type DeliveryZone = Schemas['DeliveryZone'];
 export type DeliveryTaleGroup = Schemas['DeliveryTaleGroup'];
@@ -128,6 +129,7 @@ export * from './templates';
 export * from './visibility';
 export * from './targeting';
 export * from './audience';
+export * from './user-lists';
 
 /** Every machine error code the API can return. */
 export const ERROR_CODES: readonly ErrorCode[] = errorCodeValues;
@@ -711,6 +713,10 @@ export const ErrorCodes = {
   lengthRequired: 'length_required',
   responseTargetNotFound: 'response_target_not_found',
   visitorIdRequired: 'visitor_id_required',
+  userListNotFound: 'user_list_not_found',
+  userListExists: 'user_list_exists',
+  userListLimitReached: 'user_list_limit_reached',
+  userListFileTooLarge: 'user_list_file_too_large',
   internalError: 'internal_error',
 } as const satisfies Record<string, ErrorCode>;
 

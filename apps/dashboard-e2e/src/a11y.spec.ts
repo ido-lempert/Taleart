@@ -358,6 +358,35 @@ test.describe.serial('WCAG 2.2 AA scan of the dashboard (story 8.17) @a11y', () 
     await check('tale-studio-preview', { maxStops: 60 });
   });
 
+  test('Audience page: user lists, the upload drawer with its warning and report, and the delete dialog', async () => {
+    test.setTimeout(300_000);
+    const [project] = await api<{ id: string }[]>('get', '/projects');
+    const list = await api<{ id: string }>('post', `/projects/${project.id}/user-lists`, { name: 'Loyal customers' });
+    const res = await page.request.post(`${API}/projects/${project.id}/user-lists/${list.id}/ids`, {
+      headers: { 'Content-Type': 'text/csv' },
+      data: Buffer.from('u-1\nu-2\nu-3\n'),
+    });
+    expect(res.ok()).toBe(true);
+    await page.goto('/audience');
+    await expect(page.getByRole('heading', { name: 'Loyal customers' })).toBeVisible();
+    await check('audience', { layout: true });
+    await page.getByRole('button', { name: 'Add IDs to Loyal customers' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Add IDs to Loyal customers' });
+    await drawer
+      .getByLabel('CSV file')
+      .setInputFiles({ name: 'emails.csv', mimeType: 'text/csv', buffer: Buffer.from('ana@example.com\nbo@example.com\n') });
+    await expect(drawer.getByRole('status')).toContainText('look like email addresses');
+    await check('audience-upload-warning');
+    await drawer.getByRole('button', { name: 'Upload' }).click();
+    await expect(drawer.getByRole('button', { name: 'Done' })).toBeVisible();
+    await check('audience-upload-report');
+    await drawer.getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('button', { name: 'Delete Loyal customers' }).click();
+    await expect(page.getByRole('alertdialog', { name: 'Delete user list' })).toBeVisible();
+    await check('audience-delete');
+    await page.keyboard.press('Escape');
+  });
+
   test('every state has no WCAG 2.2 AA finding', () => {
     expect(Object.keys(results).length).toBeGreaterThanOrEqual(27);
     for (const [state, findings] of Object.entries(results)) expect.soft(findings, state).toEqual([]);

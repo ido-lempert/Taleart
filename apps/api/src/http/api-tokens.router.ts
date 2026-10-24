@@ -3,11 +3,18 @@ import {
   MAX_API_TOKEN_NAME_LENGTH,
   MAX_API_TOKEN_PROJECTS,
   type CreateApiTokenRequest,
+  type RevokedApiTokens,
 } from '@taleart/contract';
-import { createApiToken, listApiTokens, projectExists, revokeApiToken } from '@taleart/server-access';
+import {
+  createApiToken,
+  listApiTokens,
+  projectExists,
+  revokeApiToken,
+  revokeUserApiTokens,
+} from '@taleart/server-access';
 import { Router } from 'express';
 import type { Pool } from 'pg';
-import { authorize, caller } from './authorize';
+import { authorize, caller, requireAdmin } from './authorize';
 import { sessionOnly } from './credentials';
 import { HttpError } from './errors';
 
@@ -102,6 +109,28 @@ export function apiTokensRouter(pool: Pool): Router {
     try {
       await revokeApiToken(pool, caller(res).id, req.params.tokenId);
       res.sendStatus(204);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return router;
+}
+
+/**
+ * An admin revokes every API token of a user (`DELETE /users/{userId}/api-tokens`), for a lost
+ * laptop or a person leaving. A passkey session only, and admins only. Answers the number revoked;
+ * an unknown user 404 `not_found`.
+ */
+export function userApiTokensRouter(pool: Pool): Router {
+  const router = Router();
+
+  router.delete('/:userId/api-tokens', sessionOnly, requireAdmin, async (req, res, next) => {
+    try {
+      const revoked = await revokeUserApiTokens(pool, req.params.userId);
+      if (revoked === null) throw new HttpError(404, ErrorCodes.notFound, 'No user has this id');
+      const body: RevokedApiTokens = { revoked };
+      res.json(body);
     } catch (err) {
       next(err);
     }
