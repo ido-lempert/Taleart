@@ -15,7 +15,13 @@ const TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.cjs': 'text/javascript; charset=utf-8',
   '.map': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
 };
+
+// The page's icons, served from the page folder by name.
+const ICONS = new Set(['/favicon.svg', '/favicon.ico', '/apple-touch-icon.png']);
 
 // The file under `dir` for `path`, or null when the path would leave it.
 function within(dir, path) {
@@ -39,7 +45,9 @@ createServer(async (req, res) => {
   const file =
     pathname === '/' || pathname === '/index.html'
       ? join(pageDir, 'index.html')
-      : sdkPath !== null
+      : ICONS.has(pathname)
+        ? join(pageDir, pathname.slice(1))
+        : sdkPath !== null
         ? within(sdkDir, sdkPath)
         : null;
   try {

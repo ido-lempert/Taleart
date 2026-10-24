@@ -206,17 +206,14 @@ export class Icon {
   readonly name = input.required<IconName>();
 }
 
-/** The TaleArt mark: an ember tile holding a "T" inside a story ring arc. */
+/**
+ * The TaleArt logo: three stacked tale panels with a picture card and rays. It is a static asset
+ * (`public/logo.svg`, master in `branding/`), loaded as an image so it stays out of the bundle.
+ */
 @Component({
   selector: 'app-mark',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { style: 'display: contents' },
-  template: `
-    <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false">
-      <rect width="32" height="32" rx="9" fill="#F2542D" />
-      <path d="M16 5.5a10.5 10.5 0 1 1-9.1 5.25" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".55" />
-      <path d="M10.5 10.5h11v3h-4v8.5h-3v-8.5h-4z" fill="#fff" />
-    </svg>
-  `,
+  template: `<img src="logo.svg" width="32" height="32" alt="" />`,
 })
 export class Mark {}
