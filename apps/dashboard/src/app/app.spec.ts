@@ -4626,7 +4626,8 @@ describe('App', () => {
       await settle(fixture);
       http.expectOne(`${API_BASE}/tales/t1`).flush({ ...taleA, visibility: { visible: true, reasons: [] } });
       await settle(fixture);
-      expect(root.querySelector('h2.page-header__title')?.textContent).toContain('Tale Studio');
+      expect(root.querySelector('h1.topbar__title')?.textContent).toContain('Tale Studio');
+      expect(root.querySelector('#studio-title')).not.toBeNull();
       // Nothing stored or on the site yet: an empty tale, not updated.
       expect(root.querySelector('#studio-update-state')?.textContent?.trim()).toBe(
         'Visible on site · changes not updated yet',
