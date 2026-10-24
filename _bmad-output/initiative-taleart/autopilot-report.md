@@ -421,3 +421,10 @@ Merged into `autopilot/foundation`. Every story got an agent review (risky ones 
 ## 2026-10-24 — Tale Studio 2 11.4 (owner request)
 
 - **11.4 drag elements onto the canvas, or add them by key** (merge e128756): pointer drag from any palette tile with a real-size ghost, position pill, drop ring, snap guides (canvas centre wins ties) and Alt for free placement; drops land centred on the pointer and clamped to the safe area; outside, Esc, blur, hidden page or lost capture cancel with "Not added"; touch drags after a 250 ms hold, pen drags at once, phones tap to add only, edge auto-scroll below 1024 px. Click/Enter/Space adds at the next free spot. Every add is one undo step, selects and focuses the element, and announces where it landed plus "Press F6 for its properties" (text goes straight to editing). New `tale-placement.ts`; real-mouse e2e. Dashboard green.
+
+## 2026-10-24 — Docs on GitHub Pages and brand colours (owner requests)
+
+- **Pushed to GitHub** (owner request): `main` and `autopilot/foundation` on https://github.com/ido-lempert/Taleart (public) after a history scan for secrets (only fake test values and the importer's self-signed test key).
+- **Docs on GitHub Pages** (merge 4afe5cd): `docs:build-pages` (base href `/Taleart/`, `.nojekyll`, `404.html`), base-relative skill downloads and skip link, `.github/workflows/docs-pages.yml` deploying on pushes to main (docs, contract, skills). Live at https://ido-lempert.github.io/Taleart/ (first run succeeded, pages checked live). Also fixed on foundation: the docs wording check (drag `stageRect`) and two docs-e2e lint errors.
+- **Owner approved the Tale Studio 2 layout** ("I love the layout"), story 11.2 done; the epic's proposed decisions stand.
+- **Brand colours from the logo**: the dashboard's ember orange became the logo's violet `#4f1dfc` (hover, active, tint, text, focus, a violet-to-blue gradient on the group ring); docs accent aligned (dark `#a594ff`); theme-color updated. All pairs AA (white on brand 7.21:1). Status colours (not visible, paused, warnings, danger) stay orange/red. `--ember*` kept as aliases until 5.5 and 11.5 merge.
