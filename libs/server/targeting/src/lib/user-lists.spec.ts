@@ -93,13 +93,15 @@ describe('renameUserList and deleteUserList', () => {
     );
   });
 
-  it('deletes the list and, with the last list, the secret, in one transaction', async () => {
-    const { db, statements } = fakeDb([{ rows: [] }, { rowCount: 1 }, { rowCount: 1 }]);
+  it('holds its only-list groups hidden, deletes the list and, with the last list, the secret, in one transaction', async () => {
+    const { db, statements } = fakeDb([{ rows: [] }, { rowCount: 1 }, { rowCount: 1 }, { rowCount: 1 }]);
     await deleteUserList(db, { projectId, userListId: listId });
     const sql = statements();
     expect(sql[0]).toBe('BEGIN');
-    expect(sql[2]).toMatch(/^DELETE FROM user_lists WHERE id = \$1 AND project_id = \$2/);
-    expect(sql[3]).toMatch(/DELETE FROM user_list_secrets[\s\S]*NOT EXISTS/);
+    // Before the list (and its links) go: the groups it was the only list of (story 5.4 review).
+    expect(sql[2]).toMatch(/^INSERT INTO tale_group_audience_holds[\s\S]*user_list_id <> \$1/);
+    expect(sql[3]).toMatch(/^DELETE FROM user_lists WHERE id = \$1 AND project_id = \$2/);
+    expect(sql[4]).toMatch(/DELETE FROM user_list_secrets[\s\S]*NOT EXISTS/);
     expect(sql.at(-1)).toBe('COMMIT');
   });
 });

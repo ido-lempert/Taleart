@@ -2345,6 +2345,7 @@ paths:
         content managers change it (403 `forbidden`). A group with user lists
         is delivered only to viewers whose external user ID is in one of them;
         one whose lists all hold no ID is not visible (`audience-empty`).
+        Saving it (as saving the group's tags) ends `audience-removed`.
         Unknown tale group: 404 `tale_group_not_found`.
       requestBody:
         required: true
@@ -3731,6 +3732,11 @@ components:
         `quota-reached`. `not-updated-yet`: nothing published to deliver.
         `audience-empty`: the group is targeted only to user lists and none
         of them holds an ID, so no viewer can match (epic targeting R7).
+        `audience-removed`: the group's user lists were taken away without a
+        person choosing a new audience (its last list was deleted, or it was
+        copied to another project, where its lists do not exist); it stays
+        hidden until someone saves its Audience, so it never turns public by
+        accident.
       enum:
         - group-off
         - tale-hidden
@@ -3748,6 +3754,7 @@ components:
         - no-visible-groups
         - no-tale-groups
         - audience-empty
+        - audience-removed
     ContentStatus:
       type: string
       description: >-

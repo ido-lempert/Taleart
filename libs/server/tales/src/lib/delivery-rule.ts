@@ -111,6 +111,14 @@ export const GROUP_OWN_REASON_CLAUSES: readonly ReasonClause[] = [
       `AND NOT EXISTS (SELECT 1 FROM tale_group_user_lists ae JOIN user_lists al ON al.id = ae.user_list_id ` +
       `WHERE ae.tale_group_id = ${g}.id AND al.id_count > 0)`,
   },
+  // The group's user lists were taken away without a person choosing a new audience (the targeting
+  // module's hold: its last list deleted, or a copy to another project): hidden until its Audience
+  // is saved, so it never turns public by accident.
+  {
+    code: 'audience-removed',
+    subject: 'group',
+    when: (g) => `EXISTS (SELECT 1 FROM tale_group_audience_holds ah WHERE ah.tale_group_id = ${g}.id)`,
+  },
 ];
 
 /**

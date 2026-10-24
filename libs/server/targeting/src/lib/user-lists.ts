@@ -159,7 +159,9 @@ export async function renameUserList(
 
 /**
  * Deletes a user list and every hash it holds, for good, in one transaction (epic targeting R5).
- * With the project's last list, its secret goes too, so the next list starts with a new one.
+ * It leaves every group's Audience; a group it was the only list of is held hidden
+ * (`audience-removed`) until a person saves its Audience. With the project's last list, its secret
+ * goes too, so the next list starts with a new one.
  */
 export async function deleteUserList(
   db: TransactionalDb,
@@ -168,6 +170,17 @@ export async function deleteUserList(
   if (!UUID.test(input.projectId) || !UUID.test(input.userListId)) throw new UserListNotFoundError();
   await inTransaction(db, async (tx) => {
     await lockProject(tx, input.projectId);
+    // A group targeted to this list and no other is held hidden (`audience-removed`) rather than
+    // shown to everyone once the list is gone (owner decision, story 5.4 review).
+    await tx.query(
+      `INSERT INTO tale_group_audience_holds (tale_group_id, project_id)
+       SELECT l.tale_group_id, l.project_id FROM tale_group_user_lists l
+       WHERE l.user_list_id = $1 AND l.project_id = $2
+         AND NOT EXISTS (SELECT 1 FROM tale_group_user_lists o
+                         WHERE o.tale_group_id = l.tale_group_id AND o.user_list_id <> $1)
+       ON CONFLICT (tale_group_id) DO NOTHING`,
+      [input.userListId, input.projectId],
+    );
     const { rowCount } = await tx.query('DELETE FROM user_lists WHERE id = $1 AND project_id = $2', [
       input.userListId,
       input.projectId,

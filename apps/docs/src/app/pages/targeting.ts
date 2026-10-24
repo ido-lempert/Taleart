@@ -62,7 +62,9 @@ import { DOCS_EXTERNAL_USER_ID_SCRIPT, DOCS_TAGS_SCRIPT } from '../docs-content'
       </li>
       <li>
         <strong>Which groups use which lists</strong>. Deleting a list deletes it and all its hashes at once, for good,
-        and removes it from every group; a group with no other list then shows to everyone.
+        and removes it from every group. A group targeted only to that list does not turn public: it reads
+        <em>Not visible: its user lists were removed</em> and shows to nobody until someone changes its Audience. A
+        copy to another project leaves its lists behind and is held the same way.
       </li>
       <li>
         <strong>Nothing about the viewer</strong>: the Delivery API hashes the ID for the lookup and drops it. It is
@@ -76,8 +78,9 @@ import { DOCS_EXTERNAL_USER_ID_SCRIPT, DOCS_TAGS_SCRIPT } from '../docs-content'
     <h2 id="not-access-control">Targeting is not access control</h2>
     <p>
       Targeting decides what a page shows, not who may see it. The tales of a targeted group are public media, and
-      anyone with your site key can try IDs and see which groups come back. Do not use targeting to protect content,
-      and keep anything private out of tag and list names.
+      anyone with your site key can try IDs and see which groups come back. Answers to a tale's polls, quizzes and
+      ratings are accepted for any delivered tale without checking its user lists. Do not use targeting to protect
+      content, and keep anything private out of tag and list names.
     </p>
   `,
 })

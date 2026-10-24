@@ -445,6 +445,12 @@
               Copied {{ done.name }} to
               <a [routerLink]="['/zones', done.zoneId]" (click)="close()">{{ done.zoneName }}</a>.
             </p>
+            @if (done.listsLeftBehind) {
+              <p class="field__hint" id="copy-lists-note">
+                Its user lists belong to the original project, so the copy is not targeted to them. It does not show to
+                anyone until you change its Audience.
+              </p>
+            }
           } @else if (placementGroup(); as group) {
             <div class="field">
               <label class="field__label" for="copy-project">Project</label>
@@ -478,6 +484,10 @@
               </select>
               <p class="field__hint" id="copy-hint">
                 The zone shows a new tale group named {{ group.name }} last, with the same tales, media and tags.
+                @if (group.userLists?.length) {
+                  Its user lists come too within this project; a copy to another project does not show to anyone
+                  until you change its Audience.
+                }
                 Changes to the copy do not change the original, and the other way round.
               </p>
             </div>

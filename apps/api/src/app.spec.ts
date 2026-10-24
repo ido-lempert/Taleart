@@ -343,7 +343,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE tale_group_audience_holds, tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, api_token_projects, api_tokens, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -6396,6 +6396,44 @@ describe('Management API v1: projects and zones', () => {
       expect((await getPublic(url, { 'If-None-Match': `"${fontKey}"` })).status).toBe(404);
     });
 
+    it('stops serving the media and font of a group targeted only to empty lists, at once, and serves them again when a list fills (story 5.4)', async () => {
+      const { zone, group, font, tale } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
+      await publish('tale-groups', group.id);
+      await publish('tales', tale.id);
+      // A second tale with uploaded media, in the same group.
+      const pictured = (await (await post(`/tale-groups/${group.id}/tales`, { title: 'Picture' })).json()).id as string;
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+      expect((await fetch(`${base}/tales/${pictured}/media`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png })).status).toBe(200);
+      const fontKey = (await pool.query('SELECT storage_key FROM project_fonts WHERE id = $1', [font.id])).rows[0].storage_key as string;
+      const mediaKey = (await pool.query('SELECT media_key FROM tales WHERE id = $1', [pictured])).rows[0].media_key as string;
+      const urls = [`${publicApiUrl}/media/${fontKey}`, `${publicApiUrl}/media/${mediaKey}`];
+      // Served, so this process keeps a public answer for each (PUBLIC_*_CACHE_TTL_MS).
+      for (const url of urls) expect((await getPublic(url)).status, url).toBe(200);
+
+      const created = await (await post(`/projects/${zone.projectId}/user-lists`, { name: 'Empty' })).json();
+      const set = await fetch(`${base}/tale-groups/${group.id}/user-lists`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userListIds: [created.id] }),
+      });
+      expect(set.status).toBe(200);
+      // audience-empty: not delivered, so not public, at once (the change cleared the public caches).
+      for (const url of urls) expect((await getPublic(url)).status, url).toBe(404);
+
+      // The list's first ID makes the group delivered again (to its members), and its media public, at once.
+      const upload = await fetch(`${base}/projects/${zone.projectId}/user-lists/${created.id}/ids`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv' },
+        body: 'cust-1\n',
+      });
+      expect(upload.status).toBe(200);
+      for (const url of urls) expect((await getPublic(url)).status, url).toBe(200);
+
+      // Deleting the list holds the group hidden (audience-removed): private again at once.
+      expect((await fetch(`${base}/projects/${zone.projectId}/user-lists/${created.id}`, { method: 'DELETE' })).status).toBe(204);
+      for (const url of urls) expect((await getPublic(url)).status, url).toBe(404);
+    });
+
     it('backfills tale_fonts for documents written before it, and serves a font only with a deliverable document', async () => {
       const { zone, group, font, tale, key } = await liveTale((id) => [text(1, { source: 'project', fontId: id })]);
       await publish('tale-groups', group.id);
@@ -8759,6 +8797,26 @@ describe('Management API v1: projects and zones', () => {
         fix: async (f) =>
           expect((await send('PUT', `/tale-groups/${f.groupId}/user-lists`, { userListIds: [] })).status).toBe(200),
       },
+      {
+        // Story 5.4 review: its only list was deleted, so it is held hidden until its Audience is saved.
+        name: 'audience removed',
+        on: 'placement',
+        reason: () => why('audience-removed', 'group'),
+        omits: 'group',
+        breakIt: async (f) => {
+          const list = await (await post(`/projects/${f.projectId}/user-lists`, { name: 'Gone' })).json();
+          const upload = await fetch(`${base}/projects/${f.projectId}/user-lists/${list.id}/ids`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/csv' },
+            body: 'cust-1\n',
+          });
+          expect(upload.status).toBe(200);
+          expect((await send('PUT', `/tale-groups/${f.groupId}/user-lists`, { userListIds: [list.id] })).status).toBe(200);
+          expect((await send('DELETE', `/projects/${f.projectId}/user-lists/${list.id}`)).status).toBe(204);
+        },
+        // Saving the group's Audience (its tags) is a person choosing its audience again.
+        fix: async (f) => expect((await send('PUT', `/tale-groups/${f.groupId}/tags`, { tagIds: [] })).status).toBe(200),
+      },
     ];
 
     it('says "Visible on site" for a set-up zone, its group that is On and its tales, as the Delivery API delivers them', async () => {
@@ -10674,25 +10732,95 @@ describe('Management API v1: projects and zones', () => {
       expect((await asViewer(handle, member)).ids).toEqual([groups.open]);
     });
 
-    it('deleting a list removes it from every group: a group whose only list it was shows to everyone again', async () => {
+    it('deleting a list never makes a group public: one left with no list is held hidden until its Audience is saved', async () => {
       const { zone, handle, groups, listA } = await matrix();
+      // A second group with list A and another list: it keeps the other one and is not held.
+      const both = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Two lists' })).json();
+      await publish('tale-groups', both.id);
+      await asLegacy((await (await post(`/tale-groups/${both.id}/tales`, { title: 'both tale' })).json()).id);
+      const vip = await listWith(zone.projectId, 'Vip', 'cust-B1\n');
+      expect((await put(`/tale-groups/${both.id}/user-lists`, { userListIds: [listA.id, vip.id] })).status).toBe(200);
+      const lists: { name: string; taleGroups: { name: string }[] }[] = await (
+        await fetch(`${base}/projects/${zone.projectId}/user-lists`)
+      ).json();
+      expect(lists.find((l) => l.name === 'Loyal')?.taleGroups.map((g) => g.name)).toEqual(['Loyal only', 'Two lists']);
+
       expect((await fetch(`${base}/projects/${zone.projectId}/user-lists/${listA.id}`, { method: 'DELETE' })).status).toBe(204);
       expect((await pool.query('SELECT 1 FROM tale_group_user_lists WHERE user_list_id = $1', [listA.id])).rowCount).toBe(0);
-      expect((await asViewer(handle, null)).ids).toEqual([groups.a, groups.open]);
-      const group = await (await fetch(`${base}/tale-groups/${groups.a}`)).json();
-      expect(group.userLists).toEqual([]);
+      const listed: { id: string; visibility: unknown; userLists: unknown[] }[] = await (
+        await fetch(`${base}/zones/${zone.id}/tale-groups`)
+      ).json();
+      const row = (id: string) => listed.find((g) => g.id === id);
+      expect(row(groups.a)?.userLists).toEqual([]);
+      expect(row(groups.a)?.visibility).toEqual(notVisible(why('audience-removed', 'group')));
+      expect(row(both.id)?.visibility).toEqual(VISIBLE);
+      // Nobody gets it: not a former member, not anyone else, not a page with no ID.
+      for (const viewer of [member, outsider, null]) expect((await asViewer(handle, viewer)).ids).not.toContain(groups.a);
+      expect((await asViewer(handle, 'cust-B1')).ids).toContain(both.id);
+      expect((await asViewer(handle, member)).ids).not.toContain(both.id);
+
+      // Saving its Audience (here, its tags) is a person choosing again: now it shows to everyone.
+      expect((await put(`/tale-groups/${groups.a}/tags`, { tagIds: [] })).status).toBe(200);
+      expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [groups.a])).rowCount).toBe(0);
+      expect((await asViewer(handle, null)).ids).toContain(groups.a);
     });
 
-    it('copies keep their lists in the same project, and have none in another', async () => {
+    it('saving the group\'s lists ends the hold too, and a held group\'s copy is held as well', async () => {
+      const { zone, handle, groups, listA } = await matrix();
+      expect((await fetch(`${base}/projects/${zone.projectId}/user-lists/${listA.id}`, { method: 'DELETE' })).status).toBe(204);
+      const second = await (await post('/zones', { name: 'Second', projectId: zone.projectId })).json();
+      const copy = await (await post(`/tale-groups/${groups.a}/copy`, { zoneId: second.id })).json();
+      expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [copy.id])).rowCount).toBe(1);
+      const vip = await listWith(zone.projectId, 'Vip', 'cust-B1\n');
+      expect((await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: [vip.id] })).status).toBe(200);
+      expect((await asViewer(handle, 'cust-B1')).ids).toContain(groups.a);
+      expect((await asViewer(handle, null)).ids).not.toContain(groups.a);
+    });
+
+    it('copies keep their lists in the same project; a copy to another project has none and is held hidden', async () => {
       const { zone, groups, listA } = await matrix();
       const same = await (await post('/zones', { name: 'Second', projectId: zone.projectId })).json();
       const copied = await post(`/tale-groups/${groups.a}/copy`, { zoneId: same.id });
       expect(copied.status).toBe(201);
-      expect((await copied.json()).userLists).toEqual([{ id: listA.id, name: 'Loyal', idCount: 2 }]);
+      const kept = await copied.json();
+      expect(kept.userLists).toEqual([{ id: listA.id, name: 'Loyal', idCount: 2 }]);
+      expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [kept.id])).rowCount).toBe(0);
+
       const elsewhere = await createZone();
+      const otherHandle = await installZone(elsewhere.id);
       const away = await post(`/tale-groups/${groups.a}/copy`, { zoneId: elsewhere.id });
       expect(away.status).toBe(201);
-      expect((await away.json()).userLists).toEqual([]);
+      const moved = await away.json();
+      expect(moved.userLists).toEqual([]);
+      // On, it still shows to nobody, and says why, until its Audience is saved.
+      await publish('tale-groups', moved.id);
+      const there: { id: string; visibility: { reasons: { code: string }[] } }[] = await (
+        await fetch(`${base}/zones/${elsewhere.id}/tale-groups`)
+      ).json();
+      expect(there.find((g) => g.id === moved.id)?.visibility.reasons.map((r) => r.code)).toContain('audience-removed');
+      for (const viewer of [member, null]) expect((await asViewer(otherHandle, viewer)).ids).not.toContain(moved.id);
+      expect((await put(`/tale-groups/${moved.id}/tags`, { tagIds: [] })).status).toBe(200);
+      expect((await asViewer(otherHandle, null)).ids).toContain(moved.id);
+      // An untargeted group's copy to another project is never held.
+      const plain = await (await post(`/tale-groups/${groups.open}/copy`, { zoneId: elsewhere.id })).json();
+      expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [plain.id])).rowCount).toBe(0);
+    });
+
+    it('logs no ID when the list match fails with a database error, and answers a plain 500', async () => {
+      const { handle } = await matrix();
+      await pool.query('ALTER TABLE user_list_ids RENAME TO user_list_ids_t54_forced');
+      try {
+        const res = await deliverZone(handle, { [EXTERNAL_USER_ID_HEADER]: encodeExternalUserIdHeader(member) as string });
+        expect(res.status).toBe(500);
+        const body = await res.text();
+        expect(JSON.parse(body).error.code).toBe('internal_error');
+        expectNoTrace(body, 'the answer');
+      } finally {
+        await pool.query('ALTER TABLE user_list_ids_t54_forced RENAME TO user_list_ids');
+      }
+      const log = printed.join('\n');
+      expect(log).toMatch(/unhandled error/);
+      expectNoTrace(log, 'the API log');
     });
 
     it('cannot link a group to another project\'s list, even in the database', async () => {

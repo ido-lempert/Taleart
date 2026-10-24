@@ -70,13 +70,16 @@ export function targetsText(list: Pick<UserList, 'taleGroups'>): string {
   return `Targets ${joined(names)}`;
 }
 
-/** What deleting a list does to the tale groups that use it (epic targeting R5). */
+/**
+ * What deleting a list does to the tale groups that use it (epic targeting R5, story 5.4 review):
+ * a group targeted only to it stops showing, never shows to everyone, until its Audience changes.
+ */
 export function deleteGroupsText(list: Pick<UserList, 'taleGroups'>): string {
   const names = (list.taleGroups ?? []).map((group) => group.name);
   if (names.length === 0) return '';
   return (
-    `It is removed from ${names.length === 1 ? 'the tale group' : `${names.length} tale groups`} ${joined(names)}; ` +
-    'a group with no other user list then shows to every viewer.'
+    `It is removed from ${names.length === 1 ? 'the tale group' : `${names.length} tale groups`} ${joined(names)}. ` +
+    'Groups targeted only to this list will stop showing until you change their Audience.'
   );
 }
 

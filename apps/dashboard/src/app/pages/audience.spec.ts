@@ -47,10 +47,10 @@ describe('the tale groups a list targets (story 5.4)', () => {
     expect(targetsText({ taleGroups: groups('a', 'b', 'c', 'd', 'e') })).toBe('Targets a, b, c and 2 more');
     expect(deleteGroupsText({ taleGroups: [] })).toBe('');
     expect(deleteGroupsText({ taleGroups: groups('Summer') })).toBe(
-      'It is removed from the tale group Summer; a group with no other user list then shows to every viewer.',
+      'It is removed from the tale group Summer. Groups targeted only to this list will stop showing until you change their Audience.',
     );
     expect(deleteGroupsText({ taleGroups: groups('Summer', 'VIP') })).toBe(
-      'It is removed from 2 tale groups Summer and VIP; a group with no other user list then shows to every viewer.',
+      'It is removed from 2 tale groups Summer and VIP. Groups targeted only to this list will stop showing until you change their Audience.',
     );
   });
 });

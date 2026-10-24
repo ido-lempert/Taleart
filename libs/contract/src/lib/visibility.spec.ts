@@ -18,7 +18,7 @@ const noDisplay: VisibilityReason = { code: 'zone-no-display', subject: 'zone' }
 describe('visibility (epic UX rework R7)', () => {
   it('orders every reason code the contract defines, each once', () => {
     expect([...VISIBILITY_REASON_ORDER].sort()).toEqual([...VISIBILITY_REASON_CODES].sort());
-    expect(VISIBILITY_REASON_CODES).toHaveLength(16);
+    expect(VISIBILITY_REASON_CODES).toHaveLength(17);
   });
 
   it('is visible exactly when there is no reason', () => {

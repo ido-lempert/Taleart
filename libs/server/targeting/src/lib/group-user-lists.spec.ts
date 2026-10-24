@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import type { TransactionalDb } from '@taleart/server-access';
 import { GROUP_OWN_REASON_CLAUSES } from '@taleart/server-tales';
 import { UserListNotFoundError } from './errors';
-import { setTaleGroupUserLists, userListAudiences } from './group-user-lists';
+import { passesUserLists, setTaleGroupUserLists, userListAudiences } from './group-user-lists';
 import { migrateTargeting } from './migration';
 
 const projectId = '00000000-0000-4000-8000-000000000002';
@@ -45,6 +45,11 @@ describe('the group-to-list table', () => {
     const all = calls().map((c) => c.sql).join('\n');
     expect(all).toMatch(/CREATE TABLE IF NOT EXISTS tale_group_user_lists \(\s*tale_group_id uuid NOT NULL,\s*user_list_id uuid NOT NULL/);
     expect(all).toMatch(/id_count integer NOT NULL/);
+    // The audience-removed clause reads the hold table by its group id.
+    const removed = GROUP_OWN_REASON_CLAUSES.find((c) => c.code === 'audience-removed')?.when('g', '$1') ?? '';
+    expect(removed).toBe('EXISTS (SELECT 1 FROM tale_group_audience_holds ah WHERE ah.tale_group_id = g.id)');
+    expect(all).toMatch(/CREATE TABLE IF NOT EXISTS tale_group_audience_holds \(\s*tale_group_id uuid PRIMARY KEY/);
+    expect(all).toMatch(/REFERENCES tale_groups \(id, project_id\) ON DELETE CASCADE\s*\);\s*$/m);
   });
 });
 
@@ -65,23 +70,39 @@ describe('setTaleGroupUserLists', () => {
 describe('userListAudiences', () => {
   const links = { rows: [{ taleGroupId: groupA, userListId: listA }, { taleGroupId: groupA, userListId: listB }] };
 
+  const none = { targeted: new Set(), matched: new Set() };
+
   it('reads no secret and no hash while no group of the zone has a list', async () => {
     const { db, calls } = fakeDb([{ rows: [] }]);
-    expect(await userListAudiences(db, projectId, [groupA, groupB], 'cust-1')).toEqual(new Map());
+    expect(await userListAudiences(db, projectId, [groupA, groupB], 'cust-1')).toEqual(none);
     expect(calls()).toHaveLength(1);
   });
 
-  it('marks every listed group unmatched without an ID, and never reads the secret', async () => {
+  it('names every listed group targeted and none matched without an ID, and never reads the secret', async () => {
     const { db, calls } = fakeDb([links]);
-    expect(await userListAudiences(db, projectId, [groupA, groupB], null)).toEqual(new Map([[groupA, { matched: false }]]));
+    const audiences = await userListAudiences(db, projectId, [groupA, groupB], null);
+    expect(audiences).toEqual({ targeted: new Set([groupA]), matched: new Set() });
+    expect(passesUserLists(audiences, groupA)).toBe(false);
+    expect(passesUserLists(audiences, groupB)).toBe(true);
     expect(calls()).toHaveLength(1);
+  });
+
+  it('fails closed: a targeted group is shown only when it is matched, whatever the case of its id', () => {
+    const audiences = { targeted: new Set([groupA, groupB]), matched: new Set([groupB]) };
+    expect(passesUserLists(audiences, groupA)).toBe(false);
+    expect(passesUserLists(audiences, groupA.toUpperCase())).toBe(false);
+    expect(passesUserLists(audiences, groupB.toUpperCase())).toBe(true);
+    // A group the lookup never named is not targeted.
+    expect(passesUserLists(audiences, '00000000-0000-4000-8000-0000000000cc')).toBe(true);
+    // A matched set that somehow names a group not targeted changes nothing for the others.
+    expect(passesUserLists({ targeted: new Set([groupA]), matched: new Set([groupB]) }, groupA)).toBe(false);
   });
 
   it('probes the hash index with the keyed hash only: the ID never reaches the database', async () => {
     const id = 'm\u00FCller-7';
     const { db, calls } = fakeDb([links, { rows: [{ secret }] }, { rows: [{ userListId: listB }] }]);
     const audiences = await userListAudiences(db, projectId, [groupA.toUpperCase(), groupB], id);
-    expect(audiences).toEqual(new Map([[groupA.toUpperCase(), { matched: true }]]));
+    expect(audiences).toEqual({ targeted: new Set([groupA]), matched: new Set([groupA]) });
     const probe = calls()[2];
     expect(probe.sql).toMatch(/FROM user_list_ids\s+WHERE user_list_id = ANY\(\$1::uuid\[\]\) AND id_hash = \$2/);
     expect(probe.values[0]).toEqual([listA, listB]);
@@ -94,6 +115,6 @@ describe('userListAudiences', () => {
 
   it('matches nothing for a project with lists but no secret', async () => {
     const { db } = fakeDb([links, { rows: [] }]);
-    expect(await userListAudiences(db, projectId, [groupA], 'cust-1')).toEqual(new Map([[groupA, { matched: false }]]));
+    expect(await userListAudiences(db, projectId, [groupA], 'cust-1')).toEqual({ targeted: new Set([groupA]), matched: new Set() });
   });
 });

@@ -2332,6 +2332,30 @@ describe('App', () => {
       expect(root.querySelector('[aria-label="Tale groups in Acme"] li')?.textContent).toContain('In: Product page');
     });
 
+    it('says a copy to another project leaves its user lists behind and shows to nobody until its Audience changes (story 5.4)', async () => {
+      const listed = { ...group, tales: [], userLists: [{ id: 'l1', name: 'Loyal', idCount: 2 }] };
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [listed] } });
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Copy to zone');
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-hint')?.textContent).toContain(
+        'a copy to another project does not show to anyone until you change its Audience',
+      );
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyProject]') ?? null, 'p2');
+      await settle(fixture);
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z2');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      const copy = { id: 'g7', projectId: 'p2', name: 'Summer', position: 0, zoneIds: ['z2'], tales: [], tags: [], userLists: [] };
+      http.expectOne(`${API_BASE}/tale-groups/g1/copy`).flush(copy, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z1: [listed], z2: [copy] } });
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-lists-note')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Its user lists belong to the original project, so the copy is not targeted to them. It does not show to anyone until you change its Audience.',
+      );
+    });
+
     it('copies a group to a zone of another project from the drawer and links to the target zone', async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
 
