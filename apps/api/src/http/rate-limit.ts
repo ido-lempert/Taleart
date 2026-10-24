@@ -117,7 +117,7 @@ export function visitorId(header: string | string[] | undefined): string | null 
  * forgets the oldest. Buckets that are full again are dropped at most once per
  * {@link RATE_LIMIT_PRUNE_INTERVAL_MS}, so no request scans them all.
  */
-class Buckets {
+export class Buckets {
   private readonly map = new Map<string, Bucket>();
   private prunedAt: number;
 

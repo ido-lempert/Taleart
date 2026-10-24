@@ -5,7 +5,9 @@ import type { PasskeyVerifier } from '@taleart/server-access';
 import type { MediaStorage } from '@taleart/server-storage';
 import type { FrameTypeRegistry } from '@taleart/server-zones';
 import type { Pool } from 'pg';
-import { authRouter, requireSession } from './http/auth.router';
+import { authRouter } from './http/auth.router';
+import { apiTokensRouter, userApiTokensRouter } from './http/api-tokens.router';
+import { refuseAuthorizationHeader, requireCaller } from './http/credentials';
 import { coversRouter } from './http/covers.router';
 import { deliveryRouter } from './http/delivery.router';
 import { projectFontsRouter } from './http/fonts.router';
@@ -31,13 +33,15 @@ import {
   type SdkFiles,
 } from './http/sdk.router';
 import { siteKeyRouter } from './http/site-key.router';
+import { userListsRouter, type UserListOptions } from './http/user-lists.router';
 import { zonesRouter } from './http/zones.router';
 
 /** Management API base path (AD-2, versioned per the spine conventions). */
 export const MANAGEMENT_API_BASE = '/api/v1';
 
-// `POST /api/v1/projects/<id>/fonts` and `/media`, in any case and with or without a trailing slash, as routers match.
-const UPLOAD_PATH = /^\/api\/v1\/projects\/[^/]+\/(fonts|media)\/?$/i;
+// `POST /api/v1/projects/<id>/fonts`, `/media` and `/user-lists/<id>/ids`, in any case and with or
+// without a trailing slash, as routers match.
+const UPLOAD_PATH = /^\/api\/v1\/projects\/[^/]+\/(fonts|media|user-lists\/[^/]+\/ids)\/?$/i;
 
 /** How the API handles sign-in. */
 export interface AppAuth {
@@ -47,6 +51,8 @@ export interface AppAuth {
   secureCookies?: boolean;
   /** The dashboard's origin (RP_ORIGIN), where invitation links point. Defaults to http://localhost:4200. */
   dashboardOrigin?: string;
+  /** Failed API token attempts allowed per address; the default when left out, off when null. */
+  tokenGuessLimit?: RateLimitOptions | null;
 }
 
 /** How the Delivery API is limited. */
@@ -66,6 +72,7 @@ export interface AppUrls {
 export type { ImporterConfig } from './http/imports.router';
 export type { SdkFiles } from './http/sdk.router';
 export type { ProjectMediaOptions } from './http/project-media.router';
+export type { UserListOptions } from './http/user-lists.router';
 
 // Builds the API. Takes its pool, frame-type registry, media storage, passkey
 // verifier and importer settings so tests can point it at a real database,
@@ -81,6 +88,7 @@ export function createApp(
   media: ProjectMediaOptions = {},
   delivery: AppDelivery = {},
   sdk: Partial<SdkFiles> = {},
+  userLists: UserListOptions = {},
 ): express.Express {
   const publicApiUrl = urls.publicApiUrl ?? 'http://localhost:3333';
   const sdkFiles = { ...defaultSdkFiles(__dirname), ...sdk };
@@ -100,7 +108,8 @@ export function createApp(
   app.put(`${MANAGEMENT_API_BASE}/tales/:taleId/document`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
   // Keeping a document as a new tale (after a stale save) takes the same body.
   app.post(`${MANAGEMENT_API_BASE}/tales/:taleId/document/copy`, express.json({ limit: MAX_TALE_DOCUMENT_BYTES * 2 }));
-  // A font or media upload's body is the file, whatever type it declares (R18, R5): its route reads it raw.
+  // A font, media or user list upload's body is the file, whatever type it declares (R18, R5, epic
+  // targeting R3): its route reads it as a stream.
   const json = express.json();
   // The Delivery API reads its own small bodies, after its CORS headers, so a refused body still
   // reaches the browser as the API's error (epic interactive components R9).
@@ -114,7 +123,9 @@ export function createApp(
   // cookies are same-origin. CORS stays open for other callers, never with credentials.
   app.use((_req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Authorization carries an API token (epic developer experience 10.1), for scripts and the docs'
+    // API reference. Credentials stay disallowed, so no other origin's request carries the cookie.
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     next();
   });
@@ -125,12 +136,23 @@ export function createApp(
     const body: Health = { status: 'ok' };
     res.json(body);
   });
-  v1.use('/auth', authRouter(pool, { verifier: auth.verifier, secureCookies: auth.secureCookies ?? false }));
-  // Every other route, media included, needs a signed-in session (AD-9), and
-  // each checks the caller's access to the project it touches (AD-4).
-  v1.use(requireSession(pool));
+  // Sign-in, sign-out, setup and invitations read cookies only: a request with an Authorization header
+  // (an API token) is refused there, so a token never starts, ends or stands in for a session.
+  v1.use(
+    '/auth',
+    refuseAuthorizationHeader,
+    authRouter(pool, { verifier: auth.verifier, secureCookies: auth.secureCookies ?? false }),
+  );
+  // Every other route, media included, needs a signed-in session or an API token acting as its user
+  // (AD-9, epic developer experience 10.1), and each checks the caller's access to the project it
+  // touches (AD-4), narrowed to the token's projects.
+  v1.use(requireCaller(pool, { tokenGuessLimit: auth.tokenGuessLimit }));
+  // Personal API tokens: a passkey session only.
+  v1.use('/api-tokens', apiTokensRouter(pool));
+  v1.use('/users', userApiTokensRouter(pool));
   v1.use('/projects', projectsRouter(pool, { dashboardOrigin: auth.dashboardOrigin ?? 'http://localhost:4200' }));
   v1.use('/projects', projectTagsRouter(pool));
+  v1.use('/projects', userListsRouter(pool, userLists));
   v1.use('/projects', projectTaleGroupsRouter(pool));
   v1.use('/projects', importsRouter(pool, importer));
   v1.use('/projects', projectThemeRouter(pool));

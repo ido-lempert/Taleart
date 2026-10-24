@@ -27,10 +27,18 @@ export function databasePoolMax(env: NodeJS.ProcessEnv = process.env): number {
 export const DATABASE_CONNECTIONS_FOR_REQUESTS = 6;
 
 export function createPool(connectionString?: string, max = databasePoolMax()): Pool {
-  return new Pool({
+  const pool = new Pool({
     connectionString: connectionString ?? process.env['DATABASE_URL'] ?? defaultDatabaseUrl,
     max,
   });
+  // An idle client whose connection the database ends (a restart, a terminated backend) makes the
+  // pool emit `error`; without a listener Node would exit. The pool drops that client by itself.
+  pool.on('error', (err) => {
+    console.log(
+      JSON.stringify({ level: 'error', msg: 'idle database connection failed', error: { name: err.name, message: err.message } }),
+    );
+  });
+  return pool;
 }
 
 // Each module owns its migrations. They run in dependency order:

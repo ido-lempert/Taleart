@@ -73,6 +73,13 @@ export const appRoutes: Route[] = [
         data: { heading: 'Tale Studio' } satisfies ShellData,
       },
       {
+        // The selected project's audience: its user lists (epic targeting R3), later its segments.
+        path: 'audience',
+        loadComponent: () => import('./pages/audience').then((m) => m.AudiencePage),
+        title: 'Audience · TaleArt',
+        data: { heading: 'Audience' } satisfies ShellData,
+      },
+      {
         path: 'projects',
         loadComponent: () => import('./pages/projects').then((m) => m.ProjectsPage),
         title: 'Projects · TaleArt',
@@ -105,6 +112,14 @@ export const appRoutes: Route[] = [
         loadComponent: () => import('./pages/import-job').then((m) => m.ImportJobPage),
         title: 'Import from Storyly · TaleArt',
         data: { heading: 'Projects' } satisfies ShellData,
+      },
+      { path: 'settings', pathMatch: 'full', redirectTo: 'settings/api-tokens' },
+      {
+        // Personal API tokens for scripts and the CLI (epic developer experience 10.1).
+        path: 'settings/api-tokens',
+        loadComponent: () => import('./pages/api-tokens').then((m) => m.ApiTokensPage),
+        title: 'API tokens · Settings · TaleArt',
+        data: { heading: 'Settings' } satisfies ShellData,
       },
       { path: '**', redirectTo: 'zones' },
     ],
