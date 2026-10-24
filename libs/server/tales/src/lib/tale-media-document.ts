@@ -19,7 +19,7 @@ import {
   type MediaContentType,
   type TaleDocument,
 } from '@taleart/contract';
-import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
+import { inTransaction, withClient, type Db, type TransactionalDb } from '@taleart/server-access';
 import { lockMediaKeys, recordTaleMedia } from './document-media';
 import { checkPublishableDocument, checkTaleDocument } from './tale-document';
 
@@ -608,9 +608,19 @@ const CONTINUATION_LOCK = "hashtextextended('taleart:tale-media-migration', 0)";
 /** The smallest pool the continuation runs in: one connection for its lock, one for a batch, one for requests. */
 export const MIN_POOL_FOR_CONTINUATION = 3;
 
+/** The continuation's lock holder lost its session, and the lock with it: the pass stops and is tried again. */
+export class MigrationLockLostError extends Error {
+  constructor(readonly cause?: unknown) {
+    super('the session holding the migration lock ended');
+    this.name = 'MigrationLockLostError';
+  }
+}
+
 // True when the pool was ended under the continuation: the API is stopping, which is no failure.
-function isPoolEnded(err: unknown): boolean {
-  return /pool after calling end|Cannot use a pool|Connection terminated/i.test(String((err as Error)?.message ?? err));
+// Read from the pool's state (pg's Pool sets `ending`, then `ended`), never from an error's text.
+function isPoolEnded(pool: TransactionalDb): boolean {
+  const state = pool as { ending?: unknown; ended?: unknown };
+  return state.ending === true || state.ended === true;
 }
 
 /**
@@ -642,27 +652,37 @@ export async function continueTaleMediaMigration(
   let delay = options.baseDelayMs ?? 1000;
   for (let attempt = 0; attempt < (options.attempts ?? 8) && !options.signal?.aborted; attempt++) {
     try {
-      const holder = await pool.connect();
-      let failed: Error | undefined;
-      try {
-        const { rows } = await holder.query<{ locked: boolean }>(
-          `SELECT pg_try_advisory_lock(${CONTINUATION_LOCK}) AS locked`,
-        );
-        if (!rows[0].locked) {
-          options.log?.('info', 'Tale media in documents: another process is finishing the migration');
-          return total;
-        }
-        try {
-          const result = await migrationPass(run, settings, Date.now() + settings.budgetMs);
-          total.merged += result.merged;
-        } finally {
+      // The lock is the holder's session's: if the database ends that session (a restart, a
+      // terminated backend), the lock goes with it. withClient keeps the error rather than letting
+      // pg crash the process; the pass stops before its next batch and is tried again, taking the
+      // lock again on a new connection. A holder whose pass failed is dropped from the pool.
+      const locked = await withClient(
+        pool,
+        async (holder) => {
+          const { rows } = await holder.query<{ locked: boolean }>(
+            `SELECT pg_try_advisory_lock(${CONTINUATION_LOCK}) AS locked`,
+          );
+          if (!rows[0].locked) return false;
+          // The pass stops between batches when asked to, or once the holder's session is gone.
+          const stopping = settings.signal ? AbortSignal.any([settings.signal, holder.signal]) : holder.signal;
+          try {
+            const result = await migrationPass(run, { ...settings, signal: stopping }, Date.now() + settings.budgetMs);
+            total.merged += result.merged;
+          } catch (err) {
+            // A pass that failed while its lock went is a lost lock, and is retried as one. Otherwise
+            // the holder is dropped from the pool (discardOnError), which frees the lock with it.
+            if (holder.lost()) throw new MigrationLockLostError(holder.lost());
+            throw err;
+          }
+          if (holder.lost()) throw new MigrationLockLostError(holder.lost());
           await holder.query(`SELECT pg_advisory_unlock(${CONTINUATION_LOCK})`);
-        }
-      } catch (err) {
-        failed = err as Error;
-        throw err;
-      } finally {
-        holder.release(failed);
+          return true;
+        },
+        { discardOnError: true },
+      );
+      if (!locked) {
+        options.log?.('info', 'Tale media in documents: another process is finishing the migration');
+        return total;
       }
       const counts = await pool.query<{ remaining: number; skipped: number }>(
         `SELECT count(*) FILTER (WHERE ${NOT_SKIPPED})::int AS remaining,
@@ -677,7 +697,7 @@ export async function continueTaleMediaMigration(
       );
       if (total.done) break;
     } catch (err) {
-      if (options.signal?.aborted || isPoolEnded(err)) return total;
+      if (options.signal?.aborted || isPoolEnded(pool)) return total;
       options.log?.('warn', `Tale media in documents: a pass failed and is tried again (${String(err)})`);
     }
     await new Promise<void>((resolve) => {
