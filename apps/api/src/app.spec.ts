@@ -360,6 +360,53 @@ describe('Management API v1: projects and zones', () => {
     expect(await res.json()).toEqual({ status: 'ok' });
   });
 
+  describe('the OpenAPI document (epic developer experience 10.2)', () => {
+    const generated = JSON.parse(
+      readFileSync(join(__dirname, '../../../libs/contract/src/generated/openapi.json'), 'utf8'),
+    ) as { paths: Record<string, unknown>; tags: unknown[] };
+
+    it('serves the generated document at /api/openapi.json without credentials, cacheable', async () => {
+      const res = await globalThis.fetch(`${origin}/api/openapi.json`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/^application\/json/);
+      expect(res.headers.get('cache-control')).toBe('public, max-age=300');
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect(res.headers.get('etag')).toMatch(/^"[A-Za-z0-9_-]{32}"$/);
+      const body = await res.json();
+      expect(body).toEqual(generated);
+      // Every path of openapi.yaml, read from the YAML text itself.
+      const yaml = readFileSync(join(__dirname, '../../../libs/contract/openapi/openapi.yaml'), 'utf8');
+      const yamlPaths = [...yaml.slice(yaml.indexOf('\npaths:\n'), yaml.indexOf('\ncomponents:\n')).matchAll(/^ {2}(\/\S*):$/gm)];
+      expect(Object.keys(body.paths).sort()).toEqual(yamlPaths.map((m) => m[1]).sort());
+    });
+
+    it('answers the same with any credential, and 304 for its ETag', async () => {
+      const plain = await globalThis.fetch(`${origin}/api/openapi.json`);
+      const etag = plain.headers.get('etag') as string;
+      const withCredentials = await globalThis.fetch(`${origin}/api/openapi.json`, {
+        headers: { Authorization: 'Bearer tat_not-a-token', Cookie: 'taleart_session=nope' },
+      });
+      expect(withCredentials.status).toBe(200);
+      expect(withCredentials.headers.get('etag')).toBe(etag);
+      expect(await withCredentials.text()).toBe(await plain.text());
+      const again = await globalThis.fetch(`${origin}/api/openapi.json`, { headers: { 'If-None-Match': etag } });
+      expect(again.status).toBe(304);
+      expect(again.headers.get('etag')).toBe(etag);
+      expect(again.headers.get('cache-control')).toBe('public, max-age=300');
+      const weak = await globalThis.fetch(`${origin}/api/openapi.json`, { headers: { 'If-None-Match': `W/${etag}` } });
+      expect(weak.status).toBe(304);
+      const stale = await globalThis.fetch(`${origin}/api/openapi.json`, { headers: { 'If-None-Match': '"other"' } });
+      expect(stale.status).toBe(200);
+    });
+
+    it('serves only GET and HEAD there', async () => {
+      const head = await globalThis.fetch(`${origin}/api/openapi.json`, { method: 'HEAD' });
+      expect(head.status).toBe(200);
+      const posted = await globalThis.fetch(`${origin}/api/openapi.json`, { method: 'POST' });
+      expect(posted.status).toBe(404);
+    });
+  });
+
   it('creates a project and lists it', async () => {
     const created = await post('/projects', { name: 'Acme' });
     expect(created.status).toBe(201);

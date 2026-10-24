@@ -1,4 +1,5 @@
 import { DELIVERY_API_BASE, MAX_TALE_DOCUMENT_BYTES, PUBLIC_MEDIA_BASE, SDK_BASE, type Health } from '@taleart/contract';
+import openapiDocument from '@taleart/contract/openapi.json';
 import { DEFAULT_another tool_API_URL } from '@taleart/server-importer';
 import express from 'express';
 import type { PasskeyVerifier } from '@taleart/server-access';
@@ -12,6 +13,7 @@ import { coversRouter } from './http/covers.router';
 import { deliveryRouter } from './http/delivery.router';
 import { projectFontsRouter } from './http/fonts.router';
 import { frameTypesRouter } from './http/frame-types.router';
+import { OPENAPI_DOCUMENT_PATH, openapiRouter } from './http/openapi.router';
 import { importsRouter, type ImporterConfig } from './http/imports.router';
 import { errorHandler, notFoundHandler } from './http/errors';
 import { projectMediaRouter, type ProjectMediaOptions } from './http/project-media.router';
@@ -130,6 +132,10 @@ export function createApp(
     next();
   });
   app.options(`${MANAGEMENT_API_BASE}/*`, (_req, res) => res.sendStatus(204));
+
+  // The OpenAPI document, public and cacheable, for the docs' API reference and client generators
+  // (epic developer experience 10.2). No credential is read.
+  app.use(OPENAPI_DOCUMENT_PATH, openapiRouter(openapiDocument));
 
   const v1 = express.Router();
   v1.get('/health', (_req, res) => {

@@ -12,9 +12,65 @@ servers:
 security:
   - session: []
   - token: []
+# The groups of the docs' API reference (epic developer experience 10.2), in reading order. Every
+# operation has exactly one of these (a contract test checks).
+tags:
+  - name: Reference
+    description: Whether the API is up, and this document.
+  - name: Projects
+    description: Projects, their site key and invitations.
+  - name: Zones
+    description: Zones, their display (a frame of a registered type) and where host pages load the SDK.
+  - name: Tale groups
+    description: Tale groups, their place in zones, status, schedule and cover.
+  - name: Tales
+    description: Tales, their media, documents and responses.
+  - name: Media
+    description: The project's media library.
+  - name: Theme and fonts
+    description: The project's theme and fonts.
+  - name: Targeting
+    description: Tags and user lists that decide who sees a tale group.
+  - name: Imports
+    description: Importing a another tool app.
+  - name: API tokens
+    description: Personal API tokens for scripts. A passkey session only; a token cannot manage tokens.
+  - name: Delivery
+    description: >-
+      The Delivery API for SDKs and host pages, with the project's site key, and public media.
+  - name: Sign-in
+    description: >-
+      Passkey setup, sign-in, sign-out and invitations. Cookies only; any request with an
+      `Authorization` header is refused.
 paths:
+  /openapi.json:
+    servers:
+      - url: /api
+        description: This document, served by the API.
+    get:
+      tags:
+        - Reference
+      operationId: getOpenApiDocument
+      summary: This OpenAPI document, as JSON.
+      description: >-
+        Served at `/api/openapi.json`, with no credentials (any are ignored),
+        `Cache-Control: public, max-age=300` and an ETag (304 for a matching
+        `If-None-Match`). Its relative servers resolve against the API's origin.
+      security: []
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '304':
+          description: The client's copy, named by `If-None-Match`, is still current.
   /health:
     get:
+      tags:
+        - Reference
       operationId: getHealth
       summary: Report that the API is up.
       security: []
@@ -27,6 +83,8 @@ paths:
                 $ref: '#/components/schemas/Health'
   /auth/state:
     get:
+      tags:
+        - Sign-in
       operationId: getAuthState
       summary: Whether setup is still needed, and who is signed in.
       description: >-
@@ -44,6 +102,8 @@ paths:
           $ref: '#/components/responses/Error'
   /auth/setup/options:
     post:
+      tags:
+        - Sign-in
       operationId: startSetup
       summary: Start registering the first admin's passkey.
       description: >-
@@ -73,6 +133,8 @@ paths:
           $ref: '#/components/responses/Error'
   /auth/setup/verify:
     post:
+      tags:
+        - Sign-in
       operationId: finishSetup
       summary: Register the first admin's passkey and sign them in.
       description: >-
@@ -102,6 +164,8 @@ paths:
           $ref: '#/components/responses/Error'
   /auth/sign-in/options:
     post:
+      tags:
+        - Sign-in
       operationId: startSignIn
       summary: Start signing in with a passkey.
       description: >-
@@ -120,6 +184,8 @@ paths:
           $ref: '#/components/responses/Error'
   /auth/sign-in/verify:
     post:
+      tags:
+        - Sign-in
       operationId: finishSignIn
       summary: Sign in with a stored passkey.
       description: >-
@@ -146,6 +212,8 @@ paths:
           $ref: '#/components/responses/Error'
   /auth/sign-out:
     post:
+      tags:
+        - Sign-in
       operationId: signOut
       summary: End the current session.
       description: Deletes the session and clears the `taleart_session` cookie. Works without a session too.
@@ -159,6 +227,8 @@ paths:
     parameters:
       - $ref: '#/components/parameters/InvitationToken'
     get:
+      tags:
+        - Sign-in
       operationId: getInvitation
       summary: Read an invitation before joining.
       description: >-
@@ -180,6 +250,8 @@ paths:
     parameters:
       - $ref: '#/components/parameters/InvitationToken'
     post:
+      tags:
+        - Sign-in
       operationId: startInvitation
       summary: Start registering an invitee's passkey.
       description: >-
@@ -213,6 +285,8 @@ paths:
     parameters:
       - $ref: '#/components/parameters/InvitationToken'
     post:
+      tags:
+        - Sign-in
       operationId: finishInvitation
       summary: Register the invitee's passkey, use the invitation and sign them in.
       description: >-
@@ -245,6 +319,8 @@ paths:
           $ref: '#/components/responses/Error'
   /api-tokens:
     get:
+      tags:
+        - API tokens
       operationId: listApiTokens
       summary: The signed-in user's API tokens that are not revoked, newest first.
       description: >-
@@ -269,6 +345,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - API tokens
       operationId: createApiToken
       summary: Create an API token for the signed-in user (shown only once).
       description: >-
@@ -314,6 +392,8 @@ paths:
         schema:
           type: string
     delete:
+      tags:
+        - API tokens
       operationId: revokeApiToken
       summary: Revoke one of the signed-in user's API tokens.
       description: >-
@@ -340,6 +420,8 @@ paths:
         schema:
           type: string
     delete:
+      tags:
+        - API tokens
       operationId: revokeUserApiTokens
       summary: Revoke every API token of a user (admins only).
       description: >-
@@ -364,6 +446,8 @@ paths:
           $ref: '#/components/responses/Error'
   /projects:
     get:
+      tags:
+        - Projects
       operationId: listProjects
       summary: List the projects the caller can access, oldest first.
       description: Admins see every project; content managers see the projects they are members of.
@@ -379,6 +463,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Projects
       operationId: createProject
       summary: Create a project (admins only).
       description: >-
@@ -412,6 +498,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Projects
       operationId: createInvitation
       summary: Invite someone to a project (admins only).
       # An invitation mints a new person's passkey: a passkey session only, never an API token.
@@ -445,6 +533,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Projects
       operationId: getSiteKey
       summary: Whether the project has an active site key, with its prefix and issue date.
       description: >-
@@ -467,6 +557,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Projects
       operationId: issueSiteKey
       summary: Issue the project's site key, or rotate it (admins only).
       description: >-
@@ -503,6 +595,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     delete:
+      tags:
+        - Projects
       operationId: revokeSiteKey
       summary: Revoke the project's active site key (admins only).
       description: >-
@@ -526,6 +620,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tale groups
       operationId: listProjectTaleGroups
       summary: List every tale group of a project by name, with its tale count and zones.
       description: >-
@@ -547,6 +643,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Tale groups
       operationId: createProjectTaleGroup
       summary: Create a tale group in a project, placed in no zone (epic UX rework R14).
       description: >-
@@ -585,6 +683,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Theme and fonts
       operationId: getProjectTheme
       summary: The project's theme (epic web zones R9).
       description: >-
@@ -605,6 +705,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     put:
+      tags:
+        - Theme and fonts
       operationId: setProjectTheme
       summary: Replace the project's theme.
       description: >-
@@ -641,6 +743,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Media
       operationId: listProjectMedia
       summary: The project's media (epic Tale Studio R5), which Tale Studio's image and video elements pick from.
       description: >-
@@ -663,6 +767,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Media
       operationId: uploadProjectMedia
       summary: Upload an image (GIF included) or a video to the project's media.
       description: >-
@@ -737,6 +843,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Media
       operationId: getProjectMediaFile
       summary: A file of the project's media, with a session (for Tale Studio).
       description: >-
@@ -768,6 +876,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Theme and fonts
       operationId: listProjectFonts
       summary: The project's fonts (epic Tale Studio R18), by family, weight and style.
       description: >-
@@ -789,6 +899,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Theme and fonts
       operationId: uploadProjectFont
       summary: Upload a font face to the project.
       description: >-
@@ -895,6 +1007,8 @@ paths:
         schema:
           type: string
     delete:
+      tags:
+        - Theme and fonts
       operationId: deleteProjectFont
       summary: Delete a font face and its file.
       description: >-
@@ -925,6 +1039,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Theme and fonts
       operationId: getProjectFontFile
       summary: Read a font's file with a session, whether a published tale uses it or not.
       description: >-
@@ -953,6 +1069,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Targeting
       operationId: listTags
       summary: List a project's tags by name.
       description: Unknown project 404 `project_not_found`.
@@ -972,6 +1090,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Targeting
       operationId: createTag
       summary: Create a tag in a project.
       description: >-
@@ -1010,6 +1130,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Targeting
       operationId: listUserLists
       summary: A project's user lists (epic targeting R3), by name.
       description: >-
@@ -1033,6 +1155,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Targeting
       operationId: createUserList
       summary: Create an empty user list in a project.
       description: >-
@@ -1077,6 +1201,8 @@ paths:
         schema:
           type: string
     patch:
+      tags:
+        - Targeting
       operationId: renameUserList
       summary: Rename a user list.
       description: >-
@@ -1106,6 +1232,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     delete:
+      tags:
+        - Targeting
       operationId: deleteUserList
       summary: Delete a user list and every ID it holds, for good.
       description: >-
@@ -1142,6 +1270,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Targeting
       operationId: addUserListIds
       summary: Add the external user IDs of a single-column CSV to a user list.
       description: >-
@@ -1207,6 +1337,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Imports
       operationId: findanother toolApps
       summary: List the another tool apps a another tool API token can read (admins only).
       description: >-
@@ -1251,6 +1383,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Imports
       operationId: previewanother toolApp
       summary: Show what a another tool app holds before importing it (admins only).
       description: >-
@@ -1300,6 +1434,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Imports
       operationId: listImports
       summary: List the project's imports, newest first (admins only).
       description: >-
@@ -1325,6 +1461,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Imports
       operationId: startImport
       summary: Start importing a another tool app into the project (admins only).
       description: >-
@@ -1375,6 +1513,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Imports
       operationId: getImport
       summary: Read an import job, its state, progress and report (admins only).
       description: >-
@@ -1398,6 +1538,8 @@ paths:
           $ref: '#/components/responses/Error'
   /zones:
     get:
+      tags:
+        - Zones
       operationId: listZones
       summary: List the zones of the projects the caller can access, oldest first.
       responses:
@@ -1412,6 +1554,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Zones
       operationId: createZone
       summary: Create a zone in a project, from a template or without a display.
       description: >-
@@ -1452,6 +1596,8 @@ paths:
           $ref: '#/components/responses/Error'
   /install:
     get:
+      tags:
+        - Zones
       operationId: getInstallInfo
       summary: Where a host page loads the Web SDK and where the test page is (epic UX rework R13).
       description: >-
@@ -1469,6 +1615,8 @@ paths:
           $ref: '#/components/responses/Error'
   /frame-types:
     get:
+      tags:
+        - Zones
       operationId: listFrameTypes
       summary: List the frame types in the registry (AD-5).
       responses:
@@ -1490,6 +1638,8 @@ paths:
         schema:
           type: string
     patch:
+      tags:
+        - Zones
       operationId: updateZone
       summary: Rename a zone or change its slug.
       description: >-
@@ -1529,6 +1679,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Zones
       operationId: setZoneFrame
       summary: Give a zone its display, a frame of a registered type.
       description: >-
@@ -1562,6 +1714,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     patch:
+      tags:
+        - Zones
       operationId: updateZoneFrame
       summary: Change the type or the settings of a zone's display.
       description: >-
@@ -1604,6 +1758,8 @@ paths:
       - url: /delivery/v1
         description: Delivery API (AD-2), for SDKs. Accepts site keys only.
     get:
+      tags:
+        - Delivery
       operationId: getDeliveryZone
       summary: A zone, named by site key and slug, with its display and tale groups (Delivery API).
       description: >-
@@ -1641,6 +1797,7 @@ paths:
             the project's site key, as a host page names it in `zone="..."`.
           schema:
             type: string
+          example: home-top
         - name: X-TaleArt-Visitor
           in: header
           required: false
@@ -1686,6 +1843,8 @@ paths:
           type: string
         allowReserved: true
     get:
+      tags:
+        - Delivery
       operationId: getPublicMedia
       summary: Read a published tale's media file, with no credentials.
       description: >-
@@ -1741,6 +1900,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tale groups
       operationId: listZoneTaleGroups
       summary: List the tale groups placed in a zone by position, each with its tales by position.
       responses:
@@ -1759,6 +1920,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     post:
+      tags:
+        - Tale groups
       operationId: createZoneTaleGroup
       summary: Create a tale group and place it in a zone, after the zone's existing groups.
       description: >-
@@ -1797,6 +1960,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Tale groups
       operationId: orderZoneTaleGroups
       summary: Set the order of the tale groups placed in a zone.
       description: >-
@@ -1842,6 +2007,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Tale groups
       operationId: placeZoneTaleGroup
       summary: Place an existing tale group of the zone's project in the zone, after its groups.
       description: >-
@@ -1875,6 +2042,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     delete:
+      tags:
+        - Tale groups
       operationId: removeZoneTaleGroup
       summary: Remove a tale group from a zone.
       description: >-
@@ -1899,6 +2068,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tale groups
       operationId: getTaleGroup
       summary: Read one tale group with its tales.
       description: >-
@@ -1921,6 +2092,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     patch:
+      tags:
+        - Tale groups
       operationId: renameTaleGroup
       summary: Rename a tale group.
       description: >-
@@ -1957,6 +2130,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Tale groups
       operationId: copyTaleGroup
       summary: Copy a tale group into a zone, as an independent group.
       description: >-
@@ -2004,6 +2179,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Tale groups
       operationId: setTaleGroupStatus
       summary: Publish, pause, archive or restore a tale group.
       description: >-
@@ -2051,6 +2228,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Tale groups
       operationId: setTaleGroupSchedule
       summary: Set the start and end time of a tale group.
       description: >-
@@ -2090,6 +2269,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tale groups
       operationId: getTaleGroupCover
       summary: Read a tale group's cover file.
       description: >-
@@ -2119,6 +2300,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     put:
+      tags:
+        - Tale groups
       operationId: putTaleGroupCover
       summary: Set or replace a tale group's cover, still or animated.
       description: >-
@@ -2168,6 +2351,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     delete:
+      tags:
+        - Tale groups
       operationId: removeTaleGroupCover
       summary: Remove a tale group's cover.
       description: >-
@@ -2196,6 +2381,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Tale groups
       operationId: createTale
       summary: Add a tale to a tale group, after its existing tales.
       description: >-
@@ -2235,6 +2422,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Tale groups
       operationId: orderTales
       summary: Set the order of a tale group's tales.
       description: >-
@@ -2275,6 +2464,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Targeting
       operationId: setTaleGroupTags
       summary: Replace the tags of a tale group.
       description: >-
@@ -2313,6 +2504,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tales
       operationId: getTale
       summary: Read one tale.
       description: >-
@@ -2333,6 +2526,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     delete:
+      tags:
+        - Tales
       operationId: deleteTale
       summary: Delete a tale.
       description: >-
@@ -2368,6 +2563,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Tales
       operationId: setTaleStatus
       summary: Publish, pause, archive or restore a tale.
       description: >-
@@ -2414,6 +2611,8 @@ paths:
         schema:
           type: string
     put:
+      tags:
+        - Tales
       operationId: setTaleSchedule
       summary: Set the start and end time of a tale.
       description: >-
@@ -2453,6 +2652,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tales
       operationId: getTaleMedia
       summary: Read a tale's media file.
       description: The stored bytes, with the `Content-Type` they were uploaded with.
@@ -2479,6 +2680,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     put:
+      tags:
+        - Tales
       operationId: putTaleMedia
       summary: Upload or replace a tale's image, GIF or video.
       description: >-
@@ -2531,6 +2734,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tales
       operationId: getTaleDocument
       summary: Read a tale's draft document, with its published one.
       description: >-
@@ -2554,6 +2759,8 @@ paths:
         default:
           $ref: '#/components/responses/Error'
     put:
+      tags:
+        - Tales
       operationId: saveTaleDocument
       summary: Save a tale's draft document.
       description: >-
@@ -2605,6 +2812,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Tales
       operationId: publishTaleDocument
       summary: Publish a tale's draft document.
       description: >-
@@ -2653,6 +2862,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Tales
       operationId: discardTaleDraft
       summary: Discard a tale's draft, back to the published document.
       description: >-
@@ -2693,6 +2904,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Tales
       operationId: copyTaleDocument
       summary: Keep a document as a new tale in the tale's group.
       description: >-
@@ -2741,6 +2954,8 @@ paths:
         schema:
           type: string
     post:
+      tags:
+        - Tales
       operationId: duplicateTale
       summary: Duplicate a tale with its documents into a tale group of its project.
       description: >-
@@ -2793,6 +3008,8 @@ paths:
         schema:
           type: string
     get:
+      tags:
+        - Tales
       operationId: getTaleResponses
       summary: Read the responses to a tale's interactive components.
       description: >-
@@ -2824,6 +3041,8 @@ paths:
       - url: /delivery/v1
         description: Delivery API (AD-2), for SDKs. Accepts site keys only.
     post:
+      tags:
+        - Delivery
       operationId: postDeliveryResponse
       summary: Record a visitor's response to an interactive component (Delivery API).
       description: >-
