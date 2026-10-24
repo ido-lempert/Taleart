@@ -104,6 +104,7 @@ import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } fro
 import { needsLinkUrl, TaleLinkStyle } from './tale-links';
 import {
   addMenuRows,
+  applyChoiceEdit,
   STUDIO_TEST_ELEMENT_TYPES,
   studioElementTypes,
   type AddMenuEntry,
@@ -2361,16 +2362,7 @@ export class TaleStudioPage implements OnChanges {
           props = { ...props, ...change.props };
           for (const [key, value] of Object.entries(change.props)) if (value === undefined) delete props[key];
         }
-        const choice = change.choice;
-        const items = choice ? props[choice.prop] : undefined;
-        if (choice && Array.isArray(items) && choice.index >= 0 && choice.index < items.length) {
-          props = {
-            ...props,
-            [choice.prop]: items.map((item: Record<string, unknown>, i: number) =>
-              i === choice.index ? { ...item, label: choice.label } : item,
-            ),
-          };
-        }
+        if (change.choice) props = applyChoiceEdit(props, change.choice) ?? props;
         return { ...e, a11y: change.a11y ?? e.a11y, props } as TaleElement;
       }),
     );

@@ -206,4 +206,16 @@ describe('TaleViewer with a poll (C7)', () => {
     tea.blur();
     expect(dialog().hasAttribute('data-paused')).toBe(false);
   });
+
+  it('gives Space back to the viewer once voted (story 4.3), as the Rating does', async () => {
+    const tea = dialog().querySelector('button.ta-poll-opt') as HTMLButtonElement;
+    tea.focus();
+    tea.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tea.getAttribute('aria-disabled')).toBe('true');
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    tea.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(fake.send).toHaveBeenCalledTimes(1);
+  });
 });

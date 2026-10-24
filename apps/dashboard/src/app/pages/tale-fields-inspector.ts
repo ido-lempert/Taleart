@@ -8,7 +8,10 @@ interface ChoiceView {
   /** The error key: `<prop>/<index>`. */
   key: string;
   index: number;
+  /** Its input's DOM id; its list buttons add `-up`, `-down` and `-remove`. */
   id: string;
+  /** The choice's own id, kept as it is edited and moved. */
+  choiceId: string;
   label: string;
   value: string;
 }
@@ -18,6 +21,13 @@ interface ChoicesView extends ChoicesField {
   id: string;
   schema: PropSchema;
   items: ChoiceView[];
+  /** A list field: choices are added, removed and moved (story 4.3). */
+  list: boolean;
+  /** The fewest and the most choices its schema allows. */
+  min: number;
+  max: number;
+  /** The correct choice's id now, or '' for none. */
+  correctId: string;
 }
 
 /** One field as the inspector shows it: the descriptor's field with its schema rules. */
@@ -147,7 +157,7 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
         @if (group.hint) {
           <span class="field__hint" [id]="group.id + '-hint'">{{ group.hint }}</span>
         }
-        @for (item of group.items; track item.key) {
+        @for (item of group.items; track item.choiceId) {
           @let invalid = errors()[item.key] ? 'true' : null;
           <div class="field">
             <label class="field__label" [for]="item.id">{{ item.label }}</label>
@@ -164,6 +174,74 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
               (change)="applyChoice(group, item, $any($event.target).value)"
             />
             <span class="field__error" aria-live="polite" [id]="item.id + '-error'">{{ errors()[item.key] ?? '' }}</span>
+            @if (group.list) {
+              <!-- Each button's name starts with its visible text (WCAG 2.5.3), then names the answer. -->
+              <div class="row fields-choice__actions">
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--sm"
+                  [id]="item.id + '-up'"
+                  [attr.aria-disabled]="locked() || $first ? 'true' : null"
+                  (click)="moveChoice(group, item, -1)"
+                >
+                  Move up<span class="visually-hidden">: {{ item.label }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--sm"
+                  [id]="item.id + '-down'"
+                  [attr.aria-disabled]="locked() || $last ? 'true' : null"
+                  (click)="moveChoice(group, item, 1)"
+                >
+                  Move down<span class="visually-hidden">: {{ item.label }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--sm"
+                  [id]="item.id + '-remove'"
+                  [attr.aria-disabled]="locked() || group.items.length <= group.min ? 'true' : null"
+                  (click)="removeChoice(group, item)"
+                >
+                  Remove<span class="visually-hidden">: {{ item.label }}</span>
+                </button>
+              </div>
+            }
+          </div>
+        }
+        @if (group.list) {
+          <div class="field">
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm fields-choices__add"
+              [id]="group.id + '-add'"
+              [attr.aria-describedby]="group.id + '-count'"
+              [attr.aria-disabled]="locked() || group.items.length >= group.max ? 'true' : null"
+              (click)="addChoice(group)"
+            >
+              {{ group.addLabel }}
+            </button>
+            <span class="field__hint" [id]="group.id + '-count'">{{ countHint(group) }}</span>
+          </div>
+        }
+        @if (group.correct; as correct) {
+          <div class="field">
+            <label class="field__label" [for]="group.id + '-correct'">{{ correct.label }}</label>
+            <select
+              class="input"
+              [id]="group.id + '-correct'"
+              [disabled]="locked()"
+              [attr.aria-describedby]="correct.hint ? group.id + '-correct-hint ' + group.id + '-correct-error' : group.id + '-correct-error'"
+              (change)="pickCorrect(group, $any($event.target).value)"
+            >
+              <option value="" [selected]="group.correctId === ''">{{ correct.none }}</option>
+              @for (item of group.items; track item.choiceId) {
+                <option [value]="item.choiceId" [selected]="item.choiceId === group.correctId">{{ item.label }}: {{ item.value }}</option>
+              }
+            </select>
+            @if (correct.hint) {
+              <span class="field__hint" [id]="group.id + '-correct-hint'">{{ correct.hint }}</span>
+            }
+            <span class="field__error" aria-live="polite" [id]="group.id + '-correct-error'">{{ errors()[correct.prop] ?? '' }}</span>
           </div>
         }
       </fieldset>
@@ -181,6 +259,8 @@ const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>>
   styles: `
     .fields-emoji { align-items: center; }
     .fields-emoji__glyph { font-size: 1.75rem; line-height: 1; min-width: 2rem; text-align: center; }
+    .fields-choice__actions { flex-wrap: wrap; gap: 4px; }
+    .fields-choices__add { justify-self: start; }
   `,
 })
 export class TaleFieldsInspector {
@@ -237,20 +317,31 @@ export class TaleFieldsInspector {
     const type = this.type();
     const choices = (type.inspector as FieldsInspector).choices;
     if (!choices) return null;
-    const array = propSchema(type.schema, choices.prop)?.schema as { items?: { [key: string]: unknown } } | undefined;
+    const array = propSchema(type.schema, choices.prop)?.schema as
+      | { items?: { [key: string]: unknown }; minItems?: number; maxItems?: number }
+      | undefined;
     const label = array?.items ? propSchema(array.items, 'label') : null;
     if (!label) return null;
-    const value = this.edited().props[choices.prop];
-    const items = Array.isArray(value) ? (value as { label?: unknown }[]) : [];
+    const props = this.edited().props;
+    const value = props[choices.prop];
+    const items = Array.isArray(value) ? (value as { id?: unknown; label?: unknown }[]) : [];
     const id = `field-${type.key}-${choices.prop}-${this.element().id}`;
+    const min = array?.minItems ?? items.length;
+    const max = array?.maxItems ?? items.length;
+    const correct = choices.correct ? props[choices.correct.prop] : undefined;
     return {
       ...choices,
       id,
       schema: label.schema,
+      list: min !== max,
+      min,
+      max,
+      correctId: typeof correct === 'string' ? correct : '',
       items: items.map((item, index) => ({
         key: `${choices.prop}/${index}`,
         index,
         id: `${id}-${index}`,
+        choiceId: typeof item?.id === 'string' ? item.id : String(index),
         label: choices.itemLabel(index),
         value: typeof item?.label === 'string' ? item.label : '',
       })),
@@ -290,6 +381,80 @@ export class TaleFieldsInspector {
       choice: { prop: group.prop, index: item.index, label: raw },
       said: `${item.label} set`,
     });
+  }
+
+  /** What the list field's Add button is described by: how many choices it holds, of how many. */
+  protected countHint(group: ChoicesView): string {
+    const n = group.items.length;
+    if (n >= group.max) return `${n} of ${group.max}: the most it holds.`;
+    if (n <= group.min) return `${n} of ${group.max}: it needs at least ${group.min}.`;
+    return `${n} of ${group.max}.`;
+  }
+
+  /** Adds a choice at the end of a list field, with a new id, and moves focus to its text. */
+  protected addChoice(group: ChoicesView): void {
+    if (this.locked() || !group.newLabel || group.items.length >= group.max) return;
+    const index = group.items.length;
+    const name = group.itemLabel(index);
+    this.changed.emit({
+      label: `${name} added`,
+      choice: { prop: group.prop, add: { id: crypto.randomUUID(), label: group.newLabel(index) }, max: group.max },
+      said: `${name} added. ${index + 1} of ${group.max}.`,
+    });
+    this.focusSoon(`${group.id}-${index}`);
+  }
+
+  /**
+   * Removes a choice of a list field by its id, down to the fewest its schema allows; its count no
+   * longer shows. Removing the correct choice leaves none correct. Focus moves to the choice now in
+   * its place, or the one before it.
+   */
+  protected removeChoice(group: ChoicesView, item: ChoiceView): void {
+    if (this.locked() || group.items.length <= group.min) return;
+    const wasCorrect = !!group.correct && group.correctId === item.choiceId;
+    this.changed.emit({
+      label: `${item.label} removed`,
+      choice: { prop: group.prop, remove: item.choiceId, min: group.min, clears: group.correct?.prop },
+      said: `${item.label} removed${wasCorrect ? `; no ${group.correct?.label.toLowerCase()} now` : ''}. ${group.items.length - 1} of ${group.max}.`,
+    });
+    this.focusSoon(`${group.id}-${Math.min(item.index, group.items.length - 2)}`);
+  }
+
+  /** Moves a choice of a list field one place up (-1) or down (1) by its id; its count goes with it. */
+  protected moveChoice(group: ChoicesView, item: ChoiceView, by: -1 | 1): void {
+    const to = item.index + by;
+    if (this.locked() || to < 0 || to >= group.items.length) return;
+    this.changed.emit({
+      label: `${item.label} moved`,
+      choice: { prop: group.prop, move: item.choiceId, by },
+      said: `${item.label} moved ${by < 0 ? 'up' : 'down'}; it is now ${group.itemLabel(to).toLowerCase()}.`,
+    });
+    // The same button on the moved choice, or the other one once it reaches an end.
+    const end = by < 0 ? to === 0 : to === group.items.length - 1;
+    const button = by < 0 ? (end ? 'down' : 'up') : end ? 'up' : 'down';
+    this.focusSoon(`${group.id}-${to}-${button}`);
+  }
+
+  /** Picks the correct choice, or none, as one history step. */
+  protected pickCorrect(group: ChoicesView, value: string): void {
+    const correct = group.correct;
+    if (this.locked() || !correct || value === group.correctId) return;
+    const props: Record<string, unknown> = { ...this.edited().props, [correct.prop]: value };
+    if (!value) delete props[correct.prop];
+    const problem = this.type().check?.(props) ?? null;
+    this.setError(correct.prop, problem);
+    if (problem) return;
+    const item = group.items.find((i) => i.choiceId === value);
+    this.changed.emit({
+      label: `${correct.label} changed`,
+      props: { [correct.prop]: value || undefined },
+      said: item ? `${correct.label}: ${item.label.toLowerCase()}, ${item.value}` : `No ${correct.label.toLowerCase()}`,
+    });
+  }
+
+  // Focuses a control of the inspector once the change has drawn it.
+  private focusSoon(id: string): void {
+    setTimeout(() => document.getElementById(id)?.focus(), 0);
   }
 
   /** The field's hint, then its error line: both stay described, so the rule is heard with the problem. */

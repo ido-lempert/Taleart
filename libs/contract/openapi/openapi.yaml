@@ -2475,7 +2475,8 @@ paths:
         The visitors' responses to the tale's interactive components (epic
         interactive components R11), as Tale Studio's inspector shows them:
         per component, the number of responses in all and per stored value
-        (a poll's option id, a Rating's value from 0 to 100), whatever the
+        (a poll's option id, a quiz's answer id, a Rating's value from 0 to
+        100), whatever the
         tale's documents hold now. A
         component without a response is not listed. Counts include only
         responses from the site; the studio preview records none. Any member
@@ -2516,13 +2517,14 @@ paths:
         interactive type; otherwise 404 `response_target_not_found`, the
         same for a tale of another project, a hidden tale and an unknown
         element. The value must be valid for the element (a poll's option
-        id; a Rating's whole number from 0 to 100, written plainly, such as
-        `80`), else 422 `validation_failed`. Each visitor keeps one response
+        id; a quiz's answer id; a Rating's whole number from 0 to 100,
+        written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response
         per tale, component and interaction kind, and the first is kept
         (C9): a new response answers 201, a repeat 200 with the stored value
         and `recorded: false`. Either way the answer carries the current
-        result (a poll's counts and percentages per option, a Rating's count
-        and average). The row records
+        result (a poll's or a quiz's counts and percentages per option or
+        answer, a Rating's count and average). A quiz's correct answer is
+        not in the answer: it is in the published document (C10). The row records
         the project, zone, display, tale group and tale ids, the element's
         id and type, the value, the visitor id and the client's and the
         server's times (AD-10); no user data (AD-13). Deleting the tale
@@ -3602,7 +3604,7 @@ components:
           description: >-
             A key of the element-type registry, such as `text`, `image`,
             `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`,
-            `swipe-up`, `poll` or `rating`.
+            `swipe-up`, `poll`, `rating` or `quiz`.
         box:
           $ref: '../tale-document/v1.schema.json#/$defs/Box'
         a11y:
@@ -3638,13 +3640,15 @@ components:
       $ref: '../tale-document/element-types/poll.schema.json'
     RatingElementProps:
       $ref: '../tale-document/element-types/rating.schema.json'
+    QuizElementProps:
+      $ref: '../tale-document/element-types/quiz.schema.json'
     ChoiceCount:
       type: object
       required: [id, count, percent]
       properties:
         id:
           type: string
-          description: The choice's id (a poll's option id).
+          description: The choice's id (a poll's option id, a quiz's answer id).
         count:
           type: integer
           minimum: 0
@@ -3702,8 +3706,8 @@ components:
           minLength: 1
           maxLength: 64
           description: >-
-            The response, such as a poll's option id or a Rating's whole
-            number from 0 to 100 (`80`).
+            The response, such as a poll's option id, a quiz's answer id or
+            a Rating's whole number from 0 to 100 (`80`).
         clientAt:
           type: string
           format: date-time
@@ -3723,8 +3727,8 @@ components:
           description: True when this request recorded it; false for a repeat.
         result:
           description: >-
-            The component's result now: a poll's counts and percentages per
-            option, or a Rating's count and average.
+            The component's result now: a poll's or a quiz's counts and
+            percentages per choice, or a Rating's count and average.
           oneOf:
             - $ref: '#/components/schemas/ChoiceResult'
             - $ref: '#/components/schemas/RatingResult'

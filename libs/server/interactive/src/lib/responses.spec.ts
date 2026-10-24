@@ -109,6 +109,41 @@ describe('recordResponse', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("records a quiz answer as one of its answer ids and answers the counts per answer, whatever is correct (R3, C10)", async () => {
+    const answers = [{ id: 'a', label: 'Mercury' }, { id: 'b', label: 'Venus' }, { id: 'c', label: 'Earth' }];
+    const quiz = { ...poll, element: { id: elementId, type: 'quiz', props: { question: 'Hottest?', answers, correctAnswerId: 'b', theme: 'light' } } };
+    delivered.mockResolvedValue(quiz);
+    const { db, query } = fakeDb([{ rows: [{ value: 'c' }] }, { rows: [{ value: 'c', count: '1' }, { value: 'b', count: '3' }, { value: 'gone', count: '4' }] }]);
+    const result = await recordResponse(db, { ...input, value: 'c' }, now);
+    expect(result).toEqual({
+      elementId,
+      value: 'c',
+      recorded: true,
+      result: {
+        total: 4,
+        choices: [
+          { id: 'a', count: 0, percent: 0 },
+          { id: 'b', count: 3, percent: 75 },
+          { id: 'c', count: 1, percent: 25 },
+        ],
+      },
+    });
+    const params = (query.mock.calls[0] as unknown[])[1];
+    expect(params).toEqual([taleId, elementId, 'answer', visitorId, projectId, zoneId, frameId, groupId, 'quiz', 'c', null, now]);
+  });
+
+  it("refuses a quiz answer that is none of its answer ids, such as a poll's option or a rating", async () => {
+    const quiz = { ...poll, element: { id: elementId, type: 'quiz', props: { question: 'Q', answers: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], theme: 'dark' } } };
+    delivered.mockResolvedValue(quiz);
+    const { db, query } = fakeDb([]);
+    for (const value of ['tea', '80', 'A', 'a ', '', 1, null]) {
+      const refused = recordResponse(db, { ...input, value }, now);
+      await expect(refused).rejects.toBeInstanceOf(InvalidResponseValueError);
+      await expect(refused).rejects.toThrow("An answer is one of the quiz's answer ids");
+    }
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('records a zone without a display with no frame id', async () => {
     delivered.mockResolvedValue(poll);
     findZone.mockResolvedValue({ id: zoneId, frame: null });
