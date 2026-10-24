@@ -63,6 +63,8 @@ export interface PalettePreset {
   props?: Readonly<Record<string, unknown>>;
   /** Where it lands, in place of the type's own new box. */
   box?: TaleElementBox;
+  /** How its tile draws it, where that differs from `props` (a text preset's sample). */
+  tileProps?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -285,7 +287,7 @@ const SHAPE_KEYWORDS: Readonly<Record<ShapeKind, readonly string[]>> = {
 /**
  * The text presets (EXPERIENCE Left panel tabs): Heading, Subheading, Body, Caption and Label, each
  * a text in its own size and weight, drawn so on its tile. Body is the text the studio added before
- * presets, in today's box, at regular weight. Each box is inside the safe area.
+ * presets, in today's box and style (DEFAULT_TEXT_STYLE). Each box is inside the safe area.
  */
 export const TEXT_PRESETS: readonly PalettePreset[] = [
   {
@@ -306,7 +308,9 @@ export const TEXT_PRESETS: readonly PalettePreset[] = [
     id: 'text',
     label: 'Body text',
     keywords: ['body', 'paragraph', 'copy'],
-    props: { text: 'Text', weight: 'regular' },
+    props: { text: 'Text' },
+    // Its tile draws it lighter than it adds it, so the tiles read as a ladder below the headings.
+    tileProps: { weight: 'regular' },
   },
   {
     id: 'caption',
@@ -406,7 +410,7 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     palette: {
       category: 'actions',
       order: 0,
-      keywords: ['cta', 'call to action', 'link', 'url', 'shop'],
+      keywords: ['cta', 'call to action', 'link', 'url', 'shop', 'buy', 'tap'],
       icon: 'button',
       action: { kind: 'button' },
     },
@@ -416,7 +420,7 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     palette: {
       category: 'actions',
       order: 1,
-      keywords: ['cta', 'link', 'url', 'banner', 'picture'],
+      keywords: ['cta', 'call to action', 'link', 'url', 'banner', 'picture'],
       icon: 'image-button',
       action: { kind: 'image-button' },
       needsProject: true,
@@ -427,7 +431,7 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     palette: {
       category: 'interactive',
       order: 0,
-      keywords: ['vote', 'survey', 'question', 'choice', 'options', 'opinion'],
+      keywords: ['vote', 'votes', 'voting', 'survey', 'question', 'choice', 'options', 'opinion', 'ask'],
       icon: 'poll',
       action: { kind: 'configured' },
       limit: oneOf('poll', 'studio-poll-hint', 'A tale holds one poll. Delete it to add another.'),
@@ -545,7 +549,7 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     palette: {
       category: 'actions',
       order: 2,
-      keywords: ['link', 'cta', 'url', 'swipe', 'more'],
+      keywords: ['link', 'cta', 'call to action', 'url', 'swipe', 'more'],
       icon: 'swipe-up',
       action: { kind: 'swipe-up' },
       limit: {

@@ -182,6 +182,10 @@ const MOVE_STEP = 0.01;
 const LEAVE_WAIT_MS = 5000;
 /** How long typing in the palette search pauses before the count is said, so a word is said once. */
 export const PALETTE_COUNT_DELAY_MS = 400;
+/** The reasons several groups' tiles share, said once above the groups rather than under each. */
+const PALETTE_WIDE_REASONS: readonly string[] = ['studio-full-hint', 'studio-project-hint'];
+/** Why the tiles that pick the project's media cannot add when the tale has no project. */
+const NO_PROJECT_MEDIA = "This tale has no project, so it can't use the project's media.";
 
 /** How often, at most, coming back to the page reads the tale again (ms). */
 export const BACK_TO_PAGE_INTERVAL_MS = 15_000;
@@ -456,7 +460,7 @@ export class TaleStudioPage implements OnChanges {
       return { id: 'studio-full-hint', reason: `A tale holds up to ${MAX_TALE_ELEMENTS} elements. Delete one to add another.` };
     }
     if (tile.needsProject && !this.projectId()) {
-      return { id: 'studio-project-hint', reason: "This tale has no project, so it can't use the project's media." };
+      return { id: 'studio-project-hint', reason: NO_PROJECT_MEDIA };
     }
     if (tile.limit?.reached(doc)) return { id: tile.limit.hintId, reason: tile.limit.hint };
     return null;
@@ -466,13 +470,16 @@ export class TaleStudioPage implements OnChanges {
     const seen = new Set<string>();
     return tiles.flatMap((tile) => {
       const block = this.tileBlock(tile);
-      if (!block || block.id === 'studio-full-hint' || seen.has(block.id)) return [];
+      if (!block || PALETTE_WIDE_REASONS.includes(block.id) || seen.has(block.id)) return [];
       seen.add(block.id);
       return [block];
     });
   }
   /** True while the tale holds as many elements as it may: every tile says so once, above the groups. */
   protected readonly taleFull = computed(() => (this.doc()?.elements.length ?? 0) >= MAX_TALE_ELEMENTS);
+  /** True when the tale has no project (and is not full): the media tiles say so once, above the groups. */
+  protected readonly noProjectMedia = computed(() => !this.taleFull() && !this.projectId());
+  protected readonly noProjectReason = NO_PROJECT_MEDIA;
   protected readonly emojiFont = EMOJI_FONT_STACK;
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
   protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
@@ -874,19 +881,25 @@ export class TaleStudioPage implements OnChanges {
    */
   protected searchPalette(query: string): void {
     this.paletteQuery.set(query);
-    if (this.countTimer !== null) clearTimeout(this.countTimer);
-    this.countTimer = null;
+    this.cancelPaletteCount();
     if (!query.trim()) return;
     this.countTimer = setTimeout(() => {
       this.countTimer = null;
-      this.say(this.paletteCount());
+      this.announce(this.paletteCount());
     }, PALETTE_COUNT_DELAY_MS);
+  }
+
+  // Drops a count not said yet: what happens next (an add, a move to a tile, clearing) is said instead.
+  private cancelPaletteCount(): void {
+    if (this.countTimer !== null) clearTimeout(this.countTimer);
+    this.countTimer = null;
   }
 
   /** Clears the search and keeps focus in its field (the Clear search button, Escape). */
   protected clearPaletteSearch(): void {
     this.searchPalette('');
-    this.say('Search cleared');
+    this.cancelPaletteCount();
+    this.announce('Search cleared');
     this.focusSoon('studio-palette-search');
   }
 
@@ -909,6 +922,7 @@ export class TaleStudioPage implements OnChanges {
       const first = this.paletteTileButtons()[0];
       if (!first) return;
       event.preventDefault();
+      this.cancelPaletteCount();
       first.focus();
     }
   }
@@ -1700,9 +1714,17 @@ export class TaleStudioPage implements OnChanges {
     this.contrastNote = '';
     // Two sentences, so a screen reader pauses between them ("Layer hidden. "Sale" has …", story 7.15).
     const said = note ? `${/[.!?…]$/.test(text.trim()) || !text.trim() ? text : `${text.trim()}.`} ${note}`.trim() : text;
+    this.announce(said);
+  }
+
+  /**
+   * Says `text` alone in the polite live region: what is not about a change (the palette's count),
+   * so a pending contrast note stays for the change it belongs to.
+   */
+  private announce(text: string): void {
     // Cleared first, so the same message twice is announced twice.
     this.announcement.set('');
-    setTimeout(() => this.announcement.set(said), 0);
+    setTimeout(() => this.announcement.set(text), 0);
   }
 
   // When the tale's own media (R16) stops or starts being drawn full-bleed, what that does to how it
@@ -2585,6 +2607,7 @@ export class TaleStudioPage implements OnChanges {
    * else a configured type's, with the tile's preset. A blocked tile says why and adds nothing.
    */
   protected addFromTile(tile: PaletteTile): void {
+    this.cancelPaletteCount();
     const block = this.tileBlock(tile);
     if (block) {
       this.say(block.reason);

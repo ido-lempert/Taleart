@@ -319,11 +319,14 @@
             A tale holds up to {{ maxElements }} elements. Delete one to add another.
           </p>
         }
+        @if (noProjectMedia()) {
+          <p class="field__hint palette-reason" id="studio-project-hint">{{ noProjectReason }}</p>
+        }
         <div id="studio-palette-groups">
           @for (group of paletteGroups(); track group.key) {
             <div class="tile-group" role="group" [attr.aria-labelledby]="'studio-tiles-' + group.key">
               <h3 class="tile-group__name" [id]="'studio-tiles-' + group.key">{{ group.name }}</h3>
-              <div class="tiles">
+              <div class="tiles" [class.tiles--text]="group.key === 'text'">
                 @for (tile of group.tiles; track tile.id) {
                   @let block = tileBlock(tile);
                   <button
@@ -333,7 +336,6 @@
                     [id]="tile.id"
                     [attr.aria-disabled]="block ? 'true' : null"
                     [attr.aria-describedby]="block?.id ?? null"
-                    [attr.title]="block?.reason ?? null"
                     (click)="addFromTile(tile)"
                     (keydown)="tileKey($event)"
                   >

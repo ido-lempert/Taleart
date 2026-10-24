@@ -267,6 +267,62 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
     expect([...more.querySelectorAll('.tile')].map((t) => t.id)).toEqual(['studio-add-test-badge']);
   });
 
+  it('says once, above the groups, why the media tiles cannot add to a tale with no project', async () => {
+    const store = TestBed.inject(DashboardStore);
+    store.taleGroups.set({ z1: [{ ...group, tales: [{ ...tale, projectId: null }] } as unknown as ZoneTaleGroup] });
+    fixture = TestBed.createComponent(TaleStudioPage);
+    fixture.componentRef.setInput('taleId', 't1');
+    fixture.detectChanges();
+    http.expectOne(url).flush({ document: null, revision: 0, published: { document: null, revision: 0 } });
+    await settle(fixture);
+    root = fixture.nativeElement as HTMLElement;
+    globalThis.document.body.appendChild(root);
+    const reason = "This tale has no project, so it can't use the project's media.";
+    expect(root.querySelectorAll('#studio-project-hint').length).toBe(1);
+    expect(q('#studio-project-hint').textContent?.trim()).toBe(reason);
+    expect(q('#studio-project-hint').closest('[role=group]')).toBeNull();
+    for (const id of ['image', 'video', 'sticker', 'image-button']) {
+      const tile = q<HTMLButtonElement>(`#studio-add-${id}`);
+      expect(tile.disabled, id).toBe(false);
+      expect(tile.getAttribute('aria-disabled'), id).toBe('true');
+      expect(tile.getAttribute('aria-describedby'), id).toBe('studio-project-hint');
+      expect(tile.hasAttribute('title'), id).toBe(false);
+    }
+    expect(q('#studio-add-emoji').hasAttribute('aria-disabled')).toBe(false);
+    q<HTMLButtonElement>('#studio-add-image').click();
+    await settle(fixture);
+    expect(live()).toBe(reason);
+    expect(root.querySelector('[role=dialog]')).toBeNull();
+  });
+
+  it('drops a count not said yet when a tile is added, and says the count with no contrast note', async () => {
+    await open(false);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const search = q<HTMLInputElement>('#studio-palette-search');
+      search.value = 'rect';
+      search.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      // A contrast note waiting for a change is not taken by the count.
+      (fixture.componentInstance as unknown as { contrastNote: string }).contrastNote = 'NOTE';
+      vi.advanceTimersByTime(PALETTE_COUNT_DELAY_MS + 10);
+      fixture.detectChanges();
+      expect(live()).toBe('1 element');
+      expect((fixture.componentInstance as unknown as { contrastNote: string }).contrastNote).toBe('NOTE');
+      (fixture.componentInstance as unknown as { contrastNote: string }).contrastNote = '';
+      // Typing again, then adding before the pause ends: the add is said, not the count.
+      search.value = 'ellipse';
+      search.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      q<HTMLButtonElement>('#studio-add-ellipse').click();
+      vi.advanceTimersByTime(PALETTE_COUNT_DELAY_MS + 10);
+      fixture.detectChanges();
+      expect(live()).toContain('Ellipse added');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps blocked tiles focusable, each saying why', async () => {
     await open(false, {
       version: 1,

@@ -72,12 +72,28 @@ describe('the element palette (epic Tale Studio 2 R2)', () => {
   it('draws text presets in their style, largest for the heading', () => {
     const sample = (id: string) => tiles.find((t) => t.id === `studio-add-${id}`)?.sample;
     // In its size, and never wider than the tile: a long word shrinks with the tile's width (cqi).
-    expect(sample('heading')).toEqual({ fontSize: 'clamp(10px, 23cqi, 16px)', fontWeight: 700, fontStyle: 'normal', boxed: false });
-    expect(sample('subheading')).toMatchObject({ fontSize: 'clamp(10px, 16cqi, 13px)', fontWeight: 500 });
-    expect(sample('text')).toMatchObject({ fontSize: 'clamp(10px, 17cqi, 12px)', fontWeight: 400 });
-    expect(sample('caption')).toMatchObject({ fontSize: 'clamp(10px, 23cqi, 10px)', fontStyle: 'italic' });
+    expect(sample('heading')).toEqual({ fontSize: 'clamp(9px, 23cqi, 18px)', fontWeight: 700, fontStyle: 'normal', boxed: false });
+    expect(sample('subheading')).toMatchObject({ fontSize: 'clamp(9px, 16cqi, 15px)', fontWeight: 500 });
+    expect(sample('text')).toMatchObject({ fontSize: 'clamp(9px, 17cqi, 13px)', fontWeight: 400 });
+    expect(sample('caption')).toMatchObject({ fontSize: 'clamp(9px, 23cqi, 11px)', fontStyle: 'italic' });
     expect(sample('label')).toMatchObject({ boxed: true });
     expect(sample('poll')).toBeUndefined();
+  });
+
+  it('adds body text exactly as the studio added text before presets, bold, though its tile is lighter', () => {
+    const body = TEXT_PRESETS.find((p) => p.id === 'text');
+    expect({ ...newTextProps('Text'), ...body?.props }).toEqual(newTextProps('Text'));
+    expect(body?.box).toBeUndefined();
+  });
+
+  it('finds tiles by everyday synonyms', () => {
+    expect(ids('votes')).toEqual([['Interactive', ['studio-add-poll']]]);
+    expect(ids('survey')).toEqual([['Interactive', ['studio-add-poll']]]);
+    expect(ids('call to action')).toEqual([
+      ['Buttons & links', ['studio-add-button', 'studio-add-image-button', 'studio-add-swipe-up']],
+    ]);
+    expect(ids('cta').map(([name]) => name)).toEqual(['Buttons & links']);
+    expect(ids('link').map(([name]) => name)).toEqual(['Buttons & links']);
   });
 
   it('gives text presets valid style props and boxes inside the safe area', () => {

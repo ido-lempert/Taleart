@@ -123,8 +123,19 @@
   color: var(--surface);
 }
 
+/* Text presets in two columns: room for each word at its own size, Heading down to Caption. */
+.tiles--text {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.tiles--text .tile {
+  min-height: 56px;
+}
+
 @media (max-width: 1023.98px) {
   .tiles {
     grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  }
+  .tiles--text {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   }
 }
