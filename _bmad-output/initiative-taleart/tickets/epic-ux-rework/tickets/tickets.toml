@@ -276,3 +276,14 @@ after = [22]
 hitl = false
 risk = "medium"
 notes = ["Owner decision 2026-10-23 answering the IPv6 /64 question: visitors are based on a device id or a UUID v4 generated and stored on the device."]
+
+[[entry]]
+id = 24
+type = "story"
+title = "A lost database connection never crashes the API"
+description = "Follow-up from the 5.3 security review: the shared inTransaction (libs/server/access/src/lib/db.ts), the importer's transaction and job clients, and the tale-media migration lock holder check out clients with no 'error' listener, so a database restart, failover or pg_terminate_backend while one is checked out emits an unhandled 'error' and kills Node. Move 5.3's listener-and-discard pattern (uploadTransaction) into a shared helper used by every checked-out client, release broken clients with an error so the pool drops them, and make the 408 contract wording for user-list uploads match what clients really see (a reset connection)."
+verify = "A test terminates the backend (pg_terminate_backend) while each kind of checked-out client is in use: the request fails cleanly, the API keeps serving, and the pool recovers; the migration lock holder survives a terminated session by re-acquiring or failing the migration cleanly."
+covers = ["R3"]
+after = [23]
+hitl = false
+risk = "medium"
