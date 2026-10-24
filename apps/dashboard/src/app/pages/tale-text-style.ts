@@ -145,7 +145,7 @@ export function parseHexColor(value: string): string | null {
     <fieldset class="text-style" [disabled]="locked()">
       <legend class="field__label">Text style</legend>
       <fieldset class="text-style__group">
-        <legend class="field__label">Font</legend>
+        <legend class="field__label">Font and size</legend>
         <div class="field">
           <label class="field__label" for="ts-font">Font</label>
           <select id="ts-font" class="select" (change)="setFont($any($event.target).value)">
