@@ -63,12 +63,12 @@
 
 .rail__item--active,
 .rail__item--active:hover {
-  background: var(--ember-tint);
+  background: var(--brand-tint);
   color: var(--ink);
 }
 
 .rail__item--active .icon {
-  color: var(--ember-strong);
+  color: var(--brand);
 }
 
 .main-column {
@@ -99,7 +99,7 @@
 }
 
 .wordmark {
-  color: var(--ember-strong);
+  color: var(--brand);
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.02em;

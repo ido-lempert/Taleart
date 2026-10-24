@@ -80,7 +80,7 @@ export function mediaChoiceName(media: ProjectMedia): string {
       cursor: pointer;
     }
     .media-choice:focus-visible {
-      outline: 3px solid var(--ember);
+      outline: 3px solid var(--brand);
       outline-offset: 2px;
     }
     .media-choice img,
