@@ -63,6 +63,14 @@ export async function setTaleGroupUserLists(
   return inTransaction(db, async (tx) => {
     // Concurrent sets on one group wait for each other (the group's row is the tales module's).
     await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('tale_group_user_lists:' || $1, 0))", [taleGroupId]);
+    // The lists the group has now, held until this commits as the new ones are below: a delete of
+    // one of them waits (FOR UPDATE) and then reads the group's links as this change left them, so
+    // it holds the group exactly when the change left it with no other list.
+    await tx.query(
+      `SELECT l.id FROM user_lists l JOIN tale_group_user_lists g ON g.user_list_id = l.id
+       WHERE g.tale_group_id = $1 ORDER BY l.id FOR KEY SHARE OF l`,
+      [taleGroupId],
+    );
     // The lists stay until this commits: a delete of one waits, then removes its link with it.
     const found = await tx.query<{ id: string }>(
       'SELECT id FROM user_lists WHERE id = ANY($1::uuid[]) AND project_id = $2 FOR KEY SHARE',

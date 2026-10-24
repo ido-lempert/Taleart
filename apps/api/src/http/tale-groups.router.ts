@@ -287,12 +287,18 @@ export function taleGroupsRouter(pool: Pool): Router {
         tagIds: requiredStringArray(req.body, 'tagIds'),
         tagMatch: optionalTagMatch(req.body),
       };
+      const [before] = await withTags(pool, [{ id: taleGroupId }]);
       const targeting = await setTaleGroupTags(pool, taleGroupId, input.tagIds, input.tagMatch);
-      // A person saved the group's Audience: a group held after its lists were removed is theirs again.
-      try {
-        await releaseAudienceHold(pool, taleGroupId);
-      } finally {
-        userListsChanged();
+      // A person changed the group's audience: a group held after its lists were removed is theirs
+      // again. Only a real change (the tag set or the match mode) does it; saving the same tags
+      // again leaves a held group hidden (story 5.4 review).
+      const ids = (tags: readonly { id: string }[]) => tags.map((tag) => tag.id.toLowerCase()).sort().join();
+      if (ids(before.tags) !== ids(targeting.tags) || before.tagMatch !== targeting.tagMatch) {
+        try {
+          await releaseAudienceHold(pool, taleGroupId);
+        } finally {
+          userListsChanged();
+        }
       }
       const [group] = await withTags(pool, [await getTaleGroup(pool, taleGroupId)]);
       const body: TaleGroup = { ...group, ...targeting };

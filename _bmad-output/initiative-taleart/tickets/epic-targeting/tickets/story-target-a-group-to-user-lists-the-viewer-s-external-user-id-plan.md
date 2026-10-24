@@ -115,4 +115,20 @@ and the API log carry no external user ID. Then the full lint/test/build run, `w
   audience-empty group's media and font answer 404 at once (the public caches are cleared on every
   list change), a forced database error in the match logs no ID, the holds on delete and copy.
 
+## Second review fixes (security review, 2026-10-24)
+
+- **Race (blocking):** `deleteUserList` locks the list's row `FOR UPDATE` before computing holds,
+  so it waits for every set or copy holding the row `FOR KEY SHARE` and reads the links as they left
+  them; `setTaleGroupUserLists` also locks the group's current lists `FOR KEY SHARE`, so a delete of
+  a list it is leaving waits too (no stale hold). Two-connection tests (a change gated at its
+  COMMIT while the delete starts) cover A (set [L1,L2]→[L1] vs delete L1), B ([L1]→[L2] vs delete
+  L2), C (same-project copy vs delete of the only list) and D ([L1]→[L2] vs delete L1): each fails
+  without the locks and passes with them.
+- **Hold release:** the tags route releases a hold only when the tag set or the match mode changes;
+  saving lists always does. The dashboard reads visibility again after a held group's tags save,
+  shows a held group's drawer "Saving the audience will make this group visible to <who>", and
+  saves its lists on Save (the person's choice).
+- **Tests:** the migration test reads the hold table's own statement; a held group deleted from the
+  database takes its hold with it. The copy drawer says a held group's copy stays hidden.
+
 </intent-contract>

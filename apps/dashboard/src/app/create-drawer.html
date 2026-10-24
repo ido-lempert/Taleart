@@ -366,6 +366,9 @@
             <p class="field__hint" id="tag-public-note">
               Tag names are visible to anyone who loads the zone, so keep anything private out of them.
             </p>
+            @if (audienceHeld()) {
+              <p class="field__hint" id="audience-held-note" role="note" aria-live="polite">{{ heldAudienceLine() }}</p>
+            }
             <!-- User lists (epic targeting R4): the viewer's external user ID picks them, on the server. -->
             <fieldset class="tag-options" aria-describedby="user-lists-hint">
               <legend class="field__label">User lists</legend>
@@ -445,7 +448,12 @@
               Copied {{ done.name }} to
               <a [routerLink]="['/zones', done.zoneId]" (click)="close()">{{ done.zoneName }}</a>.
             </p>
-            @if (done.listsLeftBehind) {
+            @if (done.held) {
+              <p class="field__hint" id="copy-lists-note">
+                Like the original, whose user lists were removed, the copy is hidden: it does not show to anyone until
+                you change its Audience.
+              </p>
+            } @else if (done.listsLeftBehind) {
               <p class="field__hint" id="copy-lists-note">
                 Its user lists belong to the original project, so the copy is not targeted to them. It does not show to
                 anyone until you change its Audience.
@@ -484,7 +492,9 @@
               </select>
               <p class="field__hint" id="copy-hint">
                 The zone shows a new tale group named {{ group.name }} last, with the same tales, media and tags.
-                @if (group.userLists?.length) {
+                @if (copyHeld()) {
+                  Its user lists were removed, so the copy is hidden too until you change its Audience.
+                } @else if (group.userLists?.length) {
                   Its user lists come too within this project; a copy to another project does not show to anyone
                   until you change its Audience.
                 }
