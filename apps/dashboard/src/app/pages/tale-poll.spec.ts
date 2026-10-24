@@ -30,17 +30,13 @@ const tale = {
 const group = { id: 'g1', name: 'Summer', projectId: 'p1', tales: [tale] } as unknown as ZoneTaleGroup;
 
 describe('the poll descriptor and the choices field', () => {
-  const add = [
-    {
-      id: 'studio-add-widget',
-      label: 'Add widget',
-      icon: 'plus' as const,
-      row: 3,
-      small: true,
-      needsProject: false,
-      action: { kind: 'configured' as const },
-    },
-  ];
+  const palette = {
+    category: 'interactive' as const,
+    order: 9,
+    keywords: ['widget'],
+    icon: 'plus' as const,
+    action: { kind: 'configured' as const },
+  };
   const create = { box: { x: 0, y: 0, w: 0.5, h: 0.1, rotation: 0 }, props: () => ({}) };
   const item = {
     type: 'object',
@@ -58,7 +54,7 @@ describe('the poll descriptor and the choices field', () => {
       registry: [{ key: 'widget', label: 'Widget', schema: s }],
       descriptors: {
         widget: {
-          add,
+          palette,
           create,
           inspector: {
             fields: [{ prop: 'q', label: 'Q', control: 'text' }] as InspectorField[],
@@ -69,7 +65,7 @@ describe('the poll descriptor and the choices field', () => {
     });
 
   it('lets the real poll through', () => {
-    expect(studioElementTypes().find((t) => t.key === 'poll')?.add[0].id).toBe('studio-add-poll');
+    expect(studioElementTypes().find((t) => t.key === 'poll')?.palette).toMatchObject({ category: 'interactive', order: 0 });
   });
 
   it('accepts a fixed list of closed id and label items', () => {

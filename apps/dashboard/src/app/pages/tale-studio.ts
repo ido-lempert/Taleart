@@ -76,6 +76,7 @@ import {
   type TaleElement,
   type TaleElementBox,
   type TaleElementType,
+  type TextElementProps,
   UNKNOWN_MEDIA_REASON,
 } from '@taleart/contract/tale-document';
 import {
@@ -104,13 +105,13 @@ import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
 import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } from './tale-media';
 import { needsLinkUrl, TaleLinkStyle } from './tale-links';
 import {
-  addMenuGroups,
   applyChoiceEdit,
   STUDIO_TEST_ELEMENT_TYPES,
   studioElementTypes,
-  type AddMenuEntry,
+  type PalettePreset,
   type StudioElementType,
 } from './tale-element-types';
+import { elementCount, paletteGroups, paletteTiles, tileKeyTarget, type PaletteTile } from './tale-palette';
 import { TaleFieldsInspector } from './tale-fields-inspector';
 import { TaleResponsesPanel } from './tale-responses';
 import { contrastChange, isLowContrast, labelBackdrop, wantedReads, type SampleLookup } from './tale-contrast';
@@ -179,6 +180,8 @@ const MOVE_STEP = 0.01;
 
 /** How long leaving the studio waits for unsaved changes to save before it asks (ms). */
 const LEAVE_WAIT_MS = 5000;
+/** How long typing in the palette search pauses before the count is said, so a word is said once. */
+export const PALETTE_COUNT_DELAY_MS = 400;
 
 /** How often, at most, coming back to the page reads the tale again (ms). */
 export const BACK_TO_PAGE_INTERVAL_MS = 15_000;
@@ -285,6 +288,7 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
   styleUrls: [
     './tale-studio-shell.css',
     './tale-studio-panels.css',
+    './tale-studio-palette.css',
     './tale-studio-inspector.css',
     './tale-studio.css',
     './tale-studio-canvas.css',
@@ -431,14 +435,44 @@ export class TaleStudioPage implements OnChanges {
   /** The element types the studio offers, from the registry and each type's descriptor (R8). */
   protected readonly elementTypes = studioElementTypes({ testTypes: inject(STUDIO_TEST_ELEMENT_TYPES) });
   private readonly typesByKey = new Map(this.elementTypes.map((t) => [t.key, t]));
-  /** The Add menu's entries as the Elements tab's named groups of tiles, in registry order (R8, story 11.1). */
-  protected readonly addGroups = addMenuGroups(this.elementTypes);
-  /** The Add menu's limits the tale has reached, whose hints show under the menu. */
-  protected readonly reachedLimits = computed(() =>
-    this.elementTypes
-      .flatMap((t) => t.add.flatMap((a) => (a.limit?.reached(this.doc()) ? [a.limit] : [])))
-      .sort((a, b) => a.hintOrder - b.hintOrder),
+  /** Every way to add an element, from each type's palette entry (epic Tale Studio 2 R2, story 11.3). */
+  private readonly tiles = paletteTiles(this.elementTypes);
+  /** What the Elements tab's search holds. */
+  protected readonly paletteQuery = signal('');
+  /** The tiles the search finds, in their groups; all of them for no search. */
+  protected readonly paletteGroups = computed(() => paletteGroups(this.tiles, this.paletteQuery()));
+  /** How many tiles the search finds, as said and shown: "3 elements". */
+  protected readonly paletteCount = computed(() =>
+    elementCount(this.paletteGroups().reduce((n, group) => n + group.tiles.length, 0)),
   );
+  private countTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly stopCountTimer = inject(DestroyRef).onDestroy(() => {
+    if (this.countTimer !== null) clearTimeout(this.countTimer);
+  });
+  /** Why a tile cannot add now, with the id of the line that says so; null when it can. */
+  protected tileBlock(tile: PaletteTile): { id: string; reason: string } | null {
+    const doc = this.doc();
+    if ((doc?.elements.length ?? 0) >= MAX_TALE_ELEMENTS) {
+      return { id: 'studio-full-hint', reason: `A tale holds up to ${MAX_TALE_ELEMENTS} elements. Delete one to add another.` };
+    }
+    if (tile.needsProject && !this.projectId()) {
+      return { id: 'studio-project-hint', reason: "This tale has no project, so it can't use the project's media." };
+    }
+    if (tile.limit?.reached(doc)) return { id: tile.limit.hintId, reason: tile.limit.hint };
+    return null;
+  }
+  /** The reasons a group's blocked tiles give, once each, in tile order; the full tale's is said above all groups. */
+  protected groupReasons(tiles: readonly PaletteTile[]): { id: string; reason: string }[] {
+    const seen = new Set<string>();
+    return tiles.flatMap((tile) => {
+      const block = this.tileBlock(tile);
+      if (!block || block.id === 'studio-full-hint' || seen.has(block.id)) return [];
+      seen.add(block.id);
+      return [block];
+    });
+  }
+  /** True while the tale holds as many elements as it may: every tile says so once, above the groups. */
+  protected readonly taleFull = computed(() => (this.doc()?.elements.length ?? 0) >= MAX_TALE_ELEMENTS);
   protected readonly emojiFont = EMOJI_FONT_STACK;
   /** True when the tale holds its one video: it then plays for the video's length (R5). */
   protected readonly hasVideo = computed(() => hasVideoElement(this.doc()));
@@ -446,10 +480,6 @@ export class TaleStudioPage implements OnChanges {
   protected readonly swipeUpLimitReached = computed(
     () => (this.doc()?.elements.filter((e) => e.type === 'swipe-up').length ?? 0) >= MAX_SWIPE_UP_ELEMENTS,
   );
-  /** True when the Add entry's type is at its limit (the video, the swipe-up link). */
-  protected limitReached(entry: AddMenuEntry): boolean {
-    return entry.limit?.reached(this.doc()) ?? false;
-  }
   /** True when the tale holds its one video; the tale's own media video (R16) does not count, as before documents. */
   protected readonly videoLimitReached = computed(() => limitedVideoCount(this.doc()) >= MAX_VIDEO_ELEMENTS);
   /** The tale's duration in seconds, as the duration field shows it: 7 when the document sets none. */
@@ -839,11 +869,86 @@ export class TaleStudioPage implements OnChanges {
   protected readonly starterTales = ['Announcement', 'Product drop', 'Ask a question', 'Countdown to launch', 'Quiz time'];
 
   /**
-   * A tile's visible word: its Add entry's label without "Add", which stays in its name only
-   * ("Add swipe-up link" shows "Swipe-up link", its first letter raised by the tile's style).
+   * The Elements tab's search (EXPERIENCE Component Patterns, Palette search): filters as one types;
+   * the count shows at once and is said once typing pauses, in the studio's polite live region.
    */
-  protected tileWord(entry: AddMenuEntry): string {
-    return entry.label.replace(/^Add /, '');
+  protected searchPalette(query: string): void {
+    this.paletteQuery.set(query);
+    if (this.countTimer !== null) clearTimeout(this.countTimer);
+    this.countTimer = null;
+    if (!query.trim()) return;
+    this.countTimer = setTimeout(() => {
+      this.countTimer = null;
+      this.say(this.paletteCount());
+    }, PALETTE_COUNT_DELAY_MS);
+  }
+
+  /** Clears the search and keeps focus in its field (the Clear search button, Escape). */
+  protected clearPaletteSearch(): void {
+    this.searchPalette('');
+    this.say('Search cleared');
+    this.focusSoon('studio-palette-search');
+  }
+
+  /**
+   * Keys in the search field: Escape clears it, and when it is empty returns focus to the canvas
+   * (the selected element, else the canvas); Arrow Down moves to the first tile found.
+   */
+  protected paletteSearchKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (this.paletteQuery()) {
+        this.clearPaletteSearch();
+        return;
+      }
+      this.focusRegion('canvas');
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      const first = this.paletteTileButtons()[0];
+      if (!first) return;
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  // The tiles on show, in reading order.
+  private paletteTileButtons(): HTMLElement[] {
+    return [...this.host.nativeElement.querySelectorAll<HTMLElement>('#studio-panel-elements .tile')];
+  }
+
+  /**
+   * Arrow keys, Home and End between the tiles (EXPERIENCE Accessibility, 2.1.1): by position, so
+   * Up and Down follow the grid across groups; Up from the top row goes back to the search. Tab
+   * still reaches each tile.
+   */
+  protected tileKey(event: KeyboardEvent): void {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    const tiles = this.paletteTileButtons();
+    const index = tiles.indexOf(event.currentTarget as HTMLElement);
+    const rects = tiles.map((tile) => tile.getBoundingClientRect());
+    const target = tileKeyTarget(rects, index, event.key);
+    if (target === null) {
+      if (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    if (target === 'search') this.focusSoon('studio-palette-search');
+    else tiles[target]?.focus();
+  }
+
+  /** `/` outside a text field: the Elements tab, with its search focused. */
+  private focusPaletteSearch(): void {
+    const focus = () => {
+      const field = document.getElementById('studio-palette-search') as HTMLInputElement | null;
+      field?.focus();
+      field?.select();
+    };
+    // At once when the field shows, so the next keys typed land in it; else once the tab shows.
+    if (this.leftTab() === 'elements') return focus();
+    this.leftTab.set('elements');
+    setTimeout(focus, 0);
   }
 
   /** The heading of the inspector section that holds the selected element's own inspector. */
@@ -1383,6 +1488,12 @@ export class TaleStudioPage implements OnChanges {
     // A drawer over the studio (Duplicate, the media and emoji pickers) keeps its keys to itself.
     if (this.duplicating() || this.picker() || this.emojiPicker()) return;
     if (event.target instanceof Element && event.target.closest('[role=dialog]')) return;
+    if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Search elements (EXPERIENCE Keyboard shortcuts), from anywhere in the studio outside a text field.
+      event.preventDefault();
+      this.focusPaletteSearch();
+      return;
+    }
     if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
       // The keyboard shortcuts (EXPERIENCE Interaction Primitives); focus comes back here.
       event.preventDefault();
@@ -1726,20 +1837,22 @@ export class TaleStudioPage implements OnChanges {
     return true;
   }
 
-  protected addText(): void {
+  /** Adds a text, in a preset's style and box (Heading, Body text …), and starts editing it. */
+  protected addText(preset?: PalettePreset): void {
     if (this.isHeld()) return;
     const element: TaleElement = {
       id: crypto.randomUUID(),
       type: 'text',
-      box: { ...NEW_TEXT_BOX },
+      box: { ...(preset?.box ?? NEW_TEXT_BOX) },
       hidden: false,
       locked: false,
       a11y: {},
-      props: newTextProps('Text'),
+      props: { ...newTextProps('Text'), ...(preset?.props ?? {}) } as TextElementProps,
     };
-    this.change('Text added', (elements) => [...elements, element]);
+    const name = preset && preset.id !== 'text' ? preset.label : 'Text';
+    this.change(`${name} added`, (elements) => [...elements, element]);
     this.selectOnly(element.id);
-    this.say('Text added');
+    this.say(`${name} added`);
     this.edit(element.id);
   }
 
@@ -1861,8 +1974,9 @@ export class TaleStudioPage implements OnChanges {
     if (this.editingId() !== null && gone.has(this.editingId() as string)) this.editingId.set(null);
     if (this.invalidId() !== null && gone.has(this.invalidId() as string)) this.invalidId.set(null);
     const prefix = origin === 'canvas' ? 'studio-el-' : 'layer-';
-    // With no layer left in the list: its tab while the Layers tab shows, else the Add text tile.
-    const empty = this.leftTab() === 'layers' ? 'studio-tab-layers' : 'studio-add';
+    // With no layer left in the list: its tab while the Layers tab shows, else the first tile on show.
+    const empty =
+      this.leftTab() === 'layers' ? 'studio-tab-layers' : (this.paletteTileButtons()[0]?.id ?? 'studio-palette-search');
     this.focusSoon(next ? `${prefix}${next.id}` : origin === 'canvas' ? 'studio-canvas' : empty);
     // Deleting is immediate, and undoable.
     this.say(`${done} — press ${this.undoKey} to undo`);
@@ -2466,12 +2580,20 @@ export class TaleStudioPage implements OnChanges {
     return false;
   }
 
-  /** Runs an Add menu entry (R8): the studio's own flow for a built-in type, else a configured type's. */
-  protected addFromMenu(entry: AddMenuEntry, type: StudioElementType): void {
-    const action = entry.action;
+  /**
+   * Adds from a palette tile (R8, epic Tale Studio 2 R2): the studio's own flow for a built-in type,
+   * else a configured type's, with the tile's preset. A blocked tile says why and adds nothing.
+   */
+  protected addFromTile(tile: PaletteTile): void {
+    const block = this.tileBlock(tile);
+    if (block) {
+      this.say(block.reason);
+      return;
+    }
+    const action = tile.action;
     switch (action.kind) {
       case 'text':
-        return this.addText();
+        return this.addText(tile.preset);
       case 'media':
         return this.openPicker('add', action.media);
       case 'sticker':
@@ -2487,21 +2609,24 @@ export class TaleStudioPage implements OnChanges {
       case 'swipe-up':
         return this.addSwipeUp();
       case 'configured':
-        return this.addConfigured(type);
+        return this.addConfigured(tile.type, tile.preset);
     }
   }
 
-  /** Adds an element of a type registered by configuration (R8), from its descriptor, and opens its inspector. */
-  private addConfigured(type: StudioElementType): void {
+  /**
+   * Adds an element of a type registered by configuration (R8), from its descriptor and the tile's
+   * preset, and opens its inspector.
+   */
+  private addConfigured(type: StudioElementType, preset?: PalettePreset): void {
     if (this.isHeld() || !this.roomForLayer() || !type.create) return;
     const element = {
       id: crypto.randomUUID(),
       type: type.key,
-      box: { ...type.create.box },
+      box: { ...(preset?.box ?? type.create.box) },
       hidden: false,
       locked: false,
       a11y: { ...(type.create.a11y ?? {}) },
-      props: type.create.props(),
+      props: { ...type.create.props(), ...(preset?.props ?? {}) },
     } as unknown as TaleElement;
     this.change(`${type.label} added`, (elements) => [...elements, element]);
     this.selectOnly(element.id);
