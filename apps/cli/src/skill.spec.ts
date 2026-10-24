@@ -1,7 +1,7 @@
 // The TaleArt agent skill (epic developer experience 10.4): every command and flag it, and the docs'
 // "AI agents" page, tells an agent to run is one this CLI has; the bundled copy is the skills/taleart
 // folder byte for byte; `taleart skill install` and `taleart skill show` work.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { GLOBAL_OPTIONS, locate, parseCommand } from './args';
@@ -9,6 +9,7 @@ import { run } from './cli';
 import { GROUPS, TOP_COMMANDS } from './commands';
 import { CliError, EXIT } from './errors';
 import { help } from './help';
+import { skillTarget } from './commands/skill';
 import { SKILL_FILES, SKILL_NAME } from './skill-files';
 import { fakeIo } from './testing';
 
@@ -98,9 +99,14 @@ function docsMentions(file: string, text: string): Mention[] {
   return mentions;
 }
 
-/** Why the CLI would refuse the command, or null when it parses. */
+/**
+ * Why the CLI would refuse the command, or null when it parses. A mention in running text that names
+ * only the command (`taleart groups on`) may leave its required arguments out; one with any argument
+ * or flag is a full command and is checked as one.
+ */
 function refusal({ command, partial }: Mention): string | null {
   const argv = words(command).slice(1);
+  let bare = partial;
   try {
     if (argv[0] === 'help') {
       // `taleart help <group> <command>` names a form, not a topic: check the words that are not placeholders.
@@ -117,12 +123,12 @@ function refusal({ command, partial }: Mention): string | null {
     const located = locate(argv, GROUPS, TOP_COMMANDS);
     if (located.unknown !== undefined || (!located.command && !partial)) return 'no such command';
     if (!located.command) return null;
-    if (argv.includes('--version') && argv.length === 1) return null;
+    bare = partial && located.rest.length === 0;
     const parsed = parseCommand(located.command, located.rest);
     if (parsed.globals.yes && !located.command.destructive) return '--yes on a command that is not destructive';
     return null;
   } catch (err) {
-    if (partial && err instanceof CliError && /^(Missing|Give )/.test(err.message)) return null;
+    if (bare && err instanceof CliError && /^(Missing|Give )/.test(err.message)) return null;
     return err instanceof Error ? err.message : String(err);
   }
 }
@@ -162,6 +168,10 @@ describe('the skill names only commands and flags the CLI has', () => {
     expect(fails('taleart groups create --zone home-top --json')).toBe(true);
     expect(fails('taleart help nonsense')).toBe(true);
     expect(fails('taleart groups on', true)).toBe(false);
+    // In running text too, a command with arguments must be whole.
+    expect(fails('taleart groups create --zone home-top', true)).toBe(true);
+    expect(fails('taleart tales media <tale id>', true)).toBe(true);
+    expect(fails('taleart tales media <tale id> ./img/new.png --json', true)).toBe(false);
     expect(fails('taleart site-keys rotate --project "Shop" --yes --json')).toBe(false);
     expect(commandsIn('SITE_KEY=$(taleart site-keys issue --json | jq -r .key)')).toEqual(['taleart site-keys issue --json']);
     expect(commandsIn('taleart login --url https://x --token-stdin < token.txt')).toEqual(['taleart login --url https://x --token-stdin']);
@@ -276,6 +286,83 @@ describe('taleart skill install', () => {
     expect(JSON.parse(forced.stdoutText).written).toEqual(SKILL_FILES.map((f) => f.path));
     expect(installed(target)).toEqual(SKILL_FILES.map((f) => f.content));
     expect(readFileSync(join(target, 'notes.md'), 'utf8')).toBe('mine\n');
+  });
+
+  const target = () => join(dir, 'home', '.claude', 'skills', 'taleart');
+  const leftovers = (folder: string) => readdirSync(folder, { recursive: true }).map(String).filter((name) => name.endsWith('.tmp'));
+
+  it('writes each file atomically: a new file renamed over the old one, no temporary file left', async () => {
+    mkdirSync(join(target(), 'reference'), { recursive: true });
+    writeFileSync(join(target(), 'SKILL.md'), 'old\n');
+    const before = statSync(join(target(), 'SKILL.md')).ino;
+    expect(await run(['skill', 'install', '--force'], io())).toBe(EXIT.ok);
+    // Rewriting in place keeps the inode; a rename brings a new one.
+    expect(statSync(join(target(), 'SKILL.md')).ino).not.toBe(before);
+    expect(installed(target())).toEqual(SKILL_FILES.map((f) => f.content));
+    expect(leftovers(target())).toEqual([]);
+  });
+
+  it('a write that fails leaves the old file and no temporary file, exit 7', async () => {
+    mkdirSync(join(target(), 'reference'), { recursive: true });
+    writeFileSync(join(target(), 'SKILL.md'), 'old\n');
+    chmodSync(join(target()), 0o500);
+    try {
+      const failed = io();
+      expect(await run(['skill', 'install', '--force', '--json'], failed)).toBe(EXIT.invalid);
+      expect(JSON.parse(failed.stderrText)).toMatchObject({ error: { code: 'unsafe_path', exitCode: 7 } });
+      expect(readFileSync(join(target(), 'SKILL.md'), 'utf8')).toBe('old\n');
+      expect(leftovers(target())).toEqual([]);
+    } finally {
+      chmodSync(join(target()), 0o700);
+    }
+  });
+
+  it.each([
+    ['the skill folder', (outside: string) => symlinkSync(outside, target(), 'dir')],
+    ['its reference folder', (outside: string) => {
+      mkdirSync(target(), { recursive: true });
+      symlinkSync(outside, join(target(), 'reference'), 'dir');
+    }],
+    ['a file', (outside: string) => {
+      mkdirSync(join(target(), 'reference'), { recursive: true });
+      symlinkSync(join(outside, 'victim.md'), join(target(), 'reference', 'setup.md'));
+    }],
+  ])('refuses a symbolic link as %s (exit 7), with --force too, and writes nothing through it', async (_name, link) => {
+    const outside = join(dir, 'outside');
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, 'victim.md'), 'keep me\n');
+    mkdirSync(dirname(target()), { recursive: true });
+    link(outside);
+    for (const argv of [['skill', 'install', '--json'], ['skill', 'install', '--force', '--json']]) {
+      const refused = io();
+      expect(await run(argv, refused)).toBe(EXIT.invalid);
+      expect(JSON.parse(refused.stderrText)).toMatchObject({ error: { code: 'unsafe_path', message: expect.stringContaining('symbolic link') } });
+    }
+    expect(readdirSync(outside)).toEqual(['victim.md']);
+    expect(readFileSync(join(outside, 'victim.md'), 'utf8')).toBe('keep me\n');
+  });
+
+  it('refuses a folder where a file goes, or a file where a folder goes, with a clean error', async () => {
+    mkdirSync(join(target(), 'reference', 'setup.md'), { recursive: true });
+    const folder = io();
+    expect(await run(['skill', 'install', '--force', '--json'], folder)).toBe(EXIT.invalid);
+    expect(JSON.parse(folder.stderrText).error.message).toContain('is a folder where the skill\'s file reference/setup.md goes');
+    rmSync(join(target(), 'reference'), { recursive: true });
+    writeFileSync(join(target(), 'reference'), 'not a folder\n');
+    const file = io();
+    expect(await run(['skill', 'install', '--force', '--json'], file)).toBe(EXIT.invalid);
+    expect(JSON.parse(file.stderrText).error.message).toContain('is a file where the skill needs a folder');
+    expect(existsSync(join(target(), 'SKILL.md'))).toBe(false);
+  });
+
+  it('expands ~\\ on Windows, and ~/ everywhere', () => {
+    const home = join(dir, 'home');
+    const at = (given: string, platform: NodeJS.Platform) =>
+      skillTarget({ opts: { dir: given }, io: { ...io(), platform, home } }).dir;
+    expect(at('~\\skills', 'win32')).toBe(join(home, 'skills', 'taleart'));
+    expect(at('~/skills', 'win32')).toBe(join(home, 'skills', 'taleart'));
+    expect(at('~/skills', 'darwin')).toBe(join(home, 'skills', 'taleart'));
+    expect(at('~', 'linux')).toBe(join(home, 'taleart'));
   });
 
   it('refuses --project with --dir', async () => {

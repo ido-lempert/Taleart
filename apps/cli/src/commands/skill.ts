@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, type Stats } from 'node:fs';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { Context, GroupSpec } from '../command';
 import { CliError, EXIT, usageError } from '../errors';
 import { SKILL_FILES, SKILL_NAME } from '../skill-files';
@@ -11,17 +12,91 @@ export function skillTarget(ctx: Pick<Context, 'opts' | 'io'>): { dir: string; s
   if (project && given !== undefined) throw usageError('Give --project or --dir, not both');
   if (given !== undefined) {
     if (given.trim() === '') throw usageError('--dir needs a folder');
-    const expanded = given === '~' || given.startsWith('~/') ? join(ctx.io.home, given.slice(1)) : given;
+    // ~ is the home folder, as a shell would expand it; ~\ too on Windows, where no shell does.
+    const home = given === '~' || given.startsWith('~/') || (ctx.io.platform === 'win32' && given.startsWith('~\\'));
+    const expanded = home ? join(ctx.io.home, given.slice(2)) : given;
     return { dir: join(resolve(ctx.io.cwd, expanded), SKILL_NAME), scope: 'dir' };
   }
   if (project) return { dir: join(ctx.io.cwd, '.claude', 'skills', SKILL_NAME), scope: 'project' };
   return { dir: join(ctx.io.home, '.claude', 'skills', SKILL_NAME), scope: 'user' };
 }
 
-function sameFile(path: string, content: string): boolean | null {
-  if (!existsSync(path)) return null;
-  if (!statSync(path).isFile()) return false;
-  return readFileSync(path, 'utf8') === content;
+function lstatOrNull(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return null;
+    if (code === 'ENOTDIR') throw unsafe(`A file sits where a folder of ${path} should be`);
+    throw new CliError(`Could not read ${path} (${code ?? 'unknown error'})`, EXIT.invalid, 'unsafe_path');
+  }
+}
+
+function unsafe(message: string): CliError {
+  return new CliError(
+    `${message}; nothing was written`,
+    EXIT.invalid,
+    'unsafe_path',
+    undefined,
+    'Move it away, or install elsewhere with --dir. --force never follows a link or replaces a folder.',
+  );
+}
+
+export interface SkillFileState {
+  /** The path inside the skill folder. */
+  path: string;
+  /** Where it is written. */
+  target: string;
+  content: string;
+  /** True when the file there is the same, false when it differs, null when there is none. */
+  same: boolean | null;
+}
+
+/**
+ * What each of the skill's files is now. The skill folder, the folders inside it and the files must
+ * be what they look like: a symbolic link among them (which could send a write elsewhere) or a folder
+ * where a file goes is refused (exit 7 `unsafe_path`), with --force too. Folders above the skill
+ * folder (such as a ~/.claude kept in a dotfiles repository) may be links.
+ */
+export function skillFileStates(dir: string): SkillFileState[] {
+  const folders = new Set<string>([dir]);
+  for (const f of SKILL_FILES) {
+    for (let d = dirname(join(dir, ...f.path.split('/'))); d.startsWith(dir + sep); d = dirname(d)) folders.add(d);
+  }
+  for (const folder of [...folders].sort()) {
+    const stat = lstatOrNull(folder);
+    if (stat?.isSymbolicLink()) throw unsafe(`${folder} is a symbolic link`);
+    if (stat && !stat.isDirectory()) throw unsafe(`${folder} is a file where the skill needs a folder`);
+  }
+  return SKILL_FILES.map((f) => {
+    const target = join(dir, ...f.path.split('/'));
+    const stat = lstatOrNull(target);
+    if (stat?.isSymbolicLink()) throw unsafe(`${target} is a symbolic link`);
+    if (stat?.isDirectory()) throw unsafe(`${target} is a folder where the skill's file ${f.path} goes`);
+    if (stat && !stat.isFile()) throw unsafe(`${target} is not a regular file`);
+    return { path: f.path, target, content: f.content, same: stat ? readFileSync(target, 'utf8') === f.content : null };
+  });
+}
+
+/**
+ * Writes the file whole or not at all: a new temporary file beside it, created exclusively (`wx`, so
+ * it never follows a link), then renamed over the target. A failure removes the temporary file.
+ */
+export function writeAtomically(target: string, content: string): void {
+  const temp = join(dirname(target), `.${basename(target)}.${randomBytes(6).toString('hex')}.tmp`);
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(temp, content, { flag: 'wx' });
+    renameSync(temp, target);
+  } catch (err) {
+    try {
+      unlinkSync(temp);
+    } catch {
+      // It was never created.
+    }
+    const code = (err as NodeJS.ErrnoException).code ?? 'unknown error';
+    throw new CliError(`Could not write ${target} (${code})`, EXIT.invalid, 'unsafe_path', undefined, 'Check the folder\'s permissions.');
+  }
 }
 
 export const skill: GroupSpec = {
@@ -40,7 +115,9 @@ export const skill: GroupSpec = {
       description:
         'Writes SKILL.md and its reference files. Files already the same are left as they are. When the folder holds different ' +
         'versions of the skill\'s files (an edited or older skill) nothing is written (exit 6) unless --force, which replaces ' +
-        'only the skill\'s own files. --dir names another agent\'s skills folder; the skill goes in <dir>/taleart.',
+        'only the skill\'s own files. Each file is written whole (a temporary file, then renamed). A symbolic link in the ' +
+        'skill folder, or a folder where a file goes, is refused (exit 7), with --force too. --dir names another agent\'s ' +
+        'skills folder; the skill goes in <dir>/taleart.',
       // Here --project is a switch (this repository's skills folder), not the global --project <id|name>:
       // the command's own option wins (parseCommand), and the command uses no TaleArt project.
       options: {
@@ -57,9 +134,8 @@ export const skill: GroupSpec = {
       async run(ctx) {
         const { dir, scope } = skillTarget(ctx);
         const force = ctx.opts['force'] === true;
-        const states = SKILL_FILES.map((f) => ({ file: f, path: join(dir, ...f.path.split('/')), same: false as boolean | null }));
-        for (const s of states) s.same = sameFile(s.path, s.file.content);
-        const differing = states.filter((s) => s.same === false).map((s) => s.file.path);
+        const states = skillFileStates(dir);
+        const differing = states.filter((s) => s.same === false).map((s) => s.path);
         if (differing.length > 0 && !force) {
           throw new CliError(
             `The skill folder ${dir} already holds other versions of ${differing.join(', ')}; nothing was written`,
@@ -73,12 +149,11 @@ export const skill: GroupSpec = {
         const unchanged: string[] = [];
         for (const s of states) {
           if (s.same === true) {
-            unchanged.push(s.file.path);
+            unchanged.push(s.path);
             continue;
           }
-          mkdirSync(dirname(s.path), { recursive: true });
-          writeFileSync(s.path, s.file.content);
-          written.push(s.file.path);
+          writeAtomically(s.target, s.content);
+          written.push(s.path);
         }
         const files = SKILL_FILES.map((f) => f.path);
         return {

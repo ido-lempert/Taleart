@@ -91,6 +91,25 @@ offers each file for download and shows the install steps and an example session
   frontmatter; SKILL.md length; bundle equals folder; install user/project/dir/unchanged/conflict/
   force; show); `groups audience` unit tests; the docs app spec renders the page with the skill text.
 
+## Review fixes (2026-10-24)
+
+- **Token routes:** SKILL.md and setup.md forbid `env`, `printenv`, `set`, `export -p`, `declare -x`, `set -x`,
+  expanding `$TALEART_TOKEN`, and reading the config file or any token file; `whoami --json` and
+  `config show --json` are the only ways to look. The docs page says plainly that the agent inherits the
+  environment and the rules are instructions, not a lock.
+- **CSV:** the agent never reads the file's values and asks the user whether row 1 is a header.
+- **Two strikes:** after two failed attempts at the same step the agent stops and reports.
+- **Confirm by name:** `groups audience --clear`, `groups tags --clear`, `groups on` (when it goes live on an
+  installed zone), `tales media`, `projects use`.
+- **`skill install`:** `lstat` on the skill folder, the folders inside it and each file: a symbolic link, a
+  folder where a file goes or a file where a folder goes is exit 7 `unsafe_path`, with `--force` too
+  (folders above the skill folder may be links). Each file is written to an exclusive temporary file and
+  renamed; a failed write removes it (exit 7). `~\` is expanded on Windows.
+- **Docs:** AI agents is lazy-loaded (`loadComponent`, its own chunk with the skill text); the credential
+  check counts the whole base64url run after `tat_`/`tas_`.
+- **Tests:** inline mentions with any argument or flag are checked as whole commands; symlink refusals,
+  atomic replace (new inode, no temporary file), failed write, clean errors, `~\`.
+
 ## Verify
 
 Story verify line: with the skill installed and a token set, "create a zone home-top with a bar and a
