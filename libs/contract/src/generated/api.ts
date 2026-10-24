@@ -234,6 +234,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api-tokens/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The API token making the request, with its user (an API token only).
+         * @description What `taleart whoami` shows (epic developer experience 10.3): the token's name, prefix and scope (`allProjects`, `projectIds`, `readOnly`, `expiresAt`) and the user it acts as, with their role. Never the token or its hash. Read-only tokens may read it. A passkey session has no token and gets 403 `forbidden`.
+         */
+        get: operations["getCurrentApiToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api-tokens/{tokenId}": {
         parameters: {
             query?: never;
@@ -1816,6 +1836,12 @@ export interface components {
              */
             expiresAt?: string | null;
         };
+        /** @description The API token making the request and the user it acts as (GET /api-tokens/current). */
+        CurrentApiToken: components["schemas"]["ApiToken"] & {
+            /** @description True when the token reaches every project its user can access (`projectIds` is null). */
+            allProjects: boolean;
+            user: components["schemas"]["User"];
+        };
         RevokedApiTokens: {
             /** @description How many active tokens were revoked. */
             revoked: number;
@@ -3143,6 +3169,29 @@ export interface operations {
             400: components["responses"]["Error"];
             403: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getCurrentApiToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token and its user, sent with `Cache-Control: no-store`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentApiToken"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             default: components["responses"]["Error"];
         };
     };

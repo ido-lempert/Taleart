@@ -306,6 +306,31 @@ paths:
           $ref: '#/components/responses/Error'
         default:
           $ref: '#/components/responses/Error'
+  /api-tokens/current:
+    get:
+      operationId: getCurrentApiToken
+      summary: The API token making the request, with its user (an API token only).
+      description: >-
+        What `taleart whoami` shows (epic developer experience 10.3): the
+        token's name, prefix and scope (`allProjects`, `projectIds`,
+        `readOnly`, `expiresAt`) and the user it acts as, with their role.
+        Never the token or its hash. Read-only tokens may read it. A passkey
+        session has no token and gets 403 `forbidden`.
+      security:
+        - token: []
+      responses:
+        '200':
+          description: 'The token and its user, sent with `Cache-Control: no-store`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentApiToken'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
   /api-tokens/{tokenId}:
     parameters:
       - name: tokenId
@@ -3837,6 +3862,18 @@ components:
           type: [string, 'null']
           format: date-time
           description: When the token stops working, in the future; null or left out for never.
+    CurrentApiToken:
+      description: The API token making the request and the user it acts as (GET /api-tokens/current).
+      allOf:
+        - $ref: '#/components/schemas/ApiToken'
+        - type: object
+          required: [allProjects, user]
+          properties:
+            allProjects:
+              type: boolean
+              description: True when the token reaches every project its user can access (`projectIds` is null).
+            user:
+              $ref: '#/components/schemas/User'
     RevokedApiTokens:
       type: object
       required: [revoked]
