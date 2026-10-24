@@ -209,58 +209,6 @@ export interface UserListUploadOptions {
   databaseIdleTimeout?: string;
 }
 
-/** A checked-out client that may emit `error`, as a pg PoolClient does. */
-type ListenedClient = Db & {
-  release(err?: Error | boolean): void;
-  on?(event: 'error', listener: (err: Error) => void): unknown;
-  off?(event: 'error', listener: (err: Error) => void): unknown;
-};
-
-/**
- * Runs an upload in one transaction on one connection, with an `error` listener on the client for
- * as long as it is checked out: when PostgreSQL ends the session (the idle-in-transaction backstop
- * fires FATAL 25P03 while the client waits for bytes), pg emits `error` on the client, and without a
- * listener Node would exit. The error is kept and thrown instead, the work rolls back, and the
- * broken client is discarded rather than returned to the pool.
- */
-async function uploadTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
-  const client = (await db.connect()) as ListenedClient;
-  let broken: Error | null = null;
-  const onError = (err: Error) => {
-    broken = err;
-  };
-  client.on?.('error', onError);
-  const check = () => {
-    if (broken) throw broken;
-  };
-  try {
-    await client.query('BEGIN');
-    const result = await work({
-      query: (async (...args: unknown[]) => {
-        check();
-        return (client.query as (...a: unknown[]) => unknown)(...args);
-      }) as unknown as Db['query'],
-    });
-    check();
-    await client.query('COMMIT');
-    client.off?.('error', onError);
-    client.release();
-    return result;
-  } catch (err) {
-    try {
-      if (broken) throw broken;
-      await client.query('ROLLBACK');
-      client.off?.('error', onError);
-      client.release();
-    } catch (rollbackErr) {
-      // A connection that cannot roll back, or that the database ended, is not returned to the pool.
-      client.off?.('error', onError);
-      client.release(rollbackErr as Error);
-    }
-    throw err;
-  }
-}
-
 /** Where IDs go: a list of a project. */
 export interface UserListTarget {
   projectId: string;
@@ -284,7 +232,10 @@ export async function addUserListRows(
   if (!UUID.test(target.projectId) || !UUID.test(target.userListId)) throw new UserListNotFoundError();
   const idleTimeout = options.databaseIdleTimeout ?? USER_LIST_UPLOAD_DATABASE_IDLE_TIMEOUT;
   if (!/^\d+(ms|s|min)$/.test(idleTimeout)) throw new Error('databaseIdleTimeout must be like 120s');
-  return uploadTransaction(db, async (tx) => {
+  // One transaction on one connection: when PostgreSQL ends the session (the idle-in-transaction
+  // backstop fires FATAL 25P03 while the client waits for bytes), the shared helper keeps the error
+  // and throws it, the work rolls back and the broken client is discarded, rather than Node exiting.
+  return inTransaction(db, async (tx) => {
     await tx.query(`SET LOCAL idle_in_transaction_session_timeout = '${idleTimeout}'`);
     await lockProject(tx, target.projectId, true);
     const { rows: found } = await tx.query<{ secret: Buffer }>(

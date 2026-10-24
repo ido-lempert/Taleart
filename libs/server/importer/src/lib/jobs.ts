@@ -6,7 +6,7 @@ import type {
   ImportReport,
   ImportStarted,
 } from '@taleart/contract';
-import type { Db, TransactionalDb } from '@taleart/server-access';
+import { inTransaction, type Db, type TransactionalDb } from '@taleart/server-access';
 import type { ImportJobSelection } from './preview';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -127,9 +127,7 @@ export async function listImportJobs(db: Db, projectId: string): Promise<ImportJ
  * worker holds is skipped, never run twice.
  */
 export async function claimNextJob(db: TransactionalDb, workerId: string): Promise<ClaimedJob | null> {
-  const tx = await db.connect();
-  try {
-    await tx.query('BEGIN');
+  return inTransaction(db, async (tx) => {
     const { rows } = await tx.query<ClaimedJob>(
       `UPDATE import_jobs
        SET status = 'running', started_at = now(), first_started_at = COALESCE(first_started_at, now()),
@@ -141,18 +139,8 @@ export async function claimNextJob(db: TransactionalDb, workerId: string): Promi
          token_ciphertext AS "tokenCiphertext", locked_by AS "lockedBy", selection`,
       [workerId],
     );
-    await tx.query('COMMIT');
-    tx.release();
     return rows[0] ?? null;
-  } catch (err) {
-    try {
-      await tx.query('ROLLBACK');
-      tx.release();
-    } catch (rollbackErr) {
-      tx.release(rollbackErr as Error);
-    }
-    throw err;
-  }
+  });
 }
 
 /**

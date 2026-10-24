@@ -1,4 +1,4 @@
-import type { Db, TransactionalDb } from '@taleart/server-access';
+import { rollback, withClient, type Db, type TransactionalDb } from '@taleart/server-access';
 
 /**
  * COMMIT itself failed, so whether the transaction's writes are stored is not
@@ -13,30 +13,26 @@ export class CommitUncertainError extends Error {
 }
 
 /**
- * Runs `work` in one transaction on one connection; rolls back on any error
- * in `work`. A failed COMMIT throws {@link CommitUncertainError}.
+ * Runs `work` in one transaction on one connection (`withClient`, so a session the database ends
+ * fails the work instead of the process); rolls back on any error in `work`. A failed COMMIT throws
+ * {@link CommitUncertainError}, and that connection is dropped from the pool.
  */
 export async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Promise<T>): Promise<T> {
-  const tx = await db.connect();
-  let result: T;
-  try {
-    await tx.query('BEGIN');
-    result = await work(tx);
-  } catch (err) {
+  return withClient(db, async (tx) => {
+    let result: T;
     try {
-      await tx.query('ROLLBACK');
-      tx.release();
-    } catch (rollbackErr) {
-      tx.release(rollbackErr as Error);
+      await tx.query('BEGIN');
+      result = await work(tx);
+    } catch (err) {
+      await rollback(tx);
+      throw err;
     }
-    throw err;
-  }
-  try {
-    await tx.query('COMMIT');
-  } catch (err) {
-    tx.release(err as Error);
-    throw new CommitUncertainError(err);
-  }
-  tx.release();
-  return result;
+    try {
+      await tx.query('COMMIT');
+    } catch (err) {
+      tx.discard(err as Error);
+      throw new CommitUncertainError(err);
+    }
+    return result;
+  });
 }

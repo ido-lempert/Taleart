@@ -1313,8 +1313,9 @@ paths:
         line number and reason. The upload is all or nothing. Admins and
         content managers upload. An upload that sends no byte for 30 s, or
         takes more than 280 s in all (a 50 MB file needs about 190 KB/s), is
-        ended with nothing added (408 `validation_failed`, often on a closed
-        connection). Checked before the body is read (with
+        ended with nothing added: the API resets the connection, so the
+        client usually sees a reset or closed connection and no answer (when
+        an answer does arrive, it is 408 `validation_failed`). Checked before the body is read (with
         `Connection: close`): too many uploads at once 429 `upload_busy`;
         unknown project 404 `project_not_found`; unknown list 404
         `user_list_not_found`; a type other than `text/csv` or `text/plain`
