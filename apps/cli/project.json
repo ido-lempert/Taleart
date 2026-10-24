@@ -3,15 +3,21 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/cli/src",
   "projectType": "application",
-  "tags": ["type:app", "scope:cli"],
-  "// targets": "build (inferred from webpack.config.js) writes dist/apps/cli/taleart.js, one executable file with a #!/usr/bin/env node line, and its package.json (bin taleart). test runs the unit tests and src/cli.integration.spec.ts, which starts the built API on a free port and a database derived from TEST_DATABASE_URL (<name>_cli_test, dropped and created) and runs the built CLI against it.",
+  "tags": [
+    "type:app",
+    "scope:cli"
+  ],
+  "// targets": "build (inferred from webpack.config.js) writes dist/apps/cli/taleart.js, one executable file with a #!/usr/bin/env node line, and its package.json (bin taleart), with the agent skill (skills/taleart, @taleart/agent-skill) bundled as text for `taleart skill install`. test runs the unit tests and src/cli.integration.spec.ts, which starts the built API on a free port and a database derived from TEST_DATABASE_URL (<name>_cli_test, dropped and created) and runs the built CLI against it; src/skill.spec.ts checks every command and flag the skill and the docs AI agents page name against the CLI.",
   "targets": {
     "build": {
       "inputs": [
         "production",
         "^production",
+        "{workspaceRoot}/skills/taleart/**/*",
         {
-          "externalDependencies": ["webpack-cli"]
+          "externalDependencies": [
+            "webpack-cli"
+          ]
         }
       ]
     },
@@ -19,9 +25,17 @@
       "dependsOn": [
         "build",
         {
-          "projects": ["api"],
+          "projects": [
+            "api"
+          ],
           "target": "build"
         }
+      ],
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/skills/taleart/**/*",
+        "{workspaceRoot}/apps/docs/src/app/pages/ai-agents.ts"
       ]
     }
   }

@@ -4,7 +4,7 @@ import { workspaceRoot } from '@nx/devkit';
 import { expect, type Page } from '@playwright/test';
 
 /** The docs' pages, by path, as the navigation lists them (apps/docs/src/app/app.routes.ts). */
-export const DOCS_PATHS = ['/', '/concepts', '/install', '/api-tokens', '/api-reference', '/moving-from-stages'];
+export const DOCS_PATHS = ['/', '/concepts', '/install', '/api-tokens', '/api-reference', '/ai-agents', '/moving-from-stages'];
 
 /** The localStorage key of the API reference's API URL (`API_URL_STORAGE_KEY` in api-reference-spec.ts). */
 export const API_URL_KEY = 'taleart-docs:api-reference:api-url';
