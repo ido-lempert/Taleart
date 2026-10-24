@@ -16,7 +16,8 @@ context:
   - '{project-root}/libs/web-sdk/src/lib/delivery-client.ts'
 warnings:
   - 'The audience-empty clause in delivery-rule.ts (tales module) reads the targeting module''s tables `tale_group_user_lists` and `user_lists` by name: the targeting module depends on tales, so tales cannot import an SQL fragment from it without a cycle. It is the one place one module''s SQL names another''s tables; the epic constraint puts every targeting reason in delivery-rule.ts. A targeting migration test pins the names.'
-  - 'Deleting a user list removes it from every group (epic R5); a group whose only list it was then shows to every viewer. The delete dialog names the groups it targets and says so.'
+  - 'Deleting a user list removes it from every group (epic R5). Review fix: a group whose only list it was is held hidden (audience-removed) until a person saves its Audience, never shown to everyone.'
+  - 'Accepted risk: the interactive responses route does not check user lists; targeting is not access control.'
 deferred:
   - 'The native SDK sends no external user ID yet: it needs a public setExternalUserId, a base64url encoder in common Kotlin and the shared test table, which is story 9 (the contract''s header and encoding are fixed here).'
   - 'Segments (stories 6, 7): the Delivery API still leaves out every group with lists the viewer is not in; with segments it will keep one that has segments too.'
@@ -99,5 +100,19 @@ nobody sees it; the indicator-versus-Delivery unit test passes with the new case
 and the API log carry no external user ID. Then the full lint/test/build run, `web-sdk:size`,
 `web-sdk:types-check`, `sdk-sample:a11y`, `dashboard-e2e:e2e`, `dashboard-e2e:a11y` and
 `mobile-sdk:test`.
+
+## Review fixes (security review, 2026-10-24)
+
+- **Deleting a list never makes a group public:** a group left with no list, and a copy to another
+  project of a group with lists (or of a held group), gets a row in `tale_group_audience_holds` and
+  the reason `audience-removed` ("its user lists were removed"), one clause in `delivery-rule.ts`,
+  until a person saves its tags or its lists. The delete dialog and the copy drawer say so.
+- **Fail closed:** `userListAudiences` returns the targeted and the matched group ids; Delivery shows
+  a targeted group only when it is matched (`passesUserLists`).
+- **Accepted risk:** the interactive responses route does not check user lists (docs, epic Notes).
+- **Sample page:** the ID input has no name and the form never submits, even before the module runs.
+- **Tests:** a browser test of the sample page (headers carry the ID, URLs never do), an
+  audience-empty group's media and font answer 404 at once (the public caches are cleared on every
+  list change), a forced database error in the match logs no ID, the holds on delete and copy.
 
 </intent-contract>

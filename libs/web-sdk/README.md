@@ -170,10 +170,12 @@ setExternalUserId('cust-1001');
   with the header is `Cache-Control: private, no-store`, with no ETag, so no cache keeps one viewer's groups for
   another.
 - TaleArt stores user lists only as keyed hashes (HMAC-SHA-256 under a secret of the project) and shows how many IDs
-  a list holds, never which. Deleting a list deletes its hashes for good and removes it from every group.
+  a list holds, never which. Deleting a list deletes its hashes for good and removes it from every group; a group
+  targeted only to that list stops showing (to anyone) until someone changes its Audience in the dashboard.
 
 Targeting is not access control: a targeted group's tales are public media, and anyone with the site key can try IDs
-and see which groups come back. Do not use targeting to protect content.
+and see which groups come back. Responses to a tale's interactive components (polls, quizzes, ratings) are accepted
+from any viewer of a delivered tale, without checking its user lists. Do not use targeting to protect content.
 
 ## Theme
 

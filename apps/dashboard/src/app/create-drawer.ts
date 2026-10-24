@@ -236,7 +236,9 @@ export class CreateDrawer implements OnInit {
   /** The zone picked in a "Copy to zone…" drawer. */
   protected readonly copyZoneId = signal('');
   /** The copy a "Copy to zone…" drawer made, with its zone; the drawer then shows only the result. */
-  protected readonly copied = signal<{ name: string; zoneId: string; zoneName: string } | null>(null);
+  protected readonly copied = signal<{ name: string; zoneId: string; zoneName: string; listsLeftBehind: boolean } | null>(
+    null,
+  );
 
   /** The projects a copy can go to: every project the user can access, the group's own first. */
   protected readonly copyProjects = computed(() => {
@@ -968,10 +970,14 @@ export class CreateDrawer implements OnInit {
           const zone = this.store.zone(zoneId);
           // Name the project too when the copy went to another project: zone names repeat across projects.
           const zoneName = zone?.name ?? 'the zone';
+          // User lists belong to a project: a copy to another one leaves them behind and is held
+          // hidden until its Audience is changed (epic targeting story 5.4 review).
+          const source = this.placementGroup();
           this.copied.set({
             name: copy.name,
             zoneId,
             zoneName: zone && zone.projectId !== this.store.selectedProjectId() ? `${zoneName} in ${this.store.projectName(zone.projectId)}` : zoneName,
+            listsLeftBehind: !!source?.userLists?.length && !!zone && zone.projectId !== source.projectId,
           });
         }
         this.saving.set(false);

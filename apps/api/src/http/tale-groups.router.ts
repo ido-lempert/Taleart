@@ -40,6 +40,7 @@ import {
 import {
   copyTaleGroupTags,
   copyTaleGroupUserLists,
+  releaseAudienceHold,
   setTaleGroupTags,
   setTaleGroupUserLists,
   tagMatchesForTaleGroups,
@@ -254,8 +255,11 @@ export function taleGroupsRouter(pool: Pool): Router {
       // project, in the same transaction (AD-1, AD-14, epic targeting R1, R4).
       let targeting: GroupTargeting = NO_TARGETING;
       const copy = await copyTaleGroup(pool, { taleGroupId, zoneId: input.zoneId }, async (tx, ids) => {
-        targeting = { ...(await copyTaleGroupTags(tx, ids)), userLists: await copyTaleGroupUserLists(tx, ids) };
+        const lists = await copyTaleGroupUserLists(tx, ids);
+        targeting = { ...(await copyTaleGroupTags(tx, ids)), userLists: lists.userLists };
       });
+      // A copy that left its lists behind is held hidden (audience-removed): its public media follow.
+      userListsChanged();
       res.status(201).json({ ...copy, ...targeting } satisfies ZoneTaleGroup);
     } catch (err) {
       next(err);
@@ -284,6 +288,12 @@ export function taleGroupsRouter(pool: Pool): Router {
         tagMatch: optionalTagMatch(req.body),
       };
       const targeting = await setTaleGroupTags(pool, taleGroupId, input.tagIds, input.tagMatch);
+      // A person saved the group's Audience: a group held after its lists were removed is theirs again.
+      try {
+        await releaseAudienceHold(pool, taleGroupId);
+      } finally {
+        userListsChanged();
+      }
       const [group] = await withTags(pool, [await getTaleGroup(pool, taleGroupId)]);
       const body: TaleGroup = { ...group, ...targeting };
       res.json(body);

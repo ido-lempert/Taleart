@@ -84,9 +84,11 @@
       targeted to user lists show only when the ID is in one of them. The SDK sends it in a request header, never in
       the URL. Use an opaque ID, not an email address.
     </p>
-    <form id="viewer-id">
+    <!-- Never submitted: without a name the ID is not a form field, and onsubmit stops the navigation even
+         before the module has run, so the ID can never reach a URL. -->
+    <form id="viewer-id" onsubmit="return false">
       <label for="viewer-id-input">External user ID</label>
-      <input id="viewer-id-input" name="externalUserId" autocomplete="off" placeholder="cust-1001" />
+      <input id="viewer-id-input" autocomplete="off" placeholder="cust-1001" />
       <button type="submit">Set ID</button>
       <button type="button" id="viewer-id-clear">No ID</button>
       <p id="viewer-id-status" role="status">No external user ID: groups with user lists do not show.</p>

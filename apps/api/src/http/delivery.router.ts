@@ -12,7 +12,7 @@ import {
 } from '@taleart/contract';
 import { projectForSiteKey } from '@taleart/server-access';
 import { listDeliveryTaleGroups } from '@taleart/server-tales';
-import { tagRulesForTaleGroups, userListAudiences } from '@taleart/server-targeting';
+import { passesUserLists, tagRulesForTaleGroups, userListAudiences } from '@taleart/server-targeting';
 import { findZone, getProjectTheme, zoneIdBySlug, type FrameTypeRegistry } from '@taleart/server-zones';
 import express, { Router, type RequestHandler, type Response } from 'express';
 import type { Pool } from 'pg';
@@ -179,14 +179,15 @@ export function deliveryRouter(pool: Pool, options: DeliveryOptions): Router {
           type: zone.frame.type,
           settings: options.frameTypes.withDefaults(zone.frame.type, zone.frame.settings),
         },
-        // A group targeted to user lists the viewer is in none of is left out altogether, so the
-        // response never says which lists exist; one the viewer is listed for is marked (R4).
-        taleGroups: taleGroups.filter((group) => audiences.get(group.id)?.matched !== false).map((group) => ({
+        // A group targeted to user lists is shown only when the viewer is listed for it (fail
+        // closed): any other is left out altogether, so the response never says which lists exist.
+        // One the viewer is listed for is marked (R4).
+        taleGroups: taleGroups.filter((group) => passesUserLists(audiences, group.id)).map((group) => ({
           id: group.id,
           name: group.name,
           tags: tagRules.get(group.id)?.tags ?? [],
           tagMatch: tagRules.get(group.id)?.tagMatch ?? DEFAULT_TAG_MATCH,
-          ...(audiences.get(group.id)?.matched && { userListMatched: true }),
+          ...(audiences.matched.has(group.id.toLowerCase()) && { userListMatched: true }),
           cover: group.cover && {
             kind: mediaKind(group.cover.contentType),
             contentType: group.cover.contentType,

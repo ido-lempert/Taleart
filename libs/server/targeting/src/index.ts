@@ -1,5 +1,6 @@
 // Public interface of the targeting module (AD-1). It owns the `tags`, `tale_group_tags`,
-// `tale_group_tag_matches`, `user_list_secrets`, `user_lists`, `user_list_ids` and `tale_group_user_lists` tables, and reaches
+// `tale_group_tag_matches`, `user_list_secrets`, `user_lists`, `user_list_ids`, `tale_group_user_lists` and
+// `tale_group_audience_holds` tables, and reaches
 // tale groups only through @taleart/server-tales.
 export { migrateTargeting } from './lib/migration';
 export {
@@ -47,10 +48,12 @@ export { readUserListCsv } from './lib/user-list-csv';
 // user ID against them (epic targeting R4): the ID is hashed here and never kept.
 export {
   copyTaleGroupUserLists,
+  passesUserLists,
+  releaseAudienceHold,
   setTaleGroupUserLists,
   taleGroupIdsForUserLists,
   userListAudiences,
   userListsForTaleGroups,
 } from './lib/group-user-lists';
-export type { UserListAudience } from './lib/group-user-lists';
+export type { UserListAudiences } from './lib/group-user-lists';
 export type { NumberedUserListRow, UserListCsvOptions } from './lib/user-list-csv';

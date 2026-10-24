@@ -108,4 +108,15 @@ async function migrateUserLists(db: Db): Promise<void> {
     );
   `);
   await db.query('CREATE INDEX IF NOT EXISTS tale_group_user_lists_user_list_id_idx ON tale_group_user_lists (user_list_id)');
+  // A group whose user lists were taken away without a person choosing a new audience (its last list
+  // deleted, or copied to another project): it stays hidden (`audience-removed`) until someone saves
+  // its Audience, so deleting a list never makes a group public. The tales module's clause reads it.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS tale_group_audience_holds (
+      tale_group_id uuid PRIMARY KEY,
+      project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      FOREIGN KEY (tale_group_id, project_id) REFERENCES tale_groups (id, project_id) ON DELETE CASCADE
+    );
+  `);
 }
