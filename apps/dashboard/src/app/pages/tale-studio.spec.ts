@@ -367,6 +367,24 @@ describe('TaleStudioPage', () => {
       expect(root.querySelector('a.back-link')?.getAttribute('href')).toBe('/tale-groups?group=g1');
     });
 
+    it('returns focus to the tale menu button when what had focus is gone', async () => {
+      await open({ document: existing, revision: 1 });
+      const el = root.querySelector<HTMLElement>(`#studio-el-${existing.elements[0].id}`) as HTMLElement;
+      el.focus();
+      key(el, '?');
+      await settle(fixture);
+      expect(helpPanel().hidden).toBe(false);
+      // What had focus is gone meanwhile (a layer deleted or hidden from elsewhere), in its place a node no longer in the page.
+      const gone = document.createElement('button');
+      (fixture.componentInstance as unknown as { helpReturn: HTMLElement }).helpReturn = gone;
+      expect(gone.isConnected).toBe(false);
+      helpPanel().focus();
+      helpPanel().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(true);
+      expect(document.activeElement).toBe(root.querySelector('#studio-menu'));
+    });
+
     it('closes when focus leaves it, and stays open while focus moves inside it', async () => {
       await open({ document: null, revision: 0 });
       helpItem().click();
@@ -2270,7 +2288,7 @@ describe('TaleStudioPage', () => {
         expect(label?.textContent?.trim(), control.id).toBeTruthy();
       }
       const legends = [...inspector.querySelectorAll('legend')].map((l) => l.textContent?.trim());
-      expect(legends).toEqual(['Text style', 'Font', 'Colour', 'Alignment and direction', 'Background']);
+      expect(legends).toEqual(['Text style', 'Font and size', 'Colour', 'Alignment and direction', 'Background']);
       // The direction is chosen inside the alignment group.
       expect(field('ts-direction').closest('fieldset')?.querySelector('legend')?.textContent?.trim()).toBe(
         'Alignment and direction',
@@ -2532,7 +2550,9 @@ describe('TaleStudioPage', () => {
       // Nothing selected: the canvas itself.
       expect(active()?.id).toBe('studio-canvas');
       f6();
-      expect(active()?.id).toBe('studio-inspector');
+      // The inspector's heading, which says what it edits.
+      expect(active()?.id).toBe('inspector-title');
+      expect(active()?.textContent?.trim()).toBe('Tale');
       f6();
       expect(active()?.getAttribute('aria-current')).toBe('page');
       expect(active()?.getAttribute('href')).toBe('/tales/t1/studio');
@@ -2550,6 +2570,17 @@ describe('TaleStudioPage', () => {
       expect(active()?.id).toBe('studio-tab-elements');
     });
 
+    it('leaves F6 alone while the tale menu is open: focus stays in it and it stays open', async () => {
+      await open({ document: existing, revision: 1 });
+      const item = menuItem('studio-discard');
+      await settle(fixture);
+      item.focus();
+      expect(f6().defaultPrevented).toBe(false);
+      expect(f6(true).defaultPrevented).toBe(false);
+      expect(active()).toBe(item);
+      expect(root.querySelector('#studio-menu-list')).not.toBeNull();
+    });
+
     it('leaves F6 to an open menu, and to keys with Ctrl, Alt or Cmd', async () => {
       await open({ document: existing, revision: 1 });
       root.querySelector<HTMLButtonElement>(`#layer-more-${textId}`)?.click();
@@ -2565,7 +2596,9 @@ describe('TaleStudioPage', () => {
       await open({ document: existing, revision: 1 });
       const tabs = [...root.querySelectorAll<HTMLElement>('[role=tab]')];
       expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Elements', 'Templates', 'Media', 'Layers']);
-      expect(root.querySelector('[role=tablist]')?.getAttribute('aria-orientation')).toBe('vertical');
+      const tablist = root.querySelector('[role=tablist]');
+      expect(tablist?.getAttribute('aria-orientation')).toBe('vertical');
+      expect(tablist?.getAttribute('aria-label')).toBe('Left panel tabs');
       const shown = () => [...root.querySelectorAll<HTMLElement>('[role=tabpanel]')].filter((p) => !p.hidden).map((p) => p.id);
       expect(shown()).toEqual(['studio-panel-elements']);
       expect(tabs.map((t) => t.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1']);
@@ -2655,6 +2688,9 @@ describe('TaleStudioPage', () => {
       // The current tale's picture is its media; a tale without media shows a colour.
       expect(links[1].querySelector('img')?.getAttribute('src')).toContain('/api/v1/tales/t1/media');
       expect(links[2].querySelector('img')).toBeNull();
+      expect(links[1].querySelector('img')?.getAttribute('loading')).toBe('lazy');
+      expect(links[1].querySelector('img')?.getAttribute('decoding')).toBe('async');
+      expect(root.querySelector('#studio-strip-title')?.getAttribute('title')).toBe('Tales in Summer');
       expect(root.querySelector('.strip-thumb__changed')).toBeNull();
     });
 

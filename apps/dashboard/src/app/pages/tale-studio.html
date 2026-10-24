@@ -14,7 +14,7 @@
         [queryParams]="backLink().query"
         ><app-icon name="back" /> {{ backLink().text }}</a
       >
-      <h2 class="studio-top__title" id="studio-title">
+      <h2 class="studio-top__title" id="studio-title" [title]="(taleNumber() ? 'Tale ' + taleNumber() + ' · ' : '') + (tale()?.title ?? 'Tale')">
         @if (taleNumber(); as n) {
           <span class="studio-top__number">Tale {{ n }} ·&ngsp;</span>
         }
@@ -51,6 +51,7 @@
           type="button"
           class="btn btn--ghost btn--sm"
           id="studio-safe-area"
+          title="Safe area"
           [attr.aria-pressed]="guides()"
           (click)="showGuides(!guides())"
         >
@@ -58,18 +59,19 @@
         </button>
       </div>
       <div class="studio-top__state">
-        <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()">{{ saveText() }}</p>
-        <p class="studio-update__state" id="studio-update-state" [class.is-pending]="unpublished()">
+        <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()" [title]="saveText()">{{ saveText() }}</p>
+        <p class="studio-update__state" id="studio-update-state" [class.is-pending]="unpublished()" [title]="statusLine()">
           @if (siteVisibility(); as v) {
             <span class="studio-update__dot" [class.is-visible]="v.visible" aria-hidden="true"></span>
           }
-          {{ statusLine() }}
+          <span class="studio-update__text">{{ statusLine() }}</span>
         </p>
       </div>
       <button
         type="button"
         class="btn btn--ghost btn--sm"
         id="studio-preview"
+        title="Preview"
         [attr.aria-controls]="previewOpen() ? 'studio-preview-pane' : null"
         [attr.aria-expanded]="previewOpen()"
         (click)="previewOpen() ? closePreview() : previewOpen.set(true)"
@@ -190,7 +192,8 @@
             </p>
             <p>
               F6 and Shift+F6 move between the top bar, the elements and layers, the canvas, the properties and the
-              tales of the group. Outside text fields, ? shows these shortcuts.
+              tales of the group: in Tale Studio, F6 does not go to the browser's address bar. Outside text fields, ?
+              shows these shortcuts.
             </p>
           </div>
         </div>
@@ -252,7 +255,7 @@
     </div>
 
     <aside class="studio-left" data-region="left" aria-label="Add and layers">
-      <div class="studio-rail" role="tablist" aria-label="Add and layers" aria-orientation="vertical">
+      <div class="studio-rail" role="tablist" aria-label="Left panel tabs" [attr.aria-orientation]="railOrientation()">
         @for (tab of leftTabs; track tab.id; let i = $index) {
           <button
             type="button"
@@ -491,6 +494,7 @@
       <div class="workspace">
         <div
           class="canvas"
+          [class.show-bounds]="guides()"
           id="studio-canvas"
           tabindex="-1"
           role="group"
@@ -804,7 +808,7 @@
         @if (selected(); as el) {
           <div class="inspector__head">
             <app-icon [name]="$any(el.type)" />
-            <h2 class="inspector__title" id="inspector-title">
+            <h2 class="inspector__title" id="inspector-title" tabindex="-1">
               {{ kind(el) }} <span class="inspector__name">“{{ spokenName(el) }}”</span>
             </h2>
           </div>
@@ -1006,7 +1010,7 @@
           </div>
         } @else if (selection().length > 1) {
           <div class="inspector__head">
-            <h2 class="inspector__title" id="inspector-title">{{ selection().length }} layers selected</h2>
+            <h2 class="inspector__title" id="inspector-title" tabindex="-1">{{ selection().length }} layers selected</h2>
           </div>
           <section class="inspector__section" aria-labelledby="inspector-title">
             <p class="field__hint">
@@ -1020,7 +1024,7 @@
           </section>
         } @else {
           <div class="inspector__head">
-            <h2 class="inspector__title" id="inspector-title">Tale</h2>
+            <h2 class="inspector__title" id="inspector-title" tabindex="-1">Tale</h2>
           </div>
           <p class="field__hint inspector__intro">Select an element on the canvas or in Layers to edit it.</p>
         }
@@ -1131,7 +1135,9 @@
     </aside>
 
     <nav class="studio-strip" data-region="strip" aria-labelledby="studio-strip-title">
-      <h2 class="studio-strip__title" id="studio-strip-title">Tales in {{ groupName() || 'this group' }}</h2>
+      <h2 class="studio-strip__title" id="studio-strip-title" [title]="'Tales in ' + (groupName() || 'this group')"
+        >Tales in {{ groupName() || 'this group' }}</h2
+      >
       <ol class="studio-strip__list">
         @for (t of stripTales(); track t.id) {
           <li>
@@ -1150,7 +1156,7 @@
                 [style.background]="t.current && !t.picture ? d.canvas.background.color : null"
               >
                 @if (t.picture) {
-                  <img [src]="t.picture" alt="" />
+                  <img [src]="t.picture" alt="" loading="lazy" decoding="async" />
                 }
               </span>
               <span class="strip-thumb__number">{{ t.number }}</span>

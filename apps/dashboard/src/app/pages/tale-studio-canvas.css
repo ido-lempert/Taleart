@@ -22,6 +22,11 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Each layer's bounds show while the safe area shows, on hover and on focus; otherwise the tale shows as visitors see it. */
+.canvas:not(.show-bounds) .el:not(:hover):not(:focus-visible):not(.is-selected) {
+  border-color: transparent;
+  outline-color: transparent;
+}
 .el {
   flex-direction: column;
   align-items: stretch;
