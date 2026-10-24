@@ -8,6 +8,14 @@
 
 [Learn more about this workspace setup and its capabilities](https://nx.dev/getting-started/tutorials/angular-monorepo-tutorial?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
 
+## Docs site
+
+The docs (`apps/docs`) are published on GitHub Pages at <https://ido-lempert.github.io/Taleart/>.
+`.github/workflows/docs-pages.yml` deploys them on every push to `main` that changes the docs, the
+contract (the OpenAPI document behind the API reference) or the agent skill, or when run by hand. To
+build the same site locally, run `npx nx run docs:build-pages`; it lands in `dist/apps/docs-pages/browser`,
+under the `/Taleart/` base href.
+
 ## Requirements
 
 The API needs Node.js 22 or later: it checks emoji elements of tale documents with the RegExp `v` flag

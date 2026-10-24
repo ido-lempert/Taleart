@@ -1,0 +1,58 @@
+# Publishes the docs (apps/docs, prerendered Angular) on GitHub Pages:
+# https://ido-lempert.github.io/Taleart/
+# Repository settings: Settings > Pages > Build and deployment > Source: GitHub Actions.
+name: Docs on GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/docs/**'
+      # The OpenAPI document feeds the API reference.
+      - 'libs/contract/**'
+      # The agent skill is shown and offered for download on the AI agents page.
+      - 'skills/**'
+      - '.github/workflows/docs-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push waits rather than cancelling one in progress.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NX_DAEMON: 'false'
+      NX_NO_CLOUD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The production build under the /Taleart/ base href, with .nojekyll and 404.html.
+      - run: npx nx run docs:build-pages
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/apps/docs-pages/browser
+          # Keep .nojekyll.
+          include-hidden-files: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
