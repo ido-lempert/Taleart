@@ -28,19 +28,19 @@ export const EXIT = {
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 
-/** Every exit code with what it means, for `taleart help exit-codes`. */
-export const EXIT_CODE_MEANINGS: ReadonlyArray<[ExitCode, string]> = [
-  [EXIT.ok, 'Success.'],
-  [EXIT.unexpected, 'Unexpected error (a bug, or an answer the CLI cannot read).'],
-  [EXIT.usage, 'Usage error: unknown command or flag, missing argument, bad value, no project chosen.'],
-  [EXIT.auth, 'Not authenticated: no API URL or token, or the token is unknown, revoked or expired (401).'],
-  [EXIT.forbidden, 'Forbidden (403): the user, the token\'s projects or a read-only token do not allow it.'],
-  [EXIT.notFound, 'Not found (404), or a name or slug that matches nothing.'],
-  [EXIT.conflict, 'Conflict (409), or a name that matches more than one thing.'],
-  [EXIT.invalid, 'Refused input (400, 408, 411, 413, 415, 422), or a local file that is missing or unusable.'],
-  [EXIT.server, 'Rate limited (429) or a server error (5xx), including a feature the server has turned off.'],
-  [EXIT.network, 'The API cannot be reached, or did not answer in time.'],
-  [EXIT.confirm, 'Confirmation needed: rerun a destructive command with --yes.'],
+/** Every exit code with its name and what it means, for `taleart help exit-codes`. */
+export const EXIT_CODE_MEANINGS: ReadonlyArray<[ExitCode, keyof typeof EXIT, string]> = [
+  [EXIT.ok, 'ok', 'Success.'],
+  [EXIT.unexpected, 'unexpected', 'Unexpected error (a bug, or an answer the CLI cannot read).'],
+  [EXIT.usage, 'usage', 'Usage error: unknown command or flag, missing argument, bad value, no project chosen.'],
+  [EXIT.auth, 'auth', 'Not authenticated: no API URL or token, or the token is unknown, revoked or expired (401).'],
+  [EXIT.forbidden, 'forbidden', 'Forbidden (403): the user, the token\'s projects or a read-only token do not allow it.'],
+  [EXIT.notFound, 'notFound', 'Not found (404), or a name or slug that matches nothing.'],
+  [EXIT.conflict, 'conflict', 'Conflict (409), or a name that matches more than one thing.'],
+  [EXIT.invalid, 'invalid', 'Refused input (400, 408, 411, 413, 415, 422), or a local file that is missing or unusable.'],
+  [EXIT.server, 'server', 'Rate limited (429) or a server error (5xx), including a feature the server has turned off.'],
+  [EXIT.network, 'network', 'The API cannot be reached, did not answer in time, or its answer broke off.'],
+  [EXIT.confirm, 'confirm', 'Confirmation needed or refused: rerun a destructive command with --yes.'],
 ];
 
 /** An error the CLI reports and exits with: a message for people, a code and exit code for scripts. */
@@ -54,6 +54,8 @@ export class CliError extends Error {
     readonly status?: number,
     /** What to do about it, shown on its own line. */
     readonly hint?: string,
+    /** More for scripts, merged into the `--json` error document (such as `created` after a partial failure). */
+    readonly details?: Readonly<Record<string, unknown>>,
   ) {
     super(message);
     this.name = 'CliError';

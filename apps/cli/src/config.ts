@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { API_TOKEN_PREFIX, apiTokenPrefix } from '@taleart/contract/core';
 import { CliError, EXIT } from './errors';
@@ -67,21 +68,21 @@ export function readConfig(file: string, warn: (message: string) => void, platfo
 }
 
 /**
- * Writes the config file with mode 0600 in a folder with mode 0700, both applied again on every
- * write (a file created earlier with looser permissions is tightened). Written to a temporary file
- * first and renamed, so a failed write never leaves half a file.
+ * Writes the config file with mode 0600, in a folder with mode 0700 when the CLI creates it (a folder
+ * that exists already, such as a shared XDG_CONFIG_HOME, keeps its mode). The file's mode is applied
+ * again on every write, so a file created earlier with looser permissions is tightened. It is written
+ * to a new temporary file first (flag `wx`, a random name: never a file that exists) and renamed, so
+ * a failed write never leaves half a file.
  */
 export function writeConfig(file: string, dir: string, config: StoredConfig): void {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
     chmodSync(dir, 0o700);
-  } catch {
-    // A folder the user does not own (such as a shared XDG_CONFIG_HOME): the file's mode still holds.
   }
   const body = `${JSON.stringify(config, null, 2)}\n`;
-  const temporary = `${file}.${process.pid}.tmp`;
+  const temporary = `${file}.${randomBytes(8).toString('hex')}.tmp`;
   try {
-    writeFileSync(temporary, body, { mode: 0o600 });
+    writeFileSync(temporary, body, { mode: 0o600, flag: 'wx' });
     chmodSync(temporary, 0o600);
     renameSync(temporary, file);
   } catch (err) {
@@ -89,6 +90,15 @@ export function writeConfig(file: string, dir: string, config: StoredConfig): vo
     throw err;
   }
   chmodSync(file, 0o600);
+}
+
+/** A warning when the token would cross the network unencrypted: plain http to a host that is not this machine. */
+export function insecureUrlWarning(apiUrl: string): string | null {
+  const url = new URL(apiUrl);
+  if (url.protocol !== 'http:') return null;
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127\./.test(host)) return null;
+  return `${url.host} is reached over plain http: the API token crosses the network unencrypted. Use https.`;
 }
 
 /** The API's origin, without a trailing slash or `/api/v1`: `taleart login --url` may be given either. */

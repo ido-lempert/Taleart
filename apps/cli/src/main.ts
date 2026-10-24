@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
-import { createInterface } from 'node:readline/promises';
 import { run } from './cli';
 import type { Io } from './command';
+import { promptLine } from './prompt';
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -9,13 +9,12 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function prompt(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    return await rl.question(question);
-  } finally {
-    rl.close();
-  }
+// A reader that went away (`taleart zones list | head -1`) is not an error: stop quietly.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0);
+    throw err;
+  });
 }
 
 const io: Io = {
@@ -26,8 +25,9 @@ const io: Io = {
   home: homedir(),
   cwd: process.cwd(),
   interactive: Boolean(process.stdin.isTTY && process.stderr.isTTY),
+  stdinIsTTY: Boolean(process.stdin.isTTY),
   readStdin,
-  prompt,
+  prompt: (question) => promptLine(process.stdin, process.stderr, question),
   fetch: (input, init) => fetch(input, init),
 };
 

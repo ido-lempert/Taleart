@@ -12,6 +12,8 @@ export const imports: GroupSpec = {
   commands: [
     {
       name: 'list',
+      mutates: false,
+      result: 'ImportJobSummary[]',
       summary: 'List the project\'s imports, newest first (at most 50).',
       project: 'required',
       examples: ['taleart imports list', 'taleart imports list --json'],
@@ -36,6 +38,8 @@ export const imports: GroupSpec = {
     },
     {
       name: 'get',
+      mutates: false,
+      result: 'ImportJob',
       summary: 'Show one import: its state, progress and report.',
       project: 'required',
       args: [{ name: 'import', description: 'The import job\'s id.', required: true }],
