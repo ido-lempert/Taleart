@@ -23,7 +23,7 @@ import {
 } from '@taleart/contract/tale-document';
 import type { IconName } from '../icon';
 
-/** What an Add menu entry does: the studio's own flow for a built-in type, or `configured` for a new type. */
+/** What a palette tile does: the studio's own flow for a built-in type, or `configured` for a new type. */
 export type AddAction =
   | { kind: 'text' }
   | { kind: 'media'; media: 'image' | 'video' }
@@ -35,29 +35,56 @@ export type AddAction =
   | { kind: 'swipe-up' }
   | { kind: 'configured' };
 
-/** A limit on how many elements of a type a tale holds: the Add entry says so and names the hint. */
+/** A limit on how many elements of a type a tale holds: its tile is blocked and says so, by the hint's id. */
 export interface AddLimit {
   hintId: string;
   hint: string;
-  /** Where its hint shows among the reached limits' hints, lowest first. */
-  hintOrder: number;
   reached(doc: { elements: readonly { type: string; props?: unknown }[] } | null | undefined): boolean;
 }
 
-/** One button of the Add menu. */
-export interface AddMenuEntry {
-  /** The button's id: `studio-add` for text, else `studio-add-<name>`. */
+/**
+ * The palette's categories, as the Elements tab orders them (epic Tale Studio 2 R2): `actions` is
+ * "Buttons & links". A type without a palette entry shows under More, after them.
+ */
+export type PaletteCategory = 'text' | 'media' | 'shapes' | 'stickers' | 'actions' | 'interactive';
+
+/** One of several tiles a type offers (a text style, a shape kind), each its own way to add the type. */
+export interface PalettePreset {
+  /** Its tile's id is `studio-add-<id>`. */
   id: string;
+  /** The tile's word, such as "Heading"; its accessible name is "Add heading". */
   label: string;
+  /** Words it is also found by, beside the type's. */
+  keywords?: readonly string[];
+  icon?: IconName;
+  /** Its own way to add, in place of the type's (a shape kind). */
+  action?: AddAction;
+  /** Props laid over the type's new props, such as a text preset's size and weight. */
+  props?: Readonly<Record<string, unknown>>;
+  /** Where it lands, in place of the type's own new box. */
+  box?: TaleElementBox;
+  /** How its tile draws it, where that differs from `props` (a text preset's sample). */
+  tileProps?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * How the Elements tab offers a type (epic Tale Studio 2 R2, EXPERIENCE Registry fit): its category
+ * and place in it, the words it is found by, and one tile, or one per preset. A blocked tile stays
+ * focusable and says why: the type's limit, or the project's media it needs.
+ */
+export interface PaletteEntry {
+  category: PaletteCategory;
+  /** Its place in the category, lowest first. */
+  order: number;
+  /** Words it is found by, beside its label and its category's name. */
+  keywords: readonly string[];
   icon: IconName;
-  /** The Add menu row it sits in, from 0; rows show in order. */
-  row: number;
-  /** A small button. */
-  small: boolean;
-  /** Picks the project's media, so it needs the tale's project. */
-  needsProject: boolean;
   action: AddAction;
+  /** Picks the project's media, so it needs the tale's project. */
+  needsProject?: boolean;
   limit?: AddLimit;
+  /** Several tiles in place of one, in order. */
+  presets?: readonly PalettePreset[];
 }
 
 /** One field of a descriptor-driven inspector; its rules come from the type's props schema. */
@@ -165,9 +192,13 @@ export interface CreateDescriptor {
 
 /** What a studio descriptor holds for one registry key. */
 export interface StudioTypeDescriptor {
-  add: readonly AddMenuEntry[];
+  /**
+   * How the Elements tab offers it. A type without one (a descriptor in the shape before story
+   * 11.3, a test type) shows under More, added by its `create` (epic Tale Studio 2 R2).
+   */
+  palette?: PaletteEntry;
   inspector: InspectorDescriptor;
-  /** For a `configured` type: how a new one is made. */
+  /** For a `configured` type, or one without a palette entry: how a new one is made. */
   create?: CreateDescriptor;
   /** For a `configured` type: the text the canvas shows in its box, as a stand-in for the SDK's look. */
   preview?(props: Record<string, unknown>): string;
@@ -180,15 +211,6 @@ export interface StudioTypeDescriptor {
 
 /** A registered element type as the studio offers it: the registry entry with its descriptor. */
 export type StudioElementType = ElementTypeEntry & StudioTypeDescriptor;
-
-const entry = (
-  id: string,
-  label: string,
-  icon: IconName,
-  row: number,
-  action: AddAction,
-  extra: Partial<AddMenuEntry> = {},
-): AddMenuEntry => ({ id, label, icon, row, small: row > 0, needsProject: false, action, ...extra });
 
 // The poll's rules its schema cannot state, as the server's `PROPS_RULES` holds them: its text shows
 // on one line, and its option ids differ (epic interactive components R2).
@@ -231,11 +253,10 @@ function checkRatingProps(props: Readonly<Record<string, unknown>>): string | nu
   );
 }
 
-// A limit of one element of `type` per tale (epic interactive components C3), named in its Add entry.
-function oneOf(type: string, hintId: string, hintOrder: number, hint: string): AddLimit {
+// A limit of one element of `type` per tale (epic interactive components C3), said by its tile.
+function oneOf(type: string, hintId: string, hint: string): AddLimit {
   return {
     hintId,
-    hintOrder,
     hint,
     reached: (doc) => (doc?.elements.filter((e) => e.type === type).length ?? 0) >= ELEMENT_TYPE_LIMITS[type],
   };
@@ -251,60 +272,170 @@ const THEME_FIELD: InspectorField = {
   ],
 };
 
-// Each shape kind's own picture on its Add tile (Tale Studio 2, story 11.1).
+// Each shape kind's own picture and words on its tile (Tale Studio 2, stories 11.1 and 11.3).
 const SHAPE_ICONS: Readonly<Record<ShapeKind, IconName>> = {
   rectangle: 'rectangle',
   ellipse: 'ellipse',
   line: 'line',
 };
+const SHAPE_KEYWORDS: Readonly<Record<ShapeKind, readonly string[]>> = {
+  rectangle: ['box', 'square', 'rect', 'block', 'background'],
+  ellipse: ['circle', 'oval', 'round', 'dot'],
+  line: ['divider', 'rule', 'stroke', 'separator'],
+};
+
+/**
+ * The text presets (EXPERIENCE Left panel tabs): Heading, Subheading, Body, Caption and Label, each
+ * a text in its own size and weight, drawn so on its tile. Body is the text the studio added before
+ * presets, in today's box and style (DEFAULT_TEXT_STYLE). Each box is inside the safe area.
+ */
+export const TEXT_PRESETS: readonly PalettePreset[] = [
+  {
+    id: 'heading',
+    label: 'Heading',
+    keywords: ['title', 'headline', 'h1', 'big'],
+    props: { text: 'Heading', size: 0.06, weight: 'bold', lineHeight: 1.1 },
+    box: { x: 0.1, y: 0.2, w: 0.8, h: 0.14, rotation: 0 },
+  },
+  {
+    id: 'subheading',
+    label: 'Subheading',
+    keywords: ['subhead', 'subtitle', 'h2'],
+    props: { text: 'Subheading', size: 0.045, weight: 'medium', lineHeight: 1.2 },
+    box: { x: 0.1, y: 0.34, w: 0.8, h: 0.1, rotation: 0 },
+  },
+  {
+    id: 'text',
+    label: 'Body text',
+    keywords: ['body', 'paragraph', 'copy'],
+    props: { text: 'Text' },
+    // Its tile draws it lighter than it adds it, so the tiles read as a ladder below the headings.
+    tileProps: { weight: 'regular' },
+  },
+  {
+    id: 'caption',
+    label: 'Caption',
+    keywords: ['small', 'note', 'footnote', 'credit'],
+    props: { text: 'Caption', size: 0.025, weight: 'regular', italic: true },
+    box: { x: 0.1, y: 0.66, w: 0.8, h: 0.06, rotation: 0 },
+  },
+  {
+    id: 'label',
+    label: 'Label',
+    keywords: ['tag', 'badge', 'pill', 'chip'],
+    props: { text: 'Label', size: 0.025, weight: 'bold', background: 'box', backgroundColor: '#111827' },
+    box: { x: 0.3, y: 0.14, w: 0.4, h: 0.06, rotation: 0 },
+  },
+];
 
 /** The descriptors of the registry's types, keyed by registry key (R8). */
 export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescriptor>> = {
-  text: { add: [entry('studio-add', 'Add text', 'text', 0, { kind: 'text' })], inspector: 'text' },
+  text: {
+    palette: {
+      category: 'text',
+      order: 0,
+      keywords: ['text', 'type', 'words', 'font', 'write'],
+      icon: 'text',
+      action: { kind: 'text' },
+      presets: TEXT_PRESETS,
+    },
+    inspector: 'text',
+  },
   image: {
-    add: [entry('studio-add-image', 'Add image', 'image', 0, { kind: 'media', media: 'image' }, { needsProject: true })],
+    palette: {
+      category: 'media',
+      order: 0,
+      keywords: ['photo', 'picture', 'gif', 'jpeg', 'png', 'upload'],
+      icon: 'image',
+      action: { kind: 'media', media: 'image' },
+      needsProject: true,
+    },
     inspector: 'media',
   },
   video: {
-    add: [
-      entry('studio-add-video', 'Add video', 'video', 0, { kind: 'media', media: 'video' }, {
-        needsProject: true,
-        limit: {
-          hintId: 'studio-video-hint',
-          hintOrder: 1,
-          hint: 'A tale holds one video, and plays for its length. Delete it to add another.',
-          reached: (doc) => limitedVideoCount(doc as { elements: readonly { type: string }[] }) >= MAX_VIDEO_ELEMENTS,
-        },
-      }),
-    ],
+    palette: {
+      category: 'media',
+      order: 1,
+      keywords: ['movie', 'clip', 'mp4', 'film', 'upload'],
+      icon: 'video',
+      action: { kind: 'media', media: 'video' },
+      needsProject: true,
+      limit: {
+        hintId: 'studio-video-hint',
+        hint: 'A tale holds one video, and plays for its length. Delete it to add another.',
+        reached: (doc) => limitedVideoCount(doc as { elements: readonly { type: string }[] }) >= MAX_VIDEO_ELEMENTS,
+      },
+    },
     inspector: 'media',
   },
   shape: {
-    add: SHAPE_KINDS.map((shape) =>
-      entry(`studio-add-${shape}`, `Add ${SHAPE_NAMES[shape].toLowerCase()}`, SHAPE_ICONS[shape], 1, { kind: 'shape', shape }),
-    ),
+    palette: {
+      category: 'shapes',
+      order: 0,
+      keywords: ['shape', 'geometry', 'fill'],
+      icon: 'shape',
+      action: { kind: 'shape', shape: 'rectangle' },
+      presets: SHAPE_KINDS.map((shape) => ({
+        id: shape,
+        label: SHAPE_NAMES[shape],
+        keywords: SHAPE_KEYWORDS[shape],
+        icon: SHAPE_ICONS[shape],
+        action: { kind: 'shape', shape } as const,
+      })),
+    },
     inspector: 'shape',
   },
-  emoji: { add: [entry('studio-add-emoji', 'Add emoji', 'emoji', 1, { kind: 'emoji' })], inspector: 'emoji' },
+  emoji: {
+    palette: {
+      category: 'stickers',
+      order: 0,
+      keywords: ['smiley', 'face', 'reaction', 'icon', 'heart'],
+      icon: 'emoji',
+      action: { kind: 'emoji' },
+    },
+    inspector: 'emoji',
+  },
   sticker: {
-    add: [entry('studio-add-sticker', 'Add sticker', 'sticker', 1, { kind: 'sticker' }, { needsProject: true })],
+    palette: {
+      category: 'stickers',
+      order: 1,
+      keywords: ['cutout', 'png', 'webp', 'gif', 'decal', 'upload'],
+      icon: 'sticker',
+      action: { kind: 'sticker' },
+      needsProject: true,
+    },
     inspector: 'media',
   },
-  button: { add: [entry('studio-add-button', 'Add button', 'button', 2, { kind: 'button' })], inspector: 'link' },
+  button: {
+    palette: {
+      category: 'actions',
+      order: 0,
+      keywords: ['cta', 'call to action', 'link', 'url', 'shop', 'buy', 'tap'],
+      icon: 'button',
+      action: { kind: 'button' },
+    },
+    inspector: 'link',
+  },
   'image-button': {
-    add: [
-      entry('studio-add-image-button', 'Add image button', 'image-button', 2, { kind: 'image-button' }, {
-        needsProject: true,
-      }),
-    ],
+    palette: {
+      category: 'actions',
+      order: 1,
+      keywords: ['cta', 'call to action', 'link', 'url', 'banner', 'picture'],
+      icon: 'image-button',
+      action: { kind: 'image-button' },
+      needsProject: true,
+    },
     inspector: 'link',
   },
   poll: {
-    add: [
-      entry('studio-add-poll', 'Add poll', 'poll', 3, { kind: 'configured' }, {
-        limit: oneOf('poll', 'studio-poll-hint', 2, 'A tale holds one poll. Delete it to add another.'),
-      }),
-    ],
+    palette: {
+      category: 'interactive',
+      order: 0,
+      keywords: ['vote', 'votes', 'voting', 'survey', 'question', 'choice', 'options', 'opinion', 'ask'],
+      icon: 'poll',
+      action: { kind: 'configured' },
+      limit: oneOf('poll', 'studio-poll-hint', 'A tale holds one poll. Delete it to add another.'),
+    },
     inspector: {
       fields: [
         { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
@@ -334,11 +465,14 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     check: checkPollProps,
   },
   rating: {
-    add: [
-      entry('studio-add-rating', 'Add rating', 'rating', 3, { kind: 'configured' }, {
-        limit: oneOf('rating', 'studio-rating-hint', 3, 'A tale holds one rating. Delete it to add another.'),
-      }),
-    ],
+    palette: {
+      category: 'interactive',
+      order: 1,
+      keywords: ['emoji slider', 'slider', 'score', 'feedback', 'stars', 'like'],
+      icon: 'rating',
+      action: { kind: 'configured' },
+      limit: oneOf('rating', 'studio-rating-hint', 'A tale holds one rating. Delete it to add another.'),
+    },
     inspector: {
       fields: [
         { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
@@ -362,11 +496,14 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     check: checkRatingProps,
   },
   quiz: {
-    add: [
-      entry('studio-add-quiz', 'Add quiz', 'quiz', 3, { kind: 'configured' }, {
-        limit: oneOf('quiz', 'studio-quiz-hint', 4, 'A tale holds one quiz. Delete it to add another.'),
-      }),
-    ],
+    palette: {
+      category: 'interactive',
+      order: 2,
+      keywords: ['trivia', 'question', 'answer', 'correct', 'game'],
+      icon: 'quiz',
+      action: { kind: 'configured' },
+      limit: oneOf('quiz', 'studio-quiz-hint', 'A tale holds one quiz. Delete it to add another.'),
+    },
     inspector: {
       fields: [
         { prop: 'question', label: 'Question', control: 'text', hint: 'One line, up to 200 characters.' },
@@ -409,28 +546,30 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
     check: checkQuizProps,
   },
   'swipe-up': {
-    add: [
-      entry('studio-add-swipe-up', 'Add swipe-up link', 'swipe-up', 2, { kind: 'swipe-up' }, {
-        limit: {
-          hintId: 'studio-swipe-up-hint',
-          hintOrder: 0,
-          hint: 'A tale holds one swipe-up link. Delete it to add another.',
-          reached: (doc) => (doc?.elements.filter((e) => e.type === 'swipe-up').length ?? 0) >= MAX_SWIPE_UP_ELEMENTS,
-        },
-      }),
-    ],
+    palette: {
+      category: 'actions',
+      order: 2,
+      keywords: ['link', 'cta', 'call to action', 'url', 'swipe', 'more'],
+      icon: 'swipe-up',
+      action: { kind: 'swipe-up' },
+      limit: {
+        hintId: 'studio-swipe-up-hint',
+        hint: 'A tale holds one swipe-up link. Delete it to add another.',
+        reached: (doc) => (doc?.elements.filter((e) => e.type === 'swipe-up').length ?? 0) >= MAX_SWIPE_UP_ELEMENTS,
+      },
+    },
     inspector: 'link',
   },
 };
 
 /**
  * The descriptors of the registry's test-only types (R8), made on demand. Only development builds
- * that opt in, and tests, reach them: production builds drop them with `ngDevMode`.
+ * that opt in, and tests, reach them: production builds drop them with `ngDevMode`. The test badge
+ * has no palette entry on purpose: it shows under More (epic Tale Studio 2 R2).
  */
 export function studioTestTypeDescriptors(): Readonly<Record<string, StudioTypeDescriptor>> {
   return {
     'test-badge': {
-      add: [entry('studio-add-test-badge', 'Add test badge', 'plus', 3, { kind: 'configured' })],
       inspector: {
         fields: [
           { prop: 'label', label: 'Label', control: 'text', hint: 'One line, up to 40 characters.' },
@@ -588,8 +727,14 @@ function checkChoicesField(
 function described(type: ElementTypeEntry, from: Readonly<Record<string, StudioTypeDescriptor>>): StudioElementType {
   const descriptor = Object.prototype.hasOwnProperty.call(from, type.key) ? from[type.key] : undefined;
   if (!descriptor) throw new Error(`Element type "${type.key}" has no Tale Studio descriptor`);
-  if (descriptor.add.some((a) => a.action.kind === 'configured') && !descriptor.create) {
-    throw new Error(`Element type "${type.key}" is added by configuration but says nothing of how`);
+  const palette = descriptor.palette;
+  const configured = !palette || [palette.action, ...(palette.presets ?? []).map((p) => p.action)].some((a) => a?.kind === 'configured');
+  if (configured && !descriptor.create) {
+    throw new Error(
+      palette
+        ? `Element type "${type.key}" is added by configuration but says nothing of how`
+        : `Element type "${type.key}" has no palette entry and says nothing of how it is added`,
+    );
   }
   if (typeof descriptor.inspector === 'object') checkFieldsInspector(type, descriptor.inspector);
   return { ...type, ...descriptor };
@@ -616,30 +761,6 @@ export function studioElementTypes(
     types.push(...TALE_TEST_ELEMENT_TYPES.map((type) => described(type, testDescriptors)));
   }
   return types;
-}
-
-/**
- * The names of the Add menu's rows, as the studio's Elements tab heads its groups of tiles (Tale
- * Studio 2, story 11.1): text and media, then shapes and stickers, buttons and links, and the
- * interactive components. A row past these is named "More". Story 11.3 replaces rows with palette
- * categories.
- */
-export const ADD_MENU_ROW_NAMES: readonly string[] = [
-  'Text and media',
-  'Shapes and stickers',
-  'Buttons and links',
-  'Interactive',
-];
-
-/** The Add menu's rows as named groups of tiles, in row order, each with its entries and their types. */
-export function addMenuGroups(
-  types: readonly StudioElementType[],
-): { name: string; items: { entry: AddMenuEntry; type: StudioElementType }[] }[] {
-  const rows: { entry: AddMenuEntry; type: StudioElementType }[][] = [];
-  for (const type of types) {
-    for (const add of type.add) (rows[add.row] ??= []).push({ entry: add, type });
-  }
-  return rows.flatMap((items, row) => (items ? [{ name: ADD_MENU_ROW_NAMES[row] ?? 'More', items }] : []));
 }
 
 /**

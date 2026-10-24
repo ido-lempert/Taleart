@@ -157,8 +157,7 @@ beforeAll(async () => {
   await insertTokens();
   writeFileSync(join(work, 'one.png'), png(8, 8, [220, 40, 40]));
   writeFileSync(join(work, 'two.png'), png(8, 8, [40, 40, 220]));
-  // Since story 5.4 any text ID up to 256 code points is accepted (non-ASCII too); a longer one is refused.
-  writeFileSync(join(work, 'ids.csv'), `user_id\nu-1\nu-2\nu-2\n\n${'x'.repeat(300)}\n`);
+  writeFileSync(join(work, 'ids.csv'), 'user_id\nu-1\nu-2\nu-2\n\ntwo,columns\n');
 });
 
 afterAll(async () => {

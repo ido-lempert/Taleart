@@ -59,9 +59,9 @@ test.describe.serial('Tale Studio 2: the studio in five regions (story 11.1)', (
 
   test('composes a text, an image, a shape and a poll from the tiles, and updates the tale', async () => {
     await page.goto(`/tales/${taleId}/studio`);
-    await expect(page.locator('#studio-add')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('#studio-add-text')).toBeVisible({ timeout: 30_000 });
 
-    await page.locator('#studio-add').click();
+    await page.locator('#studio-add-text').click();
     const editing = page.locator('textarea.el-edit');
     await expect(editing).toBeFocused();
     const textId = ((await editing.getAttribute('id')) ?? '').replace('studio-edit-', '');
@@ -106,8 +106,14 @@ test.describe.serial('Tale Studio 2: the studio in five regions (story 11.1)', (
     expect(scroll.height).toBeLessThanOrEqual(scroll.innerHeight);
     expect(scroll.width).toBeLessThanOrEqual(scroll.innerWidth);
     await expect(page.locator('#studio-canvas')).toBeInViewport({ ratio: 1 });
+    // Adding the poll scrolled the palette (it is taller than the panel since story 11.3): back to its top.
+    await page.locator('#studio-panel-elements').evaluate((panel) => panel.scrollTo(0, 0));
     await expect(page.locator('#studio-panel-elements .tiles').first()).toBeInViewport({ ratio: 1 });
+    // The palette (story 11.3) is taller than the panel: its search shows, and the panel scrolls on its own to the rest.
+    await expect(page.locator('#studio-palette-search')).toBeInViewport({ ratio: 1 });
+    await page.locator('#studio-add-quiz').scrollIntoViewIfNeeded();
     await expect(page.locator('#studio-add-quiz')).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => document.documentElement.scrollTop)).toBe(0);
     await expect(page.locator('#studio-text')).toBeInViewport({ ratio: 1 });
     await expect(page.locator('.studio-strip [aria-current=page]')).toBeInViewport({ ratio: 1 });
     await expect(page.locator('.studio-strip a')).toHaveCount(2);
