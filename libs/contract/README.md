@@ -78,11 +78,13 @@ A component a visitor answers (epic interactive components; the `poll` first) ad
   over it; the studio's Add entry takes its `limit` from it) and its interaction kinds in `INTERACTIONS` (the first is
   the default; a visitor has one response per tale, element and kind, the first wins). Choice ids are props of the
   element (`{ id, label }` items), so counts survive an edit to the text.
-- **Server** (`libs/server/interactive`, `responses.ts`): how its value is checked and counted (`CHOICES` for a choice
-  component). `recordResponse` accepts a response only for an element of a tale the zone delivers now
+- **Server** (`libs/server/interactive`, `responses.ts`): how its value is checked and counted, in `RESPONSE_KINDS`
+  (`choiceKind` for a choice component, whose choices prop is named in the contract's `CHOICE_PROPS`). `recordResponse` accepts a response only for an element of a tale the zone delivers now
   (`deliveredTaleElement` in the tales module, the AD-6 rule) and its published document; the Delivery API's
   `POST /responses` needs the site key, the slug and a valid `X-TaleArt-Visitor`, and is rate limited.
-- **Studio**: a fixed list of choices is a `choices` field of the fields inspector (labels edited, ids kept); the
+- **Studio**: a list of choices is a `choices` field of the fields inspector (labels edited, ids kept): fixed when its
+  array prop has as many items at least as at most, else a list field that adds, removes and moves choices by id
+  (`newLabel` and `addLabel` say how), with an optional `correct` pick of one choice (the quiz's); the
   inspector shows the component's counts (`tale-responses.ts`, from `GET /api/v1/tales/{taleId}/responses`).
 - **SDK**: the renderer posts through `context.responses` (absent in the Tale Studio preview and on side cards, which
   record nothing), keeps the answer locally (`responses.ts`), marks its root `ta-interactive` (focus inside it pauses

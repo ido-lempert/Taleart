@@ -87,7 +87,7 @@ local storage under `taleart.visitor`. It is random, not derived from the person
 but it is a stable identifier of a browser, so cover it in your privacy notice and in your consent setup like other
 local storage. The SDK sends it only to the Delivery API, in the `X-TaleArt-Visitor` header, which limits requests per
 visitor rather than per address, so many visitors behind one network each get their own allowance, and counts each
-visitor's answer to a poll or a Rating once (answering needs the id); proxies, CDNs and
+visitor's answer to a poll, a quiz or a Rating once (answering needs the id); proxies, CDNs and
 access logs in front of the API can see the header too. Clearing the site's data makes a new one, and Safari may clear
 script-written storage after seven days without a visit. Where local storage is blocked, the id lasts one page load; a
 request without an id is limited by its address. The native SDKs keep the same kind of id in the SDK's own device store
@@ -299,6 +299,17 @@ focus is inside it. The SDK keeps the answer and the percentages it received in 
 data forgets them, while the server still holds the vote. The Tale Studio preview records nothing. Under a CSP, the
 API origin must be allowed in `connect-src`, as it already is for the Delivery API.
 
+### Quizzes
+
+A quiz is a card like a poll's with two to four answers. Pressing one posts it the same way, and the card then shows
+each answer's percentage with the visitor's answer pressed. When the quiz has a correct answer, the card marks it with
+a check mark and the words "correct answer" in its button's name, and marks a wrong answer with a cross and "wrong"
+(not by colour alone); the live region says "Right! You answered Venus." or "Wrong: you answered Earth. The correct
+answer is Venus.", then the percentages. A quiz without a correct answer is a survey and shows only the percentages.
+The correct answer is part of the published tale, so the SDK can mark it at once, and anyone can read it: a quiz is
+not a secure test. Once answered, the answers are read-only and Space pauses the tale again (the same holds for an
+answered poll). The answer and result are kept under `taleart.responses`, and the Tale Studio preview records nothing.
+
 ### Ratings
 
 A Rating is a card with a question and a slider from 0 to 100 whose thumb is the tale's emoji, inside a group named by
@@ -312,10 +323,10 @@ card keeps the visitor's value, marks the average on the track, shows "Average 6
 polite live region, and takes no second rating (the server keeps the first). The value and
 result are kept under `taleart.responses` like a poll's, and the Tale Studio preview records nothing.
 
-Poll counts and Rating averages are indicative, not tamper-proof. An answer counts once per visitor id, and the
-visitor id is made by the browser: clearing site data, a private window or a script that sends new ids can answer
-again (within the Delivery API's rate limits). Do not use a poll or a Rating where the result must be trusted, such as
-a contest.
+Poll and quiz counts and Rating averages are indicative, not tamper-proof. An answer counts once per visitor id, and
+the visitor id is made by the browser: clearing site data, a private window or a script that sends new ids can answer
+again (within the Delivery API's rate limits). Do not use a poll, a quiz or a Rating where the result must be trusted,
+such as a contest.
 
 ### Budgets
 

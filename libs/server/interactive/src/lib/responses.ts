@@ -1,9 +1,9 @@
 import {
+  choiceIds,
   choiceResult,
   INTERACTIONS,
   isInteractiveElementType,
   MAX_RESPONSE_VALUE_LENGTH,
-  pollOptionIds,
   ratingResult,
   ratingValue,
   type ElementResponseCounts,
@@ -39,7 +39,7 @@ export interface RecordedResponse {
   value: string;
   /** True when this request stored it. */
   recorded: boolean;
-  /** A poll's counts and percentages per option, or a Rating's count and average. */
+  /** A poll's or a quiz's counts and percentages per choice, or a Rating's count and average. */
   result: ResponseResult;
 }
 
@@ -49,18 +49,28 @@ interface ResponseKind {
   valid(value: string, props: Readonly<Record<string, unknown>>): boolean;
   /** The component's result from its stored values' counts. */
   result(counts: ReadonlyMap<string, number>, props: Readonly<Record<string, unknown>>): ResponseResult;
+  /** What a refused value is told, when the default message does not say enough. */
+  refused?: string;
 }
 
-// Each interactive type's kind: a poll takes one of the option ids its props hold now and counts
-// them per option; a Rating takes a whole number from 0 to 100 and answers the count and average.
+// A choice component's kind: it takes one of the choice ids its props hold now and counts them per
+// choice (a removed choice's responses count toward nothing).
+const choiceKind = (type: string, refused?: string): ResponseKind => ({
+  valid: (value, props) => choiceIds(type, props).includes(value),
+  result: (counts, props) => choiceResult(choiceIds(type, props), counts),
+  refused,
+});
+
+// Each interactive type's kind: a poll takes one of its option ids and a quiz one of its answer ids,
+// each counted per choice (a quiz's correct answer is in its published document, C10, not in the
+// result); a Rating takes a whole number from 0 to 100 and answers the count and average.
 const RESPONSE_KINDS: Readonly<Record<string, ResponseKind>> = {
-  poll: {
-    valid: (value, props) => pollOptionIds(props).includes(value),
-    result: (counts, props) => choiceResult(pollOptionIds(props), counts),
-  },
+  poll: choiceKind('poll'),
+  quiz: choiceKind('quiz', "An answer is one of the quiz's answer ids"),
   rating: {
     valid: (value) => ratingValue(value) !== null,
     result: (counts) => ratingResult(counts),
+    refused: 'A rating is a whole number from 0 to 100',
   },
 };
 
@@ -68,8 +78,8 @@ const RESPONSE_KINDS: Readonly<Record<string, ResponseKind>> = {
  * Records a visitor's response to an interactive component (epic interactive components R9) and
  * answers the component's result. The tale must be delivered in the zone now and its published
  * document must show the element, of an interactive type (otherwise
- * {@link ResponseTargetNotFoundError}); the value must be one its kind takes, a poll's option id or a
- * Rating's whole number from 0 to 100 (otherwise
+ * {@link ResponseTargetNotFoundError}); the value must be one its kind takes, a poll's option id, a
+ * quiz's answer id or a Rating's whole number from 0 to 100 (otherwise
  * {@link InvalidResponseValueError}); the visitor id must be a UUID v4 (otherwise
  * {@link VisitorIdRequiredError}). The first response per visitor, tale, element and interaction kind
  * is kept (C9); a repeat changes nothing and answers the stored one.
@@ -85,7 +95,7 @@ export async function recordResponse(db: Db, input: NewResponse, now: Date = new
   const props = target.element.props;
   const value = input.value;
   if (typeof value !== 'string' || value.length > MAX_RESPONSE_VALUE_LENGTH || !kind.valid(value, props)) {
-    throw new InvalidResponseValueError(type === 'rating' ? 'A rating is a whole number from 0 to 100' : undefined);
+    throw new InvalidResponseValueError(kind.refused);
   }
   const interaction = INTERACTIONS[type][0];
   const frameId = (await findZone(db, target.zoneId))?.frame?.id ?? null;

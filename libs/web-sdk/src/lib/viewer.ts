@@ -287,10 +287,12 @@ function onClose(e: Event): boolean {
   return !!(e.target as Element | null)?.closest?.('.close');
 }
 
-// True when Space goes to a control of an interactive component (a poll's option, which it presses,
-// or a Rating's slider), not to the viewer's pause (C7).
+// True when Space goes to a control of an interactive component (a poll's or a quiz's choice, which
+// it presses, or a Rating's slider), not to the viewer's pause (C7). Once answered, a control is
+// `aria-disabled` and its keys go back to the viewer, as on any other part of the tale.
 function onComponent(e: Event): boolean {
-  return !!(e.target as Element | null)?.closest?.('.ta-interactive button, .ta-interactive [role="slider"]');
+  const control = (e.target as Element | null)?.closest?.('.ta-interactive button, .ta-interactive [role="slider"]');
+  return !!control && control.getAttribute('aria-disabled') !== 'true';
 }
 
 // True when `node` lays out right to left (the host page's direction reaches the Shadow DOM).
