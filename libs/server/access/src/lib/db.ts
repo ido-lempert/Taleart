@@ -33,6 +33,8 @@ export interface CheckedOutClient extends DbConnection {
   assertUsable(): void;
   /** Drops the client from the pool when it is given back: its session's state is not known. */
   discard(reason: Error): void;
+  /** Aborts once this client's session is lost. */
+  readonly signal: AbortSignal;
 }
 
 export interface WithClientOptions {
@@ -41,12 +43,30 @@ export interface WithClientOptions {
 }
 
 /**
+ * True for an error that means the session is gone: SQLSTATE class 57P (the server ended it, such
+ * as 57P01 from `pg_terminate_backend`), class 08 (a connection exception) or 25P03 (the
+ * idle-in-transaction timeout). 57014 (a cancelled statement) leaves the session usable.
+ */
+export function isSessionEndedError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && (code.startsWith('57P') || code.startsWith('08') || code === '25P03');
+}
+
+// pg marks a client it can no longer use `_queryable = false` (its socket closed, with or without a FATAL).
+function unqueryable(client: object): boolean {
+  return (client as { _queryable?: unknown })._queryable === false;
+}
+
+/**
  * Checks out one client for `work` and gives it back: the only way a client is checked out. While
  * a client is out, the pool's own `error` listener is off, so a session the database ends (a
  * restart, a failover, `pg_terminate_backend`) would make pg emit an unhandled `error` and Node
- * exit. Here a listener keeps that error instead: every later query on the client fails with it,
- * and the broken client is released with it, so the pool drops it rather than handing it out again.
- * The listener is removed just before release. `work` must not keep the client past its promise.
+ * exit. Here a listener keeps that error instead. pg rejects the query in flight first and emits
+ * `error` after, so a query failing with a session-ended SQLSTATE ({@link isSessionEndedError})
+ * marks the client lost at once, keeping that first error. Every later query on a lost client
+ * fails with it, and the client is released with it, so the pool drops it rather than handing it
+ * out again; a client pg marks unusable is dropped too. The listener is removed just before
+ * release. `work` must not keep the client past its promise.
  */
 export async function withClient<T>(
   db: TransactionalDb,
@@ -56,32 +76,42 @@ export async function withClient<T>(
   const raw = await db.connect();
   let lost: Error | null = null;
   let discarded: Error | undefined;
-  const onError = (err: Error) => {
-    lost ??= err;
+  const lostSignal = new AbortController();
+  const markLost = (err: Error) => {
+    if (lost) return;
+    lost = err;
+    lostSignal.abort(err);
   };
-  raw.on?.('error', onError);
+  raw.on?.('error', markLost);
   const assertUsable = () => {
     if (lost) throw lost;
   };
   const client: CheckedOutClient = {
     query: (async (...args: unknown[]) => {
       assertUsable();
-      return (raw.query as (...a: unknown[]) => unknown).apply(raw, args);
+      try {
+        return await (raw.query as (...a: unknown[]) => Promise<unknown>).apply(raw, args);
+      } catch (err) {
+        if (isSessionEndedError(err)) markLost(err as Error);
+        throw err;
+      }
     }) as unknown as CheckedOutClient['query'],
     lost: () => lost,
     assertUsable,
     discard: (reason) => {
       discarded ??= reason;
     },
+    signal: lostSignal.signal,
   };
   try {
     return await work(client);
   } catch (err) {
+    if (isSessionEndedError(err)) markLost(err as Error);
     if (options.discardOnError) client.discard(err instanceof Error ? err : new Error(String(err)));
     throw err;
   } finally {
-    raw.off?.('error', onError);
-    const reason = lost ?? discarded;
+    raw.off?.('error', markLost);
+    const reason = lost ?? (unqueryable(raw) ? new Error('The database connection is no longer usable') : discarded);
     if (reason) raw.release(reason);
     else raw.release();
   }

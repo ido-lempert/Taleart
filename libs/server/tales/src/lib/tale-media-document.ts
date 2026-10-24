@@ -610,16 +610,17 @@ export const MIN_POOL_FOR_CONTINUATION = 3;
 
 /** The continuation's lock holder lost its session, and the lock with it: the pass stops and is tried again. */
 export class MigrationLockLostError extends Error {
-  constructor() {
+  constructor(readonly cause?: unknown) {
     super('the session holding the migration lock ended');
     this.name = 'MigrationLockLostError';
   }
 }
 
 // True when the pool was ended under the continuation: the API is stopping, which is no failure.
-function isPoolEnded(err: unknown): boolean {
-  if (err instanceof MigrationLockLostError) return false;
-  return /pool after calling end|Cannot use a pool|Connection terminated/i.test(String((err as Error)?.message ?? err));
+// Read from the pool's state (pg's Pool sets `ending`, then `ended`), never from an error's text.
+function isPoolEnded(pool: TransactionalDb): boolean {
+  const state = pool as { ending?: unknown; ended?: unknown };
+  return state.ending === true || state.ended === true;
 }
 
 /**
@@ -663,19 +664,18 @@ export async function continueTaleMediaMigration(
           );
           if (!rows[0].locked) return false;
           // The pass stops between batches when asked to, or once the holder's session is gone.
-          const outer = settings.signal;
-          const stopping = {
-            get aborted() {
-              return Boolean(outer?.aborted) || holder.lost() !== null;
-            },
-          } as AbortSignal;
+          const stopping = settings.signal ? AbortSignal.any([settings.signal, holder.signal]) : holder.signal;
           try {
             const result = await migrationPass(run, { ...settings, signal: stopping }, Date.now() + settings.budgetMs);
             total.merged += result.merged;
-          } finally {
-            if (!holder.lost()) await holder.query(`SELECT pg_advisory_unlock(${CONTINUATION_LOCK})`);
+          } catch (err) {
+            // A pass that failed while its lock went is a lost lock, and is retried as one. Otherwise
+            // the holder is dropped from the pool (discardOnError), which frees the lock with it.
+            if (holder.lost()) throw new MigrationLockLostError(holder.lost());
+            throw err;
           }
-          if (holder.lost()) throw new MigrationLockLostError();
+          if (holder.lost()) throw new MigrationLockLostError(holder.lost());
+          await holder.query(`SELECT pg_advisory_unlock(${CONTINUATION_LOCK})`);
           return true;
         },
         { discardOnError: true },
@@ -697,7 +697,7 @@ export async function continueTaleMediaMigration(
       );
       if (total.done) break;
     } catch (err) {
-      if (options.signal?.aborted || isPoolEnded(err)) return total;
+      if (options.signal?.aborted || isPoolEnded(pool)) return total;
       options.log?.('warn', `Tale media in documents: a pass failed and is tried again (${String(err)})`);
     }
     await new Promise<void>((resolve) => {

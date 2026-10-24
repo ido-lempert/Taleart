@@ -17,6 +17,58 @@ function fakeClient(query: (sql: string) => Promise<unknown> = async () => ({ ro
 const terminated = Object.assign(new Error('terminating connection due to administrator command'), { code: '57P01' });
 
 describe('withClient (a lost database connection never crashes the API)', () => {
+  it("follows pg's order: the query in flight rejects first, then the client emits error", async () => {
+    const closed = new Error('Connection terminated unexpectedly');
+    const { client, db } = fakeClient(
+      () =>
+        new Promise((_, reject) => {
+          // pg rejects the active query with the FATAL ErrorResponse, then the socket ends and
+          // the client emits `error` (here a tick later), with no listener of its own.
+          reject(terminated);
+          setImmediate(() => client.emit('error', closed));
+        }),
+    );
+    let lostAfterQuery: Error | null = null;
+    let followUp: unknown;
+    await expect(
+      withClient(db, async (c) => {
+        try {
+          await c.query('SELECT pg_sleep(10)');
+        } finally {
+          // Already lost, with the first error, before the socket's error arrives.
+          lostAfterQuery = c.lost();
+          expect(c.signal.aborted).toBe(true);
+          await new Promise((resolve) => setImmediate(resolve));
+          followUp = await c.query('SELECT 1').catch((err: unknown) => err);
+        }
+      }),
+    ).rejects.toBe(terminated);
+    expect(lostAfterQuery).toBe(terminated);
+    expect(followUp).toBe(terminated);
+    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(client.listenerCount('error')).toBe(0);
+    expect(client.release).toHaveBeenCalledWith(terminated);
+  });
+
+  it('drops a client pg marks unusable, or that failed with a session-ended SQLSTATE', async () => {
+    const unusable = fakeClient();
+    await withClient(unusable.db, async () => {
+      Object.assign(unusable.client, { _queryable: false });
+    });
+    expect(unusable.client.release).toHaveBeenCalledWith(expect.any(Error));
+    for (const code of ['57P01', '57P02', '08006', '25P03']) {
+      const failed = fakeClient();
+      const err = Object.assign(new Error('session ended'), { code });
+      await expect(withClient(failed.db, async () => Promise.reject(err))).rejects.toBe(err);
+      expect(failed.client.release).toHaveBeenCalledWith(err);
+    }
+    // A cancelled statement leaves the session usable: the client goes back to the pool.
+    const cancelled = fakeClient();
+    const timeout = Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+    await expect(withClient(cancelled.db, async () => Promise.reject(timeout))).rejects.toBe(timeout);
+    expect(cancelled.client.release).toHaveBeenCalledWith();
+  });
+
   it('listens for errors only while the client is checked out, and releases it as is', async () => {
     const { client, db } = fakeClient();
     const result = await withClient(db, async (c) => {
@@ -122,15 +174,24 @@ describe('every checked-out client goes through withClient', () => {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : sources(path);
-      return /\.ts$/.test(entry.name) && !/\.(spec|scale)\.ts$/.test(entry.name) ? [path] : [];
+      return /\.(ts|mjs)$/.test(entry.name) && !/\.(spec|test|scale)\.(ts|mjs)$/.test(entry.name) ? [path] : [];
     });
   }
 
-  it('finds no connect() call outside the helper', () => {
-    const files = ['libs/server', 'apps/api/src', 'apps/cli/src'].flatMap((dir) => sources(join(root, dir)));
+  it('finds no connect( call outside the helper, with or without a callback', () => {
+    const files = ['libs/server', 'apps/api/src', 'apps/api/scripts', 'apps/cli/src'].flatMap((dir) =>
+      sources(join(root, dir)),
+    );
     expect(files.length).toBeGreaterThan(20);
+    expect(files.some((f) => f.endsWith('.mjs'))).toBe(true);
     const helper = join(root, 'libs/server/access/src/lib/db.ts');
-    const offenders = files.filter((f) => f !== helper && /\.connect\(\s*\)/.test(readFileSync(f, 'utf8')));
+    // A plain Node script cannot use the TypeScript helper: it must listen for errors itself.
+    const script = join(root, 'apps/api/scripts/tale-media-rollback.mjs');
+    const offenders = files.filter((f) => f !== helper && f !== script && /\.connect\s*\(/.test(readFileSync(f, 'utf8')));
     expect(offenders.map((f) => relative(root, f))).toEqual([]);
+    const text = readFileSync(script, 'utf8');
+    expect(text).toMatch(/pool\.on\('error'/);
+    expect(text).toMatch(/client\.on\('error'/);
+    expect(text).toMatch(/client\.off\('error'/);
   });
 });
