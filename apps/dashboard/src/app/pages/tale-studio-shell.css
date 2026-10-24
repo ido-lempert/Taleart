@@ -1,0 +1,180 @@
+/*
+ * Tale Studio 2's shell (story 11.1, DESIGN.md Layout & Spacing): five regions filling the viewport
+ * under the dashboard's top bar. The page does not scroll; each region scrolls on its own. Under
+ * 1024 px wide the regions stack in focus order and the page scrolls (1.4.10 at 320 px).
+ */
+:host {
+  --workspace: #e9eaf0;
+  --selection: #2563eb;
+  --selection-tint: #dbeafe;
+  --guide: #db2777;
+  --left-panel: 280px;
+  --inspector: 320px;
+  display: block;
+}
+.studio-shell {
+  display: grid;
+  grid-template-columns: calc(56px + var(--left-panel)) minmax(0, 1fr) var(--inspector);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'top top top'
+    'alerts alerts alerts'
+    'left canvas inspector'
+    'strip strip strip';
+  /* Never shorter than a usable studio: on a short window the page scrolls instead. */
+  height: max(560px, calc(100dvh - var(--topbar-height)));
+  background: var(--surface);
+}
+.studio-shell.is-previewing {
+  /* The SDK viewer at its phone size, beside the canvas. */
+  --inspector: 440px;
+}
+.studio-top {
+  grid-area: top;
+}
+.studio-alerts {
+  grid-area: alerts;
+}
+.studio-left {
+  grid-area: left;
+}
+.studio-canvas {
+  grid-area: canvas;
+}
+.studio-inspector {
+  grid-area: inspector;
+}
+.studio-strip {
+  grid-area: strip;
+}
+.studio-left,
+.studio-canvas,
+.studio-inspector {
+  min-height: 0;
+}
+/* A region F6 lands on itself (the inspector) shows where focus is. */
+[data-region]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* ---------- Top bar ---------- */
+.studio-top {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.studio-top__back {
+  min-height: 32px;
+  padding-inline: var(--space-2);
+  font-size: var(--text-sm);
+}
+.studio-top__title {
+  min-width: 0;
+  margin-inline-end: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.studio-top__number {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.studio-top__tools {
+  display: flex;
+  gap: var(--space-1);
+}
+.studio-top .btn .icon {
+  width: 18px;
+  height: 18px;
+}
+.studio-top .btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.studio-top .btn[aria-pressed='true'],
+.studio-top .btn[aria-expanded='true'] {
+  background: var(--surface-sunken);
+}
+.studio-top__state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+  margin-inline-start: auto;
+  font-size: var(--text-xs);
+  text-align: end;
+}
+.studio-save {
+  color: var(--text-muted);
+}
+.studio-save.is-failed {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+.studio-update__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+/* The indicator's dot (epic UX rework R7): filled when visible on site, hollow when not. */
+.studio-update__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #b54708;
+  border-radius: 50%;
+}
+.studio-update__dot.is-visible {
+  border-color: #067647;
+  background: #067647;
+}
+.studio-alerts > * {
+  margin: var(--space-2) var(--space-3);
+}
+.studio-alert p {
+  margin: 0 0 var(--space-2);
+}
+
+/* Undo, Redo and Safe area keep their names, shown as icons only when the bar is short of room. */
+@media (max-width: 1279.98px) {
+  :host {
+    --left-panel: 232px;
+    --inspector: 296px;
+  }
+  .studio-top__state {
+    max-width: 240px;
+  }
+  .studio-top__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* Under 1024 px: one column, the regions in focus order, the page scrolls (story 11.16 brings drawers and sheets). */
+@media (max-width: 1023.98px) {
+  .studio-shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+  .studio-top__state {
+    align-items: flex-start;
+    flex-basis: 100%;
+    order: 9;
+    margin-inline-start: 0;
+    text-align: start;
+  }
+}

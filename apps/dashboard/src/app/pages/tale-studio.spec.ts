@@ -104,6 +104,16 @@ describe('TaleStudioPage', () => {
     document.body.appendChild(root);
   }
 
+  /** An item of the tale menu (Discard changes, Duplicate, Keyboard shortcuts), the menu opened first. */
+  function menuItem(id: string): HTMLButtonElement {
+    const button = root.querySelector('#studio-menu') as HTMLButtonElement;
+    if (button.getAttribute('aria-expanded') !== 'true') {
+      button.click();
+      fixture.detectChanges();
+    }
+    return root.querySelector(`#${id}`) as HTMLButtonElement;
+  }
+
   const elements = () => [...root.querySelectorAll<HTMLButtonElement>('button.el')];
   const status = () => root.querySelector('#studio-save')?.textContent?.trim();
 
@@ -185,56 +195,58 @@ describe('TaleStudioPage', () => {
       expect(back?.getAttribute('href')).toBe('/zones');
     });
 
-    const helpButton = () => root.querySelector<HTMLButtonElement>('#studio-help-button') as HTMLButtonElement;
-    const helpPanel = () => root.querySelector<HTMLElement>('#studio-keys') as HTMLElement;
+    const helpPanel = () => root.querySelector<HTMLElement>('#studio-help-panel') as HTMLElement;
+    const helpItem = () => menuItem('studio-help-button');
 
-    it('keeps the keyboard help closed in a "?" popover that still describes the canvas', async () => {
+    it('keeps the keyboard help closed in a panel that still describes the canvas, offered in the tale menu', async () => {
       await open({ document: null, revision: 0 });
-      expect(helpButton().textContent?.trim()).toBe('? Keyboard shortcuts');
-      expect(helpButton().querySelector('[aria-hidden=true]')?.textContent).toBe('?');
-      expect(helpButton().getAttribute('aria-controls')).toBe('studio-keys');
-      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
       expect(helpPanel().hidden).toBe(true);
-      // The shortcut list is the one the studio had, still naming the canvas's keys.
-      expect(helpPanel().textContent).toContain('Select a layer to move it with the arrow keys');
-      expect(helpPanel().textContent).toContain('Changes save automatically.');
+      expect(helpItem().getAttribute('role')).toBe('menuitem');
+      expect(helpItem().textContent).toContain('Keyboard shortcuts');
+      expect(helpItem().getAttribute('aria-keyshortcuts')).toBe('?');
+      // The shortcut list is the one the studio had, still naming the canvas's keys, and F6.
+      const keys = root.querySelector('#studio-keys') as HTMLElement;
+      expect(keys.textContent).toContain('Select a layer to move it with the arrow keys');
+      expect(keys.textContent).toContain('Changes save automatically.');
+      expect(keys.textContent).toContain('F6 and Shift+F6 move between');
       expect(root.querySelector('#studio-canvas')?.getAttribute('aria-describedby')).toBe('studio-keys');
     });
 
-    it('opens and closes with the button, and Escape closes it and returns focus to the button', async () => {
+    it('opens from the tale menu with focus in it, and Escape closes it and returns focus to the menu button', async () => {
       await open({ document: null, revision: 0 });
-      helpButton().focus();
-      helpButton().click();
-      fixture.detectChanges();
-      expect(helpButton().getAttribute('aria-expanded')).toBe('true');
+      helpItem().click();
+      await settle(fixture);
+      expect(root.querySelector('#studio-menu-list')).toBeNull();
       expect(helpPanel().hidden).toBe(false);
-      // Opening leaves focus on the button.
-      expect(document.activeElement).toBe(helpButton());
-
-      helpButton().click();
-      fixture.detectChanges();
-      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
-      expect(helpPanel().hidden).toBe(true);
-
-      helpButton().click();
-      fixture.detectChanges();
-      helpPanel().focus();
+      expect(document.activeElement).toBe(helpPanel());
       const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
       helpPanel().dispatchEvent(escape);
       fixture.detectChanges();
       expect(escape.defaultPrevented).toBe(true);
       expect(helpPanel().hidden).toBe(true);
-      expect(document.activeElement).toBe(helpButton());
-
-      // Escape on the button closes it too; on a closed popover it does nothing.
-      helpButton().click();
-      fixture.detectChanges();
-      key(helpButton(), 'Escape');
-      fixture.detectChanges();
-      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(root.querySelector('#studio-menu'));
+      // On a closed panel Escape does nothing.
       const again = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-      helpButton().dispatchEvent(again);
+      helpPanel().dispatchEvent(again);
       expect(again.defaultPrevented).toBe(false);
+    });
+
+    it('opens with "?" outside a text field, and closes back to where focus was', async () => {
+      await open({ document: existing, revision: 1 });
+      const cell = root.querySelector<HTMLElement>(`#layer-${existing.elements[0].id}`) as HTMLElement;
+      cell.focus();
+      key(cell, '?');
+      await settle(fixture);
+      expect(helpPanel().hidden).toBe(false);
+      (root.querySelector('.studio-help__close') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(true);
+      expect(document.activeElement).toBe(cell);
+      // Typing "?" in a field types it.
+      const hex = root.querySelector('#studio-bg-hex') as HTMLInputElement;
+      key(hex, '?');
+      fixture.detectChanges();
+      expect(helpPanel().hidden).toBe(true);
     });
 
     it('goes back to the zone it was opened from, when that zone lists the tale', async () => {
@@ -269,7 +281,7 @@ describe('TaleStudioPage', () => {
       await settle(fixture);
       root = fixture.nativeElement as HTMLElement;
       // No zone lists it: the studio does not know the tale yet.
-      expect(root.querySelector('#studio-duplicate')?.getAttribute('aria-disabled')).toBe('true');
+      expect(menuItem('studio-duplicate').getAttribute('aria-disabled')).toBe('true');
       const read = http.expectOne((r) => r.method === 'GET' && r.url === `${API_BASE}/tales/t1`);
       read.flush({ ...tale, visibility: { visible: false, reasons: [{ code: 'not-in-any-zone', subject: 'group' }] } });
       await settle(fixture);
@@ -282,8 +294,8 @@ describe('TaleStudioPage', () => {
       http.expectOne(`${API_BASE}/projects/p1/fonts`).flush([]);
       await settle(fixture);
       expect(store.tale('t1')?.title).toBe('Beach');
-      expect(root.querySelector('.page-header__meta')?.textContent?.trim()).toBe('Beach');
-      expect(root.querySelector('#studio-duplicate')?.getAttribute('aria-disabled')).toBeNull();
+      expect(root.querySelector('#studio-tale-name')?.textContent?.trim()).toBe('Beach');
+      expect(menuItem('studio-duplicate').getAttribute('aria-disabled')).toBeNull();
       const back = root.querySelector('a.back-link');
       expect(back?.textContent?.trim()).toBe('Back to Summer');
       expect(back?.getAttribute('href')).toBe('/tale-groups?group=g1');
@@ -357,22 +369,20 @@ describe('TaleStudioPage', () => {
 
     it('closes when focus leaves it, and stays open while focus moves inside it', async () => {
       await open({ document: null, revision: 0 });
-      helpButton().focus();
-      helpButton().click();
-      fixture.detectChanges();
-      helpPanel().focus();
+      helpItem().click();
+      await settle(fixture);
+      (root.querySelector('.studio-help__close') as HTMLButtonElement).focus();
       fixture.detectChanges();
       expect(helpPanel().hidden).toBe(false);
       root.querySelector<HTMLButtonElement>('#studio-undo')?.focus();
       fixture.detectChanges();
       expect(helpPanel().hidden).toBe(true);
-      expect(helpButton().getAttribute('aria-expanded')).toBe('false');
     });
 
     it('closes when a layer menu opens', async () => {
       await open({ document: existing, revision: 1 });
-      helpButton().click();
-      fixture.detectChanges();
+      helpItem().click();
+      await settle(fixture);
       expect(helpPanel().hidden).toBe(false);
       root.querySelector<HTMLButtonElement>(`#layer-more-${existing.elements[0].id}`)?.click();
       await settle(fixture);
@@ -382,12 +392,12 @@ describe('TaleStudioPage', () => {
 
     it('closes when a press lands outside it', async () => {
       await open({ document: null, revision: 0 });
-      helpButton().click();
-      fixture.detectChanges();
+      helpItem().click();
+      await settle(fixture);
       helpPanel().dispatchEvent(new Event('pointerdown', { bubbles: true }));
       fixture.detectChanges();
       expect(helpPanel().hidden).toBe(false);
-      root.querySelector('.page-header')?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      root.querySelector('.studio-top__title')?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
       fixture.detectChanges();
       expect(helpPanel().hidden).toBe(true);
     });
@@ -791,7 +801,7 @@ describe('TaleStudioPage', () => {
       await settle(fixture);
       expect(selected()).toEqual(['true', 'false', 'true']);
       expect(canvasEl(1)?.getAttribute('aria-pressed')).toBe('true');
-      expect(root.querySelector('fieldset legend')?.textContent).toBe('2 layers selected');
+      expect(root.querySelector('#inspector-title')?.textContent?.trim()).toBe('2 layers selected');
       // Shift+Space takes B in and out of the selection; the click a button fires for it changes nothing.
       key(row(2), ' ', { shiftKey: true });
       row(2).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
@@ -1090,12 +1100,12 @@ describe('TaleStudioPage', () => {
       expect(guides()?.style.top).toBe('12%');
       expect(guides()?.style.bottom).toBe('16%');
       expect(guides()?.style.left).toBe('4%');
-      const toggle = [...root.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].find((c) =>
-        c.parentElement?.textContent?.includes('Show safe areas'),
-      ) as HTMLInputElement;
-      toggle.checked = false;
-      toggle.dispatchEvent(new Event('change'));
+      // The top bar's Safe area toggle (Tale Studio 2).
+      const toggle = root.querySelector('#studio-safe-area') as HTMLButtonElement;
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      toggle.click();
       await settle(fixture);
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
       expect(guides()).toBeNull();
       expect(live()).toBe('Safe areas hidden');
     });
@@ -1504,7 +1514,7 @@ describe('TaleStudioPage', () => {
     describe('Update tale and the status line (user decision 2026-10-22, epic UX rework R15)', () => {
       const publishState = () => root.querySelector('#studio-update-state')?.textContent?.trim();
       const publishButton = () => root.querySelector('#studio-update') as HTMLButtonElement;
-      const discardButton = () => root.querySelector('#studio-discard') as HTMLButtonElement;
+      const discardButton = () => menuItem('studio-discard');
       const VISIBLE = { visible: true, reasons: [] };
       const GROUP_OFF = { visible: false, reasons: [{ code: 'group-off', subject: 'group' }] };
       const NOT_UPDATED = { visible: false, reasons: [{ code: 'not-updated-yet', subject: 'tale' }] };
@@ -1534,7 +1544,7 @@ describe('TaleStudioPage', () => {
       it('labels its buttons Update tale and Discard changes', async () => {
         await open({ document: three, revision: 3, published: { document: three, revision: 2 } });
         expect(publishButton().textContent?.trim()).toBe('Update tale');
-        expect(discardButton().textContent?.trim()).toBe('Discard changes');
+        expect(discardButton().textContent?.trim()).toMatch(/^Discard changes\b/);
         expect(publishButton().getAttribute('aria-describedby')).toBe('studio-update-state');
       });
 
@@ -2485,6 +2495,185 @@ describe('TaleStudioPage', () => {
     });
   });
 
+  describe('the five regions (Tale Studio 2, story 11.1)', () => {
+    const active = () => document.activeElement as HTMLElement | null;
+    const f6 = (back = false) => {
+      const event = new KeyboardEvent('keydown', { key: 'F6', shiftKey: back, bubbles: true, cancelable: true });
+      (active() ?? document.body).dispatchEvent(event);
+      return event;
+    };
+    const textId = existing.elements[0].id;
+
+    it('lays the studio out in five labelled regions, in focus order, each with a heading', async () => {
+      await open({ document: existing, revision: 1 });
+      const regions = [...root.querySelectorAll<HTMLElement>('[data-region]')];
+      expect(regions.map((r) => r.dataset['region'])).toEqual(['top', 'left', 'canvas', 'inspector', 'strip']);
+      expect(regions.map((r) => r.tagName.toLowerCase())).toEqual(['section', 'aside', 'section', 'aside', 'nav']);
+      expect(regions[0].getAttribute('aria-labelledby')).toBe('studio-title');
+      expect(root.querySelector('#studio-title')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tale 1 · Beach');
+      expect(regions[1].getAttribute('aria-label')).toBe('Add and layers');
+      expect(regions[3].getAttribute('aria-label')).toBe('Properties');
+      expect(root.querySelector('#studio-strip-title')?.textContent).toBe('Tales in Summer');
+      expect(regions.map((r) => r.querySelector('h2')?.textContent?.trim().split(/\s+/)[0])).toEqual([
+        'Tale',
+        'Elements',
+        'Canvas',
+        'Tale',
+        'Tales',
+      ]);
+    });
+
+    it('moves between the regions with F6 and back with Shift+F6, wrapping, onto a useful control in each', async () => {
+      await open({ document: existing, revision: 1 });
+      (root.querySelector('#studio-undo') as HTMLElement).focus();
+      expect(f6().defaultPrevented).toBe(true);
+      expect(active()?.id).toBe('studio-tab-elements');
+      f6();
+      // Nothing selected: the canvas itself.
+      expect(active()?.id).toBe('studio-canvas');
+      f6();
+      expect(active()?.id).toBe('studio-inspector');
+      f6();
+      expect(active()?.getAttribute('aria-current')).toBe('page');
+      expect(active()?.getAttribute('href')).toBe('/tales/t1/studio');
+      f6();
+      expect(active()?.id).toBe('studio-back');
+      f6(true);
+      expect(active()?.getAttribute('aria-current')).toBe('page');
+      // With an element selected, F6 lands on it on the canvas.
+      (root.querySelector(`#studio-el-${textId}`) as HTMLElement).click();
+      await settle(fixture);
+      (root.querySelector('#studio-tab-elements') as HTMLElement).focus();
+      f6();
+      expect(active()?.id).toBe(`studio-el-${textId}`);
+      f6(true);
+      expect(active()?.id).toBe('studio-tab-elements');
+    });
+
+    it('leaves F6 to an open menu, and to keys with Ctrl, Alt or Cmd', async () => {
+      await open({ document: existing, revision: 1 });
+      root.querySelector<HTMLButtonElement>(`#layer-more-${textId}`)?.click();
+      await settle(fixture);
+      expect(root.querySelector('[role=menu]')).not.toBeNull();
+      expect(f6().defaultPrevented).toBe(false);
+      const ctrl = new KeyboardEvent('keydown', { key: 'F6', ctrlKey: true, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(ctrl);
+      expect(ctrl.defaultPrevented).toBe(false);
+    });
+
+    it('shows one tab panel at a time; the rail is one tab stop and the arrows, Home and End move and select', async () => {
+      await open({ document: existing, revision: 1 });
+      const tabs = [...root.querySelectorAll<HTMLElement>('[role=tab]')];
+      expect(tabs.map((t) => t.textContent?.trim())).toEqual(['Elements', 'Templates', 'Media', 'Layers']);
+      expect(root.querySelector('[role=tablist]')?.getAttribute('aria-orientation')).toBe('vertical');
+      const shown = () => [...root.querySelectorAll<HTMLElement>('[role=tabpanel]')].filter((p) => !p.hidden).map((p) => p.id);
+      expect(shown()).toEqual(['studio-panel-elements']);
+      expect(tabs.map((t) => t.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1']);
+      tabs[0].focus();
+      key(tabs[0], 'ArrowUp');
+      await settle(fixture);
+      expect(active()?.id).toBe('studio-tab-layers');
+      expect(shown()).toEqual(['studio-panel-layers']);
+      expect(tabs[3].getAttribute('aria-selected')).toBe('true');
+      expect(root.querySelector('[role=grid]')?.getAttribute('aria-labelledby')).toBe('layers-title');
+      key(tabs[3], 'Home');
+      await settle(fixture);
+      expect(active()?.id).toBe('studio-tab-elements');
+      key(tabs[0], 'ArrowDown');
+      await settle(fixture);
+      expect(shown()).toEqual(['studio-panel-templates']);
+      expect(root.querySelector('#studio-panel-templates')?.textContent).toContain('Coming soon');
+      tabs[2].click();
+      await settle(fixture);
+      expect(shown()).toEqual(['studio-panel-media']);
+      expect(root.querySelector('#studio-panel-media')?.textContent).toContain('Image, Video and Sticker tiles');
+    });
+
+    it('shows the Add entries as tiles named "Add …" that show the type alone', async () => {
+      await open({ document: existing, revision: 1 });
+      const tile = root.querySelector('#studio-add-swipe-up') as HTMLElement;
+      expect(tile.classList.contains('tile')).toBe(true);
+      expect(tile.textContent?.trim()).toBe('Add swipe-up link');
+      expect(tile.querySelector('.visually-hidden')?.textContent).toBe('Add ');
+      expect(tile.querySelector('.tile__word')?.textContent).toBe('swipe-up link');
+    });
+
+    it('opens the tale menu with the keyboard, moves in it, and closes it with Escape to its button', async () => {
+      await open({ document: existing, revision: 1 });
+      const button = root.querySelector('#studio-menu') as HTMLButtonElement;
+      expect(button.getAttribute('aria-haspopup')).toBe('menu');
+      expect(button.getAttribute('aria-label')).toBe('Tale actions');
+      button.focus();
+      key(button, 'ArrowDown');
+      await settle(fixture);
+      const items = () => [...root.querySelectorAll<HTMLElement>('#studio-menu-list [role=menuitem]')];
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      expect(items().map((i) => i.id)).toEqual(['studio-discard', 'studio-duplicate', 'studio-help-button']);
+      expect(active()?.id).toBe('studio-discard');
+      key(items()[0], 'ArrowUp');
+      expect(active()?.id).toBe('studio-help-button');
+      key(items()[2], 'Home');
+      expect(active()?.id).toBe('studio-discard');
+      key(items()[0], 'End');
+      expect(active()?.id).toBe('studio-help-button');
+      key(items()[2], 'Escape');
+      await settle(fixture);
+      expect(root.querySelector('#studio-menu-list')).toBeNull();
+      expect(active()).toBe(button);
+      // Up opens it on its last item.
+      key(button, 'ArrowUp');
+      await settle(fixture);
+      expect(active()?.id).toBe('studio-help-button');
+    });
+
+    it('keeps Discard changes in the menu when there is nothing to discard, saying why', async () => {
+      await open({ document: existing, revision: 1 });
+      const discard = menuItem('studio-discard');
+      expect(discard.getAttribute('aria-disabled')).toBe('true');
+      expect(discard.getAttribute('aria-describedby')).toBe('studio-discard-why');
+      expect(root.querySelector('#studio-discard-why')?.textContent).toBe('No changes: the tale matches the site.');
+      discard.click();
+      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(live()).toBe('No changes: the tale matches the site.');
+      expect(window.confirm).not.toHaveBeenCalled();
+    });
+
+    it("lists the group's tales in order in the strip: the current one marked, a hidden one said so", async () => {
+      const tales = [
+        { ...tale, id: 't0', title: 'Dawn', position: 0, storedStatus: 'paused', status: 'paused' },
+        { ...tale, position: 1 },
+        { ...tale, id: 't2', title: 'Dusk', position: 2, media: null },
+      ];
+      TestBed.inject(DashboardStore).taleGroups.set({ z1: [{ ...group, tales } as unknown as ZoneTaleGroup] });
+      await open({ document: existing, revision: 1 });
+      const links = [...root.querySelectorAll<HTMLAnchorElement>('.studio-strip a')];
+      expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['1. Dawn, Hidden', '2. Beach', '3. Dusk']);
+      expect(links.map((a) => a.getAttribute('href'))).toEqual(['/tales/t0/studio', '/tales/t1/studio', '/tales/t2/studio']);
+      expect(links.map((a) => a.getAttribute('aria-current'))).toEqual([null, 'page', null]);
+      expect(root.querySelector('#studio-title')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Tale 2 · Beach');
+      // The current tale's picture is its media; a tale without media shows a colour.
+      expect(links[1].querySelector('img')?.getAttribute('src')).toContain('/api/v1/tales/t1/media');
+      expect(links[2].querySelector('img')).toBeNull();
+      expect(root.querySelector('.strip-thumb__changed')).toBeNull();
+    });
+
+    it('opens the preview in the inspector’s place, and Close puts focus back on Preview', async () => {
+      await open({ document: existing, revision: 1 });
+      (root.querySelector('#studio-preview') as HTMLButtonElement).click();
+      await settle(fixture);
+      const inspector = root.querySelector('#studio-inspector') as HTMLElement;
+      expect(inspector.getAttribute('aria-label')).toBe('Preview');
+      expect(inspector.querySelector('#studio-preview-pane')).not.toBeNull();
+      expect(inspector.querySelector('#studio-bg')).toBeNull();
+      (root.querySelector('#studio-preview-close') as HTMLButtonElement).click();
+      await settle(fixture);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(root.querySelector('#studio-preview-pane')).toBeNull();
+      expect(active()?.id).toBe('studio-preview');
+    });
+  });
+
   describe('Duplicate (epic Tale Studio R11)', () => {
     let refresh: ReturnType<typeof vi.fn>;
     const dialog = () => document.querySelector('[role=dialog]') as HTMLElement | null;
@@ -2505,7 +2694,7 @@ describe('TaleStudioPage', () => {
       await open({ document: existing, revision: 1 });
       buttonNamed(root, 'Add text').click();
       await settle(fixture);
-      buttonNamed(root, 'Duplicate').click();
+      menuItem('studio-duplicate').click();
       await settle(fixture);
       // The copy is made from what is saved: the unsaved change goes first, then the drawer opens.
       expect(dialog()).toBeNull();
@@ -2569,7 +2758,7 @@ describe('TaleStudioPage', () => {
       buttonNamed(drawer, 'Cancel').click();
       await settle(fixture);
       expect(dialog()).toBeNull();
-      expect(document.activeElement?.id).toBe('studio-duplicate');
+      expect(document.activeElement?.id).toBe('studio-menu');
       expect(root.querySelector('#studio-duplicated')).toBeNull();
     });
 
@@ -2590,7 +2779,7 @@ describe('TaleStudioPage', () => {
       (root.querySelector('#studio-update') as HTMLButtonElement).click();
       await settle(fixture);
       const save = http.expectOne(url);
-      buttonNamed(root, 'Duplicate').click();
+      menuItem('studio-duplicate').click();
       await settle(fixture);
       await new Promise((resolve) => setTimeout(resolve, 0));
       fixture.detectChanges();
@@ -2609,7 +2798,7 @@ describe('TaleStudioPage', () => {
       await open({ document: existing, revision: 1 });
       buttonNamed(root, 'Add text').click();
       await settle(fixture);
-      buttonNamed(root, 'Duplicate').click();
+      menuItem('studio-duplicate').click();
       await settle(fixture);
       http.expectOne(url).flush({ error: { code: 'internal', message: 'down' } }, { status: 500, statusText: 'Error' });
       await settle(fixture);

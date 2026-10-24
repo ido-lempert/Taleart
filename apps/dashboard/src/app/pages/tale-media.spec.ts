@@ -320,7 +320,7 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     await open({ ...empty, elements: [element] }, 1);
     q<HTMLButtonElement>('button.el').click();
     await settle(fixture);
-    expect(q<HTMLElement>('legend').textContent).toContain('Selected image');
+    expect(q<HTMLElement>('#inspector-title').textContent).toContain('Image');
     const set = async (id: string, value: string) => {
       const field = q<HTMLInputElement | HTMLSelectElement>(id);
       field.value = value;
@@ -430,6 +430,6 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     expect(root.querySelector('.studio-alert[role=alert]')?.textContent).toContain(message);
     const el = q<HTMLButtonElement>('button.el');
     expect(el.getAttribute('aria-pressed')).toBe('true');
-    expect(q<HTMLElement>('legend').textContent).toContain('Selected image');
+    expect(q<HTMLElement>('#inspector-title').textContent).toContain('Image');
   });
 });

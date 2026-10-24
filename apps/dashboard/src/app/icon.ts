@@ -34,7 +34,13 @@ export type IconName =
   | 'unlock'
   | 'more'
   | 'undo'
-  | 'redo';
+  | 'redo'
+  | 'rectangle'
+  | 'ellipse'
+  | 'line'
+  | 'layers'
+  | 'templates'
+  | 'safe-area';
 
 /** Inline SVG icons (24px grid, 2px stroke). Decorative: the control around an icon carries the label. */
 @Component({
@@ -186,6 +192,27 @@ export type IconName =
         @case ('redo') {
           <path d="M15 14l5-5-5-5" />
           <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+        }
+        @case ('rectangle') {
+          <rect x="4" y="6" width="16" height="12" rx="1.5" />
+        }
+        @case ('ellipse') {
+          <ellipse cx="12" cy="12" rx="8.5" ry="7" />
+        }
+        @case ('line') {
+          <path d="M5 19L19 5" />
+        }
+        @case ('layers') {
+          <path d="M12 3l9 5-9 5-9-5z" />
+          <path d="M3 13l9 5 9-5" />
+        }
+        @case ('templates') {
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <path d="M3 9h18M9 9v12" />
+        }
+        @case ('safe-area') {
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <rect x="7" y="7" width="10" height="10" stroke-dasharray="2 2" />
         }
         @case ('tales') {
           <rect x="7" y="3" width="10" height="18" rx="2" />
