@@ -208,7 +208,7 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await tabTo(page.locator('#studio-add-text'), 'Add body text');
     await page.keyboard.press('Enter');
     // At the next free spot, selected, and typed in place on the canvas (story 11.4).
-    await said(/^Text added at [\d.]+%, [\d.]+%\. Selected\.$/, 'text');
+    await said(/^Text added (near the centre of the safe area|at left [\d.]+%, top [\d.]+% of the tale)\. Editing its text: type, then press Escape\.$/, 'text');
     // Typing in place: a text field on the canvas.
     const editing = page.locator('textarea.el-edit');
     await seen(editing, 'the text field on the canvas');
@@ -231,7 +231,7 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await page.keyboard.press('Enter');
     await expect(picker).toBeHidden();
     await said(
-      /^Image added at [\d.]+%, [\d.]+%\. Selected\. Give it alt text, or mark it decorative, before updating the tale\.$/,
+      /^Image added (near the centre of the safe area|at left [\d.]+%, top [\d.]+% of the tale)\. Selected\. Give it alt text, or mark it decorative, before updating the tale\. Press F6 for its properties\.$/,
       'image',
     );
     // Focus goes to the new image on the canvas (story 11.4); F6 then Tab reach the alt text it needs.
@@ -248,7 +248,10 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
   test('adds a rectangle by keyboard', async () => {
     await tabTo(page.locator('#studio-add-rectangle'), 'Add rectangle');
     await page.keyboard.press('Enter');
-    await said(/^Rectangle added at [\d.]+%, [\d.]+%\. Selected\. It is decorative: screen readers skip it\.$/, 'rectangle');
+    await said(
+      /^Rectangle added (near the centre of the safe area|at left [\d.]+%, top [\d.]+% of the tale)\. Selected\. It is decorative: screen readers skip it\. Press F6 for its properties\.$/,
+      'rectangle',
+    );
     await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     ids.shape = (await activeId()).replace('studio-el-', '');
     await seen(canvasEl(ids.shape), 'the rectangle');
@@ -278,7 +281,9 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
     await page.keyboard.press('Enter');
     await expect(picker).toBeHidden();
     await said(
-      new RegExp(`^Emoji added at [\\d.]+%, [\\d.]+%\\. Selected\\. Screen readers announce it as ${name}, a name you can edit\\.$`),
+      new RegExp(
+        `^Emoji added (near the centre of the safe area|at left [\\d.]+%, top [\\d.]+% of the tale)\\. Selected\\. Screen readers announce it as ${name}, a name you can edit\\. Press F6 for its properties\\.$`,
+      ),
       'emoji',
     );
     await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
@@ -289,7 +294,10 @@ test.describe.serial('Tale Studio by keyboard, and its WCAG 2.2 AA scan (story 7
   test('adds a button by keyboard and gives it a web address and a label', async () => {
     await tabTo(page.locator('#studio-add-button'), 'Add button');
     await page.keyboard.press('Enter');
-    await said(/^Button added at [\d.]+%, [\d.]+%\. Selected\. Give it a web address before updating the tale\.$/, 'button');
+    await said(
+      /^Button added (near the centre of the safe area|at left [\d.]+%, top [\d.]+% of the tale)\. Selected\. Give it a web address before updating the tale\. Press F6 for its properties\.$/,
+      'button',
+    );
     await expect(page.locator('[id^="studio-el-"]:focus')).toHaveCount(1);
     ids.button = (await activeId()).replace('studio-el-', '');
     await page.keyboard.press('F6');

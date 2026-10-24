@@ -31,6 +31,12 @@ test.describe.serial('Tale Studio 2: drag onto the canvas, or add by key (story 
   const live = () => page.locator('#studio-live');
   const stage = () => page.locator('#studio-canvas');
   const elements = () => page.locator('#studio-canvas [id^="studio-el-"]');
+  /** Empties the live region, so what it says next is from the step under test. */
+  const clearLive = async () => {
+    // The text node the page writes to is kept, emptied, so the page's next message still shows.
+    await live().evaluate((el) => el.childNodes.forEach((node) => (node.nodeValue = '')));
+    await expect(live()).toHaveText('');
+  };
 
   async function centreOf(target: Locator): Promise<{ x: number; y: number }> {
     const box = await target.boundingBox();
@@ -97,11 +103,12 @@ test.describe.serial('Tale Studio 2: drag onto the canvas, or add by key (story 
     const at = await centreOf(poll);
     expect(Math.abs(at.x - (box.x + box.width / 2))).toBeLessThan(1.5);
     expect(Math.abs(at.y - y)).toBeLessThan(2);
-    await expect(live()).toHaveText(/^Poll added at 10%, (5[12](\.\d)?)%\. Selected\.$/);
+    await expect(live()).toHaveText(/^Poll added at left 10%, top 5[12](\.\d)?% of the tale\. Selected\. Press F6 for its properties\.$/);
     if (shots) await page.screenshot({ path: join(shots, 'drag-02-after-drop.png') });
   });
 
   test('a drop on the workspace outside the stage adds nothing and says so', async () => {
+    await clearLive();
     const box = await stage().boundingBox();
     if (!box) throw new Error('no stage');
     await drag(page.locator('#studio-add-rectangle'), box.x - 20, box.y + box.height / 2, false);
@@ -115,12 +122,17 @@ test.describe.serial('Tale Studio 2: drag onto the canvas, or add by key (story 
   test('Escape cancels a drag: nothing is added, then or on release', async () => {
     const box = await stage().boundingBox();
     if (!box) throw new Error('no stage');
+    await clearLive();
     await drag(page.locator('#studio-add-rectangle'), box.x + box.width / 2, box.y + box.height * 0.3, false);
     await expect(page.locator('.drag-ghost')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('.drag-ghost')).toHaveCount(0);
-    await page.mouse.up();
     await expect(live()).toHaveText('Not added');
+    // The release afterwards adds nothing and says nothing more.
+    await clearLive();
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    await expect(live()).toHaveText('');
     await expect(elements()).toHaveCount(1);
   });
 
@@ -138,7 +150,7 @@ test.describe.serial('Tale Studio 2: drag onto the canvas, or add by key (story 
     await expect(added).toHaveAttribute('aria-pressed', 'true');
     await expect(added).toHaveAttribute('aria-label', /^Rating/);
     // The centre of the safe area: the poll's centre is lower down, so the spot is free.
-    await expect(live()).toHaveText('Rating added at 10%, 37%. Selected.');
+    await expect(live()).toHaveText('Rating added near the centre of the safe area. Selected. Press F6 for its properties.');
     if (shots) {
       await page.screenshot({ path: join(shots, 'drag-03-keyboard-add.png') });
       // The live region is visually hidden: shown for the screenshot only.

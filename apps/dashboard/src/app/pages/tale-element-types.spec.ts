@@ -365,7 +365,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
     expect(add.textContent?.trim()).toBe('Add test badge');
     add.click();
     await settle(fixture);
-    expect(live()).toBe('Test badge added at 30%, 44.5%. Selected.');
+    expect(live()).toBe('Test badge added near the centre of the safe area. Selected. Press F6 for its properties.');
     const element = doc().elements[0];
     expect(element.type as string).toBe('test-badge');
     expect(element.props).toEqual({ label: 'Test badge', color: '#7C3AED', tone: 'solid' });

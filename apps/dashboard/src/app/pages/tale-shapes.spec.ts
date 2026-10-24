@@ -222,7 +222,9 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
       await settle(fixture);
     }
     // Each at the next free spot: the centre of the safe area, then 4% down and right, then 8% (story 11.4).
-    expect(live()).toBe('Line added at 28%, 54%. Selected. It is decorative: screen readers skip it.');
+    expect(live()).toBe(
+      'Line added at left 28%, top 54% of the tale. Selected. It is decorative: screen readers skip it. Press F6 for its properties.',
+    );
     const els = [...root.querySelectorAll<HTMLButtonElement>('button.el')];
     expect(els.map((el) => el.getAttribute('aria-label'))).toEqual([
       'Rectangle: Rectangle 1',
@@ -403,7 +405,7 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     await settle(fixture);
     expect(root.querySelector('[role=dialog]')).toBeNull();
     expect(live()).toBe(
-      'Emoji added at 37.5%, 41%. Selected. Screen readers announce it as party popper, a name you can edit.',
+      'Emoji added near the centre of the safe area. Selected. Screen readers announce it as party popper, a name you can edit. Press F6 for its properties.',
     );
     const el = q<HTMLButtonElement>('button.el');
     // Named without the glyph, which a screen reader would read as the name a second time (story 7.15).

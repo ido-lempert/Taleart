@@ -311,6 +311,8 @@
         <p class="visually-hidden" id="studio-palette-help">
           Finds elements by name or by what they are for. Arrow Down goes to the first one found.
         </p>
+        <!-- How a tile adds (story 11.4), said once for all tiles and given to each group as its description. -->
+        <p class="palette-note" id="studio-palette-note">Drag onto the tale, or click or press Enter to add.</p>
         @if (paletteQuery().trim()) {
           <p class="palette-count" id="studio-palette-count">{{ paletteCount() }}</p>
         }
@@ -322,9 +324,14 @@
         @if (noProjectMedia()) {
           <p class="field__hint palette-reason" id="studio-project-hint">{{ noProjectReason }}</p>
         }
-        <div id="studio-palette-groups">
+        <div id="studio-palette-groups" [class.is-pen]="penInput()" (pointerover)="paletteInput($event)">
           @for (group of paletteGroups(); track group.key) {
-            <div class="tile-group" role="group" [attr.aria-labelledby]="'studio-tiles-' + group.key">
+            <div
+              class="tile-group"
+              role="group"
+              [attr.aria-labelledby]="'studio-tiles-' + group.key"
+              aria-describedby="studio-palette-note"
+            >
               <h3 class="tile-group__name" [id]="'studio-tiles-' + group.key">{{ group.name }}</h3>
               <div class="tiles" [class.tiles--text]="group.key === 'text'">
                 @for (tile of group.tiles; track tile.id) {
@@ -337,13 +344,13 @@
                     [id]="tile.id"
                     [attr.aria-disabled]="block ? 'true' : null"
                     [attr.aria-describedby]="block?.id ?? null"
-                    [attr.title]="block ? null : 'Drag onto the tale, or press Enter to add'"
                     (click)="addFromTile(tile)"
                     (keydown)="tileKey($event)"
                     (pointerdown)="tilePointerDown($event, tile)"
                     (pointermove)="tilePointerMove($event)"
                     (pointerup)="tilePointerUp($event)"
                     (pointercancel)="tilePointerCancel($event)"
+                    (lostpointercapture)="tileLostPointer($event)"
                     (contextmenu)="tileContextMenu($event)"
                   >
                     @if (tile.sample; as s) {

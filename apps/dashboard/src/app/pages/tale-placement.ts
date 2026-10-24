@@ -15,7 +15,7 @@ import {
   TALE_SAFE_AREA,
   type TaleElementBox,
 } from '@taleart/contract/tale-document';
-import { clamp, round, snap, type SnapTargets } from './tale-layers';
+import { clamp, percent, round, snap, type SnapTargets } from './tale-layers';
 import type { PaletteTile } from './tale-palette';
 
 /** How far each next spot moves down and right from the one before (EXPERIENCE: "offset by 4%"). */
@@ -123,6 +123,22 @@ export function nextFreeSpot(
     }
   }
   return at(0);
+}
+
+/** How near the safe area's centre, on both axes, an element's centre is said to be "near the centre". */
+export const NEAR_CENTRE = 0.05;
+
+/**
+ * Where an added element landed, as the live region says it (EXPERIENCE Accessibility Floor): "near
+ * the centre of the safe area", else "at left 10%, top 56% of the tale" (its box's top left corner).
+ */
+export function landedSaid(box: TaleElementBox): string {
+  const at = centre(box);
+  const middle = centre(SAFE_RECT);
+  if (Math.abs(at.x - middle.x) <= NEAR_CENTRE && Math.abs(at.y - middle.y) <= NEAR_CENTRE) {
+    return 'near the centre of the safe area';
+  }
+  return `at left ${percent(box.x)}%, top ${percent(box.y)}% of the tale`;
 }
 
 /**

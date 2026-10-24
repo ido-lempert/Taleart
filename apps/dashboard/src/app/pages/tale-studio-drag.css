@@ -1,14 +1,26 @@
 /* Dragging from the palette onto the canvas (epic Tale Studio 2 R3, DESIGN Drag ghost, Colors). */
 .tile {
+  /* Holds its visually hidden "Add" word, so a tile scrolled out of the panel never grows the page. */
+  position: relative;
   touch-action: pan-y;
   -webkit-touch-callout: none;
   user-select: none;
+}
+/* A pen, seen hovering, drags tiles at once like a mouse, so it does not scroll the panel. */
+.is-pen .tile {
+  touch-action: none;
 }
 .tile:not([aria-disabled='true']) {
   cursor: grab;
 }
 .tile[aria-disabled='true'] {
   cursor: not-allowed;
+}
+/* How a tile adds, once above the groups. */
+.palette-note {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
 }
 /* The source tile while its element is dragged. */
 .tile.is-dragging {

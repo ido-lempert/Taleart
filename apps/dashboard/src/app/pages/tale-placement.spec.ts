@@ -2,7 +2,7 @@ import { NEW_MEDIA_BOX, NEW_SHAPE_BOX, SWIPE_UP_BOX } from '@taleart/contract/ta
 import { studioElementTypes } from './tale-element-types';
 import { snapTargets } from './tale-layers';
 import { paletteTiles } from './tale-palette';
-import { dropBox, nextFreeSpot, safeClamp, stageClamp, tileBox } from './tale-placement';
+import { dropBox, landedSaid, nextFreeSpot, safeClamp, stageClamp, tileBox } from './tale-placement';
 
 // Story 11.4: where a new element lands, by a click or a key (the next free spot) or by a drop.
 const box = (x: number, y: number, w = 0.4, h = 0.2) => ({ x, y, w, h, rotation: 0 });
@@ -67,6 +67,14 @@ describe('nextFreeSpot', () => {
     expect(nextFreeSpot(box(0, 0), taken)).toEqual(box(0.26, 0.34));
     const all = Array.from({ length: 30 }, (_, k) => ({ box: safeClamp(box(0.3 + (k - 15) * 0.04, 0.38 + (k - 15) * 0.04)) }));
     expect(nextFreeSpot(box(0, 0), all)).toEqual(box(0.3, 0.38));
+  });
+});
+
+describe('landedSaid', () => {
+  it('says "near the centre of the safe area" within 5%, else where its top left corner is', () => {
+    expect(landedSaid(box(0.3, 0.38))).toBe('near the centre of the safe area');
+    expect(landedSaid(box(0.34, 0.42))).toBe('near the centre of the safe area');
+    expect(landedSaid(box(0.1, 0.56, 0.8, 0.28))).toBe('at left 10%, top 56% of the tale');
   });
 });
 
