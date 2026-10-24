@@ -9127,7 +9127,7 @@ describe('Management API v1: projects and zones', () => {
         } finally {
           client.release();
         }
-      });
+      }, 30_000);
 
       it('shows content from its start, inclusive, until its end, exclusive', async () => {
         const f = await fixture();

@@ -251,9 +251,16 @@ const THEME_FIELD: InspectorField = {
   ],
 };
 
+// Each shape kind's own picture on its Add tile (Tale Studio 2, story 11.1).
+const SHAPE_ICONS: Readonly<Record<ShapeKind, IconName>> = {
+  rectangle: 'rectangle',
+  ellipse: 'ellipse',
+  line: 'line',
+};
+
 /** The descriptors of the registry's types, keyed by registry key (R8). */
 export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescriptor>> = {
-  text: { add: [entry('studio-add', 'Add text', 'plus', 0, { kind: 'text' })], inspector: 'text' },
+  text: { add: [entry('studio-add', 'Add text', 'text', 0, { kind: 'text' })], inspector: 'text' },
   image: {
     add: [entry('studio-add-image', 'Add image', 'image', 0, { kind: 'media', media: 'image' }, { needsProject: true })],
     inspector: 'media',
@@ -274,7 +281,7 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
   },
   shape: {
     add: SHAPE_KINDS.map((shape) =>
-      entry(`studio-add-${shape}`, `Add ${SHAPE_NAMES[shape].toLowerCase()}`, 'shape', 1, { kind: 'shape', shape }),
+      entry(`studio-add-${shape}`, `Add ${SHAPE_NAMES[shape].toLowerCase()}`, SHAPE_ICONS[shape], 1, { kind: 'shape', shape }),
     ),
     inspector: 'shape',
   },
@@ -611,13 +618,28 @@ export function studioElementTypes(
   return types;
 }
 
-/** The Add menu's rows, each with its entries and their types, in registry order. */
-export function addMenuRows(types: readonly StudioElementType[]): { entry: AddMenuEntry; type: StudioElementType }[][] {
+/**
+ * The names of the Add menu's rows, as the studio's Elements tab heads its groups of tiles (Tale
+ * Studio 2, story 11.1): text and media, then shapes and stickers, buttons and links, and the
+ * interactive components. A row past these is named "More". Story 11.3 replaces rows with palette
+ * categories.
+ */
+export const ADD_MENU_ROW_NAMES: readonly string[] = [
+  'Text and media',
+  'Shapes and stickers',
+  'Buttons and links',
+  'Interactive',
+];
+
+/** The Add menu's rows as named groups of tiles, in row order, each with its entries and their types. */
+export function addMenuGroups(
+  types: readonly StudioElementType[],
+): { name: string; items: { entry: AddMenuEntry; type: StudioElementType }[] }[] {
   const rows: { entry: AddMenuEntry; type: StudioElementType }[][] = [];
   for (const type of types) {
     for (const add of type.add) (rows[add.row] ??= []).push({ entry: add, type });
   }
-  return rows.filter((row) => row !== undefined);
+  return rows.flatMap((items, row) => (items ? [{ name: ADD_MENU_ROW_NAMES[row] ?? 'More', items }] : []));
 }
 
 /**
