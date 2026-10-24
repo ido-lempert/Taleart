@@ -170,6 +170,15 @@ export async function deleteUserList(
   if (!UUID.test(input.projectId) || !UUID.test(input.userListId)) throw new UserListNotFoundError();
   await inTransaction(db, async (tx) => {
     await lockProject(tx, input.projectId);
+    // The list's row first, FOR UPDATE: it waits for every transaction that holds it FOR KEY SHARE
+    // (one setting a group's lists to or from it, a copy linking it) to commit, so the statement
+    // below reads the groups' links as they are now, not as they were before such a change. Without
+    // it a concurrent set or copy could leave a group with no list and no hold: public.
+    const { rows: locked } = await tx.query('SELECT id FROM user_lists WHERE id = $1 AND project_id = $2 FOR UPDATE', [
+      input.userListId,
+      input.projectId,
+    ]);
+    if (locked.length === 0) throw new UserListNotFoundError();
     // A group targeted to this list and no other is held hidden (`audience-removed`) rather than
     // shown to everyone once the list is gone (owner decision, story 5.4 review).
     await tx.query(

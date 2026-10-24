@@ -106,6 +106,14 @@ function withTales(groups: ZoneTaleGroup[], taleGroupId: string, tales: Tale[]):
   return groups.map((g) => (g.id === taleGroupId ? { ...g, tales } : g));
 }
 
+/**
+ * True when a group is held hidden because its user lists were removed (`audience-removed`, epic
+ * targeting story 5.4): it shows to nobody until a person saves its Audience.
+ */
+export function isAudienceHeld(group: { visibility?: { reasons?: readonly { code: string }[] } } | undefined): boolean {
+  return !!group?.visibility?.reasons?.some((reason) => reason.code === 'audience-removed');
+}
+
 /** Orders tags by name ignoring case, then by name, then by id: the one tag order of the dashboard. */
 export function compareTags(a: { id: string; name: string }, b: { id: string; name: string }): number {
   return (
@@ -1075,6 +1083,9 @@ export class DashboardStore {
    * saved tags and mode wherever it is listed.
    */
   async setTaleGroupTags(taleGroupId: string, tagIds: string[], tagMatch: TagMatch): Promise<string> {
+    // A group held after its user lists were removed can become visible with new tags: then its
+    // visibility is read again, so the indicator never says what the site does not do.
+    const held = isAudienceHeld(this.groupSummary(taleGroupId));
     let saved: TaleGroup;
     try {
       saved = await firstValueFrom(
@@ -1096,6 +1107,7 @@ export class DashboardStore {
         Object.entries(lists).map(([id, list]) => [id, list.map((g) => (g.id === taleGroupId ? { ...g, ...targeting } : g))]),
       ),
     );
+    if (held) await this.refresh();
     return '';
   }
 

@@ -48,8 +48,12 @@ describe('the group-to-list table', () => {
     // The audience-removed clause reads the hold table by its group id.
     const removed = GROUP_OWN_REASON_CLAUSES.find((c) => c.code === 'audience-removed')?.when('g', '$1') ?? '';
     expect(removed).toBe('EXISTS (SELECT 1 FROM tale_group_audience_holds ah WHERE ah.tale_group_id = g.id)');
-    expect(all).toMatch(/CREATE TABLE IF NOT EXISTS tale_group_audience_holds \(\s*tale_group_id uuid PRIMARY KEY/);
-    expect(all).toMatch(/REFERENCES tale_groups \(id, project_id\) ON DELETE CASCADE\s*\);\s*$/m);
+    // The hold table's own statement: keyed by group, removed with the group and the project.
+    const holds = calls().find((c) => /CREATE TABLE IF NOT EXISTS tale_group_audience_holds/.test(c.sql))?.sql ?? '';
+    expect(holds).toMatch(/CREATE TABLE IF NOT EXISTS tale_group_audience_holds \(\s*tale_group_id uuid PRIMARY KEY,/);
+    expect(holds).toMatch(/project_id uuid NOT NULL REFERENCES projects\(id\) ON DELETE CASCADE/);
+    expect(holds).toMatch(/FOREIGN KEY \(tale_group_id, project_id\) REFERENCES tale_groups \(id, project_id\) ON DELETE CASCADE/);
+    expect(holds).not.toMatch(/user_list/);
   });
 });
 
@@ -61,7 +65,7 @@ describe('setTaleGroupUserLists', () => {
   });
 
   it("refuses a list of another project: nothing is deleted or inserted", async () => {
-    const { db, calls } = fakeDb([{ rows: [{ project_id: projectId }] }, { rows: [] }, { rows: [{ id: listA }] }]);
+    const { db, calls } = fakeDb([{ rows: [{ project_id: projectId }] }, { rows: [] }, { rows: [] }, { rows: [{ id: listA }] }]);
     await expect(setTaleGroupUserLists(db, groupA, [listA, listB])).rejects.toBeInstanceOf(UserListNotFoundError);
     expect(calls().some((c) => /DELETE FROM tale_group_user_lists|INSERT INTO tale_group_user_lists/.test(c.sql))).toBe(false);
   });

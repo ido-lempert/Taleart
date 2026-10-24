@@ -12,6 +12,7 @@ import {
   createUser,
   PasskeyFailedError,
   type PasskeyVerifier,
+  type TransactionalDb,
 } from '@taleart/server-access';
 import {
   encryptToken,
@@ -50,6 +51,7 @@ import {
   zoneDelivers,
   zoneReasonsSql,
   continueTaleMediaMigration,
+  copyTaleGroup,
   copyZonePlacements,
   migrateTaleMediaDocuments,
   setImportedButtonWhen,
@@ -59,7 +61,15 @@ import {
   taleExists,
   TALE_MEDIA_SWEEP_MIN_AGE_MS,
 } from '@taleart/server-tales';
-import { addUserListIds, createUserList, ensureTags } from '@taleart/server-targeting';
+import {
+  addUserListIds,
+  copyTaleGroupTags,
+  copyTaleGroupUserLists,
+  createUserList,
+  deleteUserList,
+  ensureTags,
+  setTaleGroupUserLists,
+} from '@taleart/server-targeting';
 import {
   createZoneFromTemplate,
   foldStagesIntoZones,
@@ -8814,8 +8824,9 @@ describe('Management API v1: projects and zones', () => {
           expect((await send('PUT', `/tale-groups/${f.groupId}/user-lists`, { userListIds: [list.id] })).status).toBe(200);
           expect((await send('DELETE', `/projects/${f.projectId}/user-lists/${list.id}`)).status).toBe(204);
         },
-        // Saving the group's Audience (its tags) is a person choosing its audience again.
-        fix: async (f) => expect((await send('PUT', `/tale-groups/${f.groupId}/tags`, { tagIds: [] })).status).toBe(200),
+        // Saving the group's lists is a person choosing its audience again.
+        fix: async (f) =>
+          expect((await send('PUT', `/tale-groups/${f.groupId}/user-lists`, { userListIds: [] })).status).toBe(200),
       },
     ];
 
@@ -10759,10 +10770,16 @@ describe('Management API v1: projects and zones', () => {
       expect((await asViewer(handle, 'cust-B1')).ids).toContain(both.id);
       expect((await asViewer(handle, member)).ids).not.toContain(both.id);
 
-      // Saving its Audience (here, its tags) is a person choosing again: now it shows to everyone.
+      // Saving the same tags again is not a choice of audience: it stays held.
       expect((await put(`/tale-groups/${groups.a}/tags`, { tagIds: [] })).status).toBe(200);
+      expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [groups.a])).rowCount).toBe(1);
+      expect((await asViewer(handle, null)).ids).not.toContain(groups.a);
+      // Changing its tags is: now it shows to viewers with the tag (and on pages that pass none).
+      const summer = await (await post(`/projects/${zone.projectId}/tags`, { name: 'summer' })).json();
+      expect((await put(`/tale-groups/${groups.a}/tags`, { tagIds: [summer.id] })).status).toBe(200);
       expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [groups.a])).rowCount).toBe(0);
       expect((await asViewer(handle, null)).ids).toContain(groups.a);
+      // So does a change of match mode alone, on another held group (the copy's hold, below).
     });
 
     it('saving the group\'s lists ends the hold too, and a held group\'s copy is held as well', async () => {
@@ -10799,11 +10816,146 @@ describe('Management API v1: projects and zones', () => {
       ).json();
       expect(there.find((g) => g.id === moved.id)?.visibility.reasons.map((r) => r.code)).toContain('audience-removed');
       for (const viewer of [member, null]) expect((await asViewer(otherHandle, viewer)).ids).not.toContain(moved.id);
+      // Saving the same tags keeps it held; a new match mode is a change, and ends the hold.
       expect((await put(`/tale-groups/${moved.id}/tags`, { tagIds: [] })).status).toBe(200);
+      expect((await asViewer(otherHandle, null)).ids).not.toContain(moved.id);
+      expect((await put(`/tale-groups/${moved.id}/tags`, { tagIds: [], tagMatch: 'all' })).status).toBe(200);
       expect((await asViewer(otherHandle, null)).ids).toContain(moved.id);
       // An untargeted group's copy to another project is never held.
       const plain = await (await post(`/tale-groups/${groups.open}/copy`, { zoneId: elsewhere.id })).json();
       expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [plain.id])).rowCount).toBe(0);
+    });
+
+    // Two connections (story 5.4 second review): a change of a group's lists, or a copy, waits at its
+    // COMMIT while a delete of a list starts; the delete must then read the links as the change left
+    // them, so the group ends hidden (held, or with its other list), never public.
+    function gatedDb(): { db: TransactionalDb; atCommit: Promise<void>; commit: () => void } {
+      let commit: () => void = () => undefined;
+      const gate = new Promise<void>((done) => (commit = done));
+      let reached: () => void = () => undefined;
+      const atCommit = new Promise<void>((done) => (reached = done));
+      const db = {
+        query: (...args: unknown[]) => (pool.query as (...a: unknown[]) => unknown)(...args),
+        connect: async () => {
+          const client = await pool.connect();
+          return {
+            query: async (...args: unknown[]) => {
+              if (args[0] === 'COMMIT') {
+                reached();
+                await gate;
+              }
+              return (client.query as (...a: unknown[]) => unknown)(...args);
+            },
+            release: (err?: Error | boolean) => client.release(err),
+          };
+        },
+      } as unknown as TransactionalDb;
+      return { db, atCommit, commit };
+    }
+
+    // Waits until another session waits on a row lock (the delete behind the gated change), or 1.5 s.
+    async function someoneWaitsOnALock(): Promise<boolean> {
+      for (let i = 0; i < 30; i++) {
+        const { rows } = await pool.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if (rows[0].n > 0) return true;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return false;
+    }
+
+    // Runs `change` gated at its COMMIT, starts deleting `listId` meanwhile, then lets the change commit.
+    async function race(change: (db: TransactionalDb) => Promise<unknown>, projectId: string, listId: string) {
+      const gated = gatedDb();
+      const changing = change(gated.db);
+      await gated.atCommit;
+      const deleting = deleteUserList(pool, { projectId, userListId: listId });
+      const waited = await someoneWaitsOnALock();
+      gated.commit();
+      const [changed, deleted] = await Promise.allSettled([changing, deleting]);
+      return { waited, changed: changed.status, deleted: deleted.status };
+    }
+
+    const held = async (groupId: string) =>
+      (await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE tale_group_id = $1', [groupId])).rowCount === 1;
+    const listsOf = async (groupId: string) =>
+      (await pool.query<{ id: string }>('SELECT user_list_id AS id FROM tale_group_user_lists WHERE tale_group_id = $1', [groupId])).rows.map(
+        (r) => r.id,
+      );
+
+    it('race A: [L1, L2] set to [L1] while L1 is deleted: the group ends held and hidden', async () => {
+      const { zone, handle, groups, listA } = await matrix();
+      const l2 = await listWith(zone.projectId, 'L2', 'cust-B1\n');
+      expect((await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: [listA.id, l2.id] })).status).toBe(200);
+      const run = await race((db) => setTaleGroupUserLists(db, groups.a, [listA.id]), zone.projectId, listA.id);
+      expect(run).toMatchObject({ waited: true, changed: 'fulfilled', deleted: 'fulfilled' });
+      expect(await listsOf(groups.a)).toEqual([]);
+      expect(await held(groups.a)).toBe(true);
+      for (const viewer of [member, 'cust-B1', null]) expect((await asViewer(handle, viewer)).ids).not.toContain(groups.a);
+    });
+
+    it('race B: [L1] set to [L2] while L2 is deleted: the group ends held and hidden', async () => {
+      const { zone, handle, groups, listA } = await matrix();
+      const l2 = await listWith(zone.projectId, 'L2', 'cust-B1\n');
+      const run = await race((db) => setTaleGroupUserLists(db, groups.a, [l2.id]), zone.projectId, l2.id);
+      expect(run).toMatchObject({ waited: true, changed: 'fulfilled', deleted: 'fulfilled' });
+      expect(await listsOf(groups.a)).toEqual([]);
+      expect(await held(groups.a)).toBe(true);
+      for (const viewer of [member, 'cust-B1', null]) expect((await asViewer(handle, viewer)).ids).not.toContain(groups.a);
+      expect(listA.id).not.toBe(l2.id);
+    });
+
+    it('race C: a same-project copy while the only list is deleted: the source and the copy end held and hidden', async () => {
+      const { zone, handle, groups, listA } = await matrix();
+      const run = await race(
+        (db) =>
+          copyTaleGroup(db, { taleGroupId: groups.a, zoneId: zone.id }, async (tx, ids) => {
+            await copyTaleGroupTags(tx, ids);
+            await copyTaleGroupUserLists(tx, ids);
+          }),
+        zone.projectId,
+        listA.id,
+      );
+      expect(run).toMatchObject({ waited: true, changed: 'fulfilled', deleted: 'fulfilled' });
+      const copies = (await pool.query<{ id: string }>("SELECT id FROM tale_groups WHERE name = 'Loyal only' AND id <> $1", [groups.a])).rows;
+      expect(copies).toHaveLength(1);
+      for (const id of [groups.a, copies[0].id]) {
+        expect(await listsOf(id)).toEqual([]);
+        expect(await held(id)).toBe(true);
+      }
+      await publish('tale-groups', copies[0].id);
+      for (const viewer of [member, null]) {
+        const ids = (await asViewer(handle, viewer)).ids;
+        expect(ids).not.toContain(groups.a);
+        expect(ids).not.toContain(copies[0].id);
+      }
+    });
+
+    it('race D: [L1] set to [L2] while L1 is deleted: the group keeps L2, no stale hold, and says visible', async () => {
+      const { zone, handle, groups, listA } = await matrix();
+      const l2 = await listWith(zone.projectId, 'L2', 'cust-B1\n');
+      const run = await race((db) => setTaleGroupUserLists(db, groups.a, [l2.id]), zone.projectId, listA.id);
+      expect(run).toMatchObject({ waited: true, changed: 'fulfilled', deleted: 'fulfilled' });
+      expect(await listsOf(groups.a)).toEqual([l2.id]);
+      expect(await held(groups.a)).toBe(false);
+      const listed: { id: string; visibility: unknown }[] = await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json();
+      expect(listed.find((g) => g.id === groups.a)?.visibility).toEqual(VISIBLE);
+      expect((await asViewer(handle, 'cust-B1')).ids).toContain(groups.a);
+      expect((await asViewer(handle, member)).ids).not.toContain(groups.a);
+    });
+
+    it('a held group can be deleted: its hold goes with it', async () => {
+      const { zone } = await matrix();
+      // A group in no zone, with no tale: the database deletes it (no API route deletes a group yet).
+      const group = await (await post(`/projects/${zone.projectId}/tale-groups`, { name: 'Lonely' })).json();
+      const list = await listWith(zone.projectId, 'Only', 'x-1\n');
+      expect((await put(`/tale-groups/${group.id}/user-lists`, { userListIds: [list.id] })).status).toBe(200);
+      expect((await fetch(`${base}/projects/${zone.projectId}/user-lists/${list.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect(await held(group.id)).toBe(true);
+      await pool.query('DELETE FROM tale_groups WHERE id = $1', [group.id]);
+      expect(await held(group.id)).toBe(false);
+      expect((await pool.query('SELECT 1 FROM tale_group_audience_holds WHERE project_id = $1', [zone.projectId])).rowCount).toBe(0);
     });
 
     it('logs no ID when the list match fails with a database error, and answers a plain 500', async () => {

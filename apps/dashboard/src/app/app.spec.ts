@@ -2356,6 +2356,29 @@ describe('App', () => {
       );
     });
 
+    it('says a copy of a held group is hidden too, before and after copying (story 5.4)', async () => {
+      const removed = { visible: false, reasons: [{ code: 'audience-removed', subject: 'group' }] };
+      const heldGroup = { ...group, tales: [], userLists: [], visibility: removed };
+      const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [heldGroup] } });
+      pickMenuItem(groupRow(root, 'Summer'), 'More for Summer', 'Copy to zone');
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-hint')?.textContent).toContain(
+        'Its user lists were removed, so the copy is hidden too until you change its Audience.',
+      );
+      choose(drawer()?.querySelector<HTMLSelectElement>('select[name=copyZone]') ?? null, 'z3');
+      await settle(fixture);
+      buttonNamed(drawer() as HTMLElement, 'Copy').click();
+      await settle(fixture);
+      const copy = { id: 'g8', projectId: 'p1', name: 'Summer', position: 0, zoneIds: ['z3'], tales: [], tags: [], userLists: [], visibility: removed };
+      http.expectOne(`${API_BASE}/tale-groups/g1/copy`).flush(copy, { status: 201, statusText: 'Created' });
+      await settle(fixture);
+      await flushRefresh(fixture, { ...twoZones, groups: { z1: [heldGroup], z3: [copy] } });
+      await settle(fixture);
+      expect(drawer()?.querySelector('#copy-lists-note')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Like the original, whose user lists were removed, the copy is hidden: it does not show to anyone until you change its Audience.',
+      );
+    });
+
     it('copies a group to a zone of another project from the drawer and links to the target zone', async () => {
       const { fixture, root } = await open('/zones/z1', { ...twoZones, groups: { z1: [{ ...group, tales: [] }] } });
 
@@ -4369,6 +4392,52 @@ describe('App', () => {
       await settle(fixture);
       http.expectNone(`${API_BASE}/tale-groups/g1/user-lists`);
       expect(drawer()).toBeNull();
+    });
+
+    it('says who saving will show a held group to, and saving its Audience makes it visible, read again (story 5.4)', async () => {
+      const removed = { visible: false, reasons: [{ code: 'audience-removed', subject: 'group' }] };
+      const heldGroup = { ...group, tales: [], tags: [], userLists: [], visibility: removed };
+      const loyal = { id: 'l1', projectId: 'p1', name: 'Loyal', idCount: 2, taleGroups: [], createdAt: '2026-10-22T10:00:00.000Z', updatedAt: '2026-10-22T10:00:00.000Z' };
+      const data: Data = { ...oneZone, groups: { z1: [heldGroup] }, tags: { p1: [] }, userLists: { p1: [loyal] } };
+      const { fixture, root } = await open('/zones/z1', data);
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      const panel = drawer() as HTMLElement;
+      const note = () => panel.querySelector('#audience-held-note')?.textContent?.trim();
+      expect(note()).toBe(
+        'Its user lists were removed, so it shows to nobody now. Saving the audience will make this group visible to every viewer.',
+      );
+      panel.querySelector<HTMLInputElement>('fieldset input[type=checkbox]')?.click();
+      await settle(fixture);
+      expect(note()).toBe(
+        'Its user lists were removed, so it shows to nobody now. Saving the audience will make this group visible to viewers in user list Loyal (2).',
+      );
+      panel.querySelector<HTMLInputElement>('fieldset input[type=checkbox]')?.click();
+      await settle(fixture);
+
+      // Saved unchanged: the tags (which leave the hold), then the lists, which end it; read again each time.
+      buttonNamed(panel, 'Save').click();
+      http.expectOne(`${API_BASE}/tale-groups/g1/tags`).flush(heldGroup);
+      await settle(fixture);
+      await flushRefresh(fixture, data);
+      const lists = http.expectOne(`${API_BASE}/tale-groups/g1/user-lists`);
+      expect(lists.request.body).toEqual({ userListIds: [] });
+      const shown = { ...heldGroup, visibility: { visible: true, reasons: [] } };
+      lists.flush(shown);
+      await settle(fixture);
+      await flushRefresh(fixture, { ...data, groups: { z1: [shown] } });
+      expect(drawer()).toBeNull();
+      expect(root.textContent).not.toContain('its user lists were removed');
+      expect([...root.querySelectorAll('app-group-row app-visibility')].map((v) => v.textContent?.trim())).toContain('Visible on site');
+    });
+
+    it('does not offer the held-group line for a group that is not held', async () => {
+      const { fixture, root } = await open('/zones/z1', { ...oneZone, groups: { z1: [{ ...group, tales: [], tags: [] }] }, tags: { p1: [] } });
+      pickMenuItem(root, 'More for Summer', 'Audience');
+      await settle(fixture);
+      expect((drawer() as HTMLElement).querySelector('#audience-held-note')).toBeNull();
+      buttonNamed(drawer() as HTMLElement, 'Cancel').click();
+      await settle(fixture);
     });
 
     it('picks All or Any for the tags in the Audience drawer and saves it with them (epic targeting R1)', async () => {
