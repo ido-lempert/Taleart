@@ -356,10 +356,11 @@ describe('Management API v1: projects and zones', () => {
     expect(rows).toEqual([{ ended: true }]);
   }
 
-  // Waits, up to 10 s, for a backend of this test database that `match` picks from pg_stat_activity
-  // (with `blocked_by`, the pids blocking it), and returns its pid.
+  // Waits, up to 4 s (well under the timeouts of the tests that call it), for a backend of this
+  // test database that `match` picks from pg_stat_activity (with `blocked_by`, the pids blocking
+  // it), and returns its pid.
   async function waitForBackend(match: string, params: unknown[] = []): Promise<number> {
-    const until = Date.now() + 10_000;
+    const until = Date.now() + 4_000;
     for (;;) {
       const { rows } = await pool.query<{ pid: number }>(
         `SELECT pid FROM (SELECT *, pg_blocking_pids(pid) AS blocked_by FROM pg_stat_activity
@@ -10554,7 +10555,7 @@ describe('Management API v1: projects and zones', () => {
       const res = await upload(`${listsUrl(project.id)}/${list.id}`, 'cust-1001\ncust-1002\n');
       expect((await res.json()).idCount).toBe(2);
       expectNoIdIn(printed.join('\n'), 'the API log');
-    });
+    }, 20_000);
 
     it('takes a slow but steady upload under the limits', async () => {
       const project = await createProject();
@@ -11244,14 +11245,15 @@ describe('Management API v1: projects and zones', () => {
         await blocker.query('COMMIT');
         lost = await waitForEnd(project.id, job.id);
       } finally {
-        blocker.release();
+        await blocker.query('ROLLBACK').catch(() => undefined);
+        blocker.release(true);
         vi.restoreAllMocks();
       }
       expect(lost['status']).toBe('failed');
       expect((await fetch(`${importBase}/health`)).status).toBe(200);
       // The pool and the worker go on: the next import of the app is done.
       expect((await importOnce(project.id))['status']).toBe('done');
-    });
+    }, 30_000);
 
     it('lists the apps a token can read, without storing the token', async () => {
       const project = await createProject();
@@ -15419,14 +15421,15 @@ describe('Management API v1: projects and zones', () => {
         expect((await res.json()).error.code).toBe('internal_error');
         await blocker.query('COMMIT');
       } finally {
-        blocker.release();
+        await blocker.query('ROLLBACK').catch(() => undefined);
+        blocker.release(true);
       }
       expect(await health()).toBe(200);
       await poolServes();
       // Nothing of the failed request was stored, and the same request now succeeds.
       expect((await pool.query('SELECT 1 FROM tale_groups')).rowCount).toBe(0);
       expect((await post(`/zones/${zone.id}/tale-groups`, { name: 'Found' })).status).toBe(201);
-    });
+    }, 20_000);
 
     it("fails an import worker's claim whose session ends, and the next claim works", async () => {
       const blocker = await pool.connect();
@@ -15441,75 +15444,70 @@ describe('Management API v1: projects and zones', () => {
         expect(await claim).toBeInstanceOf(Error);
         await blocker.query('COMMIT');
       } finally {
-        blocker.release();
+        await blocker.query('ROLLBACK').catch(() => undefined);
+        blocker.release(true);
       }
       expect(await health()).toBe(200);
       await poolServes();
       expect(await claimNextJob(pool, 'next-worker')).toBeNull();
-    });
+    }, 20_000);
 
-    it('fails the migrations cleanly when the session holding the migration lock ends, and runs them again', async () => {
-      const starting = createPool(testDatabaseUrl, 3);
-      const blocker = await pool.connect();
-      try {
-        // The migrations take the migration lock, then wait on the tales table, held here.
-        await blocker.query('BEGIN');
-        await blocker.query('LOCK TABLE tales IN ACCESS EXCLUSIVE MODE');
-        const migrating = migrate(starting).then(
-          () => null,
-          (err: unknown) => err,
-        );
-        const pid = await waitForBackend(
-          `$1 = ANY(blocked_by) AND pid IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted
-             AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('taleart:migrations', 0))`,
-          [await backendPid(blocker)],
-        );
-        await terminateBackend(pid);
-        expect(await migrating).toBeInstanceOf(Error);
-        await blocker.query('COMMIT');
-      } finally {
-        blocker.release();
-      }
-      // The lock went with the session: the next start takes it and runs every migration.
-      await migrate(starting);
-      expect((await starting.query<{ one: number }>('SELECT 1 AS one')).rows).toEqual([{ one: 1 }]);
-      await starting.end();
-      expect(await health()).toBe(200);
-      await poolServes();
-    });
+    it(
+      'fails the migrations cleanly, with the cause, when the session holding the migration lock ends, and runs them again',
+      async () => {
+        const starting = createPool(testDatabaseUrl, 3);
+        const blocker = await pool.connect();
+        let migrating: Promise<unknown> = Promise.resolve(null);
+        try {
+          // The migrations take the migration lock, then wait on the tales table, held here.
+          await blocker.query('BEGIN');
+          await blocker.query('LOCK TABLE tales IN ACCESS EXCLUSIVE MODE');
+          migrating = migrate(starting).then(
+            () => null,
+            (err: unknown) => err,
+          );
+          const pid = await waitForBackend(
+            `$1 = ANY(blocked_by) AND pid IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted
+               AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('taleart:migrations', 0))`,
+            [await backendPid(blocker)],
+          );
+          await terminateBackend(pid);
+          // The cause is the database's, not the follow-up "Connection terminated" of a later query.
+          const failure = await migrating;
+          expect(failure).toBeInstanceOf(Error);
+          expect(failure).toMatchObject({
+            code: '57P01',
+            message: expect.stringMatching(/terminating connection due to administrator command/),
+          });
+          await blocker.query('COMMIT');
+          // The lock went with the session: the next start takes it and runs every migration.
+          await migrate(starting);
+          expect((await starting.query<{ one: number }>('SELECT 1 AS one')).rows).toEqual([{ one: 1 }]);
+        } finally {
+          await blocker.query('ROLLBACK').catch(() => undefined);
+          blocker.release(true);
+          await migrating;
+          await starting.end();
+        }
+        expect(await health()).toBe(200);
+        await poolServes();
+      },
+      20_000,
+    );
 
-    it("takes the background tale-media migration's lock again when the session holding it ends", async () => {
+    // 1200 tales from before documents, out of step, for the background migration.
+    async function legacyTales(many: number): Promise<void> {
       const zone = await createZone();
       const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
-      const many = 1200;
       await pool.query(
         `INSERT INTO tales (tale_group_id, project_id, title, position, status, media_key, media_content_type)
          SELECT $1, project_id, 'T' || n, n, 'live', 'tales/' || gen_random_uuid() || '.png', 'image/png'
          FROM tale_groups, generate_series(1, $2) AS n WHERE tale_groups.id = $1`,
         [group.id, many],
       );
-      const log = vi.fn();
-      const blocker = await pool.connect();
-      let result: Awaited<ReturnType<typeof continueTaleMediaMigration>>;
-      try {
-        // The first batch waits on the tales table, held here, while the holder idles with the lock.
-        await blocker.query('BEGIN');
-        await blocker.query('LOCK TABLE tales IN EXCLUSIVE MODE');
-        const running = continueTaleMediaMigration(pool, { batchSize: 500, attempts: 3, baseDelayMs: 1, log });
-        await waitForBackend('$1 = ANY(blocked_by)', [await backendPid(blocker)]);
-        const holder = await waitForBackend(
-          `pid IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted
-             AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('taleart:tale-media-migration', 0))`,
-        );
-        await terminateBackend(holder);
-        await blocker.query('COMMIT');
-        result = await running;
-      } finally {
-        blocker.release();
-      }
-      // The pass stopped after its batch in flight, failed, and the next one took the lock again.
-      expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('the session holding the migration lock ended'));
-      expect(result).toEqual({ merged: many, skipped: 0, done: true });
+    }
+
+    async function expectMigrationFinished(): Promise<void> {
       const { rows } = await pool.query<{ n: number }>(
         'SELECT count(*)::int AS n FROM tales WHERE media_key IS NOT NULL AND document_media_key IS DISTINCT FROM media_key',
       );
@@ -15522,7 +15520,83 @@ describe('Management API v1: projects and zones', () => {
       expect(free.rows[0].locked).toBe(true);
       expect(await health()).toBe(200);
       await poolServes();
-    });
+    }
+
+    // Runs the background migration with its first batch held on the tales table, ends the lock
+    // holder's session with `end` while it idles with the lock, then lets the batch go on.
+    async function continueWithHolderLost(
+      db: Parameters<typeof continueTaleMediaMigration>[0],
+      end: () => Promise<void>,
+      log: ReturnType<typeof vi.fn>,
+    ): Promise<Awaited<ReturnType<typeof continueTaleMediaMigration>>> {
+      const blocker = await pool.connect();
+      let running: Promise<Awaited<ReturnType<typeof continueTaleMediaMigration>>> | undefined;
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query('LOCK TABLE tales IN EXCLUSIVE MODE');
+        running = continueTaleMediaMigration(db, { batchSize: 500, attempts: 3, baseDelayMs: 200, log });
+        await waitForBackend('$1 = ANY(blocked_by)', [await backendPid(blocker)]);
+        await end();
+        await blocker.query('COMMIT');
+        return await running;
+      } finally {
+        await blocker.query('ROLLBACK').catch(() => undefined);
+        blocker.release(true);
+        await running?.catch(() => undefined);
+      }
+    }
+
+    const holderPid = () =>
+      waitForBackend(
+        `pid IN (SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted
+           AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('taleart:tale-media-migration', 0))`,
+      );
+
+    it(
+      "takes the background tale-media migration's lock again when the session holding it ends",
+      async () => {
+        await legacyTales(1200);
+        const log = vi.fn();
+        const result = await continueWithHolderLost(pool, async () => terminateBackend(await holderPid()), log);
+        // The pass stopped after its batch in flight, failed, and the next one took the lock again.
+        expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('the session holding the migration lock ended'));
+        expect(result).toEqual({ merged: 1200, skipped: 0, done: true });
+        await expectMigrationFinished();
+      },
+      20_000,
+    );
+
+    it(
+      "takes the lock again when the holder's connection closes without a FATAL, not taking it for an ended pool",
+      async () => {
+        await legacyTales(1200);
+        // The first client the migration checks out is its lock holder.
+        const clients: PoolClient[] = [];
+        const watched = {
+          query: pool.query.bind(pool),
+          connect: async () => {
+            const client = await pool.connect();
+            clients.push(client);
+            return client;
+          },
+        } as unknown as Pool;
+        const log = vi.fn();
+        const result = await continueWithHolderLost(
+          watched,
+          async () => {
+            await holderPid();
+            // The socket closes under the client, as a dropped network link does: pg errors with
+            // "Connection terminated unexpectedly" and no SQLSTATE.
+            (clients[0] as unknown as { connection: { stream: { destroy(): void } } }).connection.stream.destroy();
+          },
+          log,
+        );
+        expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('the session holding the migration lock ended'));
+        expect(result).toEqual({ merged: 1200, skipped: 0, done: true });
+        await expectMigrationFinished();
+      },
+      20_000,
+    );
   });
 
   describe('auth', () => {

@@ -92,4 +92,26 @@ the request fails cleanly, the API keeps serving, and the pool recovers; the mig
 survives a terminated session by re-acquiring or failing the migration cleanly. Then the full
 lint/test/build run and `api:import-scale`.
 
+## Review fixes (2026-10-24)
+
+- **Lost is decided early and broadly:** pg rejects the query in flight first and emits `error`
+  after, so a query failing with SQLSTATE class 57P, 08 or 25P03 (`isSessionEndedError`, exported)
+  marks the client lost at once with that first error; a work error with such a code, or a client
+  pg marks `_queryable = false`, is also released with an error. A cancelled statement (57014) is
+  not. `CheckedOutClient.signal` aborts when the client is lost.
+- **migrate** reports the original cause (57P01), not the follow-up "Connection terminated" of
+  its unlock, which is skipped on a lost client.
+- **Importer:** a session already lost before COMMIT throws its stored error, not
+  `CommitUncertainError` (COMMIT was never sent).
+- **Continuation:** "the pool ended" is read from the pool's `ending`/`ended` state, never from an
+  error's text; `MigrationLockLostError` (with the cause) is thrown whenever the holder is lost,
+  also when the pass itself threw; the pass stops on `AbortSignal.any([signal, holder.signal])`.
+- **`apps/api/scripts/tale-media-rollback.mjs`** gets a pool `error` listener and one on its
+  checked-out client (a lost client is dropped, its error thrown); the guard test scans `.mjs` and
+  `.ts`, catches `connect(` with or without a callback, and checks the script's listeners.
+- **Tests:** every blocker is rolled back and released with `true` in `finally`; `waitForBackend`
+  gives up after 4 s and the tests set 20 s (30 s for the import) timeouts; the migration test
+  always ends its pool and blocker and checks the 57P01 message; a new test closes the holder's
+  socket without a FATAL; a unit test follows pg's real order (reject, then `error`).
+
 </intent-contract>

@@ -27,6 +27,8 @@ export async function inTransaction<T>(db: TransactionalDb, work: (tx: Db) => Pr
       await rollback(tx);
       throw err;
     }
+    // A session already lost never reached COMMIT: its work is rolled back, so the outcome is known.
+    tx.assertUsable();
     try {
       await tx.query('COMMIT');
     } catch (err) {

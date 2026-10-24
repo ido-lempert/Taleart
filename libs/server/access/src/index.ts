@@ -9,7 +9,7 @@ export type {
   TransactionalDb,
   WithClientOptions,
 } from './lib/db';
-export { inTransaction, rollback, withClient } from './lib/db';
+export { inTransaction, isSessionEndedError, rollback, withClient } from './lib/db';
 export { migrateAccess } from './lib/migration';
 export { listProjects, createProject, projectExists } from './lib/projects';
 export {
