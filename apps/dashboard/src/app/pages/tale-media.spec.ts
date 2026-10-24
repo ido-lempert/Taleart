@@ -146,7 +146,7 @@ describe('Tale Studio images and video (epic Tale Studio R5)', () => {
     expect(saved.elements[0]).toEqual({
       id: expect.any(String),
       type: 'image',
-      box: { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 },
+      box: { x: 0.1, y: 0.28, w: 0.8, h: 0.4, rotation: 0 },
       hidden: false,
       locked: false,
       a11y: { label: 'A red bicycle' },

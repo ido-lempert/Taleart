@@ -221,7 +221,10 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
       q<HTMLButtonElement>(`#studio-add-${kind}`).click();
       await settle(fixture);
     }
-    expect(live()).toBe('Line added. It is decorative: screen readers skip it.');
+    // Each at the next free spot: the centre of the safe area, then 4% down and right, then 8% (story 11.4).
+    expect(live()).toBe(
+      'Line added at left 28%, top 54% of the tale. Selected. It is decorative: screen readers skip it. Press F6 for its properties.',
+    );
     const els = [...root.querySelectorAll<HTMLButtonElement>('button.el')];
     expect(els.map((el) => el.getAttribute('aria-label'))).toEqual([
       'Rectangle: Rectangle 1',
@@ -241,7 +244,11 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
       ['shape', { shape: 'ellipse', fill: '#FFFFFF' }, { decorative: true }],
       ['shape', { shape: 'line', stroke: '#FFFFFF', strokeWidth: 0.006 }, { decorative: true }],
     ]);
-    expect(saved.elements[2].box).toEqual({ x: 0.2, y: 0.48, w: 0.6, h: 0.04, rotation: 0 });
+    expect(saved.elements.map((e) => e.box)).toEqual([
+      { x: 0.3, y: 0.38, w: 0.4, h: 0.2, rotation: 0 },
+      { x: 0.34, y: 0.42, w: 0.4, h: 0.2, rotation: 0 },
+      { x: 0.28, y: 0.54, w: 0.6, h: 0.04, rotation: 0 },
+    ]);
   });
 
   it('styles a shape from its inspector, each change a step that undoes', async () => {
@@ -397,7 +404,9 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     choices[1].click();
     await settle(fixture);
     expect(root.querySelector('[role=dialog]')).toBeNull();
-    expect(live()).toContain('Emoji added: party popper');
+    expect(live()).toBe(
+      'Emoji added near the centre of the safe area. Selected. Screen readers announce it as party popper, a name you can edit. Press F6 for its properties.',
+    );
     const el = q<HTMLButtonElement>('button.el');
     // Named without the glyph, which a screen reader would read as the name a second time (story 7.15).
     expect(el.getAttribute('aria-label')).toBe('Emoji: party popper');
@@ -476,7 +485,7 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     expect(saved.elements[0]).toEqual({
       id,
       type: 'sticker',
-      box: { x: 0.3, y: 0.3875, w: 0.4, h: 0.225, rotation: 0 },
+      box: { x: 0.3, y: 0.3675, w: 0.4, h: 0.225, rotation: 0 },
       hidden: false,
       locked: false,
       a11y: { label: 'A party hat' },
