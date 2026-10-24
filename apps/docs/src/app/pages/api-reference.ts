@@ -25,6 +25,7 @@ import {
 /** The part of Swagger UI's instance the page uses. */
 export interface SwaggerUiInstance {
   specActions: { updateSpec(spec: string): void };
+  authActions: { logout(schemes: string[]): void };
 }
 
 /** Starts Swagger UI on an element with a prepared document. */
@@ -123,12 +124,17 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 /**
  * Fills in what Swagger UI's markup leaves out (WCAG 4.1.2): the Authorize dialog's icon-only close
- * button gets a name, and the dialog its role, `aria-modal` and its heading as its name. Run again
- * whenever Swagger UI renders.
+ * button gets a name, and the dialog its role, `aria-modal` and its heading as its name; its credential
+ * fields become password fields, so a token is never shown. Run again whenever Swagger UI renders.
  */
 export function labelSwaggerControls(root: HTMLElement): void {
   for (const button of root.querySelectorAll('button.close-modal:not([aria-label])')) {
     button.setAttribute('aria-label', 'Close');
+  }
+  // A token or site key typed into the Authorize dialog is masked, like a password.
+  for (const input of root.querySelectorAll<HTMLInputElement>('.modal-ux .auth-container input[type="text"]')) {
+    input.type = 'password';
+    input.autocomplete = 'off';
   }
   const dialog = root.querySelector('.modal-ux');
   if (dialog && !dialog.hasAttribute('role')) {
@@ -207,7 +213,7 @@ type State = 'loading' | 'ready' | 'failed';
         changes your data. Use a test project and a read-only token where you can.
       </p>
       <p>
-        The token stays in this page only: it is not stored, and is gone when you leave or reload. The dashboard's
+        The token stays in this page only: it is not stored, and is gone when you leave, reload or change the API URL. The dashboard's
         passkey session (a cookie) cannot be used from the docs, so operations that need it, such as managing API
         tokens, say <em>Dashboard only</em>.
       </p>
@@ -420,7 +426,12 @@ export class ApiReferencePage {
     this.field().nativeElement.value = url;
     this.apiUrl.set(url);
     storeApiUrl(this.storage, url);
-    if (this.ui && this.source) this.ui.specActions.updateSpec(JSON.stringify(prepareSpec(this.source, url)));
-    this.statusText.set(`Try it out now sends requests to ${url}.`);
+    if (this.ui && this.source) {
+      const spec = prepareSpec(this.source, url);
+      // A token or site key was given for the previous API: it never goes to another host.
+      this.ui.authActions.logout(Object.keys(spec.components?.securitySchemes ?? {}));
+      this.ui.specActions.updateSpec(JSON.stringify(spec));
+    }
+    this.statusText.set(`Credentials cleared; authorize again for ${url}. Try it out now sends requests there.`);
   }
 }

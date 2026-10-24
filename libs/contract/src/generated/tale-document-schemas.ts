@@ -5,7 +5,7 @@
 export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TaleDocument",
-  "description": "A tale document, version 1 (AD-15): the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.",
+  "description": "A tale document, version 1: the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -82,7 +82,7 @@ export const TALE_DOCUMENT_V1_SCHEMA: { readonly [key: string]: unknown } = {
       }
     },
     "MediaBackground": {
-      "description": "An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows.",
+      "description": "An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -229,7 +229,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "TextElementProps",
-      "description": "The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text (AD-15).",
+      "description": "The props of a text element: plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -241,7 +241,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "maxLength": 1000
         },
         "font": {
-          "description": "Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project (story 7.17), by its id.",
+          "description": "Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project, by its id.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -429,7 +429,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "ImageElementProps",
-      "description": "The props of an image element (epic Tale Studio R5): an image (GIF included) of the tale's project, by its storage key (AD-11), never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+      "description": "The props of an image element: an image (GIF included) of the tale's project, by its storage key, never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -464,7 +464,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "maximum": 1
         },
         "taleMedia": {
-          "description": "True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one.",
+          "description": "True on the tale's own media: the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one.",
           "type": "boolean"
         }
       }
@@ -476,7 +476,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "VideoElementProps",
-      "description": "The props of a video element (epic Tale Studio R5): an MP4 or WebM video of the tale's project, by its storage key (AD-11), never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+      "description": "The props of a video element: an MP4 or WebM video of the tale's project, by its storage key, never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -511,7 +511,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "maximum": 1
         },
         "taleMedia": {
-          "description": "True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one.",
+          "description": "True on the tale's own media: the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one.",
           "type": "boolean"
         }
       }
@@ -523,7 +523,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "ShapeElementProps",
-      "description": "The props of a shape element (epic Tale Studio R6): a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text (AD-16). Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.",
+      "description": "The props of a shape element: a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text. Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -635,7 +635,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "EmojiElementProps",
-      "description": "The props of an emoji sticker (epic Tale Studio R6): one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.",
+      "description": "The props of an emoji sticker: one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -656,7 +656,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "StickerElementProps",
-      "description": "The props of an image sticker (epic Tale Studio R6): a PNG, WebP or GIF of the tale's project, by its storage key (AD-11), never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).",
+      "description": "The props of an image sticker: a PNG, WebP or GIF of the tale's project, by its storage key, never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -684,7 +684,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "ButtonElementProps",
-      "description": "The props of a button (epic Tale Studio R7): a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one (R7, R14).",
+      "description": "The props of a button: a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -701,7 +701,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "maxLength": 80
         },
         "href": {
-          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). Servers check it in full; clients check it again before rendering.",
+          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters. Servers check it in full; clients check it again before rendering.",
           "type": "string",
           "maxLength": 2048,
           "pattern": "^[hH][tT][tT][pP][sS]?://"
@@ -743,7 +743,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "ImageButtonElementProps",
-      "description": "The props of a custom image button (epic Tale Studio R7): an image of the tale's project, by its storage key (AD-11), never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination (R7, R12, R14).",
+      "description": "The props of a custom image button: an image of the tale's project, by its storage key, never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -757,7 +757,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "pattern": "^(tales|media)/[a-z0-9][a-z0-9-]{0,99}\\.(png|jpg|gif|webp)$"
         },
         "href": {
-          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters.",
           "type": "string",
           "maxLength": 2048,
           "pattern": "^[hH][tT][tT][pP][sS]?://"
@@ -781,7 +781,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "SwipeUpElementProps",
-      "description": "The props of a swipe-up link (epic Tale Studio R7): a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.",
+      "description": "The props of a swipe-up link: a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -797,7 +797,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
           "maxLength": 80
         },
         "href": {
-          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15).",
+          "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters.",
           "type": "string",
           "maxLength": 2048,
           "pattern": "^[hH][tT][tT][pP][sS]?://"
@@ -825,7 +825,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "PollElementProps",
-      "description": "The props of a poll (epic interactive components R1, R2): an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.",
+      "description": "The props of a poll: an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -893,7 +893,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "RatingElementProps",
-      "description": "The props of a Rating (epic interactive components R1, R5): an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.",
+      "description": "The props of a Rating: an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -939,7 +939,7 @@ export const TALE_ELEMENT_TYPE_REGISTRY: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "QuizElementProps",
-      "description": "The props of a quiz (epic interactive components R1, R3): an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.",
+      "description": "The props of a quiz: an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1023,7 +1023,7 @@ export const TALE_TEST_ELEMENT_TYPES: readonly {
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "TestBadgeElementProps",
-      "description": "A test-only element type (epic Tale Studio R8): it proves that a type registered by configuration reaches the studio's Add menu and inspector, the server's validation and the SDK's renderer lookup. It is `testOnly` in the registry: the server accepts it only with TALE_TEST_ELEMENT_TYPES=on outside production, the dashboard offers it only in development builds that opt in, and no SDK renders it.",
+      "description": "A test-only element type: it proves that a type registered by configuration reaches the studio's Add menu and inspector, the server's validation and the SDK's renderer lookup. It is `testOnly` in the registry: the server accepts it only with TALE_TEST_ELEMENT_TYPES=on outside production, the dashboard offers it only in development builds that opt in, and no SDK renders it.",
       "type": "object",
       "additionalProperties": false,
       "required": [

@@ -118,6 +118,20 @@ on the page under "Accessibility":
 - Swagger UI is added with Subresource Integrity; the hashes sit in `SWAGGER_UI` and a docs test checks
   them against the vendored files.
 
+## Review fixes (2026-10-24)
+
+- Changing the API URL logs out every scheme (`authActions.logout`) and says "Credentials cleared;
+  authorize again for <url>"; an e2e test authorizes, then changes the URL, and checks the new host gets
+  no `Authorization` header.
+- The Authorize dialog's credential fields are password fields (`labelSwaggerControls`). The verify
+  run's screenshots are taken before a value is typed and mask the curl line and the dialog's fields.
+- `apps/docs/README.md` gains a Hosting section recommending a Content Security Policy for the docs site.
+- The public text of `openapi.yaml` and the tale document schemas no longer cites epics, stories or
+  architecture decisions (meaning kept); a contract test keeps it so. `api.ts`, `openapi.json` and
+  `tale-document-schemas.ts` regenerated.
+- The contract's `./openapi.json` export has `types` (`src/openapi-json.d.ts`) and `default`; the
+  contract build carries both files, and `api:build` bundles the document into `main.js`.
+
 ## Verify
 
 Story verify line: open the docs API page, authorize with a token from 10.1, try GET /api/v1/projects

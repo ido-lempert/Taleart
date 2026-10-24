@@ -45,6 +45,11 @@
             "input": "libs/contract/src/generated",
             "glob": "openapi.json",
             "output": "src/generated"
+          },
+          {
+            "input": "libs/contract/src",
+            "glob": "openapi-json.d.ts",
+            "output": "src"
           }
         ]
       },

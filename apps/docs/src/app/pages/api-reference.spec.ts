@@ -164,9 +164,10 @@ describe('the API reference spec (epic developer experience 10.2)', () => {
   it('names the Authorize dialog and its close button', () => {
     const host = document.createElement('div');
     host.innerHTML =
-      '<div class="modal-ux"><div class="modal-ux-header"><h3>Available authorizations</h3><button class="close-modal"></button></div></div>';
+      '<div class="modal-ux"><div class="modal-ux-header"><h3>Available authorizations</h3><button class="close-modal"></button></div><div class="auth-container"><input type="text" /></div></div>';
     labelSwaggerControls(host);
     expect(host.querySelector('.close-modal')?.getAttribute('aria-label')).toBe('Close');
+    expect(host.querySelector('.auth-container input')?.getAttribute('type')).toBe('password');
     const dialog = host.querySelector('.modal-ux');
     expect(dialog?.getAttribute('role')).toBe('dialog');
     expect(dialog?.getAttribute('aria-modal')).toBe('true');
@@ -177,16 +178,21 @@ describe('the API reference spec (epic developer experience 10.2)', () => {
 describe('the API reference page', () => {
   let started: { spec: OpenApiDocument }[];
   let updated: string[];
+  let loggedOut: string[][];
 
   beforeEach(async () => {
     started = [];
     updated = [];
+    loggedOut = [];
     localStorage.removeItem(API_URL_STORAGE_KEY);
     const loader: ApiReferenceLoader = {
       document: async () => generated,
       swaggerUi: async () => (_host, spec) => {
         started.push({ spec });
-        return { specActions: { updateSpec: (s) => void updated.push(s) } };
+        return {
+          specActions: { updateSpec: (s) => void updated.push(s) },
+          authActions: { logout: (names) => void loggedOut.push(names) },
+        };
       },
       leave: () => undefined,
     };
@@ -231,6 +237,7 @@ describe('the API reference page', () => {
     expect(field.getAttribute('aria-invalid')).toBe('true');
     expect(field.getAttribute('aria-describedby')).toContain('api-url-error');
     expect(updated).toEqual([]);
+    expect(loggedOut).toEqual([]);
 
     field.value = 'https://api.example.com/';
     form.dispatchEvent(new Event('submit', { cancelable: true }));
@@ -239,6 +246,10 @@ describe('the API reference page', () => {
     expect(localStorage.getItem(API_URL_STORAGE_KEY)).toBe('https://api.example.com');
     expect(JSON.parse(updated[0]).servers).toEqual([{ url: 'https://api.example.com/api/v1' }]);
     expect(page.querySelector('[role="status"]')?.textContent).toContain('https://api.example.com');
+    expect(loggedOut).toEqual([['token', 'siteKey']]);
+    expect(page.querySelector('[role="status"]')?.textContent).toContain(
+      'Credentials cleared; authorize again for https://api.example.com',
+    );
   });
 
   it('reads the stored API URL', async () => {

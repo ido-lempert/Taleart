@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ButtonElementProps",
-  "description": "The props of a button (epic Tale Studio R7): a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one (R7, R14).",
+  "description": "The props of a button: a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one.",
   "type": "object",
   "additionalProperties": false,
   "required": ["label", "variant", "color", "fill"],
@@ -13,7 +13,7 @@
       "maxLength": 80
     },
     "href": {
-      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). Servers check it in full; clients check it again before rendering.",
+      "description": "The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters. Servers check it in full; clients check it again before rendering.",
       "type": "string",
       "maxLength": 2048,
       "pattern": "^[hH][tT][tT][pP][sS]?://"

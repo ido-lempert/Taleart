@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ShapeElementProps",
-  "description": "The props of a shape element (epic Tale Studio R6): a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text (AD-16). Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.",
+  "description": "The props of a shape element: a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text. Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.",
   "type": "object",
   "additionalProperties": false,
   "required": ["shape"],
