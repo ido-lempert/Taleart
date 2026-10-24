@@ -91,8 +91,8 @@ export function menuPosition(
     }
     .menu-button__trigger:hover,
     .menu-button__trigger[aria-expanded='true'] {
-      border-color: var(--ember);
-      color: var(--ember-strong);
+      border-color: var(--brand);
+      color: var(--brand);
     }
     .menu-button__trigger:focus-visible,
     .menu-button__item:focus-visible {

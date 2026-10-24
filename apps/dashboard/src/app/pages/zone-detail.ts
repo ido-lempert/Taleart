@@ -258,7 +258,7 @@ type Direction = 'earlier' | 'later';
       color: var(--ink);
     }
     .zone-tab[aria-selected='true'] {
-      border-bottom-color: var(--ember-strong);
+      border-bottom-color: var(--brand);
       color: var(--ink);
     }
     .zone-tab:focus-visible {

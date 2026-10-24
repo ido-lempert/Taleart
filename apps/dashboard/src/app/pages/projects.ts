@@ -44,7 +44,7 @@ import { Icon } from '../icon';
       border-color: var(--border-strong);
     }
     .project-card:has([aria-current='true']) {
-      border-color: var(--ember);
+      border-color: var(--brand);
     }
     .project-card__actions {
       display: flex;

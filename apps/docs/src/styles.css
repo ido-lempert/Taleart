@@ -6,9 +6,14 @@
   --muted: #555a64;
   --line: #dcdee3;
   --hover: #eceef2;
-  --accent: #4b3bd6;
-  --accent-soft: #ecebfd;
-  --accent-text: #3326b0;
+  /*
+   * Brand, from the logo (branding/taleart-logo.svg): the dashboard's --brand set. Contrast (WCAG 2.2 AA):
+   * --accent-text 11.4:1 on --bg, 9.8:1 on --accent-soft; --on-accent on --accent-text 11.4:1;
+   * --accent (focus ring) 7.2:1 on --bg, 6.2:1 on --accent-soft.
+   */
+  --accent: #4f1dfc;
+  --accent-soft: #eeebff;
+  --accent-text: #3412ad;
   --code-bg: #f1f2f5;
   --note-bg: #fff7e0;
   --note-line: #e2b33c;
@@ -24,9 +29,10 @@
     --muted: #a7abb5;
     --line: #33353d;
     --hover: #262830;
-    --accent: #a59cff;
-    --accent-soft: #2a2652;
-    --accent-text: #cdc8ff;
+    /* --accent-text 11.1:1 on --bg, 9.0:1 on --accent-soft; --on-accent on --accent-text 11.1:1; --accent 7.3:1 on --bg, 5.9:1 on --accent-soft. */
+    --accent: #a594ff;
+    --accent-soft: #261d5c;
+    --accent-text: #cbc2ff;
     --code-bg: #1e2026;
     --note-bg: #2e2716;
     --note-line: #b48a22;

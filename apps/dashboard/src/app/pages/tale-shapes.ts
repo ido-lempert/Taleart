@@ -196,11 +196,11 @@ export function emojiGridMove(layout: EmojiLayout, index: number, key: string, c
       border-color: var(--line, #ccc);
     }
     .emoji-choice:focus-visible {
-      outline: 3px solid var(--ember);
+      outline: 3px solid var(--brand);
       outline-offset: 1px;
     }
     .emoji-choice[aria-current='true'] {
-      border-color: var(--ember);
+      border-color: var(--brand);
     }
   `,
   template: `
