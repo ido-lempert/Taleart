@@ -9,6 +9,7 @@ import {
 import { renderButton, renderImageButton, renderSwipeUp } from './links';
 import { MAY_ANIMATE, mediaFit, mediaUrl, renderImage, renderSticker, renderVideo, stillImage, type RenderContext } from './media';
 import { POLL_STYLES, renderPoll } from './poll';
+import { renderQuiz } from './quiz';
 import { RATING_STYLES, renderRating } from './rating';
 import { renderEmoji, renderShape } from './shapes';
 import { renderText } from './text';
@@ -31,6 +32,7 @@ const RENDERERS: { readonly [K in TaleElementType]: ElementRenderer } = {
   'swipe-up': renderSwipeUp,
   poll: renderPoll,
   rating: renderRating,
+  quiz: renderQuiz,
 };
 
 /**

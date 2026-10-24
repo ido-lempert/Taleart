@@ -77,7 +77,9 @@ describe('the poll descriptor and the choices field', () => {
   });
 
   it.each([
-    ['a list whose length may change', { type: 'array', minItems: 2, maxItems: 4, items: item }, 'as many items'],
+    ['a list whose length may change, without saying how a new item is labelled', { type: 'array', minItems: 2, maxItems: 4, items: item }, 'how a new one is labelled'],
+    ['a list without a fewest number of items', { type: 'array', maxItems: 4, items: item }, 'a number of items'],
+    ['a list that may be empty', { type: 'array', minItems: 0, maxItems: 4, items: item }, 'a number of items'],
     ['an item that is not closed', { type: 'array', minItems: 2, maxItems: 2, items: { ...item, additionalProperties: true } }, 'closed objects'],
     [
       'an item keyword the inspector does not check',
