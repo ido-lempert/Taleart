@@ -524,3 +524,49 @@ describe('groups on and off', () => {
     expect(await run(['groups', 'on', GROUP.id], archived)).toBe(EXIT.conflict);
   });
 });
+
+describe('groups audience (user lists, story 5.4)', () => {
+  const GROUP = { ...TALE, id: TALE.taleGroupId, projectId: PROJECT.id, name: 'Summer', zoneIds: [ZONE.id], tales: [TALE], tags: [], tagMatch: 'any', userLists: [] };
+  const LISTS = [
+    { id: '77777777-7777-4777-8777-777777777777', projectId: PROJECT.id, name: 'VIPs', idCount: 3 },
+    { id: '88888888-8888-4888-8888-888888888888', projectId: PROJECT.id, name: 'Beta', idCount: 0 },
+  ];
+  const audienceApi = api((c) => {
+    if (c.method === 'GET' && c.path === `/tale-groups/${GROUP.id}`) return { status: 200, body: GROUP };
+    if (c.method === 'GET' && c.path === `/projects/${PROJECT.id}/user-lists`) return { status: 200, body: LISTS };
+    if (c.method === 'PUT' && c.path === `/tale-groups/${GROUP.id}/user-lists`) {
+      const ids = (c.body as { userListIds: string[] }).userListIds;
+      return { status: 200, body: { ...GROUP, userLists: LISTS.filter((l) => ids.includes(l.id)) } };
+    }
+    return undefined;
+  });
+
+  it('sets the group\'s user lists by name, in the group\'s project', async () => {
+    const io = fakeIo(audienceApi, { env: env() });
+    expect(await run(['groups', 'audience', GROUP.id, '--list', 'VIPs', '--list', 'beta', '--json'], io)).toBe(EXIT.ok);
+    expect(io.calls.at(-1)).toMatchObject({ method: 'PUT', path: `/tale-groups/${GROUP.id}/user-lists`, body: { userListIds: LISTS.map((l) => l.id) } });
+    expect(JSON.parse(io.stdoutText).userLists).toHaveLength(2);
+    const text = fakeIo(audienceApi, { env: env() });
+    await run(['groups', 'audience', GROUP.id, '--list', 'VIPs'], text);
+    expect(text.stdoutText).toContain('user lists VIPs (3 IDs)');
+  });
+
+  it('clears them with --clear, and needs --list or --clear (not both)', async () => {
+    const io = fakeIo(audienceApi, { env: env() });
+    expect(await run(['groups', 'audience', GROUP.id, '--clear'], io)).toBe(EXIT.ok);
+    expect(io.calls.map((c) => c.method)).toEqual(['PUT']);
+    expect(io.calls[0].body).toEqual({ userListIds: [] });
+    expect(io.stdoutText).toContain('(none: every viewer)');
+    for (const argv of [[], ['--list', 'VIPs', '--clear']]) {
+      const bad = fakeIo(audienceApi, { env: env() });
+      expect(await run(['groups', 'audience', GROUP.id, ...argv], bad)).toBe(EXIT.usage);
+      expect(bad.calls).toEqual([]);
+    }
+  });
+
+  it('answers exit 5 for a list that does not exist, and changes nothing', async () => {
+    const io = fakeIo(audienceApi, { env: env() });
+    expect(await run(['groups', 'audience', GROUP.id, '--list', 'Nope', '--json'], io)).toBe(EXIT.notFound);
+    expect(io.calls.some((c) => c.method === 'PUT')).toBe(false);
+  });
+});
