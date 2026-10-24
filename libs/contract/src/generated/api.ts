@@ -1289,7 +1289,7 @@ export interface paths {
         };
         /**
          * Read the responses to a tale's interactive components.
-         * @description The visitors' responses to the tale's interactive components (epic interactive components R11), as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         * @description The visitors' responses to the tale's interactive components (epic interactive components R11), as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id, a quiz's answer id, a Rating's value from 0 to 100), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTaleResponses"];
         put?: never;
@@ -1311,7 +1311,7 @@ export interface paths {
         put?: never;
         /**
          * Record a visitor's response to an interactive component (Delivery API).
-         * @description Served under `/delivery/v1` (epic interactive components R9). Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule of AD-6: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's counts and percentages per option). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times (AD-10); no user data (AD-13). Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
+         * @description Served under `/delivery/v1` (epic interactive components R9). Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule of AD-6: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a quiz's answer id; a Rating's whole number from 0 to 100, written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's or a quiz's counts and percentages per option or answer, a Rating's count and average). A quiz's correct answer is not in the answer: it is in the published document (C10). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times (AD-10); no user data (AD-13). Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
          */
         post: operations["postDeliveryResponse"];
         delete?: never;
@@ -1855,7 +1855,7 @@ export interface components {
         };
         DeliveryTaleElement: {
             id: string;
-            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up` or `poll`. */
+            /** @description A key of the element-type registry, such as `text`, `image`, `video`, `shape`, `emoji`, `sticker`, `button`, `image-button`, `swipe-up`, `poll`, `rating` or `quiz`. */
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
@@ -1873,8 +1873,10 @@ export interface components {
         ImageButtonElementProps: components["schemas"]["image-button.schema"];
         SwipeUpElementProps: components["schemas"]["swipe-up.schema"];
         PollElementProps: components["schemas"]["poll.schema"];
+        RatingElementProps: components["schemas"]["rating.schema"];
+        QuizElementProps: components["schemas"]["quiz.schema"];
         ChoiceCount: {
-            /** @description The choice's id (a poll's option id). */
+            /** @description The choice's id (a poll's option id, a quiz's answer id). */
             id: string;
             count: number;
             /** @description The choice's share of the votes as a whole percentage; the shares add up to 100 when there is a vote, and are 0 without one. */
@@ -1885,12 +1887,18 @@ export interface components {
             total: number;
             choices: components["schemas"]["ChoiceCount"][];
         };
+        /** @description A Rating's result (epic interactive components R5): how many visitors rated it, and the average of their ratings. */
+        RatingResult: {
+            total: number;
+            /** @description The ratings' mean on the 0 to 100 scale, rounded to a whole number (half up); 0 without a rating. */
+            average: number;
+        };
         InteractiveResponseRequest: {
             /** Format: uuid */
             taleId: string;
             /** Format: uuid */
             elementId: string;
-            /** @description The response, such as a poll's option id. */
+            /** @description The response, such as a poll's option id, a quiz's answer id or a Rating's whole number from 0 to 100 (`80`). */
             value: string;
             /**
              * Format: date-time
@@ -1905,7 +1913,8 @@ export interface components {
             value: string;
             /** @description True when this request recorded it; false for a repeat. */
             recorded: boolean;
-            result: components["schemas"]["ChoiceResult"];
+            /** @description The component's result now: a poll's or a quiz's counts and percentages per choice, or a Rating's count and average. */
+            result: components["schemas"]["ChoiceResult"] | components["schemas"]["RatingResult"];
         };
         ElementResponseCounts: {
             /** Format: uuid */
@@ -2658,6 +2667,47 @@ export interface components {
                 /** @description The answer as visitors read it: its accessible name. */
                 label: string;
             }[];
+            /**
+             * @description `light` draws dark text on a light card; `dark` light text on a dark card.
+             * @enum {string}
+             */
+            theme: "light" | "dark";
+        };
+        /**
+         * RatingElementProps
+         * @description The props of a Rating (epic interactive components R1, R5): an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.
+         */
+        "rating.schema": {
+            /** @description A short heading above the question; none when left out. */
+            title?: string;
+            /** @description The question visitors answer; the slider's accessible name. */
+            question: string;
+            /** @description The emoji on the slider's thumb: one RGI emoji, drawn as text. */
+            emoji: string;
+            /**
+             * @description `light` draws dark text on a light card; `dark` light text on a dark card.
+             * @enum {string}
+             */
+            theme: "light" | "dark";
+        };
+        /**
+         * QuizElementProps
+         * @description The props of a quiz (epic interactive components R1, R3): an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.
+         */
+        "quiz.schema": {
+            /** @description A short heading above the question; none when left out. */
+            title?: string;
+            /** @description The question visitors answer. */
+            question: string;
+            /** @description The two to four answers, in the order they show. */
+            answers: {
+                /** @description The answer's id, unique in the quiz and kept when its text changes or it moves: answers are counted by it. */
+                id: string;
+                /** @description The answer as visitors read it: its accessible name. */
+                label: string;
+            }[];
+            /** @description The id of the correct answer, one of `answers`; when left out the quiz works as a survey. */
+            correctAnswerId?: string;
             /**
              * @description `light` draws dark text on a light card; `dark` light text on a dark card.
              * @enum {string}
@@ -5017,3 +5067,5 @@ export const videoSchemaFitValues: ReadonlyArray<FlattenedDeepRequired<component
 export const shapeSchemaShapeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["shape.schema"]["shape"]> = ["rectangle", "ellipse", "line"];
 export const buttonSchemaVariantValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["button.schema"]["variant"]> = ["filled", "outline"];
 export const pollSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["poll.schema"]["theme"]> = ["light", "dark"];
+export const ratingSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["rating.schema"]["theme"]> = ["light", "dark"];
+export const quizSchemaThemeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["quiz.schema"]["theme"]> = ["light", "dark"];

@@ -374,3 +374,7 @@ Merged into `autopilot/foundation`. Every story got an agent review (risky ones 
 ## 2026-10-24 — Targeting 5.2
 
 - **5.2 a targeted group says who it is for** (merge ff61164): a visible group with tags reads "Visible on site · for viewers tagged summer or vip" (Any) or "summer and vip" (All), up to three tags then "N more", as a button whose tooltip names every tag and the no-tags rule; on zone rows, the group view and the Tale groups page, which gains a Targeted filter (with its own empty state and an announcement when a group leaves it). Built from the existing `tags`/`tagMatch` fields; `delivery-rule.ts` unchanged. Verification green except the clock-skew test.
+
+## 2026-10-24 — Interactive 4.2
+
+- **4.2 rate with an emoji slider** (merge 33df01b): the `rating` element type (one per tale, emoji checked like the emoji type), Tale Studio's Add rating, emoji control (picker) and "N ratings, average X" panel; the Web SDK slider (role slider 0–100, drag with pointer capture, keys by 10, Home/End, Enter posts, mirrored in RTL; its events never swipe or step the tale; once rated the keys go back to the viewer), "Average N from M ratings" and a mark on the track. The interactive module's poll table became a per-type table; values are whole numbers 0–100 as plain decimal strings. Review fixes: totals above 100, label-in-name on the emoji button, robust drag waits, multi-touch, no `:dir()`. Web SDK 28.02 KB gzip. Verification green except the clock-skew test.

@@ -14255,6 +14255,276 @@ describe('Management API v1: projects and zones', () => {
         expect((await res.json()).error.code).toBe('forbidden');
       });
     });
+
+    describe('Ratings (epic interactive components, story 4.2)', () => {
+      const ratingId = '00000000-0000-4000-8000-0000000000dd';
+
+      function ratingElement(extra: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
+        return {
+          id: ratingId,
+          type: 'rating',
+          box: { x: 0.1, y: 0.7, w: 0.8, h: 0.2, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { question: 'How was the beach?', emoji: '❤️', theme: 'dark', ...props },
+          ...extra,
+        };
+      }
+
+      function rate(handle: string, taleId: string, value: unknown, visitor: string | null = visitorA) {
+        return respond(handle, { taleId, elementId: ratingId, value }, visitor);
+      }
+
+      async function newTale() {
+        const zone = await createZone();
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+        return (await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json()) as { id: string };
+      }
+
+      async function refusedAt(document: unknown): Promise<string> {
+        const tale = await newTale();
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error.code).toBe('invalid_tale_document');
+        return body.error.pointer;
+      }
+
+      it('saves a Rating beside a poll and reads it back', async () => {
+        const tale = await newTale();
+        const document = pollDoc([pollElement(), ratingElement({}, { title: 'Quick one' })]);
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document).toEqual(document);
+      });
+
+      it("refuses an emoji that is not one emoji (such as 'ab'), a second Rating, a line feed and an unknown prop", async () => {
+        expect(await refusedAt(pollDoc([ratingElement({}, { emoji: 'ab' })]))).toBe('/elements/0/props/emoji');
+        expect(await refusedAt(pollDoc([ratingElement({}, { emoji: '❤️❤️' })]))).toBe('/elements/0/props/emoji');
+        const second = { ...ratingElement({ hidden: true }), id: '00000000-0000-4000-8000-0000000000ee' };
+        expect(await refusedAt(pollDoc([ratingElement(), second]))).toBe('/elements/1/type');
+        expect(await refusedAt(pollDoc([ratingElement({}, { question: 'How\nwas it?' })]))).toBe('/elements/0/props/question');
+        expect(await refusedAt(pollDoc([ratingElement({}, { value: 50 })]))).toBe('/elements/0/props/value');
+      });
+
+      it('records ratings once per visitor and answers the count and average', async () => {
+        const { tale, handle } = await livePoll([textElement(), ratingElement()]);
+        const first = await rate(handle, tale.id, '80');
+        expect(first.status).toBe(201);
+        expect(await first.json()).toEqual({ elementId: ratingId, value: '80', recorded: true, result: { total: 1, average: 80 } });
+        const second = await rate(handle, tale.id, '40', visitorB);
+        expect(second.status).toBe(201);
+        expect((await second.json()).result).toEqual({ total: 2, average: 60 });
+        // The first rating wins (C9).
+        const repeat = await rate(handle, tale.id, '0');
+        expect(repeat.status).toBe(200);
+        expect(await repeat.json()).toEqual({ elementId: ratingId, value: '80', recorded: false, result: { total: 2, average: 60 } });
+        expect((await rows()).map((r) => [r.elementType, r.interaction, r.value])).toEqual([
+          ['rating', 'rate', '80'],
+          ['rating', 'rate', '40'],
+        ]);
+        const counts = await (await fetch(`${base}/tales/${tale.id}/responses`)).json();
+        expect(counts.elements).toEqual([
+          { elementId: ratingId, elementType: 'rating', total: 2, values: [{ value: '40', count: 1 }, { value: '80', count: 1 }] },
+        ]);
+      });
+
+      it('refuses a value that is no whole number from 0 to 100', async () => {
+        const { tale, handle } = await livePoll([ratingElement()]);
+        for (const value of ['101', '-10', '080', '8.5', ' 80', '80 ', '1e2', '0x50', 'tea', '', 80, null]) {
+          const res = await rate(handle, tale.id, value);
+          expect(res.status).toBe(422);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+        expect(await rows()).toEqual([]);
+      });
+
+      it("checks each value against its own component: a poll's option id is no rating, a rating no option", async () => {
+        const { tale, handle } = await livePoll([pollElement(), ratingElement()]);
+        const optionToRating = await rate(handle, tale.id, 'tea');
+        expect(optionToRating.status).toBe(422);
+        expect((await optionToRating.json()).error.code).toBe('validation_failed');
+        const ratingToPoll = await vote(handle, tale.id, '80');
+        expect(ratingToPoll.status).toBe(422);
+        expect(await rows()).toEqual([]);
+        // Each takes its own kind of value, and counts apart.
+        expect((await vote(handle, tale.id, 'tea')).status).toBe(201);
+        const rated = await rate(handle, tale.id, '80');
+        expect(rated.status).toBe(201);
+        expect((await rated.json()).result).toEqual({ total: 1, average: 80 });
+      });
+    });
+
+    describe('quizzes (epic interactive components, story 4.3)', () => {
+      const quizId = '00000000-0000-4000-8000-0000000000cc';
+      const answers = [
+        { id: 'a', label: 'Mercury' },
+        { id: 'b', label: 'Venus' },
+        { id: 'c', label: 'Earth' },
+        { id: 'd', label: 'Mars' },
+      ];
+
+      function quizElement(extra: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
+        return {
+          id: quizId,
+          type: 'quiz',
+          box: { x: 0.1, y: 0.3, w: 0.8, h: 0.4, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { question: 'Which planet is hottest?', answers, correctAnswerId: 'b', theme: 'light', ...props },
+          ...extra,
+        };
+      }
+
+      function answer(handle: string, taleId: string, value: unknown, visitor: string | null = visitorA) {
+        return respond(handle, { taleId, elementId: quizId, value }, visitor);
+      }
+
+      async function newTale() {
+        const zone = await createZone();
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: 'Summer' })).json();
+        return (await (await post(`/tale-groups/${group.id}/tales`, { title: 'Beach' })).json()) as { id: string };
+      }
+
+      async function refusedAt(document: unknown): Promise<string> {
+        const tale = await newTale();
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error.code).toBe('invalid_tale_document');
+        return body.error.pointer;
+      }
+
+      it('saves a four-answer quiz with a correct answer beside a poll and a Rating, and a quiz without one', async () => {
+        const tale = await newTale();
+        const rating = {
+          id: '00000000-0000-4000-8000-0000000000dd',
+          type: 'rating',
+          box: { x: 0.1, y: 0.8, w: 0.8, h: 0.15, rotation: 0 },
+          hidden: false,
+          locked: false,
+          a11y: {},
+          props: { question: 'How was it?', emoji: '❤️', theme: 'dark' },
+        };
+        const document = pollDoc([pollElement(), rating, quizElement({}, { title: 'Space' })]);
+        const res = await saveDoc(tale.id, document, 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document).toEqual(document);
+        const survey = quizElement({}, { answers: answers.slice(0, 2) });
+        delete (survey.props as Record<string, unknown>)['correctAnswerId'];
+        const other = await newTale();
+        expect((await saveDoc(other.id, pollDoc([survey]), 0)).status).toBe(200);
+      });
+
+      it('keeps answer text in Unicode NFC, ids as they are', async () => {
+        const tale = await newTale();
+        const decomposed = [{ id: 'a', label: 'Café' }, answers[1]];
+        const res = await saveDoc(tale.id, pollDoc([quizElement({}, { answers: decomposed, correctAnswerId: 'a' })]), 0);
+        expect(res.status).toBe(200);
+        expect((await res.json()).document.elements[0].props.answers).toEqual([{ id: 'a', label: 'Café' }, answers[1]]);
+      });
+
+      it('refuses five answers, a correct id that is not an answer, repeated ids, a second quiz and a line feed', async () => {
+        const five = [...answers, { id: 'e', label: 'Jupiter' }];
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: five })]))).toBe('/elements/0/props/answers');
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: answers.slice(0, 1), correctAnswerId: 'a' })]))).toBe(
+          '/elements/0/props/answers',
+        );
+        expect(await refusedAt(pollDoc([quizElement({}, { correctAnswerId: 'e' })]))).toBe('/elements/0/props/correctAnswerId');
+        const repeated = [answers[0], { ...answers[1], id: 'a' }];
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: repeated, correctAnswerId: 'a' })]))).toBe(
+          '/elements/0/props/answers/1/id',
+        );
+        const second = { ...quizElement({ hidden: true }), id: '00000000-0000-4000-8000-0000000000ee' };
+        expect(await refusedAt(pollDoc([quizElement(), second]))).toBe('/elements/1/type');
+        const lineFeed = [answers[0], { id: 'b', label: 'Ve\nnus' }];
+        expect(await refusedAt(pollDoc([quizElement({}, { answers: lineFeed })]))).toBe('/elements/0/props/answers/1/label');
+        expect(await refusedAt(pollDoc([quizElement({}, { correct: 'b' })]))).toBe('/elements/0/props/correct');
+      });
+
+      it('records answers once per visitor and answers the counts per answer, without saying which is right', async () => {
+        const { tale, handle } = await livePoll([textElement(), quizElement()]);
+        const first = await answer(handle, tale.id, 'c');
+        expect(first.status).toBe(201);
+        const body = await first.json();
+        expect(body).toEqual({
+          elementId: quizId,
+          value: 'c',
+          recorded: true,
+          result: {
+            total: 1,
+            choices: [
+              { id: 'a', count: 0, percent: 0 },
+              { id: 'b', count: 0, percent: 0 },
+              { id: 'c', count: 1, percent: 100 },
+              { id: 'd', count: 0, percent: 0 },
+            ],
+          },
+        });
+        expect(JSON.stringify(body)).not.toContain('correct');
+        expect((await answer(handle, tale.id, 'b', visitorB)).status).toBe(201);
+        // The first answer wins (C9).
+        const repeat = await answer(handle, tale.id, 'b');
+        expect(repeat.status).toBe(200);
+        const again = await repeat.json();
+        expect(again.value).toBe('c');
+        expect(again.recorded).toBe(false);
+        expect(again.result.choices.map((c: { percent: number }) => c.percent)).toEqual([0, 50, 50, 0]);
+        expect((await rows()).map((r) => [r.elementType, r.interaction, r.value])).toEqual([
+          ['quiz', 'answer', 'c'],
+          ['quiz', 'answer', 'b'],
+        ]);
+      });
+
+      it("refuses a value that is none of the published quiz's answer ids", async () => {
+        const { tale, handle } = await livePoll([pollElement(), quizElement()]);
+        for (const value of ['e', 'tea', 'Venus', 'B', '80', '', 2, null]) {
+          const res = await answer(handle, tale.id, value);
+          expect(res.status).toBe(422);
+          expect((await res.json()).error.code).toBe('validation_failed');
+        }
+        expect(await rows()).toEqual([]);
+      });
+
+      it("refuses a real option id of the tale's poll posted to its quiz, and records it for neither", async () => {
+        const { tale, handle } = await livePoll([pollElement(), quizElement()]);
+        const res = await answer(handle, tale.id, 'coffee');
+        expect(res.status).toBe(422);
+        expect((await res.json()).error.code).toBe('validation_failed');
+        expect(await rows()).toEqual([]);
+        // The same id is a vote on the poll itself.
+        expect((await vote(handle, tale.id, 'coffee')).status).toBe(201);
+      });
+
+      it('checks answers against the published quiz: a removed answer is refused and its count left out', async () => {
+        const { tale, handle } = await livePoll([quizElement()]);
+        expect((await answer(handle, tale.id, 'd')).status).toBe(201);
+        expect((await answer(handle, tale.id, 'b', visitorB)).status).toBe(201);
+        // Answer D is removed and B's text edited, then the tale is updated again.
+        const edited = [answers[0], { id: 'b', label: 'Venus, second' }, answers[2]];
+        expect((await saveDoc(tale.id, pollDoc([quizElement({}, { answers: edited })]), 1)).status).toBe(200);
+        expect((await post(`/tales/${tale.id}/document/publish`, { revision: 2, publishedRevision: 1 })).status).toBe(200);
+        const visitorC = '33333333-3333-4333-8333-333333333333';
+        expect((await answer(handle, tale.id, 'd', visitorC)).status).toBe(422);
+        const res = await answer(handle, tale.id, 'b', visitorC);
+        expect(res.status).toBe(201);
+        expect((await res.json()).result).toEqual({
+          total: 2,
+          choices: [
+            { id: 'a', count: 0, percent: 0 },
+            { id: 'b', count: 2, percent: 100 },
+            { id: 'c', count: 0, percent: 0 },
+          ],
+        });
+        // The studio reads every stored value; its panel lists only the answers the draft holds now.
+        const counts = await (await fetch(`${base}/tales/${tale.id}/responses`)).json();
+        expect(counts.elements).toEqual([
+          { elementId: quizId, elementType: 'quiz', total: 3, values: [{ value: 'b', count: 2 }, { value: 'd', count: 1 }] },
+        ]);
+      });
+    });
   });
 
   describe('auth', () => {

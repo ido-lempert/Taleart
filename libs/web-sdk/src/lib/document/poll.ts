@@ -1,11 +1,12 @@
-import type { ChoiceResult, DeliveryTaleElement } from '@taleart/contract';
+import type { ChoiceResult, DeliveryTaleElement, ResponseResult } from '@taleart/contract';
 import type { StoredResponse } from '../responses';
 import type { RenderContext } from './media';
 
 /**
- * A poll's look (epic interactive components R2, R10): a card in the theme's colours, the options
- * as buttons that fill with their share once the visitor voted. Only the card takes pointer events,
- * so a tap on it never reaches the viewer's tap zones (C7).
+ * The look of a choice card, a poll's (epic interactive components R2, R10) and a quiz's (R3): a
+ * card in the theme's colours, the choices as buttons that fill with their share once the visitor
+ * answered. A quiz's right and wrong marks are a glyph and a colour on the button, never colour
+ * alone. Only the card takes pointer events, so a tap on it never reaches the viewer's tap zones (C7).
  */
 export const POLL_STYLES = `
 .ta-poll {
@@ -54,128 +55,195 @@ export const POLL_STYLES = `
 .ta-poll-mine { border-width: 0.5cqh; }
 .ta-poll-mine .ta-poll-fill { opacity: 0.4; }
 @media (forced-colors: active) { .ta-poll-opt { border-color: ButtonText; } .ta-poll-fill { background: Highlight; } }
+.ta-quiz-mark { position: relative; font-weight: 800; }
+.ta-poll-light .ta-quiz-right { --ta-mark: #065f46; }
+.ta-poll-light .ta-quiz-wrong { --ta-mark: #991b1b; }
+.ta-poll-dark .ta-quiz-right { --ta-mark: #6ee7b7; }
+.ta-poll-dark .ta-quiz-wrong { --ta-mark: #fca5a5; }
+.ta-quiz-right, .ta-quiz-wrong { border-width: 0.5cqh; border-color: var(--ta-mark); }
+.ta-quiz-right .ta-quiz-mark, .ta-quiz-wrong .ta-quiz-mark { color: var(--ta-mark); }
+.ta-quiz-right .ta-poll-fill, .ta-quiz-wrong .ta-poll-fill { opacity: 0.22; }
 `;
 
-interface PollOption {
+/** One choice of a choice card: a poll's option or a quiz's answer. */
+export interface Choice {
   id: string;
   label: string;
 }
 
-// The poll's options as the server checked them: two, each with an id and a label; the SDK checks again.
-function pollOptions(props: unknown): PollOption[] | null {
-  const options = (props as { options?: unknown } | null)?.options;
-  if (!Array.isArray(options) || options.length < 2) return null;
-  const valid = options.filter(
-    (o: Partial<PollOption> | null): o is PollOption =>
-      typeof o?.id === 'string' && typeof o.label === 'string' && o.label.trim() !== '',
-  );
-  return valid.length === options.length ? valid : null;
+/** What a choice card says, in its kind's words. */
+export interface ChoiceWords {
+  /** The start of the result, such as "You voted Tea." */
+  chose(label: string): string;
+  /** What a press in the Tale Studio preview says, after the choice. */
+  preview: string;
+  /** The choice in the preview, when it is worded otherwise than {@link ChoiceWords.chose}. */
+  previewChose?(label: string): string;
+  /** What a failed post says. */
+  failed: string;
 }
 
-function text(tag: string, className: string, value: string): HTMLElement {
+const POLL_WORDS: ChoiceWords = {
+  chose: (label) => `You voted ${label}.`,
+  preview: 'Votes are not recorded in the preview.',
+  previewChose: (label) => `You chose ${label}.`,
+  failed: 'Your vote could not be sent. Try again.',
+};
+
+/**
+ * The choices in `prop` as the server checked them: `min` to `max` of them, each with its own id and
+ * a label that shows; the SDK checks again. Null for anything else.
+ */
+export function choicesOf(props: unknown, prop: string, min: number, max: number): Choice[] | null {
+  const choices = (props as Record<string, unknown> | null)?.[prop];
+  if (!Array.isArray(choices) || choices.length < min || choices.length > max) return null;
+  const valid = choices.filter(
+    (c: Partial<Choice> | null): c is Choice => typeof c?.id === 'string' && typeof c.label === 'string' && c.label.trim() !== '',
+  );
+  return valid.length === choices.length && new Set(valid.map((c) => c.id)).size === valid.length ? valid : null;
+}
+
+/** An element of `tag` and `className` holding `value` as a text node (AD-16). */
+export function text(tag: string, className: string, value: string): HTMLElement {
   const node = document.createElement(tag);
   node.className = className;
   node.textContent = value;
   return node;
 }
 
-/** What the live region says once the result shows: the visitor's choice, then each share. */
-export function resultMessage(options: readonly PollOption[], response: StoredResponse): string {
-  const mine = options.find((o) => o.id === response.value);
-  const shares = options.map((o) => `${o.label} ${percentOf(response.result, o.id)}%`).join(', ');
-  return `${mine ? `You voted ${mine.label}. ` : ''}${shares}`;
+/**
+ * What the live region says once the result shows: the visitor's choice in the card's words (a
+ * poll's by default), then each share.
+ */
+export function resultMessage(choices: readonly Choice[], response: StoredResponse, words: Pick<ChoiceWords, 'chose'> = POLL_WORDS): string {
+  const mine = choices.find((o) => o.id === response.value);
+  return saying(mine ? words.chose(mine.label) : '', choices, response.result);
 }
 
-function percentOf(result: ChoiceResult, id: string): number {
-  const percent = result.choices.find((c) => c.id === id)?.percent;
+// `start`, then each choice's share.
+function saying(start: string, choices: readonly Choice[], result: ResponseResult): string {
+  const shares = choices.map((o) => `${o.label} ${percentOf(result, o.id)}%`).join(', ');
+  return start ? `${start} ${shares}` : shares;
+}
+
+// The choice's share; 0 for a result that is no choice result (never a poll's or a quiz's).
+function percentOf(result: ResponseResult, id: string): number {
+  const percent = (result as Partial<ChoiceResult>).choices?.find((c) => c.id === id)?.percent;
   return typeof percent === 'number' && Number.isFinite(percent) ? Math.min(100, Math.max(0, Math.round(percent))) : 0;
 }
 
+/** How a card is drawn: its choices, its words, and how a chosen answer is marked (a quiz's). */
+export interface ChoiceCard {
+  choices: readonly Choice[];
+  words: ChoiceWords;
+  /**
+   * Marks the buttons once answered (a quiz's right and wrong); the start of what the live region
+   * says, in place of {@link ChoiceWords.chose}. None for a poll.
+   */
+  mark?(value: string, button: (id: string) => HTMLButtonElement | undefined): string | undefined;
+}
+
 /**
- * A poll (epic interactive components R2, R10; AD-16): a group named by its question, holding its
- * title and question as text nodes and one button per option. Pressing an option, by pointer or by
- * keyboard, posts the vote through the context's response client; the poll then shows each
- * option's percentage with the visitor's choice marked, announces the result in a polite live
- * region, and takes no second vote. A vote this device made before shows at once, as kept (C11).
- * Without a response client (the Tale Studio preview) a press marks the choice and records nothing.
- * Colours come from its theme and widths through CSSOM only. Null for props it cannot draw.
+ * A choice card (epic interactive components R2, R3, R10; AD-16): a group named by its question,
+ * holding its title and question as text nodes and one button per choice. Pressing a choice, by
+ * pointer or by keyboard, posts it through the context's response client; the card then shows each
+ * choice's percentage with the visitor's choice pressed (and a quiz's marks), announces the result
+ * in a polite live region, and takes no second answer. An answer this device made before shows at
+ * once, as kept (C11). Without a response client (the Tale Studio preview) a press marks the choice
+ * and records nothing. Colours come from its theme and widths through CSSOM only.
  */
-export function renderPoll(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
-  const props = element.props as { question?: unknown; title?: unknown; theme?: unknown };
-  const options = pollOptions(element.props);
-  const question = typeof props.question === 'string' ? props.question.trim() : '';
-  if (!options || !question) return null;
-  const card = document.createElement('div');
-  card.className = `ta-el ta-poll ta-interactive ta-poll-${props.theme === 'dark' ? 'dark' : 'light'}`;
-  card.setAttribute('role', 'group');
-  card.setAttribute('aria-label', question);
-  if (typeof props.title === 'string' && props.title.trim()) card.appendChild(text('p', 'ta-poll-title', props.title));
-  card.appendChild(text('p', 'ta-poll-q', question));
+export function renderChoiceCard(element: DeliveryTaleElement, context: RenderContext, card: ChoiceCard, question: string): HTMLElement {
+  const props = element.props as { title?: unknown; theme?: unknown };
+  const { choices, words } = card;
+  const root = document.createElement('div');
+  root.className = `ta-el ta-poll ta-interactive ta-poll-${props.theme === 'dark' ? 'dark' : 'light'}`;
+  root.setAttribute('role', 'group');
+  root.setAttribute('aria-label', question);
+  if (typeof props.title === 'string' && props.title.trim()) root.appendChild(text('p', 'ta-poll-title', props.title));
+  root.appendChild(text('p', 'ta-poll-q', question));
   const live = text('p', 'ta-sr', '');
   live.setAttribute('aria-live', 'polite');
 
-  const buttons = options.map((option) => {
+  const buttons = choices.map((choice) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'ta-poll-opt';
     const fill = text('span', 'ta-poll-fill', '');
     fill.setAttribute('aria-hidden', 'true');
-    button.append(fill, text('span', 'ta-poll-label', option.label));
-    card.appendChild(button);
-    return { option, button, fill };
+    button.append(fill, text('span', 'ta-poll-label', choice.label));
+    root.appendChild(button);
+    return { choice, button, fill };
   });
-  card.appendChild(live);
+  root.appendChild(live);
+  // A tap anywhere on the card (its question, its padding) is the card's: it never steps the tale (C7).
+  root.addEventListener('click', (e) => e.stopPropagation());
+  const buttonOf = (id: string) => buttons.find((b) => b.choice.id === id)?.button;
 
   const responses = context.responses;
   let answered = false;
   let busy = false;
 
-  // Marks the visitor's choice and, with a result, every option's share; no further vote.
-  const show = (value: string, result: ChoiceResult | null) => {
+  // Presses the visitor's choice, marks it (a quiz) and, with a result, shows every choice's share;
+  // no further answer. Answers the start of what the live region says.
+  // `chose` words the visitor's choice when the card has no marks of its own.
+  const show = (value: string, result: ResponseResult | null, chose = words.chose): string => {
     answered = true;
-    for (const { option, button, fill } of buttons) {
-      const mine = option.id === value;
+    for (const { choice, button, fill } of buttons) {
+      const mine = choice.id === value;
       button.classList.toggle('ta-poll-mine', mine);
       button.setAttribute('aria-pressed', String(mine));
       button.setAttribute('aria-disabled', 'true');
       button.querySelector('.ta-poll-pct')?.remove();
       if (result) {
-        const percent = percentOf(result, option.id);
+        const percent = percentOf(result, choice.id);
         button.appendChild(text('span', 'ta-poll-pct', `${percent}%`));
         fill.style.width = `${percent}%`;
       }
     }
+    const mine = choices.find((c) => c.id === value);
+    return card.mark?.(value, buttonOf) ?? (mine ? chose(mine.label) : '');
   };
 
   const kept = responses?.client.stored(responses.taleId, element.id) ?? null;
   if (kept) show(kept.value, kept.result);
 
-  for (const { option, button } of buttons) {
+  for (const { choice, button } of buttons) {
     button.addEventListener('click', (e) => {
-      // A press on the poll is the poll's: it never steps the tale (C7).
+      // A press on the card is the card's: it never steps the tale (C7).
       e.stopPropagation();
       if (answered || busy) return;
       if (!responses) {
-        show(option.id, null);
-        live.textContent = `You chose ${option.label}. Votes are not recorded in the preview.`;
+        const start = show(choice.id, null, words.previewChose);
+        live.textContent = start ? `${start} ${words.preview}` : words.preview;
         return;
       }
       busy = true;
-      card.setAttribute('aria-busy', 'true');
+      root.setAttribute('aria-busy', 'true');
       responses.client
-        .send(responses.taleId, element.id, option.id)
+        .send(responses.taleId, element.id, choice.id)
         .then((response) => {
-          show(response.value, response.result);
-          live.textContent = resultMessage(options, response);
+          live.textContent = saying(show(response.value, response.result), choices, response.result);
         })
         .catch(() => {
-          live.textContent = 'Your vote could not be sent. Try again.';
+          live.textContent = words.failed;
         })
         .finally(() => {
           busy = false;
-          card.removeAttribute('aria-busy');
+          root.removeAttribute('aria-busy');
         });
     });
   }
-  return card;
+  return root;
+}
+
+/**
+ * A poll (epic interactive components R2, R10; AD-16): a choice card of its two options, which
+ * shows their percentages once voted, with the vote marked. Null for props it cannot draw.
+ */
+export function renderPoll(element: DeliveryTaleElement, context: RenderContext): HTMLElement | null {
+  const props = element.props as { question?: unknown };
+  const options = choicesOf(element.props, 'options', 2, 2);
+  const question = typeof props.question === 'string' ? props.question.trim() : '';
+  if (!options || !question) return null;
+  return renderChoiceCard(element, context, { choices: options, words: POLL_WORDS }, question);
 }
