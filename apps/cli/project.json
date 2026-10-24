@@ -1,0 +1,28 @@
+{
+  "name": "cli",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/cli/src",
+  "projectType": "application",
+  "tags": ["type:app", "scope:cli"],
+  "// targets": "build (inferred from webpack.config.js) writes dist/apps/cli/taleart.js, one executable file with a #!/usr/bin/env node line, and its package.json (bin taleart). test runs the unit tests and src/cli.integration.spec.ts, which starts the built API on a free port and a database derived from TEST_DATABASE_URL (<name>_cli_test, dropped and created) and runs the built CLI against it.",
+  "targets": {
+    "build": {
+      "inputs": [
+        "production",
+        "^production",
+        {
+          "externalDependencies": ["webpack-cli"]
+        }
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "build",
+        {
+          "projects": ["api"],
+          "target": "build"
+        }
+      ]
+    }
+  }
+}
