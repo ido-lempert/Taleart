@@ -56,12 +56,21 @@ function keysOf(doc) {
 }
 
 const pool = new pg.Pool({ connectionString: url, max: 2 });
+// A session the database ends (a restart, a terminated backend) makes pg emit `error`: on the pool
+// for an idle client, on the client while it is checked out. Without listeners Node would exit
+// mid-batch; with them the batch fails, rolls back and the script stops with the error.
+pool.on('error', (err) => console.error(`Idle database connection failed: ${err.message}`));
 const FLAGGED = JSON.stringify({ elements: [{ props: { taleMedia: true } }] });
 const counts = { tales: 0, nulled: 0, mediaChanged: 0 };
 try {
   let after = '00000000-0000-0000-0000-000000000000';
   for (;;) {
     const client = await pool.connect();
+    let lost = null;
+    const onError = (err) => {
+      lost ??= err;
+    };
+    client.on('error', onError);
     let last = null;
     try {
       // A dry run only reads: no transaction, no row locks.
@@ -118,10 +127,12 @@ try {
       }
       if (apply) await client.query('COMMIT');
     } catch (err) {
-      if (apply) await client.query('ROLLBACK').catch(() => undefined);
-      throw err;
+      if (apply && !lost) await client.query('ROLLBACK').catch(() => undefined);
+      throw lost ?? err;
     } finally {
-      client.release();
+      client.off('error', onError);
+      // A client whose session ended is dropped from the pool.
+      client.release(lost ?? undefined);
     }
     if (last === null) break;
     after = last;

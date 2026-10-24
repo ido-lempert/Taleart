@@ -1,4 +1,4 @@
-import { migrateAccess } from '@taleart/server-access';
+import { migrateAccess, withClient } from '@taleart/server-access';
 import { migrateImporter } from '@taleart/server-importer';
 import { migrateInteractive } from '@taleart/server-interactive';
 import { copyZonePlacements, migrateTales, setTaleMediaDocumentsEnabled } from '@taleart/server-tales';
@@ -85,22 +85,21 @@ export function taleMediaMigrationEnabled(env: NodeJS.ProcessEnv = process.env):
 // migration lock. Safe to run on every start.
 export async function migrate(pool: Pool): Promise<void> {
   setTaleMediaDocumentsEnabled(taleMediaMigrationEnabled());
-  const client = await pool.connect();
-  let failed: Error | undefined;
-  try {
-    await client.query(MIGRATION_LOCK_SQL);
-    try {
-      for (const migration of migrations) {
-        await migration.run(client);
+  // withClient: a session the database ends while migrations run (a restart, a terminated backend)
+  // fails `migrate` with its error, and the API does not start, rather than pg crashing the process.
+  // The migration lock goes with that session. A connection whose work or unlock failed is dropped.
+  await withClient(
+    pool,
+    async (client) => {
+      await client.query(MIGRATION_LOCK_SQL);
+      try {
+        for (const migration of migrations) {
+          await migration.run(client);
+        }
+      } finally {
+        if (!client.lost()) await client.query(MIGRATION_UNLOCK_SQL);
       }
-    } finally {
-      await client.query(MIGRATION_UNLOCK_SQL);
-    }
-  } catch (err) {
-    failed = err as Error;
-    throw err;
-  } finally {
-    // A connection whose unlock may have failed is not returned to the pool.
-    client.release(failed);
-  }
+    },
+    { discardOnError: true },
+  );
 }

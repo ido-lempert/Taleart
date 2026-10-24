@@ -119,6 +119,7 @@ export {
   withoutStaleTaleMedia,
   mergeTaleMedia,
   migrateTaleMediaDocuments,
+  MigrationLockLostError,
   setTaleMediaDocumentsEnabled,
   taleMediaDocument,
   taleMediaDocumentsEnabled,
