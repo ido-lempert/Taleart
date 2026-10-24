@@ -42,7 +42,7 @@ import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from '../skill-files';
     <h1 tabindex="-1">AI agents</h1>
     <p class="lede">
       The TaleArt skill teaches an AI agent, such as Claude Code, to manage your zones, tale groups, tales and targeting
-      with the <code>taleart</code> command-line tool, safely and with your token kept out of sight.
+      with the <code>taleart</code> command-line tool, and tells it how to handle your API token.
     </p>
 
     <h2>What the skill does</h2>
@@ -71,22 +71,40 @@ import { SKILL_DOWNLOAD_BASE, SKILL_FILES } from '../skill-files';
         you to paste it into the chat. The CLI shows only its prefix (<code>tat_</code> and 6 characters).
       </li>
       <li>
+        Never run commands that print the environment (<code>env</code>, <code>printenv</code>, <code>set</code>),
+        never read the CLI's config file or a token file, and check access only with
+        <code>taleart whoami --json</code> or <code>taleart config show --json</code>.
+      </li>
+      <li>
         <strong>Ask before anything destructive</strong>: rotating or revoking the site key, deleting a tale or a user
         list, changing a zone's slug. It adds <code>--yes</code> only after you agree; without it the CLI refuses
         (exit 10) and changes nothing.
       </li>
       <li>Use a read-only token, or only read commands, for tasks that only read.</li>
-      <li>Run no more commands than the task needs, and never retry a refused change blindly.</li>
       <li>
-        Keep external user IDs out of URLs, commands and its replies: they go only into the CSV file you give it, and
-        TaleArt keeps only keyed hashes of them.
+        Also ask before changes the CLI does not call destructive but you may not expect: clearing a group's tags or
+        user lists, turning a group On where the zone is already installed, replacing a tale's media, changing the
+        default project.
+      </li>
+      <li>Run no more commands than the task needs, and stop and ask you after two failed tries at the same step.</li>
+      <li>
+        Keep external user IDs out of URLs, commands and its replies: they go only into the CSV file you give it,
+        which it never reads (it asks you whether the first row is a header), and TaleArt keeps only keyed hashes of
+        them.
       </li>
       <li>Hand you a new site key once, and never write it to a file unless you ask.</li>
     </ul>
-    <p class="note">
-      These are instructions to the agent, not a lock. The real limits are the token's: its projects, read-only or
-      not, and your role. Give an agent the narrowest <a routerLink="/api-tokens">API token</a> that does the job.
-    </p>
+    <div class="note">
+      <p>
+        <strong>These are instructions to the agent, not a lock.</strong> The agent runs with your environment and
+        your files, so it can reach the token it uses: the skill tells it not to look, but nothing stops it. The real
+        limits are the token's: its projects, read-only or not, its expiry, and your role.
+      </p>
+      <p>
+        Give an agent the narrowest <a routerLink="/api-tokens">API token</a> that does the job, with an expiry, and
+        revoke it when you are done.
+      </p>
+    </div>
 
     <h2>Install it</h2>
     <p>With the <code>taleart</code> command-line tool, in one line:</p>
@@ -135,8 +153,8 @@ read -rs TALEART_TOKEN &amp;&amp; export TALEART_TOKEN   # paste the token; it i
 
     <h2>An example session</h2>
     <p>
-      The story's own test, done by following the skill against a test API (answers shortened; the site key is
-      redacted, and the token never appears):
+      The skill's main recipe, run through the CLI against a test API (answers shortened; the site key is redacted,
+      and the token never appears):
     </p>
     <ol class="session">
       @for (turn of session; track $index) {

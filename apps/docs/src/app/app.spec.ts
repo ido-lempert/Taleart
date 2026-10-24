@@ -84,7 +84,21 @@ describe('docs app', () => {
     // The session: every turn, its commands, and no credential.
     for (const turn of AGENT_SESSION) expect(text).toContain(turn.text);
     expect(text).toContain('$ taleart groups on Summer --project "Shop" --json');
-    expect(text).not.toMatch(/tat_[A-Za-z0-9_-]{7,}|tas_[A-Za-z0-9_-]{7,}(?!…\[REDACTED\])/);
+    // Every token or site key on the page is at most a display prefix (tat_ or tas_ and 6 characters):
+    // the whole base64url run after the prefix is counted, so a full key cannot slip past.
+    const credentials = [...text.matchAll(/\b(tat|tas)_([A-Za-z0-9_-]*)/g)];
+    expect(credentials.length).toBeGreaterThan(3);
+    expect(credentials.filter((m) => m[2].length > 6).map((m) => m[0])).toEqual([]);
+    for (const m of text.matchAll(/\btas_[A-Za-z0-9_-]{6}(?=…)/g)) {
+      expect(text.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 11)).toBe('…[REDACTED]');
+    }
+  });
+
+  it('loads AI agents, with the skill text, only on demand', () => {
+    const page = DOCS_PAGES.find((p) => p.path === 'ai-agents');
+    expect(page?.loadComponent).toBeDefined();
+    expect(page?.component).toBeUndefined();
+    expect(DOCS_PAGES.filter((p) => p.loadComponent).map((p) => p.path)).toEqual(['ai-agents']);
   });
 
   it('links AI agents from API tokens and API reference', async () => {

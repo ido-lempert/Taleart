@@ -24,6 +24,15 @@ The token lives in the environment (`TALEART_TOKEN`) or in the config file writt
 `--token`, and never ask the user to paste it into the chat.** The CLI only ever shows its prefix
 (`tat_` and 6 characters).
 
+You run with the user's environment, so the token is within reach: keep it that way, unread.
+
+- Never run `env`, `printenv`, `set`, `export -p`, `declare -x` or `set -x`, and never
+  `echo $TALEART_TOKEN` (or any command that expands it).
+- Never read, `cat`, open or search the CLI's config file (`taleart config path` names it) or any
+  file that holds a token.
+- To know what is in use, run `taleart whoami --json` or `taleart config show --json`: they show
+  where the URL and token come from and the token's prefix, never the token.
+
 ## Operating rules
 
 1. **Always pass `--json`** and parse stdout: it holds exactly one JSON document, the API's answer
@@ -42,18 +51,24 @@ The token lives in the environment (`TALEART_TOKEN`) or in the config file writt
    `zones update --slug`), tell the user exactly what it will do and what breaks, and wait for a clear
    yes. Only then add `--yes`. Never add `--yes` on your own. Without it the CLI stops with exit 10 and
    changes nothing.
-6. **Confirm other changes that are hard to undo** or reach live viewers (turning a group On in a zone
-   that is already installed, clearing a group's tags or audience) when the user did not ask for them
-   in so many words.
+6. **Confirm these too**, although the CLI does not flag them destructive, unless the user asked for
+   exactly that change: `groups audience --clear` and `groups tags --clear` (the group then shows to
+   more viewers), `groups on` when the group would go live in a zone that is installed (the project
+   has a site key), `tales media` (replaces a tale's image or video), and `projects use` (changes the
+   default project in the user's config file).
 7. **Run no more than needed.** No exploratory writes, no test objects, no retries of a write that
    failed with exit 4, 6 or 7 without changing something first. A read is fine to repeat.
-8. **Pick the project explicitly.** Pass `--project <id|name>` (or rely on `defaultProject` when the
+8. **Two strikes, then stop.** If the same step fails twice (two non-zero exits, whatever you changed
+   in between), stop: report the command, the exit codes and the error messages, and ask the user how
+   to go on. Do not try a third variation.
+9. **Pick the project explicitly.** Pass `--project <id|name>` (or rely on `defaultProject` when the
    user means it). Names must be exact for destructive commands.
-9. **Report what changed:** for each object created or changed, its kind, name or slug, id, status
-   (On/Off, Shown/Hidden) and whether it is visible on the site (`visibility.visible`, or the reason
-   codes). Say what you did not do and why.
-10. **Privacy.** External user IDs go only into a CSV file given to `user-lists upload`; never put
-    them in a URL, a command argument, a log or your report. TaleArt stores only keyed hashes and
+10. **Report what changed:** for each object created or changed, its kind, name or slug, id, status
+    (On/Off, Shown/Hidden) and whether it is visible on the site (`visibility.visible`, or the reason
+    codes). Say what you did not do and why.
+11. **Privacy.** External user IDs go only into a CSV file given to `user-lists upload`; never put
+    them in a URL, a command argument, a log or your report. Never open, print, count by value or
+    summarise such a CSV: ask the user whether its first row is a header. TaleArt stores only keyed hashes and
     reports counts. A site key (`tas_...`) is shown once: give it to the user, never write it to a file
     unless they ask.
 

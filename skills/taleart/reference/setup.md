@@ -60,6 +60,15 @@ taleart login --url https://taleart.example.com --token-stdin < token.txt
 in the chat. If the user pastes a token into the chat anyway, do not repeat it; suggest they revoke it
 and create another.
 
+An agent runs with the user's environment, so `TALEART_TOKEN` is within its reach. Keep it unread:
+
+- Never run `env`, `printenv`, `set`, `export -p`, `declare -x` or `set -x` (they print every
+  variable, the token included), and never `echo $TALEART_TOKEN` or expand it in any command.
+- Never read, `cat`, open, copy or search the CLI's config file (`taleart config path` says where it
+  is) or any file that holds a token (such as `token.txt` above).
+- To see what is set, use `taleart whoami --json` or `taleart config show --json`: they name the
+  source of the URL and the token (`env` or `config`) and show the token's prefix only.
+
 Check:
 
 ```bash

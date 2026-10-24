@@ -53,6 +53,8 @@ taleart groups get Summer --project "Shop" --json
 - Without `--zone`, the group belongs to the project and is placed nowhere: place it with
   `taleart groups place Summer --zone home-top --project "Shop" --json`.
 - `groups on` warns (stderr `warnings`) when the group has no tales or no zone: pass that on.
+- When the project already has a site key, `groups on` puts the group live on the site at once. The
+  user asked for it here; when a task did not say "turn it On", ask first.
 - Check `visibility` in the `groups get` answer; see recipe 5 when it is false.
 - Hide one tale without deleting it: `taleart tales hide <tale id> --json` (`tales show` to undo).
 
@@ -72,8 +74,10 @@ taleart groups tags Summer --tag vip --tag beta --match all --project "Shop" --j
 
 ## 4. A user list from a CSV, and a group targeted to it
 
-The CSV holds one external user ID per row (a single column). Do not open, print or summarise its
-values; count rows at most.
+The CSV holds one external user ID per row (a single column). **Never read its values**: do not
+open, `cat`, `head`, print, count by value or summarise it. Ask the user whether its first row is a
+header (a column name such as `user_id`) and pass `--header` only if they say yes; the upload report
+then gives the counts.
 
 ```bash
 taleart user-lists create --name VIPs --project "Shop" --json
@@ -82,7 +86,9 @@ taleart groups audience Summer --list VIPs --project "Shop" --json
 taleart groups get Summer --project "Shop" --json
 ```
 
-- `--header` skips a first row that is a header; leave it out when the first row is an ID.
+- `--header` skips the first row, as the user answered; leave it out when they say the first row is
+  an ID. If the user does not know, upload without `--header`: a header row is then one extra ID (or
+  a refused row), which they can judge from the counts.
 - The upload is all or nothing: refused rows are reported by line number, never by value. Report
   `added`, `alreadyPresent`, `refused` and `idCount`; warn when `emailLike` or `phoneLike` is above 0.
 - `groups audience` sets the group's whole set of user lists (`--list` again for more). The group then
