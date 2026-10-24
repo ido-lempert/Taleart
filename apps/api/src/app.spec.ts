@@ -15191,6 +15191,42 @@ describe('Management API v1: API tokens for scripts (epic developer experience 1
     expect((await bearer('GET', `/zones/${zoneA}/tale-groups`, token)).status).toBe(403);
   });
 
+  it('GET /api-tokens/current answers the token and its user, to a token only (story 10.3)', async () => {
+    const a = await project('Acme');
+    const scoped = await createToken({ name: 'CI reader', projectIds: [a], readOnly: true });
+    const res = await bearer('GET', '/api-tokens/current', scoped.token);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = await res.json();
+    expect(body).toMatchObject({
+      id: scoped.id,
+      name: 'CI reader',
+      prefix: scoped.prefix,
+      readOnly: true,
+      allProjects: false,
+      projectIds: [a],
+      expiresAt: null,
+      user: { id: adminId, name: 'Ada Admin', email: 'ada@example.com', role: 'admin' },
+    });
+    expect(JSON.stringify(body)).not.toContain(scoped.token);
+
+    const all = await createToken({ name: 'Writer', projectIds: null, readOnly: false });
+    expect(await (await bearer('GET', '/api-tokens/current', all.token)).json()).toMatchObject({
+      id: all.id,
+      allProjects: true,
+      projectIds: null,
+      readOnly: false,
+    });
+
+    // A session has no token.
+    const fromSession = await session('GET', '/api-tokens/current');
+    expect(fromSession.status).toBe(403);
+    expect((await fromSession.json()).error).toMatchObject({ code: 'forbidden', message: expect.stringContaining('Only an API token') });
+    // A revoked token is refused like any other request.
+    expect((await session('DELETE', `/api-tokens/${all.id}`)).status).toBe(204);
+    expect((await bearer('GET', '/api-tokens/current', all.token)).status).toBe(401);
+  });
+
   it('a token can never create, list or revoke tokens, or use the auth routes', async () => {
     const { id, token } = await createToken({ projectIds: null, readOnly: false });
     for (const [method, path] of [
