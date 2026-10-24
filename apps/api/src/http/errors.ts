@@ -44,7 +44,16 @@ import {
   SiteKeyExistsError,
   SiteKeyNotFoundError,
 } from '@taleart/server-access';
-import { InvalidTagNameError, TagExistsError, TagNotFoundError } from '@taleart/server-targeting';
+import {
+  InvalidTagNameError,
+  InvalidUserListNameError,
+  TagExistsError,
+  TagNotFoundError,
+  UserListExistsError,
+  UserListLimitError,
+  UserListNotFoundError,
+  UserListProjectNotFoundError,
+} from '@taleart/server-targeting';
 import { another toolTokenInvalidError, another toolUnavailableError } from '@taleart/server-importer';
 import type express from 'express';
 
@@ -84,7 +93,9 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
     err instanceof SiteKeyNotFoundError ||
-    err instanceof FontNotFoundError
+    err instanceof FontNotFoundError ||
+    err instanceof UserListNotFoundError ||
+    err instanceof UserListProjectNotFoundError
   ) {
     res.status(404).json(errorBody(err.code, err.message));
     return;
@@ -112,6 +123,8 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof SetupClosedError ||
     err instanceof EmailTakenError ||
     err instanceof TagExistsError ||
+    err instanceof UserListExistsError ||
+    err instanceof UserListLimitError ||
     err instanceof SiteKeyExistsError ||
     err instanceof DisplayExistsError ||
     err instanceof DisplayConcurrentChangeError ||
@@ -138,6 +151,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof EmptyDisplayChangeError ||
     err instanceof UnknownTemplateError ||
     err instanceof InvalidTagNameError ||
+    err instanceof InvalidUserListNameError ||
     err instanceof TagNotFoundError ||
     err instanceof TaleGroupNotInProjectError ||
     err instanceof InvalidScheduleError ||

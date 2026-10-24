@@ -17,11 +17,16 @@ import {
 } from '@taleart/server-tales';
 import { loadFrameTypeRegistry } from '@taleart/server-zones';
 import { createApp, MANAGEMENT_API_BASE } from './app';
+import { USER_LIST_UPLOAD_DEADLINE_MS } from './http/user-lists.router';
 import { defaultSdkFiles, hasKeptBuilds, sdkBuildsFromEnv, webSdkFileFromEnv } from './http/sdk.router';
 import { relyingPartyFromEnv, secureCookiesFor } from './auth-config';
 import { createPool, DATABASE_CONNECTIONS_FOR_REQUESTS, databasePoolMax, migrate } from './db';
 import { configureTestElementTypes } from './element-types-config';
 import { ADDRESS_BACKSTOP_FACTOR, deliveryRateLimitFromEnv, trustProxyFromEnv } from './http/rate-limit';
+
+/** How long a request may take to arrive whole (server.requestTimeout); above every upload deadline. */
+const REQUEST_TIMEOUT_MS = 300_000;
+if (USER_LIST_UPLOAD_DEADLINE_MS >= REQUEST_TIMEOUT_MS) throw new Error('The user list upload deadline must be under the request timeout');
 
 // Structured JSON to stdout, one line per entry (spine logging convention).
 function log(level: 'info' | 'warn' | 'error', msg: string, err?: unknown): void {
@@ -168,6 +173,9 @@ async function start(): Promise<void> {
     log('info', `Delivery API at http://localhost:${port}${DELIVERY_API_BASE}`);
   });
   server.on('error', (err) => log('error', 'server error', err));
+  // A request must arrive whole within 300 s (Node's default, set here so it is not changed by
+  // accident): the user list upload's own deadline (USER_LIST_UPLOAD_DEADLINE_MS, 280 s) stays under it.
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
 
   // The start-up migration brings tales' media into their documents for at most 10 s (Tale Studio
   // R16); the rest is finished here, beside requests, by one process at a time, retried with backoff
