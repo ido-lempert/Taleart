@@ -1,21 +1,66 @@
-.studio-help {
+/* The tale menu (WAI-ARIA menu button) and the keyboard shortcuts panel, under the top bar's end. */
+.studio-menu {
   position: relative;
 }
-.studio-help__mark {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  font-weight: 700;
-  font-size: 12px;
+.studio-menu__button {
+  width: 32px;
+  padding: 0;
+}
+.studio-menu__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  padding: var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+}
+.studio-menu__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 32px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: var(--text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+.studio-menu__item:hover:not([aria-disabled='true']),
+.studio-menu__item:focus-visible {
+  background: var(--surface-sunken);
+}
+.studio-menu__item[aria-disabled='true'] {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.studio-menu__why {
+  font-size: var(--text-xs);
+}
+.studio-menu__line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+}
+.studio-help {
+  position: absolute;
+  top: 100%;
+  right: var(--space-3);
 }
 .studio-help__panel {
   position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 20;
+  top: 4px;
+  right: 0;
+  z-index: 30;
   width: min(420px, calc(100vw - 32px));
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
@@ -27,22 +72,39 @@
 .studio-help__panel[hidden] {
   display: none;
 }
-.studio-help__panel p {
-  margin: 0;
-}
-.studio {
+.studio-help__head {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-6);
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
 }
-.panel {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-width: 240px;
-  max-width: 420px;
+.studio-help__title {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.studio-help__close {
+  width: 32px;
+  padding: 0;
+}
+.studio-help__panel p + p {
+  margin-top: var(--space-2);
+}
+kbd {
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font: inherit;
+  font-size: var(--text-xs);
+}
+
+/* The canvas: the 9:16 stage at fit size on the workspace, 32 px of workspace on every side. */
+.workspace {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: auto;
+  background: var(--workspace);
+  container-type: size;
 }
 .row {
   display: flex;
@@ -53,13 +115,46 @@
   flex: 1;
   min-width: 100px;
 }
-.selected {
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
 textarea.input {
   min-height: 96px;
+  font: inherit;
   padding: var(--space-2) var(--space-3);
   resize: vertical;
+}
+.canvas {
+  position: relative;
+  flex: none;
+  width: min(calc(100cqw - 64px), calc((100cqh - 64px) * 9 / 16));
+  min-width: 120px;
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-raised);
+  container-type: size;
+  touch-action: none;
+  /* Its layers and guides stack inside it, under the menus. */
+  isolation: isolate;
+}
+.canvas:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+.canvas__hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 70%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: rgb(17 24 39 / 80%);
+  color: #fff;
+  font-size: var(--text-sm);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+@media (max-width: 1023.98px) {
+  .workspace {
+    height: clamp(420px, 75vh, 760px);
+  }
 }

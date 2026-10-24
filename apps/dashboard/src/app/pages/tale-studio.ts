@@ -18,6 +18,7 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import {
   ErrorCodes,
+  taleShownStatus,
   visibilityOf,
   visibilitySummary,
   type MediaKind,
@@ -103,7 +104,7 @@ import { TaleLayerMenu, type LayerMenuItem } from './tale-layer-menu';
 import { FIT_NAMES, STICKER_CONTENT_TYPES, TaleMediaPicker, TaleMediaStyle } from './tale-media';
 import { needsLinkUrl, TaleLinkStyle } from './tale-links';
 import {
-  addMenuRows,
+  addMenuGroups,
   applyChoiceEdit,
   STUDIO_TEST_ELEMENT_TYPES,
   studioElementTypes,
@@ -124,6 +125,15 @@ import {
   type TextView,
 } from './tale-canvas-view';
 import { TalePreviewPane } from './tale-preview';
+import {
+  LEFT_TABS,
+  menuKeyTarget,
+  nextRegionIndex,
+  STUDIO_REGIONS,
+  tabKeyTarget,
+  type LeftTab,
+  type StudioRegion,
+} from './tale-studio-regions';
 import {
   SHAPE_NAMES,
   TaleEmojiPicker,
@@ -205,6 +215,8 @@ interface OpenMenu {
 
 const LOCKED = 'This layer is locked. Unlock it in the layers list to move or edit it.';
 const PINNED = 'The swipe-up link is pinned to the bottom of the tale: it does not move.';
+const DUPLICATE_WHILE_UPDATING = 'Wait until the tale is updated, then duplicate it.';
+const DUPLICATE_WHILE_LOADING = 'The tale is still loading. Try again in a moment.';
 const REORDERED: Record<ReorderCommand, [string, string]> = {
   forward: ['brought forward', 'Already at the front'],
   backward: ['sent backward', 'Already at the back'],
@@ -268,8 +280,15 @@ function replacedMedia<P extends object>(props: P, mediaKey: string): P {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './tale-studio.html',
-  // The page's own layout, then the canvas and its layers (two files under the 4 kB style budget).
-  styleUrls: ['./tale-studio.css', './tale-studio-canvas.css'],
+  // The shell of five regions, its panels, the page's own controls, then the canvas and its layers
+  // (each file under the 4 kB style budget).
+  styleUrls: [
+    './tale-studio-shell.css',
+    './tale-studio-panels.css',
+    './tale-studio-inspector.css',
+    './tale-studio.css',
+    './tale-studio-canvas.css',
+  ],
 })
 export class TaleStudioPage implements OnChanges {
   protected readonly store = inject(DashboardStore);
@@ -412,8 +431,8 @@ export class TaleStudioPage implements OnChanges {
   /** The element types the studio offers, from the registry and each type's descriptor (R8). */
   protected readonly elementTypes = studioElementTypes({ testTypes: inject(STUDIO_TEST_ELEMENT_TYPES) });
   private readonly typesByKey = new Map(this.elementTypes.map((t) => [t.key, t]));
-  /** The Add menu's rows of entries, in registry order (R8). */
-  protected readonly addRows = addMenuRows(this.elementTypes);
+  /** The Add menu's entries as the Elements tab's named groups of tiles, in registry order (R8, story 11.1). */
+  protected readonly addGroups = addMenuGroups(this.elementTypes);
   /** The Add menu's limits the tale has reached, whose hints show under the menu. */
   protected readonly reachedLimits = computed(() =>
     this.elementTypes
@@ -569,36 +588,253 @@ export class TaleStudioPage implements OnChanges {
     return { link: ['/zones'], query: null, text: 'Back' };
   });
 
-  /** True while the keyboard shortcuts popover is open; closed when the studio opens. */
+  /** True while the keyboard shortcuts panel is open; closed when the studio opens. */
   protected readonly helpOpen = signal(false);
-  private readonly helpButton = viewChild<ElementRef<HTMLButtonElement>>('helpButton');
+  private readonly helpPanel = viewChild<ElementRef<HTMLElement>>('helpPanel');
+  /** Where focus goes back to when the shortcuts panel closes: the tale menu's button, or what had focus for `?`. */
+  private helpReturn: HTMLElement | null = null;
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
-  protected toggleHelp(): void {
-    this.helpOpen.update((open) => !open);
+  /**
+   * Opens the keyboard shortcuts panel (from the tale menu, or `?` outside a text field) and moves
+   * focus into it, so it is read; focus returns to `returnTo` when it closes.
+   */
+  protected openHelp(returnTo: HTMLElement | null): void {
+    this.helpReturn = returnTo;
+    this.helpOpen.set(true);
+    setTimeout(() => this.helpPanel()?.nativeElement.focus(), 0);
   }
 
-  /** Escape on the "?" button or in the popover closes it and puts focus back on the button. */
-  protected closeHelp(event: Event): void {
+  /** Escape in the shortcuts panel, or its Close button, closes it and puts focus back where it came from. */
+  protected closeHelp(event?: Event): void {
     if (!this.helpOpen()) return;
-    event.preventDefault();
-    event.stopPropagation();
+    event?.preventDefault();
+    event?.stopPropagation();
     this.helpOpen.set(false);
-    this.helpButton()?.nativeElement.focus();
+    (this.helpReturn ?? this.taleMenuButton()?.nativeElement)?.focus();
+    this.helpReturn = null;
   }
 
-  /** Focus moving out of the "?" button and its popover closes it, leaving focus where it went. */
+  /** Focus moving out of the shortcuts panel closes it, leaving focus where it went. */
   protected helpFocusOut(event: FocusEvent): void {
     const next = event.relatedTarget;
     if (next instanceof Node && (event.currentTarget as HTMLElement).contains(next)) return;
     this.helpOpen.set(false);
   }
 
-  /** A press outside the "?" button and its popover closes it, leaving focus where the press put it. */
+  /** A press outside the shortcuts panel or the tale menu closes them, leaving focus where the press put it. */
   @HostListener('document:pointerdown', ['$event'])
   protected onDocumentPointer(event: PointerEvent): void {
-    if (!this.helpOpen()) return;
-    if (event.target instanceof Element && event.target.closest('.studio-help')) return;
-    this.helpOpen.set(false);
+    const target = event.target instanceof Element ? event.target : null;
+    if (this.helpOpen() && !target?.closest('.studio-help')) this.helpOpen.set(false);
+    if (this.taleMenuOpen() && !target?.closest('.studio-menu')) this.taleMenuOpen.set(false);
+  }
+
+  /** The tale menu (epic Tale Studio 2 R1): Discard changes, Duplicate and Keyboard shortcuts. */
+  protected readonly taleMenuOpen = signal(false);
+  private readonly taleMenuButton = viewChild<ElementRef<HTMLButtonElement>>('taleMenuButton');
+  private readonly taleMenu = viewChild<ElementRef<HTMLElement>>('taleMenu');
+
+  /** The open tale menu's items, in order. */
+  private taleMenuItems(): HTMLElement[] {
+    return [...(this.taleMenu()?.nativeElement.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])];
+  }
+
+  /** Opens the tale menu on its first (or, with `last`, its last) item, or closes it. */
+  protected toggleTaleMenu(last = false): void {
+    if (this.taleMenuOpen()) {
+      this.closeTaleMenu(true);
+      return;
+    }
+    this.taleMenuOpen.set(true);
+    setTimeout(() => {
+      const items = this.taleMenuItems();
+      (last ? items.at(-1) : items[0])?.focus();
+    }, 0);
+  }
+
+  /** Down or Up on the tale menu's button opens it on its first or last item (WAI-ARIA menu button). */
+  protected taleMenuButtonKey(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    this.taleMenuOpen.set(false);
+    this.toggleTaleMenu(event.key === 'ArrowUp');
+  }
+
+  /** In the open tale menu: the arrows, Home and End move; Escape closes it to its button; Tab closes it. */
+  protected taleMenuKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeTaleMenu(true);
+      return;
+    }
+    if (event.key === 'Tab') {
+      this.closeTaleMenu(false);
+      return;
+    }
+    const items = this.taleMenuItems();
+    const next = menuKeyTarget(event.key, Math.max(items.indexOf(event.target as HTMLElement), 0), items.length);
+    if (next === null) return;
+    event.preventDefault();
+    items[next]?.focus();
+  }
+
+  /** Closes the tale menu; with `refocus`, focus goes back to its button. */
+  protected closeTaleMenu(refocus: boolean): void {
+    if (!this.taleMenuOpen()) return;
+    this.taleMenuOpen.set(false);
+    if (refocus) this.taleMenuButton()?.nativeElement.focus();
+  }
+
+  /**
+   * Focus moving to another control closes the tale menu. Focus going nowhere (a press a browser
+   * does not focus a button for) leaves it open for the click; a press outside closes it.
+   */
+  protected taleMenuFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (!(next instanceof Node) || (event.currentTarget as HTMLElement).contains(next)) return;
+    this.taleMenuOpen.set(false);
+  }
+
+  /**
+   * Runs a tale menu item: the menu closes to its button, then the item acts (a drawer it opens
+   * returns focus there). A disabled item says why instead.
+   */
+  protected chooseFromTaleMenu(event: Event, item: 'discard' | 'duplicate' | 'shortcuts'): void {
+    const disabled = (event.currentTarget as HTMLElement).getAttribute('aria-disabled') === 'true';
+    const opener = this.taleMenuButton()?.nativeElement ?? null;
+    this.closeTaleMenu(true);
+    if (item === 'discard') {
+      if (disabled) this.say(this.discardBlocked());
+      else void this.discardChanges();
+    } else if (item === 'duplicate') {
+      // Duplicate says itself why it cannot open yet.
+      void this.openDuplicate(opener);
+    } else this.openHelp(opener);
+  }
+
+  /** The left panel's tabs (story 11.1): Elements, Templates, Media and Layers; Elements first. */
+  protected readonly leftTabs = LEFT_TABS;
+  protected readonly leftTab = signal<LeftTab>('elements');
+
+  /** The tab rail's keys: the arrows, Home and End move to a tab and show it (automatic activation). */
+  protected tabKey(event: KeyboardEvent, at: number): void {
+    const next = tabKeyTarget(event.key, at, LEFT_TABS.length);
+    if (next === null) return;
+    event.preventDefault();
+    const tab = LEFT_TABS[next].id;
+    this.leftTab.set(tab);
+    this.host.nativeElement.querySelector<HTMLElement>(`#studio-tab-${tab}`)?.focus();
+  }
+
+  /**
+   * F6 and Shift+F6 move between the studio's five regions (epic Tale Studio 2 R1, EXPERIENCE
+   * Information Architecture), wrapping: to the back link in the top bar, the selected tab, the
+   * selected element on the canvas (else the canvas), the inspector, and the current tale in the
+   * strip. A drawer, a picker or a menu over the studio keeps the key to itself.
+   */
+  @HostListener('document:keydown', ['$event'])
+  protected onRegionKey(event: KeyboardEvent): void {
+    if (event.key !== 'F6' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
+    if (!this.doc() || this.duplicating() || this.picker() || this.emojiPicker() || this.menu()) return;
+    const active = document.activeElement;
+    if (active instanceof Element && active.closest('[aria-modal=true], dialog[open]')) return;
+    const regions = STUDIO_REGIONS.filter((r) => this.regionElement(r) !== null);
+    const current = active instanceof Element ? active.closest('[data-region]')?.getAttribute('data-region') : null;
+    const next = regions[nextRegionIndex(regions.indexOf(current as StudioRegion), regions.length, event.shiftKey)];
+    if (!next) return;
+    event.preventDefault();
+    this.closeTaleMenu(false);
+    this.focusRegion(next);
+  }
+
+  private regionElement(region: StudioRegion): HTMLElement | null {
+    return this.host.nativeElement.querySelector<HTMLElement>(`[data-region="${region}"]`);
+  }
+
+  // The control F6 lands on in a region, else the region itself (focusable by script only).
+  private focusRegion(region: StudioRegion): void {
+    const root = this.regionElement(region);
+    if (!root) return;
+    const selected = this.selection().find((id) => !this.element(id)?.hidden);
+    let target: HTMLElement | null = null;
+    if (region === 'top') target = root.querySelector('#studio-back');
+    else if (region === 'left') target = root.querySelector(`#studio-tab-${this.leftTab()}`);
+    else if (region === 'canvas')
+      target = (selected ? root.querySelector<HTMLElement>(`#studio-el-${selected}`) : null) ?? root.querySelector('#studio-canvas');
+    else if (region === 'strip') target = root.querySelector('[aria-current=page]') ?? root.querySelector('a');
+    (target ?? root).focus();
+  }
+
+  /** Closes the preview and puts focus back on the Preview button (EXPERIENCE Preview pane). */
+  protected closePreview(event?: Event): void {
+    if (!this.previewOpen() || event?.defaultPrevented) return;
+    event?.preventDefault();
+    this.previewOpen.set(false);
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLElement>('#studio-preview')?.focus(), 0);
+  }
+
+  /**
+   * The tale strip (epic Tale Studio 2 R8, as far as story 11.1 goes): the group's tales in order,
+   * each a link to its studio, with its number, its picture, and whether it is Hidden; the current
+   * tale is marked, with a dot while it has changes not updated yet.
+   */
+  protected readonly stripTales = computed(() => {
+    const current = this.tale();
+    const group = current ? this.store.taleGroup(current.taleGroupId) : undefined;
+    const tales = group ? [...group.tales].sort((a, b) => a.position - b.position) : current ? [current] : [];
+    return tales.map((t, i) => ({
+      id: t.id,
+      title: t.title,
+      number: i + 1,
+      current: t.id === this.taleId(),
+      hidden: taleShownStatus(t.storedStatus) !== 'shown',
+      picture: t.media?.kind === 'image' ? this.store.mediaSrc(t) : '',
+      tone: i % 6,
+    }));
+  });
+  /** The current tale's place in its group, from 1; null while the group is not known. */
+  protected readonly taleNumber = computed(() => this.stripTales().find((t) => t.current)?.number ?? null);
+  /** The strip's links keep where the studio was opened from, for the back link. */
+  protected readonly stripQuery = computed(() => {
+    const query: Record<string, string> = {};
+    const zone = this.zone();
+    const from = this.from();
+    if (zone) query['zone'] = zone;
+    if (from) query['from'] = from;
+    return query;
+  });
+
+  /** Why Discard changes cannot apply now (it stays in the tale menu, disabled, saying so); '' when it can. */
+  protected readonly discardBlocked = computed(() => {
+    if (this.updating()) return 'Wait until the tale is updated.';
+    if (this.published().document === null) return 'Nothing is on the site yet.';
+    return this.unpublished() ? '' : 'No changes: the tale matches the site.';
+  });
+  /** Why Duplicate cannot apply now; '' when it can. */
+  protected readonly duplicateBlocked = computed(() =>
+    this.updating() ? DUPLICATE_WHILE_UPDATING : this.tale() ? '' : DUPLICATE_WHILE_LOADING,
+  );
+
+  /** The starter tales the Templates tab will offer (story 11.11), named in its placeholder. */
+  protected readonly starterTales = ['Announcement', 'Product drop', 'Ask a question', 'Countdown to launch', 'Quiz time'];
+
+  /**
+   * A tile's visible word: its Add entry's label without "Add", which stays in its name only
+   * ("Add swipe-up link" shows "Swipe-up link", its first letter raised by the tile's style).
+   */
+  protected tileWord(entry: AddMenuEntry): string {
+    return entry.label.replace(/^Add /, '');
+  }
+
+  /** The heading of the inspector section that holds the selected element's own inspector. */
+  protected styleSection(element: TaleElement): string {
+    if (element.type === 'text' || element.type === 'shape') return 'Style';
+    if (isLinkElement(element)) return 'Link';
+    if (element.type === 'emoji') return 'Emoji';
+    if (isMediaElement(element)) return 'Media';
+    return 'Content';
   }
 
   /** What the save indicator says. */
@@ -823,6 +1059,8 @@ export class TaleStudioPage implements OnChanges {
     this.selection.set([]);
     this.editingId.set(null);
     this.menu.set(null);
+    this.taleMenuOpen.set(false);
+    this.helpOpen.set(false);
     this.invalidId.set(null);
     this.error.set('');
     this.autosave.reset(emptyTaleDocument(), 0);
@@ -1113,6 +1351,12 @@ export class TaleStudioPage implements OnChanges {
     // A drawer over the studio (Duplicate, the media and emoji pickers) keeps its keys to itself.
     if (this.duplicating() || this.picker() || this.emojiPicker()) return;
     if (event.target instanceof Element && event.target.closest('[role=dialog]')) return;
+    if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // The keyboard shortcuts (EXPERIENCE Interaction Primitives); focus comes back here.
+      event.preventDefault();
+      this.openHelp(event.target instanceof HTMLElement ? event.target : null);
+      return;
+    }
     const command = historyShortcut(event, this.apple);
     if (!command) return;
     event.preventDefault();
@@ -1278,15 +1522,14 @@ export class TaleStudioPage implements OnChanges {
    * Opens the Duplicate drawer (epic Tale Studio R11). The copy is made from what is saved, so the
    * latest changes are saved first; while they cannot be, nothing opens and the reason is shown.
    */
-  protected async openDuplicate(event: Event): Promise<void> {
-    const opener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  protected async openDuplicate(opener: HTMLElement | null): Promise<void> {
     if (this.updating()) {
-      this.say('Wait until the tale is updated, then duplicate it.');
+      this.say(DUPLICATE_WHILE_UPDATING);
       return;
     }
     if (this.duplicating()) return;
     if (!this.tale()) {
-      this.say('The tale is still loading. Try again in a moment.');
+      this.say(DUPLICATE_WHILE_LOADING);
       return;
     }
     this.error.set('');
@@ -1566,7 +1809,7 @@ export class TaleStudioPage implements OnChanges {
   /**
    * Removes elements. Focus moves to the next layer where the command came from: on the canvas the
    * next shown element above, else the one below, else the canvas; in the list the next row down,
-   * else the one up, else the Add text button.
+   * else the one up, else the Layers tab (or the Add text tile when the list is not showing).
    */
   private removeLayers(ids: readonly string[], origin: Origin): void {
     if (this.isHeld()) return;
@@ -1586,7 +1829,9 @@ export class TaleStudioPage implements OnChanges {
     if (this.editingId() !== null && gone.has(this.editingId() as string)) this.editingId.set(null);
     if (this.invalidId() !== null && gone.has(this.invalidId() as string)) this.invalidId.set(null);
     const prefix = origin === 'canvas' ? 'studio-el-' : 'layer-';
-    this.focusSoon(next ? `${prefix}${next.id}` : origin === 'canvas' ? 'studio-canvas' : 'studio-add');
+    // With no layer left in the list: its tab while the Layers tab shows, else the Add text tile.
+    const empty = this.leftTab() === 'layers' ? 'studio-tab-layers' : 'studio-add';
+    this.focusSoon(next ? `${prefix}${next.id}` : origin === 'canvas' ? 'studio-canvas' : empty);
     // Deleting is immediate, and undoable.
     this.say(`${done} — press ${this.undoKey} to undo`);
   }
