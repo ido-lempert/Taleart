@@ -103,3 +103,18 @@ the path end to end and is never offered in production:
   with `localStorage['taleart.testElementTypes'] = 'on'`, or where a test provides
   `STUDIO_TEST_ELEMENT_TYPES`;
 - no SDK has its renderer, so the SDK skips it with one warning.
+
+## User lists (epic targeting R3, R5)
+
+`src/lib/user-lists.ts` holds the rules the server and the dashboard share for user lists: the
+limits (100 lists per project; 1,000,000 rows and 50 MB per CSV; 256 characters per ID), the
+one-line CSV reader and the email and phone heuristics of the dashboard's warning.
+
+- An external user ID is trimmed and then **matched exactly**: case counts, and no Unicode
+  normalization is applied (`User-1`, `user-1` and a decomposed `é` are all different IDs).
+- Only **ASCII** IDs are accepted for now. A row with any other character is refused as
+  `not-ascii` ("only ASCII IDs are supported for now"). Story 5.4 must define how the Delivery
+  request header carries the ID (percent-encoded or base64url UTF-8) and decode it before
+  `normalizeExternalUserId`; non-ASCII IDs can then be allowed.
+- The server stores each ID only as HMAC-SHA-256 under a per-project secret; no response, log or
+  error names one.

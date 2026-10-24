@@ -235,7 +235,7 @@ export async function focusWalk(page: Page, max = 60, stops: string[] = [], evid
   let repeats = 0;
   // On a page (no modal dialog open), walk from the top: focus a mark at the start of the body.
   await page.evaluate(() => {
-    const open = [...document.querySelectorAll('[role=dialog][aria-modal=true]')].some(
+    const open = [...document.querySelectorAll('[role=dialog][aria-modal=true], [role=alertdialog][aria-modal=true]')].some(
       (d) => d.getBoundingClientRect().width > 0,
     );
     if (open) return;
@@ -345,7 +345,7 @@ export async function targetSize(page: Page): Promise<string[]> {
   await prepare(page);
   return page.evaluate((selector) => {
     const w = window as unknown as Win;
-    const dialogs = [...document.querySelectorAll('[role=dialog][aria-modal=true]')].filter(
+    const dialogs = [...document.querySelectorAll('[role=dialog][aria-modal=true], [role=alertdialog][aria-modal=true]')].filter(
       (d) => d.getBoundingClientRect().width > 0,
     );
     const scope: ParentNode = dialogs.at(-1) ?? document;
@@ -494,7 +494,7 @@ export async function textSpacing(page: Page, where = ''): Promise<string[]> {
   // sticky ancestor. Text in different layers may overlap by design (a sticky bar over the page).
   await page.evaluate(() => {
     const w = window as unknown as Win;
-    const dialogs = [...document.querySelectorAll('[role=dialog][aria-modal=true]')].filter(
+    const dialogs = [...document.querySelectorAll('[role=dialog][aria-modal=true], [role=alertdialog][aria-modal=true]')].filter(
       (d) => d.getBoundingClientRect().width > 0,
     );
     const texts: Text[] = [];

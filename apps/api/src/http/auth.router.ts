@@ -24,7 +24,7 @@ import {
   type NewSession,
   type PasskeyVerifier,
 } from '@taleart/server-access';
-import { Router, type RequestHandler, type Response } from 'express';
+import { Router, type Response } from 'express';
 import type { Pool } from 'pg';
 import { readCookie, setCookie } from './cookies';
 import { HttpError } from './errors';
@@ -46,23 +46,6 @@ export interface AuthOptions {
   verifier: PasskeyVerifier;
   /** Adds `Secure` to the cookies; true when the dashboard origin is https. */
   secureCookies: boolean;
-}
-
-/**
- * Answers 401 `unauthenticated` unless the request carries the cookie of a
- * valid session. Puts the user on `res.locals.user`.
- */
-export function requireSession(pool: Pool): RequestHandler {
-  return async (req, res, next) => {
-    try {
-      const user = await findSessionUser(pool, readCookie(req, SESSION_COOKIE));
-      if (!user) throw new HttpError(401, ErrorCodes.unauthenticated, 'Sign in to continue');
-      res.locals['user'] = user;
-      next();
-    } catch (err) {
-      next(err);
-    }
-  };
 }
 
 /** Setup of the first admin, joining by invitation, passkey sign-in and sign-out (AD-9). */
