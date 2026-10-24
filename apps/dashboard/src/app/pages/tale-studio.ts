@@ -254,7 +254,7 @@ interface TileDrag {
   size: TaleElementBox;
   targets: SnapTargets;
   /** The stage's rectangle on screen, read at the drag's start and again after a scroll. */
-  stage: DOMRect | null;
+  stageRect: DOMRect | null;
   /** The frame the ghost follows the pointer in, while one is pending. */
   frame: number | null;
 }
@@ -2781,7 +2781,7 @@ export class TaleStudioPage implements OnChanges {
       hold: null,
       size: tileBox(tile),
       targets: { x: [], y: [] },
-      stage: null,
+      stageRect: null,
       frame: null,
     };
     this.tileDrag = drag;
@@ -2887,7 +2887,7 @@ export class TaleStudioPage implements OnChanges {
   };
   // The page or a panel scrolled: the stage moved on screen.
   private readonly tileDragScrolled = (): void => {
-    if (this.tileDrag) this.tileDrag.stage = null;
+    if (this.tileDrag) this.tileDrag.stageRect = null;
   };
 
   // The click a drag's release fires on its tile (late after a touch) adds nothing: until the next press, or 400 ms.
@@ -2949,8 +2949,8 @@ export class TaleStudioPage implements OnChanges {
     }
     this.autoScroll(drag);
     // The stage's place on screen, read once per drag and again after a scroll.
-    drag.stage ??= this.host.nativeElement.querySelector<HTMLElement>('#studio-canvas')?.getBoundingClientRect() ?? null;
-    const rect = drag.stage;
+    drag.stageRect ??= this.host.nativeElement.querySelector<HTMLElement>('#studio-canvas')?.getBoundingClientRect() ?? null;
+    const rect = drag.stageRect;
     if (!rect || rect.width === 0 || rect.height === 0 || !this.ghostLook) return;
     const point = { x: (drag.lastX - rect.left) / rect.width, y: (drag.lastY - rect.top) / rect.height };
     const over = point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
@@ -2989,7 +2989,7 @@ export class TaleStudioPage implements OnChanges {
     const before = page.scrollTop;
     page.scrollTop = before + dy;
     if (page.scrollTop === before) return;
-    drag.stage = null;
+    drag.stageRect = null;
     drag.frame ??= requestFrame(() => {
       drag.frame = null;
       if (this.tileDrag === drag) this.followPointer(drag);

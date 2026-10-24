@@ -147,3 +147,7 @@ R17 (parent R13; NFR-007; architecture Quality Targets): **Accessible editor**
 - Open question (architect, before story 13, recorded as its unknown): where the entrance field lives (an element-level `motion` beside `a11y`, or inside `props`), and its effect on the SDK budget.
 - Waits on epic 7 because: the studio it rebuilds (7.1 to 7.17) must be merged first, including its accessibility review (7.15) and sweep (7.16).
 - Waits on epic 4 because: story 4.3 (quiz) is being merged now. Stories 4.4 to 4.7 add descriptors and inspector fields in the files that stories 3 and 6 rewrite. Whichever merges second carries the other's change. A descriptor added in today's shape still works, under More with its fields in Content, so no story waits for the other to finish.
+
+## Owner review (story 11.2), 2026-10-24
+
+The owner reviewed the built layout (11.1, 11.3, 11.4) and wrote: "I love the layout". The proposed owner decisions in this epic are taken as accepted unless the owner reverses one.

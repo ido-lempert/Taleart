@@ -38,12 +38,12 @@ test('shows SKILL.md open and each reference file on demand', async ({ page }) =
   await page.goto('/ai-agents');
   const skill = page.getByRole('region', { name: 'The skill file SKILL.md' });
   await expect(skill).toBeVisible();
-  expect(await skill.textContent()).toBe(onDisk('SKILL.md'));
+  await expect.poll(() => skill.textContent()).toBe(onDisk('SKILL.md'));
   const recipes = page.getByRole('region', { name: 'The skill file reference/recipes.md' });
   await expect(recipes).toBeHidden();
   await page.locator('summary', { hasText: 'reference/recipes.md' }).click();
   await expect(recipes).toBeVisible();
-  expect(await recipes.textContent()).toBe(onDisk('reference/recipes.md'));
+  await expect.poll(() => recipes.textContent()).toBe(onDisk('reference/recipes.md'));
 });
 
 test('reads without JavaScript (prerendered)', async ({ browser }) => {
