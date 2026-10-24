@@ -37,6 +37,8 @@ import {
   TaleNotFoundError,
 } from '@taleart/server-tales';
 import {
+  ApiTokenLimitError,
+  ApiTokenNotFoundError,
   EmailTakenError,
   InvitationInvalidError,
   PasskeyFailedError,
@@ -93,6 +95,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof TaleGroupNotFoundError ||
     err instanceof TaleNotFoundError ||
     err instanceof SiteKeyNotFoundError ||
+    err instanceof ApiTokenNotFoundError ||
     err instanceof FontNotFoundError ||
     err instanceof UserListNotFoundError ||
     err instanceof UserListProjectNotFoundError
@@ -126,6 +129,7 @@ export const errorHandler: express.ErrorRequestHandler = (err, req, res, _next) 
     err instanceof UserListExistsError ||
     err instanceof UserListLimitError ||
     err instanceof SiteKeyExistsError ||
+    err instanceof ApiTokenLimitError ||
     err instanceof DisplayExistsError ||
     err instanceof DisplayConcurrentChangeError ||
     err instanceof SlugTakenError ||

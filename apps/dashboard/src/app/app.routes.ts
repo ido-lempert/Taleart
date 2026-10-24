@@ -113,6 +113,14 @@ export const appRoutes: Route[] = [
         title: 'Import from another tool · TaleArt',
         data: { heading: 'Projects' } satisfies ShellData,
       },
+      { path: 'settings', pathMatch: 'full', redirectTo: 'settings/api-tokens' },
+      {
+        // Personal API tokens for scripts and the CLI (epic developer experience 10.1).
+        path: 'settings/api-tokens',
+        loadComponent: () => import('./pages/api-tokens').then((m) => m.ApiTokensPage),
+        title: 'API tokens · Settings · TaleArt',
+        data: { heading: 'Settings' } satisfies ShellData,
+      },
       { path: '**', redirectTo: 'zones' },
     ],
   },

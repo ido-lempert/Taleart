@@ -1,4 +1,5 @@
 import type { Db } from './db';
+import { migrateApiTokens } from './apiTokens';
 import { migrateSiteKeys } from './siteKeys';
 
 /**
@@ -96,4 +97,7 @@ export async function migrateAccess(db: Db): Promise<void> {
 
   // A project's site key (AD-9 amended, epic UX rework R3).
   await migrateSiteKeys(db);
+
+  // Personal API tokens for scripts (epic developer experience 10.1).
+  await migrateApiTokens(db);
 }
