@@ -88,6 +88,30 @@ describe('VisibilityIndicator (epic UX rework R7)', () => {
       ]);
     });
 
+    it('names the user lists with their counts, and says a page without an ID does not show it (story 5.4)', () => {
+      const { host } = render(VISIBLE, 'group', false, false, {
+        tags: tags('vip'),
+        tagMatch: 'any',
+        userLists: [{ id: 'l1', name: 'Loyal', idCount: 1204 }],
+      });
+      expect(text(host.querySelector('button.visibility__line'))).toBe(
+        'Visible on site · for viewers tagged vip in user list Loyal (1,204)',
+      );
+      expect([...(host.querySelectorAll('[role=tooltip] p') ?? [])].map(text)).toEqual([
+        'Shown to viewers whose external user ID is in the user list Loyal (1,204 IDs).',
+        'Of those, to viewers tagged vip.',
+        'A page that passes no tags shows it to every viewer in its lists.',
+        'A page that sets no external user ID does not show it.',
+      ]);
+    });
+
+    it('reads "Not visible: its user lists are empty" for a group targeted only to empty lists, with no audience', () => {
+      const { host } = render({ visible: false, reasons: [{ code: 'audience-empty', subject: 'group' }] }, 'group', false, false, {
+        userLists: [{ id: 'l1', name: 'Loyal', idCount: 0 }],
+      });
+      expect(text(host.querySelector('.visibility__line'))).toBe('Not visible: its user lists are empty');
+    });
+
     it('says "and" for All, and words a group read for every zone', () => {
       const all = render(VISIBLE, 'group', false, true, { tags: tags('summer', 'vip'), tagMatch: 'all' });
       expect(text(all.host.querySelector('button'))).toBe(

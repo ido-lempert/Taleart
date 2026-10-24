@@ -36,6 +36,7 @@ import {
   type SettableStatus,
   type Tale,
   type TagMatch,
+  type UserList,
   type ZoneTemplateKey,
 } from '@taleart/contract/core';
 import { CoverEditor } from './cover-editor';
@@ -172,6 +173,28 @@ export class CreateDrawer implements OnInit {
     const joined = `${names.slice(0, -1).join(', ')} ${this.selectedTagMatch() === 'all' ? 'and' : 'or'} ${names.at(-1)}`;
     return `Shows to viewers tagged ${joined}, and on pages that pass no tags.`;
   });
+  /** The project's user lists an Audience drawer offers (epic targeting R4), as the store last read them. */
+  protected readonly projectLists = computed((): UserList[] => {
+    const group = this.tagGroup();
+    return group ? this.store.userListsOf(group.projectId) : [];
+  });
+  /** The user lists checked in an Audience drawer. */
+  protected readonly selectedListIds = signal<string[]>([]);
+  /** What the checked user lists mean for a viewer. */
+  protected readonly userListHint = computed(() => {
+    const checked = this.projectLists().filter((list) => this.selectedListIds().includes(list.id));
+    if (checked.length === 0) return 'With no user list, the group does not depend on who the viewer is.';
+    const shown =
+      'Shows only to viewers whose external user ID, set by the page with setExternalUserId, is in ' +
+      (checked.length === 1 ? 'this list.' : 'one of these lists.');
+    return checked.every((list) => list.idCount === 0)
+      ? `${shown} ${checked.length === 1 ? 'It holds' : 'They hold'} no ID yet, so the group shows to nobody until one is added.`
+      : shown;
+  });
+  /** "1,204 IDs", for a list's checkbox. */
+  protected listCount(list: UserList): string {
+    return `${list.idCount.toLocaleString('en-US')} ${list.idCount === 1 ? 'ID' : 'IDs'}`;
+  }
   /** The name typed in a tags drawer's "New tag" field. */
   protected newTag = '';
   /** The zone picked in a "Show in another zone" drawer. */
@@ -567,6 +590,7 @@ export class CreateDrawer implements OnInit {
     if (this.request().kind === 'schedule') this.loadSchedule(this.scheduleItem());
     this.selectedTagIds.set(this.tagGroup()?.tags.map((t) => t.id) ?? []);
     this.selectedTagMatch.set(this.tagGroup()?.tagMatch ?? DEFAULT_TAG_MATCH);
+    this.selectedListIds.set(this.tagGroup()?.userLists?.map((list) => list.id) ?? []);
     if (this.request().kind === 'renameTaleGroup') this.text = this.placementGroup()?.name ?? '';
     const edited = this.editedZone();
     if (edited) {
@@ -583,6 +607,18 @@ export class CreateDrawer implements OnInit {
     this.copyProjectId.set(projectId);
     this.copyZoneId.set('');
     this.error.set('');
+  }
+
+  protected isListSelected(listId: string): boolean {
+    return this.selectedListIds().includes(listId);
+  }
+
+  protected toggleList(listId: string, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.selectedListIds.update((ids) => {
+      const others = ids.filter((id) => id !== listId);
+      return checked ? [...others, listId] : others;
+    });
   }
 
   protected isTagSelected(tagId: string): boolean {
@@ -883,9 +919,17 @@ export class CreateDrawer implements OnInit {
         // The drawer stays open to show the link.
         return;
       }
-      case 'tags':
+      case 'tags': {
+        // The lists the group had, read before the tags are saved (which updates the group).
+        const before = [...(this.tagGroup()?.userLists?.map((list) => list.id) ?? [])].sort().join();
         message = await this.store.setTaleGroupTags(request.taleGroupId, this.selectedTagIds(), this.selectedTagMatch());
+        // The user lists only when they changed.
+        const lists = this.selectedListIds();
+        if (!message && [...lists].sort().join() !== before) {
+          message = await this.store.setTaleGroupUserLists(request.taleGroupId, lists);
+        }
         break;
+      }
       case 'renameTaleGroup':
         message = await this.store.renameTaleGroup(request.taleGroupId, this.text);
         break;

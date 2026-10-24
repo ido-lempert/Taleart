@@ -30,6 +30,8 @@ import {
 import {
   contactLikeWarning,
   DEFAULT_THEME,
+  encodeExternalUserIdHeader,
+  EXTERNAL_USER_ID_HEADER,
   MAX_TALE_GROUPS_PER_PROJECT,
   reportContactCounts,
   VISIBILITY_REASON_CODES,
@@ -341,7 +343,7 @@ describe('Management API v1: projects and zones', () => {
 
   beforeEach(async () => {
     await pool.query(
-      'TRUNCATE user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
+      'TRUNCATE tale_group_user_lists, user_list_ids, user_lists, user_list_secrets, interactive_responses, import_records, import_media, import_links, import_jobs, site_keys, tale_group_tag_matches, tale_group_tags, tags, tale_fonts, project_fonts, tale_media, project_media, tales, zone_tale_groups, tale_groups, frames, project_themes, zones, invitations, project_members, projects, auth_challenges, sessions, passkeys, users',
     );
     // Content routes need a session: sign a user in directly through the access module.
     const user = await createUser(pool, { name: 'Test Admin', email: 'admin@example.com', role: 'admin' });
@@ -1314,6 +1316,7 @@ describe('Management API v1: projects and zones', () => {
         tales: [],
         tags: [],
         tagMatch: 'any',
+        userLists: [],
         // Off, in a zone that is not set up, with no tale (R7).
         visibility: notVisible(
           why('group-off', 'group'),
@@ -1720,6 +1723,7 @@ describe('Management API v1: projects and zones', () => {
           { id: summer.id, name: 'summer' },
         ],
         tagMatch: 'any',
+        userLists: [],
         visibility: SOME_VISIBILITY,
       });
       expect(await groupTags(zone.id)).toEqual({ First: ['Beach', 'summer'], Second: [] });
@@ -2019,6 +2023,7 @@ describe('Management API v1: projects and zones', () => {
         tales: [expect.objectContaining({ title: 'T', status: 'live' })],
         tags: [],
         tagMatch: 'any',
+        userLists: [],
         // On, with a tale to show, in two zones neither of which is set up yet: each zone reason once (R7).
         visibility: notVisible(why('zone-no-display', 'zone'), why('zone-not-installed', 'zone')),
       });
@@ -2113,13 +2118,13 @@ describe('Management API v1: projects and zones', () => {
         {
           id: a.id, projectId: project.id, name: 'A', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 1, zoneIds: [],
           // Cover, tags and counts (epic UX rework R14), but not the tales: the zone lists carry them.
-          cover: null, tags: [], tagMatch: 'any', shownTaleCount: 1,
+          cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 1,
           // In no zone (R7); its one tale has nothing published either.
           visibility: notVisible(why('group-off', 'group'), why('not-in-any-zone', 'group'), why('no-shown-tales', 'group')),
         },
-        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', shownTaleCount: 0, visibility: SOME_VISIBILITY },
-        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], tagMatch: 'any', shownTaleCount: 0, visibility: SOME_VISIBILITY },
-        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'apple', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: expect.any(String), projectId: project.id, name: 'B', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z.id], cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
+        { id: c.id, projectId: project.id, name: 'C', status: 'draft', storedStatus: 'draft', startsAt: null, endsAt: null, taleCount: 0, zoneIds: [z2.id], cover: null, tags: [], tagMatch: 'any', userLists: [], shownTaleCount: 0, visibility: SOME_VISIBILITY },
       ]);
       // The orphan can be placed again.
       expect((await send('PUT', `/zones/${z2.id}/tale-groups/${a.id}`)).status).toBe(201);
@@ -2447,6 +2452,7 @@ describe('Management API v1: projects and zones', () => {
         ],
         tags: [{ id: summer.id, name: 'summer' }],
         tagMatch: 'any',
+        userLists: [],
       });
       expect(body.id).not.toBe(g.id);
       expect(body.tales.map((t) => t.id)).not.toContain(one.id);
@@ -8740,6 +8746,19 @@ describe('Management API v1: projects and zones', () => {
         },
         fix: (f) => upload(f.taleId),
       },
+      {
+        // Epic targeting R7, story 5.4: targeted only to user lists that hold no ID, nobody can match.
+        name: 'audience empty',
+        on: 'placement',
+        reason: () => why('audience-empty', 'group'),
+        omits: 'group',
+        breakIt: async (f) => {
+          const list = await (await post(`/projects/${f.projectId}/user-lists`, { name: 'Empty' })).json();
+          expect((await send('PUT', `/tale-groups/${f.groupId}/user-lists`, { userListIds: [list.id] })).status).toBe(200);
+        },
+        fix: async (f) =>
+          expect((await send('PUT', `/tale-groups/${f.groupId}/user-lists`, { userListIds: [] })).status).toBe(200),
+      },
     ];
 
     it('says "Visible on site" for a set-up zone, its group that is On and its tales, as the Delivery API delivers them', async () => {
@@ -10037,6 +10056,7 @@ describe('Management API v1: projects and zones', () => {
         projectId: project.id,
         name: 'Loyal customers',
         idCount: 0,
+        taleGroups: [],
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
       });
@@ -10398,12 +10418,294 @@ describe('Management API v1: projects and zones', () => {
       expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
     });
 
-    it('refuses IDs outside ASCII for now, by line, and keeps the rest', async () => {
+    it('takes IDs outside ASCII since story 5.4 defined the header encoding, exactly as written', async () => {
       const project = await createProject();
-      const list = await createList(project.id, 'Ascii');
-      const res = await upload(`${listsUrl(project.id)}/${list.id}`, 'cust-1001\nmüller-7\ncust-1002\n');
+      const list = await createList(project.id, 'Unicode');
+      const res = await upload(`${listsUrl(project.id)}/${list.id}`, 'cust-1001\nmüller-7\nzo\u00eb\nzoe\u0308\n用户-1\n');
       const report = await res.json();
-      expect(report).toMatchObject({ added: 2, refused: 1, refusedRows: [{ line: 2, reason: 'not-ascii' }], idCount: 2 });
+      // The composed and the decomposed ë are two IDs: no Unicode normalization.
+      expect(report).toMatchObject({ added: 5, refused: 0, refusedRows: [], idCount: 5 });
+    });
+  });
+
+  describe("a group targeted to user lists; the viewer's external user ID picks them (epic targeting story 5.4)", () => {
+    const member = 'cust-A1';
+    const unicodeMember = 'müller-7';
+    const outsider = 'cust-Z9';
+    // Every ID these tests send or upload, and each one's header value, to look for in logs and dumps.
+    const sent = [member, unicodeMember, outsider, 'cust-B1'];
+    const traces = [...sent, ...sent.map((id) => encodeExternalUserIdHeader(id) as string)];
+
+    let printed: string[] = [];
+    beforeEach(() => {
+      printed = [];
+      for (const method of ['log', 'warn', 'error', 'info', 'debug'] as const) {
+        vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+          printed.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+        });
+      }
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    function put(path: string, body: unknown): Promise<Response> {
+      return fetch(`${base}${path}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function listWith(projectId: string, name: string, csv: string): Promise<{ id: string }> {
+      const created = await post(`/projects/${projectId}/user-lists`, { name });
+      expect(created.status).toBe(201);
+      const list = await created.json();
+      if (csv) {
+        const res = await fetch(`${base}/projects/${projectId}/user-lists/${list.id}/ids`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/csv' },
+          body: csv,
+        });
+        expect(res.status).toBe(200);
+      }
+      return list;
+    }
+
+    // A set-up zone with group A targeted to list A (two members) and group Open with no audience.
+    async function matrix() {
+      const zone = await createZone();
+      const handle = await installZone(zone.id);
+      const groups: Record<'a' | 'open', string> = { a: '', open: '' };
+      for (const key of ['a', 'open'] as const) {
+        const group = await (await post(`/zones/${zone.id}/tale-groups`, { name: key === 'a' ? 'Loyal only' : 'Open' })).json();
+        await publish('tale-groups', group.id);
+        const tale = await (await post(`/tale-groups/${group.id}/tales`, { title: `${key} tale` })).json();
+        await asLegacy(tale.id);
+        groups[key] = group.id;
+      }
+      const listA = await listWith(zone.projectId, 'Loyal', `${member}\n${unicodeMember}\n`);
+      const set = await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: [listA.id] });
+      expect(set.status).toBe(200);
+      return { zone, handle, groups, listA };
+    }
+
+    // The Delivery API's answer for a viewer: with their ID in the header, or with no header.
+    async function asViewer(handle: string, id: string | null, extra: Record<string, string> = {}) {
+      const headers: Record<string, string> = { ...extra };
+      if (id !== null) headers[EXTERNAL_USER_ID_HEADER] = encodeExternalUserIdHeader(id) as string;
+      const res = await deliverZone(handle, headers);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      const body: { taleGroups: { id: string; userListMatched?: boolean }[] } = JSON.parse(text);
+      return { res, text, ids: body.taleGroups.map((g) => g.id), groups: body.taleGroups };
+    }
+
+    function expectNoTrace(text: string, where: string): void {
+      for (const trace of traces) expect(text.includes(trace), `${where} holds ${trace}`).toBe(false);
+    }
+
+    it('shows the group to a viewer in its list, and leaves it out for one not in it and one with no ID', async () => {
+      const { handle, groups } = await matrix();
+      const inA = await asViewer(handle, member);
+      expect(inA.ids).toEqual([groups.a, groups.open]);
+      expect(inA.groups[0].userListMatched).toBe(true);
+      // An untargeted group is never marked.
+      expect('userListMatched' in inA.groups[1]).toBe(false);
+      // An ID outside ASCII travels base64url-encoded and matches exactly.
+      expect((await asViewer(handle, unicodeMember)).ids).toEqual([groups.a, groups.open]);
+      expect((await asViewer(handle, 'MÜLLER-7')).ids).toEqual([groups.open]);
+      expect((await asViewer(handle, 'müller-7')).ids).toEqual([groups.open]);
+      for (const viewer of [outsider, null]) {
+        const read = await asViewer(handle, viewer);
+        expect(read.ids).toEqual([groups.open]);
+        // Not in the response at all: not its id, its name or its tale.
+        expect(read.text).not.toContain(groups.a);
+        expect(read.text).not.toContain('Loyal only');
+        expect(read.text).not.toContain('a tale');
+      }
+      expectNoTrace(printed.join('\n'), 'the API log');
+    });
+
+    it('reads a header that is not canonical base64url of a valid ID as no ID', async () => {
+      const { handle, groups } = await matrix();
+      const plain = await deliverZone(handle, { [EXTERNAL_USER_ID_HEADER]: member });
+      // `cust-A1` is not base64url of itself: it reads as some other byte string, not the ID.
+      expect((await plain.json()).taleGroups.map((g: { id: string }) => g.id)).toEqual([groups.open]);
+      for (const value of [`${encodeExternalUserIdHeader(member)}==`, '!!!!', 'A'.repeat(2000), Buffer.from([0xff]).toString('base64url')]) {
+        const res = await deliverZone(handle, { [EXTERNAL_USER_ID_HEADER]: value });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('cache-control')).toBe('private, no-store');
+        expect((await res.json()).taleGroups.map((g: { id: string }) => g.id)).toEqual([groups.open]);
+      }
+    });
+
+    it('answers a request with the header private, no-store, without an ETag or a 304; without it as before', async () => {
+      const { handle } = await matrix();
+      const anonymous = await asViewer(handle, null);
+      expect(anonymous.res.headers.get('cache-control')).toBe('private, no-cache');
+      expect(anonymous.res.headers.get('vary')).toBe(`Authorization, ${EXTERNAL_USER_ID_HEADER}`);
+      const etag = anonymous.res.headers.get('etag');
+      expect(etag).toBeTruthy();
+      // As a browser revalidates (fetch would add `Cache-Control: no-cache` to its own If-None-Match).
+      const revalidate = { 'If-None-Match': etag as string, 'Cache-Control': 'max-age=0' };
+      expect((await deliverZone(handle, revalidate)).status).toBe(304);
+
+      const listed = await asViewer(handle, member);
+      expect(listed.res.headers.get('cache-control')).toBe('private, no-store');
+      expect(listed.res.headers.get('vary')).toBe(`Authorization, ${EXTERNAL_USER_ID_HEADER}`);
+      expect(listed.res.headers.get('etag')).toBeNull();
+      expect(listed.res.headers.get('content-type')).toBe('application/json; charset=utf-8');
+      // A validator from another viewer's answer, or from the anonymous one, never gets a 304.
+      const replay = await asViewer(handle, outsider, revalidate);
+      expect(replay.res.status).toBe(200);
+      expect(replay.res.headers.get('etag')).toBeNull();
+      // The outsider sees the same groups as the anonymous viewer, and still gets the whole answer.
+      expect(replay.ids).toEqual(anonymous.ids);
+      // Even a header that reads as no ID keeps the answer out of every cache.
+      const empty = await deliverZone(handle, { [EXTERNAL_USER_ID_HEADER]: '' });
+      expect(empty.headers.get('cache-control')).toBe('private, no-store');
+    });
+
+    it('lets a browser send the header across origins, and needs no change to the URL', async () => {
+      const { handle } = await matrix();
+      const preflight = await globalThis.fetch(`${origin}/delivery/v1/zone?zone=x`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://shop.example',
+          'Access-Control-Request-Method': 'GET',
+          'Access-Control-Request-Headers': `authorization, x-taleart-visitor, ${EXTERNAL_USER_ID_HEADER.toLowerCase()}`,
+        },
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get('access-control-allow-headers')).toContain(EXTERNAL_USER_ID_HEADER);
+      expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+      expect(preflight.headers.get('access-control-allow-credentials')).toBeNull();
+      // The ID in the query string is not read: only the header picks lists.
+      const [key, slug] = handle.split('|');
+      const res = await globalThis.fetch(
+        `${origin}/delivery/v1/zone?zone=${slug}&externalUserId=${member}&${EXTERNAL_USER_ID_HEADER}=${encodeExternalUserIdHeader(member)}`,
+        { headers: { Authorization: `Bearer ${key}` } },
+      );
+      expect((await res.json()).taleGroups).toHaveLength(1);
+    });
+
+    it('never links the ID to the visitor id: the rate limit, the answer and the database see neither together', async () => {
+      const { handle, groups } = await matrix();
+      const visitor = randomUUID();
+      const first = await asViewer(handle, member, { 'X-TaleArt-Visitor': visitor });
+      const second = await asViewer(handle, outsider, { 'X-TaleArt-Visitor': visitor });
+      expect(first.ids).toEqual([groups.a, groups.open]);
+      expect(second.ids).toEqual([groups.open]);
+      for (const read of [first, second]) expect(read.text).not.toContain(visitor);
+      const { rows: tables } = await pool.query<{ name: string }>(
+        "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
+      );
+      for (const { name } of tables) {
+        const { rows } = await pool.query<{ row: string }>(`SELECT t::text AS row FROM "${name}" t`);
+        const text = rows.map((r) => r.row).join('\n');
+        expect(text.includes(visitor), `${name} holds the visitor id`).toBe(false);
+        expectNoTrace(text, name);
+      }
+      expectNoTrace(printed.join('\n'), 'the API log');
+    });
+
+    it('targets only lists of the group\'s own project, replaces them, and counts repeats once', async () => {
+      const { zone, groups, listA } = await matrix();
+      const other = await createProject('Other');
+      const foreign = await listWith(other.id, 'Theirs', 'x-1\n');
+      const refused = await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: [listA.id, foreign.id] });
+      expect(refused.status).toBe(404);
+      expect((await refused.json()).error.code).toBe('user_list_not_found');
+      expect((await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: ['nope'] })).status).toBe(404);
+      expect((await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: 'nope' })).status).toBe(400);
+      expect((await put(`/tale-groups/00000000-0000-4000-8000-000000000000/user-lists`, { userListIds: [] })).status).toBe(404);
+      // A refusal changes nothing.
+      const zoneGroups: { id: string; userLists: unknown[] }[] = await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json();
+      expect(zoneGroups.find((g) => g.id === groups.a)?.userLists).toEqual([{ id: listA.id, name: 'Loyal', idCount: 2 }]);
+      expect(zoneGroups.find((g) => g.id === groups.open)?.userLists).toEqual([]);
+
+      const vip = await listWith(zone.projectId, 'Vip', 'cust-B1\n');
+      const both = await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: [vip.id, listA.id, vip.id.toUpperCase()] });
+      expect(both.status).toBe(200);
+      expect((await both.json()).userLists).toEqual([
+        { id: listA.id, name: 'Loyal', idCount: 2 },
+        { id: vip.id, name: 'Vip', idCount: 1 },
+      ]);
+      const project: { id: string; userLists: unknown[] }[] = await (await fetch(`${base}/projects/${zone.projectId}/tale-groups`)).json();
+      expect(project.find((g) => g.id === groups.a)?.userLists).toHaveLength(2);
+      // Each list names the groups it targets; never an ID.
+      const lists: { name: string; taleGroups: unknown[] }[] = await (await fetch(`${base}/projects/${zone.projectId}/user-lists`)).json();
+      expect(lists.map((l) => [l.name, l.taleGroups])).toEqual([
+        ['Loyal', [{ id: groups.a, name: 'Loyal only' }]],
+        ['Vip', [{ id: groups.a, name: 'Loyal only' }]],
+      ]);
+      // In either list is enough.
+      expect((await asViewer((await installZone(zone.id)), 'cust-B1')).ids).toEqual([groups.a, groups.open]);
+      expect((await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: [] })).status).toBe(200);
+      expect((await asViewer(await installZone(zone.id), null)).ids).toEqual([groups.a, groups.open]);
+    });
+
+    it('combines with the tag rule: the SDK still decides tags, the server only lists', async () => {
+      const { handle, groups, zone } = await matrix();
+      const tag = await (await post(`/projects/${zone.projectId}/tags`, { name: 'summer' })).json();
+      expect((await put(`/tale-groups/${groups.a}/tags`, { tagIds: [tag.id] })).status).toBe(200);
+      const read = await asViewer(handle, member);
+      expect(read.groups[0]).toMatchObject({ id: groups.a, tags: ['summer'], tagMatch: 'any', userListMatched: true });
+    });
+
+    it('a group targeted only to empty lists is not visible, and nobody gets it; an upload makes it visible to its members', async () => {
+      const { zone, handle, groups } = await matrix();
+      const empty = await listWith(zone.projectId, 'Empty', '');
+      expect((await put(`/tale-groups/${groups.a}/user-lists`, { userListIds: [empty.id] })).status).toBe(200);
+      const listed: { id: string; visibility: unknown }[] = await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json();
+      expect(listed.find((g) => g.id === groups.a)?.visibility).toEqual(notVisible(why('audience-empty', 'group')));
+      for (const viewer of [member, outsider, null]) expect((await asViewer(handle, viewer)).ids).toEqual([groups.open]);
+      // The group's own row, read for any zone, says it too.
+      const project: { id: string; visibility: unknown }[] = await (await fetch(`${base}/projects/${zone.projectId}/tale-groups`)).json();
+      expect(project.find((g) => g.id === groups.a)?.visibility).toEqual(notVisible(why('audience-empty', 'group')));
+
+      await fetch(`${base}/projects/${zone.projectId}/user-lists/${empty.id}/ids`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv' },
+        body: `${outsider}\n`,
+      });
+      const after: { id: string; visibility: unknown }[] = await (await fetch(`${base}/zones/${zone.id}/tale-groups`)).json();
+      expect(after.find((g) => g.id === groups.a)?.visibility).toEqual(VISIBLE);
+      expect((await asViewer(handle, outsider)).ids).toEqual([groups.a, groups.open]);
+      expect((await asViewer(handle, member)).ids).toEqual([groups.open]);
+    });
+
+    it('deleting a list removes it from every group: a group whose only list it was shows to everyone again', async () => {
+      const { zone, handle, groups, listA } = await matrix();
+      expect((await fetch(`${base}/projects/${zone.projectId}/user-lists/${listA.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect((await pool.query('SELECT 1 FROM tale_group_user_lists WHERE user_list_id = $1', [listA.id])).rowCount).toBe(0);
+      expect((await asViewer(handle, null)).ids).toEqual([groups.a, groups.open]);
+      const group = await (await fetch(`${base}/tale-groups/${groups.a}`)).json();
+      expect(group.userLists).toEqual([]);
+    });
+
+    it('copies keep their lists in the same project, and have none in another', async () => {
+      const { zone, groups, listA } = await matrix();
+      const same = await (await post('/zones', { name: 'Second', projectId: zone.projectId })).json();
+      const copied = await post(`/tale-groups/${groups.a}/copy`, { zoneId: same.id });
+      expect(copied.status).toBe(201);
+      expect((await copied.json()).userLists).toEqual([{ id: listA.id, name: 'Loyal', idCount: 2 }]);
+      const elsewhere = await createZone();
+      const away = await post(`/tale-groups/${groups.a}/copy`, { zoneId: elsewhere.id });
+      expect(away.status).toBe(201);
+      expect((await away.json()).userLists).toEqual([]);
+    });
+
+    it('cannot link a group to another project\'s list, even in the database', async () => {
+      const { groups } = await matrix();
+      const other = await createProject('Other');
+      const foreign = await listWith(other.id, 'Theirs', 'x-1\n');
+      await expect(
+        pool.query('INSERT INTO tale_group_user_lists (tale_group_id, user_list_id, project_id) VALUES ($1, $2, $3)', [
+          groups.a,
+          foreign.id,
+          other.id,
+        ]),
+      ).rejects.toMatchObject({ code: '23503' });
     });
   });
 

@@ -37,8 +37,8 @@
         background: #fff;
       }
       code { background: #f3f4f6; padding: 0 4px; border-radius: 4px; }
-      #viewer-tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-      #viewer-tags p { flex-basis: 100%; margin: 0; }
+      #viewer-tags, #viewer-id { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      #viewer-tags p, #viewer-id p { flex-basis: 100%; margin: 0; }
     </style>
   </head>
   <body>
@@ -75,9 +75,23 @@
       <p id="viewer-tags-status" role="status">No viewer tags: every group shows.</p>
     </form>
 
+    <p>
+      Add <code>#externalUserId=&lt;ID&gt;</code> to the fragment (never the query: the ID stays out of URLs a server
+      sees), or set it below, to tell the SDK who the viewer is with <code>setExternalUserId(id)</code>: tale groups
+      targeted to user lists show only when the ID is in one of them. The SDK sends it in a request header, never in
+      the URL. Use an opaque ID, not an email address.
+    </p>
+    <form id="viewer-id">
+      <label for="viewer-id-input">External user ID</label>
+      <input id="viewer-id-input" name="externalUserId" autocomplete="off" placeholder="cust-1001" />
+      <button type="submit">Set ID</button>
+      <button type="button" id="viewer-id-clear">No ID</button>
+      <p id="viewer-id-status" role="status">No external user ID: groups with user lists do not show.</p>
+    </form>
+
     <!-- The built SDK, served from dist/libs/web-sdk. Loading it registers <taleart-view>. -->
     <script type="module">
-      import { configureZone, setTags } from '/sdk/index.js';
+      import { configureZone, setExternalUserId, setTags } from '/sdk/index.js';
 
       const params = new URLSearchParams(location.search);
       // Keys are read from the fragment first (never sent to a server or in a Referer), then from the query.
@@ -128,6 +142,29 @@
       document.getElementById('viewer-tags-clear').addEventListener('click', () => {
         tagsInput.value = '';
         applyTags(null);
+      });
+      // The viewer's external user ID (epic targeting R4): read from the fragment only, set before the
+      // elements load, and never shown back in full (the status names its length only).
+      const idInput = document.getElementById('viewer-id-input');
+      const idStatus = document.getElementById('viewer-id-status');
+      const applyId = (value) => {
+        const id = value === null || !value.trim() ? null : value;
+        setExternalUserId(id);
+        idStatus.textContent = id
+          ? `External user ID set (${id.trim().length} characters): groups for its user lists show.`
+          : 'No external user ID: groups with user lists do not show.';
+      };
+      if (fragment.has('externalUserId')) {
+        idInput.value = fragment.get('externalUserId');
+        applyId(fragment.get('externalUserId'));
+      }
+      document.getElementById('viewer-id').addEventListener('submit', (event) => {
+        event.preventDefault();
+        applyId(idInput.value);
+      });
+      document.getElementById('viewer-id-clear').addEventListener('click', () => {
+        idInput.value = '';
+        applyId(null);
       });
       // One element per slug, each under its own heading; without any, the page keeps its empty element.
       if (placements.length > 0) {

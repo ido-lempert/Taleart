@@ -38,7 +38,6 @@ export type ContactWarning = 'email' | 'phone' | null;
 const REFUSAL_TEXT: Readonly<Record<UserListRefusal, string>> = {
   'too-long': `longer than ${MAX_EXTERNAL_USER_ID_LENGTH} characters`,
   'control-character': 'holds a control character, such as a tab',
-  'not-ascii': 'only ASCII IDs are supported for now',
   'not-one-column': 'more than one column',
 };
 
@@ -56,6 +55,29 @@ export function reportLines(report: UserListUploadReport): string[] {
   if (report.emptyRows > 0) lines.push(`${count(report.emptyRows, 'empty row')} skipped.`);
   lines.push(`The list now holds ${count(report.idCount, 'ID')}.`);
   return lines;
+}
+
+// "a", "a and b", "a, b and c".
+function joined(names: readonly string[]): string {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** The tale groups a list targets (epic targeting R3, R4), as its row says it. */
+export function targetsText(list: Pick<UserList, 'taleGroups'>): string {
+  const names = (list.taleGroups ?? []).map((group) => group.name);
+  if (names.length === 0) return 'Targets no tale group yet';
+  if (names.length > 3) return `Targets ${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
+  return `Targets ${joined(names)}`;
+}
+
+/** What deleting a list does to the tale groups that use it (epic targeting R5). */
+export function deleteGroupsText(list: Pick<UserList, 'taleGroups'>): string {
+  const names = (list.taleGroups ?? []).map((group) => group.name);
+  if (names.length === 0) return '';
+  return (
+    `It is removed from ${names.length === 1 ? 'the tale group' : `${names.length} tale groups`} ${joined(names)}; ` +
+    'a group with no other user list then shows to every viewer.'
+  );
 }
 
 /** The warning's words. */
@@ -249,6 +271,7 @@ function readSample(file: Blob): Promise<string> {
                       <span class="muted">
                         <span class="user-list__count">{{ idCount(list) }}</span> · Changed {{ date(list.updatedAt) }}
                       </span>
+                      <span class="muted user-list__groups">{{ targets(list) }}</span>
                     </div>
                     <div class="user-list__actions">
                       <button
@@ -304,6 +327,9 @@ function readSample(file: Blob): Promise<string> {
               <p id="user-list-delete-text">
                 Delete <strong>{{ listOf(d)?.name }}</strong> and the {{ idCount(listOf(d)) }} it holds? They are
                 deleted for good, not kept anywhere. This cannot be undone.
+                @if (listOf(d)?.taleGroups?.length) {
+                  {{ deleteGroupsText(listOf(d)) }}
+                }
               </p>
               @if (error()) {
                 <p class="form-error" role="alert">{{ error() }}</p>
@@ -520,10 +546,22 @@ export class AudiencePage {
     }
     this.listError.set('');
     this.lists.set(value);
+    // The Audience drawers offer the lists as read here, with their new counts.
+    this.store.userLists.update((all) => ({ ...all, [projectId]: value }));
   }
 
   protected idCount(list: UserList | null | undefined): string {
     return count(list?.idCount ?? 0, 'ID');
+  }
+
+  /** The tale groups a list targets, in words: "Targets Summer sale and VIP", or none. */
+  protected targets(list: UserList): string {
+    return targetsText(list);
+  }
+
+  /** What deleting a list does to the groups that use it. */
+  protected deleteGroupsText(list: UserList | null): string {
+    return list ? deleteGroupsText(list) : '';
   }
 
   protected date(iso: string): string {
@@ -635,6 +673,8 @@ export class AudiencePage {
       this.error.set(`${prefix}${sent.message}`);
       return;
     }
+    // The list's ID count can change whether its tale groups are visible (audience-empty).
+    if (list.taleGroups?.length) void this.store.refresh();
     this.report.set(sent.value);
     this.said.set(`${list.name}: ${reportLines(sent.value).join(' ')}`);
     setTimeout(() => document.getElementById('user-list-report-title')?.focus());
@@ -676,6 +716,8 @@ export class AudiencePage {
       return;
     }
     await this.load(projectId);
+    // Its tale groups lost the list: their audience and visibility change.
+    if (d.list.taleGroups?.length) void this.store.refresh();
     this.said.set(`${d.list.name} deleted, with its ${this.idCount(d.list)}.`);
     this.drawer.set(null);
   }

@@ -38,6 +38,7 @@ if (leaks.length) {
 const consumer = `import {
   configureZone,
   defineTaleartElement,
+  setExternalUserId,
   setTags,
   TaleartElement,
   TALEART_ELEMENT_TAG,
@@ -54,6 +55,11 @@ setTags(['summer', 'vip']);
 setTags(null);
 // @ts-expect-error tags are an array of names
 setTags('summer');
+// The viewer's external user ID (epic targeting R4); null sends none.
+setExternalUserId('cust-1001');
+setExternalUserId(null);
+// @ts-expect-error the ID is text
+setExternalUserId(1001);
 const element = document.createElement(TALEART_ELEMENT_TAG) as TaleartElement;
 element.siteKey = 'tas_…';
 element.zone = 'home-top';

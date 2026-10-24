@@ -99,6 +99,18 @@ export const GROUP_OWN_REASON_CLAUSES: readonly ReasonClause[] = [
     when: (g, p) =>
       `NOT EXISTS (SELECT 1 FROM tales dt WHERE dt.tale_group_id = ${g}.id AND ${deliveredTale('dt', p)})`,
   },
+  // No viewer can match (epic targeting R7): the group is targeted to user lists and none of them
+  // holds an ID. Targeting is otherwise not a reason: who sees a delivered group is the Delivery
+  // API's per-viewer match, apart from this rule. The tables are the targeting module's (which
+  // depends on this module, so it cannot hand this clause in); story 7 adds "and no segment".
+  {
+    code: 'audience-empty',
+    subject: 'group',
+    when: (g) =>
+      `EXISTS (SELECT 1 FROM tale_group_user_lists ae WHERE ae.tale_group_id = ${g}.id) ` +
+      `AND NOT EXISTS (SELECT 1 FROM tale_group_user_lists ae JOIN user_lists al ON al.id = ae.user_list_id ` +
+      `WHERE ae.tale_group_id = ${g}.id AND al.id_count > 0)`,
+  },
 ];
 
 /**
