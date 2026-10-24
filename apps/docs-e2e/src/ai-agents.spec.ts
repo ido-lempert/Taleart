@@ -26,9 +26,11 @@ test('offers every skill file for download, as it is in skills/taleart', async (
   const links = page.locator('.downloads a');
   await expect(links).toHaveCount(SKILL_FILES.length);
   for (const [i, path] of SKILL_FILES.entries()) {
-    const href = await links.nth(i).getAttribute('href');
-    expect(href).toBe(`/skill/taleart/${path}`);
-    const answer = await request.get(href ?? '');
+    // Relative to the base href, so the downloads also work under a sub-path (GitHub Pages).
+    await expect(links.nth(i)).toHaveAttribute('href', `skill/taleart/${path}`);
+    const href = await links.nth(i).evaluate((a) => (a as HTMLAnchorElement).href);
+    expect(new URL(href).pathname).toBe(`/skill/taleart/${path}`);
+    const answer = await request.get(href);
     expect(answer.status()).toBe(200);
     expect(await answer.text()).toBe(onDisk(path));
   }

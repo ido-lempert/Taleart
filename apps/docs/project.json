@@ -73,11 +73,40 @@
           ],
           "outputHashing": "all"
         },
+        "github-pages": {
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "500kb",
+              "maximumError": "1mb"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "4kb",
+              "maximumError": "8kb"
+            }
+          ],
+          "outputHashing": "all",
+          "baseHref": "/Taleart/",
+          "outputPath": "dist/apps/docs-pages"
+        },
         "development": {
           "optimization": false,
           "extractLicenses": false,
           "sourceMap": true
         }
+      }
+    },
+    "build-pages": {
+      "// note": "The docs for GitHub Pages (https://ido-lempert.github.io/Taleart/, .github/workflows/docs-pages.yml): the production build under the /Taleart/ base href in dist/apps/docs-pages/browser, with .nojekyll and 404.html (the prerendered not-found page).",
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": [
+          "nx run docs:build:github-pages",
+          "node apps/docs/scripts/finish-pages.mjs dist/apps/docs-pages/browser"
+        ],
+        "parallel": false
       }
     },
     "serve": {
