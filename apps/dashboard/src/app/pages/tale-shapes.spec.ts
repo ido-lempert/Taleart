@@ -234,7 +234,7 @@ describe('Tale Studio shapes, emoji and stickers (epic Tale Studio R6)', () => {
     expect((els[1].querySelector('.el__shape') as HTMLElement).style.borderRadius).toBe('50%');
     const bar = els[2].querySelector('.el__stroke') as HTMLElement;
     expect(bar.style.height).toBe('0.6cqh');
-    expect(q<HTMLElement>('legend').textContent).toContain('Selected line');
+    expect(q<HTMLElement>('#inspector-title').textContent).toContain('Line');
     const saved = await saveNow(1);
     expect(saved.elements.map((e) => [e.type, e.props, e.a11y])).toEqual([
       ['shape', { shape: 'rectangle', fill: '#FFFFFF', radius: 0.02 }, { decorative: true }],

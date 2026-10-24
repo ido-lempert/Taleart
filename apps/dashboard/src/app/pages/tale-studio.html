@@ -1,15 +1,26 @@
-<div class="page">
-  <header class="page-header">
-    <a class="back-link" [routerLink]="backLink().link" [queryParams]="backLink().query"><app-icon name="back" /> {{ backLink().text }}</a>
-    <h2 class="page-header__title">Tale Studio</h2>
-    @if (tale(); as t) {
-      <p class="page-header__meta">{{ t.title }}</p>
-    }
-  </header>
-  @if (doc(); as d) {
-    <section class="card section" aria-labelledby="studio-title">
-      <h3 class="section__title visually-hidden" id="studio-title">Edit {{ tale()?.title ?? 'tale' }}</h3>
-      <div class="studio-bar">
+<!--
+  Tale Studio 2 (epic Tale Studio 2 R1, story 11.1): five regions in focus order, which F6 and
+  Shift+F6 move between: the top bar, the left panel (Elements, Templates, Media, Layers), the
+  canvas, the inspector (or the preview in its place) and the tale strip. The page does not scroll;
+  each region scrolls on its own. Below 1024 px wide the regions stack and the page scrolls.
+-->
+@if (doc(); as d) {
+  <div class="studio-shell" [class.is-previewing]="previewOpen()">
+    <section class="studio-top" data-region="top" aria-labelledby="studio-title">
+      <a
+        class="back-link studio-top__back"
+        id="studio-back"
+        [routerLink]="backLink().link"
+        [queryParams]="backLink().query"
+        ><app-icon name="back" /> {{ backLink().text }}</a
+      >
+      <h2 class="studio-top__title" id="studio-title" [title]="(taleNumber() ? 'Tale ' + taleNumber() + ' · ' : '') + (tale()?.title ?? 'Tale')">
+        @if (taleNumber(); as n) {
+          <span class="studio-top__number">Tale {{ n }} ·&ngsp;</span>
+        }
+        <span id="studio-tale-name">{{ tale()?.title ?? 'Tale' }}</span>
+      </h2>
+      <div class="studio-top__tools">
         <button
           type="button"
           class="btn btn--ghost btn--sm"
@@ -21,7 +32,7 @@
           "
           (click)="runHistory('undo')"
         >
-          <app-icon name="undo" /> Undo
+          <app-icon name="undo" /> <span class="studio-top__label">Undo</span>
         </button>
         <button
           type="button"
@@ -34,31 +45,142 @@
           "
           (click)="runHistory('redo')"
         >
-          <app-icon name="redo" /> Redo
+          <app-icon name="redo" /> <span class="studio-top__label">Redo</span>
         </button>
-        <div class="studio-help" (focusout)="helpFocusOut($event)">
-          <button
-            #helpButton
-            type="button"
-            class="btn btn--ghost btn--sm studio-help__button"
-            id="studio-help-button"
-            aria-controls="studio-keys"
-            [attr.aria-expanded]="helpOpen()"
-            (click)="toggleHelp()"
-            (keydown.escape)="closeHelp($event)"
-          >
-            <span class="studio-help__mark" aria-hidden="true">?</span> Keyboard shortcuts
-          </button>
-          <!-- Stays in the page when closed: the canvas is described by it. -->
+        <button
+          type="button"
+          class="btn btn--ghost btn--sm"
+          id="studio-safe-area"
+          title="Safe area"
+          [attr.aria-pressed]="guides()"
+          (click)="showGuides(!guides())"
+        >
+          <app-icon name="safe-area" /> <span class="studio-top__label">Safe area</span>
+        </button>
+      </div>
+      <div class="studio-top__state">
+        <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()" [title]="saveText()">{{ saveText() }}</p>
+        <p class="studio-update__state" id="studio-update-state" [class.is-pending]="unpublished()" [title]="statusLine()">
+          @if (siteVisibility(); as v) {
+            <span class="studio-update__dot" [class.is-visible]="v.visible" aria-hidden="true"></span>
+          }
+          <span class="studio-update__text">{{ statusLine() }}</span>
+        </p>
+      </div>
+      <button
+        type="button"
+        class="btn btn--ghost btn--sm"
+        id="studio-preview"
+        title="Preview"
+        [attr.aria-controls]="previewOpen() ? 'studio-preview-pane' : null"
+        [attr.aria-expanded]="previewOpen()"
+        (click)="previewOpen() ? closePreview() : previewOpen.set(true)"
+      >
+        <app-icon name="eye" /> <span class="studio-top__label">Preview</span>
+      </button>
+      <button
+        type="button"
+        class="btn btn--primary btn--sm"
+        id="studio-update"
+        aria-describedby="studio-update-state"
+        [attr.aria-disabled]="!canUpdate() || updating() ? 'true' : null"
+        (click)="updateTale()"
+      >
+        Update tale
+      </button>
+      <div class="studio-menu" (focusout)="taleMenuFocusOut($event)">
+        <button
+          #taleMenuButton
+          type="button"
+          class="btn btn--ghost btn--sm studio-menu__button"
+          id="studio-menu"
+          aria-label="Tale actions"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="taleMenuOpen()"
+          [attr.aria-controls]="taleMenuOpen() ? 'studio-menu-list' : null"
+          (click)="toggleTaleMenu()"
+          (keydown)="taleMenuButtonKey($event)"
+        >
+          <app-icon name="more" />
+        </button>
+        @if (taleMenuOpen()) {
           <div
-            class="studio-help__panel"
-            id="studio-keys"
-            role="group"
-            aria-label="Keyboard shortcuts"
+            #taleMenu
+            class="studio-menu__list"
             tabindex="-1"
-            [hidden]="!helpOpen()"
-            (keydown.escape)="closeHelp($event)"
+            id="studio-menu-list"
+            role="menu"
+            aria-labelledby="studio-menu"
+            (keydown)="taleMenuKey($event)"
           >
+            <button
+              type="button"
+              role="menuitem"
+              tabindex="-1"
+              class="studio-menu__item"
+              id="studio-discard"
+              [attr.aria-disabled]="discardBlocked() ? 'true' : null"
+              [attr.aria-describedby]="discardBlocked() ? 'studio-discard-why' : 'studio-update-state'"
+              (click)="chooseFromTaleMenu($event, 'discard')"
+            >
+              Discard changes
+              @if (discardBlocked(); as why) {
+                <span class="studio-menu__why" id="studio-discard-why" aria-hidden="true">{{ why }}</span>
+              }
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabindex="-1"
+              class="studio-menu__item"
+              id="studio-duplicate"
+              [attr.aria-disabled]="duplicateBlocked() ? 'true' : null"
+              [attr.aria-describedby]="duplicateBlocked() ? 'studio-duplicate-why' : null"
+              (click)="chooseFromTaleMenu($event, 'duplicate')"
+            >
+              Duplicate
+              @if (duplicateBlocked(); as why) {
+                <span class="studio-menu__why" id="studio-duplicate-why" aria-hidden="true">{{ why }}</span>
+              }
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabindex="-1"
+              class="studio-menu__item"
+              id="studio-help-button"
+              aria-keyshortcuts="?"
+              (click)="chooseFromTaleMenu($event, 'shortcuts')"
+            >
+              <span class="studio-menu__line">Keyboard shortcuts <kbd aria-hidden="true">?</kbd></span>
+            </button>
+          </div>
+        }
+      </div>
+      <!-- Stays in the page when closed: the canvas is described by its shortcuts. -->
+      <div class="studio-help" (focusout)="helpFocusOut($event)">
+        <div
+          #helpPanel
+          class="studio-help__panel"
+          id="studio-help-panel"
+          role="group"
+          aria-labelledby="studio-help-title"
+          tabindex="-1"
+          [hidden]="!helpOpen()"
+          (keydown.escape)="closeHelp($event)"
+        >
+          <div class="studio-help__head">
+            <h3 class="studio-help__title" id="studio-help-title">Keyboard shortcuts</h3>
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm studio-help__close"
+              aria-label="Close keyboard shortcuts"
+              (click)="closeHelp($event)"
+            >
+              <app-icon name="close" />
+            </button>
+          </div>
+          <div id="studio-keys">
             <p>
               Select a layer to move it with the arrow keys (Shift for larger steps). Enter edits its text, Escape
               stops editing. Dragging snaps to the centre, the safe areas and other layers; hold Alt to place freely.
@@ -68,70 +190,22 @@
               opens the actions. Outside text fields, {{ undoKey }} undoes and {{ redoKey }} redoes. Changes save
               automatically.
             </p>
+            <p>
+              F6 and Shift+F6 move between the top bar, the elements and layers, the canvas, the properties and the
+              tales of the group: in Tale Studio, F6 does not go to the browser's address bar. Outside text fields, ?
+              shows these shortcuts.
+            </p>
           </div>
         </div>
-        <button
-          type="button"
-          class="btn btn--ghost btn--sm"
-          id="studio-preview"
-          [attr.aria-controls]="previewOpen() ? 'studio-preview-pane' : null"
-          [attr.aria-expanded]="previewOpen()"
-          (click)="previewOpen.set(!previewOpen())"
-        >
-          <app-icon name="eye" /> Preview
-        </button>
-        <p class="studio-save" id="studio-save" [class.is-failed]="saveFailed()">{{ saveText() }}</p>
       </div>
-      <div class="studio-update" [class.is-pending]="unpublished()">
-        <p class="studio-update__state" id="studio-update-state">
-          @if (siteVisibility(); as v) {
-            <span class="studio-update__dot" [class.is-visible]="v.visible" aria-hidden="true"></span>
-          }
-          {{ statusLine() }}
-        </p>
-        <button
-          type="button"
-          class="btn btn--primary btn--sm"
-          id="studio-update"
-          aria-describedby="studio-update-state"
-          [attr.aria-disabled]="!canUpdate() || updating() ? 'true' : null"
-          (click)="updateTale()"
-        >
-          Update tale
-        </button>
-        <button
-          type="button"
-          class="btn btn--ghost btn--sm"
-          id="studio-discard"
-          aria-describedby="studio-update-state"
-          [attr.aria-disabled]="!unpublished() || published().document === null || updating() ? 'true' : null"
-          (click)="discardChanges()"
-        >
-          Discard changes
-        </button>
-        <button
-          type="button"
-          class="btn btn--secondary btn--sm"
-          id="studio-duplicate"
-          [attr.aria-disabled]="updating() || !tale() ? 'true' : null"
-          (click)="openDuplicate($event)"
-        >
-          Duplicate
-        </button>
-      </div>
+    </section>
+
+    <div class="studio-alerts">
       @if (duplicateResult(); as dup) {
         <p class="studio-notice" id="studio-duplicated">
           {{ dup.message }}
           <a [routerLink]="['/tales', dup.id, 'studio']" [queryParams]="{ zone: zone() }">Open the copy</a>
         </p>
-      }
-      @if (duplicating() && tale(); as t) {
-        <app-duplicate-tale
-          [tale]="t"
-          [returnFocus]="duplicateOpener"
-          (duplicated)="duplicatedTale($event)"
-          (closed)="duplicating.set(false)"
-        />
       }
       @if (saveState(); as s) {
         @if (s.kind === 'conflict') {
@@ -172,17 +246,255 @@
           </div>
         }
       }
-      <!-- One live region for save failures: the first failure and nothing per retry. -->
-      <p class="visually-hidden" role="alert">{{ saveAlert() }}</p>
       @if (error()) {
         <p class="form-error studio-alert" role="alert">{{ error() }}</p>
       }
       @if (notice()) {
         <p class="studio-notice" role="status">{{ notice() }}</p>
       }
-      <div class="studio">
+    </div>
+
+    <aside class="studio-left" data-region="left" aria-label="Add and layers">
+      <div class="studio-rail" role="tablist" aria-label="Left panel tabs" [attr.aria-orientation]="railOrientation()">
+        @for (tab of leftTabs; track tab.id; let i = $index) {
+          <button
+            type="button"
+            role="tab"
+            class="studio-rail__tab"
+            [id]="'studio-tab-' + tab.id"
+            [attr.aria-selected]="leftTab() === tab.id"
+            [attr.aria-controls]="'studio-panel-' + tab.id"
+            [attr.tabindex]="leftTab() === tab.id ? 0 : -1"
+            (click)="leftTab.set(tab.id)"
+            (keydown)="tabKey($event, i)"
+          >
+            <app-icon [name]="tab.icon" />
+            <span class="studio-rail__label">{{ tab.label }}</span>
+          </button>
+        }
+      </div>
+      <div
+        class="studio-panel"
+        role="tabpanel"
+        id="studio-panel-elements"
+        aria-labelledby="studio-tab-elements"
+        [hidden]="leftTab() !== 'elements'"
+      >
+        <h2 class="studio-panel__title">Elements</h2>
+        <p class="studio-panel__hint">Click a tile, or press Enter on it, to add it to the tale.</p>
+        <!-- Today's Add menu, from the element-type registry and each type's studio descriptor (R8), in its rows. -->
+        @for (group of addGroups; track group.name; let g = $index) {
+          <div class="tile-group" role="group" [attr.aria-labelledby]="'studio-tiles-' + g">
+            <h3 class="tile-group__name" [id]="'studio-tiles-' + g">{{ group.name }}</h3>
+            <div class="tiles">
+              @for (item of group.items; track item.entry.id) {
+                @let limited = limitReached(item.entry);
+                <button
+                  type="button"
+                  class="tile"
+                  [id]="item.entry.id"
+                  [disabled]="d.elements.length >= maxElements || (item.entry.needsProject && !projectId())"
+                  [attr.aria-disabled]="limited ? 'true' : null"
+                  [attr.aria-describedby]="limited ? item.entry.limit?.hintId : null"
+                  (click)="addFromMenu(item.entry, item.type)"
+                >
+                  <app-icon [name]="item.entry.icon" />
+                  <!-- Named "Add poll", shown as "Poll" (label in name, 2.5.3). -->
+                  <span class="tile__label"
+                    >@if (item.entry.label.startsWith('Add ')) {<span class="visually-hidden">Add </span>}<span
+                      class="tile__word"
+                      >{{ tileWord(item.entry) }}</span
+                    ></span
+                  >
+                </button>
+              }
+            </div>
+          </div>
+        }
+        @for (limit of reachedLimits(); track limit.hintId) {
+          <p class="field__hint" [id]="limit.hintId">{{ limit.hint }}</p>
+        }
+      </div>
+      <div
+        class="studio-panel"
+        role="tabpanel"
+        id="studio-panel-templates"
+        aria-labelledby="studio-tab-templates"
+        tabindex="0"
+        [hidden]="leftTab() !== 'templates'"
+      >
+        <h2 class="studio-panel__title">Templates</h2>
+        <p class="studio-panel__soon"><span class="soon-pill">Coming soon</span></p>
+        <p class="studio-panel__hint">
+          Starter tales and styled element presets will live here. Pick one to fill an empty tale in one step; one
+          undo takes it back.
+        </p>
+        <ul class="soon-cards">
+          @for (name of starterTales; track name) {
+            <li class="soon-card"><span class="soon-card__thumb" aria-hidden="true"></span>{{ name }}</li>
+          }
+        </ul>
+      </div>
+      <div
+        class="studio-panel"
+        role="tabpanel"
+        id="studio-panel-media"
+        aria-labelledby="studio-tab-media"
+        tabindex="0"
+        [hidden]="leftTab() !== 'media'"
+      >
+        <h2 class="studio-panel__title">Media</h2>
+        <p class="studio-panel__soon"><span class="soon-pill">Coming soon</span></p>
+        <p class="studio-panel__hint">
+          Your project's images, videos and stickers will be listed here, with search and upload, ready to add with a
+          click or to drag onto the tale. Until then, add them with the Image, Video and Sticker tiles in Elements.
+        </p>
+      </div>
+      <div
+        class="studio-panel"
+        role="tabpanel"
+        id="studio-panel-layers"
+        aria-labelledby="studio-tab-layers"
+        [hidden]="leftTab() !== 'layers'"
+      >
+        <h2 class="studio-panel__title" id="layers-title">Layers</h2>
+        <p class="studio-panel__hint" id="layers-hint">
+          Top layer first. The up and down arrows move between layers, left and right between a layer's controls.
+          {{ multiHint }} adds a layer to the selection.
+        </p>
+        @if (layerRows().length === 0) {
+          <p class="muted">No layers yet.</p>
+        } @else {
+          <div
+            class="layers"
+            role="grid"
+            aria-labelledby="layers-title"
+            aria-describedby="layers-hint"
+            aria-multiselectable="true"
+          >
+            @for (row of layerRows(); track row.el.id) {
+              <div
+                class="layer"
+                role="row"
+                [class.is-selected]="isSelected(row.el.id)"
+                [class.is-hidden]="row.el.hidden"
+                [attr.aria-selected]="isSelected(row.el.id)"
+              >
+                <div
+                  role="gridcell"
+                  class="layer__select"
+                  [id]="'layer-' + row.el.id"
+                  [attr.tabindex]="tabIndex(row.el.id, 0)"
+                  [attr.aria-keyshortcuts]="keyShortcuts"
+                  (click)="pick($event, row.el.id)"
+                  (focus)="activate(row.el.id, 0)"
+                  (keydown)="onCellKey($event, row.el, 0)"
+                  (contextmenu)="openMenuAt($event, row.el, 'list')"
+                >
+                  <span class="layer__line">
+                    <app-icon [name]="row.el.type" />
+                    <span class="visually-hidden">{{ kind(row.el) }}: </span>
+                    <span class="layer__name"
+                      >@if (row.glyph) {<span aria-hidden="true">{{ row.glyph }} </span>}{{ row.spoken }}</span
+                    >
+                    @if (row.order) {
+                      <!-- Where screen readers and Tab meet it on the sample page (AD-15, R12). -->
+                      <span class="layer__order" title="Reading order"
+                        ><span class="visually-hidden">, read </span>#{{ row.order }}</span
+                      >
+                    }
+                  </span>
+                  <span class="layer__state" [id]="'layer-state-' + row.el.id">
+                    @if (row.el.hidden) {
+                      <span>Hidden</span>
+                    }
+                    @if (row.el.locked) {
+                      <span>Locked</span>
+                    }
+                    @if (row.outside) {
+                      <span class="layer__warning"><app-icon name="alert" /> Outside safe area</span>
+                    }
+                    @if (row.lowContrast) {
+                      <span class="layer__warning"><app-icon name="alert" /> Low contrast</span>
+                    }
+                    @if (row.missingAlt) {
+                      <span class="layer__warning"><app-icon name="alert" /> Needs alt text</span>
+                    }
+                    @if (row.missingLink) {
+                      <span class="layer__warning"><app-icon name="alert" /> Needs a web address</span>
+                    }
+                    @if (row.smallTarget) {
+                      <span class="layer__warning"><app-icon name="alert" /> Small target</span>
+                    }
+                    @if (row.longVideo) {
+                      <span class="layer__warning"><app-icon name="alert" /> Longer than 15 s</span>
+                    }
+                  </span>
+                </div>
+                <div role="gridcell">
+                  <button
+                    type="button"
+                    class="btn btn--ghost layer__toggle"
+                    [id]="'layer-hide-' + row.el.id"
+                    [attr.tabindex]="tabIndex(row.el.id, 1)"
+                    [attr.aria-label]="'Hide ' + row.spoken"
+                    [attr.aria-pressed]="row.el.hidden"
+                    aria-keyshortcuts="H"
+                    (click)="run('hide', 'list', 'layer-hide-' + row.el.id, row.el.id)"
+                    (focus)="activate(row.el.id, 1)"
+                    (keydown)="onCellKey($event, row.el, 1)"
+                    (contextmenu)="openMenuAt($event, row.el, 'list')"
+                  >
+                    <app-icon [name]="row.el.hidden ? 'eye-off' : 'eye'" />
+                  </button>
+                </div>
+                <div role="gridcell">
+                  <button
+                    type="button"
+                    class="btn btn--ghost layer__toggle"
+                    [id]="'layer-lock-' + row.el.id"
+                    [attr.tabindex]="tabIndex(row.el.id, 2)"
+                    [attr.aria-label]="'Lock ' + row.spoken"
+                    [attr.aria-pressed]="row.el.locked"
+                    aria-keyshortcuts="L"
+                    (click)="run('lock', 'list', 'layer-lock-' + row.el.id, row.el.id)"
+                    (focus)="activate(row.el.id, 2)"
+                    (keydown)="onCellKey($event, row.el, 2)"
+                    (contextmenu)="openMenuAt($event, row.el, 'list')"
+                  >
+                    <app-icon [name]="row.el.locked ? 'lock' : 'unlock'" />
+                  </button>
+                </div>
+                <div role="gridcell">
+                  <button
+                    type="button"
+                    class="btn btn--ghost layer__toggle"
+                    [id]="'layer-more-' + row.el.id"
+                    [attr.tabindex]="tabIndex(row.el.id, 3)"
+                    [attr.aria-label]="'More actions for ' + row.spoken"
+                    aria-haspopup="menu"
+                    [attr.aria-expanded]="menu()?.returnId === 'layer-more-' + row.el.id"
+                    (click)="openMenuFrom($any($event.currentTarget), row.el)"
+                    (focus)="activate(row.el.id, 3)"
+                    (keydown)="onCellKey($event, row.el, 3)"
+                    (contextmenu)="openMenuAt($event, row.el, 'list')"
+                  >
+                    <app-icon name="more" />
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </aside>
+
+    <section class="studio-canvas" data-region="canvas" aria-labelledby="studio-canvas-title">
+      <h2 class="visually-hidden" id="studio-canvas-title">Canvas</h2>
+      <div class="workspace">
         <div
           class="canvas"
+          [class.show-bounds]="guides()"
           id="studio-canvas"
           tabindex="-1"
           role="group"
@@ -455,472 +767,32 @@
               <div class="snap-line snap-line--y" aria-hidden="true" [style.top.%]="lines.y * 100"></div>
             }
           }
+          @if (d.elements.length === 0) {
+            <p class="canvas__hint">Pick an element on the left to add it to the tale.</p>
+          }
         </div>
-        <div class="panel">
-          <!-- The Add menu, from the element-type registry and each type's studio descriptor (R8). -->
-          @for (row of addRows; track $index) {
-            <div class="row">
-              @for (item of row; track item.entry.id) {
-                @let limited = limitReached(item.entry);
-                <button
-                  type="button"
-                  class="btn btn--secondary"
-                  [class.btn--sm]="item.entry.small"
-                  [id]="item.entry.id"
-                  [disabled]="d.elements.length >= maxElements || (item.entry.needsProject && !projectId())"
-                  [attr.aria-disabled]="limited ? 'true' : null"
-                  [attr.aria-describedby]="limited ? item.entry.limit?.hintId : null"
-                  (click)="addFromMenu(item.entry, item.type)"
-                >
-                  <app-icon [name]="item.entry.icon" /> {{ item.entry.label }}
-                </button>
-              }
-            </div>
-          }
-          @for (limit of reachedLimits(); track limit.hintId) {
-            <p class="field__hint" [id]="limit.hintId">{{ limit.hint }}</p>
-          }
-          <section class="field" aria-labelledby="layers-title">
-            <h4 class="field__label" id="layers-title">Layers</h4>
-            <p class="field__hint" id="layers-hint">
-              Top layer first. The up and down arrows move between layers, left and right between a layer's
-              controls. {{ multiHint }} adds a layer to the selection.
-            </p>
-            @if (layerRows().length === 0) {
-              <p class="muted">No layers yet.</p>
-            } @else {
-              <div
-                class="layers"
-                role="grid"
-                aria-labelledby="layers-title"
-                aria-describedby="layers-hint"
-                aria-multiselectable="true"
-              >
-                @for (row of layerRows(); track row.el.id) {
-                  <div
-                    class="layer"
-                    role="row"
-                    [class.is-selected]="isSelected(row.el.id)"
-                    [class.is-hidden]="row.el.hidden"
-                    [attr.aria-selected]="isSelected(row.el.id)"
-                  >
-                    <div
-                      role="gridcell"
-                      class="layer__select"
-                      [id]="'layer-' + row.el.id"
-                      [attr.tabindex]="tabIndex(row.el.id, 0)"
-                      [attr.aria-keyshortcuts]="keyShortcuts"
-                      (click)="pick($event, row.el.id)"
-                      (focus)="activate(row.el.id, 0)"
-                      (keydown)="onCellKey($event, row.el, 0)"
-                      (contextmenu)="openMenuAt($event, row.el, 'list')"
-                    >
-                      <span class="layer__line">
-                        <app-icon [name]="row.el.type" />
-                        <span class="visually-hidden">{{ kind(row.el) }}: </span>
-                        <span class="layer__name"
-                          >@if (row.glyph) {<span aria-hidden="true">{{ row.glyph }} </span>}{{ row.spoken }}</span
-                        >
-                        @if (row.order) {
-                          <!-- Where screen readers and Tab meet it on the sample page (AD-15, R12). -->
-                          <span class="layer__order" title="Reading order"
-                            ><span class="visually-hidden">, read </span>#{{ row.order }}</span
-                          >
-                        }
-                      </span>
-                      <span class="layer__state" [id]="'layer-state-' + row.el.id">
-                        @if (row.el.hidden) {
-                          <span>Hidden</span>
-                        }
-                        @if (row.el.locked) {
-                          <span>Locked</span>
-                        }
-                        @if (row.outside) {
-                          <span class="layer__warning"><app-icon name="alert" /> Outside safe area</span>
-                        }
-                        @if (row.lowContrast) {
-                          <span class="layer__warning"><app-icon name="alert" /> Low contrast</span>
-                        }
-                        @if (row.missingAlt) {
-                          <span class="layer__warning"><app-icon name="alert" /> Needs alt text</span>
-                        }
-                        @if (row.missingLink) {
-                          <span class="layer__warning"><app-icon name="alert" /> Needs a web address</span>
-                        }
-                        @if (row.smallTarget) {
-                          <span class="layer__warning"><app-icon name="alert" /> Small target</span>
-                        }
-                        @if (row.longVideo) {
-                          <span class="layer__warning"><app-icon name="alert" /> Longer than 15 s</span>
-                        }
-                      </span>
-                    </div>
-                    <div role="gridcell">
-                      <button
-                        type="button"
-                        class="btn btn--ghost layer__toggle"
-                        [id]="'layer-hide-' + row.el.id"
-                        [attr.tabindex]="tabIndex(row.el.id, 1)"
-                        [attr.aria-label]="'Hide ' + row.spoken"
-                        [attr.aria-pressed]="row.el.hidden"
-                        aria-keyshortcuts="H"
-                        (click)="run('hide', 'list', 'layer-hide-' + row.el.id, row.el.id)"
-                        (focus)="activate(row.el.id, 1)"
-                        (keydown)="onCellKey($event, row.el, 1)"
-                        (contextmenu)="openMenuAt($event, row.el, 'list')"
-                      >
-                        <app-icon [name]="row.el.hidden ? 'eye-off' : 'eye'" />
-                      </button>
-                    </div>
-                    <div role="gridcell">
-                      <button
-                        type="button"
-                        class="btn btn--ghost layer__toggle"
-                        [id]="'layer-lock-' + row.el.id"
-                        [attr.tabindex]="tabIndex(row.el.id, 2)"
-                        [attr.aria-label]="'Lock ' + row.spoken"
-                        [attr.aria-pressed]="row.el.locked"
-                        aria-keyshortcuts="L"
-                        (click)="run('lock', 'list', 'layer-lock-' + row.el.id, row.el.id)"
-                        (focus)="activate(row.el.id, 2)"
-                        (keydown)="onCellKey($event, row.el, 2)"
-                        (contextmenu)="openMenuAt($event, row.el, 'list')"
-                      >
-                        <app-icon [name]="row.el.locked ? 'lock' : 'unlock'" />
-                      </button>
-                    </div>
-                    <div role="gridcell">
-                      <button
-                        type="button"
-                        class="btn btn--ghost layer__toggle"
-                        [id]="'layer-more-' + row.el.id"
-                        [attr.tabindex]="tabIndex(row.el.id, 3)"
-                        [attr.aria-label]="'More actions for ' + row.spoken"
-                        aria-haspopup="menu"
-                        [attr.aria-expanded]="menu()?.returnId === 'layer-more-' + row.el.id"
-                        (click)="openMenuFrom($any($event.currentTarget), row.el)"
-                        (focus)="activate(row.el.id, 3)"
-                        (keydown)="onCellKey($event, row.el, 3)"
-                        (contextmenu)="openMenuAt($event, row.el, 'list')"
-                      >
-                        <app-icon name="more" />
-                      </button>
-                    </div>
-                  </div>
-                }
-              </div>
-            }
-          </section>
-          @if (selected(); as el) {
-            <fieldset class="field selected">
-              <legend class="field__label">Selected {{ kind(el).toLowerCase() }}</legend>
-              @if (el.locked) {
-                <p class="field__hint">{{ lockedHint }}</p>
-              }
-              @if (el.type === 'text') {
-                <div class="field">
-                  <label class="field__label" for="studio-text">Text</label>
-                  <textarea
-                    id="studio-text"
-                    class="input"
-                    aria-describedby="studio-text-hint"
-                    [readOnly]="el.locked"
-                    [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
-                    [value]="el.props.text"
-                    (input)="typeText(el.id, $any($event.target))"
-                    (blur)="sealHistory()"
-                  ></textarea>
-                  <span class="field__hint" id="studio-text-hint">
-                    {{ textNotice() || 'Up to ' + maxText.toLocaleString('en') + ' characters.' }}
-                  </span>
-                </div>
-              }
-              @if (el.type !== 'swipe-up') {
-                <div class="row">
-                  <div class="field">
-                    <label class="field__label" for="studio-x">Left (%)</label>
-                    <input
-                      id="studio-x"
-                      class="input"
-                      type="number"
-                      min="0"
-                      [attr.max]="maxPercent(el.box.w)"
-                      step="1"
-                      [readOnly]="el.locked"
-                      [value]="percent(el.box.x)"
-                      (change)="setPosition(el.id, 'x', $any($event.target))"
-                    />
-                  </div>
-                  <div class="field">
-                    <label class="field__label" for="studio-y">Top (%)</label>
-                    <input
-                      id="studio-y"
-                      class="input"
-                      type="number"
-                      min="0"
-                      [attr.max]="maxPercent(el.box.h)"
-                      step="1"
-                      [readOnly]="el.locked"
-                      [value]="percent(el.box.y)"
-                      (change)="setPosition(el.id, 'y', $any($event.target))"
-                    />
-                  </div>
-                </div>
-                <div class="row">
-                  <div class="field">
-                    <label class="field__label" for="studio-w">Width (%)</label>
-                    <input
-                      id="studio-w"
-                      class="input"
-                      type="number"
-                      min="1"
-                      max="100"
-                      step="1"
-                      [readOnly]="el.locked"
-                      [value]="percent(el.box.w)"
-                      (change)="setSize(el.id, 'w', $any($event.target))"
-                    />
-                  </div>
-                  <div class="field">
-                    <label class="field__label" for="studio-h">Height (%)</label>
-                    <input
-                      id="studio-h"
-                      class="input"
-                      type="number"
-                      min="1"
-                      max="100"
-                      step="1"
-                      [readOnly]="el.locked"
-                      [value]="percent(el.box.h)"
-                      (change)="setSize(el.id, 'h', $any($event.target))"
-                    />
-                  </div>
-                  <div class="field">
-                    <label class="field__label" for="studio-rotation">Rotation (°)</label>
-                    <input
-                      id="studio-rotation"
-                      class="input"
-                      type="number"
-                      min="-180"
-                      max="180"
-                      step="1"
-                      [readOnly]="el.locked"
-                      [value]="el.box.rotation"
-                      (change)="setRotation(el.id, $any($event.target))"
-                    />
-                  </div>
-                </div>
-              }
-              @if (el.type === 'shape') {
-                <app-tale-shape-style
-                  [element]="el"
-                  [locked]="el.locked"
-                  (changed)="restyleElement(el.id, $event)"
-                  (notice)="say($event)"
-                />
-              } @else if (el.type === 'button' || el.type === 'image-button' || el.type === 'swipe-up') {
-                <app-tale-link-style
-                  [element]="el"
-                  [locked]="el.locked"
-                  [lockedHint]="lockedHint"
-                  [backdrop]="selectedBackdrop()"
-                  (changed)="restyleElement(el.id, $event)"
-                  (notice)="say($event)"
-                  (replace)="openPicker('replace', 'image', el.id, false, true)"
-                />
-              } @else if (fieldsTypeOf(el); as configured) {
-                <app-tale-fields-inspector
-                  [element]="el"
-                  [type]="configured"
-                  [locked]="el.locked"
-                  (changed)="restyleElement(el.id, $event)"
-                />
-                @if (isInteractive(el)) {
-                  <!-- Its votes from the site (epic interactive components R11). -->
-                  <app-tale-responses [taleId]="taleId()" [element]="el" />
-                }
-              } @else if (el.type === 'emoji') {
-                <app-tale-emoji-style
-                  [element]="el"
-                  [locked]="el.locked"
-                  [lockedHint]="lockedHint"
-                  (changed)="restyleElement(el.id, $event)"
-                  (notice)="say($event)"
-                  (replace)="openEmojiPicker(el.id)"
-                />
-              } @else if (isMedia(el)) {
-                <app-tale-media-style
-                  [element]="el"
-                  [videoSeconds]="
-                    el.type === 'video' && el !== stageMedia()
-                      ? (videoSeconds().get(el.props.mediaKey) ?? null)
-                      : null
-                  "
-                  [locked]="el.locked"
-                  [lockedHint]="lockedHint"
-                  (changed)="restyleElement(el.id, $event)"
-                  (notice)="say($event)"
-                  (replace)="
-                    openPicker('replace', el.type === 'video' ? 'video' : 'image', el.id, el.type === 'sticker')
-                  "
-                />
-                @if (isTaleMedia(el)) {
-                  <p class="field__hint" id="studio-tale-media-hint">
-                    @if (el === stageMedia()) {
-                      This is the tale's media: it fills the stage and plays as before{{
-                        el.type === 'video' ? ', with sound and for its whole length' : ''
-                      }}. Moving, resizing, rotating, rounding or fading it makes it a layer like any other{{
-                        el.type === 'video' ? ' (muted, at most 15 seconds)' : ''
-                      }}.
-                    } @else {
-                      This is the tale's media, now a layer like any other. At the bottom, filling the canvas, it
-                      plays as the tale's media again.
-                    }
-                  </p>
-                }
-              } @else if (el.type === 'text') {
-                <app-tale-text-style
-                  [elementId]="el.id"
-                  [props]="el.props"
-                  [locked]="el.locked"
-                  [themeFont]="themeFont()"
-                  [backdrop]="selectedBackdrop()"
-                  [projectFonts]="projectFonts()"
-                  [projectId]="projectId() ?? null"
-                  (changed)="restyle(el.id, $event)"
-                  (notice)="say($event)"
-                />
-              } @else {
-                <!-- A type this studio has no descriptor for (R8): kept as it is; it can be moved or deleted. -->
-                <p class="field__hint" id="studio-unknown-type-hint">
-                  This layer's type can't be edited here. It stays in the tale as it is; you can move or delete it.
-                </p>
-              }
-              <div class="row">
-                <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">
-                  Delete {{ kind(el).toLowerCase() }}
-                </button>
-              </div>
-            </fieldset>
-          } @else if (selection().length > 1) {
-            <fieldset class="field selected">
-              <legend class="field__label">{{ selection().length }} layers selected</legend>
-              <p class="field__hint">
-                Move them together with the arrow keys or by dragging one of them; reorder them from the layers
-                list.
-              </p>
-              <div class="row">
-                <button type="button" class="btn btn--ghost btn--sm" (click)="run('delete', 'list', 'studio-add')">
-                  Delete {{ selection().length }} layers
-                </button>
-              </div>
-            </fieldset>
-          }
-          <fieldset class="field selected">
-            <legend class="field__label">Canvas</legend>
-            <div class="row">
-              <div class="field">
-                <label class="field__label" for="studio-bg">Background colour</label>
-                <input
-                  id="studio-bg"
-                  class="input"
-                  type="color"
-                  aria-describedby="studio-bg-hint"
-                  [value]="d.canvas.background.color.slice(0, 7).toLowerCase()"
-                  (change)="setBackground($any($event.target).value)"
-                />
-              </div>
-              <div class="field">
-                <label class="field__label" for="studio-bg-hex">Hex value</label>
-                <input
-                  id="studio-bg-hex"
-                  class="input input--mono"
-                  type="text"
-                  spellcheck="false"
-                  autocomplete="off"
-                  [attr.aria-describedby]="hexError() ? 'studio-bg-hint studio-bg-error' : 'studio-bg-hint'"
-                  [attr.aria-invalid]="hexError() ? 'true' : null"
-                  [value]="d.canvas.background.color"
-                  (change)="setBackgroundHex($any($event.target))"
-                />
-              </div>
-            </div>
-            <span class="field__hint" id="studio-bg-hint">
-              @if (d.canvas.background.type === 'media') {
-                As #RRGGBB, or #RRGGBBAA with transparency. It fills the bands the background image leaves, and
-                shows until the image does.
-              } @else {
-                As #RRGGBB, or #RRGGBBAA with transparency. It fills the canvas behind the tale's media.
-              }
-            </span>
-            @if (hexError()) {
-              <span class="field__error" id="studio-bg-error">{{ hexError() }}</span>
-            }
-            <div class="row">
-              <button
-                type="button"
-                class="btn btn--secondary btn--sm"
-                id="studio-bg-media"
-                [disabled]="!projectId()"
-                (click)="openPicker('background', 'image')"
-              >
-                @if (d.canvas.background.type === 'media') {
-                  Choose another background image…
-                } @else {
-                  Background image…
-                }
-              </button>
-              @if (d.canvas.background.type === 'media') {
-                <button
-                  type="button"
-                  class="btn btn--ghost btn--sm"
-                  id="studio-bg-media-remove"
-                  (click)="removeBackgroundMedia()"
-                >
-                  Remove background image
-                </button>
-              }
-            </div>
-            @if (d.canvas.background.type === 'media') {
-              <div class="field">
-                <label class="field__label" for="studio-bg-fit">Background image fit</label>
-                <select id="studio-bg-fit" class="input" (change)="setBackgroundFit($any($event.target).value)">
-                  @for (fit of fits; track fit) {
-                    <option [value]="fit" [selected]="fit === d.canvas.background.fit">{{ fitNames[fit] }}</option>
-                  }
-                </select>
-              </div>
-            }
-            <div class="field">
-              <label class="field__label" for="studio-duration">Duration (seconds)</label>
-              <input
-                id="studio-duration"
-                class="input"
-                type="number"
-                [min]="minDuration"
-                [max]="maxDuration"
-                step="0.5"
-                aria-describedby="studio-duration-hint"
-                [readOnly]="hasVideo()"
-                [value]="durationSeconds()"
-                (change)="setDuration($any($event.target))"
-              />
-              <span class="field__hint" id="studio-duration-hint">
-                @if (hasVideo()) {
-                  The tale plays for its video's length.
-                } @else {
-                  How long the tale shows, from {{ minDuration }} to {{ maxDuration }} seconds.
-                }
-              </span>
-            </div>
-            <label class="checkbox">
-              <input type="checkbox" [checked]="guides()" (change)="showGuides($any($event.target).checked)" />
-              Show safe areas
-            </label>
-          </fieldset>
-        </div>
-        @if (previewOpen()) {
-          <!-- The Web SDK's own viewer on the unsaved document (R10, AD-16). -->
+      </div>
+    </section>
+
+    <aside
+      class="studio-inspector"
+      data-region="inspector"
+      id="studio-inspector"
+      tabindex="-1"
+      [attr.aria-label]="previewOpen() ? 'Preview' : 'Properties'"
+      (keydown.escape)="closePreview($event)"
+    >
+      @if (previewOpen()) {
+        <!-- The Web SDK's own viewer on the unsaved document (R10, AD-16), in the inspector's place. -->
+        <div class="inspector__preview">
+          <button
+            type="button"
+            class="btn btn--ghost btn--sm inspector__close"
+            id="studio-preview-close"
+            (click)="closePreview()"
+          >
+            <app-icon name="close" /> Close preview
+          </button>
           <app-tale-preview
             id="studio-preview-pane"
             [document]="d"
@@ -931,46 +803,429 @@
             [theme]="projectTheme()"
             [fonts]="projectFonts()"
           />
+        </div>
+      } @else {
+        @if (selected(); as el) {
+          <div class="inspector__head">
+            <app-icon [name]="$any(el.type)" />
+            <h2 class="inspector__title" id="inspector-title" tabindex="-1">
+              {{ kind(el) }} <span class="inspector__name">“{{ spokenName(el) }}”</span>
+            </h2>
+          </div>
+          @if (el.locked) {
+            <p class="field__hint inspector__locked">{{ lockedHint }}</p>
+          }
+          @if (el.type === 'text') {
+            <section class="inspector__section" aria-labelledby="inspector-content">
+              <h3 class="inspector__heading" id="inspector-content">Content</h3>
+              <div class="field">
+                <label class="field__label" for="studio-text">Text</label>
+                <textarea
+                  id="studio-text"
+                  class="input"
+                  aria-describedby="studio-text-hint"
+                  [readOnly]="el.locked"
+                  [attr.aria-invalid]="invalidId() === el.id ? 'true' : null"
+                  [value]="el.props.text"
+                  (input)="typeText(el.id, $any($event.target))"
+                  (blur)="sealHistory()"
+                ></textarea>
+                <span class="field__hint" id="studio-text-hint">
+                  {{ textNotice() || 'Up to ' + maxText.toLocaleString('en') + ' characters.' }}
+                </span>
+              </div>
+            </section>
+          }
+          <section class="inspector__section" aria-labelledby="inspector-style">
+            <h3 class="inspector__heading" id="inspector-style">{{ styleSection(el) }}</h3>
+            @if (el.type === 'shape') {
+              <app-tale-shape-style
+                [element]="el"
+                [locked]="el.locked"
+                (changed)="restyleElement(el.id, $event)"
+                (notice)="say($event)"
+              />
+            } @else if (el.type === 'button' || el.type === 'image-button' || el.type === 'swipe-up') {
+              <app-tale-link-style
+                [element]="el"
+                [locked]="el.locked"
+                [lockedHint]="lockedHint"
+                [backdrop]="selectedBackdrop()"
+                (changed)="restyleElement(el.id, $event)"
+                (notice)="say($event)"
+                (replace)="openPicker('replace', 'image', el.id, false, true)"
+              />
+            } @else if (fieldsTypeOf(el); as configured) {
+              <app-tale-fields-inspector
+                [element]="el"
+                [type]="configured"
+                [locked]="el.locked"
+                (changed)="restyleElement(el.id, $event)"
+              />
+              @if (isInteractive(el)) {
+                <!-- Its votes from the site (epic interactive components R11). -->
+                <app-tale-responses [taleId]="taleId()" [element]="el" />
+              }
+            } @else if (el.type === 'emoji') {
+              <app-tale-emoji-style
+                [element]="el"
+                [locked]="el.locked"
+                [lockedHint]="lockedHint"
+                (changed)="restyleElement(el.id, $event)"
+                (notice)="say($event)"
+                (replace)="openEmojiPicker(el.id)"
+              />
+            } @else if (isMedia(el)) {
+              <app-tale-media-style
+                [element]="el"
+                [videoSeconds]="
+                  el.type === 'video' && el !== stageMedia()
+                    ? (videoSeconds().get(el.props.mediaKey) ?? null)
+                    : null
+                "
+                [locked]="el.locked"
+                [lockedHint]="lockedHint"
+                (changed)="restyleElement(el.id, $event)"
+                (notice)="say($event)"
+                (replace)="
+                  openPicker('replace', el.type === 'video' ? 'video' : 'image', el.id, el.type === 'sticker')
+                "
+              />
+              @if (isTaleMedia(el)) {
+                <p class="field__hint" id="studio-tale-media-hint">
+                  @if (el === stageMedia()) {
+                    This is the tale's media: it fills the stage and plays as before{{
+                      el.type === 'video' ? ', with sound and for its whole length' : ''
+                    }}. Moving, resizing, rotating, rounding or fading it makes it a layer like any other{{
+                      el.type === 'video' ? ' (muted, at most 15 seconds)' : ''
+                    }}.
+                  } @else {
+                    This is the tale's media, now a layer like any other. At the bottom, filling the canvas, it
+                    plays as the tale's media again.
+                  }
+                </p>
+              }
+            } @else if (el.type === 'text') {
+              <app-tale-text-style
+                [elementId]="el.id"
+                [props]="el.props"
+                [locked]="el.locked"
+                [themeFont]="themeFont()"
+                [backdrop]="selectedBackdrop()"
+                [projectFonts]="projectFonts()"
+                [projectId]="projectId() ?? null"
+                (changed)="restyle(el.id, $event)"
+                (notice)="say($event)"
+              />
+            } @else {
+              <!-- A type this studio has no descriptor for (R8): kept as it is; it can be moved or deleted. -->
+              <p class="field__hint" id="studio-unknown-type-hint">
+                This layer's type can't be edited here. It stays in the tale as it is; you can move or delete it.
+              </p>
+            }
+          </section>
+          @if (el.type !== 'swipe-up') {
+            <section class="inspector__section" aria-labelledby="inspector-box">
+              <h3 class="inspector__heading" id="inspector-box">Position &amp; size</h3>
+              <div class="inspector__pair">
+                <div class="field">
+                  <label class="field__label" for="studio-x">Left (%)</label>
+                  <input
+                    id="studio-x"
+                    class="input"
+                    type="number"
+                    min="0"
+                    [attr.max]="maxPercent(el.box.w)"
+                    step="1"
+                    [readOnly]="el.locked"
+                    [value]="percent(el.box.x)"
+                    (change)="setPosition(el.id, 'x', $any($event.target))"
+                  />
+                </div>
+                <div class="field">
+                  <label class="field__label" for="studio-y">Top (%)</label>
+                  <input
+                    id="studio-y"
+                    class="input"
+                    type="number"
+                    min="0"
+                    [attr.max]="maxPercent(el.box.h)"
+                    step="1"
+                    [readOnly]="el.locked"
+                    [value]="percent(el.box.y)"
+                    (change)="setPosition(el.id, 'y', $any($event.target))"
+                  />
+                </div>
+              </div>
+              <div class="inspector__triple">
+                <div class="field">
+                  <label class="field__label" for="studio-w">Width (%)</label>
+                  <input
+                    id="studio-w"
+                    class="input"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    [readOnly]="el.locked"
+                    [value]="percent(el.box.w)"
+                    (change)="setSize(el.id, 'w', $any($event.target))"
+                  />
+                </div>
+                <div class="field">
+                  <label class="field__label" for="studio-h">Height (%)</label>
+                  <input
+                    id="studio-h"
+                    class="input"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    [readOnly]="el.locked"
+                    [value]="percent(el.box.h)"
+                    (change)="setSize(el.id, 'h', $any($event.target))"
+                  />
+                </div>
+                <div class="field">
+                  <label class="field__label" for="studio-rotation">Rotation (°)</label>
+                  <input
+                    id="studio-rotation"
+                    class="input"
+                    type="number"
+                    min="-180"
+                    max="180"
+                    step="1"
+                    [readOnly]="el.locked"
+                    [value]="el.box.rotation"
+                    (change)="setRotation(el.id, $any($event.target))"
+                  />
+                </div>
+              </div>
+            </section>
+          }
+          <div class="inspector__actions">
+            <button type="button" class="btn btn--ghost btn--sm" (click)="remove(el.id)">
+              Delete {{ kind(el).toLowerCase() }}
+            </button>
+          </div>
+        } @else if (selection().length > 1) {
+          <div class="inspector__head">
+            <h2 class="inspector__title" id="inspector-title" tabindex="-1">{{ selection().length }} layers selected</h2>
+          </div>
+          <section class="inspector__section" aria-labelledby="inspector-title">
+            <p class="field__hint">
+              Move them together with the arrow keys or by dragging one of them; reorder them from the layers list.
+            </p>
+            <div class="row">
+              <button type="button" class="btn btn--ghost btn--sm" (click)="run('delete', 'canvas', 'studio-canvas')">
+                Delete {{ selection().length }} layers
+              </button>
+            </div>
+          </section>
+        } @else {
+          <div class="inspector__head">
+            <h2 class="inspector__title" id="inspector-title" tabindex="-1">Tale</h2>
+          </div>
+          <p class="field__hint inspector__intro">Select an element on the canvas or in Layers to edit it.</p>
         }
-      </div>
-      <p class="visually-hidden" aria-live="polite">{{ announcement() }}</p>
-      @if (picker(); as p) {
-        @if (projectId(); as projectId) {
-          <app-tale-media-picker
-            [projectId]="projectId"
-            [kind]="p.kind"
-            [heading]="p.heading"
-            [stickers]="p.sticker"
-            [currentKey]="p.currentKey"
-            [returnFocus]="p.returnFocus"
-            (chosen)="pickedMedia($event)"
-            (closed)="closePicker()"
-          />
+        <section
+          class="inspector__section"
+          [attr.aria-labelledby]="selection().length > 0 ? 'inspector-tale' : 'inspector-title'"
+        >
+          @if (selection().length > 0) {
+            <h3 class="inspector__heading" id="inspector-tale">Tale</h3>
+          }
+          <div class="inspector__pair">
+            <div class="field">
+              <label class="field__label" for="studio-bg">Background colour</label>
+              <input
+                id="studio-bg"
+                class="input"
+                type="color"
+                aria-describedby="studio-bg-hint"
+                [value]="d.canvas.background.color.slice(0, 7).toLowerCase()"
+                (change)="setBackground($any($event.target).value)"
+              />
+            </div>
+            <div class="field">
+              <label class="field__label" for="studio-bg-hex">Hex value</label>
+              <input
+                id="studio-bg-hex"
+                class="input input--mono"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                [attr.aria-describedby]="hexError() ? 'studio-bg-hint studio-bg-error' : 'studio-bg-hint'"
+                [attr.aria-invalid]="hexError() ? 'true' : null"
+                [value]="d.canvas.background.color"
+                (change)="setBackgroundHex($any($event.target))"
+              />
+            </div>
+          </div>
+          <span class="field__hint" id="studio-bg-hint">
+            @if (d.canvas.background.type === 'media') {
+              As #RRGGBB, or #RRGGBBAA with transparency. It fills the bands the background image leaves, and
+              shows until the image does.
+            } @else {
+              As #RRGGBB, or #RRGGBBAA with transparency. It fills the canvas behind the tale's media.
+            }
+          </span>
+          @if (hexError()) {
+            <span class="field__error" id="studio-bg-error">{{ hexError() }}</span>
+          }
+          <div class="row">
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm"
+              id="studio-bg-media"
+              [disabled]="!projectId()"
+              (click)="openPicker('background', 'image')"
+            >
+              @if (d.canvas.background.type === 'media') {
+                Choose another background image…
+              } @else {
+                Background image…
+              }
+            </button>
+            @if (d.canvas.background.type === 'media') {
+              <button
+                type="button"
+                class="btn btn--ghost btn--sm"
+                id="studio-bg-media-remove"
+                (click)="removeBackgroundMedia()"
+              >
+                Remove background image
+              </button>
+            }
+          </div>
+          @if (d.canvas.background.type === 'media') {
+            <div class="field">
+              <label class="field__label" for="studio-bg-fit">Background image fit</label>
+              <select id="studio-bg-fit" class="input" (change)="setBackgroundFit($any($event.target).value)">
+                @for (fit of fits; track fit) {
+                  <option [value]="fit" [selected]="fit === d.canvas.background.fit">{{ fitNames[fit] }}</option>
+                }
+              </select>
+            </div>
+          }
+          <div class="field">
+            <label class="field__label" for="studio-duration">Duration (seconds)</label>
+            <input
+              id="studio-duration"
+              class="input"
+              type="number"
+              [min]="minDuration"
+              [max]="maxDuration"
+              step="0.5"
+              aria-describedby="studio-duration-hint"
+              [readOnly]="hasVideo()"
+              [value]="durationSeconds()"
+              (change)="setDuration($any($event.target))"
+            />
+            <span class="field__hint" id="studio-duration-hint">
+              @if (hasVideo()) {
+                The tale plays for its video's length.
+              } @else {
+                How long the tale shows, from {{ minDuration }} to {{ maxDuration }} seconds.
+              }
+            </span>
+          </div>
+        </section>
+      }
+    </aside>
+
+    <nav class="studio-strip" data-region="strip" aria-labelledby="studio-strip-title">
+      <h2 class="studio-strip__title" id="studio-strip-title" [title]="'Tales in ' + (groupName() || 'this group')"
+        >Tales in {{ groupName() || 'this group' }}</h2
+      >
+      <ol class="studio-strip__list">
+        @for (t of stripTales(); track t.id) {
+          <li>
+            <a
+              class="strip-thumb"
+              [class.is-current]="t.current"
+              [class.is-hidden]="t.hidden"
+              [routerLink]="['/tales', t.id, 'studio']"
+              [queryParams]="stripQuery()"
+              [attr.aria-current]="t.current ? 'page' : null"
+              [title]="t.title"
+            >
+              <span
+                class="strip-thumb__picture"
+                [attr.data-tone]="t.tone"
+                [style.background]="t.current && !t.picture ? d.canvas.background.color : null"
+              >
+                @if (t.picture) {
+                  <img [src]="t.picture" alt="" loading="lazy" decoding="async" />
+                }
+              </span>
+              <span class="strip-thumb__number">{{ t.number }}</span>
+              <span class="visually-hidden">. {{ t.title }}</span>
+              @if (t.hidden) {
+                <span class="strip-thumb__badge"><app-icon name="eye-off" /><span class="visually-hidden">, Hidden</span></span>
+              }
+              @if (t.current && unpublished()) {
+                <span class="strip-thumb__changed"><span class="visually-hidden">, changes not updated yet</span></span>
+              }
+            </a>
+          </li>
         }
-      }
-      @if (emojiPicker(); as e) {
-        <app-tale-emoji-picker
-          [heading]="e.heading"
-          [current]="e.current"
-          [returnFocus]="e.returnFocus"
-          (chosen)="pickedEmoji($event)"
-          (closed)="emojiPicker.set(null)"
-        />
-      }
-      @if (menu(); as m) {
-        <app-tale-layer-menu
-          [items]="m.items"
-          [x]="m.x"
-          [y]="m.y"
-          [anchorId]="m.returnId"
-          (chosen)="menuChosen($event)"
-          (closed)="closeMenu($event)"
-        />
-      }
-    </section>
-  } @else if (error()) {
-    <p class="form-error" role="alert">{{ error() }}</p>
-  } @else {
-    <p class="muted">Loading the tale…</p>
+      </ol>
+    </nav>
+  </div>
+  @if (duplicating() && tale(); as t) {
+    <app-duplicate-tale
+      [tale]="t"
+      [returnFocus]="duplicateOpener"
+      (duplicated)="duplicatedTale($event)"
+      (closed)="duplicating.set(false)"
+    />
   }
-</div>
+  @if (picker(); as p) {
+    @if (projectId(); as projectId) {
+      <app-tale-media-picker
+        [projectId]="projectId"
+        [kind]="p.kind"
+        [heading]="p.heading"
+        [stickers]="p.sticker"
+        [currentKey]="p.currentKey"
+        [returnFocus]="p.returnFocus"
+        (chosen)="pickedMedia($event)"
+        (closed)="closePicker()"
+      />
+    }
+  }
+  @if (emojiPicker(); as e) {
+    <app-tale-emoji-picker
+      [heading]="e.heading"
+      [current]="e.current"
+      [returnFocus]="e.returnFocus"
+      (chosen)="pickedEmoji($event)"
+      (closed)="emojiPicker.set(null)"
+    />
+  }
+  @if (menu(); as m) {
+    <app-tale-layer-menu
+      [items]="m.items"
+      [x]="m.x"
+      [y]="m.y"
+      [anchorId]="m.returnId"
+      (chosen)="menuChosen($event)"
+      (closed)="closeMenu($event)"
+    />
+  }
+} @else {
+  <div class="page">
+    <a class="back-link" [routerLink]="backLink().link" [queryParams]="backLink().query"
+      ><app-icon name="back" /> {{ backLink().text }}</a
+    >
+    @if (error()) {
+      <p class="form-error" role="alert">{{ error() }}</p>
+    } @else {
+      <p class="muted">Loading the tale…</p>
+    }
+  </div>
+}
+<!-- The studio's one polite live region, and one alert region for save failures: the first failure and nothing per retry. -->
+<p class="visually-hidden" id="studio-live" aria-live="polite">{{ announcement() }}</p>
+<p class="visually-hidden" role="alert">{{ saveAlert() }}</p>
