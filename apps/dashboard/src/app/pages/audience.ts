@@ -38,6 +38,7 @@ export type ContactWarning = 'email' | 'phone' | null;
 const REFUSAL_TEXT: Readonly<Record<UserListRefusal, string>> = {
   'too-long': `longer than ${MAX_EXTERNAL_USER_ID_LENGTH} characters`,
   'control-character': 'holds a control character, such as a tab',
+  'not-ascii': 'only ASCII IDs are supported for now',
   'not-one-column': 'more than one column',
 };
 
@@ -415,8 +416,8 @@ function readSample(file: Blob): Promise<string> {
                     />
                     <span class="field__hint" id="user-list-file-hint">
                       UTF-8, one external user ID per row, at most {{ maxRows }} rows and {{ maxMb }} MB. Each ID is
-                      trimmed, matched exactly (case counts) and at most {{ maxIdLength }} characters. The file is read
-                      once and not kept.
+                      trimmed, matched exactly (case counts, no Unicode normalization), ASCII only for now, and at most
+                      {{ maxIdLength }} characters. The file is read once and not kept.
                     </span>
                     @if (fileError()) {
                       <span class="field__error" id="user-list-file-error">{{ fileError() }}</span>

@@ -10265,6 +10265,146 @@ describe('Management API v1: projects and zones', () => {
       expect(report).toMatchObject({ added: 2, alreadyPresent: 1, refused: 1, emptyRows: 1, idCount: 2 });
       expect((await (await fetch(listsUrl(project.id))).json())[0]).toMatchObject({ name: 'Imported', idCount: 2 });
     });
+
+    // A raw upload, for what fetch cannot send: a body that stalls, or one sent slowly. Resolves with
+    // the answer, or with `closed` when the server ended the connection without one.
+    function rawCsv(
+      target: string,
+      length: number,
+    ): { req: ReturnType<typeof httpRequest>; answer: Promise<{ status: number; body: string } | 'closed'> } {
+      const url = new URL(target);
+      let req!: ReturnType<typeof httpRequest>;
+      const answer = new Promise<{ status: number; body: string } | 'closed'>((resolve) => {
+        req = httpRequest(
+          {
+            method: 'POST',
+            host: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            headers: { Cookie: sessionCookie, 'Content-Type': 'text/csv', 'Content-Length': String(length) },
+          },
+          (res) => {
+            let body = '';
+            res.on('data', (c) => (body += c));
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+            res.on('error', () => resolve('closed'));
+          },
+        );
+        req.on('error', () => resolve('closed'));
+      });
+      return { req, answer };
+    }
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    it('ends a stalled upload, adds nothing, frees the list and keeps running (security review F1)', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Stalled');
+      await withLists({ idleMs: 300 }, async (b) => {
+        const url = `${b}/projects/${project.id}/user-lists/${list.id}/ids`;
+        const stalled = rawCsv(url, 1000);
+        stalled.req.write('cust-1001\ncust-1002\n');
+        await pause(900);
+        const answer = await stalled.answer;
+        if (answer !== 'closed') expect(answer.status).toBe(408);
+        stalled.req.destroy();
+        // The process is up, nothing was added, and the list's locks are free.
+        expect((await fetch(`${b}/health`)).status).toBe(200);
+        expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+        expect((await pool.query('SELECT 1 FROM user_list_ids WHERE user_list_id = $1', [list.id])).rowCount).toBe(0);
+        expect((await fetch(`${url.replace(/\/ids$/, '')}`, { method: 'DELETE' })).status).toBe(204);
+      });
+      expectNoIdIn(printed.join('\n'), 'the API log');
+    });
+
+    it('ends an upload past its deadline even while bytes keep coming', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Slowpoke');
+      await withLists({ idleMs: 1000, deadlineMs: 400 }, async (b) => {
+        const slow = rawCsv(`${b}/projects/${project.id}/user-lists/${list.id}/ids`, 10_000);
+        for (let i = 0; i < 8; i++) {
+          if (!slow.req.destroyed) slow.req.write(`slow-${i}\n`);
+          await pause(100);
+        }
+        const answer = await slow.answer;
+        if (answer !== 'closed') expect(answer.status).toBe(408);
+        slow.req.destroy();
+        expect((await fetch(`${b}/health`)).status).toBe(200);
+      });
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+    });
+
+    it('survives the database ending a stalled upload transaction (the backstop), adding nothing', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Backstop');
+      await withLists({ idleMs: 60_000, deadlineMs: 60_000, databaseIdleTimeout: '300ms' }, async (b) => {
+        const body = 'cust-1001\ncust-1002\n';
+        const stalled = rawCsv(`${b}/projects/${project.id}/user-lists/${list.id}/ids`, body.length);
+        stalled.req.write(body.slice(0, 10));
+        // PostgreSQL ends the session (FATAL 25P03) while the API waits for bytes: pg emits `error`
+        // on the checked-out client, which must not take the process down.
+        await pause(1200);
+        stalled.req.end(body.slice(10));
+        const answer = await stalled.answer;
+        expect(answer).not.toBe('closed');
+        if (answer !== 'closed') {
+          expect(answer.status).toBe(500);
+          expectNoIdIn(answer.body, 'the answer');
+        }
+        expect((await fetch(`${b}/health`)).status).toBe(200);
+        // The pool still serves requests.
+        expect((await fetch(listsUrl(project.id).replace(base, b))).status).toBe(200);
+      });
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+      expectNoIdIn(printed.join('\n'), 'the API log');
+    });
+
+    it('takes a slow but steady upload under the limits', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Steady');
+      await withLists({ idleMs: 400, deadlineMs: 10_000 }, async (b) => {
+        const rows = Array.from({ length: 8 }, (_, i) => `steady-${i}\n`);
+        const steady = rawCsv(`${b}/projects/${project.id}/user-lists/${list.id}/ids`, rows.join('').length);
+        for (const row of rows) {
+          steady.req.write(row);
+          await pause(150);
+        }
+        steady.req.end();
+        const answer = await steady.answer;
+        expect(answer).not.toBe('closed');
+        if (answer !== 'closed') {
+          expect(answer.status).toBe(200);
+          expect(JSON.parse(answer.body)).toMatchObject({ added: 8, idCount: 8 });
+        }
+      });
+    });
+
+    it('logs no ID when an upload fails with an internal error', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Broken');
+      // Every insert into user_list_ids fails from now on, as a database fault would.
+      await pool.query('ALTER TABLE user_list_ids ADD CONSTRAINT t53_forced_failure CHECK (false) NOT VALID');
+      try {
+        const res = await upload(`${listsUrl(project.id)}/${list.id}`, verifyCsv);
+        expect(res.status).toBe(500);
+        const body = await res.text();
+        expect(JSON.parse(body).error.code).toBe('internal_error');
+        expectNoIdIn(body, 'the answer');
+      } finally {
+        await pool.query('ALTER TABLE user_list_ids DROP CONSTRAINT IF EXISTS t53_forced_failure');
+      }
+      const log = printed.join('\n');
+      expect(log).toMatch(/unhandled error/);
+      expectNoIdIn(log, 'the API log');
+      expect((await (await fetch(listsUrl(project.id))).json())[0].idCount).toBe(0);
+    });
+
+    it('refuses IDs outside ASCII for now, by line, and keeps the rest', async () => {
+      const project = await createProject();
+      const list = await createList(project.id, 'Ascii');
+      const res = await upload(`${listsUrl(project.id)}/${list.id}`, 'cust-1001\nmüller-7\ncust-1002\n');
+      const report = await res.json();
+      expect(report).toMatchObject({ added: 2, refused: 1, refusedRows: [{ line: 2, reason: 'not-ascii' }], idCount: 2 });
+    });
   });
 
   describe('imports from another tool', () => {

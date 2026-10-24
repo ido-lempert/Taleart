@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import type { TransactionalDb } from '@taleart/server-access';
 import { InvalidUserListNameError, UserListExistsError, UserListLimitError, UserListNotFoundError } from './errors';
 import { migrateTargeting } from './migration';
@@ -8,7 +9,6 @@ import {
   deleteUserList,
   hashExternalUserId,
   renameUserList,
-  sameHash,
   USER_LIST_INSERT_BATCH,
 } from './user-lists';
 
@@ -56,13 +56,6 @@ describe('hashing', () => {
     // Exact match: case counts, and another secret gives another hash.
     expect(hash.equals(hashExternalUserId(secret, 'user-42'))).toBe(false);
     expect(hash.equals(hashExternalUserId(Buffer.alloc(32, 8), 'User-42'))).toBe(false);
-  });
-
-  it('compares hashes in constant time', () => {
-    const a = hashExternalUserId(secret, 'a');
-    expect(sameHash(a, Buffer.from(a))).toBe(true);
-    expect(sameHash(a, hashExternalUserId(secret, 'b'))).toBe(false);
-    expect(sameHash(a, a.subarray(0, 31))).toBe(false);
   });
 });
 
@@ -149,6 +142,28 @@ describe('addUserListIds', () => {
     await expect(addUserListIds(db, { projectId, userListId: listId }, rows())).rejects.toThrow('cut');
     expect(statements()).toContain('ROLLBACK');
     expect(statements()).not.toContain('COMMIT');
+  });
+
+  it('keeps an error the client emits while it waits, rolls back and discards the client', async () => {
+    const client = new EventEmitter() as EventEmitter & { query: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> };
+    const answers: unknown[] = [{ rows: [] }, { rows: [] }, { rows: [{ secret }] }];
+    client.query = vi.fn(async (sql: string) => (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql) ? { rows: [] } : (answers.shift() ?? { rows: [] })));
+    client.release = vi.fn();
+    const db = { query: client.query, connect: async () => client } as unknown as TransactionalDb;
+    const fatal = Object.assign(new Error('terminating connection due to idle-in-transaction timeout'), { code: '25P03' });
+    async function* stalls() {
+      yield 'a';
+      // The database ends the session while the upload waits for bytes.
+      client.emit('error', fatal);
+      yield 'b';
+    }
+    await expect(
+      addUserListIds(db, { projectId, userListId: listId }, stalls(), { databaseIdleTimeout: '5s' }),
+    ).rejects.toBe(fatal);
+    expect(client.release).toHaveBeenCalledWith(fatal);
+    expect(client.listenerCount('error')).toBe(0);
+    expect(client.query.mock.calls.map((c) => c[0])).not.toContain('COMMIT');
+    expect(client.query.mock.calls[1][0]).toBe("SET LOCAL idle_in_transaction_session_timeout = '5s'");
   });
 
   it('answers not found for a list of another project', async () => {

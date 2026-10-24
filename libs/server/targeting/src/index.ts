@@ -39,7 +39,8 @@ export {
   listUserLists,
   renameUserList,
   USER_LIST_INSERT_BATCH,
+  USER_LIST_UPLOAD_DATABASE_IDLE_TIMEOUT,
 } from './lib/user-lists';
-export type { UserListTarget } from './lib/user-lists';
+export type { UserListTarget, UserListUploadOptions } from './lib/user-lists';
 export { readUserListCsv } from './lib/user-list-csv';
 export type { NumberedUserListRow, UserListCsvOptions } from './lib/user-list-csv';
