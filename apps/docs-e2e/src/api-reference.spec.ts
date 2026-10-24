@@ -115,3 +115,54 @@ test('prefills the Delivery zone call from the spec example', async ({ page }) =
   await zone.getByRole('button', { name: 'Try it out' }).click();
   await expect(zone.locator('tr[data-param-name="zone"] input')).toHaveValue('home-top');
 });
+
+test('clears the credentials when the API URL changes, so no token reaches the new host', async ({ page }) => {
+  const seen: { host: string; auth: string | undefined }[] = [];
+  for (const origin of ['https://first.example.com', 'https://second.example.com']) {
+    await page.route(`${origin}/**`, (route) => {
+      seen.push({ host: new URL(route.request().url()).host, auth: route.request().headers()['authorization'] });
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization' },
+        body: '[]',
+      });
+    });
+  }
+  await openReference(page);
+  const field = page.getByLabel('API URL');
+  await field.fill('https://first.example.com');
+  await page.getByRole('button', { name: 'Use this URL' }).click();
+
+  // Authorize first, with the token field masked.
+  await page.locator('.scheme-container .btn.authorize').click();
+  const dialog = page.getByRole('dialog');
+  const tokenInput = dialog.locator('.auth-container').filter({ hasText: 'token' }).locator('input');
+  await expect(tokenInput).toHaveAttribute('type', 'password');
+  await tokenInput.fill('tat_first_host_only');
+  await dialog.locator('.auth-container').filter({ hasText: 'token' }).getByRole('button', { name: 'Apply credentials' }).click();
+  await dialog.getByRole('button', { name: 'Close' }).first().click();
+
+  const projects = operation(page, 'GET', '/projects');
+  await projects.locator('.opblock-summary-control').click();
+  await projects.getByRole('button', { name: 'Try it out' }).click();
+  await projects.getByRole('button', { name: 'Execute' }).click();
+  await expect.poll(() => seen.length).toBe(1);
+  expect(seen[0]).toEqual({ host: 'first.example.com', auth: 'Bearer tat_first_host_only' });
+
+  // Then change the URL: the token is gone.
+  await field.fill('https://second.example.com');
+  await page.getByRole('button', { name: 'Use this URL' }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'Credentials cleared; authorize again for https://second.example.com',
+  );
+  await expect(page.locator('.scheme-container .btn.authorize')).toHaveClass(/unlocked/);
+  const again = operation(page, 'GET', '/projects');
+  if (!(await again.getByRole('button', { name: 'Execute' }).isVisible())) {
+    await again.locator('.opblock-summary-control').click();
+    await again.getByRole('button', { name: 'Try it out' }).click();
+  }
+  await again.getByRole('button', { name: 'Execute' }).click();
+  await expect.poll(() => seen.length).toBe(2);
+  expect(seen[1]).toEqual({ host: 'second.example.com', auth: undefined });
+});

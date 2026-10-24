@@ -239,7 +239,7 @@ export interface paths {
         };
         /**
          * The signed-in user's API tokens that are not revoked, newest first.
-         * @description Personal API tokens for scripts (epic developer experience 10.1). Each user sees only their own. Never returns a token or its hash, only its prefix. An expired token is listed until it is revoked. A passkey session only: an API token gets 403 `forbidden` here, so a token can never list, create or revoke tokens.
+         * @description Personal API tokens for scripts. Each user sees only their own. Never returns a token or its hash, only its prefix. An expired token is listed until it is revoked. A passkey session only: an API token gets 403 `forbidden` here, so a token can never list, create or revoke tokens.
          */
         get: operations["listApiTokens"];
         put?: never;
@@ -361,7 +361,7 @@ export interface paths {
         put?: never;
         /**
          * Issue the project's site key, or rotate it (admins only).
-         * @description A project has at most one active site key (AD-9 amended, epic UX rework R3), which places every zone of the project on a page with the zone's slug. When the project already has an active site key, that key is revoked in the same transaction (rotation), which affects every zone of the project. `key` appears only in this response; only its SHA-256 hash is stored, and the response is sent with `Cache-Control: no-store`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`. With `ifNone: true` (the dashboard's "Issue site key") nothing is rotated: when the project already has an active site key the answer is 409 `site_key_exists` and that key keeps working. Without it (or `false`) the request rotates (the dashboard's "Rotate").
+         * @description A project has at most one active site key, which places every zone of the project on a page with the zone's slug. When the project already has an active site key, that key is revoked in the same transaction (rotation), which affects every zone of the project. `key` appears only in this response; only its SHA-256 hash is stored, and the response is sent with `Cache-Control: no-store`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`. With `ifNone: true` (the dashboard's "Issue site key") nothing is rotated: when the project already has an active site key the answer is 409 `site_key_exists` and that key keeps working. Without it (or `false`) the request rotates (the dashboard's "Rotate").
          */
         post: operations["issueSiteKey"];
         /**
@@ -385,12 +385,12 @@ export interface paths {
         };
         /**
          * List every tale group of a project by name, with its tale count and zones.
-         * @description Tale groups belong to the project (AD-14); a group placed in no zone is listed with an empty `zoneIds`. Unknown project 404 `project_not_found`.
+         * @description Tale groups belong to the project; a group placed in no zone is listed with an empty `zoneIds`. Unknown project 404 `project_not_found`.
          */
         get: operations["listProjectTaleGroups"];
         put?: never;
         /**
-         * Create a tale group in a project, placed in no zone (epic UX rework R14).
+         * Create a tale group in a project, placed in no zone.
          * @description The group starts Off (`draft`) with no tales and no placement; it can be shown in a zone later. Unknown project 404 `project_not_found`. A project holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is created.
          */
         post: operations["createProjectTaleGroup"];
@@ -410,7 +410,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The project's theme (epic web zones R9).
+         * The project's theme.
          * @description One theme per project styles every zone's frames and the viewer. `theme` holds the fields the project sets; `resolved` fills the rest with TaleArt's default theme. Unknown project 404 `project_not_found`.
          */
         get: operations["getProjectTheme"];
@@ -436,14 +436,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The project's media (epic Tale Studio R5), which Tale Studio's image and video elements pick from.
+         * The project's media, which Tale Studio's image and video elements pick from.
          * @description The project's uploads (newest first), then its tales' media, then media its tales' documents use (such as a copied group's), each key once. Unknown project 404 `project_not_found`.
          */
         get: operations["listProjectMedia"];
         put?: never;
         /**
          * Upload an image (GIF included) or a video to the project's media.
-         * @description The body is the file's bytes, with its type declared as one of the tale media types. The server checks the bytes' magic number against the declared type and stores the file through the storage port without transcoding it (AD-11), streaming it to storage. Images are at most 10 MB, videos 100 MB; a project holds at most 500 files and 2 GB (PROJECT_MEDIA_MAX_FILES, PROJECT_MEDIA_MAX_BYTES). Admins and content managers upload. Checked in this order, all but the last three before the body is read (with `Connection: close`): too many uploads at once in this process 429 `upload_busy`; unknown project 404 `project_not_found`; another declared type 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over the type's limit 413 `media_too_large`; a full project 409 `media_limit_reached` or 413 `media_storage_full`; then, while it streams, first bytes of another type 415, and a body other than its declared length 400; the caps again when the row is inserted.
+         * @description The body is the file's bytes, with its type declared as one of the tale media types. The server checks the bytes' magic number against the declared type and stores the file through the storage port without transcoding it, streaming it to storage. Images are at most 10 MB, videos 100 MB; a project holds at most 500 files and 2 GB (PROJECT_MEDIA_MAX_FILES, PROJECT_MEDIA_MAX_BYTES). Admins and content managers upload. Checked in this order, all but the last three before the body is read (with `Connection: close`): too many uploads at once in this process 429 `upload_busy`; unknown project 404 `project_not_found`; another declared type 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over the type's limit 413 `media_too_large`; a full project 409 `media_limit_reached` or 413 `media_storage_full`; then, while it streams, first bytes of another type 415, and a body other than its declared length 400; the caps again when the row is inserted.
          */
         post: operations["uploadProjectMedia"];
         delete?: never;
@@ -487,7 +487,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The project's fonts (epic Tale Studio R18), by family, weight and style.
+         * The project's fonts, by family, weight and style.
          * @description Every face uploaded to the project, with whether a tale's draft or published document uses it. Unknown project 404 `project_not_found`.
          */
         get: operations["listProjectFonts"];
@@ -585,8 +585,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A project's user lists (epic targeting R3), by name.
-         * @description Each list with its name, how many external user IDs it holds and when it last changed. The IDs themselves are never returned: they are stored only as keyed hashes (epic targeting R5). Unknown project 404 `project_not_found`.
+         * A project's user lists, by name.
+         * @description Each list with its name, how many external user IDs it holds and when it last changed. The IDs themselves are never returned: they are stored only as keyed hashes. Unknown project 404 `project_not_found`.
          */
         get: operations["listUserLists"];
         put?: never;
@@ -616,7 +616,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a user list and every ID it holds, for good.
-         * @description A hard delete in one transaction: the list and all its hashes go, with no soft delete (epic targeting R5). When it was the project's last list, the project's hashing secret goes too, so the next list gets a new one. Admins and content managers delete. 404 `user_list_not_found` for a list of another project, or none.
+         * @description A hard delete in one transaction: the list and all its hashes go, with no soft delete. When it was the project's last list, the project's hashing secret goes too, so the next list gets a new one. Admins and content managers delete. 404 `user_list_not_found` for a list of another project, or none.
          */
         delete: operations["deleteUserList"];
         options?: never;
@@ -645,7 +645,7 @@ export interface paths {
         put?: never;
         /**
          * Add the external user IDs of a single-column CSV to a user list.
-         * @description The body is the CSV, UTF-8 (a byte order mark is skipped), one ID per row, read as a stream and not kept. Each non-empty row, trimmed (and unquoted when it is a quoted field), is one ID of at most 256 ASCII characters with no control characters; matching is exact (case-sensitive, no Unicode normalization). Each ID is stored only as HMAC-SHA-256 under the project's secret (epic targeting R5); no ID is ever returned, logged or kept. Rows already in the list, or earlier in the file, count as already present; refused rows are counted and the first 10 named by line number and reason. The upload is all or nothing. Admins and content managers upload. An upload that sends no byte for 30 s, or takes more than 280 s in all (a 50 MB file needs about 190 KB/s), is ended with nothing added (408 `validation_failed`, often on a closed connection). Checked before the body is read (with `Connection: close`): too many uploads at once 429 `upload_busy`; unknown project 404 `project_not_found`; unknown list 404 `user_list_not_found`; a type other than `text/csv` or `text/plain` 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over 50 MB 413 `user_list_file_too_large`. While it streams: over 1,000,000 rows 413 `user_list_file_too_large`, not UTF-8 or a body other than its declared length 400 `validation_failed`; nothing is added in either case.
+         * @description The body is the CSV, UTF-8 (a byte order mark is skipped), one ID per row, read as a stream and not kept. Each non-empty row, trimmed (and unquoted when it is a quoted field), is one ID of at most 256 ASCII characters with no control characters; matching is exact (case-sensitive, no Unicode normalization). Each ID is stored only as HMAC-SHA-256 under the project's secret; no ID is ever returned, logged or kept. Rows already in the list, or earlier in the file, count as already present; refused rows are counted and the first 10 named by line number and reason. The upload is all or nothing. Admins and content managers upload. An upload that sends no byte for 30 s, or takes more than 280 s in all (a 50 MB file needs about 190 KB/s), is ended with nothing added (408 `validation_failed`, often on a closed connection). Checked before the body is read (with `Connection: close`): too many uploads at once 429 `upload_busy`; unknown project 404 `project_not_found`; unknown list 404 `user_list_not_found`; a type other than `text/csv` or `text/plain` 415 `unsupported_media_type`; a compressed body 415; no valid `Content-Length` 411 `length_required`; empty 400 `validation_failed`; over 50 MB 413 `user_list_file_too_large`. While it streams: over 1,000,000 rows 413 `user_list_file_too_large`, not UTF-8 or a body other than its declared length 400 `validation_failed`; nothing is added in either case.
          */
         post: operations["addUserListIds"];
         delete?: never;
@@ -715,7 +715,7 @@ export interface paths {
         put?: never;
         /**
          * Start importing a Storyly app into the project (admins only).
-         * @description Stores a queued import job and answers at once (AD-8); a background worker runs it. The token is stored encrypted with the job only until the job ends. Without `selection` everything is imported; with it, only the picked zones and entity types; `selection: null` is refused as malformed. A selection whose key is invalid, expired or for another project, app or person, that names a zone the key does not, or that asks for media or tags without tale groups, answers 400 `import_selection_invalid` and creates no job; a malformed one 400 `validation_failed`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
+         * @description Stores a queued import job and answers at once; a background worker runs it. The token is stored encrypted with the job only until the job ends. Without `selection` everything is imported; with it, only the picked zones and entity types; `selection: null` is refused as malformed. A selection whose key is invalid, expired or for another project, app or person, that names a zone the key does not, or that asks for media or tags without tale groups, answers 400 `import_selection_invalid` and creates no job; a malformed one 400 `validation_failed`. A content manager gets 403 `forbidden`; an unknown project 404 `project_not_found`; without `IMPORT_TOKEN_KEY` 503 `importer_not_configured`.
          */
         post: operations["startImport"];
         delete?: never;
@@ -776,7 +776,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Where a host page loads the Web SDK and where the test page is (epic UX rework R13).
+         * Where a host page loads the Web SDK and where the test page is.
          * @description The API's public origin (`PUBLIC_API_URL`), the URL of the Web SDK bundle the API serves (`<apiUrl>/sdk/v1/taleart.js`, an ES module) and the URL of the TaleArt-served test page (`<apiUrl>/sdk/v1/test-page`), for the zone page's Install tab. Any signed-in user.
          */
         get: operations["getInstallInfo"];
@@ -795,7 +795,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the frame types in the registry (AD-5). */
+        /** List the frame types in the registry. */
         get: operations["listFrameTypes"];
         put?: never;
         post?: never;
@@ -840,7 +840,7 @@ export interface paths {
         put?: never;
         /**
          * Give a zone its display, a frame of a registered type.
-         * @description A zone has at most one frame, its display (AD-5, AD-17). `settings` is validated against the JSON Schema of the frame type (400 `invalid_frame_settings`); a missing `settings` is the type's defaults. An unknown type answers 400 `unknown_frame_type`. A zone that already has a display answers 409 `display_exists`; change it with PATCH. Unknown zone: 404 `zone_not_found`.
+         * @description A zone has at most one frame, its display. `settings` is validated against the JSON Schema of the frame type (400 `invalid_frame_settings`); a missing `settings` is the type's defaults. An unknown type answers 400 `unknown_frame_type`. A zone that already has a display answers 409 `display_exists`; change it with PATCH. Unknown zone: 404 `zone_not_found`.
          */
         post: operations["setZoneFrame"];
         delete?: never;
@@ -848,7 +848,7 @@ export interface paths {
         head?: never;
         /**
          * Change the type or the settings of a zone's display.
-         * @description A new `type` changes the display's frame type and resets its settings to that type's defaults, unless `settings` is given too. `settings` replaces the settings and is validated against the JSON Schema of the display's (new) type (AD-5): an invalid value answers 400 `invalid_frame_settings` naming the field, and nothing is stored. A body with neither answers 400 `validation_failed`. The display keeps its id, so events keep their `frame_id` (AD-10). Unknown zone: 404 `zone_not_found`; a zone without a display: 404 `display_not_found`. When another change switches the display's type meanwhile, the change is checked again against the new type once, then refused with 409 `concurrent_change`; nothing is stored and it can be tried again.
+         * @description A new `type` changes the display's frame type and resets its settings to that type's defaults, unless `settings` is given too. `settings` replaces the settings and is validated against the JSON Schema of the display's (new) type: an invalid value answers 400 `invalid_frame_settings` naming the field, and nothing is stored. A body with neither answers 400 `validation_failed`. The display keeps its id, so events keep their `frame_id`. Unknown zone: 404 `zone_not_found`; a zone without a display: 404 `display_not_found`. When another change switches the display's type meanwhile, the change is checked again against the new type once, then refused with 409 `concurrent_change`; nothing is stored and it can be tried again.
          */
         patch: operations["updateZoneFrame"];
         trace?: never;
@@ -862,7 +862,7 @@ export interface paths {
         };
         /**
          * A zone, named by site key and slug, with its display and tale groups (Delivery API).
-         * @description Served under `/delivery/v1`. Accepts only the project's site key (`tas_...`) in `Authorization: Bearer <key>`, never a session, and answers the project's zone whose slug the `zone` query parameter names (epic UX rework R3). Every refusal (a missing, unknown or revoked site key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against its visitor's token bucket (by default 600 at once, 20 per second), the visitor named by the `X-TaleArt-Visitor` header; a request without a valid visitor id counts against a bucket of the same size for its address (an IPv4 address or an IPv6 /48). Every request also counts against its address's backstop, ten times that size, so a client inventing ids gains no more than ten visitors' allowance (epic UX rework 8.23). Over either the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials, and allows the `X-TaleArt-Visitor` header. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed (AD-6); each tale's media URL is absolute and public (AD-11). The zone is cached as `private, no-cache`, varies by `Authorization` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once (NFR-006).
+         * @description Served under `/delivery/v1`. Accepts only the project's site key (`tas_...`) in `Authorization: Bearer <key>`, never a session, and answers the project's zone whose slug the `zone` query parameter names. Every refusal (a missing, unknown or revoked site key, any other key, a missing slug, or a slug no zone of the key's project has) answers the same 401 `invalid_site_key` body, so a caller cannot tell an unknown slug from a refused key. A 401 is sent with `Cache-Control: no-store`. Every Delivery API request counts against its visitor's token bucket (by default 600 at once, 20 per second), the visitor named by the `X-TaleArt-Visitor` header; a request without a valid visitor id counts against a bucket of the same size for its address (an IPv4 address or an IPv6 /48). Every request also counts against its address's backstop, ten times that size, so a client inventing ids gains no more than ten visitors' allowance. Over either the API answers 429 `rate_limited` with `Retry-After`. CORS is open to any origin, without credentials, and allows the `X-TaleArt-Visitor` header. Tale groups and their tales come in dashboard order; only `live` groups and tales whose start and end times, and their group's, contain the current time are listed; each tale's media URL is absolute and public. The zone is cached as `private, no-cache`, varies by `Authorization` and carries an ETag, so a browser revalidates it on every load (304 while unchanged) and sees a change at once.
          */
         get: operations["getDeliveryZone"];
         put?: never;
@@ -885,7 +885,7 @@ export interface paths {
         };
         /**
          * Read a published tale's media file, with no credentials.
-         * @description Serves only keys that a published tale (a `live` tale of a `live` group, each inside its start and end time, AD-6) currently references; any other key, including the key of replaced media or of draft, paused, archived, scheduled or expired content, answers 404 `media_not_found` (AD-11). A tale group's cover is served while the group is delivered: `live`, inside its window, with at least one published tale. A project font (`fonts/<uuid>.woff2`, epic Tale Studio R18) is served as `font/woff2` while a published tale of a delivered group (`live`, in its window, placed in a zone) has a published document with a visible text that uses it; any other font key answers 404. The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
+         * @description Serves only keys that a published tale (a `live` tale of a `live` group, each inside its start and end time) currently references; any other key, including the key of replaced media or of draft, paused, archived, scheduled or expired content, answers 404 `media_not_found`. A tale group's cover is served while the group is delivered: `live`, inside its window, with at least one published tale. A project font (`fonts/<uuid>.woff2`) is served as `font/woff2` while a published tale of a delivered group (`live`, in its window, placed in a zone) has a published document with a visible text that uses it; any other font key answers 404. The response carries the stored `Content-Type`, supports one byte range (206, or 416 when unsatisfiable) and is open to any origin. It is cached as `public, no-cache` with the key as ETag, so a client revalidates (304 while published) and sees the 404 as soon as the content is unpublished.
          */
         get: operations["getPublicMedia"];
         put?: never;
@@ -954,7 +954,7 @@ export interface paths {
         get?: never;
         /**
          * Place an existing tale group of the zone's project in the zone, after its groups.
-         * @description The group keeps its tales, tags and media; edits show in every zone it is placed in (AD-14). A group already placed here answers 200 unchanged. A group that does not exist or belongs to another project answers 400 `tale_group_not_found`. An archived group not placed here yet answers 409 `tale_group_archived`: restore it first (epic UX rework R10). Unknown zone: 404 `zone_not_found`.
+         * @description The group keeps its tales, tags and media; edits show in every zone it is placed in. A group already placed here answers 200 unchanged. A group that does not exist or belongs to another project answers 400 `tale_group_not_found`. An archived group not placed here yet answers 409 `tale_group_archived`: restore it first. Unknown zone: 404 `zone_not_found`.
          */
         put: operations["placeZoneTaleGroup"];
         post?: never;
@@ -979,7 +979,7 @@ export interface paths {
         };
         /**
          * Read one tale group with its tales.
-         * @description The group with its tales in order, its tags, the zones it is placed in, and the visibility of the group and each tale in any of those zones (epic UX rework R7), placed in a zone or not. The dashboard reads it to open a group that no zone lists, such as one placed in no zone (epic UX rework R11, R14). Unknown tale group: 404 `tale_group_not_found`.
+         * @description The group with its tales in order, its tags, the zones it is placed in, and the visibility of the group and each tale in any of those zones, placed in a zone or not. The dashboard reads it to open a group that no zone lists, such as one placed in no zone. Unknown tale group: 404 `tale_group_not_found`.
          */
         get: operations["getTaleGroup"];
         put?: never;
@@ -989,7 +989,7 @@ export interface paths {
         head?: never;
         /**
          * Rename a tale group.
-         * @description The name is trimmed and must not be blank (400 `validation_failed`). The group is the same in every zone it is placed in, so every zone shows the new name (AD-14). Unknown tale group: 404 `tale_group_not_found`.
+         * @description The name is trimmed and must not be blank (400 `validation_failed`). The group is the same in every zone it is placed in, so every zone shows the new name. Unknown tale group: 404 `tale_group_not_found`.
          */
         patch: operations["renameTaleGroup"];
         trace?: never;
@@ -1007,7 +1007,7 @@ export interface paths {
         put?: never;
         /**
          * Copy a tale group into a zone, as an independent group.
-         * @description Creates a new tale group in the target zone's project, with the same name, placed after the zone's groups (AD-14). Its tales are new rows with the same titles, positions and media; media files are not duplicated, the copy shares their storage keys (AD-11). For each of the source's tags, a tag of the target project with the same name, ignoring case, is reused, else created; the copy keeps the source's `tagMatch`. Copy and source are independent afterwards. The caller needs access to the source group's project and to the target zone's project (403 `forbidden`). Unknown tale group: 404 `tale_group_not_found`; missing `zoneId`: 400 `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts against the target zone's project, which holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is copied.
+         * @description Creates a new tale group in the target zone's project, with the same name, placed after the zone's groups. Its tales are new rows with the same titles, positions and media; media files are not duplicated, the copy shares their storage keys. For each of the source's tags, a tag of the target project with the same name, ignoring case, is reused, else created; the copy keeps the source's `tagMatch`. Copy and source are independent afterwards. The caller needs access to the source group's project and to the target zone's project (403 `forbidden`). Unknown tale group: 404 `tale_group_not_found`; missing `zoneId`: 400 `validation_failed`; unknown zone: 404 `zone_not_found`. The copy counts against the target zone's project, which holds at most 500 tale groups that are not archived: 409 `tale_group_limit_reached`, and nothing is copied.
          */
         post: operations["copyTaleGroup"];
         delete?: never;
@@ -1028,7 +1028,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale group.
-         * @description Sets the group's stored status key (AD-6). Allowed: `live` from `draft` or `paused` (publish); `paused` from `live` (pause) or from `archived` (restore); `archived` from `draft`, `live` or `paused` (archive). Setting the current status again changes nothing. Any other change: 409 `invalid_status_transition`. A restore in a project that already has 500 tale groups that are not archived: 409 `tale_group_limit_reached`. A status other than `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`. Only `live` groups reach the Delivery API; the `live` tales of a `draft` or `paused` group read `blocked-by-group`. The dashboard shows `live` as On and `draft` or `paused` as Off (`groupShownStatus`); its switch sets `live` (On) or `paused` (Off).
+         * @description Sets the group's stored status key. Allowed: `live` from `draft` or `paused` (publish); `paused` from `live` (pause) or from `archived` (restore); `archived` from `draft`, `live` or `paused` (archive). Setting the current status again changes nothing. Any other change: 409 `invalid_status_transition`. A restore in a project that already has 500 tale groups that are not archived: 409 `tale_group_limit_reached`. A status other than `live`, `paused` or `archived`: 400 `validation_failed`. Unknown tale group: 404 `tale_group_not_found`. Only `live` groups reach the Delivery API; the `live` tales of a `draft` or `paused` group read `blocked-by-group`. The dashboard shows `live` as On and `draft` or `paused` as Off (`groupShownStatus`); its switch sets `live` (On) or `paused` (Off).
          */
         put: operations["setTaleGroupStatus"];
         post?: never;
@@ -1050,7 +1050,7 @@ export interface paths {
         get?: never;
         /**
          * Set the start and end time of a tale group.
-         * @description Sets or clears the start and end time (AD-6). Live content is delivered only while the current time is at or after `startsAt` and before `endsAt`; before it, it reads `scheduled`, after it `expired`; nothing stores those keys. A bound that is not an ISO 8601 date-time with a time zone, a missing field, or an `endsAt` not later than `startsAt`: 400 `validation_failed`, nothing changes. Unknown tale group: 404 `tale_group_not_found`.
+         * @description Sets or clears the start and end time. Live content is delivered only while the current time is at or after `startsAt` and before `endsAt`; before it, it reads `scheduled`, after it `expired`; nothing stores those keys. A bound that is not an ISO 8601 date-time with a time zone, a missing field, or an `endsAt` not later than `startsAt`: 400 `validation_failed`, nothing changes. Unknown tale group: 404 `tale_group_not_found`.
          */
         put: operations["setTaleGroupSchedule"];
         post?: never;
@@ -1076,7 +1076,7 @@ export interface paths {
         get: operations["getTaleGroupCover"];
         /**
          * Set or replace a tale group's cover, still or animated.
-         * @description The body is the file's bytes and `Content-Type` its type, one of the tale media types. The dashboard makes the file in the browser (an image, a video frame, or a short clip); the server does not transcode (AD-11). The server decides from the bytes whether the cover is animated: every video, every GIF, an animated WebP and an APNG. An animated cover is at most 300 KB (307 200 bytes, `MAX_ANIMATED_COVER_BYTES`), a still image at most 10 MB; larger: 413 `media_too_large`. Other or mismatched type: 415 `unsupported_media_type`; empty body: 400 `validation_failed`; unknown tale group: 404 `tale_group_not_found`. The previous cover's file is deleted unless a tale or another cover still references it.
+         * @description The body is the file's bytes and `Content-Type` its type, one of the tale media types. The dashboard makes the file in the browser (an image, a video frame, or a short clip); the server does not transcode. The server decides from the bytes whether the cover is animated: every video, every GIF, an animated WebP and an APNG. An animated cover is at most 300 KB (307 200 bytes, `MAX_ANIMATED_COVER_BYTES`), a still image at most 10 MB; larger: 413 `media_too_large`. Other or mismatched type: 415 `unsupported_media_type`; empty body: 400 `validation_failed`; unknown tale group: 404 `tale_group_not_found`. The previous cover's file is deleted unless a tale or another cover still references it.
          */
         put: operations["putTaleGroupCover"];
         post?: never;
@@ -1103,7 +1103,7 @@ export interface paths {
         put?: never;
         /**
          * Add a tale to a tale group, after its existing tales.
-         * @description The tale takes its project from the tale group. A new tale is stored `live` (Shown): it shows once its group is On and it has a published document, which uploading its media creates (AD-6, AD-15). A tale group holds at most 100 tales; adding to a full group answers 409 `tale_group_full`.
+         * @description The tale takes its project from the tale group. A new tale is stored `live` (Shown): it shows once its group is On and it has a published document, which uploading its media creates. A tale group holds at most 100 tales; adding to a full group answers 409 `tale_group_full`.
          */
         post: operations["createTale"];
         delete?: never;
@@ -1167,14 +1167,14 @@ export interface paths {
         };
         /**
          * Read one tale.
-         * @description The tale with its status as read and its visibility in any zone its group is placed in (epic UX rework R7), as Tale Studio's status line shows it. Unknown tale: 404 `tale_not_found`.
+         * @description The tale with its status as read and its visibility in any zone its group is placed in, as Tale Studio's status line shows it. Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTale"];
         put?: never;
         post?: never;
         /**
          * Delete a tale.
-         * @description Deletes the tale for good (epic UX rework R11): its draft and published documents, and its references to media and project fonts. The group's remaining tales keep their order, numbered from the start again. A file the tale used is deleted only when nothing references it any more: a copy of the tale (AD-14), another tale, a tale group cover or the project's uploaded media keeps it (AD-11). Project fonts stay in the project. Once deleted, the tale is no longer delivered and its media's public URL answers 404 unless a delivered tale or cover still uses that file. A tale that came from an import is not created again by a later import of the same source: a person's deletion wins (AD-7). Events already recorded keep the tale's id (AD-10); the visitors' responses to its interactive components are deleted with it (epic interactive components R9). Any member with access to the tale's project may delete it (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         * @description Deletes the tale for good: its draft and published documents, and its references to media and project fonts. The group's remaining tales keep their order, numbered from the start again. A file the tale used is deleted only when nothing references it any more: a copy of the tale, another tale, a tale group cover or the project's uploaded media keeps it. Project fonts stay in the project. Once deleted, the tale is no longer delivered and its media's public URL answers 404 unless a delivered tale or cover still uses that file. A tale that came from an import is not created again by a later import of the same source: a person's deletion wins. Events already recorded keep the tale's id; the visitors' responses to its interactive components are deleted with it. Any member with access to the tale's project may delete it (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
          */
         delete: operations["deleteTale"];
         options?: never;
@@ -1194,7 +1194,7 @@ export interface paths {
         get?: never;
         /**
          * Publish, pause, archive or restore a tale.
-         * @description Sets the tale's stored status key (AD-6), with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public (AD-11). Setting `live` on a tale that has nothing published yet (from any status) also publishes its draft document (AD-15) in the same transaction, after checking it again; a tale that already has a published document keeps it. When the draft no longer passes the check, the status still changes, the draft is not published, and the answer says so with `draftNotPublished: true` and why in `draftNotPublishedReason`.
+         * @description Sets the tale's stored status key, with the same allowed changes as a tale group's: 409 `invalid_status_transition` for any other, 400 `validation_failed` for a status other than `live`, `paused` or `archived`. Unknown tale: 404 `tale_not_found`. Only `live` tales of `live` groups reach the Delivery API, and only their media is public. Setting `live` on a tale that has nothing published yet (from any status) also publishes its draft document in the same transaction, after checking it again; a tale that already has a published document keeps it. When the draft no longer passes the check, the status still changes, the draft is not published, and the answer says so with `draftNotPublished: true` and why in `draftNotPublishedReason`.
          */
         put: operations["setTaleStatus"];
         post?: never;
@@ -1216,7 +1216,7 @@ export interface paths {
         get?: never;
         /**
          * Set the start and end time of a tale.
-         * @description Sets or clears the start and end time (AD-6). Live content is delivered only while the current time is at or after `startsAt` and before `endsAt`; before it, it reads `scheduled`, after it `expired`; nothing stores those keys. A bound that is not an ISO 8601 date-time with a time zone, a missing field, or an `endsAt` not later than `startsAt`: 400 `validation_failed`, nothing changes. Unknown tale: 404 `tale_not_found`.
+         * @description Sets or clears the start and end time. Live content is delivered only while the current time is at or after `startsAt` and before `endsAt`; before it, it reads `scheduled`, after it `expired`; nothing stores those keys. A bound that is not an ISO 8601 date-time with a time zone, a missing field, or an `endsAt` not later than `startsAt`: 400 `validation_failed`, nothing changes. Unknown tale: 404 `tale_not_found`.
          */
         put: operations["setTaleSchedule"];
         post?: never;
@@ -1263,12 +1263,12 @@ export interface paths {
         };
         /**
          * Read a tale's draft document, with its published one.
-         * @description The tale's draft document (AD-15), the one Tale Studio edits, with its revision, and the published document with its own revision, the one the Delivery API serves. A tale without a draft answers `document: null` and revision 0; without a published document, `published: { document: null, revision: 0 }`, and it shows its media only. Unknown tale: 404 `tale_not_found`.
+         * @description The tale's draft document, the one Tale Studio edits, with its revision, and the published document with its own revision, the one the Delivery API serves. A tale without a draft answers `document: null` and revision 0; without a published document, `published: { document: null, revision: 0 }`, and it shows its media only. Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTaleDocument"];
         /**
          * Save a tale's draft document.
-         * @description Replaces the draft document when `revision` is the draft's current revision, and answers it with the next revision and the published document. The published document, and so what visitors see, does not change. A write based on an older revision changes nothing and answers 409 `stale_revision`, so two editors never overwrite each other silently. The document is checked against `tale-document/v1.schema.json` (no additional properties), each element's `props` against the schema of its registered type, and the rules of AD-15: at most 60 elements, 1,000 characters per text, unique ids, numbers in range, no control characters except a line feed in text. A refused document answers 400 `invalid_tale_document` with `pointer`, the JSON pointer of the field it refused (from the document's root); a document over 128 KB answers 413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647): 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         * @description Replaces the draft document when `revision` is the draft's current revision, and answers it with the next revision and the published document. The published document, and so what visitors see, does not change. A write based on an older revision changes nothing and answers 409 `stale_revision`, so two editors never overwrite each other silently. The document is checked against `tale-document/v1.schema.json` (no additional properties), each element's `props` against the schema of its registered type, and the tale document rules: at most 60 elements, 1,000 characters per text, unique ids, numbers in range, no control characters except a line feed in text. A refused document answers 400 `invalid_tale_document` with `pointer`, the JSON pointer of the field it refused (from the document's root); a document over 128 KB answers 413 `tale_document_too_large`. A body without a document or a revision (an integer from 0 to 2147483647): 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
          */
         put: operations["saveTaleDocument"];
         post?: never;
@@ -1291,7 +1291,7 @@ export interface paths {
         put?: never;
         /**
          * Publish a tale's draft document.
-         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. A tale with no draft answers 409 `nothing_to_publish`; publishing never empties the published document. The draft is checked again first (400 `invalid_tale_document` with `pointer`), with the publish rule too: every visible image and video needs alt text (`a11y.label`) or `a11y.decorative` (epic Tale Studio R12), refused with a message naming the element. The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
+         * @description Copies the draft document to the published one, which the Delivery API serves, raising the published revision, when `revision` is the draft's current revision and `publishedRevision` the published one's (compare-and-set on both, in one statement); otherwise nothing changes and it answers 409 `stale_revision`. A tale with no draft answers 409 `nothing_to_publish`; publishing never empties the published document. The draft is checked again first (400 `invalid_tale_document` with `pointer`), with the publish rule too: every visible image and video needs alt text (`a11y.label`) or `a11y.decorative`, refused with a message naming the element. The tale's status is not changed: a tale that is not `live` stays unseen. A body without integer revisions: 400 `validation_failed`. Unknown tale: 404 `tale_not_found`.
          */
         post: operations["publishTaleDocument"];
         delete?: never;
@@ -1335,7 +1335,7 @@ export interface paths {
         put?: never;
         /**
          * Keep a document as a new tale in the tale's group.
-         * @description For a save refused with 409 `stale_revision`: keeps the editor's own version as a new tale instead of dropping it. In one transaction, creates a `draft` tale at the end of the source tale's group, titled after the source with " (copy)", sharing the source's media storage key (AD-11, AD-14), and holding `document` as its draft at revision 1, with nothing published (revision 0). The document is checked as a save checks it: 400 `invalid_tale_document` with `pointer`, 413 `tale_document_too_large`. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the source tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a body without a document: 400 `validation_failed`.
+         * @description For a save refused with 409 `stale_revision`: keeps the editor's own version as a new tale instead of dropping it. In one transaction, creates a `draft` tale at the end of the source tale's group, titled after the source with " (copy)", sharing the source's media storage key, and holding `document` as its draft at revision 1, with nothing published (revision 0). The document is checked as a save checks it: 400 `invalid_tale_document` with `pointer`, 413 `tale_document_too_large`. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the source tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a body without a document: 400 `validation_failed`.
          */
         post: operations["copyTaleDocument"];
         delete?: never;
@@ -1357,7 +1357,7 @@ export interface paths {
         put?: never;
         /**
          * Duplicate a tale with its documents into a tale group of its project.
-         * @description Creates a new tale in `taleGroupId` (default: the tale's own group), which must be a group of the tale's project (AD-4): an unknown group or one of another project answers 400 `tale_group_not_found`, as placing a group does. The copy is stored `paused` (Hidden), so it does not show twice on the site until someone shows it. In the tale's own group it is placed right after the original (the later tales move one on); in another group, last. Its title is the original's with " (copy)"; it keeps the start and end time. It holds the original's published document as its published document and the original's draft as its draft (AD-15), each at revision 1 (0 when there is none), so a pending change is still pending on the copy; every element gets a new id. Media and project fonts are not copied: the copy shares the original's storage keys (AD-11, AD-14), and a file stays while any tale uses it, so changing or archiving the original never breaks the copy. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a `taleGroupId` that is not a string: 400 `validation_failed`.
+         * @description Creates a new tale in `taleGroupId` (default: the tale's own group), which must be a group of the tale's project: an unknown group or one of another project answers 400 `tale_group_not_found`, as placing a group does. The copy is stored `paused` (Hidden), so it does not show twice on the site until someone shows it. In the tale's own group it is placed right after the original (the later tales move one on); in another group, last. Its title is the original's with " (copy)"; it keeps the start and end time. It holds the original's published document as its published document and the original's draft as its draft, each at revision 1 (0 when there is none), so a pending change is still pending on the copy; every element gets a new id. Media and project fonts are not copied: the copy shares the original's storage keys, and a file stays while any tale uses it, so changing or archiving the original never breaks the copy. A tale group holds at most 100 tales: 409 `tale_group_full`, and nothing is created. The caller needs access to the tale's project (403 `forbidden`). Unknown tale: 404 `tale_not_found`; a `taleGroupId` that is not a string: 400 `validation_failed`.
          */
         post: operations["duplicateTale"];
         delete?: never;
@@ -1377,7 +1377,7 @@ export interface paths {
         };
         /**
          * Read the responses to a tale's interactive components.
-         * @description The visitors' responses to the tale's interactive components (epic interactive components R11), as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id, a quiz's answer id, a Rating's value from 0 to 100), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
+         * @description The visitors' responses to the tale's interactive components, as Tale Studio's inspector shows them: per component, the number of responses in all and per stored value (a poll's option id, a quiz's answer id, a Rating's value from 0 to 100), whatever the tale's documents hold now. A component without a response is not listed. Counts include only responses from the site; the studio preview records none. Any member with access to the tale's project may read them (403 `forbidden` otherwise). Unknown tale: 404 `tale_not_found`.
          */
         get: operations["getTaleResponses"];
         put?: never;
@@ -1399,7 +1399,7 @@ export interface paths {
         put?: never;
         /**
          * Record a visitor's response to an interactive component (Delivery API).
-         * @description Served under `/delivery/v1` (epic interactive components R9). Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule of AD-6: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a quiz's answer id; a Rating's whole number from 0 to 100, written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's or a quiz's counts and percentages per option or answer, a Rating's count and average). A quiz's correct answer is not in the answer: it is in the published document (C10). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times (AD-10); no user data (AD-13). Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
+         * @description Served under `/delivery/v1`. Accepts the project's site key and the zone's slug exactly as `GET /zone` does, with the same 401 `invalid_site_key` for every refused key or slug, and the same per-visitor rate limit, plus a stricter limit of its own for writes (by default 30 at once and 1 per second per visitor). The `X-TaleArt-Visitor` header is required here: a missing or invalid visitor id answers 400 `visitor_id_required`. The response is kept only when the tale is delivered in that zone now (the visibility rule: its group is placed there and on, the tale shown and updated, inside their windows, the zone set up), and its published document holds a visible element with that id of an interactive type; otherwise 404 `response_target_not_found`, the same for a tale of another project, a hidden tale and an unknown element. The value must be valid for the element (a poll's option id; a quiz's answer id; a Rating's whole number from 0 to 100, written plainly, such as `80`), else 422 `validation_failed`. Each visitor keeps one response per tale, component and interaction kind, and the first is kept (C9): a new response answers 201, a repeat 200 with the stored value and `recorded: false`. Either way the answer carries the current result (a poll's or a quiz's counts and percentages per option or answer, a Rating's count and average). A quiz's correct answer is not in the answer: it is in the published document (C10). The row records the project, zone, display, tale group and tale ids, the element's id and type, the value, the visitor id and the client's and the server's times; no user data. Deleting the tale deletes its responses. Answers are `Cache-Control: no-store`.
          */
         post: operations["postDeliveryResponse"];
         delete?: never;
@@ -1427,21 +1427,21 @@ export interface components {
         Zone: {
             /**
              * Format: date-time
-             * @description When the zone was first read as visible on the site (epic UX rework R9), or null while it never was. Set once, by the API, the first time it returns the zone with `visibility.visible` true, and never cleared: the dashboard hides the zone's setup checklist from then on, for every user, even when the zone later stops being visible.
+             * @description When the zone was first read as visible on the site, or null while it never was. Set once, by the API, the first time it returns the zone with `visibility.visible` true, and never cleared: the dashboard hides the zone's setup checklist from then on, for every user, even when the zone later stops being visible.
              */
             firstVisibleAt: string | null;
-            /** @description Whether the zone shows anything on the site now (epic UX rework R7): it has a display, it is installed, and a tale group placed in it is delivered. Computed by the rule the Delivery API uses. */
+            /** @description Whether the zone shows anything on the site now: it has a display, it is installed, and a tale group placed in it is delivered. Computed by the rule the Delivery API uses. */
             visibility: components["schemas"]["Visibility"];
             /** Format: uuid */
             id: string;
             name: string;
-            /** @description Unique in the zone's project (epic UX rework R1): lowercase letters and digits, words joined by single hyphens. The value a host page names in `zone="…"`. */
+            /** @description Unique in the zone's project: lowercase letters and digits, words joined by single hyphens. The value a host page names in `zone="…"`. */
             slug: string;
             /** Format: uuid */
             projectId: string;
-            /** @description The key of the template the zone was created from (epic UX rework R5), from the template registry in `libs/contract`; null when none. Only a "created from template" note: the template set the display once and nothing links the zone to it afterwards. A zone the migration made from a stage keeps its original zone's note. */
+            /** @description The key of the template the zone was created from, from the template registry in `libs/contract`; null when none. Only a "created from template" note: the template set the display once and nothing links the zone to it afterwards. A zone the migration made from a stage keeps its original zone's note. */
             createdFromTemplate: string | null;
-            /** @description The zone's display (AD-5, AD-17): at most one frame, or null when the zone has none. A zone without a display delivers nothing. */
+            /** @description The zone's display: at most one frame, or null when the zone has none. A zone without a display delivers nothing. */
             frame: components["schemas"]["Frame"] | null;
         };
         CreateZoneRequest: {
@@ -1451,7 +1451,7 @@ export interface components {
             /** @description The zone's slug. When missing, it is made from the name and made unique in the project with a numeric suffix (`home-2`). A slug another zone of the project has answers 409 `slug_taken`. */
             slug?: string;
             /**
-             * @description A template from the template registry in `libs/contract` (epic UX rework R5). It sets the zone's display and its settings once, in the same transaction, and is recorded as the zone's `createdFromTemplate` note. `blank` sets no display. When missing, the zone has no display and no note.
+             * @description A template from the template registry in `libs/contract`. It sets the zone's display and its settings once, in the same transaction, and is recorded as the zone's `createdFromTemplate` note. `blank` sets no display. When missing, the zone has no display and no note.
              * @enum {string}
              */
             template?: "stories-bar" | "promo-banner" | "blank";
@@ -1499,9 +1499,9 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** @description A tale group belongs to its project (AD-14). Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
+        /** @description A tale group belongs to its project. Zones place it, each in its own order; its tales, tags and media are the same in every zone. */
         TaleGroup: {
-            /** @description Whether the group is visible on the site now (epic UX rework R7). As a zone lists it (`ZoneTaleGroup`), in that zone: the visibility of this placement. Elsewhere, in any zone it is placed in. */
+            /** @description Whether the group is visible on the site now. As a zone lists it (`ZoneTaleGroup`), in that zone: the visibility of this placement. Elsewhere, in any zone it is placed in. */
             visibility: components["schemas"]["Visibility"];
             /** @description The group's cover, still or animated, or null when it has none; then the bar shows its first published tale's media. */
             cover: components["schemas"]["TaleGroupCover"] | null;
@@ -1510,18 +1510,18 @@ export interface components {
             /** Format: uuid */
             projectId: string;
             name: string;
-            /** @description The group's status as read (AD-6): `scheduled` or `expired` when `storedStatus` is `live` and the current time is before `startsAt` or at or after `endsAt`, else `storedStatus`. */
+            /** @description The group's status as read: `scheduled` or `expired` when `storedStatus` is `live` and the current time is before `startsAt` or at or after `endsAt`, else `storedStatus`. */
             status: components["schemas"]["ContentStatus"];
-            /** @description The status key a person set (AD-6): `draft` for a new group, then `live`, `paused` or `archived`. */
+            /** @description The status key a person set: `draft` for a new group, then `live`, `paused` or `archived`. */
             storedStatus: components["schemas"]["ContentStatus"];
             /**
              * Format: date-time
-             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered (AD-6).
+             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered.
              */
             startsAt: string | null;
             /**
              * Format: date-time
-             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered (AD-6).
+             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered.
              */
             endsAt: string | null;
             /** @description Every zone the group is placed in, in the order it was placed; empty when none. */
@@ -1537,27 +1537,27 @@ export interface components {
             /** @description Order within this zone; the zone's lists are sorted by it. */
             position: number;
         };
-        /** @description A tale group as the project's list shows it (epic UX rework R14): the group's own fields, cover, tags and visibility in any zone it is placed in, with its tale counts instead of its tales, so the list stays small. */
+        /** @description A tale group as the project's list shows it: the group's own fields, cover, tags and visibility in any zone it is placed in, with its tale counts instead of its tales, so the list stays small. */
         ProjectTaleGroup: {
-            /** @description Whether the group is visible on the site now, in any zone it is placed in (epic UX rework R7). */
+            /** @description Whether the group is visible on the site now, in any zone it is placed in. */
             visibility: components["schemas"]["Visibility"];
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             projectId: string;
             name: string;
-            /** @description The group's status as read (AD-6), as on `TaleGroup`. */
+            /** @description The group's status as read, as on `TaleGroup`. */
             status: components["schemas"]["ContentStatus"];
-            /** @description The status key a person set (AD-6). */
+            /** @description The status key a person set. */
             storedStatus: components["schemas"]["ContentStatus"];
             /**
              * Format: date-time
-             * @description Start of the window, ISO 8601 UTC, or null for no start (AD-6).
+             * @description Start of the window, ISO 8601 UTC, or null for no start.
              */
             startsAt: string | null;
             /**
              * Format: date-time
-             * @description End of the window, ISO 8601 UTC, or null for no end (AD-6).
+             * @description End of the window, ISO 8601 UTC, or null for no end.
              */
             endsAt: string | null;
             /** @description The group's cover, or null when it has none, as on `TaleGroup`. */
@@ -1568,7 +1568,7 @@ export interface components {
             tags: components["schemas"]["TaleGroupTag"][];
             tagMatch: components["schemas"]["TagMatch"];
             taleCount: number;
-            /** @description The group's tales that are Shown (stored `live`, AD-6 amended). */
+            /** @description The group's tales that are Shown (stored `live`). */
             shownTaleCount: number;
         };
         Tag: {
@@ -1588,7 +1588,7 @@ export interface components {
             /** @description Trimmed before it is checked and stored; unique in the project ignoring case. */
             name: string;
         };
-        /** @description A project's list of external user IDs (epic targeting R3). It tells how many IDs it holds, never which: they are stored only as keyed hashes (R5). */
+        /** @description A project's list of external user IDs. It tells how many IDs it holds, never which: they are stored only as keyed hashes. */
         UserList: {
             /** Format: uuid */
             id: string;
@@ -1619,11 +1619,11 @@ export interface components {
             reason: components["schemas"]["UserListRefusal"];
         };
         /**
-         * @description Why a row was refused: longer than 256 characters, holding a control character, holding a character outside ASCII (only ASCII IDs are supported until the Delivery header's encoding is defined, epic targeting story 4), or more than one field (an unquoted comma or quote, or a broken quoted field).
+         * @description Why a row was refused: longer than 256 characters, holding a control character, holding a character outside ASCII (only ASCII IDs are supported until the Delivery header's encoding is defined), or more than one field (an unquoted comma or quote, or a broken quoted field).
          * @enum {string}
          */
         UserListRefusal: "too-long" | "control-character" | "not-ascii" | "not-one-column";
-        /** @description What an upload did, in counts only (epic targeting R3, R5). It never holds an uploaded value. */
+        /** @description What an upload did, in counts only. It never holds an uploaded value. */
         UserListUploadReport: {
             /** @description IDs added to the list. */
             added: number;
@@ -1644,11 +1644,11 @@ export interface components {
         SetTaleGroupTagsRequest: {
             /** @description The ids of the group's new tags, all of the group's project. Repeats count once. */
             tagIds: string[];
-            /** @description How the tags combine (epic targeting R1); left out, the group keeps its match mode. */
+            /** @description How the tags combine; left out, the group keeps its match mode. */
             tagMatch?: components["schemas"]["TagMatch"];
         };
         /**
-         * @description How a tale group's targeting tags combine (epic targeting R1, R2): `any` (the default) shows the group to a viewer with at least one of its tags, `all` only to a viewer with every one of them. A group with no tags, or a viewer whose page passed no tags, always passes. The SDK decides (AD-13), with `tagRulePasses` from the contract.
+         * @description How a tale group's targeting tags combine: `any` (the default) shows the group to a viewer with at least one of its tags, `all` only to a viewer with every one of them. A group with no tags, or a viewer whose page passed no tags, always passes. The SDK decides, with `tagRulePasses` from the contract.
          * @enum {string}
          */
         TagMatch: "any" | "all";
@@ -1669,7 +1669,7 @@ export interface components {
             taleGroupId?: string;
         };
         Tale: {
-            /** @description Whether the tale is visible on the site now (epic UX rework R7). Inside a zone's list of tale groups, in that zone; elsewhere, in any zone its group is placed in. */
+            /** @description Whether the tale is visible on the site now. Inside a zone's list of tale groups, in that zone; elsewhere, in any zone its group is placed in. */
             visibility: components["schemas"]["Visibility"];
             /** Format: uuid */
             id: string;
@@ -1680,21 +1680,21 @@ export interface components {
             title: string;
             /** @description Order within the tale group; lists are sorted by it. */
             position: number;
-            /** @description The tale's status as read (AD-6): `storedStatus` unless it is `live`; then `blocked-by-group` when its group is `draft` or `paused`, else `scheduled` before `startsAt`, `expired` at or after `endsAt`, else `live`. The group's window does not change the tale's status, but the Delivery API needs both windows to contain the current time. */
+            /** @description The tale's status as read: `storedStatus` unless it is `live`; then `blocked-by-group` when its group is `draft` or `paused`, else `scheduled` before `startsAt`, `expired` at or after `endsAt`, else `live`. The group's window does not change the tale's status, but the Delivery API needs both windows to contain the current time. */
             status: components["schemas"]["ContentStatus"];
-            /** @description The status key a person set: `live` for a new tale (Shown, so a group turned On shows it), then `paused` (Hidden), `live` (Shown) or `archived`. `draft` (Hidden) remains on tales from before the UX rework and on kept copies. The dashboard shows `live` as Shown and `draft` or `paused` as Hidden (`taleShownStatus`). A tale is delivered only when it also has a published document (AD-15). */
+            /** @description The status key a person set: `live` for a new tale (Shown, so a group turned On shows it), then `paused` (Hidden), `live` (Shown) or `archived`. `draft` (Hidden) remains on older tales and on kept copies. The dashboard shows `live` as Shown and `draft` or `paused` as Hidden (`taleShownStatus`). A tale is delivered only when it also has a published document. */
             storedStatus: components["schemas"]["ContentStatus"];
             /**
              * Format: date-time
-             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered (AD-6).
+             * @description Start of the window, ISO 8601 UTC, or null for no start. Before it, live content reads `scheduled` and is not delivered.
              */
             startsAt: string | null;
             /**
              * Format: date-time
-             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered (AD-6).
+             * @description End of the window, ISO 8601 UTC, or null for no end; later than `startsAt`. From it on, live content reads `expired` and is not delivered.
              */
             endsAt: string | null;
-            /** @description The tale's image, GIF or video, or null when it has none. Kept for SDKs from before documents: the document holds the same media as its `taleMedia` element (epic Tale Studio R16), and current SDKs render only the document. */
+            /** @description The tale's image, GIF or video, or null when it has none. Kept for SDKs from before documents: the document holds the same media as its `taleMedia` element, and current SDKs render only the document. */
             media: components["schemas"]["TaleMedia"] | null;
         };
         TaleMedia: {
@@ -1711,7 +1711,7 @@ export interface components {
             /** @description Where the Management API serves the file, such as `/api/v1/tale-groups/{taleGroupId}/cover`. */
             url: string;
         };
-        /** @description Whether content is visible on the site now, and why not (epic UX rework R7). Computed from the same rule the Delivery API filters by, so the two cannot disagree: `visible` is true exactly when `reasons` is empty. */
+        /** @description Whether content is visible on the site now, and why not. Computed from the same rule the Delivery API filters by, so the two cannot disagree: `visible` is true exactly when `reasons` is empty. */
         Visibility: {
             visible: boolean;
             /** @description Every reason the content is not visible, most useful first (`VISIBILITY_REASON_ORDER` in `libs/contract`); empty when it is visible. */
@@ -1731,12 +1731,12 @@ export interface components {
             at?: string;
         };
         /**
-         * @description Why content is not visible (epic UX rework R7). `group-off`: the group is stored `draft` or `paused`. `tale-hidden`: the tale is. `group-blocked`: a process set the group's key (`processing`, `invalid-media`, `quota-reached`). `archived`. `no-shown-tales`: a group has no delivered tale. `no-visible-groups`: a zone has tale groups but delivers none. `no-tale-groups`: a zone has none. `not-in-any-zone`. `starts-at` and `ended-at`: outside the window. `zone-no-display`: the zone has no frame. `zone-not-installed`: the zone has no active key. `media-processing`: the tale is stored `processing`. `media-problem`: the tale is stored `invalid-media` or `quota-reached`. `not-updated-yet`: nothing published to deliver.
+         * @description Why content is not visible. `group-off`: the group is stored `draft` or `paused`. `tale-hidden`: the tale is. `group-blocked`: a process set the group's key (`processing`, `invalid-media`, `quota-reached`). `archived`. `no-shown-tales`: a group has no delivered tale. `no-visible-groups`: a zone has tale groups but delivers none. `no-tale-groups`: a zone has none. `not-in-any-zone`. `starts-at` and `ended-at`: outside the window. `zone-no-display`: the zone has no frame. `zone-not-installed`: the zone has no active key. `media-processing`: the tale is stored `processing`. `media-problem`: the tale is stored `invalid-media` or `quota-reached`. `not-updated-yet`: nothing published to deliver.
          * @enum {string}
          */
         VisibilityReasonCode: "group-off" | "tale-hidden" | "group-blocked" | "archived" | "no-shown-tales" | "not-in-any-zone" | "starts-at" | "ended-at" | "zone-no-display" | "zone-not-installed" | "media-processing" | "media-problem" | "not-updated-yet" | "no-visible-groups" | "no-tale-groups";
         /**
-         * @description A status key of the AD-6 scheme. Each key has one HTTP code, defined in `libs/contract` (`CONTENT_STATUS_HTTP_CODES`): draft 204, live 200, scheduled 202, processing 102, invalid-media 422, paused 403, blocked-by-group 423, expired 410, quota-reached 429, archived 404. `scheduled`, `expired` and `blocked-by-group` are computed when content is read and never stored.
+         * @description A content status key. Each key has one HTTP code, defined in `libs/contract` (`CONTENT_STATUS_HTTP_CODES`): draft 204, live 200, scheduled 202, processing 102, invalid-media 422, paused 403, blocked-by-group 423, expired 410, quota-reached 429, archived 404. `scheduled`, `expired` and `blocked-by-group` are computed when content is read and never stored.
          * @enum {string}
          */
         ContentStatus: "draft" | "live" | "scheduled" | "processing" | "invalid-media" | "paused" | "blocked-by-group" | "expired" | "quota-reached" | "archived";
@@ -1747,7 +1747,7 @@ export interface components {
              */
             status: "live" | "paused" | "archived";
         };
-        /** @description The window in which live content is delivered (AD-6). Each bound is an ISO 8601 date-time with `Z` or an offset, stored and returned in UTC, or null for an open bound. `endsAt` must be later than `startsAt` when both are set. */
+        /** @description The window in which live content is delivered. Each bound is an ISO 8601 date-time with `Z` or an offset, stored and returned in UTC, or null for an open bound. `endsAt` must be later than `startsAt` when both are set. */
         SetScheduleRequest: {
             /** Format: date-time */
             startsAt: string | null;
@@ -1800,7 +1800,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
-        /** @description A personal API token as its user sees it (epic developer experience 10.1), never the token or its hash. */
+        /** @description A personal API token as its user sees it, never the token or its hash. */
         ApiToken: {
             /** Format: uuid */
             id: string;
@@ -1848,7 +1848,7 @@ export interface components {
         ThemeColor: string;
         /** @enum {string} */
         RingStyle: "gradient" | "solid" | "none";
-        /** @description The fields of a theme a project sets (epic web zones R9); a field left out takes TaleArt's default, which keeps the look host pages had before themes: a transparent background, and the title colour, font and corner radius of the host page or the frame (`null`). Validated by `themeSettingsError` in `libs/contract`. */
+        /** @description The fields of a theme a project sets; a field left out takes TaleArt's default, which keeps the look host pages had before themes: a transparent background, and the title colour, font and corner radius of the host page or the frame (`null`). Validated by `themeSettingsError` in `libs/contract`. */
         ThemeSettings: {
             /** @default gradient */
             ringStyle: components["schemas"]["RingStyle"];
@@ -1915,7 +1915,7 @@ export interface components {
         DeliveryFrame: {
             /** Format: uuid */
             id: string;
-            /** @description A frame type key; clients skip types they don't know (AD-5). */
+            /** @description A frame type key; clients skip types they don't know. */
             type: string;
             /** @description The frame's settings, with every field the stored settings leave out filled with its default from the type's JSON Schema. */
             settings: {
@@ -1926,23 +1926,23 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
-            /** @description The zone's slug (epic UX rework R1). */
+            /** @description The zone's slug. */
             slug: string;
-            /** @description The zone's project theme (R9), every field filled with TaleArt's default where the project sets none. */
+            /** @description The zone's project theme, every field filled with TaleArt's default where the project sets none. */
             theme: components["schemas"]["Theme"];
-            /** @description The zone's display (AD-17), or null when it has none; a zone without a display lists no tale group. */
+            /** @description The zone's display, or null when it has none; a zone without a display lists no tale group. */
             frame: components["schemas"]["DeliveryFrame"] | null;
-            /** @description The published tale groups placed in the zone, in this zone's order (AD-2, AD-14); the display shows all of them. */
+            /** @description The published tale groups placed in the zone, in this zone's order; the display shows all of them. */
             taleGroups: components["schemas"]["DeliveryTaleGroup"][];
         };
         DeliveryTaleGroup: {
             /** Format: uuid */
             id: string;
             name: string;
-            /** @description The names of the group's targeting tags, ignoring case by name (epic targeting R2); empty when the group has none. The SDK compares them with the viewer's tags (AD-13); every viewer gets the same list. */
+            /** @description The names of the group's targeting tags, ignoring case by name; empty when the group has none. The SDK compares them with the viewer's tags; every viewer gets the same list. */
             tags: string[];
             tagMatch: components["schemas"]["TagMatch"];
-            /** @description The group's cover, or null when it has none; the bar then shows its first tale's lowest media element (the document's media background, else its first image or video element), or, when that tale has no media, its canvas colour (epic Tale Studio R16). */
+            /** @description The group's cover, or null when it has none; the bar then shows its first tale's lowest media element (the document's media background, else its first image or video element), or, when that tale has no media, its canvas colour. */
             cover: components["schemas"]["DeliveryCover"] | null;
             /** @description The group's published tales by position. */
             tales: components["schemas"]["DeliveryTale"][];
@@ -1951,11 +1951,11 @@ export interface components {
             /** Format: uuid */
             id: string;
             title: string;
-            /** @description The tale's image, GIF or video, or null when it has none. Kept for SDKs from before documents: the document holds the same media as its `taleMedia` element (epic Tale Studio R16), and current SDKs render only the document. */
+            /** @description The tale's image, GIF or video, or null when it has none. Kept for SDKs from before documents: the document holds the same media as its `taleMedia` element, and current SDKs render only the document. */
             media: components["schemas"]["DeliveryMedia"] | null;
-            /** @description The tale's document (AD-15) as SDKs render it. Every delivered tale has one (epic Tale Studio R16): a tale whose media is not yet in its published document gets it composed in, and a tale with neither gets an empty one. Null only from servers before R16. */
+            /** @description The tale's document as SDKs render it. Every delivered tale has one: a tale whose media is not yet in its published document gets it composed in, and a tale with neither gets an empty one. Null only from older servers. */
             document: components["schemas"]["DeliveryTaleDocument"] | null;
-            /** @description The project fonts the document's visible text uses (epic Tale Studio R18), left out when it uses none. SDKs fetch them only when the tale opens. */
+            /** @description The project fonts the document's visible text uses, left out when it uses none. SDKs fetch them only when the tale opens. */
             fonts?: components["schemas"]["DeliveryFont"][];
         };
         DeliveryFont: {
@@ -1968,19 +1968,19 @@ export interface components {
             family: string;
             /**
              * Format: uri
-             * @description The public `font/woff2` URL of the file (AD-11), open to any origin.
+             * @description The public `font/woff2` URL of the file, open to any origin.
              */
             url: string;
             weight: number;
             /** @enum {string} */
             style: "normal" | "italic";
         };
-        /** @description A tale document as delivered (AD-15): hidden elements are removed, and so are the editor-only fields `hidden` and `locked`. Clients ignore fields they do not know and skip element types they do not know. */
+        /** @description A tale document as delivered: hidden elements are removed, and so are the editor-only fields `hidden` and `locked`. Clients ignore fields they do not know and skip element types they do not know. */
         DeliveryTaleDocument: {
             version: number;
             canvas: components["schemas"]["DeliveryCanvas"];
             durationMs?: number;
-            /** @description True only on the document the Delivery API makes for a tale with neither media nor a document (epic Tale Studio R16): viewers paint its colour across the whole stage, as such a tale always showed. */
+            /** @description True only on the document the Delivery API makes for a tale with neither media nor a document: viewers paint its colour across the whole stage, as such a tale always showed. */
             placeholder?: boolean;
             /** @description The visible elements, first at the bottom of the z-order. */
             elements: components["schemas"]["DeliveryTaleElement"][];
@@ -1991,7 +1991,7 @@ export interface components {
             type: string;
             box: components["schemas"]["Box"];
             a11y: components["schemas"]["A11y"];
-            /** @description The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's, video's, image sticker's or image button's `mediaKey` is replaced by `url`, its public URL (AD-11). A link's destination stays `href`. */
+            /** @description The type's props, as its schema in `tale-document/element-types/` defines them, except that an image's, video's, image sticker's or image button's `mediaKey` is replaced by `url`, its public URL. A link's destination stays `href`. */
             props: Record<string, never>;
         };
         TaleDocument: components["schemas"]["v1.schema"];
@@ -2019,7 +2019,7 @@ export interface components {
             total: number;
             choices: components["schemas"]["ChoiceCount"][];
         };
-        /** @description A Rating's result (epic interactive components R5): how many visitors rated it, and the average of their ratings. */
+        /** @description A Rating's result: how many visitors rated it, and the average of their ratings. */
         RatingResult: {
             total: number;
             /** @description The ratings' mean on the 0 to 100 scale, rounded to a whole number (half up); 0 without a rating. */
@@ -2063,7 +2063,7 @@ export interface components {
         TaleResponses: {
             elements: components["schemas"]["ElementResponseCounts"][];
         };
-        /** @description An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
+        /** @description An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
         MediaBackground: {
             /** @constant */
             type: "media";
@@ -2079,7 +2079,7 @@ export interface components {
             type: "color";
             color: components["schemas"]["Color"];
         };
-        /** @description The canvas as delivered: a colour background as stored; a media background with its storage key replaced by the public `url` (AD-11). */
+        /** @description The canvas as delivered: a colour background as stored; a media background with its storage key replaced by the public `url`. */
         DeliveryCanvas: {
             background: components["schemas"]["ColorBackground"] | components["schemas"]["DeliveryMediaBackground"];
         };
@@ -2088,7 +2088,7 @@ export interface components {
             type: "media";
             /**
              * Format: uri
-             * @description The public URL of the image (AD-11).
+             * @description The public URL of the image.
              */
             url: string;
             /** @enum {string} */
@@ -2096,7 +2096,7 @@ export interface components {
             /** @description The band colour, as `#RRGGBB` or `#RRGGBBAA`. */
             color: string;
         };
-        /** @description An image or video of a project (epic Tale Studio R5): one of its uploads, a tale's media, or media its tales' documents use. A tale document references it by `key`. */
+        /** @description An image or video of a project: one of its uploads, a tale's media, or media its tales' documents use. A tale document references it by `key`. */
         ProjectMedia: {
             /** @description The storage key a document's `mediaKey` names. */
             key: string;
@@ -2119,7 +2119,7 @@ export interface components {
              */
             createdAt?: string;
         };
-        /** @description A font face uploaded to a project (epic Tale Studio R18). */
+        /** @description A font face uploaded to a project. */
         ProjectFont: {
             /** Format: uuid */
             id: string;
@@ -2153,7 +2153,7 @@ export interface components {
         };
         /** @description A tale as a status change answers it. */
         TaleStatusResult: components["schemas"]["Tale"] & {
-            /** @description Present and true when the tale went live with nothing published yet and its draft document no longer passes the checks, so the draft was not published (AD-15). */
+            /** @description Present and true when the tale went live with nothing published yet and its draft document no longer passes the checks, so the draft was not published. */
             draftNotPublished?: boolean;
             /** @description With `draftNotPublished`, why the draft was not published, such as an image without alt text, named as Tale Studio names it. */
             draftNotPublishedReason?: string;
@@ -2174,12 +2174,12 @@ export interface components {
             document: components["schemas"]["v1.schema"];
             /** @description The revision this document was based on, as the last read or save returned it. */
             revision: number;
-            /** @description True when the document the editor loaded held the tale's own media (its `taleMedia` element, epic Tale Studio R16). The server then takes the saved document as the person's choice: when it lacks that element the person removed it, and it is not composed back. False or absent from an editor that never saw it (one opened before the media was put in the documents): the media stays composed in. */
+            /** @description True when the document the editor loaded held the tale's own media (its `taleMedia` element). The server then takes the saved document as the person's choice: when it lacks that element the person removed it, and it is not composed back. False or absent from an editor that never saw it (one opened before the media was put in the documents): the media stays composed in. */
             sawTaleMedia?: boolean;
         };
         CopyTaleDocumentRequest: {
             document: components["schemas"]["v1.schema"];
-            /** @description True when the document the editor loaded held the tale's own media (its `taleMedia` element, epic Tale Studio R16). The server then takes the saved document as the person's choice: when it lacks that element the person removed it, and it is not composed back. False or absent from an editor that never saw it (one opened before the media was put in the documents): the media stays composed in. */
+            /** @description True when the document the editor loaded held the tale's own media (its `taleMedia` element). The server then takes the saved document as the person's choice: when it lacks that element the person removed it, and it is not composed back. False or absent from an editor that never saw it (one opened before the media was put in the documents): the media stays composed in. */
             sawTaleMedia?: boolean;
         };
         DeliveryMedia: {
@@ -2187,7 +2187,7 @@ export interface components {
             contentType: components["schemas"]["MediaContentType"];
             /**
              * Format: uri
-             * @description Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/tales/<uuid>.png`. Needs no key (AD-11).
+             * @description Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/tales/<uuid>.png`. Needs no key.
              */
             url: string;
         };
@@ -2198,7 +2198,7 @@ export interface components {
             animated: boolean;
             /**
              * Format: uri
-             * @description Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/covers/<uuid>.webm`. Needs no key (AD-11).
+             * @description Absolute, public and unguessable URL of the file, such as `https://api.example.com/media/covers/<uuid>.webm`. Needs no key.
              */
             url: string;
         };
@@ -2372,7 +2372,7 @@ export interface components {
             differences?: components["schemas"]["ImportDifference"][];
             /** @description How many more differences were found than the report stores. */
             differencesOmitted?: number;
-            /** @description How many imported tales may hold text, stickers and components the source's API does not expose, so they were not imported (Tale Studio R17): each imported tale, listed once per report as a count, not as differences. Absent when no tale was imported. */
+            /** @description How many imported tales may hold text, stickers and components the source's API does not expose, so they were not imported: each imported tale, listed once per report as a count, not as differences. Absent when no tale was imported. */
             unreadableLayers?: number;
             /** @description What the import never brings across, listed once, such as conversion records and stats. */
             notImportedByDesign?: string[];
@@ -2408,7 +2408,7 @@ export interface components {
          */
         ImportDifferenceKind: "missing" | "renamed" | "unexpected" | "wrongType" | "notHeld" | "invalidRecord" | "mediaNotImported" | "tagNotImported" | "keptLocalEdit" | "removedAtSource" | "movedAtSource" | "linkNotImported";
         /**
-         * @description Why a story's link was not imported, by the rule every tale link follows (AD-15). scheme: not an http or https address (an app link such as myapp://, or javascript:); tooLong: over 2,048 characters; characters: it holds spaces or control characters; invalid: not an address a browser reads, or one without a host; credentials: it holds a user name or password.
+         * @description Why a story's link was not imported, by the rule every tale link follows. scheme: not an http or https address (an app link such as myapp://, or javascript:); tooLong: over 2,048 characters; characters: it holds spaces or control characters; invalid: not an address a browser reads, or one without a host; credentials: it holds a user name or password.
          * @enum {string}
          */
         ImportLinkFailure: "scheme" | "tooLong" | "characters" | "invalid" | "credentials";
@@ -2544,7 +2544,7 @@ export interface components {
         };
         /**
          * TaleDocument
-         * @description A tale document, version 1 (AD-15): the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.
+         * @description A tale document, version 1: the canvas and the elements of one tale. Each element's `props` are checked against the schema its `type` names in `element-types/registry.json`; an unknown type is refused on write and skipped by clients.
          */
         "v1.schema": {
             /**
@@ -2570,7 +2570,7 @@ export interface components {
                     type: "color";
                     color: components["schemas"]["Color"];
                 };
-                /** @description An image (GIF included) of the tale's project filling the canvas (epic Tale Studio R2), by its storage key (AD-11). It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
+                /** @description An image (GIF included) of the tale's project filling the canvas, by its storage key. It is decorative. `color` fills the bands `contain` leaves, and the canvas until the image shows. */
                 MediaBackground: {
                     /** @constant */
                     type: "media";
@@ -2611,11 +2611,11 @@ export interface components {
         };
         /**
          * TextElementProps
-         * @description The props of a text element (epic Tale Studio R4): plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text (AD-15).
+         * @description The props of a text element: plain Unicode text, never HTML or Markdown, wrapped inside the element's box. A line feed starts a new line. Every style prop is optional (an additive change); one left out takes its default from the contract (`DEFAULT_TEXT_STYLE`), which is how text looked before styling. Styles are enumerated or range-checked values, never CSS text.
          */
         "text.schema": {
             text: string;
-            /** @description Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project (story 7.17), by its id. */
+            /** @description Where the font comes from: a system stack of the font registry, the project theme's font, a font-family list the host page loads (the theme's font-list rules, `isFontFamily`), or a font uploaded to the tale's project, by its id. */
             font?: {
                 /** @enum {string} */
                 source: "system" | "theme" | "name" | "project";
@@ -2659,7 +2659,7 @@ export interface components {
         };
         /**
          * ImageElementProps
-         * @description The props of an image element (epic Tale Studio R5): an image (GIF included) of the tale's project, by its storage key (AD-11), never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).
+         * @description The props of an image element: an image (GIF included) of the tale's project, by its storage key, never a URL. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.
          */
         "image.schema": {
             /** @description The storage key of an image of the tale's project, as the server made it. */
@@ -2673,12 +2673,12 @@ export interface components {
             radius?: number;
             /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
             opacity?: number;
-            /** @description True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one. */
+            /** @description True on the tale's own media: the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A document holds at most one. */
             taleMedia?: boolean;
         };
         /**
          * VideoElementProps
-         * @description The props of a video element (epic Tale Studio R5): an MP4 or WebM video of the tale's project, by its storage key (AD-11), never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).
+         * @description The props of a video element: an MP4 or WebM video of the tale's project, by its storage key, never a URL. It plays muted and inline; a tale holds at most one, and then plays for the video's length. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.
          */
         "video.schema": {
             /** @description The storage key of a video of the tale's project, as the server made it. */
@@ -2692,12 +2692,12 @@ export interface components {
             radius?: number;
             /** @description From 0 (transparent) to 1 (opaque); 1 when left out. */
             opacity?: number;
-            /** @description True on the tale's own media (epic Tale Studio R16): the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one. */
+            /** @description True on the tale's own media: the element the server keeps in step with the tale's media, which a tale from before documents, a dashboard upload and an import create. While it is the bottom element with the full-canvas box, unrotated, unrounded and opaque, viewers draw it full-bleed behind the canvas, as tale media always was. A video so marked runs the tale for its whole length, with sound where the browser allows it, and does not count toward the one-video limit. A document holds at most one. */
             taleMedia?: boolean;
         };
         /**
          * ShapeElementProps
-         * @description The props of a shape element (epic Tale Studio R6): a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text (AD-16). Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.
+         * @description The props of a shape element: a rectangle (with a corner radius), an ellipse or a line, built by clients from these values only, never from SVG or CSS text. Lengths are fractions of the canvas height. A line runs across the middle of its box, in its stroke colour and width, and turns with the box's rotation; it has no fill. A shape without a label is decorative.
          */
         "shape.schema": {
             /** @enum {string} */
@@ -2715,14 +2715,14 @@ export interface components {
         } & (unknown & unknown);
         /**
          * EmojiElementProps
-         * @description The props of an emoji sticker (epic Tale Studio R6): one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.
+         * @description The props of an emoji sticker: one emoji, as Unicode text drawn in the platform's emoji font, never an image. The server accepts exactly one RGI emoji (`isEmojiGlyph`). Its accessible name is the element's `a11y.label`, which Tale Studio fills from the emoji's Unicode name and the author may edit.
          */
         "emoji.schema": {
             emoji: string;
         };
         /**
          * StickerElementProps
-         * @description The props of an image sticker (epic Tale Studio R6): a PNG, WebP or GIF of the tale's project, by its storage key (AD-11), never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative` (R12).
+         * @description The props of an image sticker: a PNG, WebP or GIF of the tale's project, by its storage key, never a URL, shown whole inside its box. Its alt text is the element's `a11y.label`; publishing needs it, or `a11y.decorative`.
          */
         "sticker.schema": {
             /** @description The storage key of a PNG, WebP or GIF image of the tale's project, as the server made it. */
@@ -2732,12 +2732,12 @@ export interface components {
         };
         /**
          * ButtonElementProps
-         * @description The props of a button (epic Tale Studio R7): a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one (R7, R14).
+         * @description The props of a button: a call to action with a label, a style (filled or outline), colours and a corner radius, opening its destination in the same tab, or in a new tab without opener access. Clients render it as a link (`<a>`), named by its label. A draft may hold a button without a destination; publishing needs one.
          */
         "button.schema": {
             /** @description The text on the button: plain text on one line, its accessible name. */
             label: string;
-            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). Servers check it in full; clients check it again before rendering. */
+            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters. Servers check it in full; clients check it again before rendering. */
             href?: string;
             /** @description Opens the destination in a new tab, with `noopener`; the same tab when left out. */
             newTab?: boolean;
@@ -2755,12 +2755,12 @@ export interface components {
         };
         /**
          * ImageButtonElementProps
-         * @description The props of a custom image button (epic Tale Studio R7): an image of the tale's project, by its storage key (AD-11), never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination (R7, R12, R14).
+         * @description The props of a custom image button: an image of the tale's project, by its storage key, never a URL, that opens its destination. Its alt text is the element's `a11y.label`, the link's accessible name; publishing needs it (the decorative mark does not apply to a link) and a destination.
          */
         "image-button.schema": {
             /** @description The storage key of an image (PNG, JPEG, GIF or WebP) of the tale's project, as the server made it. */
             mediaKey: string;
-            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). */
+            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters. */
             href?: string;
             /** @description Opens the destination in a new tab, with `noopener`; the same tab when left out. */
             newTab?: boolean;
@@ -2769,12 +2769,12 @@ export interface components {
         };
         /**
          * SwipeUpElementProps
-         * @description The props of a swipe-up link (epic Tale Studio R7): a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.
+         * @description The props of a swipe-up link: a label pinned to the bottom safe area that opens its destination on a swipe up, a click, or Enter on the focused label. A tale holds at most one, and its box is the contract's `SWIPE_UP_BOX`. Clients render it as a link (`<a>`), named by its label. Publishing needs a destination.
          */
         "swipe-up.schema": {
             /** @description The text of the link: plain text on one line, its accessible name. */
             label: string;
-            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters (AD-15). */
+            /** @description The destination: an absolute http or https URL of at most 2,048 characters, without credentials, spaces or control characters. */
             href?: string;
             /** @description Opens the destination in a new tab, with `noopener`; the same tab when left out. */
             newTab?: boolean;
@@ -2785,7 +2785,7 @@ export interface components {
         };
         /**
          * PollElementProps
-         * @description The props of a poll (epic interactive components R1, R2): an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.
+         * @description The props of a poll: an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.
          */
         "poll.schema": {
             /** @description A short heading above the question; none when left out. */
@@ -2807,7 +2807,7 @@ export interface components {
         };
         /**
          * RatingElementProps
-         * @description The props of a Rating (epic interactive components R1, R5): an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.
+         * @description The props of a Rating: an optional title, a question and one emoji that a visitor slides along a scale from 0 to 100, and a light or dark theme. All text is plain, on one line, without control characters; the server accepts exactly one RGI emoji (`isEmojiGlyph`), as for the `emoji` type. Clients render a slider with the emoji as its thumb; a visitor's rating is posted to the Delivery API on release or on Enter, and the Rating then shows the count and average of all ratings. A tale holds at most one Rating.
          */
         "rating.schema": {
             /** @description A short heading above the question; none when left out. */
@@ -2824,7 +2824,7 @@ export interface components {
         };
         /**
          * QuizElementProps
-         * @description The props of a quiz (epic interactive components R1, R3): an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.
+         * @description The props of a quiz: an optional title, a question, two to four answers, each with an id that stays the same when its text is edited or it moves, so its count survives the edit, an optional correct answer and a light or dark theme. All text is plain, on one line, without control characters. The correct answer is delivered with the published document, so clients mark it at once (C10): a quiz is not a secure test. Clients render the answers as buttons; a visitor's answer is posted to the Delivery API and the quiz then shows whether it was right (when a correct answer is set), the correct answer and each answer's percentage. Without a correct answer it works as a survey and shows only the percentages. A tale holds at most one quiz.
          */
         "quiz.schema": {
             /** @description A short heading above the question; none when left out. */
@@ -5240,7 +5240,7 @@ export interface operations {
                 zone: string;
             };
             header: {
-                /** @description The visitor id (epic UX rework 8.23): a random UUID v4 the SDK keeps on the device, all in lowercase or all in uppercase. Responses are kept per visitor id. */
+                /** @description The visitor id: a random UUID v4 the SDK keeps on the device, all in lowercase or all in uppercase. Responses are kept per visitor id. */
                 "X-TaleArt-Visitor": string;
             };
             path?: never;

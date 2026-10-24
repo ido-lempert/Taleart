@@ -15,15 +15,25 @@ const zoneSlug = process.env['DOCS_LIVE_ZONE'] ?? '';
 const shots = process.env['E2E_SCREENSHOTS'];
 
 async function shot(page: Page, name: string, fullPage = false): Promise<void> {
-  if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage });
+  // Never a credential in a screenshot: the curl line (it repeats the Authorization header) and the
+  // dialog's fields are masked.
+  if (shots) {
+    await page.screenshot({
+      path: join(shots, `${name}.png`),
+      fullPage,
+      mask: [page.locator('.curl-command'), page.locator('.modal-ux input')],
+    });
+  }
 }
 
 async function authorize(page: Page, scheme: 'token' | 'siteKey', value: string): Promise<void> {
   await page.locator('.scheme-container .btn.authorize').click();
   const dialog = page.getByRole('dialog', { name: 'Available authorizations' });
   const section = dialog.locator('.auth-container').filter({ has: page.locator('h4', { hasText: scheme }) });
-  await section.locator('input').fill(value);
+  // Before the value is typed: a screenshot never holds a credential (the field is masked as well).
   if (scheme === 'token') await shot(page, '3-authorize-dialog');
+  await expect(section.locator('input')).toHaveAttribute('type', 'password');
+  await section.locator('input').fill(value);
   await section.getByRole('button', { name: 'Apply credentials' }).click();
   await expect(section.getByRole('button', { name: 'Remove authorization' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close' }).first().click();

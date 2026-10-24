@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PollElementProps",
-  "description": "The props of a poll (epic interactive components R1, R2): an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.",
+  "description": "The props of a poll: an optional title, a question and two options, each with an id that stays the same when its label is edited, so its count survives the edit, and a light or dark theme. All text is plain, on one line, without control characters. Clients render the options as buttons; a visitor's vote is posted to the Delivery API and the poll then shows each option's percentage. A tale holds at most one poll.",
   "type": "object",
   "additionalProperties": false,
   "required": ["question", "options", "theme"],
