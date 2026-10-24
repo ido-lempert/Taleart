@@ -12,7 +12,7 @@ import { DEFAULT_THEME } from '@taleart/contract/theme';
 import { API_BASE, DashboardStore } from '../dashboard.store';
 import { AUTOSAVE_TIMING } from './tale-autosave';
 import {
-  addMenuRows,
+  addMenuGroups,
   STUDIO_TEST_ELEMENT_TYPES,
   STUDIO_TYPE_DESCRIPTORS,
   studioElementTypes,
@@ -84,14 +84,36 @@ describe('studio element types (R8)', () => {
     ).toThrow('the inspector edits "answer", which its schema lacks');
   });
 
-  it('builds the Add menu rows from the descriptors, keeping the menu as it was', () => {
-    const rows = addMenuRows(studioElementTypes()).map((row) => row.map((r) => r.entry.label));
-    expect(rows).toEqual([
-      ['Add text', 'Add image', 'Add video'],
-      ['Add rectangle', 'Add ellipse', 'Add line', 'Add emoji', 'Add sticker'],
-      ['Add button', 'Add image button', 'Add swipe-up link'],
-      ['Add poll', 'Add rating', 'Add quiz'],
+  it('builds the Add menu rows from the descriptors, as named groups of tiles, keeping the menu as it was', () => {
+    const groups = addMenuGroups(studioElementTypes()).map((g) => [g.name, g.items.map((r) => r.entry.label)]);
+    expect(groups).toEqual([
+      ['Text and media', ['Add text', 'Add image', 'Add video']],
+      ['Shapes and stickers', ['Add rectangle', 'Add ellipse', 'Add line', 'Add emoji', 'Add sticker']],
+      ['Buttons and links', ['Add button', 'Add image button', 'Add swipe-up link']],
+      ['Interactive', ['Add poll', 'Add rating', 'Add quiz']],
     ]);
+    // Each shape kind has its own picture on its tile.
+    expect(groups.length).toBe(4);
+    const shapes = addMenuGroups(studioElementTypes())[1].items.slice(0, 3).map((r) => r.entry.icon);
+    expect(shapes).toEqual(['rectangle', 'ellipse', 'line']);
+  });
+
+  it('names a row past the known ones "More", and leaves out rows nothing is in', () => {
+    const widget = { key: 'widget', label: 'Widget', schema: { type: 'object', properties: { q: { type: 'string' } } } };
+    const add = [
+      { id: 'studio-add-widget', label: 'Add widget', icon: 'plus' as const, row: 6, small: true, needsProject: false },
+    ];
+    const types = studioElementTypes({
+      registry: [widget],
+      descriptors: {
+        widget: {
+          add: [{ ...add[0], action: { kind: 'configured' as const } }],
+          inspector: { fields: [{ prop: 'q', label: 'Q', control: 'text' }] },
+          create: { box: { x: 0, y: 0, w: 0.5, h: 0.1, rotation: 0 }, props: () => ({ q: '' }) },
+        },
+      },
+    });
+    expect(addMenuGroups(types).map((g) => [g.name, g.items.map((r) => r.entry.id)])).toEqual([['More', ['studio-add-widget']]]);
   });
 
   it('adds the test-only types only when asked', () => {
@@ -99,8 +121,8 @@ describe('studio element types (R8)', () => {
       ...TALE_ELEMENT_TYPE_REGISTRY.map((t) => t.key),
       ...TALE_TEST_ELEMENT_TYPES.map((t) => t.key),
     ]);
-    const rows = addMenuRows(studioElementTypes({ testTypes: true }));
-    expect(rows[3].map((r) => r.entry.id)).toEqual(['studio-add-poll', 'studio-add-rating', 'studio-add-quiz', 'studio-add-test-badge']);
+    const groups = addMenuGroups(studioElementTypes({ testTypes: true }));
+    expect(groups[3].items.map((r) => r.entry.id)).toEqual(['studio-add-poll', 'studio-add-rating', 'studio-add-quiz', 'studio-add-test-badge']);
     expect(kindName({ type: 'test-badge' as never })).toBe('Test badge');
   });
 
@@ -171,7 +193,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
 
   it('keeps the Add menu as it was without the test types', async () => {
     await open(false);
-    const ids = [...root.querySelectorAll('.panel > .row > button[id^="studio-add"]')].map((b) => b.id);
+    const ids = [...root.querySelectorAll('#studio-panel-elements .tiles > button[id^="studio-add"]')].map((b) => b.id);
     expect(ids).toEqual([
       'studio-add',
       'studio-add-image',
@@ -188,8 +210,15 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
       'studio-add-rating',
       'studio-add-quiz',
     ]);
-    expect(q('#studio-add').classList.contains('btn--sm')).toBe(false);
-    expect(q('#studio-add-emoji').classList.contains('btn--sm')).toBe(true);
+    // As tiles in named groups, one per row of the menu it was (Tale Studio 2, story 11.1).
+    const groups = [...root.querySelectorAll('#studio-panel-elements [role=group]')];
+    expect(groups.map((g) => document.getElementById(g.getAttribute('aria-labelledby') ?? '')?.textContent)).toEqual([
+      'Text and media',
+      'Shapes and stickers',
+      'Buttons and links',
+      'Interactive',
+    ]);
+    expect(groups[1].querySelector('#studio-add-emoji')).not.toBeNull();
     expect(q('#studio-add-test-badge')).toBeNull();
     expect(q('#studio-add-emoji').textContent?.trim()).toBe('Add emoji');
   });
@@ -206,7 +235,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
     expect(element.props).toEqual({ label: 'Test badge', color: '#7C3AED', tone: 'solid' });
     const id = element.id;
     expect(globalThis.document.activeElement?.id).toBe(`field-test-badge-label-${id}`);
-    expect(q('fieldset.selected legend').textContent).toContain('Selected test badge');
+    expect(q('#inspector-title').textContent).toContain('Test badge');
     expect(q(`#studio-el-${id}`).getAttribute('aria-label')).toBe('Test badge: Layer 1');
     expect(q(`#studio-el-${id} .el__link`).textContent).toBe('Test badge');
     // Each field is labelled.
@@ -314,7 +343,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
     await settle(fixture);
     expect(q('#studio-unknown-type-hint').textContent).toContain("This layer's type can't be edited here");
     expect(root.querySelector('app-tale-fields-inspector, app-tale-media-style, app-tale-text-style')).toBeNull();
-    const del = [...root.querySelectorAll<HTMLButtonElement>('fieldset.selected button')].find((b) =>
+    const del = [...root.querySelectorAll<HTMLButtonElement>('.studio-inspector button')].find((b) =>
       b.textContent?.trim().startsWith('Delete'),
     );
     del?.click();
@@ -350,7 +379,7 @@ describe('Tale Studio: a type registered by configuration (R8)', () => {
         ),
       ] as never,
     });
-    const hints = [...root.querySelectorAll('.panel > p.field__hint')].map((h) => h.id);
+    const hints = [...root.querySelectorAll('#studio-panel-elements > p.field__hint')].map((h) => h.id);
     expect(hints).toEqual(['studio-swipe-up-hint', 'studio-video-hint']);
     expect(q('#studio-add-video').getAttribute('aria-describedby')).toBe('studio-video-hint');
     expect(q('#studio-add-swipe-up').getAttribute('aria-describedby')).toBe('studio-swipe-up-hint');

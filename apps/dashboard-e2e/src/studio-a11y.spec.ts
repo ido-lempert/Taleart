@@ -253,6 +253,8 @@ test.describe.serial('Tale Studio accessibility (story 7.10)', () => {
     await expect(row(px.top)).toContainText('Low contrast');
     await expect(row(px.bottom)).not.toContainText('Low contrast');
     // The rotated label is read inside its turned box, which lies on black only.
+    // The layers list is the left panel's Layers tab (Tale Studio 2).
+    await page.getByRole('tab', { name: 'Layers' }).click();
     await page.locator(`#layer-${px.turned}`).click();
     await expect(page.locator('#ts-contrast')).toContainText(/Contrast about \d+\.\d:1 against the media behind it/);
     await expect(row(px.turned)).not.toContainText('Low contrast');
