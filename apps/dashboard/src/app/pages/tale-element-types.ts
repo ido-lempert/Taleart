@@ -90,8 +90,8 @@ export interface ChoicesField {
   label: string;
   /** The name of the choice at `index` (from 0), such as "Option 1". */
   itemLabel(index: number): string;
-  /** For a list field: the label a choice added at `index` starts with. */
-  newLabel?(index: number): string;
+  /** For a list field: the label a choice added at `index` starts with, unlike the labels `taken`. */
+  newLabel?(index: number, taken: readonly string[]): string;
   /** The Add button's text, such as "Add answer". */
   addLabel?: string;
   hint?: string;
@@ -370,7 +370,12 @@ export const STUDIO_TYPE_DESCRIPTORS: Readonly<Record<string, StudioTypeDescript
         prop: 'answers',
         label: 'Answers',
         itemLabel: (index) => `Answer ${index + 1}`,
-        newLabel: (index) => `Answer ${index + 1}`,
+        newLabel: (index, taken) => {
+          // "Answer N" from its place, or the next N no other answer is labelled with.
+          let n = index + 1;
+          while (taken.includes(`Answer ${n}`)) n += 1;
+          return `Answer ${n}`;
+        },
         addLabel: 'Add answer',
         hint: 'Two to four, up to 60 characters each. Answers keep their count when their text changes or they move.',
         correct: {

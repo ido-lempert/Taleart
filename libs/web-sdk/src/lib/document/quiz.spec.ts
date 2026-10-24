@@ -175,6 +175,26 @@ describe('renderQuiz', () => {
     expect(marks(node)).toEqual(['wrong', 'right', '-', '-']);
   });
 
+  it("on a return visit whose kept answer was since removed, still marks the correct answer and shows the result (C11)", () => {
+    const kept: StoredResponse = { value: 'gone', result: result('gone').result };
+    const { client, send } = fakeClient(kept);
+    const node = renderQuiz(quiz(), { reducedMotion: false, responses: { client, taleId: 't1' } }) as HTMLElement;
+    expect(marks(node)).toEqual(['-', 'right', '-', '-']);
+    expect(buttons(node).map((b) => b.querySelector('.ta-poll-pct')?.textContent)).toEqual(['0%', '50%', '25%', '25%']);
+    expect(buttons(node).every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true);
+    buttons(node)[0].click();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('words a survey answer in the preview as the site does', () => {
+    const node = renderTaleDocument(
+      { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [quiz({ correctAnswerId: undefined })] },
+      { inertLinks: true },
+    );
+    buttons(node)[2].click();
+    expect(node.querySelector('.ta-quiz [aria-live]')?.textContent).toBe('You answered Earth. Answers are not recorded in the preview.');
+  });
+
   it('marks the answer in the Tale Studio preview and records nothing', () => {
     const node = renderTaleDocument(
       { version: 1, canvas: { background: { type: 'color', color: '#000000' } }, elements: [quiz()] },
@@ -241,6 +261,15 @@ describe('TaleViewer with a quiz (C7)', () => {
     expect(position()).toBe('1');
   });
 
+  it('a tap on the question or the padding of the card does not step either (C7)', () => {
+    const card = dialog().querySelector('.ta-quiz') as HTMLElement;
+    for (const target of [card.querySelector('.ta-poll-q') as HTMLElement, card.querySelector('.ta-poll-title') ?? card, card]) {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, clientX: 300, clientY: 300 }));
+    }
+    expect(position()).toBe('1');
+    expect(fake.send).not.toHaveBeenCalled();
+  });
+
   it('pauses while focus is inside the quiz; Space presses an answer, and pauses again once answered', async () => {
     answer(2).focus();
     expect(dialog().hasAttribute('data-paused')).toBe(true);
@@ -250,8 +279,19 @@ describe('TaleViewer with a quiz (C7)', () => {
     answer(2).click();
     await vi.advanceTimersByTimeAsync(0);
     expect(answer(2).getAttribute('aria-disabled')).toBe('true');
-    // Answered: Space on an answer goes back to the viewer, as on any other part of the tale.
+    // Answered: Space on an answer does nothing, neither a press nor a pause (story 4.3).
     expect(space(answer(2)).defaultPrevented).toBe(true);
+    const up = new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true });
+    answer(2).dispatchEvent(up);
+    expect(up.defaultPrevented).toBe(true);
+    expect(dialog().hasAttribute('data-paused')).toBe(true);
+    expect(dialog().querySelector('.pause')?.getAttribute('aria-label')).toBe('Pause');
     expect(fake.send).toHaveBeenCalledTimes(1);
+    answer(2).blur();
+    expect(dialog().hasAttribute('data-paused')).toBe(false);
+    // The arrow keys still step the tale.
+    answer(2).focus();
+    answer(2).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect(position()).toBe('2');
   });
 });

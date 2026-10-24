@@ -26,9 +26,11 @@ function markButton(button: HTMLButtonElement | undefined, right: boolean): void
 export function quizMark(answers: readonly Choice[], correctId: string | null) {
   return (value: string, button: (id: string) => HTMLButtonElement | undefined): string | undefined => {
     const correct = answers.find((a) => a.id === correctId);
-    const mine = answers.find((a) => a.id === value);
-    if (!correct || !mine) return undefined;
+    if (!correct) return undefined;
+    // The correct answer is marked even when the visitor's kept answer has since been removed.
     markButton(button(correct.id), true);
+    const mine = answers.find((a) => a.id === value);
+    if (!mine) return undefined;
     if (mine.id === correct.id) return `Right! You answered ${mine.label}.`;
     markButton(button(mine.id), false);
     return `Wrong: you answered ${mine.label}. The correct answer is ${correct.label}.`;

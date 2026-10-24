@@ -1133,6 +1133,39 @@ try {
       all.map((b) => (b.classList.contains('ta-quiz-right') ? 'right' : b.classList.contains('ta-quiz-wrong') ? 'wrong' : '-')),
     );
     check(marked.join() === (correct ? '-,right,wrong,-' : '-,-,-,-'), `the ${kind} marks ${correct ? 'Venus right and Earth wrong' : 'nothing'} (${marked.join()})`);
+    // Text contrast on every answer once the fills have grown: each text part (label, mark,
+    // percentage) against the card and against its button's fill laid over the card, the worse of
+    // the two, at least 4.5:1 (WCAG 1.4.3); each marked border at least 3:1 against the card (1.4.11).
+    await view.waitForTimeout(600);
+    const contrast = await host.locator('dialog .ta-quiz').evaluate((card) => {
+      const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number);
+      const lum = ([r, g, b]) =>
+        [r, g, b].map((v) => (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const ratio = (a, b) => {
+        const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+        return (x + 0.05) / (y + 0.05);
+      };
+      const over = (top, alpha, under) => top.map((v, i) => v * alpha + under[i] * (1 - alpha));
+      const cardBg = rgb(getComputedStyle(card).backgroundColor);
+      return [...card.querySelectorAll('button')].map((button) => {
+        const fill = button.querySelector('.ta-poll-fill');
+        const fs = getComputedStyle(fill);
+        const fillBg = over(rgb(fs.backgroundColor).slice(0, 3), Number(fs.opacity), cardBg);
+        const parts = [...button.querySelectorAll('.ta-poll-label, .ta-quiz-mark, .ta-poll-pct')].map((part) => {
+          const color = rgb(getComputedStyle(part).color);
+          return Math.min(ratio(color, cardBg), ratio(color, fillBg));
+        });
+        const border = ratio(rgb(getComputedStyle(button).borderTopColor), cardBg);
+        return { text: Math.min(...parts), border };
+      });
+    });
+    const worstText = Math.min(...contrast.map((c) => c.text));
+    const worstBorder = Math.min(...contrast.map((c) => c.border));
+    check(worstText >= 4.5, `the ${kind} answers' text keeps at least 4.5:1 over the card and the fills (worst ${worstText.toFixed(2)}:1)`);
+    check(worstBorder >= 3, `the ${kind} answers' borders keep at least 3:1 against the card (worst ${worstBorder.toFixed(2)}:1)`);
+    // A real tap on the question, after answering, does not step the tale (C7).
+    await host.locator('dialog .ta-quiz .ta-poll-q').click();
+    check((await host.locator('dialog .segment.done').count()) === 0, `a tap on the ${kind}'s question does not step the tale`);
     check((await earth.getAttribute('aria-pressed')) === 'true', `the ${kind} presses the visitor's answer`);
     check(posted.length === 1 && posted[0].value === 'c', `the ${kind} answer is posted once (${JSON.stringify(posted)})`);
     check((await host.locator('dialog .segment.done').count()) === 0, `answering the ${kind} does not step the tale`);

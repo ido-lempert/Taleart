@@ -5,7 +5,7 @@ import type { ChoicesField, FieldsInspector, InspectorField, StudioElementType }
 
 /** One choice's label as the inspector shows it (epic interactive components R1). */
 interface ChoiceView {
-  /** The error key: `<prop>/<index>`. */
+  /** The error key: `<prop>/<choice id>`, so an error moves with its choice. */
   key: string;
   index: number;
   /** Its input's DOM id; its list buttons add `-up`, `-down` and `-remove`. */
@@ -43,6 +43,12 @@ interface Edited {
   id: string;
   props: Readonly<Record<string, unknown>>;
 }
+
+// A field's error key is its prop; a choice's is `<prop>/<choice id>`.
+const splitKey = (key: string): [string, string | null] => {
+  const at = key.indexOf('/');
+  return at === -1 ? [key, null] : [key.slice(0, at), key.slice(at + 1)];
+};
 
 const propsOf = (element: { props: unknown }): Readonly<Record<string, unknown>> =>
   typeof element.props === 'object' && element.props !== null ? (element.props as Record<string, unknown>) : {};
@@ -284,10 +290,20 @@ export class TaleFieldsInspector {
     computation: (now, previous) => {
       if (!previous || previous.source.id !== now.id) return {};
       return Object.fromEntries(
-        // A choice's error (`options/0`) is kept while its array prop is unchanged.
-        Object.entries(previous.value).filter(
-          ([key]) => previous.source.props[key.split('/')[0]] === now.props[key.split('/')[0]],
-        ),
+        // A field's error is kept while its prop is unchanged; a choice's (`answers/<id>`) while that
+        // choice is still there with the same label, wherever it moved, so its input (tracked by the
+        // choice's id, still showing the refused text) and its error stay together.
+        Object.entries(previous.value).filter(([key]) => {
+          const [prop, choiceId] = splitKey(key);
+          if (choiceId === null) return previous.source.props[prop] === now.props[prop];
+          const label = (props: Readonly<Record<string, unknown>>) => {
+            const items = props[prop];
+            const found = Array.isArray(items) ? (items as { id?: unknown; label?: unknown }[]).find((c) => c?.id === choiceId) : undefined;
+            return found ? found.label : undefined;
+          };
+          const before = label(previous.source.props);
+          return before !== undefined && before === label(now.props);
+        }),
       );
     },
   });
@@ -338,7 +354,7 @@ export class TaleFieldsInspector {
       max,
       correctId: typeof correct === 'string' ? correct : '',
       items: items.map((item, index) => ({
-        key: `${choices.prop}/${index}`,
+        key: `${choices.prop}/${typeof item?.id === 'string' ? item.id : String(index)}`,
         index,
         id: `${id}-${index}`,
         choiceId: typeof item?.id === 'string' ? item.id : String(index),
@@ -398,7 +414,7 @@ export class TaleFieldsInspector {
     const name = group.itemLabel(index);
     this.changed.emit({
       label: `${name} added`,
-      choice: { prop: group.prop, add: { id: crypto.randomUUID(), label: group.newLabel(index) }, max: group.max },
+      choice: { prop: group.prop, add: { id: crypto.randomUUID(), label: group.newLabel(index, group.items.map((i) => i.value)) }, max: group.max },
       said: `${name} added. ${index + 1} of ${group.max}.`,
     });
     this.focusSoon(`${group.id}-${index}`);

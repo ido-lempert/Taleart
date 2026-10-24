@@ -307,8 +307,8 @@ a check mark and the words "correct answer" in its button's name, and marks a wr
 (not by colour alone); the live region says "Right! You answered Venus." or "Wrong: you answered Earth. The correct
 answer is Venus.", then the percentages. A quiz without a correct answer is a survey and shows only the percentages.
 The correct answer is part of the published tale, so the SDK can mark it at once, and anyone can read it: a quiz is
-not a secure test. Once answered, the answers are read-only and Space pauses the tale again (the same holds for an
-answered poll). The answer and result are kept under `taleart.responses`, and the Tale Studio preview records nothing.
+not a secure test. Once answered, the answers are read-only: Space on one does nothing (it neither presses it nor
+pauses the tale), while the arrow keys step the tale as anywhere else; the same holds for an answered poll. The answer and result are kept under `taleart.responses`, and the Tale Studio preview records nothing.
 
 ### Ratings
 
@@ -318,7 +318,8 @@ value). The visitor presses or drags along it, by mouse, pen or touch, and the r
 released; or moves it with the arrow keys and Page Up and Page Down in steps of 10, Home and End to the ends (the left
 and right arrows mirror on a right-to-left page), and posts it with Enter. A drag or press on the slider never
 swipes to another tale group or steps the tale, and while the visitor is rating, the arrow keys move the emoji rather
-than the tale, and Space does not pause it. Once rated, the slider is read-only: its keys step the tale again, and the
+than the tale, and Space does not pause it. Once rated, the slider is read-only: its arrow keys step the tale again,
+Space on it does nothing, and the
 card keeps the visitor's value, marks the average on the track, shows "Average 60 from 2 ratings", says so in a
 polite live region, and takes no second rating (the server keeps the first). The value and
 result are kept under `taleart.responses` like a poll's, and the Tale Studio preview records nothing.
